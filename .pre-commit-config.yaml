@@ -27,3 +27,32 @@ repos:
       - id: validate-agents-md  # Runs on git push, requires AGENTS.md - comment out if not using
       - id: ai-attribution-reminder
       # - id: check-version  # Optional: Checks for updates once per 24h (non-blocking)
+
+  # Python code quality hooks
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.8
+    hooks:
+      # Run the linter with auto-fix
+      - id: ruff
+        args: [--fix]
+      # Run the formatter
+      - id: ruff-format
+
+  # Type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        args: [--config-file=src/api/pyproject.toml]
+        additional_dependencies: []
+        files: ^src/api/
+
+  # Run pytest on pre-push
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: bash -c 'cd src/api && pytest'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

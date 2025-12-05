@@ -78,3 +78,7 @@ Tests should always be passing before committing code. Thus, the development cyc
 8) Commit code using atomic, conventional, commits. Fix issues detected by pre-commit hooks. 
 </development-pattern>
 
+<non-functional-requirements>
+- Use FastAPI and FastMCP for API and MCP (model context protocol) work respectively.
+- Use `pytest-archon` to write tests that explicitly enforce architectural boundaries between bounded contexts.
+</non-functional-requirements>

@@ -4,4 +4,6 @@ version = "0.0.0"
 description = "Enterprise-Ready Bi-Temporal Knowledge Graphs as a Service"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi[standard]>=0.123.9",
+]

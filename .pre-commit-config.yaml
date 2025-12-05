@@ -15,16 +15,16 @@
 repos:
   # Red Hat security and compliance hooks
   - repo: https://gitlab.cee.redhat.com/infosec-public/developer-workbench/tools
-    rev: rh-pre-commit-2.3.2  # Use specific tag (https://gitlab.cee.redhat.com/infosec-public/developer-workbench/tools/-/tags)
+    rev: rh-pre-commit-2.3.2 # Use specific tag (https://gitlab.cee.redhat.com/infosec-public/developer-workbench/tools/-/tags)
     hooks:
       - id: rh-pre-commit
 
   # AI-readiness hooks
   - repo: https://github.com/openshift-hyperfleet/rh-hooks-ai
-    rev: v1.0.3  # Updated automatically by release workflow
+    rev: v1.0.3 # Updated automatically by release workflow
     hooks:
       - id: check-rh-precommit
-      - id: validate-agents-md  # Runs on git push, requires AGENTS.md - comment out if not using
+      - id: validate-agents-md # Runs on git push, requires AGENTS.md - comment out if not using
       - id: ai-attribution-reminder
       # - id: check-version  # Optional: Checks for updates once per 24h (non-blocking)
 
@@ -51,7 +51,7 @@ repos:
     hooks:
       - id: mypy
         args: [--config-file=src/api/pyproject.toml]
-        additional_dependencies: []
+        additional_dependencies: ["fastapi[standard]"]
         files: ^src/api/
 
   # Run pytest on pre-push

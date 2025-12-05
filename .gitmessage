@@ -1,0 +1,19 @@
+
+
+# If this commit contains AI-assisted or AI-generated code, add a trailer:
+#
+# Assisted-by: Claude Code
+# Assisted-by: GitHub Copilot
+# Generated-by: ChatGPT
+#
+# Example commit message:
+#
+# Add user authentication feature
+#
+# Implement JWT-based authentication with refresh tokens.
+# Includes middleware for protected routes and token validation.
+#
+# Assisted-by: Claude Code
+#
+# Learn more:
+# https://source.redhat.com/projects_and_programs/ai/wiki/code_assistants_guidelines_for_responsible_use_of_ai_code_assistants

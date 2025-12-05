@@ -15,12 +15,12 @@ WORKDIR /app
 
 # Install dependencies in a cached layer
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=src/api/uv.lock,target=uv.lock \
-    --mount=type=bind,source=src/api/pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --frozen --no-install-project --no-dev
 
 # Copy application code
-COPY src/api/ /app/
+COPY . /app/
 
 # Install the project
 RUN --mount=type=cache,target=/root/.cache/uv \

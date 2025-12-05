@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: apache/age:latest
+    image: apache/age:release_PG17_1.6.0
     env_file:
       - env/postgres.env
     ports:
@@ -31,7 +31,13 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()",
+        ]
       interval: 30s
       timeout: 3s
       retries: 3

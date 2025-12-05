@@ -5,7 +5,7 @@
 Run the API in development mode with auto-reload:
 
 ```bash
-docker compose -f compose.dev.yaml up --build
+docker compose -f compose.yaml -f compose.dev.yaml up --build
 ```
 
 The development version mounts the `src/api` directory as a volume, so code changes will automatically reload the server.

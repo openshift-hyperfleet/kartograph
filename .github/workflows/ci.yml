@@ -31,7 +31,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: src/api
-        run: uv sync --frozen --all-extras --dev
+        run: uv sync --frozen
 
       - name: Run ruff (linter)
         working-directory: src/api

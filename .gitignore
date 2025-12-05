@@ -107,7 +107,6 @@ celerybeat.pid
 # Environments
 .env
 .venv
-env/
 venv/
 ENV/
 env.bak/
@@ -138,7 +137,6 @@ dmypy.json
 cython_debug/
 
 # IDEs
-.vscode/
 .idea/
 *.swp
 *.swo

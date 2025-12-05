@@ -1,0 +1,9 @@
+# Development overrides for compose.yaml
+services:
+  api:
+    volumes:
+      # Mount the entire app directory for hot-reload
+      - ./src/api:/app:z
+      # Use anonymous volume to preserve container's .venv (more specific mount wins)
+      - /app/.venv
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

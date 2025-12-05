@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "src/api/uv.lock"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        working-directory: src/api
+        run: uv sync --frozen --all-extras --dev
+
+      - name: Run ruff (linter)
+        working-directory: src/api
+        run: uv run ruff check .
+
+      - name: Run ruff (formatter check)
+        working-directory: src/api
+        run: uv run ruff format --check .
+
+      - name: Run mypy (type checker)
+        working-directory: src/api
+        run: uv run mypy .
+
+      - name: Run pytest
+        working-directory: src/api
+        run: uv run pytest -v

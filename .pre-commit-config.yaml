@@ -51,7 +51,12 @@ repos:
     hooks:
       - id: mypy
         args: [--config-file=src/api/pyproject.toml]
-        additional_dependencies: ["fastapi[standard]"]
+        additional_dependencies:
+          - "fastapi[standard]"
+          - "pydantic-settings"
+          - "psycopg2-binary"
+          - "types-psycopg2"
+          - "pytest"
         files: ^src/api/
 
   # Run pytest on pre-push
@@ -59,7 +64,7 @@ repos:
     hooks:
       - id: pytest
         name: pytest
-        entry: bash -c 'cd src/api && pytest'
+        entry: bash -c 'cd src/api && uv run pytest tests/unit -v'
         language: system
         pass_filenames: false
         stages: [pre-push]

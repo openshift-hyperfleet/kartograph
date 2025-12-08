@@ -1,8 +1,8 @@
 # Build stage - using Red Hat UBI9 Python image
-FROM registry.access.redhat.com/ubi9/python-312:9.7 AS builder
+FROM registry.access.redhat.com/ubi9/python-312:9.7-1765181854 AS builder
 
 # Copy uv binary from official image
-COPY --from=ghcr.io/astral-sh/uv:0.9.15 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.9.16 /uv /uvx /bin/
 
 # Enable bytecode compilation and set link mode
 ENV UV_COMPILE_BYTECODE=1 \
@@ -28,7 +28,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 
 # Production stage - using Red Hat UBI9 Python image
-FROM registry.access.redhat.com/ubi9/python-312:9.7
+FROM registry.access.redhat.com/ubi9/python-312:9.7-1765181854
 # It is important to use the image that matches the builder, as the path to the
 # Python executable must be the same
 

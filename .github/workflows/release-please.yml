@@ -26,7 +26,9 @@ jobs:
       # Auto-merge the release PR
       - name: Enable Pull Request Automerge
         if: ${{ steps.release.outputs.prs_created }}
-        run: gh pr merge --auto --squash ${{ steps.release.outputs.pr }}
+        run: |
+          PR_NUMBER=$(echo '${{ steps.release.outputs.pr }}' | jq -r '.number')
+          gh pr merge --auto --squash "$PR_NUMBER"
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN_CLASSIC }}
           GH_REPO: ${{ github.repository }}

@@ -25,9 +25,9 @@ spec:
   - name: output-image
     value: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-api:{{revision}}
   - name: dockerfile
-    value: Dockerfile
+    value: src/api/Dockerfile
   - name: path-context
-    value: .
+    value: src/api
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while maintaining trust after pipeline customization.

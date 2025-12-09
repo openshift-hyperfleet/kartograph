@@ -118,7 +118,7 @@ class DefaultGraphClientProbe:
 
     def query_executed(self, query: str, row_count: int) -> None:
         """Record successful Cypher query execution."""
-        self._logger.info(
+        self._logger.debug(
             "graph_query_executed",
             query=query,
             row_count=row_count,

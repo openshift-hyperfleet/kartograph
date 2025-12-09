@@ -4,8 +4,9 @@ services:
     # Run as root in dev to handle host file permissions (any umask)
     user: "0:0"
     volumes:
-      # Mount the entire app directory for hot-reload
+      # Mount the entire app directory  (minus  venv) for hot-reload
       - ./src/api:/app:z
+      - ./src/api/.venv
     command:
       - /bin/bash
       - -c

@@ -37,6 +37,22 @@ class GraphClientProbe(Protocol):
         """Record that a Cypher query execution failed."""
         ...
 
+    def query_executed(self, query: str, row_count: int) -> None:
+        """Record successful Cypher query execution."""
+        ...
+
+    def transaction_started(self) -> None:
+        """Record that a transaction was started."""
+        ...
+
+    def transaction_committed(self) -> None:
+        """Record that a transaction was committed."""
+        ...
+
+    def transaction_rolled_back(self) -> None:
+        """Record that a transaction was rolled back."""
+        ...
+
     def with_context(self, context: ObservationContext) -> GraphClientProbe:
         """Create a new probe with observation context bound."""
         ...
@@ -97,5 +113,35 @@ class DefaultGraphClientProbe:
             "graph_query_failed",
             query=query,
             error=str(error),
+            **self._get_context_kwargs(),
+        )
+
+    def query_executed(self, query: str, row_count: int) -> None:
+        """Record successful Cypher query execution."""
+        self._logger.info(
+            "graph_query_executed",
+            query=query,
+            row_count=row_count,
+            **self._get_context_kwargs(),
+        )
+
+    def transaction_started(self) -> None:
+        """Record that a transaction was started."""
+        self._logger.info(
+            "graph_transaction_started",
+            **self._get_context_kwargs(),
+        )
+
+    def transaction_committed(self) -> None:
+        """Record that a transaction was committed."""
+        self._logger.info(
+            "graph_transaction_committed",
+            **self._get_context_kwargs(),
+        )
+
+    def transaction_rolled_back(self) -> None:
+        """Record that a transaction was rolled back."""
+        self._logger.warning(
+            "graph_transaction_rolled_back",
             **self._get_context_kwargs(),
         )

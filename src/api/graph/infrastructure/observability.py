@@ -6,7 +6,7 @@ following the Domain Oriented Observability pattern.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import structlog
 
@@ -73,7 +73,7 @@ class DefaultGraphClientProbe:
         self._logger = logger or structlog.get_logger()
         self._context = context
 
-    def _get_context_kwargs(self) -> dict[str, str | None]:
+    def _get_context_kwargs(self) -> dict[str, Any]:
         """Get context metadata as kwargs for logging."""
         if self._context is None:
             return {}

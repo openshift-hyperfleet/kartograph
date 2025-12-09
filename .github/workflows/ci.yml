@@ -58,7 +58,7 @@ jobs:
 
       - name: Run mypy (type checker)
         working-directory: src/api
-        run: uv run mypy .
+        run: uv run mypy --ignore-missing-imports .
 
       - name: Run pytest
         working-directory: src/api

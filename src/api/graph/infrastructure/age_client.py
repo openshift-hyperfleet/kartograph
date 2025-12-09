@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
+import secrets
+import string
 from typing import Any, Iterator
+import typing
 
 import psycopg2
 
@@ -20,6 +23,7 @@ from infrastructure.database.exceptions import (
     TransactionError,
 )
 from infrastructure.settings import DatabaseSettings
+from graph.infrastructure.exceptions import InsecureCypherQueryError
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +65,10 @@ class AgeGraphClient:
     @property
     def _connection(self):
         """Get the underlying psycopg2 connection."""
+        if self._connection_factory._connection is None:
+            raise ValueError(
+                "Unexpected Nonetype for self._connection_factory._connection"
+            )
         return self._connection_factory._connection
 
     def connect(self) -> None:
@@ -114,15 +122,54 @@ class AgeGraphClient:
             logger.warning(f"Connection verification failed: {e}")
             return False
 
-    def _build_cypher_sql(self, query: str) -> str:
+    @staticmethod
+    def _generate_nonce() -> str:
+        return "".join(secrets.choice(string.ascii_letters) for _ in range(64))
+
+    @staticmethod
+    def build_secure_cypher_sql(
+        graph_name: str,
+        query: str,
+        nonce_generator: typing.Optional[typing.Callable[[], str]] = None,
+    ) -> str:
         """Build the SQL statement for executing a Cypher query via AGE.
 
         AGE requires Cypher queries to be wrapped in:
-        SELECT * FROM cypher('graph_name', $$ CYPHER_QUERY $$) AS (result agtype)
+        SELECT * FROM cypher('graph_name', <nonce> CYPHER_QUERY <nonce> AS (result agtype)
+
+        As a security consideration, a unique cypher query tag (as opposed to the default $$) is
+        generated for each query to reduce the risk of SQL injection. If the unique tag is found in the query,
+        an InsecureCypherQueryError is raised. A `nonce_generator` may be passed that will be used
+        to generate the random tag body (value between $$). The nonce_generator should return a random string.
+        If none is provided, the AgeGraphClient._generate_nonce method will be used.
+
+        Note that there is a hard-coded return type of (result agtype), which means
+        the query _must_ be written such that it returns a single object (which may contain multiple items.)
         """
+
+        nonce_generator = (
+            nonce_generator if nonce_generator else AgeGraphClient._generate_nonce
+        )
+
+        nonce = nonce_generator()
+
+        if nonce in query:
+            raise InsecureCypherQueryError(
+                message="Unique nonce detected in cypher query.", query=query
+            )
+
+        # Cypher queries can be denoted by a custom tag by placing a string
+        # between the two $'s.
+        tag = f"${nonce}$"
+
         return f"""
-            SELECT * FROM cypher('{self._graph_name}', $$ {query} $$) AS (result agtype)
+            SELECT * FROM cypher('{graph_name}', {tag} {query} {tag} AS (result agtype)
         """
+
+    def _build_cypher_sql(self, query: str) -> str:
+        return AgeGraphClient.build_secure_cypher_sql(
+            graph_name=self.graph_name, query=query
+        )
 
     def execute_cypher(
         self,
@@ -204,9 +251,10 @@ class _AgeTransaction:
 
         try:
             with self._connection.cursor() as cursor:
-                sql = f"""
-                    SELECT * FROM cypher('{self._graph_name}', $$ {query} $$) AS (result agtype)
-                """
+                sql = AgeGraphClient.build_secure_cypher_sql(
+                    graph_name=self._graph_name, query=query
+                )
+
                 cursor.execute(sql)
                 rows = cursor.fetchall()
 

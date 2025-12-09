@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from graph.domain.value_objects import EdgeRecord, NodeRecord
+from graph.domain.value_objects import EdgeRecord, NodeRecord, QueryResultRow
 
 
 @runtime_checkable
@@ -97,7 +97,7 @@ class IGraphReadOnlyRepository(Protocol):
     def execute_raw_query(
         self,
         query: str,
-    ) -> list[dict]:
+    ) -> list[QueryResultRow]:
         """Execute a raw Cypher query with safeguards.
 
         This method allows the Extraction agent to explore the graph

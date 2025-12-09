@@ -7,12 +7,12 @@ for the underlying graph operations.
 from __future__ import annotations
 
 import hashlib
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from age.models import Edge as AgeEdge
 from age.models import Vertex as AgeVertex
 
-from graph.domain.value_objects import EdgeRecord, NodeRecord
+from graph.domain.value_objects import EdgeRecord, NodeRecord, QueryResultRow
 from graph.infrastructure.protocols import GraphClientProtocol
 from infrastructure.database.exceptions import GraphQueryError
 
@@ -130,7 +130,7 @@ class GraphReadOnlyRepository:
     def execute_raw_query(
         self,
         query: str,
-    ) -> list[dict]:
+    ) -> list[QueryResultRow]:
         """Execute a raw Cypher query with safeguards.
 
         Enforces read-only by rejecting mutation keywords and
@@ -173,7 +173,7 @@ class GraphReadOnlyRepository:
             properties=dict(edge.properties) if edge.properties else {},
         )
 
-    def _row_to_dict(self, row: tuple) -> dict[str, Any]:
+    def _row_to_dict(self, row: tuple) -> QueryResultRow:
         """Convert a result row to a dictionary."""
         if len(row) == 1:
             item = row[0]

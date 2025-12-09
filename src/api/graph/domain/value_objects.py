@@ -9,9 +9,15 @@ from __future__ import annotations
 
 import json
 from enum import Enum
-from typing import Any
+from typing import Any, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field
+
+# Type alias for exploration query results.
+# These are dynamic dictionaries returned from arbitrary Cypher queries.
+# Keys are column names from the query, values can be nodes, edges,
+# scalars, or other AGE data types.
+QueryResultRow: TypeAlias = dict[str, Any]
 
 
 class NodeRecord(BaseModel):

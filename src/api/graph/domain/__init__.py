@@ -8,6 +8,7 @@ from graph.domain.value_objects import (
     MutationLine,
     MutationOperation,
     NodeRecord,
+    QueryResultRow,
 )
 
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "MutationLine",
     "MutationOperation",
     "NodeRecord",
+    "QueryResultRow",
 ]

@@ -10,7 +10,7 @@ from graph.application.observability import (
     DefaultGraphServiceProbe,
     GraphServiceProbe,
 )
-from graph.domain.value_objects import EdgeRecord, NodeRecord
+from graph.domain.value_objects import EdgeRecord, NodeRecord, QueryResultRow
 from graph.ports.repositories import IGraphReadOnlyRepository
 
 
@@ -111,7 +111,7 @@ class GraphQueryService:
     def execute_exploration_query(
         self,
         query: str,
-    ) -> list[dict]:
+    ) -> list[QueryResultRow]:
         """Execute a raw exploration query.
 
         This method is intended for the Extraction agent to explore

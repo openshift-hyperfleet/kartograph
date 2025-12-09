@@ -51,11 +51,12 @@ repos:
     rev: v1.19.0
     hooks:
       - id: mypy
-        args: [--config-file=src/api/pyproject.toml]
+        args: [--config-file=src/api/pyproject.toml, --ignore-missing-imports]
         additional_dependencies:
+          - "apache-age-python"
           - "fastapi[standard]"
           - "pydantic-settings"
-          - "psycopg2-binary"
+          - "psycopg2"
           - "types-psycopg2"
           - "pytest"
           - "structlog"

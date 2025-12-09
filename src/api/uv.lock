@@ -21,6 +21,15 @@ wheels = [
 ]
 
 [[package]]
+name = "antlr4-python3-runtime"
+version = "4.11.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e0/64/c548678120cccf784f555972ed37cedcf4f026abeec30ab0340c3af4ea07/antlr4-python3-runtime-4.11.1.tar.gz", hash = "sha256:a53de701312f9bdacc5258a6872cd6c62b90d3a90ae25e494026f76267333b60", size = 116945, upload-time = "2022-09-04T21:37:45.242Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b6/3a/4f2e9d67277cc255a17a34c1b54e02d939ca5991bc596dee3d63e587e512/antlr4_python3_runtime-4.11.1-py3-none-any.whl", hash = "sha256:ff1954eda1ca9072c02bf500387d0c86cb549bef4dbb3b64f39468b547ec5f6b", size = 144186, upload-time = "2022-09-04T21:37:43.264Z" },
+]
+
+[[package]]
 name = "anyio"
 version = "4.12.0"
 source = { registry = "https://pypi.org/simple" }
@@ -31,6 +40,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/16/ce/8a777047513153587e5434fd752e89334ac33e379aa3497db860eeb60377/anyio-4.12.0.tar.gz", hash = "sha256:73c693b567b0c55130c104d0b43a9baf3aa6a31fc6110116509f27bf75e21ec0", size = 228266, upload-time = "2025-11-28T23:37:38.911Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7f/9c/36c5c37947ebfb8c7f22e0eb6e4d188ee2d53aa3880f3f2744fb894f0cb1/anyio-4.12.0-py3-none-any.whl", hash = "sha256:dad2376a628f98eeca4881fc56cd06affd18f659b17a747d3ff0307ced94b1bb", size = 113362, upload-time = "2025-11-28T23:36:57.897Z" },
+]
+
+[[package]]
+name = "apache-age-python"
+version = "0.0.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "antlr4-python3-runtime" },
+    { name = "psycopg2" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/53/7d/79fc9489afa3a83849f0b695341ae6019b149f708e53cb2e52cf289c5183/apache-age-python-0.0.7.tar.gz", hash = "sha256:11291e89fb418ee43091cd40befd9ddf02776db1d1d781b26f59c4572cef7ecf", size = 20566, upload-time = "2023-09-22T17:02:29.132Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/40/4a/0474f7f25d970c7b7e6078d02b93ed6a0e2c8b56fe6c82dd20c13ab8f6d7/apache_age_python-0.0.7-py3-none-any.whl", hash = "sha256:6fee06273343a79d86847ca6403d383a65dd6be5dcb192394d2a90b30c4b4f14", size = 25732, upload-time = "2023-09-22T17:02:27.836Z" },
 ]
 
 [[package]]
@@ -392,6 +414,7 @@ name = "kartograph-api"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "apache-age-python" },
     { name = "fastapi", extra = ["standard"] },
     { name = "psycopg2" },
     { name = "pydantic-settings" },
@@ -412,6 +435,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "apache-age-python", specifier = ">=0.0.7" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.123.9" },
     { name = "psycopg2", specifier = ">=2.9.11" },
     { name = "pydantic-settings", specifier = ">=2.12.0" },

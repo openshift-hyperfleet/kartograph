@@ -1,7 +1,7 @@
 """Apache AGE Graph Client implementation.
 
 Provides the concrete implementation of graph database operations
-using psycopg2-binary directly with AGE SQL wrappers.
+using psycopg2 with Apache AGE extension and AGType parsing.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import typing
 from contextlib import contextmanager
 from typing import Any, Iterator
 
+import age
 import psycopg2
 
 from graph.infrastructure.exceptions import InsecureCypherQueryError
@@ -82,6 +83,8 @@ class AgeGraphClient:
         try:
             self._connection_factory.get_connection()
             self._ensure_graph_exists()
+            # Register AGType parser for automatic conversion of Vertex, Edge, Path objects
+            age.setUpAge(self._connection, self._graph_name)
             self._connected = True
             self._probe.connected_to_graph(self._graph_name)
         except Exception as e:

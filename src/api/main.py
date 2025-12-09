@@ -105,8 +105,8 @@ def get_nodes(
         query = "MATCH (n) RETURN n"
         result = client.execute_cypher(query)
 
-        # Extract nodes from result
-        nodes = [row[0] for row in result.rows]
+        # Extract nodes from result and convert Vertex objects to dictionaries
+        nodes = [row[0].toJson() for row in result.rows]
 
         return {
             "nodes": nodes,

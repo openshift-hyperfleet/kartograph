@@ -8,14 +8,23 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Iterator, Protocol, Sequence
+from typing import Any, Iterator, Protocol, Sequence, Union
+
+from age.models import Edge, Path, Vertex
 
 
 @dataclass(frozen=True)
 class CypherResult:
-    """Container for Cypher query results."""
+    """Container for Cypher query results.
 
-    rows: Sequence[tuple[Any, ...]]
+    Results contain tuples where each element can be:
+    - Vertex: A graph node with id, label, and properties
+    - Edge: A graph relationship with id, label, start_id, end_id, and properties
+    - Path: A graph path containing vertices and edges
+    - Any: Other AGType values (scalars, lists, etc.)
+    """
+
+    rows: Sequence[tuple[Union[Vertex, Edge, Path, Any], ...]]
     row_count: int
 
 

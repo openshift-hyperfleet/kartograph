@@ -57,6 +57,7 @@ repos:
           - "psycopg2-binary"
           - "types-psycopg2"
           - "pytest"
+          - "structlog"
         files: ^src/api/
 
   # Run pytest on pre-push

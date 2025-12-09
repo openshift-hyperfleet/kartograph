@@ -6,7 +6,7 @@ services:
     volumes:
       # Mount the entire app directory  (minus  venv) for hot-reload
       - ./src/api:/app:z
-      - ./src/api/.venv
+      - /app/.venv
     command:
       - /bin/bash
       - -c

@@ -75,7 +75,10 @@ Tests should always be passing before committing code. Thus, the development cyc
 5) Search the web for best-practices pertaining to the upcoming work
 6) Write code, using knowledge from web search
 7) Run tests to verify code works, if fail, fix code (never fix a test unless it's actually broken. Never skip tests.)
-8) Commit code using atomic, conventional, commits. Fix issues detected by pre-commit hooks. 
+8) Commit code using atomic, conventional, commits. Fix issues detected by pre-commit hooks.
+
+Logging should follow the [Domain Oriented Observability](https://martinfowler.com/articles/domain-oriented-observability.html)
+pattern. Be sure to read the article to fully understand. Domain probes should be 100% preferred over logger.* and print().
 </development-pattern>
 
 <non-functional-requirements>

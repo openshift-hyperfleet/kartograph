@@ -1,6 +1,15 @@
 # Build stage - using Red Hat UBI9 Python image
 FROM registry.access.redhat.com/ubi9/python-312:9.7-1765181854 AS builder
 
+# Install build dependencies for psycopg2 compilation
+USER 0
+RUN dnf install -y \
+    gcc \
+    python3-devel \
+    libpq-devel \
+    && dnf clean all
+USER 1001
+
 # Copy uv binary from official image
 COPY --from=ghcr.io/astral-sh/uv:0.9.16 /uv /uvx /bin/
 

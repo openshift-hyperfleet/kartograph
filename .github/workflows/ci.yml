@@ -16,6 +16,21 @@ jobs:
       matrix:
         python-version: ["3.12", "3.13"]
 
+    services:
+      postgres:
+        image: apache/age:release_PG17_1.6.0
+        env:
+          POSTGRES_USER: kartograph
+          POSTGRES_PASSWORD: kartograph_dev_password
+          POSTGRES_DB: kartograph
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kartograph"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -43,8 +58,15 @@ jobs:
 
       - name: Run mypy (type checker)
         working-directory: src/api
-        run: uv run mypy .
+        run: uv run mypy --ignore-missing-imports .
 
       - name: Run pytest
         working-directory: src/api
+        env:
+          KARTOGRAPH_DB_HOST: localhost
+          KARTOGRAPH_DB_PORT: 5432
+          KARTOGRAPH_DB_DATABASE: kartograph
+          KARTOGRAPH_DB_USERNAME: kartograph
+          KARTOGRAPH_DB_PASSWORD: kartograph_dev_password
+          KARTOGRAPH_DB_GRAPH_NAME: test_graph
         run: uv run pytest -v

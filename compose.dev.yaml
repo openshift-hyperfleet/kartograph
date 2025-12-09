@@ -2,7 +2,7 @@
 services:
   api:
     # Run as root in dev to handle host file permissions (any umask)
-    user: "0:0"
+    user: "${UID}:${GID}"
     volumes:
       # Mount the entire app directory  (minus  venv) for hot-reload
       - ./src/api:/app:z

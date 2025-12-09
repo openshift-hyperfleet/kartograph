@@ -5,19 +5,20 @@ This module provides connection factory capabilities.
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 import psycopg2
 
 from infrastructure.database.exceptions import ConnectionError
+from infrastructure.observability.probes import (
+    ConnectionProbe,
+    DefaultConnectionProbe,
+)
 
 if TYPE_CHECKING:
     from psycopg2.extensions import connection as PsycopgConnection
 
     from infrastructure.settings import DatabaseSettings
-
-logger = logging.getLogger(__name__)
 
 
 class ConnectionFactory:
@@ -27,9 +28,14 @@ class ConnectionFactory:
     Connection pooling can be added in future iterations.
     """
 
-    def __init__(self, settings: DatabaseSettings):
+    def __init__(
+        self,
+        settings: DatabaseSettings,
+        probe: ConnectionProbe | None = None,
+    ):
         self._settings = settings
         self._connection: PsycopgConnection | None = None
+        self._probe = probe or DefaultConnectionProbe()
 
     def create_connection(self) -> PsycopgConnection:
         """Create a new database connection with AGE extension configured.
@@ -52,18 +58,19 @@ class ConnectionFactory:
             # Set up AGE extension for this connection
             self._setup_age(conn)
 
-            logger.info(
-                "Database connection established",
-                extra={
-                    "host": self._settings.host,
-                    "database": self._settings.database,
-                },
+            self._probe.connection_established(
+                host=self._settings.host,
+                database=self._settings.database,
             )
 
             return conn
 
         except psycopg2.Error as e:
-            logger.error(f"Failed to connect to database: {e}")
+            self._probe.connection_failed(
+                host=self._settings.host,
+                database=self._settings.database,
+                error=e,
+            )
             raise ConnectionError(f"Failed to connect to database: {e}") from e
 
     def _setup_age(self, conn: PsycopgConnection) -> None:
@@ -93,4 +100,4 @@ class ConnectionFactory:
         if self._connection is not None and not self._connection.closed:
             self._connection.close()
             self._connection = None
-            logger.info("Database connection closed")
+            self._probe.connection_closed()

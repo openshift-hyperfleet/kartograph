@@ -6,15 +6,19 @@ using psycopg2-binary directly with AGE SQL wrappers.
 
 from __future__ import annotations
 
-import logging
-from contextlib import contextmanager
 import secrets
 import string
-from typing import Any, Iterator
 import typing
+from contextlib import contextmanager
+from typing import Any, Iterator
 
 import psycopg2
 
+from graph.infrastructure.exceptions import InsecureCypherQueryError
+from graph.infrastructure.observability import (
+    DefaultGraphClientProbe,
+    GraphClientProbe,
+)
 from graph.infrastructure.protocols import CypherResult
 from infrastructure.database.connection import ConnectionFactory
 from infrastructure.database.exceptions import (
@@ -23,9 +27,6 @@ from infrastructure.database.exceptions import (
     TransactionError,
 )
 from infrastructure.settings import DatabaseSettings
-from graph.infrastructure.exceptions import InsecureCypherQueryError
-
-logger = logging.getLogger(__name__)
 
 
 class AgeGraphClient:
@@ -47,11 +48,16 @@ class AgeGraphClient:
             tx.execute_cypher("CREATE (n:Person {name: 'Alice'})")
     """
 
-    def __init__(self, settings: DatabaseSettings):
+    def __init__(
+        self,
+        settings: DatabaseSettings,
+        probe: GraphClientProbe | None = None,
+    ):
         self._settings = settings
         self._connection_factory = ConnectionFactory(settings)
         self._graph_name = settings.graph_name
         self._connected = False
+        self._probe = probe or DefaultGraphClientProbe()
 
     @property
     def graph_name(self) -> str:
@@ -77,7 +83,7 @@ class AgeGraphClient:
             self._connection_factory.get_connection()
             self._ensure_graph_exists()
             self._connected = True
-            logger.info(f"Connected to graph: {self._graph_name}")
+            self._probe.connected_to_graph(self._graph_name)
         except Exception as e:
             self._connected = False
             raise ConnectionError(f"Failed to connect: {e}") from e
@@ -97,7 +103,7 @@ class AgeGraphClient:
                     (self._graph_name,),
                 )
                 self._connection.commit()
-                logger.info(f"Created graph: {self._graph_name}")
+                self._probe.graph_created(self._graph_name)
 
     def disconnect(self) -> None:
         """Close the database connection."""
@@ -119,7 +125,7 @@ class AgeGraphClient:
                 result = cursor.fetchone()
                 return result is not None and result[0] == 1
         except Exception as e:
-            logger.warning(f"Connection verification failed: {e}")
+            self._probe.connection_verification_failed(e)
             return False
 
     @staticmethod
@@ -206,7 +212,7 @@ class AgeGraphClient:
 
         except psycopg2.Error as e:
             self._connection.rollback()
-            logger.error(f"Query execution failed: {e}", extra={"query": query})
+            self._probe.query_failed(query=query, error=e)
             raise GraphQueryError(f"Query execution failed: {e}", query=query) from e
 
     @contextmanager

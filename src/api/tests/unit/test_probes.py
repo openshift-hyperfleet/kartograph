@@ -134,14 +134,14 @@ class TestGraphClientProbe:
             error="Syntax error",
         )
 
-    def test_query_executed_logs_info(self):
-        """query_executed should log info with query and row count."""
+    def test_query_executed_logs_debug(self):
+        """query_executed should log debug with query and row count."""
         mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
         probe = DefaultGraphClientProbe(logger=mock_logger)
 
         probe.query_executed(query="MATCH (n) RETURN n", row_count=5)
 
-        mock_logger.info.assert_called_once_with(
+        mock_logger.debug.assert_called_once_with(
             "graph_query_executed",
             query="MATCH (n) RETURN n",
             row_count=5,

@@ -7,7 +7,7 @@ class DatabaseError(Exception):
     pass
 
 
-class ConnectionError(DatabaseError):
+class DatabaseConnectionError(DatabaseError):
     """Raised when database connection fails."""
 
     pass

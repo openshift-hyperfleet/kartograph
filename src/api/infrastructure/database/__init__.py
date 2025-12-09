@@ -1,14 +1,14 @@
 """Database infrastructure - shared connection primitives."""
 
 from infrastructure.database.exceptions import (
-    ConnectionError,
+    DatabaseConnectionError,
     DatabaseError,
     GraphQueryError,
     TransactionError,
 )
 
 __all__ = [
-    "ConnectionError",
+    "DatabaseConnectionError",
     "DatabaseError",
     "GraphQueryError",
     "TransactionError",

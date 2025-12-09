@@ -22,7 +22,7 @@ from graph.infrastructure.observability import (
 from graph.infrastructure.protocols import CypherResult
 from infrastructure.database.connection import ConnectionFactory
 from infrastructure.database.exceptions import (
-    ConnectionError,
+    DatabaseConnectionError,
     GraphQueryError,
     TransactionError,
 )
@@ -86,7 +86,7 @@ class AgeGraphClient:
             self._probe.connected_to_graph(self._graph_name)
         except Exception as e:
             self._connected = False
-            raise ConnectionError(f"Failed to connect: {e}") from e
+            raise DatabaseConnectionError(f"Failed to connect: {e}") from e
 
     def _ensure_graph_exists(self) -> None:
         """Ensure the graph exists, creating it if necessary."""
@@ -195,7 +195,7 @@ class AgeGraphClient:
             GraphQueryError: If query execution fails.
         """
         if not self.is_connected():
-            raise ConnectionError("Not connected to database")
+            raise DatabaseConnectionError("Not connected to database")
 
         try:
             with self._connection.cursor() as cursor:
@@ -231,7 +231,7 @@ class AgeGraphClient:
                 # Auto-commits on success, rolls back on exception
         """
         if not self.is_connected():
-            raise ConnectionError("Not connected to database")
+            raise DatabaseConnectionError("Not connected to database")
 
         self._probe.transaction_started()
         tx = _AgeTransaction(self._connection, self._graph_name, self._probe)

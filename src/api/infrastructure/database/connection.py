@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import psycopg2
 
-from infrastructure.database.exceptions import ConnectionError
+from infrastructure.database.exceptions import DatabaseConnectionError
 from infrastructure.observability.probes import (
     ConnectionProbe,
     DefaultConnectionProbe,
@@ -44,7 +44,7 @@ class ConnectionFactory:
             A configured psycopg2 connection with AGE loaded.
 
         Raises:
-            ConnectionError: If connection cannot be established.
+            DatabaseConnectionError: If connection cannot be established.
         """
         try:
             conn = psycopg2.connect(
@@ -71,7 +71,7 @@ class ConnectionFactory:
                 database=self._settings.database,
                 error=e,
             )
-            raise ConnectionError(f"Failed to connect to database: {e}") from e
+            raise DatabaseConnectionError(f"Failed to connect to database: {e}") from e
 
     def _setup_age(self, conn: PsycopgConnection) -> None:
         """Set up AGE extension on the connection.

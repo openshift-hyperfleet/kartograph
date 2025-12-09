@@ -7,7 +7,7 @@ import pytest
 
 from graph.infrastructure.age_client import AgeGraphClient
 from graph.infrastructure.exceptions import InsecureCypherQueryError
-from infrastructure.database.exceptions import ConnectionError
+from infrastructure.database.exceptions import DatabaseConnectionError
 
 
 class TestAgeGraphClientInit:
@@ -37,10 +37,10 @@ class TestConnectionState:
         assert client.verify_connection() is False
 
     def test_execute_cypher_raises_when_not_connected(self, mock_db_settings):
-        """Should raise ConnectionError when executing without connection."""
+        """Should raise DatabaseConnectionError when executing without connection."""
         client = AgeGraphClient(mock_db_settings)
 
-        with pytest.raises(ConnectionError):
+        with pytest.raises(DatabaseConnectionError):
             client.execute_cypher("MATCH (n) RETURN n")
 
 

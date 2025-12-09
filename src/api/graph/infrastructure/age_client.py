@@ -205,10 +205,15 @@ class AgeGraphClient:
                 rows = cursor.fetchall()
                 self._connection.commit()
 
-                return CypherResult(
+                result = CypherResult(
                     rows=tuple(rows),
                     row_count=len(rows),
                 )
+
+                # Record successful query execution
+                self._probe.query_executed(query=query, row_count=result.row_count)
+
+                return result
 
         except psycopg2.Error as e:
             self._connection.rollback()
@@ -228,21 +233,25 @@ class AgeGraphClient:
         if not self.is_connected():
             raise ConnectionError("Not connected to database")
 
-        tx = _AgeTransaction(self._connection, self._graph_name)
+        self._probe.transaction_started()
+        tx = _AgeTransaction(self._connection, self._graph_name, self._probe)
         try:
             yield tx
             tx.commit()
+            self._probe.transaction_committed()
         except Exception:
             tx.rollback()
+            self._probe.transaction_rolled_back()
             raise
 
 
 class _AgeTransaction:
     """Internal transaction implementation for AgeGraphClient."""
 
-    def __init__(self, connection, graph_name: str):
+    def __init__(self, connection, graph_name: str, probe):
         self._connection = connection
         self._graph_name = graph_name
+        self._probe = probe
         self._committed = False
         self._rolled_back = False
 
@@ -264,12 +273,18 @@ class _AgeTransaction:
                 cursor.execute(sql)
                 rows = cursor.fetchall()
 
-                return CypherResult(
+                result = CypherResult(
                     rows=tuple(rows),
                     row_count=len(rows),
                 )
 
+                # Record successful query execution in transaction
+                self._probe.query_executed(query=query, row_count=result.row_count)
+
+                return result
+
         except psycopg2.Error as e:
+            self._probe.query_failed(query=query, error=e)
             raise GraphQueryError(f"Transaction query failed: {e}", query=query) from e
 
     def commit(self) -> None:

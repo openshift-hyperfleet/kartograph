@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+from types import MappingProxyType
 
 
 @dataclass(frozen=True)
@@ -40,7 +41,9 @@ class ObservationContext:
     user_id: str | None = None
     tenant_id: str | None = None
     graph_name: str | None = None
-    extra: dict[str, Any] = field(default_factory=dict)
+    extra: MappingProxyType[str, Any] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
     def as_dict(self) -> dict[str, Any]:
         """Convert context to a dictionary for logging.
@@ -77,5 +80,5 @@ class ObservationContext:
             user_id=self.user_id,
             tenant_id=self.tenant_id,
             graph_name=self.graph_name,
-            extra=new_extra,
+            extra=MappingProxyType(new_extra),
         )

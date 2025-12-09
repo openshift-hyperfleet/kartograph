@@ -260,7 +260,12 @@ class _AgeTransaction:
         query: str,
         parameters: dict[str, Any] | None = None,
     ) -> CypherResult:
-        """Execute a Cypher query within the transaction."""
+        """Execute a Cypher query within the transaction.
+
+        Note: The transaction is intentionally not rolled-back on error.
+        Rather, a GraphQueryError is raised and the caller is responsible for
+        rolling back the transaction.
+        """
         if self._committed or self._rolled_back:
             raise TransactionError("Transaction already finalized")
 

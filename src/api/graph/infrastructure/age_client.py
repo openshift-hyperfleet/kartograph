@@ -163,7 +163,7 @@ class AgeGraphClient:
         tag = f"${nonce}$"
 
         return f"""
-            SELECT * FROM cypher('{graph_name}', {tag} {query} {tag} AS (result agtype)
+            SELECT * FROM cypher('{graph_name}', {tag} {query} {tag}) AS (result agtype)
         """
 
     def _build_cypher_sql(self, query: str) -> str:

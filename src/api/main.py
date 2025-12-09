@@ -3,7 +3,9 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
 
+from graph.application.services import GraphQueryService
 from graph.infrastructure.age_client import AgeGraphClient
+from graph.infrastructure.graph_repository import GraphReadOnlyRepository
 from infrastructure.settings import get_database_settings
 
 app = FastAPI()
@@ -15,6 +17,24 @@ def get_graph_client() -> AgeGraphClient:
     settings = get_database_settings()
     client = AgeGraphClient(settings)
     return client
+
+
+def get_graph_query_service(
+    client: Annotated[AgeGraphClient, Depends(get_graph_client)],
+) -> GraphQueryService:
+    """Get a GraphQueryService instance.
+
+    Note: data_source_id is hardcoded for now - will be derived from
+    request context in future iterations.
+    """
+    if not client.is_connected():
+        client.connect()
+
+    repository = GraphReadOnlyRepository(
+        client=client,
+        data_source_id="default",  # TODO: Derive from request context
+    )
+    return GraphQueryService(repository=repository)
 
 
 @app.get("/health")
@@ -90,27 +110,22 @@ def create_nodes(
 
 @app.get("/nodes")
 def get_nodes(
-    client: Annotated[AgeGraphClient, Depends(get_graph_client)],
+    service: Annotated[GraphQueryService, Depends(get_graph_query_service)],
 ) -> dict:
     """Query all nodes in the graph.
 
-    Returns:
-        Dictionary with list of nodes and total count
+    Returns nodes in domain NodeRecord format via the application service.
     """
     try:
-        if not client.is_connected():
-            client.connect()
+        # Use exploration query through the service
+        results = service.execute_exploration_query("MATCH (n) RETURN n")
 
-        # Query all nodes
-        query = "MATCH (n) RETURN n"
-        result = client.execute_cypher(query)
-
-        # Extract nodes from result and convert Vertex objects to dictionaries
-        nodes = [row[0].toJson() for row in result.rows]
+        # Convert to serializable format
+        nodes = [r.get("node", r) for r in results if r]
 
         return {
             "nodes": nodes,
-            "count": result.row_count,
+            "count": len(nodes),
         }
     except Exception as e:
         raise HTTPException(

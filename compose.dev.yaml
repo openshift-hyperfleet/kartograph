@@ -1,9 +1,14 @@
 # Development overrides for compose.yaml
 services:
   api:
+    # Run as root in dev to handle host file permissions (any umask)
+    user: "${UID}:${GID}"
     volumes:
-      # Mount the entire app directory for hot-reload
+      # Mount the entire app directory  (minus  venv) for hot-reload
       - ./src/api:/app:z
-      # Use anonymous volume to preserve container's .venv (more specific mount wins)
       - /app/.venv
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    command:
+      - /bin/bash
+      - -c
+      - |
+        uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload

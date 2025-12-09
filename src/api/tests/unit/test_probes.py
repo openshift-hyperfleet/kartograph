@@ -134,6 +134,46 @@ class TestGraphClientProbe:
             error="Syntax error",
         )
 
+    def test_query_executed_logs_info(self):
+        """query_executed should log info with query and row count."""
+        mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
+        probe = DefaultGraphClientProbe(logger=mock_logger)
+
+        probe.query_executed(query="MATCH (n) RETURN n", row_count=5)
+
+        mock_logger.info.assert_called_once_with(
+            "graph_query_executed",
+            query="MATCH (n) RETURN n",
+            row_count=5,
+        )
+
+    def test_transaction_started_logs_info(self):
+        """transaction_started should log info."""
+        mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
+        probe = DefaultGraphClientProbe(logger=mock_logger)
+
+        probe.transaction_started()
+
+        mock_logger.info.assert_called_once_with("graph_transaction_started")
+
+    def test_transaction_committed_logs_info(self):
+        """transaction_committed should log info."""
+        mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
+        probe = DefaultGraphClientProbe(logger=mock_logger)
+
+        probe.transaction_committed()
+
+        mock_logger.info.assert_called_once_with("graph_transaction_committed")
+
+    def test_transaction_rolled_back_logs_warning(self):
+        """transaction_rolled_back should log warning."""
+        mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
+        probe = DefaultGraphClientProbe(logger=mock_logger)
+
+        probe.transaction_rolled_back()
+
+        mock_logger.warning.assert_called_once_with("graph_transaction_rolled_back")
+
 
 class TestProbeProtocolCompliance:
     """Tests to verify implementations match Protocol expectations."""
@@ -159,11 +199,19 @@ class TestProbeProtocolCompliance:
         assert hasattr(probe, "graph_created")
         assert hasattr(probe, "connection_verification_failed")
         assert hasattr(probe, "query_failed")
+        assert hasattr(probe, "query_executed")
+        assert hasattr(probe, "transaction_started")
+        assert hasattr(probe, "transaction_committed")
+        assert hasattr(probe, "transaction_rolled_back")
         assert hasattr(probe, "with_context")
         assert callable(probe.connected_to_graph)
         assert callable(probe.graph_created)
         assert callable(probe.connection_verification_failed)
         assert callable(probe.query_failed)
+        assert callable(probe.query_executed)
+        assert callable(probe.transaction_started)
+        assert callable(probe.transaction_committed)
+        assert callable(probe.transaction_rolled_back)
         assert callable(probe.with_context)
 
 

@@ -25,7 +25,7 @@ class ConnectionFactory:
     """Factory for creating and managing PostgreSQL/AGE connections.
 
     Handles connection creation and AGE extension setup.
-    Connection pooling can be added in future iterations.
+    Connection pooling can be added in future iterations (TODO).
     """
 
     def __init__(

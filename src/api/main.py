@@ -5,7 +5,7 @@ from fastapi import Depends, FastAPI, HTTPException, status
 
 from graph.application.services import GraphQueryService
 from graph.infrastructure.age_client import AgeGraphClient
-from graph.infrastructure.graph_repository import GraphReadOnlyRepository
+from graph.infrastructure.graph_repository import GraphExtractionReadOnlyRepository
 from infrastructure.settings import get_database_settings
 
 app = FastAPI()
@@ -30,7 +30,7 @@ def get_graph_query_service(
     if not client.is_connected():
         client.connect()
 
-    repository = GraphReadOnlyRepository(
+    repository = GraphExtractionReadOnlyRepository(
         client=client,
         data_source_id="default",  # TODO: Derive from request context
     )

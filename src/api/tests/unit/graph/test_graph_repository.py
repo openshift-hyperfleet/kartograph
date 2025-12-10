@@ -1,10 +1,10 @@
-"""Unit tests for GraphReadOnlyRepository implementation."""
+"""Unit tests for GraphExtractionReadOnlyRepository implementation."""
 
-from unittest.mock import create_autospec
+from unittest.mock import MagicMock, create_autospec
 
 import pytest
 
-from graph.infrastructure.graph_repository import GraphReadOnlyRepository
+from graph.infrastructure.graph_repository import GraphExtractionReadOnlyRepository
 from graph.infrastructure.protocols import CypherResult, GraphClientProtocol
 from graph.ports.repositories import IGraphReadOnlyRepository
 
@@ -14,32 +14,44 @@ def mock_graph_client():
     """Create a mock graph client."""
     client = create_autospec(GraphClientProtocol, instance=True)
     client.graph_name = "test_graph"
+
+    # Mock the transaction context manager
+    # Store mock_tx as an attribute so tests can access it
+    mock_tx = MagicMock()
+    mock_tx.execute_cypher.return_value = CypherResult(rows=tuple(), row_count=0)
+    mock_tx.execute_sql.return_value = None  # execute_sql returns None
+    client.transaction.return_value.__enter__.return_value = mock_tx
+    client.transaction.return_value.__exit__.return_value = None
+
+    # Store reference for tests
+    client._mock_tx = mock_tx
+
     return client
 
 
 @pytest.fixture
 def repository(mock_graph_client):
     """Create a repository with mock client."""
-    return GraphReadOnlyRepository(
+    return GraphExtractionReadOnlyRepository(
         client=mock_graph_client,
         data_source_id="ds-123",
     )
 
 
-class TestGraphReadOnlyRepositoryProtocolCompliance:
-    """Tests that GraphReadOnlyRepository satisfies IGraphReadOnlyRepository."""
+class TestGraphExtractionReadOnlyRepositoryProtocolCompliance:
+    """Tests that GraphExtractionReadOnlyRepository satisfies IGraphReadOnlyRepository."""
 
     def test_implements_protocol(self, repository):
         """Repository should implement IGraphReadOnlyRepository protocol."""
         assert isinstance(repository, IGraphReadOnlyRepository)
 
 
-class TestGraphReadOnlyRepositoryInit:
+class TestGraphExtractionReadOnlyRepositoryInit:
     """Tests for repository initialization."""
 
     def test_stores_data_source_id(self, mock_graph_client):
         """Repository should store the data_source_id for scoping."""
-        repo = GraphReadOnlyRepository(
+        repo = GraphExtractionReadOnlyRepository(
             client=mock_graph_client,
             data_source_id="ds-456",
         )
@@ -47,7 +59,7 @@ class TestGraphReadOnlyRepositoryInit:
 
     def test_stores_client_reference(self, mock_graph_client):
         """Repository should store the client reference."""
-        repo = GraphReadOnlyRepository(
+        repo = GraphExtractionReadOnlyRepository(
             client=mock_graph_client,
             data_source_id="ds-123",
         )
@@ -82,8 +94,12 @@ class TestGenerateId:
 
     def test_incorporates_data_source(self, mock_graph_client):
         """IDs from different data sources should differ."""
-        repo1 = GraphReadOnlyRepository(client=mock_graph_client, data_source_id="ds-1")
-        repo2 = GraphReadOnlyRepository(client=mock_graph_client, data_source_id="ds-2")
+        repo1 = GraphExtractionReadOnlyRepository(
+            client=mock_graph_client, data_source_id="ds-1"
+        )
+        repo2 = GraphExtractionReadOnlyRepository(
+            client=mock_graph_client, data_source_id="ds-2"
+        )
 
         id1 = repo1.generate_id("person", "alice")
         id2 = repo2.generate_id("person", "alice")
@@ -228,36 +244,48 @@ class TestExecuteRawQuery:
 
     def test_adds_limit_when_missing(self, repository, mock_graph_client):
         """Should add LIMIT 100 when not present in query."""
-        mock_graph_client.execute_cypher.return_value = CypherResult(
+        mock_tx = mock_graph_client._mock_tx
+        mock_tx.execute_cypher.return_value = CypherResult(
             rows=tuple(),
             row_count=0,
         )
 
         repository.execute_raw_query("MATCH (n) RETURN n")
 
-        call_args = mock_graph_client.execute_cypher.call_args
-        query = call_args[0][0]
+        # Check that execute_sql was called for SET LOCAL statement_timeout
+        mock_tx.execute_sql.assert_called_once()
+        sql_call_args = mock_tx.execute_sql.call_args[0][0]
+        assert "SET LOCAL statement_timeout" in sql_call_args
+
+        # Check the transaction's execute_cypher was called with LIMIT
+        call_args = mock_tx.execute_cypher.call_args_list
+        assert len(call_args) >= 1
+        query = call_args[0][0][0]
         assert "LIMIT 100" in query
 
     def test_preserves_existing_limit(self, repository, mock_graph_client):
         """Should preserve existing LIMIT in query."""
-        mock_graph_client.execute_cypher.return_value = CypherResult(
+        mock_tx = mock_graph_client._mock_tx
+        mock_tx.execute_cypher.return_value = CypherResult(
             rows=tuple(),
             row_count=0,
         )
 
         repository.execute_raw_query("MATCH (n) RETURN n LIMIT 50")
 
-        call_args = mock_graph_client.execute_cypher.call_args
-        query = call_args[0][0]
+        # Check the transaction's execute_cypher was called
+        call_args = mock_tx.execute_cypher.call_args_list
+        assert len(call_args) >= 1
+        query = call_args[0][0][0]
         # Should not have duplicate LIMIT
         assert query.count("LIMIT") == 1
 
     def test_returns_list_of_dicts(self, repository, mock_graph_client):
         """Should return results as list of dictionaries."""
-        mock_graph_client.execute_cypher.return_value = CypherResult(
-            rows=(("value1",), ("value2",)),
-            row_count=2,
+        mock_tx = mock_graph_client._mock_tx
+        # execute_cypher returns the actual data (execute_sql is separate)
+        mock_tx.execute_cypher.return_value = CypherResult(
+            rows=(("value1",), ("value2",)), row_count=2
         )
 
         results = repository.execute_raw_query("MATCH (n) RETURN n.name")

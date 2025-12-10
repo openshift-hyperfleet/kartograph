@@ -86,7 +86,7 @@ class TestGraphApplicationLayerBoundaries:
 
         Application services should depend on repository interfaces (ports),
         not on infrastructure implementations like AgeGraphClient or
-        GraphReadOnlyRepository.
+        GraphExtractionReadOnlyRepository.
         """
         (
             archrule("application_no_infrastructure")

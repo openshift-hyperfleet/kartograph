@@ -158,9 +158,15 @@ class MutationProbe(Protocol):
         self,
         operation: str,
         entity_type: str,
-        entity_id: str,
+        entity_id: str | None,
     ) -> None:
-        """Record that a mutation was successfully applied."""
+        """Record that a mutation was successfully applied.
+
+        Args:
+            operation: The operation type (DEFINE, CREATE, UPDATE, DELETE)
+            entity_type: The entity type (node or edge)
+            entity_id: The entity ID (None for DEFINE operations)
+        """
         ...
 
     def with_context(self, context: ObservationContext) -> MutationProbe:
@@ -193,7 +199,7 @@ class DefaultMutationProbe:
         self,
         operation: str,
         entity_type: str,
-        entity_id: str,
+        entity_id: str | None,
     ) -> None:
         """Record that a mutation was successfully applied."""
         self._logger.info(

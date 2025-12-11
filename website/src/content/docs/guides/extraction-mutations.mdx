@@ -1,0 +1,332 @@
+---
+title: Extraction → Graph Mutations
+description: Learn how the Extraction context produces mutation operations that the Graph context consumes
+---
+
+import { Tabs, TabItem, Aside, Code, Steps } from '@astrojs/starlight/components';
+
+## Overview
+
+This guide shows how the **Extraction** bounded context produces mutation operations that the **Graph** bounded context consumes. You'll learn how to generate IDs, construct operations, and produce JSONL files that drive graph updates.
+
+<Aside type="tip">
+This JSONL mutation format is the contract between Extraction and Graph bounded contexts.
+</Aside>
+
+## Quick Example
+
+Here's what a complete extraction workflow looks like:
+
+```python
+# 1. Create a repository scoped to your data source
+repo = GraphExtractionReadOnlyRepository(
+    client=graph_client,
+    data_source_id="github-repo-123"
+)
+
+# 2. Generate deterministic IDs
+alice_id = repo.generate_id("Person", "alice-smith")
+# Returns: "person:1a2b3c4d5e6f7890"
+
+bob_id = repo.generate_id("Person", "bob-jones")
+# Returns: "person:abcdef0123456789"
+
+relationship_id = repo.generate_id("KNOWS", "alice-smith:bob-jones")
+# Returns: "knows:9f8e7d6c5b4a3210"
+
+# 3. Check what already exists
+existing_alice = repo.find_nodes_by_slug("alice-smith", "Person")
+
+# 4. Produce mutation operations
+mutations = [
+    {
+        "op": "CREATE",
+        "type": "node",
+        "id": alice_id,
+        "label": "Person",
+        "set_properties": {
+            "data_source_id": "github-repo-123",
+            "source_path": "MAINTAINERS.md"
+            "slug": "alice-smith",
+            "name": "Alice Smith",
+            "email": "alice@example.com",
+        }
+    },
+    {
+        "op": "CREATE",
+        "type": "edge",
+        "id": relationship_id,
+        "label": "KNOWS",
+        "start_id": alice_id,
+        "end_id": bob_id,
+        "set_properties": {
+            "data_source_id": "github-repo-123",
+            "source_path": "MAINTAINERS.md"
+            "since": 2020,
+            "context": "colleagues",
+        }
+    }
+]
+
+# 5. Write to JSONL
+with open("mutations.jsonl", "w") as f:
+    for mutation in mutations:
+        f.write(json.dumps(mutation) + "\n")
+```
+
+## ID Generation
+
+### ID Format Rules
+
+<Tabs>
+<TabItem label="✅ DO">
+- Use lowercase for entity types: `"Person"` → `"person:..."`
+- Use consistent slugs: `"alice-smith"` not `"Alice Smith"`
+- Use node label slug to check if entity exists
+</TabItem>
+
+<TabItem label="❌ DON'T">
+- Use random values in slugs (breaks determinism)
+- Mix casing: `"Alice-Smith"` vs `"alice-smith"`
+</TabItem>
+</Tabs>
+
+## Mutation Operations
+
+### 0. DEFINE (Schema Declaration)
+
+<Aside type="caution">
+`DEFINE` operations must be executed **first**, before any `CREATE`/`UPDATE`/`DELETE` operations. They declare the schema for your entity and relationship types.
+</Aside>
+
+`DEFINE` is **required** for every type you use. It creates self-documenting ontology that helps agents understand:
+- What this type represents
+- When to use it
+- Where it's typically found
+- What properties are required vs optional
+
+<Tabs>
+<TabItem label="Node Type">
+```json
+{
+  "op": "DEFINE",
+  "type": "node",
+  "label": "Person",
+  "description": "A person entity representing an individual contributor, maintainer, or team member. Extracted from MAINTAINERS.md, git commit authors, @-mentions in pull requests, and people/ directory markdown files.",
+  "example_file_path": "people/alice-smith.md",
+  "example_in_file_path": "---\nname: Alice Smith\nemail: alice@example.com\ngithub: asmith\nrole: Senior Engineer\n---\n\n# Alice Smith\n\nAlice is a senior engineer focusing on backend systems.",
+  "required_properties": ["email", "name"]
+}
+```
+</TabItem>
+
+<TabItem label="Edge Type">
+```json
+{
+  "op": "DEFINE",
+  "type": "edge",
+  "label": "KNOWS",
+  "description": "Represents a professional relationship or acquaintance between two people, typically colleagues or collaborators. Extracted from co-authorship on pull requests, shared repository maintainership, or explicit mentions in people profiles.",
+  "example_file_path": "people/alice-smith.md",
+  "example_in_file_path": "## Colleagues\n\n- [@bob-jones](../people/bob-jones.md) - worked together since 2020\n- [@charlie-wilson](../people/charlie-wilson.md) - collaborated on Project X",
+  "required_properties": ["since"]
+}
+```
+</TabItem>
+</Tabs>
+
+**Required fields:**
+- `label` - The graph label, i.e. Entity Type/Relationship Type (PascalCase: `"Person"`, `"KNOWS"`)
+- `description` - What this type is and when to use it
+- `example_file_path` - Where this type is typically found
+- `example_in_file_path` - An actual example of this type as it appears in the file
+- `required_properties` - Array of property names that MUST be present. This is in addition to any globally-required properties (such as `slug` and `data_source_id`)
+
+<Aside>
+`optional_properties` is stored in the DB record and is automatically maintained as a list of all non-required properties used on that node/edge type across all graphs in a tenant. `optional_properties` should not be explicitly defined.
+</Aside>
+
+### 1. CREATE (Idempotent)
+
+CREATE is **idempotent** - you can run it multiple times safely. It uses `MERGE` under the hood.
+
+<Tabs>
+<TabItem label="Node">
+```json
+{
+  "op": "CREATE",
+  "type": "node",
+  "id": "person:1a2b3c4d5e6f7890",
+  "label": "Person",
+  "set_properties": {
+    "slug": "alice-smith",
+    "name": "Alice Smith",
+    "github_username": "asmith",
+    "data_source_id": "github-repo-123",
+    "source_path": "MAINTAINERS.md"
+  }
+}
+```
+</TabItem>
+
+<TabItem label="Edge">
+```json
+{
+  "op": "CREATE",
+  "type": "edge",
+  "id": "knows:9f8e7d6c5b4a3210",
+  "label": "KNOWS",
+  "start_id": "person:1a2b3c4d5e6f7890",
+  "end_id": "person:abcdef0123456789",
+  "set_properties": {
+    "since": 2020,
+    "confidence": 0.95,
+    "data_source_id": "github-repo-123",
+    "source_path": "MAINTAINERS.md"
+  }
+}
+```
+</TabItem>
+</Tabs>
+
+**Required fields:**
+- `label` - Graph label (PascalCase: `"Person"`, `"Repository"`)
+- `set_properties` must include:
+  - `data_source_id` - Your data source identifier
+  - `source_path` - Which file this entity came from
+
+**Additional required for edges:**
+- `start_id` - ID of source node
+- `end_id` - ID of target node
+
+### 2. UPDATE (Partial)
+
+UPDATE changes specific properties without affecting others.
+
+<Tabs>
+<TabItem label="Set Properties">
+```json
+{
+  "op": "UPDATE",
+  "type": "node",
+  "id": "person:1a2b3c4d5e6f7890",
+  "set_properties": {
+    "name": "Alice Smith-Jones",
+    "email": "alice.jones@example.com"
+  }
+}
+```
+</TabItem>
+
+<TabItem label="Remove Properties">
+```json
+{
+  "op": "UPDATE",
+  "type": "node",
+  "id": "person:1a2b3c4d5e6f7890",
+  "remove_properties": ["old_email", "temp_field"]
+}
+```
+</TabItem>
+
+<TabItem label="Both">
+```json
+{
+  "op": "UPDATE",
+  "type": "node",
+  "id": "person:1a2b3c4d5e6f7890",
+  "set_properties": {
+    "name": "Alice Smith-Jones"
+  },
+  "remove_properties": ["maiden_name"]
+}
+```
+</TabItem>
+</Tabs>
+
+### 3. DELETE (Cascade)
+
+DELETE automatically removes connected edges (uses `DETACH DELETE`).
+
+```json
+{
+  "op": "DELETE",
+  "type": "node",
+  "id": "person:obsolete123456"
+}
+```
+
+**When to use:**
+- File was deleted from source
+- Entity no longer exists in external system
+- Cleanup during re-extraction
+
+<Aside type="tip">
+No need to manually delete edges - they're removed automatically!
+</Aside>
+
+## Operation Ordering
+
+Operations do not need to be ordered in the JSONL data. The Graph bounded context
+will execute operations in the following order:
+
+1) `DEFINE`
+1) `DELETE <edge>`
+1) `DELETE <node>`
+1) `CREATE <node>`
+1) `CREATE <edge>`
+1) `UPDATE <node>`
+1) `UPDATE <edge>`
+
+
+## JSONL Output Format
+
+The extraction process produces a **JSONL file** (one JSON object per line):
+
+```jsonl
+{"op": "CREATE", "type": "node", "id": "person:1a2b3c4d5e6f7890", "label": "Person", "set_properties": {"slug": "alice-smith", "name": "Alice Smith", "data_source_id": "ds-123", "source_path": "people/alice.md"}}
+{"op": "CREATE", "type": "node", "id": "person:abcdef0123456789", "label": "Person", "set_properties": {"slug": "bob-jones", "name": "Bob Jones", "data_source_id": "ds-123", "source_path": "people/bob.md"}}
+{"op": "CREATE", "type": "edge", "id": "knows:9f8e7d6c5b4a3210", "label": "KNOWS", "start_id": "person:1a2b3c4d5e6f7890", "end_id": "person:abcdef0123456789", "set_properties": {"since": 2020, "data_source_id": "ds-123", "source_path": "people/alice.md"}}
+```
+
+## FAQs
+
+<details>
+<summary>Can I create multiple edges between the same nodes?</summary>
+
+Yes! Just use different IDs:
+```python
+knows_id = repo.generate_id("KNOWS", "alice:bob")
+collaborates_id = repo.generate_id("COLLABORATES", "alice:bob")
+```
+</details>
+
+<details>
+<summary>What if I don't know if an entity exists?</summary>
+
+Use CREATE - it's idempotent and will update if exists.
+</details>
+
+<details>
+<summary>Can I batch operations?</summary>
+
+Yes! All operations in a JSONL file execute in a single transaction.
+</details>
+
+<details>
+<summary>What happens if one operation fails?</summary>
+
+The entire batch rolls back. Fix the error and re-run.
+</details>
+
+<details>
+<summary>Do I need to DEFINE types every time I run extraction?</summary>
+
+No! DEFINE once when you first introduce a type. You can skip DEFINE in subsequent runs unless adding new types or updating definitions.
+</details>
+
+## Next Steps
+
+- Review the [Mutation Operation Schema](/reference/mutation-schema/)
+- Read about [Secure Enclave ID Design](/reference/secure-enclave/)
+- Explore the [Architecture patterns](/architecture/bounded-contexts/)

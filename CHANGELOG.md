@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.1.3...v0.2.0) (2025-12-09)
+
+
+### Features
+
+* **graph:** Add database connection layer for Apache AGE ([#14](https://github.com/openshift-hyperfleet/kartograph/issues/14)) ([09070e2](https://github.com/openshift-hyperfleet/kartograph/commit/09070e2d991de5c86c72c4bd586d01a6eeb7a7b3))
+
 ## [0.1.3](https://github.com/openshift-hyperfleet/kartograph/compare/v0.1.2...v0.1.3) (2025-12-08)
 
 

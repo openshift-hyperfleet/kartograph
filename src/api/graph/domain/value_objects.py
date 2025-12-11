@@ -115,7 +115,7 @@ class MutationOperation(BaseModel):
 
     op: str = Field(pattern="^(DEFINE|CREATE|UPDATE|DELETE)$")
     type: str = Field(pattern="^(node|edge)$")
-    id: str = Field(pattern="^[a-z_]+:[0-9a-f]{16}$")
+    id: str | None = Field(default=None, pattern="^[a-z_]+:[0-9a-f]{16}$")
 
     # CREATE/DEFINE fields
     label: str | None = None
@@ -142,6 +142,7 @@ class MutationOperation(BaseModel):
             ValueError: If operation is invalid or missing required fields
         """
         if self.op == "DEFINE":
+            # DEFINE does not require id
             if not all(
                 [
                     self.label,
@@ -169,6 +170,8 @@ class MutationOperation(BaseModel):
                 )
 
         elif self.op == "CREATE":
+            if not self.id:
+                raise ValueError("CREATE requires 'id'")
             if not self.label:
                 raise ValueError("CREATE requires 'label'")
             if not self.set_properties:
@@ -187,12 +190,16 @@ class MutationOperation(BaseModel):
                     raise ValueError("CREATE edge requires 'start_id' and 'end_id'")
 
         elif self.op == "UPDATE":
+            if not self.id:
+                raise ValueError("UPDATE requires 'id'")
             if not self.set_properties and not self.remove_properties:
                 raise ValueError(
                     "UPDATE requires at least one of 'set_properties' or 'remove_properties'"
                 )
 
         elif self.op == "DELETE":
+            if not self.id:
+                raise ValueError("DELETE requires 'id'")
             if any(
                 [
                     self.set_properties,

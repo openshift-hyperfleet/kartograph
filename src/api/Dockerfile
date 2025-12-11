@@ -11,7 +11,7 @@ RUN dnf install -y \
 USER 1001
 
 # Copy uv binary from official image
-COPY --from=ghcr.io/astral-sh/uv:0.9.16 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.9.17 /uv /uvx /bin/
 
 # Enable bytecode compilation and set link mode
 ENV UV_COMPILE_BYTECODE=1 \
@@ -42,7 +42,7 @@ FROM registry.access.redhat.com/ubi9/python-312:9.7-1765181854
 # Python executable must be the same
 
 # Copy uv binary for dev mode support
-COPY --from=ghcr.io/astral-sh/uv:0.9.16 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.9.17 /uv /uvx /bin/
 
 # Copy the application from the builder
 COPY --from=builder --chown=1001:0 /app /app

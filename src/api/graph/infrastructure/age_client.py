@@ -10,9 +10,9 @@ import secrets
 import string
 import typing
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
-import age
+import age  # type: ignore
 import psycopg2
 
 from graph.infrastructure.exceptions import InsecureCypherQueryError
@@ -20,7 +20,7 @@ from graph.infrastructure.observability import (
     DefaultGraphClientProbe,
     GraphClientProbe,
 )
-from graph.infrastructure.protocols import CypherResult
+from graph.infrastructure.protocols import CypherResult, GraphClientProtocol
 from infrastructure.database.connection import ConnectionFactory
 from infrastructure.database.exceptions import (
     DatabaseConnectionError,
@@ -29,8 +29,11 @@ from infrastructure.database.exceptions import (
 )
 from infrastructure.settings import DatabaseSettings
 
+if TYPE_CHECKING:
+    from psycopg2.extensions import connection as PsycopgConnection
 
-class AgeGraphClient:
+
+class AgeGraphClient(GraphClientProtocol):
     """Apache AGE implementation of the GraphClientProtocol.
 
     This client provides:
@@ -131,12 +134,15 @@ class AgeGraphClient:
             self._probe.connection_verification_failed(e)
             return False
 
-    @staticmethod
-    def _generate_nonce() -> str:
+    def _generate_nonce(self) -> str:
+        """
+        Generate a random 64 character string for use as a nonce
+        when generating a unique tag for quoting cypher queries in Apache AGE.
+        """
         return "".join(secrets.choice(string.ascii_letters) for _ in range(64))
 
-    @staticmethod
     def build_secure_cypher_sql(
+        self,
         graph_name: str,
         query: str,
         nonce_generator: typing.Optional[typing.Callable[[], str]] = None,
@@ -156,9 +162,7 @@ class AgeGraphClient:
         the query _must_ be written such that it returns a single object (which may contain multiple items.)
         """
 
-        nonce_generator = (
-            nonce_generator if nonce_generator else AgeGraphClient._generate_nonce
-        )
+        nonce_generator = nonce_generator if nonce_generator else self._generate_nonce
 
         nonce = nonce_generator()
 
@@ -176,16 +180,25 @@ class AgeGraphClient:
         """
 
     def _build_cypher_sql(self, query: str) -> str:
-        return AgeGraphClient.build_secure_cypher_sql(
-            graph_name=self.graph_name, query=query
-        )
+        return self.build_secure_cypher_sql(graph_name=self.graph_name, query=query)
 
     def execute_cypher(
         self,
         query: str,
         parameters: dict[str, Any] | None = None,
     ) -> CypherResult:
-        """Execute a Cypher query.
+        """Execute a Cypher query in auto-commit mode.
+
+        This method executes a single query and immediately commits it.
+        Each call to this method results in a separate database transaction.
+
+        Use this for:
+            - Single, independent queries
+            - Read-only operations
+            - Simple writes where atomicity across multiple operations is not needed
+
+        For multiple related operations that must succeed/fail together,
+        use the transaction() context manager instead.
 
         Args:
             query: The Cypher query string (without the cypher() wrapper).
@@ -195,6 +208,7 @@ class AgeGraphClient:
             CypherResult containing the query results.
 
         Raises:
+            DatabaseConnectionError: If not connected to database.
             GraphQueryError: If query execution fails.
         """
         if not self.is_connected():
@@ -227,17 +241,37 @@ class AgeGraphClient:
     def transaction(self) -> Iterator[_AgeTransaction]:
         """Create a transaction context for atomic operations.
 
+        All queries executed within the transaction context will be committed
+        together when the context exits successfully, or rolled back if any
+        exception occurs. This ensures atomicity across multiple operations.
+
+        Use this for:
+            - Creating multiple related entities that must exist together
+            - Batch operations from mutation logs
+            - Any operations where partial completion would leave inconsistent state
+
+        For single, independent queries, use execute_cypher() instead.
+
         Usage:
             with client.transaction() as tx:
-                tx.execute_cypher("CREATE ...")
-                tx.execute_cypher("CREATE ...")
-                # Auto-commits on success, rolls back on exception
+                tx.execute_cypher("CREATE (p:Person {name: 'Alice'})")
+                tx.execute_cypher("CREATE (p:Person {name: 'Bob'})")
+                tx.execute_cypher("CREATE (:Person {name: 'Alice'})-[:KNOWS]->(:Person {name: 'Bob'})")
+                # All queries commit together on success, or all rollback on error
+
+        Raises:
+            DatabaseConnectionError: If not connected to database.
         """
         if not self.is_connected():
             raise DatabaseConnectionError("Not connected to database")
 
         self._probe.transaction_started()
-        tx = _AgeTransaction(self._connection, self._graph_name, self._probe)
+        tx = _AgeTransaction(
+            connection=self._connection,
+            graph_name=self._graph_name,
+            probe=self._probe,
+            sql_builder=self._build_cypher_sql,
+        )
         try:
             yield tx
             tx.commit()
@@ -249,34 +283,79 @@ class AgeGraphClient:
 
 
 class _AgeTransaction:
-    """Internal transaction implementation for AgeGraphClient."""
+    """Internal transaction implementation for AgeGraphClient.
 
-    def __init__(self, connection, graph_name: str, probe):
+    This class is not intended to be instantiated directly. Use
+    AgeGraphClient.transaction() context manager instead.
+    """
+
+    def __init__(
+        self,
+        connection: PsycopgConnection,
+        graph_name: str,
+        probe: GraphClientProbe,
+        sql_builder: typing.Callable[[str], str],
+    ):
         self._connection = connection
         self._graph_name = graph_name
         self._probe = probe
+        self._sql_builder = sql_builder
         self._committed = False
         self._rolled_back = False
 
-    def execute_cypher(
-        self,
-        query: str,
-        parameters: dict[str, Any] | None = None,
-    ) -> CypherResult:
-        """Execute a Cypher query within the transaction.
+    def execute_sql(self, sql: str) -> None:
+        """Execute raw SQL (not Cypher) within the transaction.
 
-        Note: The transaction is intentionally not rolled-back on error.
-        Rather, a GraphQueryError is raised and the caller is responsible for
-        rolling back the transaction.
+        This is used for PostgreSQL commands like SET LOCAL that need to
+        run directly on the connection, not wrapped in the cypher() function.
+
+        Args:
+            sql: Raw SQL statement to execute.
+
+        Raises:
+            TransactionError: If transaction is already finalized.
+            GraphQueryError: If SQL execution fails.
         """
         if self._committed or self._rolled_back:
             raise TransactionError("Transaction already finalized")
 
         try:
             with self._connection.cursor() as cursor:
-                sql = AgeGraphClient.build_secure_cypher_sql(
-                    graph_name=self._graph_name, query=query
-                )
+                cursor.execute(sql)
+        except psycopg2.Error as e:
+            raise GraphQueryError(f"SQL execution failed: {e}", query=sql) from e
+
+    def execute_cypher(
+        self,
+        query: str,
+        parameters: dict[str, Any] | None = None,
+    ) -> CypherResult:
+        """Execute a Cypher query within the transaction context.
+
+        Queries are NOT automatically committed. The transaction will be committed
+        when the context manager exits successfully, or rolled back if an exception
+        occurs.
+
+        This method should only be called within the AgeGraphClient.transaction()
+        context manager, which handles commit/rollback.
+
+        Args:
+            query: The Cypher query string (without the cypher() wrapper).
+            parameters: Optional query parameters (for future use).
+
+        Returns:
+            CypherResult containing the query results.
+
+        Raises:
+            TransactionError: If transaction is already finalized.
+            GraphQueryError: If query execution fails.
+        """
+        if self._committed or self._rolled_back:
+            raise TransactionError("Transaction already finalized")
+
+        try:
+            with self._connection.cursor() as cursor:
+                sql = self._sql_builder(query)
 
                 cursor.execute(sql)
                 rows = cursor.fetchall()

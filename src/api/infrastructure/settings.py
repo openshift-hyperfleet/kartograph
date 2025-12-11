@@ -19,7 +19,7 @@ class DatabaseSettings(BaseSettings):
         KARTOGRAPH_DB_DATABASE: Database name (default: kartograph)
         KARTOGRAPH_DB_USERNAME: Database user (default: kartograph)
         KARTOGRAPH_DB_PASSWORD: Database password (required in production)
-        KARTOGRAPH_DB_GRAPH_NAME: AGE graph name (default: kartograph_graph)
+        KARTOGRAPH_DB_GRAPH_NAME: AGE graph name (default: kartograph_graph) TODO: Single graph only for tracer bullet
     """
 
     model_config = SettingsConfigDict(

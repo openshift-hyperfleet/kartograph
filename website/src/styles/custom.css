@@ -1,0 +1,25 @@
+/* Kartograph Custom Styles */
+
+/* Only customize accent colors, let Starlight handle the rest */
+:root {
+  --sl-color-accent: #ee0000;
+  --sl-color-accent-high: #ee0000;
+  --ec-frm-edActTabIndHt: 2px;
+}
+
+/* Code blocks */
+.expressive-code {
+  margin: 1.5rem 0;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+/* Ensure proper spacing for content */
+.sl-markdown-content {
+  line-height: 1.7;
+}
+
+/* Tabs styling */
+.tabs {
+  margin: 1.5rem 0;
+}

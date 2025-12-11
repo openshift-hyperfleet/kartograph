@@ -30,7 +30,11 @@ run:
 	@echo "----------------------------"
 
 
-.PHONY: docker logs
+.PHONY: logs
 logs:
 	docker compose logs --tail 1000 --follow
 
+
+.PHONY: docs
+docs:
+	cd website && npm i && npm run dev

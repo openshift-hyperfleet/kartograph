@@ -43,6 +43,14 @@ class GraphServiceProbe(Protocol):
         """Record that a raw query was executed."""
         ...
 
+    def mutations_applied(
+        self,
+        operations_applied: int,
+        success: bool,
+    ) -> None:
+        """Record that a batch of mutations was applied."""
+        ...
+
     def with_context(self, context: ObservationContext) -> GraphServiceProbe:
         """Create a new probe with observation context bound."""
         ...
@@ -104,5 +112,18 @@ class DefaultGraphServiceProbe:
             "graph_raw_query_executed",
             query=query,
             result_count=result_count,
+            **self._get_context_kwargs(),
+        )
+
+    def mutations_applied(
+        self,
+        operations_applied: int,
+        success: bool,
+    ) -> None:
+        level = "info" if success else "error"
+        getattr(self._logger, level)(
+            "graph_mutations_applied",
+            operations_applied=operations_applied,
+            success=success,
             **self._get_context_kwargs(),
         )

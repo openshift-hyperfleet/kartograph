@@ -1,0 +1,312 @@
+"""Unit tests for GraphMutationService application service."""
+
+from unittest.mock import Mock
+
+from graph.domain.value_objects import MutationOperation, MutationResult
+
+
+class TestGraphMutationServiceApplyMutations:
+    """Tests for apply_mutations method."""
+
+    def test_apply_mutations_delegates_to_applier(self):
+        """Should delegate mutation operations to the MutationApplier."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True,
+            operations_applied=2,
+        )
+        mock_type_def_repo = Mock()
+
+        operations = [
+            MutationOperation(
+                op="CREATE",
+                type="node",
+                id="person:abc123def456789a",
+                label="Person",
+                set_properties={
+                    "slug": "alice",
+                    "name": "Alice",
+                    "data_source_id": "ds-123",
+                    "source_path": "people/alice.md",
+                },
+            ),
+            MutationOperation(
+                op="UPDATE",
+                type="node",
+                id="person:abc123def456789a",
+                set_properties={"email": "alice@example.com"},
+            ),
+        ]
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        result = service.apply_mutations(operations)
+
+        # Should call applier with operations
+        mock_applier.apply_batch.assert_called_once_with(operations)
+
+        # Should return result from applier
+        assert result.success is True
+        assert result.operations_applied == 2
+
+    def test_apply_mutations_stores_define_operations(self):
+        """Should store DEFINE operations in TypeDefinitionRepository."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True,
+            operations_applied=1,
+        )
+        mock_type_def_repo = Mock()
+
+        operations = [
+            MutationOperation(
+                op="DEFINE",
+                type="node",
+                id="person:def0000000000000",
+                label="Person",
+                description="A person in the organization",
+                example_file_path="people/alice.md",
+                example_in_file_path="alice",
+                required_properties=["slug", "name"],
+                optional_properties=["email"],
+            ),
+        ]
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        service.apply_mutations(operations)
+
+        # Should save TypeDefinition to repository
+        mock_type_def_repo.save.assert_called_once()
+        saved_type_def = mock_type_def_repo.save.call_args[0][0]
+        assert saved_type_def.label == "Person"
+        assert saved_type_def.entity_type == "node"
+        assert saved_type_def.description == "A person in the organization"
+
+    def test_apply_mutations_emits_probe_events(self):
+        """Should emit probe events for successful mutations."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True,
+            operations_applied=1,
+        )
+        mock_type_def_repo = Mock()
+        mock_probe = Mock()
+
+        operations = [
+            MutationOperation(
+                op="CREATE",
+                type="node",
+                id="person:abc123def456789a",
+                label="Person",
+                set_properties={
+                    "slug": "alice",
+                    "name": "Alice",
+                    "data_source_id": "ds-123",
+                    "source_path": "people/alice.md",
+                },
+            ),
+        ]
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+            probe=mock_probe,
+        )
+        service.apply_mutations(operations)
+
+        # Should emit probe event
+        mock_probe.mutations_applied.assert_called_once_with(
+            operations_applied=1,
+            success=True,
+        )
+
+    def test_apply_mutations_emits_failure_probe_events(self):
+        """Should emit probe events for failed mutations."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=False,
+            operations_applied=0,
+            errors=["Database error"],
+        )
+        mock_type_def_repo = Mock()
+        mock_probe = Mock()
+
+        operations = [
+            MutationOperation(
+                op="DELETE",
+                type="node",
+                id="person:abc123def456789a",
+            ),
+        ]
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+            probe=mock_probe,
+        )
+        service.apply_mutations(operations)
+
+        # Should emit failure probe event
+        mock_probe.mutations_applied.assert_called_once_with(
+            operations_applied=0,
+            success=False,
+        )
+
+    def test_apply_empty_mutations_list(self):
+        """Should handle empty mutations list gracefully."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True,
+            operations_applied=0,
+        )
+        mock_type_def_repo = Mock()
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        result = service.apply_mutations([])
+
+        assert result.success is True
+        assert result.operations_applied == 0
+
+
+class TestGraphMutationServiceApplyFromJSONL:
+    """Tests for apply_mutations_from_jsonl method."""
+
+    def test_parses_jsonl_and_applies_mutations(self):
+        """Should parse JSONL string and apply mutations."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True,
+            operations_applied=2,
+        )
+        mock_type_def_repo = Mock()
+
+        jsonl_content = """{"op":"CREATE","type":"node","id":"person:abc123def456789a","label":"Person","set_properties":{"slug":"alice","name":"Alice","data_source_id":"ds-123","source_path":"people/alice.md"}}
+{"op":"UPDATE","type":"node","id":"person:abc123def456789a","set_properties":{"email":"alice@example.com"}}"""
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        result = service.apply_mutations_from_jsonl(jsonl_content)
+
+        # Should parse and apply 2 operations
+        mock_applier.apply_batch.assert_called_once()
+        operations = mock_applier.apply_batch.call_args[0][0]
+        assert len(operations) == 2
+        assert operations[0].op == "CREATE"
+        assert operations[1].op == "UPDATE"
+
+        # Should return result
+        assert result.success is True
+        assert result.operations_applied == 2
+
+    def test_handles_empty_jsonl(self):
+        """Should handle empty JSONL string."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True,
+            operations_applied=0,
+        )
+        mock_type_def_repo = Mock()
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        result = service.apply_mutations_from_jsonl("")
+
+        # Should call apply with empty list
+        mock_applier.apply_batch.assert_called_once_with([])
+        assert result.success is True
+        assert result.operations_applied == 0
+
+    def test_handles_whitespace_only_lines(self):
+        """Should ignore whitespace-only lines in JSONL."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True,
+            operations_applied=1,
+        )
+        mock_type_def_repo = Mock()
+
+        jsonl_content = """
+{"op":"CREATE","type":"node","id":"person:abc123def456789a","label":"Person","set_properties":{"slug":"alice","name":"Alice","data_source_id":"ds-123","source_path":"people/alice.md"}}
+
+"""
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        service.apply_mutations_from_jsonl(jsonl_content)
+
+        # Should parse only the valid line
+        operations = mock_applier.apply_batch.call_args[0][0]
+        assert len(operations) == 1
+        assert operations[0].op == "CREATE"
+
+    def test_returns_error_on_invalid_json(self):
+        """Should return error result for invalid JSON."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_type_def_repo = Mock()
+
+        jsonl_content = """{"op":"CREATE","type":"node" INVALID JSON"""
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        result = service.apply_mutations_from_jsonl(jsonl_content)
+
+        # Should return failure result
+        assert result.success is False
+        assert result.operations_applied == 0
+        assert len(result.errors) > 0
+        assert "JSON" in result.errors[0] or "parse" in result.errors[0].lower()
+
+    def test_returns_error_on_invalid_mutation_operation(self):
+        """Should return error result for invalid MutationOperation."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_type_def_repo = Mock()
+
+        # Missing required 'op' field
+        jsonl_content = """{"type":"node","id":"person:abc123def456789a"}"""
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        result = service.apply_mutations_from_jsonl(jsonl_content)
+
+        # Should return failure result
+        assert result.success is False
+        assert result.operations_applied == 0
+        assert len(result.errors) > 0

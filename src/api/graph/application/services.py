@@ -6,12 +6,21 @@ objects and repositories. They are the "front door" to the domain.
 
 from __future__ import annotations
 
+import json
+
 from graph.application.observability import (
     DefaultGraphServiceProbe,
     GraphServiceProbe,
 )
-from graph.domain.value_objects import EdgeRecord, NodeRecord, QueryResultRow
-from graph.ports.repositories import IGraphReadOnlyRepository
+from graph.domain.value_objects import (
+    EdgeRecord,
+    MutationOperation,
+    MutationResult,
+    NodeRecord,
+    QueryResultRow,
+)
+from graph.infrastructure.mutation_applier import MutationApplier
+from graph.ports.repositories import IGraphReadOnlyRepository, ITypeDefinitionRepository
 
 
 class GraphQueryService:
@@ -127,3 +136,107 @@ class GraphQueryService:
         results = self._repository.execute_raw_query(query)
         self._probe.raw_query_executed(query=query, result_count=len(results))
         return results
+
+
+class GraphMutationService:
+    """Application service for graph mutation operations.
+
+    This service orchestrates the application of mutations to the graph,
+    including handling DEFINE operations and delegating to the infrastructure
+    layer for actual database operations.
+    """
+
+    def __init__(
+        self,
+        mutation_applier: MutationApplier,
+        type_definition_repository: ITypeDefinitionRepository,
+        probe: GraphServiceProbe | None = None,
+    ):
+        """Initialize the service.
+
+        Args:
+            mutation_applier: Infrastructure component for applying mutations.
+            type_definition_repository: Repository for storing type definitions.
+            probe: Optional domain probe for observability.
+        """
+        self._mutation_applier = mutation_applier
+        self._type_definition_repository = type_definition_repository
+        self._probe = probe or DefaultGraphServiceProbe()
+
+    def apply_mutations(
+        self,
+        operations: list[MutationOperation],
+    ) -> MutationResult:
+        """Apply a batch of mutation operations.
+
+        DEFINE operations are stored in the type definition repository.
+        All operations are then delegated to the mutation applier for
+        execution in the correct order.
+
+        Args:
+            operations: List of mutation operations to apply.
+
+        Returns:
+            MutationResult with success status and operation count.
+        """
+        # Store DEFINE operations in the repository
+        for op in operations:
+            if op.op == "DEFINE":
+                type_def = op.to_type_definition()
+                self._type_definition_repository.save(type_def)
+
+        # Delegate to mutation applier
+        result = self._mutation_applier.apply_batch(operations)
+
+        # Emit probe event
+        self._probe.mutations_applied(
+            operations_applied=result.operations_applied,
+            success=result.success,
+        )
+
+        return result
+
+    def apply_mutations_from_jsonl(
+        self,
+        jsonl_content: str,
+    ) -> MutationResult:
+        """Parse JSONL content and apply mutations.
+
+        Each line in the JSONL should be a valid MutationOperation JSON object.
+        Empty lines and whitespace-only lines are ignored.
+
+        Args:
+            jsonl_content: JSONL string with one operation per line.
+
+        Returns:
+            MutationResult with success status and operation count.
+        """
+        try:
+            operations = []
+            for line in jsonl_content.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+
+                # Parse JSON line
+                operation_dict = json.loads(line)
+
+                # Create MutationOperation (Pydantic will validate)
+                operation = MutationOperation(**operation_dict)
+                operations.append(operation)
+
+            # Apply all parsed operations
+            return self.apply_mutations(operations)
+
+        except json.JSONDecodeError as e:
+            return MutationResult(
+                success=False,
+                operations_applied=0,
+                errors=[f"JSON parse error: {str(e)}"],
+            )
+        except Exception as e:
+            return MutationResult(
+                success=False,
+                operations_applied=0,
+                errors=[str(e)],
+            )

@@ -35,6 +35,8 @@ jobs:
 
       - name: Build with Astro
         run: npm run build
+        env:
+          PR_PREVIEW_PATH: /kartograph/pr-preview/pr-${{ github.event.number }}
 
       - name: Deploy PR Preview
         uses: rossjrw/pr-preview-action@v1

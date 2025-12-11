@@ -3,10 +3,21 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import mermaid from 'astro-mermaid';
 
+// Determine base path based on environment
+// - Local dev: /
+// - PR preview: /kartograph/pr-preview/pr-{number}
+// - Production: /kartograph
+const getBasePath = () => {
+	if (process.env.PR_PREVIEW_PATH) {
+		return process.env.PR_PREVIEW_PATH;
+	}
+	return process.env.CI ? '/kartograph' : '/';
+};
+
 // https://astro.build/config
 export default defineConfig({
 	site: 'https://openshift-hyperfleet.github.io',
-	base: process.env.CI ? '/kartograph' : '/',
+	base: getBasePath(),
 	integrations: [
 		mermaid({
 			theme: 'neutral',

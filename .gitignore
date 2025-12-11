@@ -146,3 +146,9 @@ cython_debug/
 # OS
 .DS_Store
 Thumbs.db
+
+# Starlight/Astro Documentation
+website/node_modules/
+website/dist/
+website/.astro/
+website/package-lock.json

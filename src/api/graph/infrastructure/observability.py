@@ -145,3 +145,67 @@ class DefaultGraphClientProbe:
             "graph_transaction_rolled_back",
             **self._get_context_kwargs(),
         )
+
+
+class MutationProbe(Protocol):
+    """Domain probe for mutation operation observability.
+
+    This probe captures domain-significant events related to graph
+    mutation operations (CREATE, UPDATE, DELETE, DEFINE).
+    """
+
+    def mutation_applied(
+        self,
+        operation: str,
+        entity_type: str,
+        entity_id: str | None,
+    ) -> None:
+        """Record that a mutation was successfully applied.
+
+        Args:
+            operation: The operation type (DEFINE, CREATE, UPDATE, DELETE)
+            entity_type: The entity type (node or edge)
+            entity_id: The entity ID (None for DEFINE operations)
+        """
+        ...
+
+    def with_context(self, context: ObservationContext) -> MutationProbe:
+        """Create a new probe with observation context bound."""
+        ...
+
+
+class DefaultMutationProbe:
+    """Default implementation of MutationProbe using structlog."""
+
+    def __init__(
+        self,
+        logger: structlog.stdlib.BoundLogger | None = None,
+        context: ObservationContext | None = None,
+    ):
+        self._logger = logger or structlog.get_logger()
+        self._context = context
+
+    def _get_context_kwargs(self) -> dict[str, Any]:
+        """Get context metadata as kwargs for logging."""
+        if self._context is None:
+            return {}
+        return self._context.as_dict()
+
+    def with_context(self, context: ObservationContext) -> DefaultMutationProbe:
+        """Create a new probe with observation context bound."""
+        return DefaultMutationProbe(logger=self._logger, context=context)
+
+    def mutation_applied(
+        self,
+        operation: str,
+        entity_type: str,
+        entity_id: str | None,
+    ) -> None:
+        """Record that a mutation was successfully applied."""
+        self._logger.info(
+            "mutation_applied",
+            operation=operation,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            **self._get_context_kwargs(),
+        )

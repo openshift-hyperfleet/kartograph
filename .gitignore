@@ -5,6 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
+kartograph-ddd-draft.md
 
 # Distribution / packaging
 .Python
@@ -145,3 +146,8 @@ cython_debug/
 # OS
 .DS_Store
 Thumbs.db
+
+# Starlight/Astro Documentation
+website/node_modules/
+website/dist/
+website/.astro/

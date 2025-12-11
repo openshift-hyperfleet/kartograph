@@ -4,6 +4,7 @@ Tests that domain probes correctly capture domain events
 following the Domain Oriented Observability pattern.
 """
 
+from types import MappingProxyType
 from unittest.mock import MagicMock
 
 import structlog
@@ -234,7 +235,7 @@ class TestObservationContext:
             user_id="user-456",
             tenant_id="tenant-789",
             graph_name="test_graph",
-            extra={"custom": "value"},
+            extra=MappingProxyType({"custom": "value"}),
         )
         assert context.request_id == "req-123"
         assert context.user_id == "user-456"
@@ -255,7 +256,7 @@ class TestObservationContext:
         context = ObservationContext(
             request_id="req-123",
             user_id="user-456",
-            extra={"custom": "value"},
+            extra=MappingProxyType({"custom": "value"}),
         )
         result = context.as_dict()
         assert result == {
@@ -276,7 +277,9 @@ class TestObservationContext:
 
     def test_with_extra_creates_new_context(self):
         """with_extra should return new context with additional metadata."""
-        original = ObservationContext(request_id="req-123", extra={"a": 1})
+        original = ObservationContext(
+            request_id="req-123", extra=MappingProxyType({"a": 1})
+        )
         new_context = original.with_extra(b=2, c=3)
 
         assert new_context is not original

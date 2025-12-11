@@ -20,7 +20,6 @@ bounded contexts:
 * **Responsibilities:**
     * User, Team, and Tenant management.
     * API Key lifecycle management.
-    * Acting as the internal Identity Provider (minting database-scoped tokens).
 
 2. Management
 * **Purpose:** The "Control Plane" for the platform. Manages metadata and configuration.

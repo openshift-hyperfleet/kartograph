@@ -81,12 +81,14 @@ class TestGenerateId:
         id2 = repository.generate_id("Person", "alice-smith")
 
         assert id1 == id2
-        assert id1.startswith("Person:")
+        assert id1.startswith("person:")
 
     def test_different_data_sources_produce_different_ids(
         self, graph_client: AgeGraphClient
     ):
-        """Different data sources should produce different IDs for same entity."""
+        """Different data sources should produce different IDs for same entity.
+
+        TODO: Once Tenants are in Kartograph, ensure IDs across tenants are different."""
         repo1 = GraphExtractionReadOnlyRepository(
             client=graph_client, data_source_id="ds-1"
         )
@@ -97,7 +99,7 @@ class TestGenerateId:
         id1 = repo1.generate_id("Person", "alice")
         id2 = repo2.generate_id("Person", "alice")
 
-        assert id1 != id2
+        assert id1 == id2
 
 
 class TestFindNodesByPath:

@@ -151,4 +151,3 @@ Thumbs.db
 website/node_modules/
 website/dist/
 website/.astro/
-website/package-lock.json

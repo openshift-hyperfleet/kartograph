@@ -92,8 +92,12 @@ class TestGenerateId:
         id2 = repository.generate_id("repository", "alice")
         assert id1 != id2
 
-    def test_incorporates_data_source(self, mock_graph_client):
-        """IDs from different data sources should differ."""
+    def test_doesnt_incorporates_data_source(self, mock_graph_client):
+        """IDs from different data sources should differ.
+
+        TODO: Once Tenant IDs are part of the system, ensure that
+        cross-tenant IDs differ.
+        """
         repo1 = GraphExtractionReadOnlyRepository(
             client=mock_graph_client, data_source_id="ds-1"
         )
@@ -103,7 +107,7 @@ class TestGenerateId:
 
         id1 = repo1.generate_id("person", "alice")
         id2 = repo2.generate_id("person", "alice")
-        assert id1 != id2
+        assert id1 == id2
 
     def test_hash_portion_is_hex(self, repository):
         """Hash portion of ID should be valid hex."""

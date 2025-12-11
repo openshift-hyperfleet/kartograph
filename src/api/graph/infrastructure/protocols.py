@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Iterator, Protocol, Sequence, Union
 
-from age.models import Edge, Path, Vertex
+from age.models import Edge, Path, Vertex  # type: ignore
 
 
 @dataclass(frozen=True)
@@ -59,6 +59,17 @@ class GraphConnectionProtocol(Protocol):
 class GraphTransactionProtocol(Protocol):
     """Protocol for graph database transactions."""
 
+    def execute_sql(self, sql: str) -> None:
+        """Execute raw SQL (not Cypher) within the transaction.
+
+        This is used for PostgreSQL commands like SET LOCAL that need to
+        run directly on the connection, not wrapped in the cypher() function.
+
+        Args:
+            sql: Raw SQL statement to execute.
+        """
+        ...
+
     def execute_cypher(
         self,
         query: str,
@@ -84,7 +95,7 @@ class GraphQueryExecutorProtocol(Protocol):
         query: str,
         parameters: dict[str, Any] | None = None,
     ) -> CypherResult:
-        """Execute a Cypher query.
+        """Execute a Cypher query in autocommit mode.
 
         Args:
             query: The Cypher query string (without the cypher() wrapper).

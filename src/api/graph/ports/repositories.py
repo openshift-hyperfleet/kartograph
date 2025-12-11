@@ -9,7 +9,12 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from graph.domain.value_objects import EdgeRecord, NodeRecord, QueryResultRow
+from graph.domain.value_objects import (
+    EdgeRecord,
+    NodeRecord,
+    QueryResultRow,
+    TypeDefinition,
+)
 
 
 @runtime_checkable
@@ -115,5 +120,59 @@ class IGraphReadOnlyRepository(Protocol):
 
         Raises:
             GraphQueryError: If the query fails or violates safeguards.
+        """
+        ...
+
+
+@runtime_checkable
+class ITypeDefinitionRepository(Protocol):
+    """Repository for storing and retrieving type definitions.
+
+    Type definitions are created from DEFINE operations and used to
+    validate CREATE operations. This protocol enables swappable storage
+    implementations (in-memory, database, etc.).
+    """
+
+    def save(self, type_def: TypeDefinition) -> None:
+        """Save a type definition.
+
+        Args:
+            type_def: The type definition to save
+
+        Note:
+            If a definition with the same label and entity_type already exists,
+            it should be replaced.
+        """
+        ...
+
+    def get(self, label: str, entity_type: str) -> TypeDefinition | None:
+        """Retrieve a type definition by label and entity type.
+
+        Args:
+            label: The type label (e.g., "Person", "KNOWS")
+            entity_type: Either "node" or "edge"
+
+        Returns:
+            The type definition if found, None otherwise
+        """
+        ...
+
+    def get_all(self) -> list[TypeDefinition]:
+        """Get all stored type definitions.
+
+        Returns:
+            List of all type definitions
+        """
+        ...
+
+    def delete(self, label: str, entity_type: str) -> bool:
+        """Delete a type definition.
+
+        Args:
+            label: The type label
+            entity_type: Either "node" or "edge"
+
+        Returns:
+            True if deleted, False if not found
         """
         ...

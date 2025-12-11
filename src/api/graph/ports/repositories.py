@@ -11,6 +11,8 @@ from typing import Protocol, runtime_checkable
 
 from graph.domain.value_objects import (
     EdgeRecord,
+    MutationOperation,
+    MutationResult,
     NodeRecord,
     QueryResultRow,
     TypeDefinition,
@@ -174,5 +176,32 @@ class ITypeDefinitionRepository(Protocol):
 
         Returns:
             True if deleted, False if not found
+        """
+        ...
+
+
+@runtime_checkable
+class IMutationApplier(Protocol):
+    """Interface for applying mutation operations to the graph database.
+
+    This protocol defines the contract for components that execute
+    mutation operations. The application layer depends on this interface
+    rather than concrete infrastructure implementations.
+    """
+
+    def apply_batch(
+        self,
+        operations: list[MutationOperation],
+    ) -> MutationResult:
+        """Apply a batch of mutations atomically.
+
+        All operations are executed within a single transaction. If any operation
+        fails, the entire batch is rolled back.
+
+        Args:
+            operations: List of mutation operations to apply
+
+        Returns:
+            MutationResult with success status and operation count
         """
         ...

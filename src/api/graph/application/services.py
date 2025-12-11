@@ -19,8 +19,11 @@ from graph.domain.value_objects import (
     NodeRecord,
     QueryResultRow,
 )
-from graph.infrastructure.mutation_applier import MutationApplier
-from graph.ports.repositories import IGraphReadOnlyRepository, ITypeDefinitionRepository
+from graph.ports.repositories import (
+    IGraphReadOnlyRepository,
+    IMutationApplier,
+    ITypeDefinitionRepository,
+)
 
 
 class GraphQueryService:
@@ -148,14 +151,14 @@ class GraphMutationService:
 
     def __init__(
         self,
-        mutation_applier: MutationApplier,
+        mutation_applier: IMutationApplier,
         type_definition_repository: ITypeDefinitionRepository,
         probe: GraphServiceProbe | None = None,
     ):
         """Initialize the service.
 
         Args:
-            mutation_applier: Infrastructure component for applying mutations.
+            mutation_applier: Component for applying mutations to the database.
             type_definition_repository: Repository for storing type definitions.
             probe: Optional domain probe for observability.
         """

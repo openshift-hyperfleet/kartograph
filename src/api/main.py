@@ -3,9 +3,15 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
 
-from graph.application.services import GraphQueryService
+from graph.application.services import GraphMutationService, GraphQueryService
 from graph.infrastructure.age_client import AgeGraphClient
 from graph.infrastructure.graph_repository import GraphExtractionReadOnlyRepository
+from graph.infrastructure.mutation_applier import MutationApplier
+from graph.infrastructure.type_definition_repository import (
+    InMemoryTypeDefinitionRepository,
+)
+from graph.ports.repositories import ITypeDefinitionRepository
+from graph.presentation import routes as graph_routes
 from infrastructure.settings import get_database_settings
 
 app = FastAPI()
@@ -35,6 +41,48 @@ def get_graph_query_service(
         data_source_id="default",  # TODO: Derive from request context
     )
     return GraphQueryService(repository=repository)
+
+
+@lru_cache
+def get_mutation_applier(
+    client: Annotated[AgeGraphClient, Depends(get_graph_client)],
+) -> MutationApplier:
+    """Get a cached MutationApplier instance."""
+    if not client.is_connected():
+        client.connect()
+
+    return MutationApplier(client=client)
+
+
+@lru_cache
+def get_type_definition_repository() -> ITypeDefinitionRepository:
+    """Get a cached TypeDefinitionRepository instance.
+
+    Uses InMemoryTypeDefinitionRepository as MVP implementation.
+    This will be replaced with a persistent repository in future iterations.
+    """
+    return InMemoryTypeDefinitionRepository()
+
+
+def get_graph_mutation_service(
+    applier: Annotated[MutationApplier, Depends(get_mutation_applier)],
+    type_def_repo: Annotated[
+        ITypeDefinitionRepository, Depends(get_type_definition_repository)
+    ],
+) -> GraphMutationService:
+    """Get a GraphMutationService instance."""
+    return GraphMutationService(
+        mutation_applier=applier,
+        type_definition_repository=type_def_repo,
+    )
+
+
+# Include Graph bounded context routes
+app.include_router(graph_routes.router)
+
+# Override Graph route dependency injection
+app.dependency_overrides[graph_routes.get_query_service] = get_graph_query_service
+app.dependency_overrides[graph_routes.get_mutation_service] = get_graph_mutation_service
 
 
 @app.get("/health")

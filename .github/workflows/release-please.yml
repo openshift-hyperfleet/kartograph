@@ -27,7 +27,7 @@ jobs:
       - name: Enable Pull Request Automerge
         if: ${{ steps.release.outputs.pr }}
         run: |
-          PR_NUMBER=$(echo '${{ steps.release.outputs.pr }}' | jq -r '.number')
+          PR_NUMBER="${{ steps.release.outputs.pr }}"
           gh pr merge --auto --squash --delete-branch "$PR_NUMBER"
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN_CLASSIC }}

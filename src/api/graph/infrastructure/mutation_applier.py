@@ -76,7 +76,8 @@ class MutationApplier:
             with self._client.transaction() as tx:
                 for op in sorted_ops:
                     query = self._build_query(op)
-                    tx.execute_cypher(query)
+                    if query is not None:
+                        tx.execute_cypher(query)
                     self._probe.mutation_applied(
                         operation=op.op,
                         entity_type=op.type,
@@ -139,7 +140,7 @@ class MutationApplier:
 
         return sorted(operations, key=sort_key)
 
-    def _build_query(self, op: MutationOperation) -> str:
+    def _build_query(self, op: MutationOperation) -> str | None:
         """Build Cypher query for mutation operation.
 
         Args:
@@ -160,7 +161,7 @@ class MutationApplier:
         elif op.op == "DEFINE":
             # DEFINE operations don't modify the database, they just define schemas
             # For now, we skip them (they'll be handled by the TypeDefinitionRepository)
-            return "// DEFINE operation - no database changes"
+            return None
         else:
             raise ValueError(f"Unknown operation: {op.op}")
 

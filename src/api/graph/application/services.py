@@ -173,12 +173,89 @@ class GraphMutationService:
         All operations are then delegated to the mutation applier for
         execution in the correct order.
 
+        Validates that CREATE operations have corresponding type definitions.
+
         Args:
             operations: List of mutation operations to apply.
 
         Returns:
             MutationResult with success status and operation count.
         """
+        # Collect DEFINE operations from this batch
+        defines_in_batch = {
+            (op.label, op.type)
+            for op in operations
+            if op.op == "DEFINE" and op.label is not None
+        }
+
+        # Validate CREATE operations have type definitions and required properties
+        for op in operations:
+            if op.op == "CREATE" and op.label is not None:
+                # Check if type is defined in this batch or in repository
+                is_defined_in_batch = (op.label, op.type) in defines_in_batch
+                type_def = self._type_definition_repository.get(op.label, op.type)
+
+                if not is_defined_in_batch and type_def is None:
+                    error_msg = (
+                        f"Type '{op.label}' for {op.type} is not defined. "
+                        f"CREATE operations require a prior DEFINE operation."
+                    )
+                    return MutationResult(
+                        success=False,
+                        operations_applied=0,
+                        errors=[error_msg],
+                    )
+
+                # Validate required properties if type definition exists in repository
+                if type_def is not None:
+                    provided_props = set(
+                        op.set_properties.keys() if op.set_properties else []
+                    )
+                    required_props = set(type_def.required_properties)
+                    missing_props = required_props - provided_props
+
+                    if missing_props:
+                        error_msg = (
+                            f"CREATE operation for {op.type} '{op.label}' is missing "
+                            f"required properties: {', '.join(sorted(missing_props))}"
+                        )
+                        return MutationResult(
+                            success=False,
+                            operations_applied=0,
+                            errors=[error_msg],
+                        )
+
+                # Validate required properties for types defined in current batch
+                if is_defined_in_batch and type_def is None:
+                    # Find the DEFINE operation in the current batch
+                    define_op = next(
+                        (
+                            o
+                            for o in operations
+                            if o.op == "DEFINE"
+                            and o.label == op.label
+                            and o.type == op.type
+                        ),
+                        None,
+                    )
+                    if define_op and define_op.required_properties:
+                        provided_props = set(
+                            op.set_properties.keys() if op.set_properties else []
+                        )
+                        required_props = set(define_op.required_properties)
+                        missing_props = required_props - provided_props
+
+                        if missing_props:
+                            error_msg = (
+                                f"CREATE operation for {op.type} '{op.label}' is missing "
+                                f"required properties: {', '.join(sorted(missing_props))}"
+                            )
+                            return MutationResult(
+                                success=False,
+                                operations_applied=0,
+                                errors=[error_msg],
+                            )
+
         # Store DEFINE operations in the repository
         for op in operations:
             if op.op == "DEFINE":

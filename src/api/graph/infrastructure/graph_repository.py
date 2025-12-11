@@ -74,21 +74,29 @@ class GraphExtractionReadOnlyRepository:
         with the entity type and slug to produce a stable, reproducible
         identifier using SHA256 hashing.
 
+        The entity_type is normalized to lowercase for the ID prefix, ensuring
+        consistent IDs regardless of input casing. This supports the secure
+        enclave pattern where IDs and types are visible metadata, while all
+        sensitive information resides in properties.
+
         Args:
             entity_type: The type of entity (e.g., "Person", "Repository").
             entity_slug: The entity's slug (e.g., "alice-smith").
 
         Returns:
-            A deterministic ID string (e.g., "Person:abc123def").
+            A deterministic ID string with lowercase prefix (e.g., "person:abc123def").
 
         Example:
             id1 = repo.generate_id("Person", "alice-smith")
-            id2 = repo.generate_id("Person", "alice-smith")
-            assert id1 == id2  # Same inputs always produce same ID
+            id2 = repo.generate_id("person", "alice-smith")
+            assert id1 == id2  # Normalized to same ID: "person:..."
         """
-        combined = f"{self._data_source_id}:{entity_type}:{entity_slug}"
+        # Normalize to lowercase for consistent hashing and ID format
+        normalized_type = entity_type.lower()
+        tenant_id = ":"  # TODO: Include tenant_id in id generation
+        combined = f"{tenant_id}{normalized_type}:{entity_slug}"
         hash_value = hashlib.sha256(combined.encode()).hexdigest()[:16]
-        return f"{entity_type}:{hash_value}"
+        return f"{normalized_type}:{hash_value}"
 
     def find_nodes_by_path(
         self,

@@ -182,15 +182,15 @@ class MutationApplier:
 
             return f"MERGE (n:{op.label} {{id: '{op.id}'}}) " + " ".join(set_clauses)
         else:  # edge
-            # MERGE on id, match start/end nodes, set properties
+            # MERGE on id, match source/target nodes, set properties
             set_clauses = []
             for k, v in (op.set_properties or {}).items():
                 set_clauses.append(f"SET r.{k} = {self._format_value(v)}")
 
             return (
-                f"MATCH (start {{id: '{op.start_id}'}}) "
-                f"MATCH (end {{id: '{op.end_id}'}}) "
-                f"MERGE (start)-[r:{op.label} {{id: '{op.id}'}}]->(end) "
+                f"MATCH (source {{id: '{op.start_id}'}}) "
+                f"MATCH (target {{id: '{op.end_id}'}}) "
+                f"MERGE (source)-[r:{op.label} {{id: '{op.id}'}}]->(target) "
                 + " ".join(set_clauses)
             )
 
@@ -238,8 +238,10 @@ class MutationApplier:
             Formatted string for Cypher query
         """
         if isinstance(value, str):
+            # Escape backslashes
+            escaped = value.replace("\\", "\\\\")
             # Escape single quotes in strings
-            escaped = value.replace("'", "\\'")
+            escaped = escaped.replace("'", "\\'")
             return f"'{escaped}'"
         elif isinstance(value, bool):
             return "true" if value else "false"

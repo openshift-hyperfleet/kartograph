@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.3](https://github.com/openshift-hyperfleet/kartograph/compare/v0.2.2...v0.2.3) (2025-12-12)
+
+
+### Bug Fixes
+
+* **docs:** hotfix quickstart link ([25044e9](https://github.com/openshift-hyperfleet/kartograph/commit/25044e97d5ee31ad5839a76226b0224af4623487))
+
+
+### Documentation
+
+* add documentation link to README ([#35](https://github.com/openshift-hyperfleet/kartograph/issues/35)) ([775a294](https://github.com/openshift-hyperfleet/kartograph/commit/775a2943f7e6137c27aade46310ff40d84f898fe))
+
 ## [0.2.2](https://github.com/openshift-hyperfleet/kartograph/compare/v0.2.1...v0.2.2) (2025-12-12)
 
 

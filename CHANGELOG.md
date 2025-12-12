@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.2](https://github.com/openshift-hyperfleet/kartograph/compare/v0.2.1...v0.2.2) (2025-12-12)
+
+
+### Bug Fixes
+
+* **api.graph:** Resolve CREATE operation failures in mutation applier ([#31](https://github.com/openshift-hyperfleet/kartograph/issues/31)) ([e114518](https://github.com/openshift-hyperfleet/kartograph/commit/e114518039938b9a8dbc7fa475ac9c8be90bf7ac))
+
+
+### Documentation
+
+* Add link to JSON schema viewer. ([#32](https://github.com/openshift-hyperfleet/kartograph/issues/32)) ([0958bdf](https://github.com/openshift-hyperfleet/kartograph/commit/0958bdf21936589a3cf2768edc9b2e4a8bc17aa8))
+
 ## [0.2.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.2.0...v0.2.1) (2025-12-12)
 
 

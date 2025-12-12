@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.2.0...v0.2.1) (2025-12-12)
+
+
+### Bug Fixes
+
+* **ci:** Parse JSON output from release-please v4 action ([#29](https://github.com/openshift-hyperfleet/kartograph/issues/29)) ([41e448c](https://github.com/openshift-hyperfleet/kartograph/commit/41e448c5cdadab5ea6e025275c2f96190838ad5d))
+
+
+### Documentation
+
+* Don't put behind /kartograph by default ([b7bb54b](https://github.com/openshift-hyperfleet/kartograph/commit/b7bb54b306b0c974978583a612ba822e37561c0c))
+
 ## [0.2.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.1.3...v0.2.0) (2025-12-09)
 
 

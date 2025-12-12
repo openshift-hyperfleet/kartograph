@@ -175,9 +175,9 @@ class AgeGraphClient(GraphClientProtocol):
         # between the two $'s.
         tag = f"${nonce}$"
 
-        return f"""
-            SELECT * FROM cypher('{graph_name}', {tag} {query} {tag}) AS (result agtype)
-        """
+        return f"""\
+SELECT * FROM cypher('{graph_name}', {tag} {query} {tag}) AS (result agtype)\
+"""
 
     def _build_cypher_sql(self, query: str) -> str:
         return self.build_secure_cypher_sql(graph_name=self.graph_name, query=query)

@@ -9,7 +9,7 @@ All mutation operations follow a strict JSON schema. This ensures consistency an
 
 ## Schema Location
 
-The complete JSON Schema is available at: jsell:TODO:<add link to json schema viewer>
+The complete JSON Schema can be visualized [using the Atlassian JSON Schema Viewer](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fopenshift-hyperfleet%2Fkartograph%2Frefs%2Fheads%2Fmain%2Fwebsite%2Fsrc%2Fcontent%2Fdocs%2Freference%2Fmutation-operation-schema.json).
 
 ## Operation Types
 
@@ -89,7 +89,8 @@ All node and edge CREATEs must include:
 
 ## Validation
 
-jsell:TODO:<add link to json schema viewer>
+You can live-edit JSON objects with schema validation using
+the [Atlassian JSON Schema Viewer](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fopenshift-hyperfleet%2Fkartograph%2Frefs%2Fheads%2Fmain%2Fwebsite%2Fsrc%2Fcontent%2Fdocs%2Freference%2Fmutation-operation-schema.json).
 
 ## Next Steps
 

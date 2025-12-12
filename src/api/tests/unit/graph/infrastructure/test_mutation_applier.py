@@ -55,10 +55,12 @@ class TestMutationApplierQueryBuilding:
         applier = MutationApplier(client=Mock())
         query = applier._build_query(mutation)
 
-        # Should match start/end nodes and MERGE the relationship
-        assert "MATCH (start {id: 'person:abc123def456789a'})" in query
-        assert "MATCH (end {id: 'person:def456abc123789a'})" in query
-        assert "MERGE (start)-[r:KNOWS {id: 'knows:abc123def456789a'}]->(end)" in query
+        # Should match source/target nodes and MERGE the relationship
+        assert "MATCH (source {id: 'person:abc123def456789a'})" in query
+        assert "MATCH (target {id: 'person:def456abc123789a'})" in query
+        assert (
+            "MERGE (source)-[r:KNOWS {id: 'knows:abc123def456789a'}]->(target)" in query
+        )
         assert "SET r.since = 2020" in query
         assert "SET r.data_source_id = 'ds-123'" in query
 

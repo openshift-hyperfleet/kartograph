@@ -125,7 +125,7 @@ class TestApplyMutationsRoute:
 
         response = test_client.post("/graph/mutations", json=request_data)
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     def test_apply_empty_mutations_list(self, test_client, mock_mutation_service):
         """Should handle empty mutations list."""

@@ -356,7 +356,6 @@ class _AgeTransaction:
         try:
             with self._connection.cursor() as cursor:
                 sql = self._sql_builder(query)
-                print(f'"{sql}"')
 
                 cursor.execute(sql)
                 rows = cursor.fetchall()

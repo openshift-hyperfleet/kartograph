@@ -11,7 +11,7 @@ const getBasePath = () => {
 	if (process.env.PR_PREVIEW_PATH) {
 		return process.env.PR_PREVIEW_PATH;
 	}
-	return '/';
+	return process.env.CI ? '/kartograph/' : '/';
 };
 
 // https://astro.build/config

@@ -239,7 +239,6 @@ class MutationApplier:
         """
         if isinstance(value, str):
             # Escape backslashes
-            escaped = value.replace(r"\\", r"\\\\")
             # Escape single quotes in strings
             escaped = value.replace("'", "\\'")
             return f"'{escaped}'"

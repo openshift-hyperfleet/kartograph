@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from graph.infrastructure.protocols import NodeNeighborsResult
+from graph.ports.protocols import NodeNeighborsResult
 from graph.application.observability import (
     DefaultGraphServiceProbe,
     GraphServiceProbe,

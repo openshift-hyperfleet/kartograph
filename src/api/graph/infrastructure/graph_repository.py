@@ -16,7 +16,7 @@ from age.models import Vertex as AgeVertex
 
 from graph.ports.repositories import IGraphReadOnlyRepository
 from graph.domain.value_objects import EdgeRecord, NodeRecord, QueryResultRow
-from graph.infrastructure.protocols import GraphClientProtocol, NodeNeighborsResult
+from graph.ports.protocols import GraphClientProtocol, NodeNeighborsResult
 from infrastructure.database.exceptions import GraphQueryError
 
 if TYPE_CHECKING:
@@ -169,8 +169,9 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
     ) -> NodeNeighborsResult:
         """Get all neighboring nodes and connecting edges."""
         query = f"""\
-MATCH (n {{id: '{node_id}', data_source_id: '{self._data_source_id}'}})-[r]-(m)
-WHERE m.data_source_id = '{self._data_source_id}'
+MATCH (n {{id: '{node_id}', data_source_id: '{self._data_source_id}'}})
+OPTIONAL MATCH (n)-[r]-(m)
+WHERE m.data_source_id = '{self._data_source_id}' OR m IS NULL
 RETURN {{central_node: n, neighbor: m, relationship: r}}\
 """
         result = self._client.execute_cypher(query)
@@ -180,15 +181,11 @@ RETURN {{central_node: n, neighbor: m, relationship: r}}\
         central_node: NodeRecord | None = None
 
         for row in result.rows:
-            # row[0] is a dict: {"neighbor": Vertex, "relationship": Edge}
+            # row[0] is a dict: {"central_node": Vertex, "neighbor": Vertex | null, "relationship": Edge | null}
             if len(row) > 0 and isinstance(row[0], dict):
                 result_map = row[0]
 
-                # Extract neighbor
-                if "neighbor" in result_map and result_map["neighbor"] is not None:
-                    nodes.append(self._vertex_to_node_record(result_map["neighbor"]))
-
-                # Get central node details
+                # Get central node details (should be present in every row)
                 if (
                     "central_node" in result_map
                     and result_map["central_node"] is not None
@@ -197,7 +194,11 @@ RETURN {{central_node: n, neighbor: m, relationship: r}}\
                         result_map["central_node"]
                     )
 
-                # Extract relationship
+                # Extract neighbor (may be null if no neighbors)
+                if "neighbor" in result_map and result_map["neighbor"] is not None:
+                    nodes.append(self._vertex_to_node_record(result_map["neighbor"]))
+
+                # Extract relationship (may be null if no neighbors)
                 if (
                     "relationship" in result_map
                     and result_map["relationship"] is not None

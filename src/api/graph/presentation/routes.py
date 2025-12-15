@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from graph.infrastructure.protocols import NodeNeighborsResult
+from graph.ports.protocols import NodeNeighborsResult
 from graph.application.services import GraphMutationService, GraphQueryService
 from graph.domain.value_objects import MutationOperation, MutationResult
 

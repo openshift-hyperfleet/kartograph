@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from graph.infrastructure.protocols import NodeNeighborsResult
+from graph.ports.protocols import NodeNeighborsResult
 from graph.domain.value_objects import (
     EdgeRecord,
     MutationOperation,

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 
 from graph.infrastructure.graph_repository import GraphExtractionReadOnlyRepository
-from graph.infrastructure.protocols import CypherResult, GraphClientProtocol
+from graph.ports.protocols import CypherResult, GraphClientProtocol
 from graph.ports.repositories import IGraphReadOnlyRepository
 
 
@@ -205,15 +205,33 @@ class TestGetNeighbors:
 
     def test_returns_empty_when_no_neighbors(self, repository, mock_graph_client):
         """Should return empty lists when no neighbors found."""
-        mock_graph_client.execute_cypher.return_value = CypherResult(
-            rows=tuple(),
-            row_count=0,
+        from age.models import Vertex
+
+        # Mock a central node with no neighbors (OPTIONAL MATCH returns null for neighbor/relationship)
+        central_vertex = Vertex(
+            id=1,
+            label="Node",
+            properties={"id": "node:abc123", "data_source_id": "test-ds"},
         )
 
-        nodes, edges = repository.get_neighbors("node:abc123")
+        mock_graph_client.execute_cypher.return_value = CypherResult(
+            rows=(
+                (
+                    {
+                        "central_node": central_vertex,
+                        "neighbor": None,
+                        "relationship": None,
+                    },
+                ),
+            ),
+            row_count=1,
+        )
 
-        assert nodes == []
-        assert edges == []
+        result = repository.get_neighbors("node:abc123")
+
+        assert result.nodes == []
+        assert result.edges == []
+        assert result.central_node.properties["id"] == "node:abc123"
 
 
 class TestExecuteRawQuery:

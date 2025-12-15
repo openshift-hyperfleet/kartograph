@@ -217,16 +217,21 @@ class TestGetNeighbors:
         alice_id = alice_nodes[0].properties["id"]
 
         # Get Alice's neighbors
-        nodes, edges = repository_with_data.get_neighbors(alice_id)
+        result = repository_with_data.get_neighbors(alice_id)
+
+        # Should have central node
+        assert result.central_node.properties["id"] == alice_id
 
         # Should find Bob as neighbor
-        assert len(nodes) >= 1
-        bob = next((n for n in nodes if n.properties.get("slug") == "bob-jones"), None)
+        assert len(result.nodes) >= 1
+        bob = next(
+            (n for n in result.nodes if n.properties.get("slug") == "bob-jones"), None
+        )
         assert bob is not None
 
         # Should find KNOWS edge
-        assert len(edges) >= 1
-        knows_edge = next((e for e in edges if e.label == "KNOWS"), None)
+        assert len(result.edges) >= 1
+        knows_edge = next((e for e in result.edges if e.label == "KNOWS"), None)
         assert knows_edge is not None
         assert knows_edge.properties["since"] == 2020
 
@@ -249,10 +254,11 @@ class TestGetNeighbors:
             client=clean_graph, data_source_id="test-ds-integration"
         )
 
-        nodes, edges = repo.get_neighbors("person:isolated")
+        result = repo.get_neighbors("person:isolated")
 
-        assert nodes == []
-        assert edges == []
+        assert result.central_node.properties["id"] == "person:isolated"
+        assert result.nodes == []
+        assert result.edges == []
 
 
 class TestExecuteRawQuery:

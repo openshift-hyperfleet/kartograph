@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.2.5...v0.3.0) (2025-12-15)
+
+
+### Features
+
+* **api.query:** implement hello-world mcp server ([#47](https://github.com/openshift-hyperfleet/kartograph/issues/47)) ([bd6fc79](https://github.com/openshift-hyperfleet/kartograph/commit/bd6fc7934f9ff11ba2ab7287b154d9ceff7e3448))
+
 ## [0.2.5](https://github.com/openshift-hyperfleet/kartograph/compare/v0.2.4...v0.2.5) (2025-12-15)
 
 

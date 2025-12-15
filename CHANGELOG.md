@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.3.0...v0.3.1) (2025-12-15)
+
+
+### Documentation
+
+* add app version and last edit timestamp ([#49](https://github.com/openshift-hyperfleet/kartograph/issues/49)) ([8cf2002](https://github.com/openshift-hyperfleet/kartograph/commit/8cf20027fc275b2854fe7e6e112de47f4085de3b))
+
 ## [0.3.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.2.5...v0.3.0) (2025-12-15)
 
 

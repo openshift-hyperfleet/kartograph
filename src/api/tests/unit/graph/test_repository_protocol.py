@@ -1,6 +1,7 @@
 """Tests for Graph repository protocols."""
 
 from graph.domain.value_objects import EdgeRecord, NodeRecord
+from graph.ports.protocols import NodeNeighborsResult
 from graph.ports.repositories import IGraphReadOnlyRepository
 
 
@@ -22,10 +23,12 @@ class TestIGraphReadOnlyRepositoryProtocol:
             ) -> list[NodeRecord]:
                 return []
 
-            def get_neighbors(
-                self, node_id: str
-            ) -> tuple[list[NodeRecord], list[EdgeRecord]]:
-                return [], []
+            def get_neighbors(self, node_id: str) -> NodeNeighborsResult:
+                return NodeNeighborsResult(
+                    central_node=NodeRecord(id=node_id, label="Node", properties={}),
+                    nodes=[],
+                    edges=[],
+                )
 
             def generate_id(self, entity_type: str, entity_slug: str) -> str:
                 return ""
@@ -60,10 +63,12 @@ class TestIGraphReadOnlyRepositoryProtocol:
             ) -> list[NodeRecord]:
                 return []
 
-            def get_neighbors(
-                self, node_id: str
-            ) -> tuple[list[NodeRecord], list[EdgeRecord]]:
-                return [], []
+            def get_neighbors(self, node_id: str) -> NodeNeighborsResult:
+                return NodeNeighborsResult(
+                    central_node=NodeRecord(id=node_id, label="Node", properties={}),
+                    nodes=[],
+                    edges=[],
+                )
 
             def generate_id(self, entity_type: str, entity_slug: str) -> str:
                 return ""
@@ -88,10 +93,12 @@ class TestIGraphReadOnlyRepositoryProtocol:
             ) -> list[NodeRecord]:
                 return []
 
-            def get_neighbors(
-                self, node_id: str
-            ) -> tuple[list[NodeRecord], list[EdgeRecord]]:
-                return [], []
+            def get_neighbors(self, node_id: str) -> NodeNeighborsResult:
+                return NodeNeighborsResult(
+                    central_node=NodeRecord(id=node_id, label="Node", properties={}),
+                    nodes=[],
+                    edges=[],
+                )
 
             def execute_raw_query(self, query: str) -> list[dict]:
                 return []

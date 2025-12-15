@@ -29,8 +29,10 @@ export default defineConfig({
 			logo: {
 				src: './src/assets/kartograph-logo.png',
 			},
+			lastUpdated: true,
 			components: {
 				ThemeProvider: './src/components/ThemeProvider.astro',
+				SiteTitle: './src/components/SiteTitle.astro',
 			},
 			social: [
 				{

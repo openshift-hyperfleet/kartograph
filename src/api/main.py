@@ -13,9 +13,15 @@ from graph.infrastructure.type_definition_repository import (
 from graph.ports.repositories import ITypeDefinitionRepository
 from graph.presentation import routes as graph_routes
 from infrastructure.settings import get_database_settings
+from infrastructure.version import __version__
 from query.presentation.mcp import query_mcp_app
 
-app = FastAPI(lifespan=query_mcp_app.lifespan)
+app = FastAPI(
+    title="Kartograph API",
+    description="Enterprise-Ready Bi-Temporal Knowledge Graphs as a Service",
+    version=__version__,
+    lifespan=query_mcp_app.lifespan,
+)
 
 app.mount(path="/query", app=query_mcp_app)
 

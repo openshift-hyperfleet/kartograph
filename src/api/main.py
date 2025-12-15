@@ -13,8 +13,11 @@ from graph.infrastructure.type_definition_repository import (
 from graph.ports.repositories import ITypeDefinitionRepository
 from graph.presentation import routes as graph_routes
 from infrastructure.settings import get_database_settings
+from query.presentation.mcp import query_mcp_app
 
-app = FastAPI()
+app = FastAPI(lifespan=query_mcp_app.lifespan)
+
+app.mount(path="/query", app=query_mcp_app)
 
 
 @lru_cache

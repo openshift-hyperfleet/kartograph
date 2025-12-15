@@ -256,6 +256,18 @@ class TestGetNeighborsRoute:
 
     def test_get_neighbors_success(self, test_client, mock_query_service):
         """Should get neighbors and edges."""
+        from graph.ports.protocols import NodeNeighborsResult
+
+        mock_central_node = NodeRecord(
+            id="person:abc123def456789a",
+            label="Person",
+            properties={
+                "slug": "alice",
+                "name": "Alice",
+                "data_source_id": "ds-123",
+                "source_path": "people/alice.md",
+            },
+        )
         mock_neighbor_nodes = [
             NodeRecord(
                 id="person:def456abc123789a",
@@ -282,28 +294,47 @@ class TestGetNeighborsRoute:
             )
         ]
 
-        mock_query_service.get_neighbors.return_value = (
-            mock_neighbor_nodes,
-            mock_connecting_edges,
+        mock_query_service.get_neighbors.return_value = NodeNeighborsResult(
+            central_node=mock_central_node,
+            nodes=mock_neighbor_nodes,
+            edges=mock_connecting_edges,
         )
 
         response = test_client.get("/graph/nodes/person:abc123def456789a/neighbors")
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
+        assert "central_node" in data
         assert "nodes" in data
         assert "edges" in data
         assert len(data["nodes"]) == 1
         assert len(data["edges"]) == 1
         assert data["nodes"][0]["properties"]["slug"] == "bob"
+        assert data["central_node"]["id"] == "person:abc123def456789a"
 
     def test_get_neighbors_no_results(self, test_client, mock_query_service):
         """Should return empty arrays for isolated node."""
-        mock_query_service.get_neighbors.return_value = ([], [])
+        from graph.ports.protocols import NodeNeighborsResult
+
+        mock_central_node = NodeRecord(
+            id="person:isolated111111",
+            label="Person",
+            properties={
+                "slug": "isolated",
+                "data_source_id": "ds-123",
+            },
+        )
+
+        mock_query_service.get_neighbors.return_value = NodeNeighborsResult(
+            central_node=mock_central_node,
+            nodes=[],
+            edges=[],
+        )
 
         response = test_client.get("/graph/nodes/person:isolated111111/neighbors")
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
+        assert data["central_node"]["id"] == "person:isolated111111"
         assert data["nodes"] == []
         assert data["edges"] == []

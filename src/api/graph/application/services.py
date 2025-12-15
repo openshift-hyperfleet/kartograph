@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 
+from graph.infrastructure.protocols import NodeNeighborsResult
 from graph.application.observability import (
     DefaultGraphServiceProbe,
     GraphServiceProbe,
@@ -93,14 +94,14 @@ class GraphQueryService:
     def get_neighbors(
         self,
         node_id: str,
-    ) -> tuple[list[NodeRecord], list[EdgeRecord]]:
+    ) -> NodeNeighborsResult:
         """Get neighboring nodes and connecting edges.
 
         Args:
             node_id: The ID of the center node.
 
         Returns:
-            Tuple of (neighbor_nodes, connecting_edges).
+            NodeNeighborsResult
         """
         return self._repository.get_neighbors(node_id)
 

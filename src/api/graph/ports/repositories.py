@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from graph.infrastructure.protocols import NodeNeighborsResult
 from graph.domain.value_objects import (
     EdgeRecord,
     MutationOperation,
@@ -66,14 +67,15 @@ class IGraphReadOnlyRepository(Protocol):
     def get_neighbors(
         self,
         node_id: str,
-    ) -> tuple[list[NodeRecord], list[EdgeRecord]]:
+    ) -> NodeNeighborsResult:
         """Get all neighboring nodes and connecting edges.
 
         Args:
             node_id: The ID of the center node.
 
         Returns:
-            Tuple of (neighbor_nodes, connecting_edges).
+            A NodeNeighborsResult containing the center node details and all directly
+            connected nodes and edges.
         """
         ...
 

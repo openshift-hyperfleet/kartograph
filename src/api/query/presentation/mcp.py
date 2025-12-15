@@ -1,4 +1,7 @@
+from typing import Dict
+
 from fastmcp import FastMCP
+
 from infrastructure.settings import get_settings
 
 settings = get_settings()
@@ -9,5 +12,9 @@ query_mcp_app = mcp.http_app(path="/mcp")
 
 
 @mcp.tool
-def echo(input: str):
-    return {"response": input}
+def echo(text: str) -> Dict[str, str]:
+    """Echo the input text back to the caller.
+
+    Returns a dictionary containing the echoed text under the 'response' key.
+    """
+    return {"response": text}

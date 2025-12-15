@@ -12,6 +12,8 @@ from typing import Any, Iterator, Protocol, Sequence, Union
 
 from age.models import Edge, Path, Vertex  # type: ignore
 
+from graph.domain.value_objects import EdgeRecord, NodeRecord
+
 
 @dataclass(frozen=True)
 class CypherResult:
@@ -26,6 +28,15 @@ class CypherResult:
 
     rows: Sequence[tuple[Union[Vertex, Edge, Path, Any], ...]]
     row_count: int
+
+
+@dataclass(frozen=True)
+class NodeNeighborsResult:
+    """Container for a node neighbors query result."""
+
+    central_node: NodeRecord
+    nodes: Sequence[NodeRecord]
+    edges: Sequence[EdgeRecord]
 
 
 class GraphConnectionProtocol(Protocol):

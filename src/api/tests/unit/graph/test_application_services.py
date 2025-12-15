@@ -124,19 +124,24 @@ class TestGetNeighbors:
 
     def test_delegates_to_repository(self, service, mock_repository):
         """Service should delegate to repository."""
+        from graph.ports.protocols import NodeNeighborsResult
+
+        expected_central = NodeRecord(id="n1", label="Node", properties={})
         expected_nodes = [NodeRecord(id="n2", label="Other", properties={})]
         expected_edges = [
             EdgeRecord(
                 id="e1", label="KNOWS", start_id="n1", end_id="n2", properties={}
             )
         ]
-        mock_repository.get_neighbors.return_value = (expected_nodes, expected_edges)
+        expected_result = NodeNeighborsResult(
+            central_node=expected_central, nodes=expected_nodes, edges=expected_edges
+        )
+        mock_repository.get_neighbors.return_value = expected_result
 
-        nodes, edges = service.get_neighbors("n1")
+        result = service.get_neighbors("n1")
 
         mock_repository.get_neighbors.assert_called_once_with("n1")
-        assert nodes == expected_nodes
-        assert edges == expected_edges
+        assert result == expected_result
 
 
 class TestGenerateEntityId:

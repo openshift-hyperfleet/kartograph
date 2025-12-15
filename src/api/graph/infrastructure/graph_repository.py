@@ -14,15 +14,16 @@ from typing import TYPE_CHECKING
 from age.models import Edge as AgeEdge  # type: ignore
 from age.models import Vertex as AgeVertex
 
+from graph.ports.repositories import IGraphReadOnlyRepository
 from graph.domain.value_objects import EdgeRecord, NodeRecord, QueryResultRow
-from graph.infrastructure.protocols import GraphClientProtocol
+from graph.ports.protocols import GraphClientProtocol, NodeNeighborsResult
 from infrastructure.database.exceptions import GraphQueryError
 
 if TYPE_CHECKING:
     pass
 
 
-class GraphExtractionReadOnlyRepository:
+class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
     """Read-only repository for the Extraction bounded context.
 
     This repository provides the Claude Agent SDK with tools to query existing
@@ -165,35 +166,49 @@ class GraphExtractionReadOnlyRepository:
     def get_neighbors(
         self,
         node_id: str,
-    ) -> tuple[list[NodeRecord], list[EdgeRecord]]:
+    ) -> NodeNeighborsResult:
         """Get all neighboring nodes and connecting edges."""
-        query = f"""
-            MATCH (n {{id: '{node_id}', data_source_id: '{self._data_source_id}'}})-[r]-(m)
-            WHERE m.data_source_id = '{self._data_source_id}'
-            RETURN {{neighbor: m, relationship: r}}
-        """
+        query = f"""\
+MATCH (n {{id: '{node_id}', data_source_id: '{self._data_source_id}'}})
+OPTIONAL MATCH (n)-[r]-(m)
+WHERE m.data_source_id = '{self._data_source_id}' OR m IS NULL
+RETURN {{central_node: n, neighbor: m, relationship: r}}\
+"""
         result = self._client.execute_cypher(query)
 
         nodes: list[NodeRecord] = []
         edges: list[EdgeRecord] = []
+        central_node: NodeRecord | None = None
 
         for row in result.rows:
-            # row[0] is a dict: {"neighbor": Vertex, "relationship": Edge}
+            # row[0] is a dict: {"central_node": Vertex, "neighbor": Vertex | null, "relationship": Edge | null}
             if len(row) > 0 and isinstance(row[0], dict):
                 result_map = row[0]
 
-                # Extract neighbor
+                # Get central node details (should be present in every row)
+                if (
+                    "central_node" in result_map
+                    and result_map["central_node"] is not None
+                ):
+                    central_node = self._vertex_to_node_record(
+                        result_map["central_node"]
+                    )
+
+                # Extract neighbor (may be null if no neighbors)
                 if "neighbor" in result_map and result_map["neighbor"] is not None:
                     nodes.append(self._vertex_to_node_record(result_map["neighbor"]))
 
-                # Extract relationship
+                # Extract relationship (may be null if no neighbors)
                 if (
                     "relationship" in result_map
                     and result_map["relationship"] is not None
                 ):
                     edges.append(self._edge_to_edge_record(result_map["relationship"]))
 
-        return nodes, edges
+        if central_node is None:
+            raise GraphQueryError("Cannot find central node details.", query=query)
+
+        return NodeNeighborsResult(central_node=central_node, edges=edges, nodes=nodes)
 
     def execute_raw_query(
         self,

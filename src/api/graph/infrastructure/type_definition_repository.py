@@ -10,10 +10,11 @@ separation of concerns via the repository protocol.
 
 from __future__ import annotations
 
+from graph.ports.repositories import ITypeDefinitionRepository
 from graph.domain.value_objects import TypeDefinition
 
 
-class InMemoryTypeDefinitionRepository:
+class InMemoryTypeDefinitionRepository(ITypeDefinitionRepository):
     """In-memory storage for type definitions.
 
     Stores type definitions in a dictionary keyed by (label, entity_type).

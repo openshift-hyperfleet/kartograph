@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 
 from graph.application.services import GraphMutationService, GraphQueryService
 from graph.infrastructure.age_client import AgeGraphClient
@@ -27,18 +27,15 @@ def get_graph_client() -> AgeGraphClient:
 
 def get_graph_query_service(
     client: Annotated[AgeGraphClient, Depends(get_graph_client)],
+    data_source_id: str = Query(...),
 ) -> GraphQueryService:
-    """Get a GraphQueryService instance.
-
-    Note: data_source_id is hardcoded for now - will be derived from
-    request context in future iterations.
-    """
+    """Get a GraphQueryService instance."""
     if not client.is_connected():
         client.connect()
 
     repository = GraphExtractionReadOnlyRepository(
         client=client,
-        data_source_id="default",  # TODO: Derive from request context
+        data_source_id=data_source_id,
     )
     return GraphQueryService(repository=repository)
 
@@ -117,46 +114,7 @@ def health_db(
         }
 
 
-@app.post("/nodes", status_code=status.HTTP_201_CREATED)
-def create_nodes(
-    client: Annotated[AgeGraphClient, Depends(get_graph_client)],
-    count: int = 1,
-) -> dict:
-    """Create N nodes in the graph.
-
-    Args:
-        count: Number of nodes to create (default: 1)
-
-    Returns:
-        Dictionary with count of nodes created
-
-    Raises:
-        HTTPException: If count is invalid (<= 0)
-    """
-    if count <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Count must be greater than 0",
-        )
-
-    try:
-        if not client.is_connected():
-            client.connect()
-
-        # Create nodes with a simple label and incrementing id property
-        for i in range(count):
-            query = f"CREATE (n:Node {{id: {i}}})"
-            client.execute_cypher(query)
-
-        return {"count": count}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create nodes: {e}",
-        ) from e
-
-
-@app.get("/nodes")
+@app.get("/util/nodes")
 def get_nodes(
     service: Annotated[GraphQueryService, Depends(get_graph_query_service)],
 ) -> dict:
@@ -182,7 +140,7 @@ def get_nodes(
         ) from e
 
 
-@app.delete("/nodes")
+@app.delete("/util/nodes")
 def delete_nodes(
     client: Annotated[AgeGraphClient, Depends(get_graph_client)],
 ) -> dict:
@@ -209,4 +167,34 @@ def delete_nodes(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete nodes: {e}",
+        ) from e
+
+
+@app.delete("/util/edges")
+def delete_edges(
+    client: Annotated[AgeGraphClient, Depends(get_graph_client)],
+) -> dict:
+    """Delete all edges in the graph.
+
+    Returns:
+        Dictionary with count of deleted edges
+    """
+    try:
+        if not client.is_connected():
+            client.connect()
+
+        # First count the edges
+        count_query = "MATCH ()-[r]-() RETURN count(r)"
+        count_result = client.execute_cypher(count_query)
+        deleted_count = int(count_result.rows[0][0]) if count_result.rows else 0
+
+        # Delete all edges
+        delete_query = "MATCH ()-[r]-() DELETE r"
+        client.execute_cypher(delete_query)
+
+        return {"deleted": deleted_count}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete edges: {e}",
         ) from e

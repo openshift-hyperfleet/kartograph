@@ -7,8 +7,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from graph.ports.protocols import NodeNeighborsResult
 from graph.application.services import GraphMutationService, GraphQueryService
 from graph.domain.value_objects import MutationOperation, MutationResult
 
@@ -17,7 +18,9 @@ router = APIRouter(prefix="/graph", tags=["graph"])
 
 # Dependency injection placeholders
 # These will be overridden in main.py or in tests
-def get_query_service() -> GraphQueryService:
+def get_query_service(
+    data_source_id: str = Query(...),
+) -> GraphQueryService:
     """Get GraphQueryService instance.
 
     This is a placeholder that will be overridden by dependency injection
@@ -131,7 +134,7 @@ async def find_by_slug(
 async def get_neighbors(
     node_id: str,
     service: GraphQueryService = Depends(get_query_service),
-) -> dict[str, Any]:
+) -> NodeNeighborsResult:
     """Get neighboring nodes and connecting edges.
 
     Path parameter:
@@ -143,8 +146,6 @@ async def get_neighbors(
             "edges": [...]
         }
     """
-    nodes, edges = service.get_neighbors(node_id)
-    return {
-        "nodes": [n.model_dump() for n in nodes],
-        "edges": [e.model_dump() for e in edges],
-    }
+    response = service.get_neighbors(node_id)
+
+    return response

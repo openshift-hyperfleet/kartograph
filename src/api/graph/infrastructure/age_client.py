@@ -20,7 +20,7 @@ from graph.infrastructure.observability import (
     DefaultGraphClientProbe,
     GraphClientProbe,
 )
-from graph.infrastructure.protocols import CypherResult, GraphClientProtocol
+from graph.ports.protocols import CypherResult, GraphClientProtocol
 from infrastructure.database.connection import ConnectionFactory
 from infrastructure.database.exceptions import (
     DatabaseConnectionError,

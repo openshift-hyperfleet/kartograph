@@ -10,7 +10,7 @@ from typing import Any
 
 from graph.domain.value_objects import MutationOperation, MutationResult
 from graph.infrastructure.observability import DefaultMutationProbe, MutationProbe
-from graph.infrastructure.protocols import GraphClientProtocol
+from graph.ports.protocols import GraphClientProtocol
 
 
 class MutationApplier:

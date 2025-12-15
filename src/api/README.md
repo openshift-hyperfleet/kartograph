@@ -22,4 +22,8 @@ docker compose up --build
 
 The API will be available at `http://localhost:8000`
 
+API docs: `http://localhost:8000/docs`
+
+MCP server: `http://localhost:8000/query/mcp`
+
 Health check endpoint: `http://localhost:8000/health`

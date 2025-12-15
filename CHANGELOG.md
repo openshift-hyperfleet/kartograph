@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/openshift-hyperfleet/kartograph/compare/v0.2.4...v0.2.5) (2025-12-15)
+
+
+### Bug Fixes
+
+* **tests:** update protocol mocks to return NodeNeighborsResult ([#45](https://github.com/openshift-hyperfleet/kartograph/issues/45)) ([aad481d](https://github.com/openshift-hyperfleet/kartograph/commit/aad481de92955b12c8ab97be66977d55cfe750d2))
+
 ## [0.2.4](https://github.com/openshift-hyperfleet/kartograph/compare/v0.2.3...v0.2.4) (2025-12-15)
 
 

@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "apache-age-python>=0.0.7",
+    "cyclopts==5.0.0a1",
     "fastapi[standard]>=0.123.9",
+    "fastmcp==2.14.1",
     "psycopg2>=2.9.11",
     "pydantic-settings>=2.12.0",
     "structlog>=25.5.0",

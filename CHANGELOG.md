@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.4.0...v0.4.1) (2025-12-16)
+
+
+### Bug Fixes
+
+* **deps:** update astro monorepo ([#53](https://github.com/openshift-hyperfleet/kartograph/issues/53)) ([651e2ed](https://github.com/openshift-hyperfleet/kartograph/commit/651e2ed232395ef4b78e36545fd462f113dc404a))
+
 ## [0.4.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.3.1...v0.4.0) (2025-12-16)
 
 

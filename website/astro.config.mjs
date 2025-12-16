@@ -30,6 +30,9 @@ export default defineConfig({
 				src: './src/assets/kartograph-logo.png',
 			},
 			lastUpdated: true,
+			editLink: {
+				baseUrl: 'https://github.com/openshift-hyperfleet/kartograph/edit/main/website/',
+			},
 			components: {
 				ThemeProvider: './src/components/ThemeProvider.astro',
 				SiteTitle: './src/components/SiteTitle.astro',

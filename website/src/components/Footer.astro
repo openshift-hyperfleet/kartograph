@@ -1,0 +1,58 @@
+---
+import type { Props } from '@astrojs/starlight/props';
+import EditLink from '@astrojs/starlight/components/EditLink.astro';
+import LastUpdated from '@astrojs/starlight/components/LastUpdated.astro';
+import Pagination from '@astrojs/starlight/components/Pagination.astro';
+---
+
+<footer class="sl-flex">
+	<div class="meta sl-flex">
+		<LastUpdated {...Astro.props} />
+		<EditLink {...Astro.props} />
+	</div>
+
+	<Pagination {...Astro.props} />
+</footer>
+
+<style>
+	footer {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	.meta {
+		gap: 0.75rem 3rem;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		font-size: var(--sl-text-sm);
+		color: var(--sl-color-gray-3);
+	}
+
+	.meta > :global(*) {
+		display: inline-flex;
+		gap: 0.375rem;
+		align-items: baseline;
+	}
+
+	.meta :global(a) {
+		color: var(--sl-color-gray-3);
+		text-decoration: none;
+	}
+
+	.meta :global(a:hover) {
+		color: var(--sl-color-white);
+	}
+
+	/* Reduce pagination title text size */
+	footer :global(.pagination-links .link-title) {
+		font-size: var(--sl-text-lg);
+		font-weight: bold;
+	}
+
+	@media (min-width: 50rem) {
+		.meta {
+			width: auto;
+		}
+	}
+</style>

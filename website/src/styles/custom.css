@@ -3,7 +3,7 @@
 /* Only customize accent colors, let Starlight handle the rest */
 :root {
   --sl-color-accent: #ee0000;
-  --sl-color-accent-high: #ee0000;
+  --sl-color-accent-high: #f56e6e;
   --ec-frm-edActTabIndHt: 2px;
 }
 
@@ -22,4 +22,9 @@
 /* Tabs styling */
 .tabs {
   margin: 1.5rem 0;
+}
+
+/* Header title wrapper alignment */
+.title-wrapper {
+  align-items: center;
 }

@@ -1,0 +1,46 @@
+---
+import type { Props } from '@astrojs/starlight/props';
+import Default from '@astrojs/starlight/components/SiteTitle.astro';
+import { existsSync, readFileSync } from 'fs';
+import { resolve } from 'path';
+
+// Read version from package.json with error handling
+let version = '0.0.0';  // Fallback version
+const packagePath = resolve(process.cwd(), 'package.json');
+
+try {
+  if (!existsSync(packagePath)) {
+    console.warn(`[SiteTitle] package.json not found at: ${packagePath}`);
+  } else {
+    const packageJson = JSON.parse(readFileSync(packagePath, 'utf-8'));
+
+    if (packageJson && typeof packageJson.version === 'string') {
+      version = packageJson.version;
+    } else {
+      console.warn(`[SiteTitle] package.json at ${packagePath} missing or invalid 'version' field`);
+    }
+  }
+} catch (error) {
+  console.warn(`[SiteTitle] Failed to read version from ${packagePath}:`, error);
+}
+---
+
+<Default {...Astro.props}><slot /></Default>
+<span class="version-badge">v{version}</span>
+
+<style>
+
+  .version-badge {
+    margin-left: 0.5rem;
+    background: var(--sl-color-accent-high);
+    color: var(--sl-color-white);
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    opacity: 0.9;
+    display: flex;
+    align-items: center;
+  }
+
+</style>

@@ -14,7 +14,9 @@ from graph.ports.repositories import ITypeDefinitionRepository
 from graph.presentation import routes as graph_routes
 from infrastructure.settings import get_database_settings
 from infrastructure.version import __version__
-from query.presentation.mcp import query_mcp_app
+from query.application.services import MCPQueryService
+from query.infrastructure.query_repository import QueryGraphRepository
+from query.presentation.mcp import query_mcp_app, set_query_service
 
 app = FastAPI(
     title="Kartograph API",
@@ -85,6 +87,25 @@ def get_graph_mutation_service(
 
 # Include Graph bounded context routes
 app.include_router(graph_routes.router)
+
+
+# Initialize MCP Query Service
+def initialize_mcp_service():
+    """Initialize and inject MCP query service."""
+    client = get_graph_client()
+    if not client.is_connected():
+        client.connect()
+
+    repository = QueryGraphRepository(client=client)
+    service = MCPQueryService(repository=repository)
+    set_query_service(service)
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on app startup."""
+    initialize_mcp_service()
+
 
 # Override Graph route dependency injection
 app.dependency_overrides[graph_routes.get_query_service] = get_graph_query_service

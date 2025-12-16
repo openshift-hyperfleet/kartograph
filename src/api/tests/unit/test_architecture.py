@@ -136,3 +136,77 @@ class TestGraphInfrastructureLayerBoundaries:
             .may_import("graph.domain*", "graph.ports*")
             .check("graph")
         )
+
+
+class TestQueryDomainLayerBoundaries:
+    """Tests that the Querying domain layer has no forbidden dependencies."""
+
+    def test_query_domain_does_not_import_infrastructure(self):
+        """Domain layer should not depend on infrastructure."""
+        (
+            archrule("query_domain_no_infrastructure")
+            .match("query.domain*")
+            .should_not_import("query.infrastructure*", "graph.infrastructure*")
+            .check("query")
+        )
+
+    def test_query_domain_does_not_import_application(self):
+        """Domain layer should not depend on application layer."""
+        (
+            archrule("query_domain_no_application")
+            .match("query.domain*")
+            .should_not_import("query.application*")
+            .check("query")
+        )
+
+
+class TestQueryPortsLayerBoundaries:
+    """Tests that Querying ports have no forbidden dependencies."""
+
+    def test_query_ports_does_not_import_infrastructure(self):
+        """Ports should not depend on infrastructure."""
+        (
+            archrule("query_ports_no_infrastructure")
+            .match("query.ports*")
+            .should_not_import("query.infrastructure*", "graph.infrastructure*")
+            .check("query")
+        )
+
+
+class TestQueryApplicationLayerBoundaries:
+    """Tests that Querying application layer has appropriate dependencies."""
+
+    def test_query_application_does_not_import_infrastructure(self):
+        """Application should not directly import infrastructure."""
+        (
+            archrule("query_application_no_infrastructure")
+            .match("query.application*")
+            .should_not_import("query.infrastructure*", "graph.infrastructure*")
+            .check("query")
+        )
+
+
+class TestCrossContextBoundaries:
+    """Tests that context boundaries are respected."""
+
+    def test_query_does_not_import_graph_application(self):
+        """Querying context should not import Graph application layer."""
+        (
+            archrule("query_no_graph_application")
+            .match("query*")
+            .should_not_import("graph.application*")
+            .check("query")
+        )
+
+    def test_query_does_not_import_graph_domain(self):
+        """Querying context should not import Graph domain objects.
+
+        Each context should have its own domain objects to maintain
+        proper bounded context isolation.
+        """
+        (
+            archrule("query_no_graph_domain")
+            .match("query.domain*", "query.application*", "query.ports*")
+            .should_not_import("graph.domain*")
+            .check("query")
+        )

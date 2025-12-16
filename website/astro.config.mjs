@@ -36,6 +36,7 @@ export default defineConfig({
 			components: {
 				ThemeProvider: './src/components/ThemeProvider.astro',
 				SiteTitle: './src/components/SiteTitle.astro',
+				Footer: './src/components/Footer.astro',
 			},
 			social: [
 				{

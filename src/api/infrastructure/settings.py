@@ -6,7 +6,7 @@ for development. Production deployments should set all values explicitly.
 
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +20,9 @@ class DatabaseSettings(BaseSettings):
         KARTOGRAPH_DB_USERNAME: Database user (default: kartograph)
         KARTOGRAPH_DB_PASSWORD: Database password (required in production)
         KARTOGRAPH_DB_GRAPH_NAME: AGE graph name (default: kartograph_graph) TODO: Single graph only for tracer bullet
+        KARTOGRAPH_DB_POOL_MIN_CONNECTIONS: Minimum connections in pool (default: 2)
+        KARTOGRAPH_DB_POOL_MAX_CONNECTIONS: Maximum connections in pool (default: 10)
+        KARTOGRAPH_DB_POOL_ENABLED: Enable connection pooling (default: true)
     """
 
     model_config = SettingsConfigDict(
@@ -41,6 +44,32 @@ class DatabaseSettings(BaseSettings):
         default="kartograph_graph",
         description="Name of the AGE graph",
     )
+    pool_min_connections: int = Field(
+        default=2,
+        description="Minimum connections in pool",
+        ge=1,
+        le=100,
+    )
+    pool_max_connections: int = Field(
+        default=10,
+        description="Maximum connections in pool",
+        ge=1,
+        le=100,
+    )
+    pool_enabled: bool = Field(
+        default=True,
+        description="Enable connection pooling (disable for unit tests)",
+    )
+
+    @model_validator(mode="after")
+    def validate_pool_settings(self) -> "DatabaseSettings":
+        """Validate pool max >= min."""
+        if self.pool_max_connections < self.pool_min_connections:
+            raise ValueError(
+                f"pool_max_connections ({self.pool_max_connections}) must be >= "
+                f"pool_min_connections ({self.pool_min_connections})"
+            )
+        return self
 
     @property
     def connection_string(self) -> str:

@@ -22,7 +22,6 @@ class DatabaseSettings(BaseSettings):
         KARTOGRAPH_DB_GRAPH_NAME: AGE graph name (default: kartograph_graph) TODO: Single graph only for tracer bullet
         KARTOGRAPH_DB_POOL_MIN_CONNECTIONS: Minimum connections in pool (default: 2)
         KARTOGRAPH_DB_POOL_MAX_CONNECTIONS: Maximum connections in pool (default: 10)
-        KARTOGRAPH_DB_POOL_ENABLED: Enable connection pooling (default: true)
     """
 
     model_config = SettingsConfigDict(

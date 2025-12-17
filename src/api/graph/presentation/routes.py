@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from graph.ports.protocols import NodeNeighborsResult
 from graph.application.services import (
@@ -20,49 +20,70 @@ from graph.dependencies import (
     get_graph_query_service,
     get_schema_service,
 )
-from graph.domain.value_objects import MutationOperation, MutationResult
+from graph.domain.value_objects import MutationResult
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 
 
 @router.post("/mutations", status_code=status.HTTP_200_OK)
 async def apply_mutations(
-    operations: list[MutationOperation],
+    request: Request,
     service: GraphMutationService = Depends(get_graph_mutation_service),
 ) -> MutationResult:
-    """Apply a batch of mutation operations.
+    """Apply a batch of mutation operations from JSONL format.
 
-    Request body should be a JSON array of mutation operations.
+    Request body should be JSONL (newline-delimited JSON), one operation per line.
+    Content-Type: application/x-ndjson
 
     Example:
-        [
-            {
-                "op": "CREATE",
-                "type": "node",
-                "id": "person:abc123def456789a",
-                "label": "Person",
-                "set_properties": {
-                    "slug": "alice-smith",
-                    "name": "Alice Smith",
-                    "data_source_id": "ds-456",
-                    "source_path": "people/alice.md"
-                }
-            }
-        ]
+        {"op": "CREATE", "type": "node", "id": "person:abc123def456789a", "label": "Person", "set_properties": {"slug": "alice-smith", "name": "Alice Smith", "data_source_id": "ds-456", "source_path": "people/alice.md"}}
+        {"op": "CREATE", "type": "node", "id": "person:def456abc123789a", "label": "Person", "set_properties": {"slug": "bob-jones", "name": "Bob Jones", "data_source_id": "ds-456", "source_path": "people/bob.md"}}
 
     Returns:
         MutationResult with success status and operation count.
 
+        On validation error, returns success=false with detailed error messages
+        in the errors array (HTTP 500).
+
     Raises:
         HTTPException: 500 if mutation application fails.
     """
-    result = service.apply_mutations(operations)
+    # Read raw body as string
+    jsonl_content = await request.body()
+    jsonl_str = jsonl_content.decode("utf-8")
+
+    result = service.apply_mutations_from_jsonl(jsonl_str)
 
     if not result.success:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"errors": result.errors},
-        )
+        # Check if it's a validation error vs execution error
+        # Validation errors contain specific keywords
+        is_validation_error = False
+        if result.errors:
+            error_text = " ".join(result.errors).lower()
+            validation_keywords = [
+                "json",
+                "parse",
+                "validation",
+                "required",
+                "missing",
+                "invalid",
+            ]
+            is_validation_error = any(
+                keyword in error_text for keyword in validation_keywords
+            )
+
+        if is_validation_error:
+            # Validation error - return 422
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={"errors": result.errors},
+            )
+        else:
+            # Database/execution error - return 500
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"errors": result.errors},
+            )
 
     return result
 

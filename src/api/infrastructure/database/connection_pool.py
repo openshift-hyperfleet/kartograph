@@ -128,6 +128,7 @@ class ConnectionPool:
             self._pool.closeall()
             self._probe.pool_closed()
             self._pool = None
+            self._age_setup_connections.clear()
 
     def _ensure_age_setup(self, conn: PsycopgConnection) -> None:
         """Ensure AGE extension is configured on the connection.

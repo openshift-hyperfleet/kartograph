@@ -17,15 +17,7 @@ from infrastructure.version import __version__
 from query.application.services import MCPQueryService
 from query.infrastructure.query_repository import QueryGraphRepository
 from query.presentation.mcp import query_mcp_app, set_query_service
-
-app = FastAPI(
-    title="Kartograph API",
-    description="Enterprise-Ready Bi-Temporal Knowledge Graphs as a Service",
-    version=__version__,
-    lifespan=query_mcp_app.lifespan,
-)
-
-app.mount(path="/query", app=query_mcp_app)
+from contextlib import asynccontextmanager
 
 
 @lru_cache
@@ -34,6 +26,38 @@ def get_graph_client() -> AgeGraphClient:
     settings = get_database_settings()
     client = AgeGraphClient(settings)
     return client
+
+
+# Initialize MCP Query Service
+@asynccontextmanager
+async def initialize_mcp_service(app: FastAPI):
+    """Initialize and inject MCP query service."""
+    client = get_graph_client()
+    if not client.is_connected():
+        client.connect()
+
+    repository = QueryGraphRepository(client=client)
+    service = MCPQueryService(repository=repository)
+    set_query_service(service)
+    yield
+    client.disconnect()
+
+
+@asynccontextmanager
+async def kartograph_lifespan(app: FastAPI):
+    async with initialize_mcp_service(app):
+        async with query_mcp_app.lifespan(app):
+            yield
+
+
+app = FastAPI(
+    title="Kartograph API",
+    description="Enterprise-Ready Bi-Temporal Knowledge Graphs as a Service",
+    version=__version__,
+    lifespan=kartograph_lifespan,
+)
+
+app.mount(path="/query", app=query_mcp_app)
 
 
 def get_graph_query_service(
@@ -87,24 +111,6 @@ def get_graph_mutation_service(
 
 # Include Graph bounded context routes
 app.include_router(graph_routes.router)
-
-
-# Initialize MCP Query Service
-def initialize_mcp_service():
-    """Initialize and inject MCP query service."""
-    client = get_graph_client()
-    if not client.is_connected():
-        client.connect()
-
-    repository = QueryGraphRepository(client=client)
-    service = MCPQueryService(repository=repository)
-    set_query_service(service)
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on app startup."""
-    initialize_mcp_service()
 
 
 # Override Graph route dependency injection

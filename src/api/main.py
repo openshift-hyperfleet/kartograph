@@ -1,53 +1,60 @@
-from functools import lru_cache
+"""Main FastAPI application entry point."""
+
+from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, status
 
-from graph.application.services import GraphMutationService, GraphQueryService
+from graph.dependencies import get_age_graph_client
 from graph.infrastructure.age_client import AgeGraphClient
-from graph.infrastructure.graph_repository import GraphExtractionReadOnlyRepository
-from graph.infrastructure.mutation_applier import MutationApplier
-from graph.infrastructure.type_definition_repository import (
-    InMemoryTypeDefinitionRepository,
-)
-from graph.ports.repositories import ITypeDefinitionRepository
 from graph.presentation import routes as graph_routes
+from infrastructure.database.connection import ConnectionFactory
+from infrastructure.dependencies import get_age_connection_pool
 from infrastructure.settings import get_database_settings
 from infrastructure.version import __version__
 from query.application.services import MCPQueryService
 from query.infrastructure.query_repository import QueryGraphRepository
 from query.presentation.mcp import query_mcp_app, set_query_service
-from contextlib import asynccontextmanager
 
 
-@lru_cache
-def get_graph_client() -> AgeGraphClient:
-    """Get a cached AgeGraphClient instance."""
-    settings = get_database_settings()
-    client = AgeGraphClient(settings)
-    return client
-
-
-# Initialize MCP Query Service
 @asynccontextmanager
 async def initialize_mcp_service(app: FastAPI):
-    """Initialize and inject MCP query service."""
-    client = get_graph_client()
-    if not client.is_connected():
-        client.connect()
+    """Initialize and inject MCP query service with dedicated connection."""
+    pool = get_age_connection_pool()
+    settings = get_database_settings()
+    factory = ConnectionFactory(settings, pool=pool)
+    client = AgeGraphClient(settings, connection_factory=factory)
+    client.connect()
 
     repository = QueryGraphRepository(client=client)
     service = MCPQueryService(repository=repository)
     set_query_service(service)
+
     yield
+
+    # Cleanup: return connection to pool
     client.disconnect()
 
 
 @asynccontextmanager
 async def kartograph_lifespan(app: FastAPI):
+    """Application lifespan context.
+
+    Manages:
+    - MCP service initialization and cleanup
+    - Connection pool lifecycle (created lazily, closed on shutdown)
+    """
     async with initialize_mcp_service(app):
         async with query_mcp_app.lifespan(app):
             yield
+
+    # Shutdown: close pool
+    try:
+        pool = get_age_connection_pool()
+        pool.close_all()
+    except Exception:
+        # Pool may not be initialized, ignore
+        pass
 
 
 app = FastAPI(
@@ -59,82 +66,25 @@ app = FastAPI(
 
 app.mount(path="/query", app=query_mcp_app)
 
-
-def get_graph_query_service(
-    client: Annotated[AgeGraphClient, Depends(get_graph_client)],
-    data_source_id: str = Query(...),
-) -> GraphQueryService:
-    """Get a GraphQueryService instance."""
-    if not client.is_connected():
-        client.connect()
-
-    repository = GraphExtractionReadOnlyRepository(
-        client=client,
-        data_source_id=data_source_id,
-    )
-    return GraphQueryService(repository=repository)
-
-
-@lru_cache
-def get_mutation_applier(
-    client: Annotated[AgeGraphClient, Depends(get_graph_client)],
-) -> MutationApplier:
-    """Get a cached MutationApplier instance."""
-    if not client.is_connected():
-        client.connect()
-
-    return MutationApplier(client=client)
-
-
-@lru_cache
-def get_type_definition_repository() -> ITypeDefinitionRepository:
-    """Get a cached TypeDefinitionRepository instance.
-
-    Uses InMemoryTypeDefinitionRepository as MVP implementation.
-    This will be replaced with a persistent repository in future iterations.
-    """
-    return InMemoryTypeDefinitionRepository()
-
-
-def get_graph_mutation_service(
-    applier: Annotated[MutationApplier, Depends(get_mutation_applier)],
-    type_def_repo: Annotated[
-        ITypeDefinitionRepository, Depends(get_type_definition_repository)
-    ],
-) -> GraphMutationService:
-    """Get a GraphMutationService instance."""
-    return GraphMutationService(
-        mutation_applier=applier,
-        type_definition_repository=type_def_repo,
-    )
-
-
 # Include Graph bounded context routes
 app.include_router(graph_routes.router)
 
 
-# Override Graph route dependency injection
-app.dependency_overrides[graph_routes.get_query_service] = get_graph_query_service
-app.dependency_overrides[graph_routes.get_mutation_service] = get_graph_mutation_service
-
-
 @app.get("/health")
 def health():
+    """Basic health check endpoint."""
     return {"status": "ok"}
 
 
 @app.get("/health/db")
 def health_db(
-    client: Annotated[AgeGraphClient, Depends(get_graph_client)],
+    client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
 ) -> dict:
     """Check database connection health.
 
     Returns the connection status and graph name.
     """
     try:
-        if not client.is_connected():
-            client.connect()
-
         is_healthy = client.verify_connection()
 
         return {
@@ -152,18 +102,32 @@ def health_db(
 
 @app.get("/util/nodes")
 def get_nodes(
-    service: Annotated[GraphQueryService, Depends(get_graph_query_service)],
+    client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
 ) -> dict:
     """Query all nodes in the graph.
 
-    Returns nodes in domain NodeRecord format via the application service.
+    Utility endpoint for development and testing.
     """
     try:
-        # Use exploration query through the service
-        results = service.execute_exploration_query("MATCH (n) RETURN n")
+        from age.models import Vertex as AgeVertex
 
-        # Convert to serializable format
-        nodes = [r.get("node", r) for r in results if r]
+        # Execute simple query
+        result = client.execute_cypher("MATCH (n) RETURN n")
+
+        # Convert Vertex objects to serializable dicts
+        nodes = []
+        for row in result.rows:
+            if len(row) > 0 and isinstance(row[0], AgeVertex):
+                vertex = row[0]
+                nodes.append(
+                    {
+                        "id": str(vertex.id),
+                        "label": vertex.label,
+                        "properties": dict(vertex.properties)
+                        if vertex.properties
+                        else {},
+                    }
+                )
 
         return {
             "nodes": nodes,
@@ -178,7 +142,7 @@ def get_nodes(
 
 @app.delete("/util/nodes")
 def delete_nodes(
-    client: Annotated[AgeGraphClient, Depends(get_graph_client)],
+    client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
 ) -> dict:
     """Delete all nodes in the graph.
 
@@ -186,9 +150,6 @@ def delete_nodes(
         Dictionary with count of deleted nodes
     """
     try:
-        if not client.is_connected():
-            client.connect()
-
         # First count the nodes
         count_query = "MATCH (n) RETURN count(n)"
         count_result = client.execute_cypher(count_query)
@@ -208,7 +169,7 @@ def delete_nodes(
 
 @app.delete("/util/edges")
 def delete_edges(
-    client: Annotated[AgeGraphClient, Depends(get_graph_client)],
+    client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
 ) -> dict:
     """Delete all edges in the graph.
 
@@ -216,9 +177,6 @@ def delete_edges(
         Dictionary with count of deleted edges
     """
     try:
-        if not client.is_connected():
-            client.connect()
-
         # First count the edges
         count_query = "MATCH ()-[r]-() RETURN count(r)"
         count_result = client.execute_cypher(count_query)

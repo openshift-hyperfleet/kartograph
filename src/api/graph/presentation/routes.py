@@ -7,47 +7,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from graph.ports.protocols import NodeNeighborsResult
 from graph.application.services import GraphMutationService, GraphQueryService
+from graph.dependencies import get_graph_mutation_service, get_graph_query_service
 from graph.domain.value_objects import MutationOperation, MutationResult
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 
 
-# Dependency injection placeholders
-# These will be overridden in main.py or in tests
-def get_query_service(
-    data_source_id: str = Query(...),
-) -> GraphQueryService:
-    """Get GraphQueryService instance.
-
-    This is a placeholder that will be overridden by dependency injection
-    in main.py.
-    """
-    raise NotImplementedError(
-        "GraphQueryService dependency not configured. "
-        "This should be overridden in main.py."
-    )
-
-
-def get_mutation_service() -> GraphMutationService:
-    """Get GraphMutationService instance.
-
-    This is a placeholder that will be overridden by dependency injection
-    in main.py.
-    """
-    raise NotImplementedError(
-        "GraphMutationService dependency not configured. "
-        "This should be overridden in main.py."
-    )
-
-
 @router.post("/mutations", status_code=status.HTTP_200_OK)
 async def apply_mutations(
     operations: list[MutationOperation],
-    service: GraphMutationService = Depends(get_mutation_service),
+    service: GraphMutationService = Depends(get_graph_mutation_service),
 ) -> MutationResult:
     """Apply a batch of mutation operations.
 
@@ -89,7 +62,7 @@ async def apply_mutations(
 @router.get("/nodes/by-path")
 async def find_by_path(
     path: str,
-    service: GraphQueryService = Depends(get_query_service),
+    service: GraphQueryService = Depends(get_graph_query_service),
 ) -> dict[str, Any]:
     """Find nodes and edges by source file path.
 
@@ -113,7 +86,7 @@ async def find_by_path(
 async def find_by_slug(
     slug: str,
     node_type: str | None = None,
-    service: GraphQueryService = Depends(get_query_service),
+    service: GraphQueryService = Depends(get_graph_query_service),
 ) -> dict[str, Any]:
     """Find nodes by slug.
 
@@ -133,7 +106,7 @@ async def find_by_slug(
 @router.get("/nodes/{node_id}/neighbors")
 async def get_neighbors(
     node_id: str,
-    service: GraphQueryService = Depends(get_query_service),
+    service: GraphQueryService = Depends(get_graph_query_service),
 ) -> NodeNeighborsResult:
     """Get neighboring nodes and connecting edges.
 

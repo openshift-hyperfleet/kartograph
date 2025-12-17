@@ -186,6 +186,46 @@ class TestQueryApplicationLayerBoundaries:
         )
 
 
+class TestDependencyLayerBoundaries:
+    """Tests that dependency modules respect DDD boundaries."""
+
+    def test_infrastructure_dependencies_does_not_import_graph(self):
+        """Infrastructure dependencies should not import bounded contexts."""
+        (
+            archrule("infrastructure_deps_no_graph")
+            .match("infrastructure.dependencies*")
+            .should_not_import("graph*")
+            .check("infrastructure")
+        )
+
+    def test_infrastructure_dependencies_does_not_import_query(self):
+        """Infrastructure dependencies should not import bounded contexts."""
+        (
+            archrule("infrastructure_deps_no_query")
+            .match("infrastructure.dependencies*")
+            .should_not_import("query*")
+            .check("infrastructure")
+        )
+
+    def test_graph_dependencies_can_import_infrastructure(self):
+        """Graph dependencies can import infrastructure (allowed)."""
+        (
+            archrule("graph_deps_may_import_infrastructure")
+            .match("graph.dependencies*")
+            .may_import("infrastructure*")
+            .check("graph")
+        )
+
+    def test_graph_dependencies_does_not_import_query(self):
+        """Graph dependencies should not import other contexts."""
+        (
+            archrule("graph_deps_no_query")
+            .match("graph.dependencies*")
+            .should_not_import("query*")
+            .check("graph")
+        )
+
+
 class TestCrossContextBoundaries:
     """Tests that context boundaries are respected."""
 

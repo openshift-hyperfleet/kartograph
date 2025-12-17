@@ -30,10 +30,11 @@ async def initialize_mcp_service(app: FastAPI):
     service = MCPQueryService(repository=repository)
     set_query_service(service)
 
-    yield
-
-    # Cleanup: return connection to pool
-    client.disconnect()
+    try:
+        yield
+    finally:
+        # Cleanup: return connection to pool
+        client.disconnect()
 
 
 @asynccontextmanager

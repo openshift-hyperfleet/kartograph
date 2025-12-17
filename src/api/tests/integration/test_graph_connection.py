@@ -28,9 +28,16 @@ class TestDatabaseConnection:
         """Connection verification should succeed on healthy connection."""
         assert graph_client.verify_connection() is True
 
-    def test_disconnect_closes_connection(self, integration_db_settings):
-        """Disconnecting should close the connection."""
-        client = AgeGraphClient(integration_db_settings)
+    def test_disconnect_closes_connection(
+        self, integration_db_settings, integration_connection_pool
+    ):
+        """Disconnecting should return connection to pool."""
+        from infrastructure.database.connection import ConnectionFactory
+
+        factory = ConnectionFactory(
+            integration_db_settings, pool=integration_connection_pool
+        )
+        client = AgeGraphClient(integration_db_settings, connection_factory=factory)
         client.connect()
         assert client.is_connected() is True
 

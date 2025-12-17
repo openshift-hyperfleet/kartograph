@@ -48,9 +48,10 @@ class ConnectionPool:
         self._settings = settings
         self._probe = probe or DefaultConnectionProbe()
         self._pool: psycopg2_pool.ThreadedConnectionPool | None = None
-
-        if settings.pool_enabled:
-            self._initialize_pool()
+        self._age_setup_connections: set[int] = (
+            set()
+        )  # Track connection IDs with AGE setup
+        self._initialize_pool()
 
     def _initialize_pool(self) -> None:
         """Initialize the ThreadedConnectionPool."""
@@ -83,10 +84,12 @@ class ConnectionPool:
             A configured psycopg2 connection.
 
         Raises:
-            DatabaseConnectionError: If pool is not initialized or connection fails.
+            DatabaseConnectionError: If connection fails or pool not initialized.
         """
         if self._pool is None:
-            raise DatabaseConnectionError("Connection pool not initialized")
+            raise DatabaseConnectionError(
+                "Connection pool not initialized. Pool initialization failed during __init__."
+            )
 
         try:
             conn = self._pool.getconn()
@@ -107,6 +110,9 @@ class ConnectionPool:
             conn: The connection to return.
         """
         if self._pool is None:
+            self._probe.connection_return_failed(
+                error=Exception("Pool not initialized")
+            )
             return
 
         try:
@@ -126,15 +132,17 @@ class ConnectionPool:
     def _ensure_age_setup(self, conn: PsycopgConnection) -> None:
         """Ensure AGE extension is configured on the connection.
 
-        Uses a connection-level flag to avoid redundant setup.
+        Tracks setup status by connection ID to avoid redundant setup.
         """
+        conn_id = id(conn)
+
         # Check if we've already set up AGE on this connection
-        if hasattr(conn, "_kartograph_age_setup") and conn._kartograph_age_setup:
+        if conn_id in self._age_setup_connections:
             return
 
         self._setup_age(conn)
         # Mark connection as configured
-        conn._kartograph_age_setup = True  # type: ignore
+        self._age_setup_connections.add(conn_id)
 
     def _setup_age(self, conn: PsycopgConnection) -> None:
         """Set up AGE extension on the connection.

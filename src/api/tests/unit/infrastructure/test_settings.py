@@ -15,23 +15,15 @@ class TestDatabaseSettingsPoolConfiguration:
         assert settings.pool_min_connections >= 1
         assert settings.pool_max_connections >= settings.pool_min_connections
         assert settings.pool_max_connections <= 20
-        assert settings.pool_enabled is True
 
     def test_pool_settings_from_fields(self):
         """Should accept pool settings via constructor."""
         settings = DatabaseSettings(
             pool_min_connections=5,
             pool_max_connections=15,
-            pool_enabled=True,
         )
         assert settings.pool_min_connections == 5
         assert settings.pool_max_connections == 15
-        assert settings.pool_enabled is True
-
-    def test_pool_can_be_disabled(self):
-        """Should allow disabling pool for tests."""
-        settings = DatabaseSettings(pool_enabled=False)
-        assert settings.pool_enabled is False
 
     def test_pool_max_must_be_greater_than_or_equal_to_min(self):
         """Should validate max >= min."""

@@ -56,10 +56,6 @@ class DatabaseSettings(BaseSettings):
         ge=1,
         le=100,
     )
-    pool_enabled: bool = Field(
-        default=True,
-        description="Enable connection pooling (disable for unit tests)",
-    )
 
     @model_validator(mode="after")
     def validate_pool_settings(self) -> "DatabaseSettings":

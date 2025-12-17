@@ -80,7 +80,6 @@ class TestGetConnection:
         ) as mock_pool_class:
             mock_pool_instance = MagicMock()
             mock_conn = MagicMock()
-            mock_conn._kartograph_age_setup = False
             mock_pool_instance.getconn.return_value = mock_conn
             mock_pool_class.return_value = mock_pool_instance
 

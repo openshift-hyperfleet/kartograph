@@ -37,7 +37,27 @@ import { Steps, Code, Aside } from '@astrojs/starlight/components';
 
 ## What's Next?
 
-TODO
+### Using the MCP Server
+
+Kartograph exposes an MCP (Model Context Protocol) server that allows AI agents like Claude to query the knowledge graph using Cypher.
+
+<Steps>
+1. **Ensure the API is running**
+
+   The API should be running on `http://localhost:8000` (see Installation above).
+
+2. **Register with Claude Code**
+
+   ```bash
+   claude mcp add --transport http kartograph http://localhost:8000/query/mcp
+   ```
+
+3. **Query the graph**
+
+   Once registered, the `query_graph` tool will be available in Claude Code
+   and you can ask it to use the tool to query the graph.
+</Steps>
+
 
 ### Understanding the Architecture
 

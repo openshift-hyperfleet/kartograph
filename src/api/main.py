@@ -14,16 +14,10 @@ from graph.ports.repositories import ITypeDefinitionRepository
 from graph.presentation import routes as graph_routes
 from infrastructure.settings import get_database_settings
 from infrastructure.version import __version__
-from query.presentation.mcp import query_mcp_app
-
-app = FastAPI(
-    title="Kartograph API",
-    description="Enterprise-Ready Bi-Temporal Knowledge Graphs as a Service",
-    version=__version__,
-    lifespan=query_mcp_app.lifespan,
-)
-
-app.mount(path="/query", app=query_mcp_app)
+from query.application.services import MCPQueryService
+from query.infrastructure.query_repository import QueryGraphRepository
+from query.presentation.mcp import query_mcp_app, set_query_service
+from contextlib import asynccontextmanager
 
 
 @lru_cache
@@ -32,6 +26,38 @@ def get_graph_client() -> AgeGraphClient:
     settings = get_database_settings()
     client = AgeGraphClient(settings)
     return client
+
+
+# Initialize MCP Query Service
+@asynccontextmanager
+async def initialize_mcp_service(app: FastAPI):
+    """Initialize and inject MCP query service."""
+    client = get_graph_client()
+    if not client.is_connected():
+        client.connect()
+
+    repository = QueryGraphRepository(client=client)
+    service = MCPQueryService(repository=repository)
+    set_query_service(service)
+    yield
+    client.disconnect()
+
+
+@asynccontextmanager
+async def kartograph_lifespan(app: FastAPI):
+    async with initialize_mcp_service(app):
+        async with query_mcp_app.lifespan(app):
+            yield
+
+
+app = FastAPI(
+    title="Kartograph API",
+    description="Enterprise-Ready Bi-Temporal Knowledge Graphs as a Service",
+    version=__version__,
+    lifespan=kartograph_lifespan,
+)
+
+app.mount(path="/query", app=query_mcp_app)
 
 
 def get_graph_query_service(
@@ -85,6 +111,7 @@ def get_graph_mutation_service(
 
 # Include Graph bounded context routes
 app.include_router(graph_routes.router)
+
 
 # Override Graph route dependency injection
 app.dependency_overrides[graph_routes.get_query_service] = get_graph_query_service

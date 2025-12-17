@@ -7,6 +7,7 @@ on their attribute values.
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,6 +17,22 @@ from pydantic import BaseModel, ConfigDict, Field
 # Keys are column names from the query, values can be nodes, edges,
 # scalars, or other AGE data types.
 QueryResultRow: TypeAlias = dict[str, Any]
+
+
+class EntityType(str, Enum):
+    """Enum for graph entity types."""
+
+    NODE = "node"
+    EDGE = "edge"
+
+
+class MutationOperationType(str, Enum):
+    """Enum for mutation operation types."""
+
+    DEFINE = "DEFINE"
+    CREATE = "CREATE"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"
 
 
 class NodeRecord(BaseModel):
@@ -76,7 +93,7 @@ class TypeDefinition(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     label: str
-    entity_type: str  # "node" or "edge"
+    entity_type: EntityType
     description: str
     example_file_path: str
     example_in_file_path: str
@@ -113,7 +130,7 @@ class MutationOperation(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    op: str = Field(pattern="^(DEFINE|CREATE|UPDATE|DELETE)$")
+    op: MutationOperationType
     type: str = Field(pattern="^(node|edge)$")
     id: str | None = Field(default=None, pattern="^[a-z_]+:[0-9a-f]{16}$")
 
@@ -225,9 +242,12 @@ class MutationOperation(BaseModel):
                 "Only DEFINE operations can be converted to TypeDefinition"
             )
 
+        # Convert string type to EntityType enum
+        entity_type = EntityType.NODE if self.type == "node" else EntityType.EDGE
+
         return TypeDefinition(
             label=self.label or "",
-            entity_type=self.type,
+            entity_type=entity_type,
             description=self.description or "",
             example_file_path=self.example_file_path or "",
             example_in_file_path=self.example_in_file_path or "",

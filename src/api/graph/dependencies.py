@@ -10,7 +10,11 @@ from typing import Annotated
 
 from fastapi import Depends, Query
 
-from graph.application.services import GraphMutationService, GraphQueryService
+from graph.application.services import (
+    GraphMutationService,
+    GraphQueryService,
+    GraphSchemaService,
+)
 from graph.infrastructure.age_client import AgeGraphClient
 from graph.infrastructure.graph_repository import GraphExtractionReadOnlyRepository
 from graph.infrastructure.mutation_applier import MutationApplier
@@ -111,3 +115,19 @@ def get_graph_mutation_service(
         mutation_applier=applier,
         type_definition_repository=type_def_repo,
     )
+
+
+def get_schema_service(
+    type_def_repo: Annotated[
+        ITypeDefinitionRepository, Depends(get_type_definition_repository)
+    ],
+) -> GraphSchemaService:
+    """Get GraphSchemaService instance.
+
+    Args:
+        type_def_repo: Type definition repository
+
+    Returns:
+        GraphSchemaService instance
+    """
+    return GraphSchemaService(type_definition_repository=type_def_repo)

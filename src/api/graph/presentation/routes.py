@@ -10,8 +10,16 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from graph.ports.protocols import NodeNeighborsResult
-from graph.application.services import GraphMutationService, GraphQueryService
-from graph.dependencies import get_graph_mutation_service, get_graph_query_service
+from graph.application.services import (
+    GraphMutationService,
+    GraphQueryService,
+    GraphSchemaService,
+)
+from graph.dependencies import (
+    get_graph_mutation_service,
+    get_graph_query_service,
+    get_schema_service,
+)
 from graph.domain.value_objects import MutationOperation, MutationResult
 
 router = APIRouter(prefix="/graph", tags=["graph"])
@@ -122,3 +130,19 @@ async def get_neighbors(
     response = service.get_neighbors(node_id)
 
     return response
+
+
+@router.get("/ontology")
+async def get_ontology(
+    service: GraphSchemaService = Depends(get_schema_service),
+) -> list[dict[str, Any]]:
+    """Get graph ontology (type definitions).
+
+    Returns all node and edge type definitions that have been created
+    via DEFINE operations.
+
+    Returns:
+        List of type definitions with schema information
+    """
+    definitions = service.get_ontology()
+    return [d.model_dump() for d in definitions]

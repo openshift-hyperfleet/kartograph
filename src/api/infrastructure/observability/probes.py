@@ -33,6 +33,34 @@ class ConnectionProbe(Protocol):
         """Record that a database connection was closed."""
         ...
 
+    def pool_initialized(self, min_conn: int, max_conn: int) -> None:
+        """Record that connection pool was initialized."""
+        ...
+
+    def pool_initialization_failed(self, error: Exception) -> None:
+        """Record that pool initialization failed."""
+        ...
+
+    def connection_acquired_from_pool(self) -> None:
+        """Record that a connection was acquired from the pool."""
+        ...
+
+    def connection_returned_to_pool(self) -> None:
+        """Record that a connection was returned to the pool."""
+        ...
+
+    def pool_exhausted(self) -> None:
+        """Record that the connection pool was exhausted."""
+        ...
+
+    def connection_return_failed(self, error: Exception) -> None:
+        """Record that returning connection to pool failed."""
+        ...
+
+    def pool_closed(self) -> None:
+        """Record that the connection pool was closed."""
+        ...
+
     def with_context(self, context: ObservationContext) -> ConnectionProbe:
         """Create a new probe with observation context bound."""
         ...
@@ -86,5 +114,58 @@ class DefaultConnectionProbe:
         """Record that a database connection was closed."""
         self._logger.info(
             "database_connection_closed",
+            **self._get_context_kwargs(),
+        )
+
+    def pool_initialized(self, min_conn: int, max_conn: int) -> None:
+        """Record that connection pool was initialized."""
+        self._logger.info(
+            "connection_pool_initialized",
+            min_connections=min_conn,
+            max_connections=max_conn,
+            **self._get_context_kwargs(),
+        )
+
+    def pool_initialization_failed(self, error: Exception) -> None:
+        """Record that pool initialization failed."""
+        self._logger.error(
+            "connection_pool_initialization_failed",
+            error=str(error),
+            **self._get_context_kwargs(),
+        )
+
+    def connection_acquired_from_pool(self) -> None:
+        """Record that a connection was acquired from the pool."""
+        self._logger.debug(
+            "connection_acquired_from_pool",
+            **self._get_context_kwargs(),
+        )
+
+    def connection_returned_to_pool(self) -> None:
+        """Record that a connection was returned to the pool."""
+        self._logger.debug(
+            "connection_returned_to_pool",
+            **self._get_context_kwargs(),
+        )
+
+    def pool_exhausted(self) -> None:
+        """Record that the connection pool was exhausted."""
+        self._logger.warning(
+            "connection_pool_exhausted",
+            **self._get_context_kwargs(),
+        )
+
+    def connection_return_failed(self, error: Exception) -> None:
+        """Record that returning connection to pool failed."""
+        self._logger.error(
+            "connection_return_failed",
+            error=str(error),
+            **self._get_context_kwargs(),
+        )
+
+    def pool_closed(self) -> None:
+        """Record that the connection pool was closed."""
+        self._logger.info(
+            "connection_pool_closed",
             **self._get_context_kwargs(),
         )

@@ -1,15 +1,13 @@
 """Database connection management for Apache AGE/PostgreSQL.
 
-This module provides connection factory capabilities.
+This module provides connection factory capabilities with pool support.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import psycopg2
 
-from infrastructure.database.exceptions import DatabaseConnectionError
 from infrastructure.observability.probes import (
     ConnectionProbe,
     DefaultConnectionProbe,
@@ -18,60 +16,33 @@ from infrastructure.observability.probes import (
 if TYPE_CHECKING:
     from psycopg2.extensions import connection as PsycopgConnection
 
+    from infrastructure.database.connection_pool import ConnectionPool
     from infrastructure.settings import DatabaseSettings
 
 
 class ConnectionFactory:
-    """Factory for creating and managing PostgreSQL/AGE connections.
+    """Factory for managing PostgreSQL/AGE connections via pool.
 
-    Handles connection creation and AGE extension setup.
-    Connection pooling can be added in future iterations (TODO).
+    Always uses ConnectionPool for connection management.
+    Tests should create small pools (e.g., min=1, max=2).
     """
 
     def __init__(
         self,
         settings: DatabaseSettings,
+        pool: ConnectionPool,
         probe: ConnectionProbe | None = None,
     ):
-        self._settings = settings
-        self._connection: PsycopgConnection | None = None
-        self._probe = probe or DefaultConnectionProbe()
+        """Initialize the connection factory.
 
-    def create_connection(self) -> PsycopgConnection:
-        """Create a new database connection with AGE extension configured.
-
-        Returns:
-            A configured psycopg2 connection with AGE loaded.
-
-        Raises:
-            DatabaseConnectionError: If connection cannot be established.
+        Args:
+            settings: Database connection settings
+            pool: Connection pool (required)
+            probe: Optional observability probe
         """
-        try:
-            conn = psycopg2.connect(
-                host=self._settings.host,
-                port=self._settings.port,
-                dbname=self._settings.database,
-                user=self._settings.username,
-                password=self._settings.password.get_secret_value(),
-            )
-
-            # Set up AGE extension for this connection
-            self._setup_age(conn)
-
-            self._probe.connection_established(
-                host=self._settings.host,
-                database=self._settings.database,
-            )
-
-            return conn
-
-        except psycopg2.Error as e:
-            self._probe.connection_failed(
-                host=self._settings.host,
-                database=self._settings.database,
-                error=e,
-            )
-            raise DatabaseConnectionError(f"Failed to connect to database: {e}") from e
+        self._settings = settings
+        self._pool = pool
+        self._probe = probe or DefaultConnectionProbe()
 
     def _setup_age(self, conn: PsycopgConnection) -> None:
         """Set up AGE extension on the connection.
@@ -86,18 +57,20 @@ class ConnectionFactory:
         conn.commit()
 
     def get_connection(self) -> PsycopgConnection:
-        """Get an existing connection or create a new one.
+        """Get a connection from the pool.
 
-        For tracer bullet simplicity, this maintains a single connection.
-        Connection pooling will be added in future iterations (TODO).
+        Returns:
+            A psycopg2 connection from the pool.
+
+        Raises:
+            DatabaseConnectionError: If connection cannot be obtained.
         """
-        if self._connection is None or self._connection.closed:
-            self._connection = self.create_connection()
-        return self._connection
+        return self._pool.get_connection()
 
-    def close_connection(self) -> None:
-        """Close the current connection if open."""
-        if self._connection is not None and not self._connection.closed:
-            self._connection.close()
-            self._connection = None
-            self._probe.connection_closed()
+    def return_connection(self, conn: PsycopgConnection) -> None:
+        """Return a connection to the pool.
+
+        Args:
+            conn: The connection to return
+        """
+        self._pool.return_connection(conn)

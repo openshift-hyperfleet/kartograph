@@ -11,6 +11,8 @@ import pytest
 from pydantic import SecretStr
 
 from graph.infrastructure.age_client import AgeGraphClient
+from infrastructure.database.connection import ConnectionFactory
+from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.settings import DatabaseSettings
 
 
@@ -41,15 +43,30 @@ def integration_db_settings() -> DatabaseSettings:
     )
 
 
+@pytest.fixture(scope="session")
+def integration_connection_pool(
+    integration_db_settings: DatabaseSettings,
+) -> Generator[ConnectionPool, None, None]:
+    """Session-scoped connection pool for integration tests."""
+    pool = ConnectionPool(integration_db_settings)
+    yield pool
+    pool.close_all()
+
+
 @pytest.fixture
 def graph_client(
     integration_db_settings: DatabaseSettings,
+    integration_connection_pool: ConnectionPool,
 ) -> Generator[AgeGraphClient, None, None]:
     """Provide a connected graph client for integration tests.
 
     Automatically connects and disconnects around each test.
+    Uses connection pool to match production behavior.
     """
-    client = AgeGraphClient(integration_db_settings)
+    factory = ConnectionFactory(
+        integration_db_settings, pool=integration_connection_pool
+    )
+    client = AgeGraphClient(integration_db_settings, connection_factory=factory)
     client.connect()
     yield client
     client.disconnect()

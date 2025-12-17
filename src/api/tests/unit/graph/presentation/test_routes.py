@@ -31,13 +31,16 @@ def test_client(mock_query_service, mock_mutation_service):
     """Create TestClient with mocked dependencies."""
     from fastapi import FastAPI
 
+    from graph import dependencies
     from graph.presentation import routes
 
     app = FastAPI()
 
     # Override dependencies with mocks
-    app.dependency_overrides[routes.get_query_service] = lambda: mock_query_service
-    app.dependency_overrides[routes.get_mutation_service] = (
+    app.dependency_overrides[dependencies.get_graph_query_service] = (
+        lambda: mock_query_service
+    )
+    app.dependency_overrides[dependencies.get_graph_mutation_service] = (
         lambda: mock_mutation_service
     )
 

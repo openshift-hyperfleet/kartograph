@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.4.1...v0.5.0) (2025-12-17)
+
+
+### Features
+
+* add MCP Cypher query tool (tracer bullet) ([#57](https://github.com/openshift-hyperfleet/kartograph/issues/57)) ([04556ad](https://github.com/openshift-hyperfleet/kartograph/commit/04556adc9790dc4a0bf507d5946dd835cd44ce93))
+
 ## [0.4.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.4.0...v0.4.1) (2025-12-16)
 
 

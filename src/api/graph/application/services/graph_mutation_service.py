@@ -15,6 +15,8 @@ from graph.application.observability import (
 from graph.domain.value_objects import (
     MutationOperation,
     MutationResult,
+    SYSTEM_PROPERTIES,
+    TypeDefinition,
 )
 from graph.ports.repositories import (
     IMutationApplier,
@@ -149,6 +151,10 @@ class GraphMutationService:
         # Delegate to mutation applier
         result = self._mutation_applier.apply_batch(operations)
 
+        # Schema learning: Only discover optional properties if mutations succeeded
+        if result.success:
+            self._discover_optional_properties(operations)
+
         # Emit probe event
         self._probe.mutations_applied(
             operations_applied=result.operations_applied,
@@ -174,30 +180,106 @@ class GraphMutationService:
         """
         try:
             operations = []
-            for line in jsonl_content.split("\n"):
+            lines = jsonl_content.split("\n")
+
+            for line_num, line in enumerate(lines, start=1):
                 line = line.strip()
                 if not line:
                     continue
 
-                # Parse JSON line
-                operation_dict = json.loads(line)
+                try:
+                    # Parse JSON line
+                    operation_dict = json.loads(line)
 
-                # Create MutationOperation (Pydantic will validate)
-                operation = MutationOperation(**operation_dict)
-                operations.append(operation)
+                    # Create MutationOperation (Pydantic will validate)
+                    operation = MutationOperation(**operation_dict)
+                    operations.append(operation)
+
+                except json.JSONDecodeError as e:
+                    # Include line number and snippet in error
+                    line_preview = line[:100] + "..." if len(line) > 100 else line
+                    return MutationResult(
+                        success=False,
+                        operations_applied=0,
+                        errors=[
+                            f"JSON parse error on line {line_num}: {str(e)}",
+                            f"Line content: {line_preview}",
+                        ],
+                    )
+                except Exception as e:
+                    # Validation error from Pydantic
+                    line_preview = line[:100] + "..." if len(line) > 100 else line
+                    return MutationResult(
+                        success=False,
+                        operations_applied=0,
+                        errors=[
+                            f"Validation error on line {line_num}: {str(e)}",
+                            f"Line content: {line_preview}",
+                        ],
+                    )
 
             # Apply all parsed operations
             return self.apply_mutations(operations)
 
-        except json.JSONDecodeError as e:
-            return MutationResult(
-                success=False,
-                operations_applied=0,
-                errors=[f"JSON parse error: {str(e)}"],
-            )
         except Exception as e:
+            # Catch-all for unexpected errors
             return MutationResult(
                 success=False,
                 operations_applied=0,
-                errors=[str(e)],
+                errors=[f"Unexpected error: {str(e)}"],
             )
+
+    def _discover_optional_properties(
+        self,
+        operations: list[MutationOperation],
+    ) -> None:
+        """Discover and store optional properties from CREATE operations.
+
+        When a CREATE operation provides properties beyond required_properties,
+        those extra properties are added to the type definition's optional_properties.
+
+        System properties (defined in graph.domain.value_objects.SYSTEM_PROPERTIES)
+        are excluded.
+
+        Args:
+            operations: List of mutation operations to analyze
+        """
+
+        for op in operations:
+            if op.op != "CREATE" or op.label is None or op.set_properties is None:
+                continue
+
+            # Get existing type definition
+            type_def = self._type_definition_repository.get(op.label, op.type)
+            if type_def is None:
+                continue
+
+            # Calculate extra properties
+            provided_props = set(op.set_properties.keys())
+            required_props = set(type_def.required_properties)
+            existing_optional = set(type_def.optional_properties)
+
+            # Extra props = provided - required - system - already_optional
+            extra_props = (
+                provided_props - required_props - SYSTEM_PROPERTIES - existing_optional
+            )
+
+            if not extra_props:
+                # No new optional properties discovered
+                continue
+
+            # Create updated type definition with merged optional properties
+            updated_type_def = TypeDefinition(
+                label=type_def.label,
+                entity_type=type_def.entity_type,
+                description=type_def.description,
+                example_file_path=type_def.example_file_path,
+                example_in_file_path=type_def.example_in_file_path,
+                required_properties=type_def.required_properties,
+                optional_properties=sorted(
+                    list(existing_optional | extra_props)
+                ),  # Merge and sort
+            )
+
+            # Save updated type definition
+            self._type_definition_repository.save(updated_type_def)

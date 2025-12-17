@@ -35,6 +35,11 @@ class MutationOperationType(str, Enum):
     DELETE = "DELETE"
 
 
+# System-managed properties that should not be tracked as optional properties
+# These are automatically added by the system, not user-defined
+SYSTEM_PROPERTIES: frozenset[str] = frozenset({"data_source_id", "source_path", "slug"})
+
+
 class NodeRecord(BaseModel):
     """Immutable representation of a graph node.
 

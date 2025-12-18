@@ -19,10 +19,10 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture
 def repository(graph_client: AgeGraphClient) -> GraphExtractionReadOnlyRepository:
-    """Create a repository scoped to test data source."""
+    """Create a repository scoped to test graph."""
     return GraphExtractionReadOnlyRepository(
         client=graph_client,
-        data_source_id="test-ds-integration",
+        graph_id=graph_client.graph_name,
     )
 
 
@@ -33,39 +33,41 @@ def repository_with_data(
     """Create a repository with test data already loaded."""
     repo = GraphExtractionReadOnlyRepository(
         client=clean_graph,
-        data_source_id="test-ds-integration",
+        graph_id=clean_graph.graph_name,
     )
 
     # Create test data
     clean_graph.execute_cypher(
         """
-        CREATE (p1:Person {
+        CREATE (p1:person {
             id: 'person:abc123',
             slug: 'alice-smith',
             name: 'Alice Smith',
             data_source_id: 'test-ds-integration',
-            source_path: 'people/alice.md'
+            source_path: 'people/alice.md',
+            graph_id: 'test_graph'
         })
         """
     )
 
     clean_graph.execute_cypher(
         """
-        CREATE (p2:Person {
+        CREATE (p2:person {
             id: 'person:def456',
             slug: 'bob-jones',
             name: 'Bob Jones',
             data_source_id: 'test-ds-integration',
-            source_path: 'people/bob.md'
+            source_path: 'people/bob.md',
+            graph_id: 'test_graph'
         })
         """
     )
 
     clean_graph.execute_cypher(
         """
-        MATCH (p1:Person {slug: 'alice-smith', data_source_id: 'test-ds-integration'})
-        MATCH (p2:Person {slug: 'bob-jones', data_source_id: 'test-ds-integration'})
-        CREATE (p1)-[r:KNOWS {since: 2020, data_source_id: 'test-ds-integration'}]->(p2)
+        MATCH (p1:person {slug: 'alice-smith', data_source_id: 'test-ds-integration'})
+        MATCH (p2:person {slug: 'bob-jones', data_source_id: 'test-ds-integration'})
+        CREATE (p1)-[r:knows {since: 2020, data_source_id: 'test-ds-integration', graph_id: 'test_graph'}]->(p2)
         """
     )
 
@@ -89,85 +91,13 @@ class TestGenerateId:
         """Different data sources should produce different IDs for same entity.
 
         TODO: Once Tenants are in Kartograph, ensure IDs across tenants are different."""
-        repo1 = GraphExtractionReadOnlyRepository(
-            client=graph_client, data_source_id="ds-1"
-        )
-        repo2 = GraphExtractionReadOnlyRepository(
-            client=graph_client, data_source_id="ds-2"
-        )
+        repo1 = GraphExtractionReadOnlyRepository(client=graph_client, graph_id="ds-1")
+        repo2 = GraphExtractionReadOnlyRepository(client=graph_client, graph_id="ds-2")
 
         id1 = repo1.generate_id("Person", "alice")
         id2 = repo2.generate_id("Person", "alice")
 
         assert id1 == id2
-
-
-class TestFindNodesByPath:
-    """Integration tests for finding nodes by source path."""
-
-    def test_finds_nodes_by_path(self, repository_with_data):
-        """Should find nodes with matching source_path."""
-        nodes, edges = repository_with_data.find_nodes_by_path("people/alice.md")
-
-        assert len(nodes) >= 1
-        alice = next(
-            (n for n in nodes if n.properties.get("slug") == "alice-smith"), None
-        )
-        assert alice is not None
-        assert alice.label == "Person"
-        assert alice.properties["name"] == "Alice Smith"
-
-    def test_finds_related_nodes_and_edges(self, repository_with_data):
-        """Should find neighboring nodes and connecting edges."""
-        nodes, edges = repository_with_data.find_nodes_by_path("people/alice.md")
-
-        # Should include Alice and her relationships
-        slugs = {n.properties.get("slug") for n in nodes}
-        assert "alice-smith" in slugs
-
-        # May include Bob if the relationship is returned
-        # (depends on OPTIONAL MATCH behavior with map returns)
-
-    def test_returns_empty_for_nonexistent_path(self, repository_with_data):
-        """Should return empty lists for nonexistent path."""
-        nodes, edges = repository_with_data.find_nodes_by_path("nonexistent/path.md")
-
-        assert nodes == []
-        assert edges == []
-
-    def test_scopes_to_data_source(self, clean_graph: AgeGraphClient):
-        """Should only return nodes from the repository's data source."""
-        # Create node in different data source
-        clean_graph.execute_cypher(
-            """
-            CREATE (p:Person {
-                slug: 'charlie',
-                data_source_id: 'other-ds',
-                source_path: 'people/charlie.md'
-            })
-            """
-        )
-
-        # Create node in our data source
-        clean_graph.execute_cypher(
-            """
-            CREATE (p:Person {
-                slug: 'alice',
-                data_source_id: 'test-ds-integration',
-                source_path: 'people/alice.md'
-            })
-            """
-        )
-
-        repo = GraphExtractionReadOnlyRepository(
-            client=clean_graph, data_source_id="test-ds-integration"
-        )
-
-        nodes, _ = repo.find_nodes_by_path("people/alice.md")
-
-        # Should only find alice, not charlie
-        assert len(nodes) == 1
-        assert nodes[0].properties["slug"] == "alice"
 
 
 class TestFindNodesBySlug:
@@ -178,17 +108,17 @@ class TestFindNodesBySlug:
         nodes = repository_with_data.find_nodes_by_slug("alice-smith")
 
         assert len(nodes) == 1
-        assert nodes[0].label == "Person"
+        assert nodes[0].label == "person"
         assert nodes[0].properties["name"] == "Alice Smith"
 
     def test_filters_by_node_type(self, repository_with_data):
         """Should filter by node type when provided."""
         nodes = repository_with_data.find_nodes_by_slug(
-            "alice-smith", node_type="Person"
+            "alice-smith", node_type="person"
         )
 
         assert len(nodes) == 1
-        assert nodes[0].label == "Person"
+        assert nodes[0].label == "person"
 
     def test_returns_empty_for_wrong_type(self, repository_with_data):
         """Should return empty list when type doesn't match."""
@@ -231,7 +161,7 @@ class TestGetNeighbors:
 
         # Should find KNOWS edge
         assert len(result.edges) >= 1
-        knows_edge = next((e for e in result.edges if e.label == "KNOWS"), None)
+        knows_edge = next((e for e in result.edges if e.label == "knows"), None)
         assert knows_edge is not None
         assert knows_edge.properties["since"] == 2020
 
@@ -242,16 +172,17 @@ class TestGetNeighbors:
         # Create isolated node
         clean_graph.execute_cypher(
             """
-            CREATE (p:Person {
+            CREATE (p:person {
                 id: 'person:isolated',
                 slug: 'isolated',
-                data_source_id: 'test-ds-integration'
+                data_source_id: 'test-ds-integration',
+                graph_id: 'test_graph'
             })
             """
         )
 
         repo = GraphExtractionReadOnlyRepository(
-            client=clean_graph, data_source_id="test-ds-integration"
+            client=clean_graph, graph_id="test_graph"
         )
 
         result = repo.get_neighbors("person:isolated")
@@ -267,7 +198,7 @@ class TestExecuteRawQuery:
     def test_executes_simple_query(self, repository_with_data):
         """Should execute a simple read query."""
         results = repository_with_data.execute_raw_query(
-            "MATCH (p:Person) RETURN count(p)"
+            "MATCH (p:person) RETURN count(p)"
         )
 
         assert isinstance(results, list)
@@ -277,7 +208,7 @@ class TestExecuteRawQuery:
         """Should correctly parse map-based returns."""
         results = repository_with_data.execute_raw_query(
             """
-            MATCH (p:Person {slug: 'alice-smith'})
+            MATCH (p:person {slug: 'alice-smith'})
             RETURN {person: p}
             """
         )
@@ -285,13 +216,13 @@ class TestExecuteRawQuery:
         assert len(results) == 1
         assert "person" in results[0]
         person = results[0]["person"]
-        assert person["label"] == "Person"
+        assert person["label"] == "person"
         assert person["properties"]["name"] == "Alice Smith"
 
     def test_enforces_read_only(self, repository_with_data):
         """Should reject queries with mutation keywords."""
         with pytest.raises(GraphQueryError) as exc_info:
-            repository_with_data.execute_raw_query("CREATE (n:Person {name: 'Hacker'})")
+            repository_with_data.execute_raw_query("CREATE (n:person {name: 'Hacker'})")
 
         assert "read-only" in str(exc_info.value).lower()
         assert "CREATE" in str(exc_info.value)
@@ -358,19 +289,19 @@ class TestMapBasedReturns:
     def test_parses_single_vertex_in_map(self, repository_with_data):
         """Should parse map containing single vertex."""
         results = repository_with_data.execute_raw_query(
-            "MATCH (p:Person {slug: 'alice-smith'}) RETURN {node: p}"
+            "MATCH (p:person {slug: 'alice-smith'}) RETURN {node: p}"
         )
 
         assert len(results) == 1
         assert "node" in results[0]
-        assert results[0]["node"]["label"] == "Person"
+        assert results[0]["node"]["label"] == "person"
 
     def test_parses_multiple_vertices_in_map(self, repository_with_data):
         """Should parse map containing multiple vertices."""
         results = repository_with_data.execute_raw_query(
             """
-            MATCH (p1:Person {slug: 'alice-smith'})
-            MATCH (p2:Person {slug: 'bob-jones'})
+            MATCH (p1:person {slug: 'alice-smith'})
+            MATCH (p2:person {slug: 'bob-jones'})
             RETURN {person1: p1, person2: p2}
             """
         )
@@ -386,7 +317,7 @@ class TestMapBasedReturns:
         """Should parse map containing both vertex and edge."""
         results = repository_with_data.execute_raw_query(
             """
-            MATCH (p1:Person {slug: 'alice-smith'})-[r:KNOWS]->(p2:Person)
+            MATCH (p1:person {slug: 'alice-smith'})-[r:knows]->(p2:person)
             RETURN {person: p1, relationship: r, friend: p2}
             """
         )
@@ -396,13 +327,13 @@ class TestMapBasedReturns:
         assert "person" in result
         assert "relationship" in result
         assert "friend" in result
-        assert result["relationship"]["label"] == "KNOWS"
+        assert result["relationship"]["label"] == "knows"
 
     def test_parses_mixed_types_in_map(self, repository_with_data):
         """Should parse map containing vertices and scalar values."""
         results = repository_with_data.execute_raw_query(
             """
-            MATCH (p:Person {slug: 'alice-smith'})
+            MATCH (p:person {slug: 'alice-smith'})
             RETURN {person: p, count: 1, name: p.name}
             """
         )
@@ -412,55 +343,65 @@ class TestMapBasedReturns:
         assert "person" in result
         assert "count" in result
         assert "name" in result
-        assert result["person"]["label"] == "Person"
+        assert result["person"]["label"] == "person"
         assert result["count"] == 1
         assert result["name"] == "Alice Smith"
 
 
-class TestDataSourceIsolation:
-    """Integration tests for data source scoping."""
+class TestGraphIsolation:
+    """Integration tests for graph isolation."""
 
-    def test_isolated_from_other_data_sources(self, clean_graph: AgeGraphClient):
-        """Repository should only see its own data source."""
-        # Create nodes in two different data sources
-        clean_graph.execute_cypher(
-            """
-            CREATE (p:Person {
-                slug: 'ds1-person',
-                data_source_id: 'ds-1',
-                source_path: 'people/alice.md'
-            })
-            """
-        )
-
-        clean_graph.execute_cypher(
-            """
-            CREATE (p:Person {
-                slug: 'ds2-person',
-                data_source_id: 'ds-2',
-                source_path: 'people/alice.md'
-            })
-            """
-        )
-
-        # Create repositories for each data source
+    def test_isolated_from_other_graphs(self, clean_graph: AgeGraphClient):
+        """Repository should only see nodes from its scoped graph."""
+        # Create one repository scoped to graph-1
         repo1 = GraphExtractionReadOnlyRepository(
-            client=clean_graph, data_source_id="ds-1"
+            client=clean_graph,
+            graph_id="graph-1",
         )
+
+        # Create another repository scoped to graph-2
         repo2 = GraphExtractionReadOnlyRepository(
-            client=clean_graph, data_source_id="ds-2"
+            client=clean_graph,
+            graph_id="graph-2",
         )
 
-        # Each repository should only see its own data
-        nodes1 = repo1.find_nodes_by_slug("ds1-person")
-        nodes2 = repo2.find_nodes_by_slug("ds2-person")
+        # Create test data for graph-1
+        clean_graph.execute_cypher(
+            """
+            CREATE (p:person {
+                slug: 'alice',
+                graph_id: 'graph-1',
+                data_source_id: 'ds-123',
+                source_path: 'people/alice.md'
+            })
+            """
+        )
 
+        # Create test data for graph-2
+        clean_graph.execute_cypher(
+            """
+            CREATE (p:person {
+                slug: 'bob',
+                graph_id: 'graph-2',
+                data_source_id: 'ds-456',
+                source_path: 'people/bob.md'
+            })
+            """
+        )
+
+        # Repo1 should only see graph-1 data
+        nodes1 = repo1.find_nodes_by_slug("alice")
         assert len(nodes1) == 1
-        assert nodes1[0].properties["slug"] == "ds1-person"
+        assert nodes1[0].properties["slug"] == "alice"
 
+        # Repo2 should only see graph-2 data
+        nodes2 = repo2.find_nodes_by_slug("bob")
         assert len(nodes2) == 1
-        assert nodes2[0].properties["slug"] == "ds2-person"
+        assert nodes2[0].properties["slug"] == "bob"
 
-        # Cross-data-source queries should return empty
-        assert repo1.find_nodes_by_slug("ds2-person") == []
-        assert repo2.find_nodes_by_slug("ds1-person") == []
+        # Each repo should NOT see the other graph's data
+        nodes_cross1 = repo1.find_nodes_by_slug("bob")
+        assert len(nodes_cross1) == 0
+
+        nodes_cross2 = repo2.find_nodes_by_slug("alice")
+        assert len(nodes_cross2) == 0

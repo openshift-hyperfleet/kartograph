@@ -55,12 +55,21 @@ class AgeGraphClient(GraphClientProtocol):
     def __init__(
         self,
         settings: DatabaseSettings,
+        connection_factory: ConnectionFactory | None = None,
         probe: GraphClientProbe | None = None,
     ):
+        """Initialize the AGE graph client.
+
+        Args:
+            settings: Database connection settings
+            connection_factory: Optional connection factory (required for pooled mode)
+            probe: Optional observability probe
+        """
         self._settings = settings
-        self._connection_factory = ConnectionFactory(settings)
+        self._connection_factory = connection_factory
         self._graph_name = settings.graph_name
         self._connected = False
+        self._current_connection: PsycopgConnection | None = None
         self._probe = probe or DefaultGraphClientProbe()
 
     @property
@@ -75,19 +84,22 @@ class AgeGraphClient(GraphClientProtocol):
     @property
     def _connection(self):
         """Get the underlying psycopg2 connection."""
-        if self._connection_factory._connection is None:
-            raise ValueError(
-                "Unexpected Nonetype for self._connection_factory._connection"
-            )
-        return self._connection_factory._connection
+        if self._current_connection is None:
+            raise ValueError("No active connection. Call connect() first.")
+        return self._current_connection
 
     def connect(self) -> None:
         """Establish connection to the graph database."""
+        if self._connection_factory is None:
+            raise ValueError(
+                "ConnectionFactory required. Pass connection_factory parameter to __init__."
+            )
+
         try:
-            self._connection_factory.get_connection()
+            self._current_connection = self._connection_factory.get_connection()
             self._ensure_graph_exists()
             # Register AGType parser for automatic conversion of Vertex, Edge, Path objects
-            age.setUpAge(self._connection, self._graph_name)
+            age.setUpAge(self._current_connection, self._graph_name)
             self._connected = True
             self._probe.connected_to_graph(self._graph_name)
         except Exception as e:
@@ -112,8 +124,13 @@ class AgeGraphClient(GraphClientProtocol):
                 self._probe.graph_created(self._graph_name)
 
     def disconnect(self) -> None:
-        """Close the database connection."""
-        self._connection_factory.close_connection()
+        """Close the database connection and return it to the pool."""
+        if (
+            self._current_connection is not None
+            and self._connection_factory is not None
+        ):
+            self._connection_factory.return_connection(self._current_connection)
+            self._current_connection = None
         self._connected = False
 
     def verify_connection(self) -> bool:

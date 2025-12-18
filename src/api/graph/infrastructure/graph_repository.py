@@ -3,7 +3,7 @@
 This repository is designed for the Extraction bounded context, providing
 the Claude Agent SDK with scoped, read-only access to the graph during
 extraction jobs. All queries are automatically filtered to a specific
-data_source_id for security isolation.
+graph_id for security isolation.
 """
 
 from __future__ import annotations
@@ -28,24 +28,24 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
 
     This repository provides the Claude Agent SDK with tools to query existing
     graph state during extraction jobs. It is statefully scoped to a specific
-    data_source_id upon creation, ensuring that all queries are automatically
-    filtered to only see nodes and edges belonging to that data source.
+    graph_id upon creation, ensuring that all queries are automatically
+    filtered to only see nodes and edges belonging to that graph.
 
     Security features:
-        - All queries automatically filtered by data_source_id
+        - All queries automatically filtered by graph_id
         - Raw queries enforced as read-only (no CREATE/DELETE/SET/REMOVE/MERGE)
         - Raw queries limited to 100 results maximum
         - Raw queries enforce 5-second timeout to prevent DoS
 
     Attributes:
         _client: The underlying graph client.
-        _data_source_id: The data source ID scope for all queries.
+        _graph_id: The data source ID scope for all queries.
 
     Example:
         # In the Extraction context, when processing a JobPackage
         repo = GraphExtractionReadOnlyRepository(
             client=age_client,
-            data_source_id="ds-456",
+            graph_id="ds-456",
         )
 
         # Agent SDK can now query existing state
@@ -56,22 +56,23 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
     def __init__(
         self,
         client: GraphClientProtocol,
-        data_source_id: str,
+        graph_id: str,
     ):
         """Initialize the repository.
 
         Args:
             client: A connected graph client implementing GraphClientProtocol.
-            data_source_id: The data source ID to scope all queries to.
+            graph_id: The graph ID to scope all queries to. For initial tracer bullet
+                implementation, this is statically set via environment variable.
         """
         self._client = client
-        self._data_source_id = data_source_id
+        self._graph_id = graph_id
 
     def generate_id(self, entity_type: str, entity_slug: str) -> str:
         """Generate a deterministic ID for an entity.
 
         This method is critical for idempotent mutation operations in the
-        Extraction context. It combines the repository's scoped data_source_id
+        Extraction context. It combines the repository's scoped graph_id
         with the entity type and slug to produce a stable, reproducible
         identifier using SHA256 hashing.
 
@@ -99,47 +100,6 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
         hash_value = hashlib.sha256(combined.encode()).hexdigest()[:16]
         return f"{normalized_type}:{hash_value}"
 
-    def find_nodes_by_path(
-        self,
-        path: str,
-    ) -> tuple[list[NodeRecord], list[EdgeRecord]]:
-        """Find nodes and their edges by source file path."""
-        query = f"""
-            MATCH (n {{source_path: '{path}', data_source_id: '{self._data_source_id}'}})
-            OPTIONAL MATCH (n)-[r]-(m)
-            WHERE m.data_source_id = '{self._data_source_id}'
-            RETURN {{node: n, relationship: r, neighbor: m}}
-        """
-        result = self._client.execute_cypher(query)
-
-        nodes: dict[str, NodeRecord] = {}
-        edges: list[EdgeRecord] = []
-
-        for row in result.rows:
-            # row[0] is a dict: {"node": Vertex, "relationship": Edge, "neighbor": Vertex}
-            if len(row) > 0 and isinstance(row[0], dict):
-                result_map = row[0]
-
-                # Extract node
-                if "node" in result_map and result_map["node"] is not None:
-                    node = self._vertex_to_node_record(result_map["node"])
-                    nodes[node.id] = node
-
-                # Extract relationship
-                if (
-                    "relationship" in result_map
-                    and result_map["relationship"] is not None
-                ):
-                    edge = self._edge_to_edge_record(result_map["relationship"])
-                    edges.append(edge)
-
-                # Extract neighbor
-                if "neighbor" in result_map and result_map["neighbor"] is not None:
-                    neighbor = self._vertex_to_node_record(result_map["neighbor"])
-                    nodes[neighbor.id] = neighbor
-
-        return list(nodes.values()), edges
-
     def find_nodes_by_slug(
         self,
         slug: str,
@@ -148,7 +108,7 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
         """Find nodes by their slug, optionally filtered by type."""
         type_filter = f":{node_type}" if node_type else ""
         query = f"""
-            MATCH (n{type_filter} {{slug: '{slug}', data_source_id: '{self._data_source_id}'}})
+            MATCH (n{type_filter} {{slug: '{slug}', graph_id: '{self._graph_id}'}})
             RETURN {{node: n}}
         """
         result = self._client.execute_cypher(query)
@@ -169,9 +129,9 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
     ) -> NodeNeighborsResult:
         """Get all neighboring nodes and connecting edges."""
         query = f"""\
-MATCH (n {{id: '{node_id}', data_source_id: '{self._data_source_id}'}})
+MATCH (n {{id: '{node_id}', graph_id: '{self._graph_id}'}})
 OPTIONAL MATCH (n)-[r]-(m)
-WHERE m.data_source_id = '{self._data_source_id}' OR m IS NULL
+WHERE m.graph_id = '{self._graph_id}' OR m IS NULL
 RETURN {{central_node: n, neighbor: m, relationship: r}}\
 """
         result = self._client.execute_cypher(query)

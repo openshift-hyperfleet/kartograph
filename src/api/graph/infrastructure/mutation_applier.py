@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from graph.domain.value_objects import MutationOperation, MutationResult
+from graph.domain.value_objects import EntityType, MutationOperation, MutationResult
 from graph.infrastructure.observability import DefaultMutationProbe, MutationProbe
 from graph.ports.protocols import GraphClientProtocol
 
@@ -168,17 +168,22 @@ class MutationApplier:
     def _build_create(self, op: MutationOperation) -> str:
         """Build CREATE query using MERGE for idempotency.
 
+        Automatically stamps graph_id property on all created entities.
+
         Args:
             op: The CREATE operation
 
         Returns:
             Cypher MERGE query
         """
-        if op.type == "node":
+        if op.type == EntityType.NODE:
             # MERGE on id, set all properties
             set_clauses = []
             for k, v in (op.set_properties or {}).items():
                 set_clauses.append(f"SET n.{k} = {self._format_value(v)}")
+
+            # Infrastructure automatically stamps graph_id
+            set_clauses.append(f"SET n.graph_id = '{self._client.graph_name}'")
 
             return f"MERGE (n:{op.label} {{id: '{op.id}'}}) " + " ".join(set_clauses)
         else:  # edge
@@ -186,6 +191,9 @@ class MutationApplier:
             set_clauses = []
             for k, v in (op.set_properties or {}).items():
                 set_clauses.append(f"SET r.{k} = {self._format_value(v)}")
+
+            # Infrastructure automatically stamps graph_id
+            set_clauses.append(f"SET r.graph_id = '{self._client.graph_name}'")
 
             return (
                 f"MATCH (source {{id: '{op.start_id}'}}) "

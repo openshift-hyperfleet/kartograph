@@ -10,7 +10,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 # Type alias for exploration query results.
 # These are dynamic dictionaries returned from arbitrary Cypher queries.
@@ -144,16 +144,6 @@ class TypeDefinition(BaseModel):
     required_properties: set[str]
     optional_properties: set[str] = Field(default_factory=set)
 
-    @field_validator("label")
-    @classmethod
-    def label_must_be_lowercase(cls, v: str) -> str:
-        """Enforce that labels are lowercase."""
-        if v != v.lower():
-            raise ValueError(
-                f"Label must be lowercase. Got '{v}', expected '{v.lower()}'"
-            )
-        return v
-
 
 class MutationOperation(BaseModel):
     """JSONL mutation operation for the Graph bounded context.
@@ -189,19 +179,7 @@ class MutationOperation(BaseModel):
     id: str | None = Field(default=None, pattern="^[a-z_]+:[0-9a-f]{16}$")
 
     # CREATE/DEFINE fields
-    label: str | None = Field(
-        default=None, description="Type label (must be lowercase)"
-    )
-
-    @field_validator("label")
-    @classmethod
-    def label_must_be_lowercase(cls, v: str | None) -> str | None:
-        """Enforce that labels are lowercase."""
-        if v is not None and v != v.lower():
-            raise ValueError(
-                f"Label must be lowercase. Got '{v}', expected '{v.lower()}'"
-            )
-        return v
+    label: str | None = Field(default=None, description="Type label")
 
     # CREATE edge fields
     start_id: str | None = Field(default=None, pattern="^[a-z_]+:[0-9a-f]{16}$")

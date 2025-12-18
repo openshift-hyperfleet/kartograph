@@ -103,29 +103,6 @@ async def apply_mutations(
     return result
 
 
-@router.get("/nodes/by-path")
-async def find_by_path(
-    path: str,
-    service: GraphQueryService = Depends(get_graph_query_service),
-) -> dict[str, Any]:
-    """Find nodes and edges by source file path.
-
-    Query parameter:
-        path: Source file path (e.g., "people/alice.md")
-
-    Returns:
-        {
-            "nodes": [...],
-            "edges": [...]
-        }
-    """
-    nodes, edges = service.get_nodes_by_path(path)
-    return {
-        "nodes": [n.model_dump() for n in nodes],
-        "edges": [e.model_dump() for e in edges],
-    }
-
-
 @router.get("/nodes/by-slug")
 async def find_by_slug(
     slug: str,

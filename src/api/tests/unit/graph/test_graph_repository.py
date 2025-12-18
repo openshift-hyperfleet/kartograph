@@ -34,7 +34,7 @@ def repository(mock_graph_client):
     """Create a repository with mock client."""
     return GraphExtractionReadOnlyRepository(
         client=mock_graph_client,
-        data_source_id="ds-123",
+        graph_id="ds-123",
     )
 
 
@@ -49,19 +49,19 @@ class TestGraphExtractionReadOnlyRepositoryProtocolCompliance:
 class TestGraphExtractionReadOnlyRepositoryInit:
     """Tests for repository initialization."""
 
-    def test_stores_data_source_id(self, mock_graph_client):
+    def test_stores_graph_id(self, mock_graph_client):
         """Repository should store the data_source_id for scoping."""
         repo = GraphExtractionReadOnlyRepository(
             client=mock_graph_client,
-            data_source_id="ds-456",
+            graph_id="ds-456",
         )
-        assert repo._data_source_id == "ds-456"
+        assert repo._graph_id == "ds-456"
 
     def test_stores_client_reference(self, mock_graph_client):
         """Repository should store the client reference."""
         repo = GraphExtractionReadOnlyRepository(
             client=mock_graph_client,
-            data_source_id="ds-123",
+            graph_id="ds-123",
         )
         assert repo._client is mock_graph_client
 
@@ -99,10 +99,10 @@ class TestGenerateId:
         cross-tenant IDs differ.
         """
         repo1 = GraphExtractionReadOnlyRepository(
-            client=mock_graph_client, data_source_id="ds-1"
+            client=mock_graph_client, graph_id="ds-1"
         )
         repo2 = GraphExtractionReadOnlyRepository(
-            client=mock_graph_client, data_source_id="ds-2"
+            client=mock_graph_client, graph_id="ds-2"
         )
 
         id1 = repo1.generate_id("person", "alice")
@@ -115,48 +115,6 @@ class TestGenerateId:
         hash_part = id_value.split(":")[1]
         # Should be valid hex characters
         assert all(c in "0123456789abcdef" for c in hash_part)
-
-
-class TestFindNodesByPath:
-    """Tests for find_nodes_by_path method."""
-
-    def test_returns_empty_when_no_results(self, repository, mock_graph_client):
-        """Should return empty lists when no nodes found."""
-        mock_graph_client.execute_cypher.return_value = CypherResult(
-            rows=tuple(),
-            row_count=0,
-        )
-
-        nodes, edges = repository.find_nodes_by_path("nonexistent/path.md")
-
-        assert nodes == []
-        assert edges == []
-
-    def test_executes_query_with_path(self, repository, mock_graph_client):
-        """Query should include the path parameter."""
-        mock_graph_client.execute_cypher.return_value = CypherResult(
-            rows=tuple(),
-            row_count=0,
-        )
-
-        repository.find_nodes_by_path("some/path.md")
-
-        call_args = mock_graph_client.execute_cypher.call_args
-        query = call_args[0][0]
-        assert "some/path.md" in query
-
-    def test_scopes_to_data_source(self, repository, mock_graph_client):
-        """Query should be scoped to the repository's data_source_id."""
-        mock_graph_client.execute_cypher.return_value = CypherResult(
-            rows=tuple(),
-            row_count=0,
-        )
-
-        repository.find_nodes_by_path("some/path.md")
-
-        call_args = mock_graph_client.execute_cypher.call_args
-        query = call_args[0][0]
-        assert "ds-123" in query
 
 
 class TestFindNodesBySlug:

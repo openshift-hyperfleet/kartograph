@@ -126,7 +126,6 @@ class GraphSchemaService:
 
         # Apply has_property filter
         if has_property:
-            print(filtered)
             filtered = [
                 d
                 for d in filtered

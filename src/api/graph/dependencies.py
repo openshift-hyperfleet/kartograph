@@ -8,7 +8,7 @@ from collections.abc import Generator
 from functools import lru_cache
 from typing import Annotated
 
-from fastapi import Depends, Query
+from fastapi import Depends
 
 from graph.application.services import (
     GraphMutationService,
@@ -54,20 +54,20 @@ def get_age_graph_client(
 
 def get_graph_query_service(
     client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
-    data_source_id: str = Query(...),
+    graph_id: str = get_database_settings().graph_name,
 ) -> GraphQueryService:
     """Get GraphQueryService for scoped read operations.
 
     Args:
         client: Request-scoped graph client
-        data_source_id: Data source ID for query scoping
+        graph_id: Data source ID for query scoping
 
     Returns:
         GraphQueryService instance
     """
     repository = GraphExtractionReadOnlyRepository(
         client=client,
-        data_source_id=data_source_id,
+        graph_id=graph_id,
     )
     return GraphQueryService(repository=repository)
 

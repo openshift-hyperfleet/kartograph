@@ -12,7 +12,6 @@ from graph.application.observability import (
     GraphServiceProbe,
 )
 from graph.domain.value_objects import (
-    EdgeRecord,
     NodeRecord,
     QueryResultRow,
 )
@@ -40,26 +39,6 @@ class GraphQueryService:
         """
         self._repository = repository
         self._probe = probe or DefaultGraphServiceProbe()
-
-    def get_nodes_by_path(
-        self,
-        path: str,
-    ) -> tuple[list[NodeRecord], list[EdgeRecord]]:
-        """Get all nodes and edges associated with a source file path.
-
-        Args:
-            path: The source file path (e.g., "people/alice.md")
-
-        Returns:
-            Tuple of (nodes, edges) found at the path.
-        """
-        nodes, edges = self._repository.find_nodes_by_path(path)
-        self._probe.nodes_queried(
-            path=path,
-            node_count=len(nodes),
-            edge_count=len(edges),
-        )
-        return nodes, edges
 
     def search_by_slug(
         self,

@@ -137,62 +137,6 @@ class TestApplyMutationsRoute:
         assert "errors" in response.json()["detail"]
 
 
-class TestFindByPathRoute:
-    """Tests for GET /graph/nodes/by-path endpoint."""
-
-    def test_find_by_path_success(self, test_client, mock_query_service):
-        """Should find nodes and edges by path."""
-        mock_nodes = [
-            NodeRecord(
-                id="person:abc123def456789a",
-                label="person",
-                properties={
-                    "slug": "alice",
-                    "name": "Alice",
-                    "data_source_id": "ds-123",
-                    "source_path": "people/alice.md",
-                },
-            )
-        ]
-        mock_edges = [
-            EdgeRecord(
-                id="knows:aaa111bbb222ccc3",
-                label="knows",
-                start_id="person:abc123def456789a",
-                end_id="person:def456abc123789a",
-                properties={
-                    "since": 2020,
-                    "data_source_id": "ds-123",
-                    "source_path": "people/alice.md",
-                },
-            )
-        ]
-
-        mock_query_service.get_nodes_by_path.return_value = (mock_nodes, mock_edges)
-
-        response = test_client.get("/graph/nodes/by-path?path=people/alice.md")
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert "nodes" in data
-        assert "edges" in data
-        assert len(data["nodes"]) == 1
-        assert len(data["edges"]) == 1
-        assert data["nodes"][0]["label"] == "person"
-        assert data["edges"][0]["label"] == "knows"
-
-    def test_find_by_path_no_results(self, test_client, mock_query_service):
-        """Should return empty arrays when no results found."""
-        mock_query_service.get_nodes_by_path.return_value = ([], [])
-
-        response = test_client.get("/graph/nodes/by-path?path=nonexistent.md")
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["nodes"] == []
-        assert data["edges"] == []
-
-
 class TestFindBySlugRoute:
     """Tests for GET /graph/nodes/by-slug endpoint."""
 

@@ -44,40 +44,6 @@ class TestGraphQueryServiceInit:
         assert service._probe is not None
 
 
-class TestGetNodesByPath:
-    """Tests for get_nodes_by_path method."""
-
-    def test_delegates_to_repository(self, service, mock_repository):
-        """Service should delegate to repository."""
-        expected_nodes = [NodeRecord(id="n1", label="Test", properties={})]
-        expected_edges: list[EdgeRecord] = []
-        mock_repository.find_nodes_by_path.return_value = (
-            expected_nodes,
-            expected_edges,
-        )
-
-        nodes, edges = service.get_nodes_by_path("some/path.md")
-
-        mock_repository.find_nodes_by_path.assert_called_once_with("some/path.md")
-        assert nodes == expected_nodes
-        assert edges == expected_edges
-
-    def test_records_observation(self, service, mock_repository, mock_probe):
-        """Service should record observation via probe."""
-        mock_repository.find_nodes_by_path.return_value = (
-            [NodeRecord(id="n1", label="Test", properties={})],
-            [],
-        )
-
-        service.get_nodes_by_path("some/path.md")
-
-        mock_probe.nodes_queried.assert_called_once_with(
-            path="some/path.md",
-            node_count=1,
-            edge_count=0,
-        )
-
-
 class TestSearchBySlug:
     """Tests for search_by_slug method."""
 

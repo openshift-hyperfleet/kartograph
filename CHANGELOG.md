@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.6.0...v0.7.0) (2025-12-18)
+
+
+### Features
+
+* **api.graph:** add ontology endpoints ([#61](https://github.com/openshift-hyperfleet/kartograph/issues/61)) ([72e0eb4](https://github.com/openshift-hyperfleet/kartograph/commit/72e0eb42e56690221a00f8297f16a3d879532689))
+
 ## [0.6.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.5.0...v0.6.0) (2025-12-17)
 
 

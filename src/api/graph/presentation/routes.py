@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from graph.ports.protocols import NodeNeighborsResult
 from graph.application.services import (
@@ -20,14 +20,21 @@ from graph.dependencies import (
     get_graph_query_service,
     get_schema_service,
 )
-from graph.domain.value_objects import MutationResult
+from graph.domain.value_objects import (
+    MutationResult,
+    SchemaLabelsResponse,
+    TypeDefinition,
+)
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 
 
 @router.post("/mutations", status_code=status.HTTP_200_OK)
 async def apply_mutations(
-    request: Request,
+    jsonl_content: str = Body(
+        ...,
+        media_type="application/jsonlines",
+    ),
     service: GraphMutationService = Depends(get_graph_mutation_service),
 ) -> MutationResult:
     """Apply a batch of mutation operations from JSONL format.
@@ -36,8 +43,19 @@ async def apply_mutations(
     Content-Type: application/x-ndjson
 
     Example:
-        {"op": "CREATE", "type": "node", "id": "person:abc123def456789a", "label": "Person", "set_properties": {"slug": "alice-smith", "name": "Alice Smith", "data_source_id": "ds-456", "source_path": "people/alice.md"}}
-        {"op": "CREATE", "type": "node", "id": "person:def456abc123789a", "label": "Person", "set_properties": {"slug": "bob-jones", "name": "Bob Jones", "data_source_id": "ds-456", "source_path": "people/bob.md"}}
+
+
+    ```jsonl
+    {"op": "CREATE", "type": "node", "id": "person:1a2b3c4d5e6f7890", "label": "person", "set_properties": {"slug": "alice-smith", "name": "Alice Smith", "data_source_id": "ds-123", "source_path": "people/alice.md"}}
+    {"op": "CREATE", "type": "node", "id": "person:abcdef0123456789", "label": "person", "set_properties": {"slug": "bob-jones", "name": "Bob Jones", "data_source_id": "ds-123", "source_path": "people/bob.md"}}
+    {"op": "CREATE", "type": "edge", "id": "knows:9f8e7d6c5b4a3210", "label": "knows", "start_id": "person:1a2b3c4d5e6f7890", "end_id": "person:abcdef0123456789", "set_properties": {"since": 2020, "data_source_id": "ds-123", "source_path": "people/alice.md"}}
+    {"op": "DEFINE","type": "node","label": "person","description": "A person entity representing an individual contributor, maintainer, or team member. Extracted from MAINTAINERS.md, git commit authors, @-mentions in pull requests, and people/ directory markdown files.","example_file_path": "people/alice-smith.md","example_in_file_path": "name: Alice Smith email: alice@example.com github: asmith role: Senior Engineer # Alice Smith Alice is a senior engineer focusing on backend systems.","required_properties": ["name"]}
+    {"op": "DEFINE","type": "edge","label": "knows","description": "Represents a professional relationship or acquaintance between two people, typically colleagues or collaborators. Extracted from co-authorship on pull requests, shared repository maintainership, or explicit mentions in people profiles.","example_file_path": "people/alice-smith.md","example_in_file_path": "## Colleagues - [@bob-jones](../people/bob-jones.md) - worked together since 2020 - [@charlie-wilson](../people/charlie-wilson.md) - collaborated on Project X","required_properties": ["since"]}
+    {"op": "CREATE","type": "node","id": "person:1a2b3c4d5e6f7890","label": "person","set_properties": {"slug": "alice-smith","name": "Alice Smith","data_source_id": "ds-123","source_path": "people/alice.md"}}
+    {"op": "CREATE","type": "node","id": "person:abcdef0123456789","label": "person","set_properties": {"slug": "bob-jones","name": "Bob Jones","data_source_id": "ds-123","source_path": "people/bob.md"}}
+    {"op": "CREATE","type": "edge","id": "knows:9f8e7d6c5b4a3210","label": "knows","start_id": "person:1a2b3c4d5e6f7890","end_id": "person:abcdef0123456789","set_properties": {"since": "2020","data_source_id": "ds-123","source_path": "people/alice.md"}}
+    ```
+
 
     Returns:
         MutationResult with success status and operation count.
@@ -48,11 +66,8 @@ async def apply_mutations(
     Raises:
         HTTPException: 500 if mutation application fails.
     """
-    # Read raw body as string
-    jsonl_content = await request.body()
-    jsonl_str = jsonl_content.decode("utf-8")
 
-    result = service.apply_mutations_from_jsonl(jsonl_str)
+    result = service.apply_mutations_from_jsonl(jsonl_content=jsonl_content)
 
     if not result.success:
         # Check if it's a validation error vs execution error
@@ -121,7 +136,7 @@ async def find_by_slug(
 
     Query parameters:
         slug: Entity slug (e.g., "alice-smith")
-        node_type: Optional type filter (e.g., "Person")
+        node_type: Optional type filter (e.g., "person")
 
     Returns:
         {
@@ -153,17 +168,91 @@ async def get_neighbors(
     return response
 
 
-@router.get("/ontology")
-async def get_ontology(
+@router.get("/schema/nodes", response_model=SchemaLabelsResponse)
+async def get_node_labels_endpoint(
+    search: str | None = None,
+    has_property: str | None = None,
     service: GraphSchemaService = Depends(get_schema_service),
-) -> list[dict[str, Any]]:
-    """Get graph ontology (type definitions).
+) -> SchemaLabelsResponse:
+    """Get list of node type labels.
 
-    Returns all node and edge type definitions that have been created
-    via DEFINE operations.
+    Query parameters:
+        search: Optional search term to filter labels (case-insensitive)
+        has_property: Optional property name filter
 
     Returns:
-        List of type definitions with schema information
+        SchemaLabelsResponse with labels and count
     """
-    definitions = service.get_ontology()
-    return [d.model_dump() for d in definitions]
+    labels = service.get_node_labels(search=search, has_property=has_property)
+    return SchemaLabelsResponse(labels=labels, count=len(labels))
+
+
+@router.get("/schema/edges", response_model=SchemaLabelsResponse)
+async def get_edge_labels_endpoint(
+    search: str | None = None,
+    service: GraphSchemaService = Depends(get_schema_service),
+) -> SchemaLabelsResponse:
+    """Get list of edge type labels.
+
+    Query parameters:
+        search: Optional search term to filter labels (case-insensitive)
+
+    Returns:
+        SchemaLabelsResponse with labels and count
+    """
+    labels = service.get_edge_labels(search=search)
+    return SchemaLabelsResponse(labels=labels, count=len(labels))
+
+
+@router.get("/schema/nodes/{label}", response_model=TypeDefinition)
+async def get_node_schema_endpoint(
+    label: str,
+    service: GraphSchemaService = Depends(get_schema_service),
+) -> TypeDefinition:
+    """Get full schema for a specific node type.
+
+    Path parameter:
+        label: The node type label (e.g., "person")
+
+    Returns:
+        Full TypeDefinition including required/optional properties
+
+    Raises:
+        HTTPException: 404 if label not found
+    """
+    schema = service.get_node_schema(label)
+
+    if schema is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Node type '{label}' not found",
+        )
+
+    return schema
+
+
+@router.get("/schema/edges/{label}", response_model=TypeDefinition)
+async def get_edge_schema_endpoint(
+    label: str,
+    service: GraphSchemaService = Depends(get_schema_service),
+) -> TypeDefinition:
+    """Get full schema for a specific edge type.
+
+    Path parameter:
+        label: The edge type label (e.g., "knows")
+
+    Returns:
+        Full TypeDefinition including required/optional properties
+
+    Raises:
+        HTTPException: 404 if label not found
+    """
+    schema = service.get_edge_schema(label)
+
+    if schema is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Edge type '{label}' not found",
+        )
+
+    return schema

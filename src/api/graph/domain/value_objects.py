@@ -10,7 +10,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Type alias for exploration query results.
 # These are dynamic dictionaries returned from arbitrary Cypher queries.
@@ -38,6 +38,13 @@ class MutationOperationType(str, Enum):
 # System-managed properties that should not be tracked as optional properties
 # These are automatically added by the system, not user-defined
 SYSTEM_PROPERTIES: frozenset[str] = frozenset({"data_source_id", "source_path", "slug"})
+
+
+class SchemaLabelsResponse(BaseModel):
+    """Response model for schema label list endpoints."""
+
+    labels: list[str] = Field(description="List of type labels")
+    count: int = Field(description="Total number of labels")
 
 
 class NodeRecord(BaseModel):
@@ -97,13 +104,23 @@ class TypeDefinition(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    label: str
+    label: str = Field(description="Type label (must be lowercase)")
     entity_type: EntityType
     description: str
     example_file_path: str
     example_in_file_path: str
-    required_properties: list[str]
-    optional_properties: list[str] = Field(default_factory=list)
+    required_properties: set[str]
+    optional_properties: set[str] = Field(default_factory=set)
+
+    @field_validator("label")
+    @classmethod
+    def label_must_be_lowercase(cls, v: str) -> str:
+        """Enforce that labels are lowercase."""
+        if v != v.lower():
+            raise ValueError(
+                f"Label must be lowercase. Got '{v}', expected '{v.lower()}'"
+            )
+        return v
 
 
 class MutationOperation(BaseModel):
@@ -140,7 +157,19 @@ class MutationOperation(BaseModel):
     id: str | None = Field(default=None, pattern="^[a-z_]+:[0-9a-f]{16}$")
 
     # CREATE/DEFINE fields
-    label: str | None = None
+    label: str | None = Field(
+        default=None, description="Type label (must be lowercase)"
+    )
+
+    @field_validator("label")
+    @classmethod
+    def label_must_be_lowercase(cls, v: str | None) -> str | None:
+        """Enforce that labels are lowercase."""
+        if v is not None and v != v.lower():
+            raise ValueError(
+                f"Label must be lowercase. Got '{v}', expected '{v.lower()}'"
+            )
+        return v
 
     # CREATE edge fields
     start_id: str | None = Field(default=None, pattern="^[a-z_]+:[0-9a-f]{16}$")
@@ -256,8 +285,8 @@ class MutationOperation(BaseModel):
             description=self.description or "",
             example_file_path=self.example_file_path or "",
             example_in_file_path=self.example_in_file_path or "",
-            required_properties=self.required_properties or [],
-            optional_properties=self.optional_properties or [],
+            required_properties=set(self.required_properties or []),
+            optional_properties=set(self.optional_properties or []),
         )
 
 

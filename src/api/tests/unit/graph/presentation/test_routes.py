@@ -58,7 +58,7 @@ class TestApplyMutationsRoute:
             operations_applied=2,
         )
 
-        jsonl_data = '{"op": "CREATE", "type": "node", "id": "person:abc123def456789a", "label": "Person", "set_properties": {"slug": "alice", "name": "Alice", "data_source_id": "ds-123", "source_path": "people/alice.md"}}\n{"op": "UPDATE", "type": "node", "id": "person:abc123def456789a", "set_properties": {"email": "alice@example.com"}}'
+        jsonl_data = '{"op": "CREATE", "type": "node", "id": "person:abc123def456789a", "label": "person", "set_properties": {"slug": "alice", "name": "Alice", "data_source_id": "ds-123", "source_path": "people/alice.md"}}\n{"op": "UPDATE", "type": "node", "id": "person:abc123def456789a", "set_properties": {"email": "alice@example.com"}}'
 
         response = test_client.post(
             "/graph/mutations",
@@ -73,7 +73,7 @@ class TestApplyMutationsRoute:
 
         # Verify service was called with JSONL string
         mock_mutation_service.apply_mutations_from_jsonl.assert_called_once_with(
-            jsonl_data
+            jsonl_content=jsonl_data
         )
 
     def test_apply_mutations_failure_returns_500(
@@ -97,8 +97,8 @@ class TestApplyMutationsRoute:
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert "errors" in response.json()["detail"]
 
-    def test_apply_empty_jsonl(self, test_client, mock_mutation_service):
-        """Should handle empty JSONL."""
+    def test_apply_whitespace_only_jsonl(self, test_client, mock_mutation_service):
+        """Should handle JSONL with only whitespace/newlines."""
         mock_mutation_service.apply_mutations_from_jsonl.return_value = MutationResult(
             success=True,
             operations_applied=0,
@@ -106,8 +106,8 @@ class TestApplyMutationsRoute:
 
         response = test_client.post(
             "/graph/mutations",
-            content="",
-            headers={"Content-Type": "application/x-ndjson"},
+            content="\n\n  \n",  # Whitespace only
+            headers={"Content-Type": "application/jsonlines"},
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -145,7 +145,7 @@ class TestFindByPathRoute:
         mock_nodes = [
             NodeRecord(
                 id="person:abc123def456789a",
-                label="Person",
+                label="person",
                 properties={
                     "slug": "alice",
                     "name": "Alice",
@@ -157,7 +157,7 @@ class TestFindByPathRoute:
         mock_edges = [
             EdgeRecord(
                 id="knows:aaa111bbb222ccc3",
-                label="KNOWS",
+                label="knows",
                 start_id="person:abc123def456789a",
                 end_id="person:def456abc123789a",
                 properties={
@@ -178,8 +178,8 @@ class TestFindByPathRoute:
         assert "edges" in data
         assert len(data["nodes"]) == 1
         assert len(data["edges"]) == 1
-        assert data["nodes"][0]["label"] == "Person"
-        assert data["edges"][0]["label"] == "KNOWS"
+        assert data["nodes"][0]["label"] == "person"
+        assert data["edges"][0]["label"] == "knows"
 
     def test_find_by_path_no_results(self, test_client, mock_query_service):
         """Should return empty arrays when no results found."""
@@ -201,7 +201,7 @@ class TestFindBySlugRoute:
         mock_nodes = [
             NodeRecord(
                 id="person:abc123def456789a",
-                label="Person",
+                label="person",
                 properties={
                     "slug": "alice",
                     "name": "Alice",
@@ -226,7 +226,7 @@ class TestFindBySlugRoute:
         mock_nodes = [
             NodeRecord(
                 id="person:abc123def456789a",
-                label="Person",
+                label="person",
                 properties={
                     "slug": "alice",
                     "name": "Alice",
@@ -255,7 +255,7 @@ class TestGetNeighborsRoute:
 
         mock_central_node = NodeRecord(
             id="person:abc123def456789a",
-            label="Person",
+            label="person",
             properties={
                 "slug": "alice",
                 "name": "Alice",
@@ -266,7 +266,7 @@ class TestGetNeighborsRoute:
         mock_neighbor_nodes = [
             NodeRecord(
                 id="person:def456abc123789a",
-                label="Person",
+                label="person",
                 properties={
                     "slug": "bob",
                     "name": "Bob",
@@ -278,7 +278,7 @@ class TestGetNeighborsRoute:
         mock_connecting_edges = [
             EdgeRecord(
                 id="knows:aaa111bbb222ccc3",
-                label="KNOWS",
+                label="knows",
                 start_id="person:abc123def456789a",
                 end_id="person:def456abc123789a",
                 properties={
@@ -313,7 +313,7 @@ class TestGetNeighborsRoute:
 
         mock_central_node = NodeRecord(
             id="person:isolated111111",
-            label="Person",
+            label="person",
             properties={
                 "slug": "isolated",
                 "data_source_id": "ds-123",

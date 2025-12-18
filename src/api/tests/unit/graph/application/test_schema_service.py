@@ -60,7 +60,7 @@ class TestGetOntology:
         """Should return list of TypeDefinitions."""
         type_defs = [
             TypeDefinition(
-                label="Person",
+                label="person",
                 entity_type=EntityType.NODE,
                 description="A person entity",
                 example_file_path="people/alice.md",
@@ -68,7 +68,7 @@ class TestGetOntology:
                 required_properties=["slug", "name"],
             ),
             TypeDefinition(
-                label="KNOWS",
+                label="knows",
                 entity_type=EntityType.EDGE,
                 description="Person knows another person",
                 example_file_path="people/alice.md",
@@ -87,7 +87,7 @@ class TestGetOntology:
         """Should record observation when ontology retrieved."""
         type_defs = [
             TypeDefinition(
-                label="Person",
+                label="person",
                 entity_type=EntityType.NODE,
                 description="test",
                 example_file_path="test.md",
@@ -110,3 +110,188 @@ class TestGetOntology:
         result = service.get_ontology()
 
         assert result == []
+
+
+class TestGetNodeLabels:
+    """Tests for get_node_labels method."""
+
+    def test_returns_all_node_labels(self, service, mock_repository):
+        """Should return list of all node type labels."""
+        type_defs = [
+            TypeDefinition(
+                label="person",
+                entity_type=EntityType.NODE,
+                description="A person",
+                example_file_path="test.md",
+                example_in_file_path="test",
+                required_properties=["slug"],
+            ),
+            TypeDefinition(
+                label="repository",
+                entity_type=EntityType.NODE,
+                description="A code repository",
+                example_file_path="test.md",
+                example_in_file_path="test",
+                required_properties=["slug"],
+            ),
+            TypeDefinition(
+                label="knows",
+                entity_type=EntityType.EDGE,
+                description="An edge",
+                example_file_path="test.md",
+                example_in_file_path="test",
+                required_properties=[],
+            ),
+        ]
+        mock_repository.get_all.return_value = type_defs
+
+        result = service.get_node_labels()
+
+        assert result == ["person", "repository"]
+        assert "knows" not in result
+
+    def test_filters_by_search_term(self, service, mock_repository):
+        """Should filter labels by search term (case-insensitive)."""
+        type_defs = [
+            TypeDefinition(
+                label="person",
+                entity_type=EntityType.NODE,
+                description="A person",
+                example_file_path="test.md",
+                example_in_file_path="test",
+                required_properties=[],
+            ),
+            TypeDefinition(
+                label="repository",
+                entity_type=EntityType.NODE,
+                description="A repo",
+                example_file_path="test.md",
+                example_in_file_path="test",
+                required_properties=[],
+            ),
+        ]
+        mock_repository.get_all.return_value = type_defs
+
+        result = service.get_node_labels(search="repo")
+
+        assert result == ["repository"]
+        assert "person" not in result
+
+    def test_filters_by_has_property(self, service, mock_repository):
+        """Should filter by presence of property."""
+        type_defs = [
+            TypeDefinition(
+                label="person",
+                entity_type=EntityType.NODE,
+                description="A person",
+                example_file_path="test.md",
+                example_in_file_path="test",
+                required_properties=["slug"],
+                optional_properties=["email", "age"],
+            ),
+            TypeDefinition(
+                label="repository",
+                entity_type=EntityType.NODE,
+                description="A repo",
+                example_file_path="test.md",
+                example_in_file_path="test",
+                required_properties=["slug"],
+                optional_properties=["url"],
+            ),
+        ]
+        mock_repository.get_all.return_value = type_defs
+
+        result = service.get_node_labels(has_property="email")
+
+        assert result == ["person"]
+        assert "repository" not in result
+
+
+class TestGetEdgeLabels:
+    """Tests for get_edge_labels method."""
+
+    def test_returns_all_edge_labels(self, service, mock_repository):
+        """Should return list of all edge type labels."""
+        type_defs = [
+            TypeDefinition(
+                label="person",
+                entity_type=EntityType.NODE,
+                description="A person",
+                example_file_path="test.md",
+                example_in_file_path="test",
+                required_properties=[],
+            ),
+            TypeDefinition(
+                label="knows",
+                entity_type=EntityType.EDGE,
+                description="Knows relationship",
+                example_file_path="test.md",
+                example_in_file_path="test",
+                required_properties=[],
+            ),
+            TypeDefinition(
+                label="owns",
+                entity_type=EntityType.EDGE,
+                description="Owns relationship",
+                example_file_path="test.md",
+                example_in_file_path="test",
+                required_properties=[],
+            ),
+        ]
+        mock_repository.get_all.return_value = type_defs
+
+        result = service.get_edge_labels()
+
+        assert result == ["knows", "owns"]
+        assert "person" not in result
+
+
+class TestGetNodeSchema:
+    """Tests for get_node_schema method."""
+
+    def test_returns_node_schema(self, service, mock_repository):
+        """Should return full TypeDefinition for node label."""
+        type_def = TypeDefinition(
+            label="person",
+            entity_type=EntityType.NODE,
+            description="A person",
+            example_file_path="test.md",
+            example_in_file_path="test",
+            required_properties=["slug", "name"],
+            optional_properties=["email"],
+        )
+        mock_repository.get.return_value = type_def
+
+        result = service.get_node_schema("person")
+
+        assert result == type_def
+        mock_repository.get.assert_called_once_with("person", "node")
+
+    def test_returns_none_when_not_found(self, service, mock_repository):
+        """Should return None when label doesn't exist."""
+        mock_repository.get.return_value = None
+
+        result = service.get_node_schema("NonExistent")
+
+        assert result is None
+
+
+class TestGetEdgeSchema:
+    """Tests for get_edge_schema method."""
+
+    def test_returns_edge_schema(self, service, mock_repository):
+        """Should return full TypeDefinition for edge label."""
+        type_def = TypeDefinition(
+            label="knows",
+            entity_type=EntityType.EDGE,
+            description="Knows relationship",
+            example_file_path="test.md",
+            example_in_file_path="test",
+            required_properties=[],
+        )
+        mock_repository.get.return_value = type_def
+
+        result = service.get_edge_schema("knows")
+
+        assert result == type_def
+        mock_repository.get.assert_called_once_with("knows", "edge")

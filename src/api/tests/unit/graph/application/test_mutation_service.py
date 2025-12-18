@@ -2,7 +2,13 @@
 
 from unittest.mock import Mock
 
-from graph.domain.value_objects import MutationOperation, MutationResult
+from graph.domain.value_objects import (
+    EntityType,
+    MutationOperation,
+    MutationOperationType,
+    MutationResult,
+    TypeDefinition,
+)
 
 
 class TestGraphMutationServiceApplyMutations:
@@ -11,7 +17,6 @@ class TestGraphMutationServiceApplyMutations:
     def test_apply_mutations_delegates_to_applier(self):
         """Should delegate mutation operations to the MutationApplier."""
         from graph.application.services import GraphMutationService
-        from graph.domain.value_objects import TypeDefinition
 
         mock_applier = Mock()
         mock_applier.apply_batch.return_value = MutationResult(
@@ -21,8 +26,8 @@ class TestGraphMutationServiceApplyMutations:
         mock_type_def_repo = Mock()
         # Mock type definition for Person
         mock_type_def_repo.get.return_value = TypeDefinition(
-            label="Person",
-            entity_type="node",
+            label="person",
+            entity_type=EntityType.NODE,
             description="A person",
             example_file_path="people/alice.md",
             example_in_file_path="alice",
@@ -31,10 +36,10 @@ class TestGraphMutationServiceApplyMutations:
 
         operations = [
             MutationOperation(
-                op="CREATE",
+                op=MutationOperationType.CREATE,
                 type="node",
                 id="person:abc123def456789a",
-                label="Person",
+                label="person",
                 set_properties={
                     "slug": "alice",
                     "name": "Alice",
@@ -43,7 +48,7 @@ class TestGraphMutationServiceApplyMutations:
                 },
             ),
             MutationOperation(
-                op="UPDATE",
+                op=MutationOperationType.UPDATE,
                 type="node",
                 id="person:abc123def456789a",
                 set_properties={"email": "alice@example.com"},
@@ -76,10 +81,10 @@ class TestGraphMutationServiceApplyMutations:
 
         operations = [
             MutationOperation(
-                op="DEFINE",
+                op=MutationOperationType.DEFINE,
                 type="node",
                 id="person:def0000000000000",
-                label="Person",
+                label="person",
                 description="A person in the organization",
                 example_file_path="people/alice.md",
                 example_in_file_path="alice",
@@ -97,14 +102,13 @@ class TestGraphMutationServiceApplyMutations:
         # Should save TypeDefinition to repository
         mock_type_def_repo.save.assert_called_once()
         saved_type_def = mock_type_def_repo.save.call_args[0][0]
-        assert saved_type_def.label == "Person"
+        assert saved_type_def.label == "person"
         assert saved_type_def.entity_type == "node"
         assert saved_type_def.description == "A person in the organization"
 
     def test_apply_mutations_emits_probe_events(self):
         """Should emit probe events for successful mutations."""
         from graph.application.services import GraphMutationService
-        from graph.domain.value_objects import TypeDefinition
 
         mock_applier = Mock()
         mock_applier.apply_batch.return_value = MutationResult(
@@ -114,8 +118,8 @@ class TestGraphMutationServiceApplyMutations:
         mock_type_def_repo = Mock()
         # Mock type definition for Person
         mock_type_def_repo.get.return_value = TypeDefinition(
-            label="Person",
-            entity_type="node",
+            label="person",
+            entity_type=EntityType.NODE,
             description="A person",
             example_file_path="people/alice.md",
             example_in_file_path="alice",
@@ -125,10 +129,10 @@ class TestGraphMutationServiceApplyMutations:
 
         operations = [
             MutationOperation(
-                op="CREATE",
+                op=MutationOperationType.CREATE,
                 type="node",
                 id="person:abc123def456789a",
-                label="Person",
+                label="person",
                 set_properties={
                     "slug": "alice",
                     "name": "Alice",
@@ -166,7 +170,7 @@ class TestGraphMutationServiceApplyMutations:
 
         operations = [
             MutationOperation(
-                op="DELETE",
+                op=MutationOperationType.DELETE,
                 type="node",
                 id="person:abc123def456789a",
             ),
@@ -215,10 +219,10 @@ class TestGraphMutationServiceApplyMutations:
 
         operations = [
             MutationOperation(
-                op="CREATE",
+                op=MutationOperationType.CREATE,
                 type="node",
                 id="person:abc123def456789a",
-                label="Person",
+                label="person",
                 set_properties={
                     "slug": "alice",
                     "name": "Alice",
@@ -238,7 +242,7 @@ class TestGraphMutationServiceApplyMutations:
         assert result.success is False
         assert result.operations_applied == 0
         assert len(result.errors) > 0
-        assert "Person" in result.errors[0]
+        assert "person" in result.errors[0]
         assert "not defined" in result.errors[0].lower()
 
         # Should not call applier
@@ -258,20 +262,20 @@ class TestGraphMutationServiceApplyMutations:
 
         operations = [
             MutationOperation(
-                op="DEFINE",
+                op=MutationOperationType.DEFINE,
                 type="node",
                 id="person:def0000000000000",
-                label="Person",
+                label="person",
                 description="A person",
                 example_file_path="people/alice.md",
                 example_in_file_path="alice",
                 required_properties=["slug", "name"],
             ),
             MutationOperation(
-                op="CREATE",
+                op=MutationOperationType.CREATE,
                 type="node",
                 id="person:abc123def456789a",
-                label="Person",
+                label="person",
                 set_properties={
                     "slug": "alice",
                     "name": "Alice",
@@ -297,7 +301,6 @@ class TestGraphMutationServiceApplyMutations:
     def test_accepts_create_with_define_in_repository(self):
         """Should accept CREATE when type is already defined in repository."""
         from graph.application.services import GraphMutationService
-        from graph.domain.value_objects import TypeDefinition
 
         mock_applier = Mock()
         mock_applier.apply_batch.return_value = MutationResult(
@@ -307,8 +310,8 @@ class TestGraphMutationServiceApplyMutations:
         mock_type_def_repo = Mock()
         # Type already exists in repository
         mock_type_def_repo.get.return_value = TypeDefinition(
-            label="Person",
-            entity_type="node",
+            label="person",
+            entity_type=EntityType.NODE,
             description="A person",
             example_file_path="people/alice.md",
             example_in_file_path="alice",
@@ -317,10 +320,10 @@ class TestGraphMutationServiceApplyMutations:
 
         operations = [
             MutationOperation(
-                op="CREATE",
+                op=MutationOperationType.CREATE,
                 type="node",
                 id="person:abc123def456789a",
-                label="Person",
+                label="person",
                 set_properties={
                     "slug": "alice",
                     "name": "Alice",
@@ -346,14 +349,13 @@ class TestGraphMutationServiceApplyMutations:
     def test_rejects_create_missing_required_properties(self):
         """Should reject CREATE when required properties are missing."""
         from graph.application.services import GraphMutationService
-        from graph.domain.value_objects import TypeDefinition
 
         mock_applier = Mock()
         mock_type_def_repo = Mock()
         # Type exists with required properties
         mock_type_def_repo.get.return_value = TypeDefinition(
-            label="Person",
-            entity_type="node",
+            label="person",
+            entity_type=EntityType.NODE,
             description="A person",
             example_file_path="people/alice.md",
             example_in_file_path="alice",
@@ -362,10 +364,10 @@ class TestGraphMutationServiceApplyMutations:
 
         operations = [
             MutationOperation(
-                op="CREATE",
+                op=MutationOperationType.CREATE,
                 type="node",
                 id="person:abc123def456789a",
-                label="Person",
+                label="person",
                 set_properties={
                     "slug": "alice",
                     "name": "Alice",
@@ -395,7 +397,6 @@ class TestGraphMutationServiceApplyMutations:
     def test_accepts_create_with_all_required_properties(self):
         """Should accept CREATE when all required properties are present."""
         from graph.application.services import GraphMutationService
-        from graph.domain.value_objects import TypeDefinition
 
         mock_applier = Mock()
         mock_applier.apply_batch.return_value = MutationResult(
@@ -404,8 +405,8 @@ class TestGraphMutationServiceApplyMutations:
         )
         mock_type_def_repo = Mock()
         mock_type_def_repo.get.return_value = TypeDefinition(
-            label="Person",
-            entity_type="node",
+            label="person",
+            entity_type=EntityType.NODE,
             description="A person",
             example_file_path="people/alice.md",
             example_in_file_path="alice",
@@ -414,10 +415,10 @@ class TestGraphMutationServiceApplyMutations:
 
         operations = [
             MutationOperation(
-                op="CREATE",
+                op=MutationOperationType.CREATE,
                 type="node",
                 id="person:abc123def456789a",
-                label="Person",
+                label="person",
                 set_properties={
                     "slug": "alice",
                     "name": "Alice",
@@ -445,7 +446,6 @@ class TestGraphMutationServiceApplyFromJSONL:
     def test_parses_jsonl_and_applies_mutations(self):
         """Should parse JSONL string and apply mutations."""
         from graph.application.services import GraphMutationService
-        from graph.domain.value_objects import TypeDefinition
 
         mock_applier = Mock()
         mock_applier.apply_batch.return_value = MutationResult(
@@ -455,15 +455,15 @@ class TestGraphMutationServiceApplyFromJSONL:
         mock_type_def_repo = Mock()
         # Mock type definition for Person
         mock_type_def_repo.get.return_value = TypeDefinition(
-            label="Person",
-            entity_type="node",
+            label="person",
+            entity_type=EntityType.NODE,
             description="A person",
             example_file_path="people/alice.md",
             example_in_file_path="alice",
             required_properties=["slug", "name"],
         )
 
-        jsonl_content = """{"op":"CREATE","type":"node","id":"person:abc123def456789a","label":"Person","set_properties":{"slug":"alice","name":"Alice","data_source_id":"ds-123","source_path":"people/alice.md"}}
+        jsonl_content = """{"op":"CREATE","type":"node","id":"person:abc123def456789a","label":"person","set_properties":{"slug":"alice","name":"Alice","data_source_id":"ds-123","source_path":"people/alice.md"}}
 {"op":"UPDATE","type":"node","id":"person:abc123def456789a","set_properties":{"email":"alice@example.com"}}"""
 
         service = GraphMutationService(
@@ -476,7 +476,7 @@ class TestGraphMutationServiceApplyFromJSONL:
         mock_applier.apply_batch.assert_called_once()
         operations = mock_applier.apply_batch.call_args[0][0]
         assert len(operations) == 2
-        assert operations[0].op == "CREATE"
+        assert operations[0].op == MutationOperationType.CREATE
         assert operations[1].op == "UPDATE"
 
         # Should return result
@@ -508,7 +508,6 @@ class TestGraphMutationServiceApplyFromJSONL:
     def test_handles_whitespace_only_lines(self):
         """Should ignore whitespace-only lines in JSONL."""
         from graph.application.services import GraphMutationService
-        from graph.domain.value_objects import TypeDefinition
 
         mock_applier = Mock()
         mock_applier.apply_batch.return_value = MutationResult(
@@ -518,8 +517,8 @@ class TestGraphMutationServiceApplyFromJSONL:
         mock_type_def_repo = Mock()
         # Mock type definition for Person
         mock_type_def_repo.get.return_value = TypeDefinition(
-            label="Person",
-            entity_type="node",
+            label="person",
+            entity_type=EntityType.NODE,
             description="A person",
             example_file_path="people/alice.md",
             example_in_file_path="alice",
@@ -527,7 +526,7 @@ class TestGraphMutationServiceApplyFromJSONL:
         )
 
         jsonl_content = """
-{"op":"CREATE","type":"node","id":"person:abc123def456789a","label":"Person","set_properties":{"slug":"alice","name":"Alice","data_source_id":"ds-123","source_path":"people/alice.md"}}
+{"op":"CREATE","type":"node","id":"person:abc123def456789a","label":"person","set_properties":{"slug":"alice","name":"Alice","data_source_id":"ds-123","source_path":"people/alice.md"}}
 
 """
 
@@ -540,7 +539,7 @@ class TestGraphMutationServiceApplyFromJSONL:
         # Should parse only the valid line
         operations = mock_applier.apply_batch.call_args[0][0]
         assert len(operations) == 1
-        assert operations[0].op == "CREATE"
+        assert operations[0].op == MutationOperationType.CREATE
 
     def test_returns_error_on_invalid_json(self):
         """Should return error result for invalid JSON."""

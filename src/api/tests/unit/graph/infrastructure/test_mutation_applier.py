@@ -3,7 +3,11 @@
 from unittest.mock import MagicMock, Mock
 
 
-from graph.domain.value_objects import MutationOperation
+from graph.domain.value_objects import (
+    EntityType,
+    MutationOperation,
+    MutationOperationType,
+)
 from graph.infrastructure.mutation_applier import MutationApplier
 
 
@@ -13,10 +17,10 @@ class TestMutationApplierQueryBuilding:
     def test_build_create_node_query(self):
         """Should build MERGE query for CREATE node operation."""
         mutation = MutationOperation(
-            op="CREATE",
+            op=MutationOperationType.CREATE,
             type="node",
             id="person:abc123def456789a",
-            label="Person",
+            label="person",
             set_properties={
                 "slug": "alice-smith",
                 "name": "Alice Smith",
@@ -30,7 +34,7 @@ class TestMutationApplierQueryBuilding:
 
         # Should use MERGE for idempotency
         assert "MERGE" in query
-        assert "(n:Person {id: 'person:abc123def456789a'})" in query
+        assert "(n:person {id: 'person:abc123def456789a'})" in query
         assert "SET n.slug = 'alice-smith'" in query
         assert "SET n.name = 'Alice Smith'" in query
         assert "SET n.data_source_id = 'ds-123'" in query
@@ -39,10 +43,10 @@ class TestMutationApplierQueryBuilding:
     def test_build_create_edge_query(self):
         """Should build MERGE query for CREATE edge operation."""
         mutation = MutationOperation(
-            op="CREATE",
+            op=MutationOperationType.CREATE,
             type="edge",
             id="knows:abc123def456789a",
-            label="KNOWS",
+            label="knows",
             start_id="person:abc123def456789a",
             end_id="person:def456abc123789a",
             set_properties={
@@ -59,7 +63,7 @@ class TestMutationApplierQueryBuilding:
         assert "MATCH (source {id: 'person:abc123def456789a'})" in query
         assert "MATCH (target {id: 'person:def456abc123789a'})" in query
         assert (
-            "MERGE (source)-[r:KNOWS {id: 'knows:abc123def456789a'}]->(target)" in query
+            "MERGE (source)-[r:knows {id: 'knows:abc123def456789a'}]->(target)" in query
         )
         assert "SET r.since = 2020" in query
         assert "SET r.data_source_id = 'ds-123'" in query
@@ -67,7 +71,7 @@ class TestMutationApplierQueryBuilding:
     def test_build_update_with_set_properties_query(self):
         """Should build SET query for UPDATE operation."""
         mutation = MutationOperation(
-            op="UPDATE",
+            op=MutationOperationType.UPDATE,
             type="node",
             id="person:abc123def456789a",
             set_properties={
@@ -87,7 +91,7 @@ class TestMutationApplierQueryBuilding:
     def test_build_update_with_remove_properties_query(self):
         """Should build REMOVE query for UPDATE operation."""
         mutation = MutationOperation(
-            op="UPDATE",
+            op=MutationOperationType.UPDATE,
             type="node",
             id="person:abc123def456789a",
             remove_properties=["middle_name", "old_email"],
@@ -102,7 +106,7 @@ class TestMutationApplierQueryBuilding:
     def test_build_update_with_both_set_and_remove_query(self):
         """Should build both SET and REMOVE for UPDATE operation."""
         mutation = MutationOperation(
-            op="UPDATE",
+            op=MutationOperationType.UPDATE,
             type="node",
             id="person:abc123def456789a",
             set_properties={"name": "Alice Smith"},
@@ -119,7 +123,7 @@ class TestMutationApplierQueryBuilding:
     def test_build_delete_query(self):
         """Should build DETACH DELETE query for DELETE operation."""
         mutation = MutationOperation(
-            op="DELETE",
+            op=MutationOperationType.DELETE,
             type="node",
             id="person:abc123def456789a",
         )
@@ -167,17 +171,19 @@ class TestMutationApplierBatchExecution:
         # Create operations in random order
         operations = [
             MutationOperation(
-                op="UPDATE",
+                op=MutationOperationType.UPDATE,
                 type="edge",
                 id="edge:1111111111111111",
                 set_properties={"name": "test"},
             ),
-            MutationOperation(op="DELETE", type="node", id="node:2222222222222222"),
             MutationOperation(
-                op="CREATE",
+                op=MutationOperationType.DELETE, type="node", id="node:2222222222222222"
+            ),
+            MutationOperation(
+                op=MutationOperationType.CREATE,
                 type="edge",
                 id="edge:3333333333333333",
-                label="TEST",
+                label="test",
                 start_id="node:aaaaaaaaaaaaaaaa",
                 end_id="node:bbbbbbbbbbbbbbbb",
                 set_properties={
@@ -186,17 +192,19 @@ class TestMutationApplierBatchExecution:
                 },
             ),
             MutationOperation(
-                op="UPDATE",
+                op=MutationOperationType.UPDATE,
                 type="node",
                 id="node:4444444444444444",
                 set_properties={"name": "test"},
             ),
-            MutationOperation(op="DELETE", type="edge", id="edge:5555555555555555"),
             MutationOperation(
-                op="CREATE",
+                op=MutationOperationType.DELETE, type="edge", id="edge:5555555555555555"
+            ),
+            MutationOperation(
+                op=MutationOperationType.CREATE,
                 type="node",
                 id="node:6666666666666666",
-                label="Test",
+                label="test",
                 set_properties={
                     "slug": "test",
                     "data_source_id": "ds-123",
@@ -204,10 +212,10 @@ class TestMutationApplierBatchExecution:
                 },
             ),
             MutationOperation(
-                op="DEFINE",
+                op=MutationOperationType.DEFINE,
                 type="node",
                 id="test:def0000000000000",
-                label="Test",
+                label="test",
                 description="Test",
                 example_file_path="test.md",
                 example_in_file_path="test",
@@ -219,13 +227,31 @@ class TestMutationApplierBatchExecution:
         sorted_ops = applier._sort_operations(operations)
 
         # Verify order: DEFINE, DELETE edge, DELETE node, CREATE node, CREATE edge, UPDATE node, UPDATE edge
-        assert sorted_ops[0].op == "DEFINE"
-        assert sorted_ops[1].op == "DELETE" and sorted_ops[1].type == "edge"
-        assert sorted_ops[2].op == "DELETE" and sorted_ops[2].type == "node"
-        assert sorted_ops[3].op == "CREATE" and sorted_ops[3].type == "node"
-        assert sorted_ops[4].op == "CREATE" and sorted_ops[4].type == "edge"
-        assert sorted_ops[5].op == "UPDATE" and sorted_ops[5].type == "node"
-        assert sorted_ops[6].op == "UPDATE" and sorted_ops[6].type == "edge"
+        assert sorted_ops[0].op == MutationOperationType.DEFINE
+        assert (
+            sorted_ops[1].op == MutationOperationType.DELETE
+            and sorted_ops[1].type == "edge"
+        )
+        assert (
+            sorted_ops[1].op == MutationOperationType.DELETE
+            and sorted_ops[2].type == "node"
+        )
+        assert (
+            sorted_ops[3].op == MutationOperationType.CREATE
+            and sorted_ops[3].type == "node"
+        )
+        assert (
+            sorted_ops[3].op == MutationOperationType.CREATE
+            and sorted_ops[4].type == "edge"
+        )
+        assert (
+            sorted_ops[5].op == MutationOperationType.UPDATE
+            and sorted_ops[5].type == "node"
+        )
+        assert (
+            sorted_ops[5].op == MutationOperationType.UPDATE
+            and sorted_ops[6].type == "edge"
+        )
 
     def test_apply_batch_success(self):
         """Should apply all operations in a transaction."""
@@ -237,10 +263,10 @@ class TestMutationApplierBatchExecution:
 
         operations = [
             MutationOperation(
-                op="CREATE",
+                op=MutationOperationType.CREATE,
                 type="node",
                 id="person:abc123def456789a",
-                label="Person",
+                label="person",
                 set_properties={
                     "slug": "alice",
                     "name": "Alice",
@@ -249,7 +275,7 @@ class TestMutationApplierBatchExecution:
                 },
             ),
             MutationOperation(
-                op="UPDATE",
+                op=MutationOperationType.UPDATE,
                 type="node",
                 id="person:abc123def456789a",
                 set_properties={"email": "alice@example.com"},
@@ -281,7 +307,7 @@ class TestMutationApplierBatchExecution:
 
         operations = [
             MutationOperation(
-                op="DELETE",
+                op=MutationOperationType.DELETE,
                 type="node",
                 id="person:abc123def456789a",
             ),
@@ -303,7 +329,7 @@ class TestMutationApplierBatchExecution:
         # Invalid operation (missing label for CREATE)
         operations = [
             MutationOperation(
-                op="CREATE",
+                op=MutationOperationType.CREATE,
                 type="node",
                 id="person:abc123def456789a",
                 set_properties={
@@ -348,10 +374,10 @@ class TestMutationApplierObservability:
 
         operations = [
             MutationOperation(
-                op="CREATE",
+                op=MutationOperationType.CREATE,
                 type="node",
                 id="person:abc123def456789a",
-                label="Person",
+                label="person",
                 set_properties={
                     "slug": "alice",
                     "name": "Alice",
@@ -367,6 +393,6 @@ class TestMutationApplierObservability:
         # Should emit probe event
         mock_probe.mutation_applied.assert_called_once_with(
             operation="CREATE",
-            entity_type="node",
+            entity_type=EntityType.NODE,
             entity_id="person:abc123def456789a",
         )

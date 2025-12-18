@@ -143,17 +143,31 @@ class GraphMutationService:
                             )
 
         # Store DEFINE operations in the repository
+        refined_ops: list[MutationOperation] = []
         for op in operations:
             if op.op == "DEFINE":
-                type_def = op.to_type_definition()
+                updated_op = op.model_copy(
+                    update={
+                        "required_properties": (op.required_properties or [])
+                        + list(SYSTEM_PROPERTIES)
+                    }
+                )
+                type_def = updated_op.to_type_definition()
+
                 self._type_definition_repository.save(type_def)
 
+                refined_ops.append(updated_op)
+            else:
+                refined_ops.append(op)
+
+        del operations
+
         # Delegate to mutation applier
-        result = self._mutation_applier.apply_batch(operations)
+        result = self._mutation_applier.apply_batch(refined_ops)
 
         # Schema learning: Only discover optional properties if mutations succeeded
         if result.success:
-            self._discover_optional_properties(operations)
+            self._discover_optional_properties(refined_ops)
 
         # Emit probe event
         self._probe.mutations_applied(
@@ -180,7 +194,7 @@ class GraphMutationService:
         """
         try:
             operations = []
-            lines = jsonl_content.split("\n")
+            lines = jsonl_content.strip().split("\n")
 
             for line_num, line in enumerate(lines, start=1):
                 line = line.strip()
@@ -256,13 +270,11 @@ class GraphMutationService:
 
             # Calculate extra properties
             provided_props = set(op.set_properties.keys())
-            required_props = set(type_def.required_properties)
+            required_props = type_def.required_properties | set(SYSTEM_PROPERTIES)
             existing_optional = set(type_def.optional_properties)
 
             # Extra props = provided - required - system - already_optional
-            extra_props = (
-                provided_props - required_props - SYSTEM_PROPERTIES - existing_optional
-            )
+            extra_props = provided_props - required_props - existing_optional
 
             if not extra_props:
                 # No new optional properties discovered
@@ -276,9 +288,7 @@ class GraphMutationService:
                 example_file_path=type_def.example_file_path,
                 example_in_file_path=type_def.example_in_file_path,
                 required_properties=type_def.required_properties,
-                optional_properties=sorted(
-                    list(existing_optional | extra_props)
-                ),  # Merge and sort
+                optional_properties=existing_optional | extra_props,
             )
 
             # Save updated type definition

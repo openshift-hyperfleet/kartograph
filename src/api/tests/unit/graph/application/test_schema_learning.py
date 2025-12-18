@@ -48,7 +48,7 @@ class TestSchemaLearning:
         define_op = MutationOperation(
             op=MutationOperationType.DEFINE,
             type="node",
-            label="Person",
+            label="person",
             description="A person",
             example_file_path="test.md",
             example_in_file_path="test",
@@ -60,7 +60,7 @@ class TestSchemaLearning:
             op=MutationOperationType.CREATE,
             type="node",
             id="person:abc123def456789a",
-            label="Person",
+            label="person",
             set_properties={
                 "slug": "alice",
                 "name": "Alice",
@@ -103,7 +103,7 @@ class TestSchemaLearning:
         """Should accumulate optional properties across multiple CREATEs."""
         # Existing type def with some optional props
         existing_type_def = TypeDefinition(
-            label="Person",
+            label="person",
             entity_type=EntityType.NODE,
             description="A person",
             example_file_path="test.md",
@@ -118,7 +118,7 @@ class TestSchemaLearning:
             op=MutationOperationType.CREATE,
             type="node",
             id="person:def456abc123789a",
-            label="Person",
+            label="person",
             set_properties={
                 "slug": "bob",
                 "name": "Bob",
@@ -139,7 +139,7 @@ class TestSchemaLearning:
     def test_system_properties_excluded_from_optional(self, service, mock_type_repo):
         """Should exclude system properties from optional properties."""
         existing_type_def = TypeDefinition(
-            label="Person",
+            label="person",
             entity_type=EntityType.NODE,
             description="A person",
             example_file_path="test.md",
@@ -152,7 +152,7 @@ class TestSchemaLearning:
             op=MutationOperationType.CREATE,
             type="node",
             id="person:abc123def456789a",
-            label="Person",
+            label="person",
             set_properties={
                 "slug": "alice",
                 "data_source_id": "ds-123",  # System prop - exclude
@@ -171,7 +171,7 @@ class TestSchemaLearning:
     def test_no_update_when_no_extra_properties(self, service, mock_type_repo):
         """Should not update type def if no new optional properties."""
         existing_type_def = TypeDefinition(
-            label="Person",
+            label="person",
             entity_type=EntityType.NODE,
             description="A person",
             example_file_path="test.md",
@@ -186,7 +186,7 @@ class TestSchemaLearning:
             op=MutationOperationType.CREATE,
             type="node",
             id="person:abc123def456789a",
-            label="Person",
+            label="person",
             set_properties={
                 "slug": "alice",
                 "name": "Alice",

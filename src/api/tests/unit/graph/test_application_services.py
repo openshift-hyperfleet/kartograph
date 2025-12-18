@@ -83,7 +83,7 @@ class TestSearchBySlug:
 
     def test_delegates_to_repository(self, service, mock_repository):
         """Service should delegate slug search to repository."""
-        expected = [NodeRecord(id="n1", label="Person", properties={})]
+        expected = [NodeRecord(id="n1", label="person", properties={})]
         mock_repository.find_nodes_by_slug.return_value = expected
 
         result = service.search_by_slug("alice-smith", node_type="Person")
@@ -96,8 +96,8 @@ class TestSearchBySlug:
     def test_records_observation(self, service, mock_repository, mock_probe):
         """Service should record observation via probe."""
         mock_repository.find_nodes_by_slug.return_value = [
-            NodeRecord(id="n1", label="Person", properties={}),
-            NodeRecord(id="n2", label="Person", properties={}),
+            NodeRecord(id="n1", label="person", properties={}),
+            NodeRecord(id="n2", label="person", properties={}),
         ]
 
         service.search_by_slug("alice", node_type="Person")
@@ -130,7 +130,7 @@ class TestGetNeighbors:
         expected_nodes = [NodeRecord(id="n2", label="Other", properties={})]
         expected_edges = [
             EdgeRecord(
-                id="e1", label="KNOWS", start_id="n1", end_id="n2", properties={}
+                id="e1", label="knows", start_id="n1", end_id="n2", properties={}
             )
         ]
         expected_result = NodeNeighborsResult(

@@ -50,7 +50,7 @@ class TestGraphExtractionReadOnlyRepositoryInit:
     """Tests for repository initialization."""
 
     def test_stores_graph_id(self, mock_graph_client):
-        """Repository should store the data_source_id for scoping."""
+        """Repository should store the graph_id for scoping."""
         repo = GraphExtractionReadOnlyRepository(
             client=mock_graph_client,
             graph_id="ds-456",

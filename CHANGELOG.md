@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.5.0...v0.6.0) (2025-12-17)
+
+
+### Features
+
+* add ThreadedConnectionPool for thread-safe database access ([#59](https://github.com/openshift-hyperfleet/kartograph/issues/59)) ([7c55483](https://github.com/openshift-hyperfleet/kartograph/commit/7c554834debf3a46a1333d52bdec3edb0cd750cd))
+
+## [0.5.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.4.1...v0.5.0) (2025-12-17)
+
+
+### Features
+
+* add MCP Cypher query tool (tracer bullet) ([#57](https://github.com/openshift-hyperfleet/kartograph/issues/57)) ([04556ad](https://github.com/openshift-hyperfleet/kartograph/commit/04556adc9790dc4a0bf507d5946dd835cd44ce93))
+
 ## [0.4.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.4.0...v0.4.1) (2025-12-16)
 
 

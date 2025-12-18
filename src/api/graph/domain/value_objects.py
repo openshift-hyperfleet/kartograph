@@ -7,6 +7,7 @@ on their attribute values.
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,6 +17,66 @@ from pydantic import BaseModel, ConfigDict, Field
 # Keys are column names from the query, values can be nodes, edges,
 # scalars, or other AGE data types.
 QueryResultRow: TypeAlias = dict[str, Any]
+
+
+class EntityType(str, Enum):
+    """Enum for graph entity types."""
+
+    NODE = "node"
+    EDGE = "edge"
+
+
+class MutationOperationType(str, Enum):
+    """Enum for mutation operation types."""
+
+    DEFINE = "DEFINE"
+    CREATE = "CREATE"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"
+
+
+# System-managed properties
+# These are automatically added by the system and should not be tracked as optional properties
+
+# Properties required for ALL entities (nodes and edges)
+COMMON_SYSTEM_PROPERTIES: frozenset[str] = frozenset({"data_source_id", "source_path"})
+
+# Node-specific system properties (in addition to common)
+NODE_SYSTEM_PROPERTIES: frozenset[str] = frozenset({"slug"})
+
+# Edge-specific system properties (in addition to common)
+# Currently empty, but defined for future extensibility
+EDGE_SYSTEM_PROPERTIES: frozenset[str] = frozenset()
+
+
+def get_system_properties_for_entity(entity_type: EntityType) -> frozenset[str]:
+    """Get all system properties for a specific entity type.
+
+    System properties are automatically managed by the platform and should not
+    be exposed as optional properties in type definitions.
+
+    Args:
+        entity_type: EntityType.NODE or EntityType.EDGE
+
+    Returns:
+        Frozenset of system property names for the given entity type
+
+    Raises:
+        ValueError: If entity_type is not a valid EntityType
+    """
+    if entity_type == EntityType.NODE:
+        return COMMON_SYSTEM_PROPERTIES | NODE_SYSTEM_PROPERTIES
+    elif entity_type == EntityType.EDGE:
+        return COMMON_SYSTEM_PROPERTIES | EDGE_SYSTEM_PROPERTIES
+    else:
+        raise ValueError(f"Invalid entity_type: {entity_type}")
+
+
+class SchemaLabelsResponse(BaseModel):
+    """Response model for schema label list endpoints."""
+
+    labels: list[str] = Field(description="List of type labels")
+    count: int = Field(description="Total number of labels")
 
 
 class NodeRecord(BaseModel):
@@ -75,13 +136,13 @@ class TypeDefinition(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    label: str
-    entity_type: str  # "node" or "edge"
+    label: str = Field(description="Type label (must be lowercase)")
+    entity_type: EntityType
     description: str
     example_file_path: str
     example_in_file_path: str
-    required_properties: list[str]
-    optional_properties: list[str] = Field(default_factory=list)
+    required_properties: set[str]
+    optional_properties: set[str] = Field(default_factory=set)
 
 
 class MutationOperation(BaseModel):
@@ -113,12 +174,12 @@ class MutationOperation(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    op: str = Field(pattern="^(DEFINE|CREATE|UPDATE|DELETE)$")
-    type: str = Field(pattern="^(node|edge)$")
+    op: MutationOperationType
+    type: EntityType
     id: str | None = Field(default=None, pattern="^[a-z_]+:[0-9a-f]{16}$")
 
     # CREATE/DEFINE fields
-    label: str | None = None
+    label: str | None = Field(default=None, description="Type label")
 
     # CREATE edge fields
     start_id: str | None = Field(default=None, pattern="^[a-z_]+:[0-9a-f]{16}$")
@@ -225,14 +286,17 @@ class MutationOperation(BaseModel):
                 "Only DEFINE operations can be converted to TypeDefinition"
             )
 
+        # Convert string type to EntityType enum
+        entity_type = EntityType.NODE if self.type == "node" else EntityType.EDGE
+
         return TypeDefinition(
             label=self.label or "",
-            entity_type=self.type,
+            entity_type=entity_type,
             description=self.description or "",
             example_file_path=self.example_file_path or "",
             example_in_file_path=self.example_in_file_path or "",
-            required_properties=self.required_properties or [],
-            optional_properties=self.optional_properties or [],
+            required_properties=set(self.required_properties or []),
+            optional_properties=set(self.optional_properties or []),
         )
 
 

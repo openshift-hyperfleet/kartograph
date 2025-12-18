@@ -230,27 +230,27 @@ class TestMutationApplierBatchExecution:
         assert sorted_ops[0].op == MutationOperationType.DEFINE
         assert (
             sorted_ops[1].op == MutationOperationType.DELETE
-            and sorted_ops[1].type == "edge"
+            and sorted_ops[1].type == EntityType.EDGE
         )
         assert (
-            sorted_ops[1].op == MutationOperationType.DELETE
-            and sorted_ops[2].type == "node"
-        )
-        assert (
-            sorted_ops[3].op == MutationOperationType.CREATE
-            and sorted_ops[3].type == "node"
+            sorted_ops[2].op == MutationOperationType.DELETE
+            and sorted_ops[2].type == EntityType.NODE
         )
         assert (
             sorted_ops[3].op == MutationOperationType.CREATE
-            and sorted_ops[4].type == "edge"
+            and sorted_ops[3].type == EntityType.NODE
+        )
+        assert (
+            sorted_ops[4].op == MutationOperationType.CREATE
+            and sorted_ops[4].type == EntityType.EDGE
         )
         assert (
             sorted_ops[5].op == MutationOperationType.UPDATE
-            and sorted_ops[5].type == "node"
+            and sorted_ops[5].type == EntityType.NODE
         )
         assert (
-            sorted_ops[5].op == MutationOperationType.UPDATE
-            and sorted_ops[6].type == "edge"
+            sorted_ops[6].op == MutationOperationType.UPDATE
+            and sorted_ops[6].type == EntityType.EDGE
         )
 
     def test_apply_batch_success(self):

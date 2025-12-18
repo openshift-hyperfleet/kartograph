@@ -40,7 +40,7 @@ async def apply_mutations(
     """Apply a batch of mutation operations from JSONL format.
 
     Request body should be JSONL (newline-delimited JSON), one operation per line.
-    Content-Type: application/x-ndjson
+    Content-Type: application/jsonlines
 
     Example:
 

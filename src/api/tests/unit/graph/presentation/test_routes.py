@@ -63,7 +63,7 @@ class TestApplyMutationsRoute:
         response = test_client.post(
             "/graph/mutations",
             content=jsonl_data,
-            headers={"Content-Type": "application/x-ndjson"},
+            headers={"Content-Type": "application/jsonlines"},
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -91,7 +91,7 @@ class TestApplyMutationsRoute:
         response = test_client.post(
             "/graph/mutations",
             content=jsonl_data,
-            headers={"Content-Type": "application/x-ndjson"},
+            headers={"Content-Type": "application/jsonlines"},
         )
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -130,7 +130,7 @@ class TestApplyMutationsRoute:
         response = test_client.post(
             "/graph/mutations",
             content=invalid_jsonl,
-            headers={"Content-Type": "application/x-ndjson"},
+            headers={"Content-Type": "application/jsonlines"},
         )
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT

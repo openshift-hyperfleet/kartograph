@@ -35,9 +35,41 @@ class MutationOperationType(str, Enum):
     DELETE = "DELETE"
 
 
-# System-managed properties that should not be tracked as optional properties
-# These are automatically added by the system, not user-defined
-SYSTEM_PROPERTIES: frozenset[str] = frozenset({"data_source_id", "source_path", "slug"})
+# System-managed properties
+# These are automatically added by the system and should not be tracked as optional properties
+
+# Properties required for ALL entities (nodes and edges)
+COMMON_SYSTEM_PROPERTIES: frozenset[str] = frozenset({"data_source_id", "source_path"})
+
+# Node-specific system properties (in addition to common)
+NODE_SYSTEM_PROPERTIES: frozenset[str] = frozenset({"slug"})
+
+# Edge-specific system properties (in addition to common)
+# Currently empty, but defined for future extensibility
+EDGE_SYSTEM_PROPERTIES: frozenset[str] = frozenset()
+
+
+def get_system_properties_for_entity(entity_type: EntityType) -> frozenset[str]:
+    """Get all system properties for a specific entity type.
+
+    System properties are automatically managed by the platform and should not
+    be exposed as optional properties in type definitions.
+
+    Args:
+        entity_type: EntityType.NODE or EntityType.EDGE
+
+    Returns:
+        Frozenset of system property names for the given entity type
+
+    Raises:
+        ValueError: If entity_type is not a valid EntityType
+    """
+    if entity_type == EntityType.NODE:
+        return COMMON_SYSTEM_PROPERTIES | NODE_SYSTEM_PROPERTIES
+    elif entity_type == EntityType.EDGE:
+        return COMMON_SYSTEM_PROPERTIES | EDGE_SYSTEM_PROPERTIES
+    else:
+        raise ValueError(f"Invalid entity_type: {entity_type}")
 
 
 class SchemaLabelsResponse(BaseModel):
@@ -153,7 +185,7 @@ class MutationOperation(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     op: MutationOperationType
-    type: str = Field(pattern="^(node|edge)$")
+    type: EntityType
     id: str | None = Field(default=None, pattern="^[a-z_]+:[0-9a-f]{16}$")
 
     # CREATE/DEFINE fields

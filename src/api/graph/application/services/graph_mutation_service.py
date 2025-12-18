@@ -13,9 +13,9 @@ from graph.application.observability import (
     GraphServiceProbe,
 )
 from graph.domain.value_objects import (
+    get_system_properties_for_entity,
     MutationOperation,
     MutationResult,
-    SYSTEM_PROPERTIES,
     TypeDefinition,
 )
 from graph.ports.repositories import (
@@ -125,10 +125,16 @@ class GraphMutationService:
                         None,
                     )
                     if define_op and define_op.required_properties:
+                        # Get entity-specific system properties
+                        system_props = get_system_properties_for_entity(op.type)
+
                         provided_props = set(
                             op.set_properties.keys() if op.set_properties else []
                         )
-                        required_props = set(define_op.required_properties)
+                        # Include system properties in validation!
+                        required_props = (
+                            set(define_op.required_properties) | system_props
+                        )
                         missing_props = required_props - provided_props
 
                         if missing_props:
@@ -146,10 +152,13 @@ class GraphMutationService:
         refined_ops: list[MutationOperation] = []
         for op in operations:
             if op.op == "DEFINE":
+                # Get entity-specific system properties
+                system_props = get_system_properties_for_entity(op.type)
+
                 updated_op = op.model_copy(
                     update={
                         "required_properties": (op.required_properties or [])
-                        + list(SYSTEM_PROPERTIES)
+                        + list(system_props)
                     }
                 )
                 type_def = updated_op.to_type_definition()
@@ -252,8 +261,7 @@ class GraphMutationService:
         When a CREATE operation provides properties beyond required_properties,
         those extra properties are added to the type definition's optional_properties.
 
-        System properties (defined in graph.domain.value_objects.SYSTEM_PROPERTIES)
-        are excluded.
+        System properties (via get_system_properties_for_entity) are excluded.
 
         Args:
             operations: List of mutation operations to analyze
@@ -270,10 +278,14 @@ class GraphMutationService:
 
             # Calculate extra properties
             provided_props = set(op.set_properties.keys())
-            required_props = type_def.required_properties | set(SYSTEM_PROPERTIES)
+
+            # Get entity-specific system properties
+            system_props = get_system_properties_for_entity(op.type)
+
+            required_props = type_def.required_properties | system_props
             existing_optional = set(type_def.optional_properties)
 
-            # Extra props = provided - required - system - already_optional
+            # Extra props = provided - required - already_optional
             extra_props = provided_props - required_props - existing_optional
 
             if not extra_props:

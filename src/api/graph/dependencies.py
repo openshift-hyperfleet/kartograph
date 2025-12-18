@@ -8,9 +8,13 @@ from collections.abc import Generator
 from functools import lru_cache
 from typing import Annotated
 
-from fastapi import Depends, Query
+from fastapi import Depends
 
-from graph.application.services import GraphMutationService, GraphQueryService
+from graph.application.services import (
+    GraphMutationService,
+    GraphQueryService,
+    GraphSchemaService,
+)
 from graph.infrastructure.age_client import AgeGraphClient
 from graph.infrastructure.graph_repository import GraphExtractionReadOnlyRepository
 from graph.infrastructure.mutation_applier import MutationApplier
@@ -50,20 +54,20 @@ def get_age_graph_client(
 
 def get_graph_query_service(
     client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
-    data_source_id: str = Query(...),
+    graph_id: str = get_database_settings().graph_name,
 ) -> GraphQueryService:
     """Get GraphQueryService for scoped read operations.
 
     Args:
         client: Request-scoped graph client
-        data_source_id: Data source ID for query scoping
+        graph_id: Data source ID for query scoping
 
     Returns:
         GraphQueryService instance
     """
     repository = GraphExtractionReadOnlyRepository(
         client=client,
-        data_source_id=data_source_id,
+        graph_id=graph_id,
     )
     return GraphQueryService(repository=repository)
 
@@ -111,3 +115,19 @@ def get_graph_mutation_service(
         mutation_applier=applier,
         type_definition_repository=type_def_repo,
     )
+
+
+def get_schema_service(
+    type_def_repo: Annotated[
+        ITypeDefinitionRepository, Depends(get_type_definition_repository)
+    ],
+) -> GraphSchemaService:
+    """Get GraphSchemaService instance.
+
+    Args:
+        type_def_repo: Type definition repository
+
+    Returns:
+        GraphSchemaService instance
+    """
+    return GraphSchemaService(type_definition_repository=type_def_repo)

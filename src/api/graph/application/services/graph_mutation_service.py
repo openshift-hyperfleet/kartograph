@@ -1,145 +1,27 @@
-"""Application services for the Graph bounded context.
+"""Graph mutation service for write operations.
 
-Application services orchestrate use cases by coordinating domain
-objects and repositories. They are the "front door" to the domain.
+Application service for applying mutations to the graph, including
+handling DEFINE operations and delegating to the infrastructure layer.
 """
 
 from __future__ import annotations
 
 import json
 
-from graph.ports.protocols import NodeNeighborsResult
 from graph.application.observability import (
     DefaultGraphServiceProbe,
     GraphServiceProbe,
 )
 from graph.domain.value_objects import (
-    EdgeRecord,
+    get_system_properties_for_entity,
     MutationOperation,
     MutationResult,
-    NodeRecord,
-    QueryResultRow,
+    TypeDefinition,
 )
 from graph.ports.repositories import (
-    IGraphReadOnlyRepository,
     IMutationApplier,
     ITypeDefinitionRepository,
 )
-
-
-class GraphQueryService:
-    """Application service for graph query operations.
-
-    This service provides use-case-oriented methods for querying
-    the graph. It wraps the repository with application-level
-    concerns like observability and input validation.
-    """
-
-    def __init__(
-        self,
-        repository: IGraphReadOnlyRepository,
-        probe: GraphServiceProbe | None = None,
-    ):
-        """Initialize the service.
-
-        Args:
-            repository: The graph repository for data access.
-            probe: Optional domain probe for observability.
-        """
-        self._repository = repository
-        self._probe = probe or DefaultGraphServiceProbe()
-
-    def get_nodes_by_path(
-        self,
-        path: str,
-    ) -> tuple[list[NodeRecord], list[EdgeRecord]]:
-        """Get all nodes and edges associated with a source file path.
-
-        Args:
-            path: The source file path (e.g., "people/alice.md")
-
-        Returns:
-            Tuple of (nodes, edges) found at the path.
-        """
-        nodes, edges = self._repository.find_nodes_by_path(path)
-        self._probe.nodes_queried(
-            path=path,
-            node_count=len(nodes),
-            edge_count=len(edges),
-        )
-        return nodes, edges
-
-    def search_by_slug(
-        self,
-        slug: str,
-        node_type: str | None = None,
-    ) -> list[NodeRecord]:
-        """Search for nodes by their slug.
-
-        Args:
-            slug: The entity slug to search for.
-            node_type: Optional type filter.
-
-        Returns:
-            List of matching nodes.
-        """
-        nodes = self._repository.find_nodes_by_slug(slug, node_type=node_type)
-        self._probe.slug_searched(
-            slug=slug,
-            node_type=node_type,
-            result_count=len(nodes),
-        )
-        return nodes
-
-    def get_neighbors(
-        self,
-        node_id: str,
-    ) -> NodeNeighborsResult:
-        """Get neighboring nodes and connecting edges.
-
-        Args:
-            node_id: The ID of the center node.
-
-        Returns:
-            NodeNeighborsResult
-        """
-        return self._repository.get_neighbors(node_id)
-
-    def generate_entity_id(
-        self,
-        entity_type: str,
-        entity_slug: str,
-    ) -> str:
-        """Generate a deterministic ID for an entity.
-
-        Args:
-            entity_type: The type of entity.
-            entity_slug: The entity's slug.
-
-        Returns:
-            A deterministic ID string.
-        """
-        return self._repository.generate_id(entity_type, entity_slug)
-
-    def execute_exploration_query(
-        self,
-        query: str,
-    ) -> list[QueryResultRow]:
-        """Execute a raw exploration query.
-
-        This method is intended for the Extraction agent to explore
-        the graph beyond the fast-path methods. Safeguards are enforced
-        by the repository.
-
-        Args:
-            query: A Cypher query string.
-
-        Returns:
-            List of result dictionaries.
-        """
-        results = self._repository.execute_raw_query(query)
-        self._probe.raw_query_executed(query=query, result_count=len(results))
-        return results
 
 
 class GraphMutationService:
@@ -243,10 +125,16 @@ class GraphMutationService:
                         None,
                     )
                     if define_op and define_op.required_properties:
+                        # Get entity-specific system properties
+                        system_props = get_system_properties_for_entity(op.type)
+
                         provided_props = set(
                             op.set_properties.keys() if op.set_properties else []
                         )
-                        required_props = set(define_op.required_properties)
+                        # Include system properties in validation!
+                        required_props = (
+                            set(define_op.required_properties) | system_props
+                        )
                         missing_props = required_props - provided_props
 
                         if missing_props:
@@ -261,13 +149,34 @@ class GraphMutationService:
                             )
 
         # Store DEFINE operations in the repository
+        refined_ops: list[MutationOperation] = []
         for op in operations:
             if op.op == "DEFINE":
-                type_def = op.to_type_definition()
+                # Get entity-specific system properties
+                system_props = get_system_properties_for_entity(op.type)
+
+                updated_op = op.model_copy(
+                    update={
+                        "required_properties": (op.required_properties or [])
+                        + list(system_props)
+                    }
+                )
+                type_def = updated_op.to_type_definition()
+
                 self._type_definition_repository.save(type_def)
 
+                refined_ops.append(updated_op)
+            else:
+                refined_ops.append(op)
+
+        del operations
+
         # Delegate to mutation applier
-        result = self._mutation_applier.apply_batch(operations)
+        result = self._mutation_applier.apply_batch(refined_ops)
+
+        # Schema learning: Only discover optional properties if mutations succeeded
+        if result.success:
+            self._discover_optional_properties(refined_ops)
 
         # Emit probe event
         self._probe.mutations_applied(
@@ -294,30 +203,105 @@ class GraphMutationService:
         """
         try:
             operations = []
-            for line in jsonl_content.split("\n"):
+            lines = jsonl_content.strip().split("\n")
+
+            for line_num, line in enumerate(lines, start=1):
                 line = line.strip()
                 if not line:
                     continue
 
-                # Parse JSON line
-                operation_dict = json.loads(line)
+                try:
+                    # Parse JSON line
+                    operation_dict = json.loads(line)
 
-                # Create MutationOperation (Pydantic will validate)
-                operation = MutationOperation(**operation_dict)
-                operations.append(operation)
+                    # Create MutationOperation (Pydantic will validate)
+                    operation = MutationOperation(**operation_dict)
+                    operations.append(operation)
+
+                except json.JSONDecodeError as e:
+                    # Include line number and snippet in error
+                    line_preview = line[:100] + "..." if len(line) > 100 else line
+                    return MutationResult(
+                        success=False,
+                        operations_applied=0,
+                        errors=[
+                            f"JSON parse error on line {line_num}: {str(e)}",
+                            f"Line content: {line_preview}",
+                        ],
+                    )
+                except Exception as e:
+                    # Validation error from Pydantic
+                    line_preview = line[:100] + "..." if len(line) > 100 else line
+                    return MutationResult(
+                        success=False,
+                        operations_applied=0,
+                        errors=[
+                            f"Validation error on line {line_num}: {str(e)}",
+                            f"Line content: {line_preview}",
+                        ],
+                    )
 
             # Apply all parsed operations
             return self.apply_mutations(operations)
 
-        except json.JSONDecodeError as e:
-            return MutationResult(
-                success=False,
-                operations_applied=0,
-                errors=[f"JSON parse error: {str(e)}"],
-            )
         except Exception as e:
+            # Catch-all for unexpected errors
             return MutationResult(
                 success=False,
                 operations_applied=0,
-                errors=[str(e)],
+                errors=[f"Unexpected error: {str(e)}"],
             )
+
+    def _discover_optional_properties(
+        self,
+        operations: list[MutationOperation],
+    ) -> None:
+        """Discover and store optional properties from CREATE operations.
+
+        When a CREATE operation provides properties beyond required_properties,
+        those extra properties are added to the type definition's optional_properties.
+
+        System properties (via get_system_properties_for_entity) are excluded.
+
+        Args:
+            operations: List of mutation operations to analyze
+        """
+
+        for op in operations:
+            if op.op != "CREATE" or op.label is None or op.set_properties is None:
+                continue
+
+            # Get existing type definition
+            type_def = self._type_definition_repository.get(op.label, op.type)
+            if type_def is None:
+                continue
+
+            # Calculate extra properties
+            provided_props = set(op.set_properties.keys())
+
+            # Get entity-specific system properties
+            system_props = get_system_properties_for_entity(op.type)
+
+            required_props = type_def.required_properties | system_props
+            existing_optional = set(type_def.optional_properties)
+
+            # Extra props = provided - required - already_optional
+            extra_props = provided_props - required_props - existing_optional
+
+            if not extra_props:
+                # No new optional properties discovered
+                continue
+
+            # Create updated type definition with merged optional properties
+            updated_type_def = TypeDefinition(
+                label=type_def.label,
+                entity_type=type_def.entity_type,
+                description=type_def.description,
+                example_file_path=type_def.example_file_path,
+                example_in_file_path=type_def.example_in_file_path,
+                required_properties=type_def.required_properties,
+                optional_properties=existing_optional | extra_props,
+            )
+
+            # Save updated type definition
+            self._type_definition_repository.save(updated_type_def)

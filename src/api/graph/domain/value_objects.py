@@ -295,8 +295,8 @@ class MutationOperation(BaseModel):
             description=self.description or "",
             example_file_path=self.example_file_path or "",
             example_in_file_path=self.example_in_file_path or "",
-            required_properties=set(self.required_properties or []),
-            optional_properties=set(self.optional_properties or []),
+            required_properties=self.required_properties or set(),
+            optional_properties=self.optional_properties or set(),
         )
 
 

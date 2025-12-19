@@ -163,7 +163,7 @@ class TestGetNeighbors:
 
     def test_returns_empty_when_no_neighbors(self, repository, mock_graph_client):
         """Should return empty lists when no neighbors found."""
-        from age.models import Vertex
+        from age.models import Vertex  # type: ignore
 
         # Mock a central node with no neighbors (OPTIONAL MATCH returns null for neighbor/relationship)
         central_vertex = Vertex(

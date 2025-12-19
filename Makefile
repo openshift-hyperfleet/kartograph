@@ -34,7 +34,12 @@ run:
 logs:
 	docker compose logs --tail 1000 --follow
 
+.PHONY: docs-export
+docs-export:
+	@echo "📝 Exporting system properties to JSON..."
+	cd src/api && uv run python ../../scripts/export-system-properties.py
 
 .PHONY: docs
-docs:
+docs: docs-export
+	@echo "🌐 Starting documentation dev server..."
 	cd website && npm i && npm run dev

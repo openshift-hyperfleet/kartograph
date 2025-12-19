@@ -18,7 +18,7 @@ class TestMutationApplierQueryBuilding:
         """Should build MERGE query for CREATE node operation."""
         mutation = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             label="person",
             set_properties={
@@ -32,6 +32,8 @@ class TestMutationApplierQueryBuilding:
         applier = MutationApplier(client=Mock())
         query = applier._build_query(mutation)
 
+        assert query is not None
+
         # Should use MERGE for idempotency
         assert "MERGE" in query
         assert "(n:person {id: 'person:abc123def456789a'})" in query
@@ -44,7 +46,7 @@ class TestMutationApplierQueryBuilding:
         """Should build MERGE query for CREATE edge operation."""
         mutation = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="edge",
+            type=EntityType.EDGE,
             id="knows:abc123def456789a",
             label="knows",
             start_id="person:abc123def456789a",
@@ -59,6 +61,8 @@ class TestMutationApplierQueryBuilding:
         applier = MutationApplier(client=Mock())
         query = applier._build_query(mutation)
 
+        assert query is not None
+
         # Should match source/target nodes and MERGE the relationship
         assert "MATCH (source {id: 'person:abc123def456789a'})" in query
         assert "MATCH (target {id: 'person:def456abc123789a'})" in query
@@ -72,7 +76,7 @@ class TestMutationApplierQueryBuilding:
         """Should build SET query for UPDATE operation."""
         mutation = MutationOperation(
             op=MutationOperationType.UPDATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             set_properties={
                 "name": "Alice Updated",
@@ -83,6 +87,8 @@ class TestMutationApplierQueryBuilding:
         applier = MutationApplier(client=Mock())
         query = applier._build_query(mutation)
 
+        assert query is not None
+
         assert "MATCH (n {id: 'person:abc123def456789a'})" in query
         assert "SET" in query
         assert "n.name = 'Alice Updated'" in query
@@ -92,13 +98,15 @@ class TestMutationApplierQueryBuilding:
         """Should build REMOVE query for UPDATE operation."""
         mutation = MutationOperation(
             op=MutationOperationType.UPDATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             remove_properties=["middle_name", "old_email"],
         )
 
         applier = MutationApplier(client=Mock())
         query = applier._build_query(mutation)
+
+        assert query is not None
 
         assert "MATCH (n {id: 'person:abc123def456789a'})" in query
         assert "REMOVE n.middle_name, n.old_email" in query
@@ -107,7 +115,7 @@ class TestMutationApplierQueryBuilding:
         """Should build both SET and REMOVE for UPDATE operation."""
         mutation = MutationOperation(
             op=MutationOperationType.UPDATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             set_properties={"name": "Alice Smith"},
             remove_properties=["nickname"],
@@ -115,6 +123,8 @@ class TestMutationApplierQueryBuilding:
 
         applier = MutationApplier(client=Mock())
         query = applier._build_query(mutation)
+
+        assert query is not None
 
         assert "MATCH (n {id: 'person:abc123def456789a'})" in query
         assert "SET n.name = 'Alice Smith'" in query
@@ -124,12 +134,14 @@ class TestMutationApplierQueryBuilding:
         """Should build DETACH DELETE query for DELETE operation."""
         mutation = MutationOperation(
             op=MutationOperationType.DELETE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
         )
 
         applier = MutationApplier(client=Mock())
         query = applier._build_query(mutation)
+
+        assert query is not None
 
         # Should use DETACH DELETE to cascade edges
         assert "MATCH (n {id: 'person:abc123def456789a'})" in query
@@ -172,16 +184,18 @@ class TestMutationApplierBatchExecution:
         operations = [
             MutationOperation(
                 op=MutationOperationType.UPDATE,
-                type="edge",
+                type=EntityType.EDGE,
                 id="edge:1111111111111111",
                 set_properties={"name": "test"},
             ),
             MutationOperation(
-                op=MutationOperationType.DELETE, type="node", id="node:2222222222222222"
+                op=MutationOperationType.DELETE,
+                type=EntityType.NODE,
+                id="node:2222222222222222",
             ),
             MutationOperation(
                 op=MutationOperationType.CREATE,
-                type="edge",
+                type=EntityType.EDGE,
                 id="edge:3333333333333333",
                 label="test",
                 start_id="node:aaaaaaaaaaaaaaaa",
@@ -193,16 +207,18 @@ class TestMutationApplierBatchExecution:
             ),
             MutationOperation(
                 op=MutationOperationType.UPDATE,
-                type="node",
+                type=EntityType.NODE,
                 id="node:4444444444444444",
                 set_properties={"name": "test"},
             ),
             MutationOperation(
-                op=MutationOperationType.DELETE, type="edge", id="edge:5555555555555555"
+                op=MutationOperationType.DELETE,
+                type=EntityType.EDGE,
+                id="edge:5555555555555555",
             ),
             MutationOperation(
                 op=MutationOperationType.CREATE,
-                type="node",
+                type=EntityType.NODE,
                 id="node:6666666666666666",
                 label="test",
                 set_properties={
@@ -213,13 +229,12 @@ class TestMutationApplierBatchExecution:
             ),
             MutationOperation(
                 op=MutationOperationType.DEFINE,
-                type="node",
-                id="test:def0000000000000",
+                type=EntityType.NODE,
                 label="test",
                 description="Test",
                 example_file_path="test.md",
                 example_in_file_path="test",
-                required_properties=[],
+                required_properties=set(),
             ),
         ]
 
@@ -264,7 +279,7 @@ class TestMutationApplierBatchExecution:
         operations = [
             MutationOperation(
                 op=MutationOperationType.CREATE,
-                type="node",
+                type=EntityType.NODE,
                 id="person:abc123def456789a",
                 label="person",
                 set_properties={
@@ -276,7 +291,7 @@ class TestMutationApplierBatchExecution:
             ),
             MutationOperation(
                 op=MutationOperationType.UPDATE,
-                type="node",
+                type=EntityType.NODE,
                 id="person:abc123def456789a",
                 set_properties={"email": "alice@example.com"},
             ),
@@ -308,7 +323,7 @@ class TestMutationApplierBatchExecution:
         operations = [
             MutationOperation(
                 op=MutationOperationType.DELETE,
-                type="node",
+                type=EntityType.NODE,
                 id="person:abc123def456789a",
             ),
         ]
@@ -330,7 +345,7 @@ class TestMutationApplierBatchExecution:
         operations = [
             MutationOperation(
                 op=MutationOperationType.CREATE,
-                type="node",
+                type=EntityType.NODE,
                 id="person:abc123def456789a",
                 set_properties={
                     "slug": "alice",
@@ -375,7 +390,7 @@ class TestMutationApplierObservability:
         operations = [
             MutationOperation(
                 op=MutationOperationType.CREATE,
-                type="node",
+                type=EntityType.NODE,
                 id="person:abc123def456789a",
                 label="person",
                 set_properties={

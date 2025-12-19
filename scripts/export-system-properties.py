@@ -90,7 +90,8 @@ def export_system_properties():
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(output_path, "w") as f:
-        json.dump(data, f, indent=2)
+        json.dump(data, f, indent=2, sort_keys=True)
+        f.write("\n")  # Add trailing newline for POSIX compliance
 
     print(f"✅ Exported system properties to {output_path}")
     print(f"   - Common: {data['common']['properties']}")

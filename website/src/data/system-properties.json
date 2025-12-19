@@ -1,4 +1,9 @@
 {
+  "_metadata": {
+    "description": "Auto-generated system property definitions. DO NOT EDIT manually. Run 'python scripts/export-system-properties.py' to regenerate.",
+    "generated_by": "scripts/export-system-properties.py",
+    "source": "src/api/graph/domain/value_objects.py"
+  },
   "common": {
     "description": "System properties required for all entities (nodes and edges)",
     "properties": [
@@ -10,6 +15,18 @@
       "source_path": "The file path within the data source where this entity was extracted from"
     }
   },
+  "edge_specific": {
+    "description": "Additional system properties required only for edges",
+    "properties": [],
+    "property_descriptions": {}
+  },
+  "edge_total": {
+    "description": "All system properties for edges (common + edge-specific)",
+    "properties": [
+      "data_source_id",
+      "source_path"
+    ]
+  },
   "node_specific": {
     "description": "Additional system properties required only for nodes",
     "properties": [
@@ -19,11 +36,6 @@
       "slug": "Unique human-readable identifier for the node (e.g., 'alice-smith', 'kartograph')"
     }
   },
-  "edge_specific": {
-    "description": "Additional system properties required only for edges",
-    "properties": [],
-    "property_descriptions": {}
-  },
   "node_total": {
     "description": "All system properties for nodes (common + node-specific)",
     "properties": [
@@ -31,17 +43,5 @@
       "slug",
       "source_path"
     ]
-  },
-  "edge_total": {
-    "description": "All system properties for edges (common + edge-specific)",
-    "properties": [
-      "data_source_id",
-      "source_path"
-    ]
-  },
-  "_metadata": {
-    "generated_by": "scripts/export-system-properties.py",
-    "source": "src/api/graph/domain/value_objects.py",
-    "description": "Auto-generated system property definitions. DO NOT EDIT manually. Run 'python scripts/export-system-properties.py' to regenerate."
   }
 }

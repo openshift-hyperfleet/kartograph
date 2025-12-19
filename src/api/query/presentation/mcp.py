@@ -16,13 +16,33 @@ from query.domain.value_objects import (
     SchemaLabelsResponse,
     TypeDefinitionSchema,
 )
-from query.ports.schema import ISchemaService
+from query.ports.schema import ISchemaService, TypeDefinitionLike
 
 settings = get_settings()
 
 mcp = FastMCP(name=settings.app_name)
 
 query_mcp_app = mcp.http_app(path="/mcp")
+
+
+def _convert_type_definition_to_schema(td: TypeDefinitionLike) -> TypeDefinitionSchema:
+    """Convert a TypeDefinition to TypeDefinitionSchema value object.
+
+    Args:
+        td: TypeDefinition from Graph context (via ISchemaService port)
+
+    Returns:
+        TypeDefinitionSchema domain object
+    """
+    return TypeDefinitionSchema(
+        label=td.label,
+        entity_type=td.entity_type.value,
+        description=td.description,
+        example_file_path=td.example_file_path,
+        example_in_file_path=td.example_in_file_path,
+        required_properties=sorted(list(td.required_properties)),
+        optional_properties=sorted(list(td.optional_properties)),
+    )
 
 
 @mcp.tool
@@ -115,7 +135,7 @@ def query_graph(
 )
 def get_ontology(
     service: ISchemaService = Depends(get_schema_service_for_mcp),
-) -> OntologyResponse:
+) -> OntologyResponse | SchemaErrorResponse:
     """Get complete graph ontology/schema.
 
     Returns all type definitions for nodes and edges in the knowledge graph.
@@ -129,19 +149,12 @@ def get_ontology(
     """
     definitions = service.get_ontology()
 
-    # Convert to domain value objects
-    type_schemas = [
-        TypeDefinitionSchema(
-            label=td.label,
-            entity_type=td.entity_type.value,
-            description=td.description,
-            example_file_path=td.example_file_path,
-            example_in_file_path=td.example_in_file_path,
-            required_properties=sorted(list(td.required_properties)),
-            optional_properties=sorted(list(td.optional_properties)),
-        )
-        for td in definitions
-    ]
+    # Error handling for empty schema
+    if not definitions:
+        return SchemaErrorResponse(error="No type definitions found in graph schema")
+
+    # Convert to domain value objects using shared helper
+    type_schemas = [_convert_type_definition_to_schema(td) for td in definitions]
 
     return OntologyResponse(type_definitions=type_schemas, count=len(type_schemas))
 
@@ -217,15 +230,7 @@ def get_node_schema_resource(
     if schema is None:
         return SchemaErrorResponse(error=f"Node type '{label}' not found")
 
-    return TypeDefinitionSchema(
-        label=schema.label,
-        entity_type=schema.entity_type.value,
-        description=schema.description,
-        example_file_path=schema.example_file_path,
-        example_in_file_path=schema.example_in_file_path,
-        required_properties=sorted(list(schema.required_properties)),
-        optional_properties=sorted(list(schema.optional_properties)),
-    )
+    return _convert_type_definition_to_schema(schema)
 
 
 @mcp.resource(
@@ -255,12 +260,4 @@ def get_edge_schema_resource(
     if schema is None:
         return SchemaErrorResponse(error=f"Edge type '{label}' not found")
 
-    return TypeDefinitionSchema(
-        label=schema.label,
-        entity_type=schema.entity_type.value,
-        description=schema.description,
-        example_file_path=schema.example_file_path,
-        example_in_file_path=schema.example_in_file_path,
-        required_properties=sorted(list(schema.required_properties)),
-        optional_properties=sorted(list(schema.optional_properties)),
-    )
+    return _convert_type_definition_to_schema(schema)

@@ -9,7 +9,7 @@ the Graph service's API endpoints. The Query context's ISchemaService port
 remains unchanged.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from query.ports.schema import ISchemaService
@@ -26,6 +26,10 @@ def get_schema_service_for_mcp() -> "ISchemaService":
     """
     from graph.application.services import GraphSchemaService
     from graph.dependencies import get_type_definition_repository
+    from query.ports.schema import ISchemaService
 
     type_def_repo = get_type_definition_repository()
-    return GraphSchemaService(type_definition_repository=type_def_repo)
+    service = GraphSchemaService(type_definition_repository=type_def_repo)
+
+    # GraphSchemaService structurally satisfies ISchemaService protocol
+    return cast(ISchemaService, service)

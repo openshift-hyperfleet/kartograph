@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.9.0...v0.9.1) (2025-12-19)
+
+
+### Documentation
+
+* **website:** add MCP server guide and fix all internal links ([#69](https://github.com/openshift-hyperfleet/kartograph/issues/69)) ([354d40a](https://github.com/openshift-hyperfleet/kartograph/commit/354d40a161241e3c7a17a9e9ea330215936231db))
+
 ## [0.9.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.8.0...v0.9.0) (2025-12-19)
 
 

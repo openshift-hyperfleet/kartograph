@@ -5,6 +5,7 @@ from unittest.mock import Mock
 
 from graph.application.services.graph_mutation_service import GraphMutationService
 from graph.domain.value_objects import (
+    EntityType,
     MutationOperation,
     MutationOperationType,
     MutationResult,
@@ -31,18 +32,18 @@ class TestCreateDefineValidationInBatch:
         # DEFINE without system props (user only specifies user props)
         define_op = MutationOperation(
             op=MutationOperationType.DEFINE,
-            type="node",
+            type=EntityType.NODE,
             label="person",
             description="A person",
             example_file_path="test.md",
             example_in_file_path="test",
-            required_properties=["name"],  # User only specifies "name"
+            required_properties={"name"},  # User only specifies "name"
         )
 
         # CREATE missing slug (node system property)
         create_op = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             label="person",
             set_properties={
@@ -75,17 +76,17 @@ class TestCreateDefineValidationInBatch:
 
         define_op = MutationOperation(
             op=MutationOperationType.DEFINE,
-            type="node",
+            type=EntityType.NODE,
             label="person",
             description="A person",
             example_file_path="test.md",
             example_in_file_path="test",
-            required_properties=["name"],
+            required_properties={"name"},
         )
 
         create_op = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             label="person",
             set_properties={
@@ -116,17 +117,17 @@ class TestCreateDefineValidationInBatch:
 
         define_op = MutationOperation(
             op=MutationOperationType.DEFINE,
-            type="edge",
+            type=EntityType.EDGE,
             label="knows",
             description="Knows relationship",
             example_file_path="test.md",
             example_in_file_path="test",
-            required_properties=["since"],
+            required_properties={"since"},
         )
 
         create_op = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="edge",
+            type=EntityType.EDGE,
             id="knows:abc123def456789a",
             label="knows",
             start_id="person:aaa111bbb222ccc3",

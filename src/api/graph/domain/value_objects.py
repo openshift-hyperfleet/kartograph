@@ -69,7 +69,7 @@ def get_system_properties_for_entity(entity_type: EntityType) -> frozenset[str]:
     elif entity_type == EntityType.EDGE:
         return COMMON_SYSTEM_PROPERTIES | EDGE_SYSTEM_PROPERTIES
     else:
-        raise ValueError(f"Invalid entity_type: {entity_type}")
+        raise ValueError(f"Invalid entity_type: {repr(entity_type)}")
 
 
 class SchemaLabelsResponse(BaseModel):
@@ -193,8 +193,8 @@ class MutationOperation(BaseModel):
     description: str | None = None
     example_file_path: str | None = None
     example_in_file_path: str | None = None
-    required_properties: list[str] | None = None
-    optional_properties: list[str] | None = None
+    required_properties: set[str] | None = None
+    optional_properties: set[str] | None = None
 
     def validate_operation(self) -> None:
         """Validate operation-specific requirements.
@@ -295,8 +295,8 @@ class MutationOperation(BaseModel):
             description=self.description or "",
             example_file_path=self.example_file_path or "",
             example_in_file_path=self.example_in_file_path or "",
-            required_properties=set(self.required_properties or []),
-            optional_properties=set(self.optional_properties or []),
+            required_properties=self.required_properties or set(),
+            optional_properties=self.optional_properties or set(),
         )
 
 

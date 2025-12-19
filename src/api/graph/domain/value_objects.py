@@ -69,7 +69,7 @@ def get_system_properties_for_entity(entity_type: EntityType) -> frozenset[str]:
     elif entity_type == EntityType.EDGE:
         return COMMON_SYSTEM_PROPERTIES | EDGE_SYSTEM_PROPERTIES
     else:
-        raise ValueError(f"Invalid entity_type: {entity_type}")
+        raise ValueError(f"Invalid entity_type: {repr(entity_type)}")
 
 
 class SchemaLabelsResponse(BaseModel):

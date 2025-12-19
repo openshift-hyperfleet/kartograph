@@ -193,8 +193,8 @@ class MutationOperation(BaseModel):
     description: str | None = None
     example_file_path: str | None = None
     example_in_file_path: str | None = None
-    required_properties: list[str] | None = None
-    optional_properties: list[str] | None = None
+    required_properties: set[str] | None = None
+    optional_properties: set[str] | None = None
 
     def validate_operation(self) -> None:
         """Validate operation-specific requirements.

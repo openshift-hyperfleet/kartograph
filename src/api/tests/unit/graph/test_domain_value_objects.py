@@ -145,7 +145,7 @@ class TestTypeDefinition:
             description="Test",
             example_file_path="test.md",
             example_in_file_path="test",
-            required_properties=[],
+            required_properties=set(),
         )
         with pytest.raises(ValidationError):
             type_def.label = "Changed"
@@ -160,14 +160,13 @@ class TestMutationOperation:
         """DEFINE node operation should validate with all required fields."""
         mutation = MutationOperation(
             op=MutationOperationType.DEFINE,
-            type="node",
-            id="person:def0000000000000",
+            type=EntityType.NODE,
             label="person",
             description="A person entity",
             example_file_path="people/alice.md",
             example_in_file_path="# Alice",
-            required_properties=["slug", "name"],
-            optional_properties=["email"],
+            required_properties={"slug", "name"},
+            optional_properties={"email"},
         )
         mutation.validate_operation()  # Should not raise
 
@@ -175,12 +174,11 @@ class TestMutationOperation:
         """DEFINE should require label."""
         mutation = MutationOperation(
             op=MutationOperationType.DEFINE,
-            type="node",
-            id="test:def1111111111111",
+            type=EntityType.NODE,
             description="Test",
             example_file_path="test.md",
             example_in_file_path="test",
-            required_properties=[],
+            required_properties=set(),
         )
         with pytest.raises(ValueError, match="DEFINE requires 'label'"):
             mutation.validate_operation()
@@ -189,12 +187,11 @@ class TestMutationOperation:
         """DEFINE should require description."""
         mutation = MutationOperation(
             op=MutationOperationType.DEFINE,
-            type="node",
-            id="test:def2222222222222",
+            type=EntityType.NODE,
             label="test",
             example_file_path="test.md",
             example_in_file_path="test",
-            required_properties=[],
+            required_properties=set(),
         )
         with pytest.raises(ValueError, match="DEFINE requires"):
             mutation.validate_operation()
@@ -203,13 +200,12 @@ class TestMutationOperation:
         """DEFINE should not allow set_properties."""
         mutation = MutationOperation(
             op=MutationOperationType.DEFINE,
-            type="node",
-            id="test:def3333333333333",
+            type=EntityType.NODE,
             label="test",
             description="Test",
             example_file_path="test.md",
             example_in_file_path="test",
-            required_properties=[],
+            required_properties=set(),
             set_properties={"foo": "bar"},
         )
         with pytest.raises(ValueError, match="DEFINE cannot include"):
@@ -219,14 +215,13 @@ class TestMutationOperation:
         """DEFINE operation should convert to TypeDefinition."""
         mutation = MutationOperation(
             op=MutationOperationType.DEFINE,
-            type="node",
-            id="person:def4444444444444",
+            type=EntityType.NODE,
             label="person",
             description="A person",
             example_file_path="people/alice.md",
             example_in_file_path="# Alice",
-            required_properties=["slug"],
-            optional_properties=["email"],
+            required_properties={"slug"},
+            optional_properties={"email"},
         )
         type_def = mutation.to_type_definition()
 
@@ -240,7 +235,7 @@ class TestMutationOperation:
         """Only DEFINE operations can convert to TypeDefinition."""
         mutation = MutationOperation(
             op=MutationOperationType.DELETE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
         )
         with pytest.raises(ValueError, match="Only DEFINE operations"):
@@ -252,7 +247,7 @@ class TestMutationOperation:
         """CREATE node operation should validate with all required fields."""
         mutation = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             label="person",
             set_properties={
@@ -268,7 +263,7 @@ class TestMutationOperation:
         """CREATE edge operation should validate with all required fields."""
         mutation = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="edge",
+            type=EntityType.EDGE,
             id="knows:abc123def456789a",
             label="knows",
             start_id="person:abc123def456789a",
@@ -285,7 +280,7 @@ class TestMutationOperation:
         """CREATE should require label."""
         mutation = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             set_properties={
                 "slug": "alice",
@@ -300,7 +295,7 @@ class TestMutationOperation:
         """CREATE should require set_properties."""
         mutation = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             label="person",
         )
@@ -311,7 +306,7 @@ class TestMutationOperation:
         """CREATE should require data_source_id in set_properties."""
         mutation = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             label="person",
             set_properties={
@@ -326,7 +321,7 @@ class TestMutationOperation:
         """CREATE should require source_path in set_properties."""
         mutation = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             label="person",
             set_properties={
@@ -341,7 +336,7 @@ class TestMutationOperation:
         """CREATE node should require slug in set_properties."""
         mutation = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             label="person",
             set_properties={
@@ -356,7 +351,7 @@ class TestMutationOperation:
         """CREATE edge should require start_id and end_id."""
         mutation = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="edge",
+            type=EntityType.EDGE,
             id="knows:abc123def456789a",
             label="knows",
             set_properties={
@@ -373,7 +368,7 @@ class TestMutationOperation:
         """UPDATE with set_properties should validate."""
         mutation = MutationOperation(
             op=MutationOperationType.UPDATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             set_properties={"name": "Alice Updated"},
         )
@@ -383,7 +378,7 @@ class TestMutationOperation:
         """UPDATE with remove_properties should validate."""
         mutation = MutationOperation(
             op=MutationOperationType.UPDATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             remove_properties=["middle_name"],
         )
@@ -393,7 +388,7 @@ class TestMutationOperation:
         """UPDATE with both set and remove properties should validate."""
         mutation = MutationOperation(
             op=MutationOperationType.UPDATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             set_properties={"name": "Alice"},
             remove_properties=["nickname"],
@@ -404,7 +399,7 @@ class TestMutationOperation:
         """UPDATE should require at least set_properties or remove_properties."""
         mutation = MutationOperation(
             op=MutationOperationType.UPDATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
         )
         with pytest.raises(ValueError, match="UPDATE requires at least one"):
@@ -416,7 +411,7 @@ class TestMutationOperation:
         """DELETE operation should validate with only op, type, and id."""
         mutation = MutationOperation(
             op=MutationOperationType.DELETE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
         )
         mutation.validate_operation()  # Should not raise
@@ -425,7 +420,7 @@ class TestMutationOperation:
         """DELETE should not allow set_properties."""
         mutation = MutationOperation(
             op=MutationOperationType.DELETE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             set_properties={"foo": "bar"},
         )
@@ -436,7 +431,7 @@ class TestMutationOperation:
         """DELETE should not allow label."""
         mutation = MutationOperation(
             op=MutationOperationType.DELETE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             label="person",
         )
@@ -450,7 +445,7 @@ class TestMutationOperation:
         with pytest.raises(ValidationError):
             MutationOperation(
                 op=MutationOperationType.DELETE,
-                type="node",
+                type=EntityType.NODE,
                 id="invalid_id_format",
             )
 
@@ -458,7 +453,7 @@ class TestMutationOperation:
         """ID should accept valid {type}:{16_hex_chars} pattern."""
         mutation = MutationOperation(
             op=MutationOperationType.DELETE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
         )
         assert mutation.id == "person:abc123def456789a"

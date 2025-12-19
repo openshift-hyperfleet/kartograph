@@ -8,16 +8,17 @@ on:
     branches:
       - main
 
-permissions:
-  contents: write
-  pull-requests: write
-
 jobs:
   sync-docs:
     name: Sync Documentation
     runs-on: ubuntu-latest
-    # Only run on PRs (not main branch pushes)
-    if: github.event_name == 'pull_request'
+    # Only run on PRs from the same repo (not forks, not main pushes)
+    # Fork PRs have read-only tokens and cannot push
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+
+    permissions:
+      contents: write
+      pull-requests: write
 
     steps:
       - name: Checkout code
@@ -72,8 +73,9 @@ jobs:
 
   test:
     needs: sync-docs
-    # Always run on main, or run on PRs after sync-docs completes
-    if: always() && (github.event_name == 'push' || needs.sync-docs.result == 'success')
+    # Run on main pushes, OR on PRs after sync-docs completes/skips
+    # always() ensures test runs even if sync-docs was skipped (fork PRs)
+    if: always() && (github.event_name == 'push' || (github.event_name == 'pull_request' && (needs.sync-docs.result == 'success' || needs.sync-docs.result == 'skipped')))
     name: Test Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:

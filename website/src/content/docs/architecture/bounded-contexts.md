@@ -65,7 +65,7 @@ Kartograph follows Domain-Driven Design with six distinct bounded contexts. Each
 **Key Entities:**
 - `ExtractionAgent`
 - `DeterministicProcessor`
-- [`MutationLog`](/guides/extraction-mutations/) (JSONL file)
+- [`MutationLog`](../guides/extraction-mutations/) (JSONL file)
 
 
 ### 5. Graph
@@ -148,4 +148,4 @@ def test_ingestion_cannot_access_database():
 
 ## Next Steps
 
-- Learn about [DDD Patterns](/architecture/ddd-patterns/) used in each context
+- Learn about [DDD Patterns](../../architecture/ddd-patterns/) used in each context

@@ -102,7 +102,7 @@ class TestGraphMutationServiceApplyMutations:
         mock_type_def_repo.save.assert_called_once()
         saved_type_def = mock_type_def_repo.save.call_args[0][0]
         assert saved_type_def.label == "person"
-        assert saved_type_def.entity_type == "node"
+        assert saved_type_def.entity_type == EntityType.NODE
         assert saved_type_def.description == "A person in the organization"
 
     def test_apply_mutations_emits_probe_events(self):

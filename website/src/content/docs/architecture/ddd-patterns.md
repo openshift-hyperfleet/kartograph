@@ -250,5 +250,5 @@ def test_domain_has_no_infrastructure_dependencies():
 
 ## Next Steps
 
-- Explore [Bounded Contexts](/architecture/bounded-contexts/) to see DDD in action
-- Read [Extraction → Graph Mutations](/guides/extraction-mutations/) for a real-world interface
+- Explore [Bounded Contexts](../../architecture/bounded-contexts/) to see DDD in action
+- Read [Extraction → Graph Mutations](../../guides/extraction-mutations/) for a real-world interface

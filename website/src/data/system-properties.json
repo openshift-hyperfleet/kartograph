@@ -6,8 +6,8 @@
       "source_path"
     ],
     "property_descriptions": {
-      "source_path": "The file path within the data source where this entity was extracted from",
-      "data_source_id": "Identifies which data source this entity came from (e.g., 'ds-123')"
+      "data_source_id": "Identifies which data source this entity came from (e.g., 'ds-123')",
+      "source_path": "The file path within the data source where this entity was extracted from"
     }
   },
   "node_specific": {

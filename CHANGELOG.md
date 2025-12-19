@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.7.0...v0.8.0) (2025-12-19)
+
+
+### Features
+
+* **api:** add shared kernel with EntityIdGenerator for cross-context ID consistency ([#65](https://github.com/openshift-hyperfleet/kartograph/issues/65)) ([6f039cd](https://github.com/openshift-hyperfleet/kartograph/commit/6f039cd85163fbbb4e1b356f0969c333c483c946))
+
 ## [0.7.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.6.0...v0.7.0) (2025-12-18)
 
 

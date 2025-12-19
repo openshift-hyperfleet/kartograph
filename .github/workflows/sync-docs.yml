@@ -51,7 +51,9 @@ jobs:
       - name: Check for changes
         id: check_changes
         run: |
-          if git diff --quiet website/src/data/system-properties.json; then
+          # Check if file exists and has changes (covers both new files and modifications)
+          if git diff --quiet website/src/data/system-properties.json && \
+             git ls-files --error-unmatch website/src/data/system-properties.json > /dev/null 2>&1; then
             echo "changed=false" >> $GITHUB_OUTPUT
             echo "✅ system-properties.json is up to date"
           else

@@ -4,7 +4,40 @@ Defines the interface for accessing graph type definitions without
 coupling to the Graph context's implementation.
 """
 
-from typing import Any, Protocol
+from typing import Protocol
+
+
+class EntityTypeLike(Protocol):
+    """Protocol for entity type enums.
+
+    Matches the structure of graph.domain.value_objects.EntityType
+    without importing from the Graph context.
+    """
+
+    @property
+    def value(self) -> str:
+        """Get the string value of the entity type."""
+        ...
+
+
+class TypeDefinitionLike(Protocol):
+    """Protocol for type definition objects.
+
+    Defines the expected structure for type definitions returned by
+    schema service methods. Matches graph.domain.value_objects.TypeDefinition
+    without creating import-time coupling.
+
+    This enables full IDE autocomplete and type checking while maintaining
+    DDD bounded context isolation.
+    """
+
+    label: str
+    entity_type: EntityTypeLike
+    description: str
+    example_file_path: str
+    example_in_file_path: str
+    required_properties: set[str]
+    optional_properties: set[str]
 
 
 class ISchemaService(Protocol):
@@ -15,7 +48,7 @@ class ISchemaService(Protocol):
     runtime without creating static import dependencies.
     """
 
-    def get_ontology(self) -> list[Any]:
+    def get_ontology(self) -> list[TypeDefinitionLike]:
         """Get all type definitions (full graph ontology/schema).
 
         Returns:
@@ -50,7 +83,7 @@ class ISchemaService(Protocol):
         """
         ...
 
-    def get_node_schema(self, label: str) -> Any | None:
+    def get_node_schema(self, label: str) -> TypeDefinitionLike | None:
         """Get full schema for a specific node type.
 
         Args:
@@ -61,7 +94,7 @@ class ISchemaService(Protocol):
         """
         ...
 
-    def get_edge_schema(self, label: str) -> Any | None:
+    def get_edge_schema(self, label: str) -> TypeDefinitionLike | None:
         """Get full schema for a specific edge type.
 
         Args:

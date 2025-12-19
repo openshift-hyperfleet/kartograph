@@ -31,13 +31,13 @@ class TestGraphMutationServiceApplyMutations:
             description="A person",
             example_file_path="people/alice.md",
             example_in_file_path="alice",
-            required_properties=["slug", "name"],
+            required_properties={"slug", "name"},
         )
 
         operations = [
             MutationOperation(
                 op=MutationOperationType.CREATE,
-                type="node",
+                type=EntityType.NODE,
                 id="person:abc123def456789a",
                 label="person",
                 set_properties={
@@ -49,7 +49,7 @@ class TestGraphMutationServiceApplyMutations:
             ),
             MutationOperation(
                 op=MutationOperationType.UPDATE,
-                type="node",
+                type=EntityType.NODE,
                 id="person:abc123def456789a",
                 set_properties={"email": "alice@example.com"},
             ),
@@ -82,14 +82,13 @@ class TestGraphMutationServiceApplyMutations:
         operations = [
             MutationOperation(
                 op=MutationOperationType.DEFINE,
-                type="node",
-                id="person:def0000000000000",
+                type=EntityType.NODE,
                 label="person",
                 description="A person in the organization",
                 example_file_path="people/alice.md",
                 example_in_file_path="alice",
-                required_properties=["slug", "name"],
-                optional_properties=["email"],
+                required_properties={"slug", "name"},
+                optional_properties={"email"},
             ),
         ]
 
@@ -103,7 +102,7 @@ class TestGraphMutationServiceApplyMutations:
         mock_type_def_repo.save.assert_called_once()
         saved_type_def = mock_type_def_repo.save.call_args[0][0]
         assert saved_type_def.label == "person"
-        assert saved_type_def.entity_type == "node"
+        assert saved_type_def.entity_type == EntityType.NODE
         assert saved_type_def.description == "A person in the organization"
 
     def test_apply_mutations_emits_probe_events(self):
@@ -123,14 +122,14 @@ class TestGraphMutationServiceApplyMutations:
             description="A person",
             example_file_path="people/alice.md",
             example_in_file_path="alice",
-            required_properties=["slug", "name"],
+            required_properties={"slug", "name"},
         )
         mock_probe = Mock()
 
         operations = [
             MutationOperation(
                 op=MutationOperationType.CREATE,
-                type="node",
+                type=EntityType.NODE,
                 id="person:abc123def456789a",
                 label="person",
                 set_properties={
@@ -171,7 +170,7 @@ class TestGraphMutationServiceApplyMutations:
         operations = [
             MutationOperation(
                 op=MutationOperationType.DELETE,
-                type="node",
+                type=EntityType.NODE,
                 id="person:abc123def456789a",
             ),
         ]
@@ -220,7 +219,7 @@ class TestGraphMutationServiceApplyMutations:
         operations = [
             MutationOperation(
                 op=MutationOperationType.CREATE,
-                type="node",
+                type=EntityType.NODE,
                 id="person:abc123def456789a",
                 label="person",
                 set_properties={
@@ -263,17 +262,16 @@ class TestGraphMutationServiceApplyMutations:
         operations = [
             MutationOperation(
                 op=MutationOperationType.DEFINE,
-                type="node",
-                id="person:def0000000000000",
+                type=EntityType.NODE,
                 label="person",
                 description="A person",
                 example_file_path="people/alice.md",
                 example_in_file_path="alice",
-                required_properties=["slug", "name"],
+                required_properties={"slug", "name"},
             ),
             MutationOperation(
                 op=MutationOperationType.CREATE,
-                type="node",
+                type=EntityType.NODE,
                 id="person:abc123def456789a",
                 label="person",
                 set_properties={
@@ -315,13 +313,13 @@ class TestGraphMutationServiceApplyMutations:
             description="A person",
             example_file_path="people/alice.md",
             example_in_file_path="alice",
-            required_properties=["slug", "name"],
+            required_properties={"slug", "name"},
         )
 
         operations = [
             MutationOperation(
                 op=MutationOperationType.CREATE,
-                type="node",
+                type=EntityType.NODE,
                 id="person:abc123def456789a",
                 label="person",
                 set_properties={
@@ -359,13 +357,13 @@ class TestGraphMutationServiceApplyMutations:
             description="A person",
             example_file_path="people/alice.md",
             example_in_file_path="alice",
-            required_properties=["slug", "name", "email"],  # email is required
+            required_properties={"slug", "name", "email"},  # email is required
         )
 
         operations = [
             MutationOperation(
                 op=MutationOperationType.CREATE,
-                type="node",
+                type=EntityType.NODE,
                 id="person:abc123def456789a",
                 label="person",
                 set_properties={
@@ -410,13 +408,13 @@ class TestGraphMutationServiceApplyMutations:
             description="A person",
             example_file_path="people/alice.md",
             example_in_file_path="alice",
-            required_properties=["slug", "name"],
+            required_properties={"slug", "name"},
         )
 
         operations = [
             MutationOperation(
                 op=MutationOperationType.CREATE,
-                type="node",
+                type=EntityType.NODE,
                 id="person:abc123def456789a",
                 label="person",
                 set_properties={
@@ -460,7 +458,7 @@ class TestGraphMutationServiceApplyFromJSONL:
             description="A person",
             example_file_path="people/alice.md",
             example_in_file_path="alice",
-            required_properties=["slug", "name"],
+            required_properties={"slug", "name"},
         )
 
         jsonl_content = """{"op":"CREATE","type":"node","id":"person:abc123def456789a","label":"person","set_properties":{"slug":"alice","name":"Alice","data_source_id":"ds-123","source_path":"people/alice.md"}}
@@ -522,7 +520,7 @@ class TestGraphMutationServiceApplyFromJSONL:
             description="A person",
             example_file_path="people/alice.md",
             example_in_file_path="alice",
-            required_properties=["slug", "name"],
+            required_properties={"slug", "name"},
         )
 
         jsonl_content = """

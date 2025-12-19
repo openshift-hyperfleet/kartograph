@@ -7,8 +7,9 @@ from fastmcp.dependencies import Depends
 
 from infrastructure.mcp_dependencies import get_schema_service_for_mcp
 from infrastructure.settings import get_settings
+from query.application.observability import SchemaResourceProbe
 from query.application.services import MCPQueryService
-from query.dependencies import get_mcp_query_service
+from query.dependencies import get_mcp_query_service, get_schema_resource_probe
 from query.domain.value_objects import (
     OntologyResponse,
     QueryError,
@@ -135,6 +136,7 @@ def query_graph(
 )
 def get_ontology(
     service: ISchemaService = Depends(get_schema_service_for_mcp),
+    probe: SchemaResourceProbe = Depends(get_schema_resource_probe),
 ) -> OntologyResponse | SchemaErrorResponse:
     """Get complete graph ontology/schema.
 
@@ -147,14 +149,23 @@ def get_ontology(
     Returns:
         OntologyResponse containing all type definitions
     """
+    probe.schema_resource_accessed(resource_uri="schema://ontology")
+
     definitions = service.get_ontology()
 
     # Error handling for empty schema
     if not definitions:
+        probe.schema_resource_returned(
+            resource_uri="schema://ontology", result_count=0, found=False
+        )
         return SchemaErrorResponse(error="No type definitions found in graph schema")
 
     # Convert to domain value objects using shared helper
     type_schemas = [_convert_type_definition_to_schema(td) for td in definitions]
+
+    probe.schema_resource_returned(
+        resource_uri="schema://ontology", result_count=len(type_schemas)
+    )
 
     return OntologyResponse(type_definitions=type_schemas, count=len(type_schemas))
 
@@ -168,6 +179,7 @@ def get_ontology(
 )
 def get_node_labels_resource(
     service: ISchemaService = Depends(get_schema_service_for_mcp),
+    probe: SchemaResourceProbe = Depends(get_schema_resource_probe),
 ) -> SchemaLabelsResponse:
     """Get list of all node type labels.
 
@@ -177,7 +189,14 @@ def get_node_labels_resource(
     Returns:
         SchemaLabelsResponse containing node labels and count
     """
+    probe.schema_resource_accessed(resource_uri="schema://nodes/labels")
+
     labels = service.get_node_labels()
+
+    probe.schema_resource_returned(
+        resource_uri="schema://nodes/labels", result_count=len(labels)
+    )
+
     return SchemaLabelsResponse(labels=labels, count=len(labels))
 
 
@@ -190,6 +209,7 @@ def get_node_labels_resource(
 )
 def get_edge_labels_resource(
     service: ISchemaService = Depends(get_schema_service_for_mcp),
+    probe: SchemaResourceProbe = Depends(get_schema_resource_probe),
 ) -> SchemaLabelsResponse:
     """Get list of all edge type labels.
 
@@ -199,7 +219,14 @@ def get_edge_labels_resource(
     Returns:
         SchemaLabelsResponse containing edge labels and count
     """
+    probe.schema_resource_accessed(resource_uri="schema://edges/labels")
+
     labels = service.get_edge_labels()
+
+    probe.schema_resource_returned(
+        resource_uri="schema://edges/labels", result_count=len(labels)
+    )
+
     return SchemaLabelsResponse(labels=labels, count=len(labels))
 
 
@@ -213,6 +240,7 @@ def get_edge_labels_resource(
 def get_node_schema_resource(
     label: str,
     service: ISchemaService = Depends(get_schema_service_for_mcp),
+    probe: SchemaResourceProbe = Depends(get_schema_resource_probe),
 ) -> TypeDefinitionSchema | SchemaErrorResponse:
     """Get detailed schema for a specific node type.
 
@@ -225,10 +253,15 @@ def get_node_schema_resource(
     Returns:
         TypeDefinitionSchema if found, SchemaErrorResponse otherwise
     """
+    probe.schema_resource_accessed(resource_uri=f"schema://nodes/{label}", label=label)
+
     schema = service.get_node_schema(label)
 
     if schema is None:
+        probe.schema_type_not_found(resource_uri=f"schema://nodes/{label}", label=label)
         return SchemaErrorResponse(error=f"Node type '{label}' not found")
+
+    probe.schema_resource_returned(resource_uri=f"schema://nodes/{label}", found=True)
 
     return _convert_type_definition_to_schema(schema)
 
@@ -243,6 +276,7 @@ def get_node_schema_resource(
 def get_edge_schema_resource(
     label: str,
     service: ISchemaService = Depends(get_schema_service_for_mcp),
+    probe: SchemaResourceProbe = Depends(get_schema_resource_probe),
 ) -> TypeDefinitionSchema | SchemaErrorResponse:
     """Get detailed schema for a specific edge type.
 
@@ -255,9 +289,14 @@ def get_edge_schema_resource(
     Returns:
         TypeDefinitionSchema if found, SchemaErrorResponse otherwise
     """
+    probe.schema_resource_accessed(resource_uri=f"schema://edges/{label}", label=label)
+
     schema = service.get_edge_schema(label)
 
     if schema is None:
+        probe.schema_type_not_found(resource_uri=f"schema://edges/{label}", label=label)
         return SchemaErrorResponse(error=f"Edge type '{label}' not found")
+
+    probe.schema_resource_returned(resource_uri=f"schema://edges/{label}", found=True)
 
     return _convert_type_definition_to_schema(schema)

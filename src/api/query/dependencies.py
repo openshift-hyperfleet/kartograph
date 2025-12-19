@@ -13,6 +13,10 @@ from infrastructure.database.connection import ConnectionFactory
 from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.dependencies import get_age_connection_pool
 from infrastructure.settings import get_database_settings
+from query.application.observability import (
+    DefaultSchemaResourceProbe,
+    SchemaResourceProbe,
+)
 from query.application.services import MCPQueryService
 from query.infrastructure.query_repository import QueryGraphRepository
 
@@ -60,3 +64,12 @@ def get_mcp_query_service(
     """
     repository = QueryGraphRepository(client=client)
     return MCPQueryService(repository=repository)
+
+
+def get_schema_resource_probe() -> SchemaResourceProbe:
+    """Get schema resource probe for observability.
+
+    Returns:
+        SchemaResourceProbe instance for domain event emission
+    """
+    return DefaultSchemaResourceProbe()

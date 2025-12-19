@@ -105,3 +105,85 @@ class DefaultQueryServiceProbe:
             error=error,
             **self._get_context_kwargs(),
         )
+
+
+class SchemaResourceProbe(Protocol):
+    """Domain probe for schema resource access via MCP."""
+
+    def schema_resource_accessed(
+        self,
+        resource_uri: str,
+        label: str | None = None,
+    ) -> None:
+        """Record that a schema resource was accessed."""
+        ...
+
+    def schema_resource_returned(
+        self,
+        resource_uri: str,
+        result_count: int | None = None,
+        found: bool = True,
+    ) -> None:
+        """Record successful schema resource retrieval."""
+        ...
+
+    def schema_type_not_found(
+        self,
+        resource_uri: str,
+        label: str,
+    ) -> None:
+        """Record that a requested type label was not found."""
+        ...
+
+    def with_context(self, context: ObservationContext) -> SchemaResourceProbe:
+        """Create a new probe with observation context bound."""
+        ...
+
+
+class DefaultSchemaResourceProbe:
+    """Default implementation using structlog."""
+
+    def __init__(
+        self,
+        logger: structlog.stdlib.BoundLogger | None = None,
+        context: ObservationContext | None = None,
+    ):
+        self._logger = logger or structlog.get_logger()
+        self._context = context
+
+    def _get_context_kwargs(self) -> dict[str, Any]:
+        if self._context is None:
+            return {}
+        return self._context.as_dict()
+
+    def with_context(self, context: ObservationContext) -> DefaultSchemaResourceProbe:
+        return DefaultSchemaResourceProbe(logger=self._logger, context=context)
+
+    def schema_resource_accessed(
+        self, resource_uri: str, label: str | None = None
+    ) -> None:
+        self._logger.info(
+            "mcp_schema_resource_accessed",
+            resource_uri=resource_uri,
+            label=label,
+            **self._get_context_kwargs(),
+        )
+
+    def schema_resource_returned(
+        self, resource_uri: str, result_count: int | None = None, found: bool = True
+    ) -> None:
+        self._logger.info(
+            "mcp_schema_resource_returned",
+            resource_uri=resource_uri,
+            result_count=result_count,
+            found=found,
+            **self._get_context_kwargs(),
+        )
+
+    def schema_type_not_found(self, resource_uri: str, label: str) -> None:
+        self._logger.warning(
+            "mcp_schema_type_not_found",
+            resource_uri=resource_uri,
+            label=label,
+            **self._get_context_kwargs(),
+        )

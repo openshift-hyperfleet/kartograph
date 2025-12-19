@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.8.0...v0.9.0) (2025-12-19)
+
+
+### Features
+
+* **api.query:** add schema discovery MCP resources ([#67](https://github.com/openshift-hyperfleet/kartograph/issues/67)) ([cf90067](https://github.com/openshift-hyperfleet/kartograph/commit/cf90067c03f0d300cc9012914ffff16dd4dc478c))
+
 ## [0.8.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.7.0...v0.8.0) (2025-12-19)
 
 

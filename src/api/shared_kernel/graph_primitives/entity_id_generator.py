@@ -59,7 +59,7 @@ class EntityIdGenerator:
                 Will be normalized to lowercase.
             entity_slug: The entity's slug identifier (e.g., "alice-smith").
                 Can contain any characters including special chars and unicode.
-            tenant_id: The tenant identifier. Default is ":" for single-tenant
+            tenant_id: The tenant identifier. Default is "" for single-tenant
                 deployments. TODO: Properly incorporate tenant_id when
                 multi-tenancy is implemented.
 

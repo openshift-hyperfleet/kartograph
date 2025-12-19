@@ -4,6 +4,8 @@ This module tests the deterministic entity ID generation logic that is shared
 across bounded contexts (particularly Graph and Extraction contexts).
 """
 
+import pytest
+
 
 class TestEntityIdGenerator:
     """Test suite for EntityIdGenerator.generate method."""
@@ -101,14 +103,6 @@ class TestEntityIdGenerator:
         assert id_value.startswith("person:")
         assert len(id_value.split(":")[1]) == 16
 
-    def test_empty_slug_produces_valid_id(self):
-        """Should handle empty slug gracefully."""
-        from shared_kernel.graph_primitives import EntityIdGenerator
-
-        id_value = EntityIdGenerator.generate("person", "")
-        assert id_value.startswith("person:")
-        assert len(id_value.split(":")[1]) == 16
-
     def test_unicode_slug(self):
         """Should handle unicode characters in slug."""
         from shared_kernel.graph_primitives import EntityIdGenerator
@@ -127,3 +121,102 @@ class TestEntityIdGenerator:
 
         # All IDs should be identical
         assert len(set(ids)) == 1
+
+
+class TestEntityIdGeneratorValidation:
+    """Test suite for EntityIdGenerator input validation."""
+
+    def test_rejects_none_entity_type(self):
+        """Should raise ValueError for None entity_type."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        with pytest.raises(ValueError, match="entity_type must be a non-None string"):
+            EntityIdGenerator.generate(None, "alice")
+
+    def test_rejects_none_entity_slug(self):
+        """Should raise ValueError for None entity_slug."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        with pytest.raises(ValueError, match="entity_slug must be a non-None string"):
+            EntityIdGenerator.generate("person", None)
+
+    def test_rejects_empty_entity_type(self):
+        """Should raise ValueError for empty entity_type."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        with pytest.raises(
+            ValueError, match="entity_type must not be empty or whitespace-only"
+        ):
+            EntityIdGenerator.generate("", "alice")
+
+    def test_rejects_empty_entity_slug(self):
+        """Should raise ValueError for empty entity_slug."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        with pytest.raises(
+            ValueError, match="entity_slug must not be empty or whitespace-only"
+        ):
+            EntityIdGenerator.generate("person", "")
+
+    def test_rejects_whitespace_only_entity_type(self):
+        """Should raise ValueError for whitespace-only entity_type."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        with pytest.raises(
+            ValueError, match="entity_type must not be empty or whitespace-only"
+        ):
+            EntityIdGenerator.generate("   ", "alice")
+
+    def test_rejects_whitespace_only_entity_slug(self):
+        """Should raise ValueError for whitespace-only entity_slug."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        with pytest.raises(
+            ValueError, match="entity_slug must not be empty or whitespace-only"
+        ):
+            EntityIdGenerator.generate("person", "   ")
+
+    def test_strips_whitespace_from_entity_type(self):
+        """Should strip leading/trailing whitespace from entity_type."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        id1 = EntityIdGenerator.generate("  person  ", "alice")
+        id2 = EntityIdGenerator.generate("person", "alice")
+
+        # Should be identical after stripping
+        assert id1 == id2
+        assert id1.startswith("person:")
+
+    def test_strips_whitespace_from_entity_slug(self):
+        """Should strip leading/trailing whitespace from entity_slug."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        id1 = EntityIdGenerator.generate("person", "  alice  ")
+        id2 = EntityIdGenerator.generate("person", "alice")
+
+        # Should be identical after stripping
+        assert id1 == id2
+
+    def test_handles_none_tenant_id(self):
+        """Should treat None tenant_id as empty string."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        id1 = EntityIdGenerator.generate("person", "alice", tenant_id=None)
+        id2 = EntityIdGenerator.generate("person", "alice", tenant_id="")
+
+        # Should be identical
+        assert id1 == id2
+
+    def test_rejects_non_string_entity_type(self):
+        """Should reject non-string entity_type."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        with pytest.raises(ValueError, match="entity_type must be a non-None string"):
+            EntityIdGenerator.generate(123, "alice")
+
+    def test_rejects_non_string_entity_slug(self):
+        """Should reject non-string entity_slug."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        with pytest.raises(ValueError, match="entity_slug must be a non-None string"):
+            EntityIdGenerator.generate("person", 123)

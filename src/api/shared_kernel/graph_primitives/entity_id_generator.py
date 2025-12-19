@@ -56,9 +56,10 @@ class EntityIdGenerator:
 
         Args:
             entity_type: The type of entity (e.g., "Person", "Repository").
-                Will be normalized to lowercase.
+                Will be normalized to lowercase. Must be non-empty.
             entity_slug: The entity's slug identifier (e.g., "alice-smith").
                 Can contain any characters including special chars and unicode.
+                Must be non-empty.
             tenant_id: The tenant identifier. Default is "" for single-tenant
                 deployments. TODO: Properly incorporate tenant_id when
                 multi-tenancy is implemented.
@@ -67,6 +68,9 @@ class EntityIdGenerator:
             A deterministic ID string with lowercase type prefix.
             Format: "{normalized_type}:{16_char_hex_hash}"
 
+        Raises:
+            ValueError: If entity_type or entity_slug is None, empty, or whitespace-only.
+
         Example:
             >>> gen = EntityIdGenerator()
             >>> id1 = gen.generate("Person", "alice-smith")
@@ -74,12 +78,33 @@ class EntityIdGenerator:
             >>> assert id1 == id2  # Normalized to same ID: "person:..."
             >>> assert id1.startswith("person:")
         """
+        # Validate and normalize inputs
+        if entity_type is None or not isinstance(entity_type, str):
+            raise ValueError("entity_type must be a non-None string")
+
+        if entity_slug is None or not isinstance(entity_slug, str):
+            raise ValueError("entity_slug must be a non-None string")
+
+        # Strip whitespace
+        entity_type_stripped = entity_type.strip()
+        entity_slug_stripped = entity_slug.strip()
+
+        # Ensure non-empty after stripping
+        if not entity_type_stripped:
+            raise ValueError("entity_type must not be empty or whitespace-only")
+
+        if not entity_slug_stripped:
+            raise ValueError("entity_slug must not be empty or whitespace-only")
+
+        # Handle None tenant_id
+        tenant_id_str = "" if tenant_id is None else str(tenant_id)
+
         # Normalize to lowercase for consistent hashing and ID format
-        normalized_type = entity_type.lower()
+        normalized_type = entity_type_stripped.lower()
 
         # Combine tenant, type, and slug for hash input
         # TODO: Properly incorporate tenant_id when multi-tenancy is implemented
-        combined = f"{tenant_id}:{normalized_type}:{entity_slug}"
+        combined = f"{tenant_id_str}:{normalized_type}:{entity_slug_stripped}"
 
         # Generate SHA256 hash and take first 16 characters
         hash_value = hashlib.sha256(combined.encode()).hexdigest()[:16]

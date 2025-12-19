@@ -8,7 +8,6 @@ graph_id for security isolation.
 
 from __future__ import annotations
 
-import hashlib
 from typing import TYPE_CHECKING
 
 from age.models import Edge as AgeEdge  # type: ignore
@@ -18,6 +17,7 @@ from graph.ports.repositories import IGraphReadOnlyRepository
 from graph.domain.value_objects import EdgeRecord, NodeRecord, QueryResultRow
 from graph.ports.protocols import GraphClientProtocol, NodeNeighborsResult
 from infrastructure.database.exceptions import GraphQueryError
+from shared_kernel.graph_primitives import EntityIdGenerator
 
 if TYPE_CHECKING:
     pass
@@ -71,10 +71,9 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
     def generate_id(self, entity_type: str, entity_slug: str) -> str:
         """Generate a deterministic ID for an entity.
 
-        This method is critical for idempotent mutation operations in the
-        Extraction context. It combines the repository's scoped graph_id
-        with the entity type and slug to produce a stable, reproducible
-        identifier using SHA256 hashing.
+        This method delegates to the shared EntityIdGenerator from the
+        Shared Kernel, ensuring consistency across all bounded contexts
+        (particularly Graph and Extraction).
 
         The entity_type is normalized to lowercase for the ID prefix, ensuring
         consistent IDs regardless of input casing. This supports the secure
@@ -93,12 +92,9 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
             id2 = repo.generate_id("person", "alice-smith")
             assert id1 == id2  # Normalized to same ID: "person:..."
         """
-        # Normalize to lowercase for consistent hashing and ID format
-        normalized_type = entity_type.lower()
-        tenant_id = ":"  # TODO: Include tenant_id in id generation
-        combined = f"{tenant_id}{normalized_type}:{entity_slug}"
-        hash_value = hashlib.sha256(combined.encode()).hexdigest()[:16]
-        return f"{normalized_type}:{hash_value}"
+        return EntityIdGenerator.generate(
+            entity_type=entity_type, entity_slug=entity_slug
+        )
 
     def find_nodes_by_slug(
         self,
@@ -219,7 +215,7 @@ RETURN {{central_node: n, neighbor: m, relationship: r}}\
                     query=query,
                 )
 
-        # Safeguard: Enforce LIMIT if not present
+        # Safeguard: Enforce LIMIT if not present (TODO: be smarter about this)
         if "LIMIT" not in query_upper:
             query = f"""\
 {query}

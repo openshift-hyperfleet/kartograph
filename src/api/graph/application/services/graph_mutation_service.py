@@ -157,8 +157,8 @@ class GraphMutationService:
 
                 updated_op = op.model_copy(
                     update={
-                        "required_properties": (op.required_properties or [])
-                        + list(system_props)
+                        "required_properties": (op.required_properties or set())
+                        | system_props
                     }
                 )
                 type_def = updated_op.to_type_definition()

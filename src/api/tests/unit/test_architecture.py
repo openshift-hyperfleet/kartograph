@@ -250,3 +250,87 @@ class TestCrossContextBoundaries:
             .should_not_import("graph.domain*")
             .check("query")
         )
+
+
+class TestSharedKernelBoundaries:
+    """Tests that Shared Kernel boundaries are properly maintained.
+
+    The Shared Kernel pattern requires explicit agreement between contexts.
+    These tests ensure:
+    1. Shared kernel doesn't create circular dependencies
+    2. Bounded contexts can import from shared kernel
+    3. No duplication of shared kernel logic in bounded contexts
+    """
+
+    def test_shared_kernel_does_not_import_bounded_contexts(self):
+        """Shared kernel must not import from bounded contexts.
+
+        The Shared Kernel is foundational and must not depend on any
+        bounded context (graph, query, etc.) to avoid circular dependencies.
+        This is critical for the pattern to work correctly.
+        """
+        (
+            archrule("shared_kernel_no_bounded_contexts")
+            .match("shared_kernel*")
+            .should_not_import(
+                "graph*",
+                "query*",
+                "management*",
+                "ingestion*",
+                "extraction*",
+                "identity*",
+            )
+            .check("shared_kernel")
+        )
+
+    def test_shared_kernel_does_not_import_infrastructure(self):
+        """Shared kernel should not import infrastructure layer.
+
+        Shared kernel contains pure, portable logic that should not
+        depend on database clients, connection pools, or other infrastructure.
+        """
+        (
+            archrule("shared_kernel_no_infrastructure")
+            .match("shared_kernel*")
+            .should_not_import("infrastructure*")
+            .check("shared_kernel")
+        )
+
+    def test_shared_kernel_does_not_import_fastapi(self):
+        """Shared kernel should not import FastAPI.
+
+        Shared kernel must be framework-agnostic to support reuse
+        across contexts and future service separation.
+        """
+        (
+            archrule("shared_kernel_no_fastapi")
+            .match("shared_kernel*")
+            .should_not_import("fastapi*", "starlette*")
+            .check("shared_kernel")
+        )
+
+    def test_graph_context_can_import_shared_kernel(self):
+        """Graph context may import from shared kernel.
+
+        This is the intended use case for the Shared Kernel pattern -
+        contexts explicitly agree to depend on shared foundational components.
+        """
+        (
+            archrule("graph_may_import_shared_kernel")
+            .match("graph*")
+            .may_import("shared_kernel*")
+            .check("graph")
+        )
+
+    def test_query_context_can_import_shared_kernel(self):
+        """Query context may import from shared kernel.
+
+        This is the intended use case for the Shared Kernel pattern -
+        contexts explicitly agree to depend on shared foundational components.
+        """
+        (
+            archrule("query_may_import_shared_kernel")
+            .match("query*")
+            .may_import("shared_kernel*")
+            .check("query")
+        )

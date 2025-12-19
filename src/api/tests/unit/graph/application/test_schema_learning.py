@@ -47,18 +47,18 @@ class TestSchemaLearning:
         # DEFINE with required properties
         define_op = MutationOperation(
             op=MutationOperationType.DEFINE,
-            type="node",
+            type=EntityType.NODE,
             label="person",
             description="A person",
             example_file_path="test.md",
             example_in_file_path="test",
-            required_properties=["slug", "name"],
+            required_properties={"slug", "name"},
         )
 
         # CREATE with extra properties beyond required
         create_op = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             label="person",
             set_properties={
@@ -108,15 +108,15 @@ class TestSchemaLearning:
             description="A person",
             example_file_path="test.md",
             example_in_file_path="test",
-            required_properties=["slug", "name"],
-            optional_properties=["email"],  # Already has email
+            required_properties={"slug", "name"},
+            optional_properties={"email"},  # Already has email
         )
         mock_type_repo.get.return_value = existing_type_def
 
         # CREATE with different extra property
         create_op = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:def456abc123789a",
             label="person",
             set_properties={
@@ -144,13 +144,13 @@ class TestSchemaLearning:
             description="A person",
             example_file_path="test.md",
             example_in_file_path="test",
-            required_properties=["slug"],
+            required_properties={"slug"},
         )
         mock_type_repo.get.return_value = existing_type_def
 
         create_op = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             label="person",
             set_properties={
@@ -176,15 +176,15 @@ class TestSchemaLearning:
             description="A person",
             example_file_path="test.md",
             example_in_file_path="test",
-            required_properties=["slug", "name"],
-            optional_properties=["email"],
+            required_properties={"slug", "name"},
+            optional_properties={"email"},
         )
         mock_type_repo.get.return_value = existing_type_def
 
         # CREATE with only required props + already-known optional prop
         create_op = MutationOperation(
             op=MutationOperationType.CREATE,
-            type="node",
+            type=EntityType.NODE,
             id="person:abc123def456789a",
             label="person",
             set_properties={

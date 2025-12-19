@@ -12,44 +12,58 @@ jobs:
   sync-docs:
     name: Sync Documentation
     runs-on: ubuntu-latest
-    # Only run on PRs from the same repo (not forks, not main pushes, not bot commits)
-    # Fork PRs have read-only tokens and cannot push
-    # Bot commits are skipped to avoid re-triggering on auto-generated commits
-    if: |
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.actor != 'github-actions[bot]'
-
+    # Always run, but steps are conditional to avoid issues with required checks
+    # Skip actual sync on: forks (read-only tokens), main pushes, or bot commits
     permissions:
       contents: write
       pull-requests: write
 
     steps:
+      - name: Check if sync should run
+        id: should_sync
+        run: |
+          # Only sync on PRs from the same repo (not forks, not main pushes, not bot commits)
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+             [ "${{ github.event.pull_request.head.repo.full_name }}" = "${{ github.repository }}" ] && \
+             [ "${{ github.actor }}" != "github-actions[bot]" ]; then
+            echo "should_sync=true" >> $GITHUB_OUTPUT
+            echo "✅ Will sync documentation"
+          else
+            echo "should_sync=false" >> $GITHUB_OUTPUT
+            echo "⏭️  Skipping sync (fork PR, main push, or bot commit)"
+          fi
+
       - name: Checkout code
+        if: steps.should_sync.outputs.should_sync == 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up uv
+        if: steps.should_sync.outputs.should_sync == 'true'
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
           cache-dependency-glob: "src/api/uv.lock"
 
       - name: Set up Python
+        if: steps.should_sync.outputs.should_sync == 'true'
         run: uv python install 3.12
 
       - name: Install dependencies
+        if: steps.should_sync.outputs.should_sync == 'true'
         working-directory: src/api
         run: uv sync --frozen
 
       - name: Export system properties
+        if: steps.should_sync.outputs.should_sync == 'true'
         run: |
           cd src/api
           uv run python ../../scripts/export-system-properties.py
 
       - name: Check for changes
+        if: steps.should_sync.outputs.should_sync == 'true'
         id: check_changes
         run: |
           # Check if file exists and has changes (covers both new files and modifications)
@@ -63,7 +77,7 @@ jobs:
           fi
 
       - name: Commit changes
-        if: steps.check_changes.outputs.changed == 'true'
+        if: steps.should_sync.outputs.should_sync == 'true' && steps.check_changes.outputs.changed == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -77,9 +91,8 @@ jobs:
 
   test:
     needs: sync-docs
-    # Run on main pushes, OR on PRs after sync-docs completes/skips
-    # always() ensures test runs even if sync-docs was skipped (fork PRs)
-    if: always() && (github.event_name == 'push' || (github.event_name == 'pull_request' && (needs.sync-docs.result == 'success' || needs.sync-docs.result == 'skipped')))
+    # Run if sync-docs succeeded (it always runs, but may skip actual sync steps)
+    if: needs.sync-docs.result == 'success'
     name: Test Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:

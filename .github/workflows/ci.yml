@@ -12,9 +12,13 @@ jobs:
   sync-docs:
     name: Sync Documentation
     runs-on: ubuntu-latest
-    # Only run on PRs from the same repo (not forks, not main pushes)
+    # Only run on PRs from the same repo (not forks, not main pushes, not bot commits)
     # Fork PRs have read-only tokens and cannot push
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Bot commits are skipped to avoid re-triggering on auto-generated commits
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'github-actions[bot]'
 
     permissions:
       contents: write

@@ -90,9 +90,6 @@ jobs:
           git push
 
   test:
-    needs: sync-docs
-    # Run if sync-docs succeeded (it always runs, but may skip actual sync steps)
-    if: needs.sync-docs.result == 'success'
     name: Test Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:

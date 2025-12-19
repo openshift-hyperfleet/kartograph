@@ -108,3 +108,46 @@ class QueryError(BaseModel):
     error_type: str
     message: str
     query: str | None = None
+
+
+class TypeDefinitionSchema(BaseModel):
+    """Schema information for a node or edge type.
+
+    Domain representation for type definition metadata exposed via MCP.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    label: str
+    entity_type: str
+    description: str
+    example_file_path: str
+    example_in_file_path: str
+    required_properties: list[str]
+    optional_properties: list[str]
+
+
+class OntologyResponse(BaseModel):
+    """Response containing full graph ontology."""
+
+    model_config = ConfigDict(frozen=True)
+
+    type_definitions: list[TypeDefinitionSchema]
+    count: int
+
+
+class SchemaLabelsResponse(BaseModel):
+    """Response containing list of type labels."""
+
+    model_config = ConfigDict(frozen=True)
+
+    labels: list[str]
+    count: int
+
+
+class SchemaErrorResponse(BaseModel):
+    """Error response for schema resource requests."""
+
+    model_config = ConfigDict(frozen=True)
+
+    error: str

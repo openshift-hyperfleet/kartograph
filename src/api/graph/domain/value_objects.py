@@ -152,9 +152,21 @@ class MutationOperation(BaseModel):
 
     Operation semantics:
     - DEFINE: Declares a node/edge type schema with required/optional properties
-    - CREATE: Idempotent (uses MERGE). Creates if not exists, updates if exists
-    - UPDATE: Partial update. Use set_properties to add/change, remove_properties to remove
-    - DELETE: Cascades edges automatically (DETACH DELETE)
+    - CREATE: Entity Discovery (idempotent assertion)
+        * Semantic: "I discovered this entity with these properties"
+        * Behavior: MERGE + accumulate properties (preserves existing unlisted properties)
+        * Use case: AI agent discovering entities across multiple files
+        * Triggers schema learning for new optional properties
+    - UPDATE: Entity Modification (explicit change)
+        * Semantic: "Change this specific property value" or "Remove this property"
+        * Behavior: MATCH + SET/REMOVE specific fields
+        * Use case: Deterministic processor handling renames, corrections, deletions
+        * Triggers schema learning for new optional properties in set_properties
+        * Can remove properties via remove_properties
+    - DELETE: Cascades edges automatically (DETACH DELETE for nodes, DELETE for edges)
+
+    Key distinction: Both CREATE and UPDATE preserve unlisted properties. The difference
+    is semantic intent and the ability to REMOVE properties (UPDATE only).
 
     Attributes:
         op: The operation type

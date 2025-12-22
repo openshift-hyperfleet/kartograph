@@ -200,3 +200,54 @@ class TestSchemaLearning:
 
         # Should NOT save since no new optional properties discovered
         mock_type_repo.save.assert_not_called()
+
+    def test_update_discovers_optional_properties(self, service, mock_type_repo):
+        """UPDATE operations should trigger schema learning for new properties."""
+        existing_type_def = TypeDefinition(
+            label="person",
+            entity_type=EntityType.NODE,
+            description="A person",
+            example_file_path="test.md",
+            example_in_file_path="test",
+            required_properties={"slug", "name"},
+            optional_properties={"email"},
+        )
+        mock_type_repo.get.return_value = existing_type_def
+
+        # UPDATE with new property not in schema
+        # NOTE: label is optional for UPDATE, but required for schema learning
+        update_op = MutationOperation(
+            op=MutationOperationType.UPDATE,
+            type=EntityType.NODE,
+            id="person:abc123def456789a",
+            label="person",  # Include label for schema learning
+            set_properties={
+                "phone": "+1234567890",  # New optional property!
+                "title": "Engineer",  # Another new one!
+            },
+        )
+
+        service.apply_mutations([update_op])
+
+        # Should save updated type def with new optional props
+        mock_type_repo.save.assert_called_once()
+        updated_type_def = mock_type_repo.save.call_args[0][0]
+        assert "email" in updated_type_def.optional_properties  # Preserved
+        assert "phone" in updated_type_def.optional_properties  # Added
+        assert "title" in updated_type_def.optional_properties  # Added
+
+    def test_update_without_label_skips_schema_learning(self, service, mock_type_repo):
+        """UPDATE without label should skip schema learning (can't determine type)."""
+        # UPDATE operations don't require label, but we need it for schema learning
+        update_op = MutationOperation(
+            op=MutationOperationType.UPDATE,
+            type=EntityType.NODE,
+            id="person:abc123def456789a",
+            set_properties={"phone": "+1234567890"},
+        )
+
+        service.apply_mutations([update_op])
+
+        # Should NOT attempt schema learning
+        mock_type_repo.get.assert_not_called()
+        mock_type_repo.save.assert_not_called()

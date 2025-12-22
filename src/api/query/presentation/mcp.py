@@ -3,10 +3,21 @@
 from typing import Any, Dict
 
 from fastmcp import FastMCP
+from fastmcp.dependencies import Depends
 
+from infrastructure.mcp_dependencies import get_schema_service_for_mcp
 from infrastructure.settings import get_settings
+from query.application.observability import SchemaResourceProbe
 from query.application.services import MCPQueryService
-from query.domain.value_objects import QueryError
+from query.dependencies import get_mcp_query_service, get_schema_resource_probe
+from query.domain.value_objects import (
+    OntologyResponse,
+    QueryError,
+    SchemaErrorResponse,
+    SchemaLabelsResponse,
+    TypeDefinitionSchema,
+)
+from query.ports.schema import ISchemaService, TypeDefinitionLike
 
 settings = get_settings()
 
@@ -14,30 +25,25 @@ mcp = FastMCP(name=settings.app_name)
 
 query_mcp_app = mcp.http_app(path="/mcp")
 
-# Service will be injected via set_query_service()
-_query_service: MCPQueryService | None = None
 
+def _convert_type_definition_to_schema(td: TypeDefinitionLike) -> TypeDefinitionSchema:
+    """Convert a TypeDefinition to TypeDefinitionSchema value object.
 
-def set_query_service(service: MCPQueryService) -> None:
-    """Set the query service for MCP tools.
+    Args:
+        td: TypeDefinition from Graph context (via ISchemaService port)
 
-    Called by main.py during application startup to inject dependencies.
+    Returns:
+        TypeDefinitionSchema domain object
     """
-    global _query_service
-    _query_service = service
-
-
-def get_query_service() -> MCPQueryService:
-    """Get the query service instance.
-
-    Raises:
-        RuntimeError: If service not initialized.
-    """
-    if _query_service is None:
-        raise RuntimeError(
-            "MCPQueryService not initialized. Call set_query_service() first."
-        )
-    return _query_service
+    return TypeDefinitionSchema(
+        label=td.label,
+        entity_type=td.entity_type.value,
+        description=td.description,
+        example_file_path=td.example_file_path,
+        example_in_file_path=td.example_in_file_path,
+        required_properties=sorted(list(td.required_properties)),
+        optional_properties=sorted(list(td.optional_properties)),
+    )
 
 
 @mcp.tool
@@ -45,6 +51,7 @@ def query_graph(
     cypher: str,
     timeout_seconds: int = 30,
     max_rows: int = 1000,
+    service: MCPQueryService = Depends(get_mcp_query_service),
 ) -> Dict[str, Any]:
     """Execute a Cypher query against the knowledge graph.
 
@@ -92,7 +99,6 @@ def query_graph(
         # Aggregations
         query_graph("MATCH (p:Person) RETURN count(p)")
     """
-    service = get_query_service()
 
     # Enforce maximum limits
     timeout_seconds = min(timeout_seconds, 60)
@@ -119,3 +125,178 @@ def query_graph(
         "truncated": result.truncated,
         "execution_time_ms": result.execution_time_ms,
     }
+
+
+@mcp.resource(
+    uri="schema://ontology",
+    name="GraphOntology",
+    description="Complete graph ontology including all node and edge type definitions with properties and examples",
+    mime_type="application/json",
+    annotations={"readOnlyHint": True, "idempotentHint": True},
+)
+def get_ontology(
+    service: ISchemaService = Depends(get_schema_service_for_mcp),
+    probe: SchemaResourceProbe = Depends(get_schema_resource_probe),
+) -> OntologyResponse | SchemaErrorResponse:
+    """Get complete graph ontology/schema.
+
+    Returns all type definitions for nodes and edges in the knowledge graph.
+    This includes labels, descriptions, required/optional properties, and examples.
+
+    Use this resource to understand the structure of the knowledge graph before
+    writing Cypher queries.
+
+    Returns:
+        OntologyResponse containing all type definitions
+    """
+    probe.schema_resource_accessed(resource_uri="schema://ontology")
+
+    definitions = service.get_ontology()
+
+    # Error handling for empty schema
+    if not definitions:
+        probe.schema_resource_returned(
+            resource_uri="schema://ontology", result_count=0, found=False
+        )
+        return SchemaErrorResponse(error="No type definitions found in graph schema")
+
+    # Convert to domain value objects using shared helper
+    type_schemas = [_convert_type_definition_to_schema(td) for td in definitions]
+
+    probe.schema_resource_returned(
+        resource_uri="schema://ontology", result_count=len(type_schemas)
+    )
+
+    return OntologyResponse(type_definitions=type_schemas, count=len(type_schemas))
+
+
+@mcp.resource(
+    uri="schema://nodes/labels",
+    name="NodeTypeLabels",
+    description="List of all node type labels available in the graph schema",
+    mime_type="application/json",
+    annotations={"readOnlyHint": True, "idempotentHint": True},
+)
+def get_node_labels_resource(
+    service: ISchemaService = Depends(get_schema_service_for_mcp),
+    probe: SchemaResourceProbe = Depends(get_schema_resource_probe),
+) -> SchemaLabelsResponse:
+    """Get list of all node type labels.
+
+    Returns a list of all node type labels (e.g., person, project, repository)
+    available in the knowledge graph schema.
+
+    Returns:
+        SchemaLabelsResponse containing node labels and count
+    """
+    probe.schema_resource_accessed(resource_uri="schema://nodes/labels")
+
+    labels = service.get_node_labels()
+
+    probe.schema_resource_returned(
+        resource_uri="schema://nodes/labels", result_count=len(labels)
+    )
+
+    return SchemaLabelsResponse(labels=labels, count=len(labels))
+
+
+@mcp.resource(
+    uri="schema://edges/labels",
+    name="EdgeTypeLabels",
+    description="List of all edge type labels available in the graph schema",
+    mime_type="application/json",
+    annotations={"readOnlyHint": True, "idempotentHint": True},
+)
+def get_edge_labels_resource(
+    service: ISchemaService = Depends(get_schema_service_for_mcp),
+    probe: SchemaResourceProbe = Depends(get_schema_resource_probe),
+) -> SchemaLabelsResponse:
+    """Get list of all edge type labels.
+
+    Returns a list of all edge type labels (e.g., knows, reports_to, depends_on)
+    available in the knowledge graph schema.
+
+    Returns:
+        SchemaLabelsResponse containing edge labels and count
+    """
+    probe.schema_resource_accessed(resource_uri="schema://edges/labels")
+
+    labels = service.get_edge_labels()
+
+    probe.schema_resource_returned(
+        resource_uri="schema://edges/labels", result_count=len(labels)
+    )
+
+    return SchemaLabelsResponse(labels=labels, count=len(labels))
+
+
+@mcp.resource(
+    uri="schema://nodes/{label}",
+    name="NodeTypeSchema",
+    description="Detailed schema for a specific node type including required/optional properties and examples",
+    mime_type="application/json",
+    annotations={"readOnlyHint": True, "idempotentHint": True},
+)
+def get_node_schema_resource(
+    label: str,
+    service: ISchemaService = Depends(get_schema_service_for_mcp),
+    probe: SchemaResourceProbe = Depends(get_schema_resource_probe),
+) -> TypeDefinitionSchema | SchemaErrorResponse:
+    """Get detailed schema for a specific node type.
+
+    Provides complete type definition including description, required/optional
+    properties, and examples for a specific node type.
+
+    Args:
+        label: The node type label (e.g., "person", "project")
+
+    Returns:
+        TypeDefinitionSchema if found, SchemaErrorResponse otherwise
+    """
+    probe.schema_resource_accessed(resource_uri=f"schema://nodes/{label}", label=label)
+
+    schema = service.get_node_schema(label)
+
+    if schema is None:
+        probe.schema_type_not_found(resource_uri=f"schema://nodes/{label}", label=label)
+        return SchemaErrorResponse(error=f"Node type '{label}' not found")
+
+    probe.schema_resource_returned(resource_uri=f"schema://nodes/{label}", found=True)
+
+    return _convert_type_definition_to_schema(schema)
+
+
+@mcp.resource(
+    uri="schema://edges/{label}",
+    name="EdgeTypeSchema",
+    description="Detailed schema for a specific edge type including required/optional properties and examples",
+    mime_type="application/json",
+    annotations={"readOnlyHint": True, "idempotentHint": True},
+)
+def get_edge_schema_resource(
+    label: str,
+    service: ISchemaService = Depends(get_schema_service_for_mcp),
+    probe: SchemaResourceProbe = Depends(get_schema_resource_probe),
+) -> TypeDefinitionSchema | SchemaErrorResponse:
+    """Get detailed schema for a specific edge type.
+
+    Provides complete type definition including description, required/optional
+    properties, and examples for a specific edge type.
+
+    Args:
+        label: The edge type label (e.g., "knows", "reports_to")
+
+    Returns:
+        TypeDefinitionSchema if found, SchemaErrorResponse otherwise
+    """
+    probe.schema_resource_accessed(resource_uri=f"schema://edges/{label}", label=label)
+
+    schema = service.get_edge_schema(label)
+
+    if schema is None:
+        probe.schema_type_not_found(resource_uri=f"schema://edges/{label}", label=label)
+        return SchemaErrorResponse(error=f"Edge type '{label}' not found")
+
+    probe.schema_resource_returned(resource_uri=f"schema://edges/{label}", found=True)
+
+    return _convert_type_definition_to_schema(schema)

@@ -211,16 +211,24 @@ class MutationApplier:
         Returns:
             Cypher UPDATE query
         """
-        parts = [f"MATCH (n {{id: '{op.id}'}})"]
+        # Use appropriate syntax based on entity type
+        if op.type == EntityType.NODE:
+            var_name = "n"
+            match_pattern = f"MATCH (n {{id: '{op.id}'}})"
+        else:  # EntityType.EDGE
+            var_name = "r"
+            match_pattern = f"MATCH ()-[r {{id: '{op.id}'}}]->()"
+
+        parts = [match_pattern]
 
         if op.set_properties:
             set_clauses = []
             for k, v in op.set_properties.items():
-                set_clauses.append(f"n.{k} = {self._format_value(v)}")
+                set_clauses.append(f"{var_name}.{k} = {self._format_value(v)}")
             parts.append("SET " + ", ".join(set_clauses))
 
         if op.remove_properties:
-            remove_clauses = [f"n.{k}" for k in op.remove_properties]
+            remove_clauses = [f"{var_name}.{k}" for k in op.remove_properties]
             parts.append("REMOVE " + ", ".join(remove_clauses))
 
         return " ".join(parts)
@@ -232,9 +240,14 @@ class MutationApplier:
             op: The DELETE operation
 
         Returns:
-            Cypher DETACH DELETE query
+            Cypher DELETE query (DETACH DELETE for nodes, DELETE for edges)
         """
-        return f"MATCH (n {{id: '{op.id}'}}) DETACH DELETE n"
+        if op.type == EntityType.NODE:
+            # Use DETACH DELETE for nodes to cascade edge deletions
+            return f"MATCH (n {{id: '{op.id}'}}) DETACH DELETE n"
+        else:  # EntityType.EDGE
+            # Edges don't need DETACH, just DELETE
+            return f"MATCH ()-[r {{id: '{op.id}'}}]->() DELETE r"
 
     def _format_value(self, value: Any) -> str:
         """Format Python value for Cypher query.

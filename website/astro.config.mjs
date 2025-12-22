@@ -61,6 +61,10 @@ export default defineConfig({
 							label: 'Extraction → Graph Mutations',
 							slug: 'guides/extraction-mutations',
 						},
+						{
+							label: 'MCP Server',
+							slug: 'guides/mcp-server',
+						},
 					],
 				},
 				{

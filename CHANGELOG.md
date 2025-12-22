@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.9.2](https://github.com/openshift-hyperfleet/kartograph/compare/v0.9.1...v0.9.2) (2025-12-22)
+
+
+### Bug Fixes
+
+* **graph:** support edge DELETE and UPDATE operations ([#77](https://github.com/openshift-hyperfleet/kartograph/issues/77)) ([28a5a24](https://github.com/openshift-hyperfleet/kartograph/commit/28a5a24752e50351981606068f1757edcb915e95))
+
+## [0.9.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.9.0...v0.9.1) (2025-12-19)
+
+
+### Documentation
+
+* **website:** add MCP server guide and fix all internal links ([#69](https://github.com/openshift-hyperfleet/kartograph/issues/69)) ([354d40a](https://github.com/openshift-hyperfleet/kartograph/commit/354d40a161241e3c7a17a9e9ea330215936231db))
+
+## [0.9.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.8.0...v0.9.0) (2025-12-19)
+
+
+### Features
+
+* **api.query:** add schema discovery MCP resources ([#67](https://github.com/openshift-hyperfleet/kartograph/issues/67)) ([cf90067](https://github.com/openshift-hyperfleet/kartograph/commit/cf90067c03f0d300cc9012914ffff16dd4dc478c))
+
+## [0.8.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.7.0...v0.8.0) (2025-12-19)
+
+
+### Features
+
+* **api:** add shared kernel with EntityIdGenerator for cross-context ID consistency ([#65](https://github.com/openshift-hyperfleet/kartograph/issues/65)) ([6f039cd](https://github.com/openshift-hyperfleet/kartograph/commit/6f039cd85163fbbb4e1b356f0969c333c483c946))
+
 ## [0.7.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.6.0...v0.7.0) (2025-12-18)
 
 

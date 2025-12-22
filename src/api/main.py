@@ -8,33 +8,9 @@ from fastapi import Depends, FastAPI, HTTPException, status
 from graph.dependencies import get_age_graph_client
 from graph.infrastructure.age_client import AgeGraphClient
 from graph.presentation import routes as graph_routes
-from infrastructure.database.connection import ConnectionFactory
 from infrastructure.dependencies import get_age_connection_pool
-from infrastructure.settings import get_database_settings
 from infrastructure.version import __version__
-from query.application.services import MCPQueryService
-from query.infrastructure.query_repository import QueryGraphRepository
-from query.presentation.mcp import query_mcp_app, set_query_service
-
-
-@asynccontextmanager
-async def initialize_mcp_service(app: FastAPI):
-    """Initialize and inject MCP query service with dedicated connection."""
-    pool = get_age_connection_pool()
-    settings = get_database_settings()
-    factory = ConnectionFactory(settings, pool=pool)
-    client = AgeGraphClient(settings, connection_factory=factory)
-    client.connect()
-
-    repository = QueryGraphRepository(client=client)
-    service = MCPQueryService(repository=repository)
-    set_query_service(service)
-
-    try:
-        yield
-    finally:
-        # Cleanup: return connection to pool
-        client.disconnect()
+from query.presentation.mcp import query_mcp_app
 
 
 @asynccontextmanager
@@ -42,12 +18,14 @@ async def kartograph_lifespan(app: FastAPI):
     """Application lifespan context.
 
     Manages:
-    - MCP service initialization and cleanup
+    - MCP server lifespan
     - Connection pool lifecycle (created lazily, closed on shutdown)
+
+    Note: MCP resources and tools use dependency injection via Depends(),
+    so no manual service initialization is needed here.
     """
-    async with initialize_mcp_service(app):
-        async with query_mcp_app.lifespan(app):
-            yield
+    async with query_mcp_app.lifespan(app):
+        yield
 
     # Shutdown: close pool
     try:

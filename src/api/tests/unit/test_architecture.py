@@ -225,6 +225,22 @@ class TestDependencyLayerBoundaries:
             .check("graph")
         )
 
+    def test_infrastructure_mcp_dependencies_can_compose_contexts(self):
+        """MCP composition layer can import from bounded contexts.
+
+        infrastructure.mcp_dependencies is the composition/integration layer
+        for MCP resources and tools. It's explicitly allowed to wire together
+        Graph and Query contexts. This is the single point for future service
+        decomposition - when splitting into microservices, swap GraphSchemaService
+        here for an HTTP REST client.
+        """
+        (
+            archrule("mcp_deps_may_compose")
+            .match("infrastructure.mcp_dependencies*")
+            .may_import("graph*", "query*")
+            .check("infrastructure")
+        )
+
 
 class TestCrossContextBoundaries:
     """Tests that context boundaries are respected."""

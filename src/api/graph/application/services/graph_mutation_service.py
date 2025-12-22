@@ -256,10 +256,18 @@ class GraphMutationService:
         self,
         operations: list[MutationOperation],
     ) -> None:
-        """Discover and store optional properties from CREATE operations.
+        """Discover and store optional properties from CREATE and UPDATE operations.
 
-        When a CREATE operation provides properties beyond required_properties,
-        those extra properties are added to the type definition's optional_properties.
+        Both CREATE and UPDATE can introduce new properties to entities. When either
+        operation provides properties beyond required_properties, those extra
+        properties are added to the type definition's optional_properties.
+
+        This supports incremental entity discovery where:
+        - CREATE represents entity discovery (e.g., AI agent finding entities in files)
+        - UPDATE represents entity modification (e.g., deterministic processor corrections)
+
+        Both operations add properties incrementally, so both should contribute to
+        schema learning.
 
         System properties (via get_system_properties_for_entity) are excluded.
 
@@ -268,7 +276,13 @@ class GraphMutationService:
         """
 
         for op in operations:
-            if op.op != "CREATE" or op.label is None or op.set_properties is None:
+            # Schema learning works for both CREATE and UPDATE
+            # Both can add properties, so both should update the schema
+            if op.op not in ("CREATE", "UPDATE"):
+                continue
+
+            # Need label to look up type definition
+            if op.label is None or op.set_properties is None:
                 continue
 
             # Get existing type definition

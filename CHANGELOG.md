@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.10.0...v0.10.1) (2025-12-22)
+
+
+### Documentation
+
+* add readme banner ([#82](https://github.com/openshift-hyperfleet/kartograph/issues/82)) ([ccaa5f3](https://github.com/openshift-hyperfleet/kartograph/commit/ccaa5f3bdb91a3b4ae0ef05321570e6ba6eecf96))
+
 ## [0.10.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.9.2...v0.10.0) (2025-12-22)
 
 

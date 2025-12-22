@@ -40,6 +40,21 @@ class EntityIdGenerator:
     """
 
     @staticmethod
+    def _generate_hash(input_string: str) -> str:
+        """Generate a 16-character hex hash from input string.
+
+        This is the core hashing function used by both node and edge ID generation.
+        Consistency is critical as this is part of the Shared Kernel.
+
+        Args:
+            input_string: The string to hash
+
+        Returns:
+            First 16 characters of SHA256 hash as hex string
+        """
+        return hashlib.sha256(input_string.encode()).hexdigest()[:16]
+
+    @staticmethod
     def generate(
         entity_type: str,
         entity_slug: str,
@@ -106,8 +121,87 @@ class EntityIdGenerator:
         # TODO: Properly incorporate tenant_id when multi-tenancy is implemented
         combined = f"{tenant_id_str}:{normalized_type}:{entity_slug_stripped}"
 
-        # Generate SHA256 hash and take first 16 characters
-        hash_value = hashlib.sha256(combined.encode()).hexdigest()[:16]
+        # Generate hash using shared hashing function
+        hash_value = EntityIdGenerator._generate_hash(combined)
 
         # Return formatted ID
         return f"{normalized_type}:{hash_value}"
+
+    @staticmethod
+    def generate_edge_id(
+        edge_label: str,
+        start_id: str,
+        end_id: str,
+        tenant_id: str = "",
+    ) -> str:
+        """Generate a deterministic ID for an edge.
+
+        Edge IDs are generated from the start node ID, edge label, and end node ID
+        to ensure consistency and idempotency across contexts. This enables the
+        Extraction context to generate the same edge ID as the Graph context would.
+
+        Args:
+            edge_label: The label of the edge (e.g., "knows", "follows").
+                Will be normalized to lowercase. Must be non-empty.
+            start_id: The ID of the start (source) node (e.g., "person:abc123...").
+                Must be non-empty.
+            end_id: The ID of the end (target) node (e.g., "person:def456...").
+                Must be non-empty.
+            tenant_id: The tenant identifier. Default is "" for single-tenant
+                deployments. Included for consistency with node ID generation.
+
+        Returns:
+            A deterministic ID string with lowercase label prefix.
+            Format: "{normalized_label}:{16_char_hex_hash}"
+
+        Raises:
+            ValueError: If edge_label, start_id, or end_id is None, empty, or whitespace-only.
+
+        Example:
+            >>> gen = EntityIdGenerator()
+            >>> id1 = gen.generate_edge_id("knows", "person:aaa", "person:bbb")
+            >>> id2 = gen.generate_edge_id("KNOWS", "person:aaa", "person:bbb")
+            >>> assert id1 == id2  # Normalized to same ID: "knows:..."
+        """
+        # Validate and normalize edge_label
+        if edge_label is None or not isinstance(edge_label, str):
+            raise ValueError("edge_label must be a non-None string")
+
+        if start_id is None or not isinstance(start_id, str):
+            raise ValueError("start_id must be a non-None string")
+
+        if end_id is None or not isinstance(end_id, str):
+            raise ValueError("end_id must be a non-None string")
+
+        # Strip whitespace
+        edge_label_stripped = edge_label.strip()
+        start_id_stripped = start_id.strip()
+        end_id_stripped = end_id.strip()
+
+        # Ensure non-empty after stripping
+        if not edge_label_stripped:
+            raise ValueError("edge_label must not be empty or whitespace-only")
+
+        if not start_id_stripped:
+            raise ValueError("start_id must not be empty or whitespace-only")
+
+        if not end_id_stripped:
+            raise ValueError("end_id must not be empty or whitespace-only")
+
+        # Handle None tenant_id
+        tenant_id_str = "" if tenant_id is None else str(tenant_id)
+
+        # Normalize edge label to lowercase
+        normalized_label = edge_label_stripped.lower()
+
+        # Combine tenant, start, edge label, and end for hash input
+        # Format: tenant:start_id:edge_label:end_id
+        combined = (
+            f"{tenant_id_str}:{start_id_stripped}:{normalized_label}:{end_id_stripped}"
+        )
+
+        # Generate hash using shared hashing function
+        hash_value = EntityIdGenerator._generate_hash(combined)
+
+        # Return formatted ID
+        return f"{normalized_label}:{hash_value}"

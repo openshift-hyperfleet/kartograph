@@ -207,6 +207,136 @@ class TestEntityIdGeneratorValidation:
         # Should be identical
         assert id1 == id2
 
+
+class TestEntityIdGeneratorEdges:
+    """Test suite for EntityIdGenerator.generate_edge_id method."""
+
+    def test_generates_edge_id_deterministically(self):
+        """Same inputs should produce same edge ID."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        id1 = EntityIdGenerator.generate_edge_id(
+            "knows", "person:aaa111", "person:bbb222"
+        )
+        id2 = EntityIdGenerator.generate_edge_id(
+            "knows", "person:aaa111", "person:bbb222"
+        )
+        assert id1 == id2
+
+    def test_edge_id_includes_type_prefix(self):
+        """Generated edge ID should include edge type as prefix."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        id_value = EntityIdGenerator.generate_edge_id(
+            "knows", "person:aaa111", "person:bbb222"
+        )
+        assert id_value.startswith("knows:")
+
+    def test_edge_id_different_for_different_start_nodes(self):
+        """Different start nodes should produce different edge IDs."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        id1 = EntityIdGenerator.generate_edge_id(
+            "knows", "person:aaa111", "person:bbb222"
+        )
+        id2 = EntityIdGenerator.generate_edge_id(
+            "knows", "person:ccc333", "person:bbb222"
+        )
+        assert id1 != id2
+
+    def test_edge_id_different_for_different_end_nodes(self):
+        """Different end nodes should produce different edge IDs."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        id1 = EntityIdGenerator.generate_edge_id(
+            "knows", "person:aaa111", "person:bbb222"
+        )
+        id2 = EntityIdGenerator.generate_edge_id(
+            "knows", "person:aaa111", "person:ccc333"
+        )
+        assert id1 != id2
+
+    def test_edge_id_different_for_different_types(self):
+        """Different edge types should produce different IDs."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        id1 = EntityIdGenerator.generate_edge_id(
+            "knows", "person:aaa111", "person:bbb222"
+        )
+        id2 = EntityIdGenerator.generate_edge_id(
+            "follows", "person:aaa111", "person:bbb222"
+        )
+        assert id1 != id2
+
+    def test_edge_id_normalizes_type_to_lowercase(self):
+        """Edge type should be normalized to lowercase."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        id1 = EntityIdGenerator.generate_edge_id(
+            "Knows", "person:aaa111", "person:bbb222"
+        )
+        id2 = EntityIdGenerator.generate_edge_id(
+            "knows", "person:aaa111", "person:bbb222"
+        )
+        id3 = EntityIdGenerator.generate_edge_id(
+            "KNOWS", "person:aaa111", "person:bbb222"
+        )
+
+        assert id1 == id2 == id3
+        assert id1.startswith("knows:")
+
+    def test_edge_id_includes_tenant_id(self):
+        """Edge IDs should include tenant_id in hash for consistency with nodes."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        id1 = EntityIdGenerator.generate_edge_id(
+            "knows", "person:aaa111", "person:bbb222", tenant_id="tenant-a"
+        )
+        id2 = EntityIdGenerator.generate_edge_id(
+            "knows", "person:aaa111", "person:bbb222", tenant_id="tenant-b"
+        )
+
+        # Different tenants should produce different edge IDs
+        assert id1 != id2
+
+    def test_edge_id_hash_is_16_chars_hex(self):
+        """Edge ID hash should be 16 hex characters."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        id_value = EntityIdGenerator.generate_edge_id(
+            "knows", "person:aaa111", "person:bbb222"
+        )
+        hash_part = id_value.split(":")[1]
+        assert len(hash_part) == 16
+        assert all(c in "0123456789abcdef" for c in hash_part)
+
+    def test_edge_id_rejects_empty_edge_label(self):
+        """Should raise ValueError for empty edge_label."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        with pytest.raises(
+            ValueError, match="edge_label must not be empty or whitespace-only"
+        ):
+            EntityIdGenerator.generate_edge_id("", "person:aaa111", "person:bbb222")
+
+    def test_edge_id_rejects_empty_start_id(self):
+        """Should raise ValueError for empty start_id."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        with pytest.raises(
+            ValueError, match="start_id must not be empty or whitespace-only"
+        ):
+            EntityIdGenerator.generate_edge_id("knows", "", "person:bbb222")
+
+    def test_edge_id_rejects_empty_end_id(self):
+        """Should raise ValueError for empty end_id."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        with pytest.raises(
+            ValueError, match="end_id must not be empty or whitespace-only"
+        ):
+            EntityIdGenerator.generate_edge_id("knows", "person:aaa111", "")
+
     def test_rejects_non_string_entity_type(self):
         """Should reject non-string entity_type."""
         from shared_kernel.graph_primitives import EntityIdGenerator

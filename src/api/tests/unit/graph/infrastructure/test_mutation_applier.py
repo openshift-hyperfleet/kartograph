@@ -147,6 +147,59 @@ class TestMutationApplierQueryBuilding:
         assert "MATCH (n {id: 'person:abc123def456789a'})" in query
         assert "DETACH DELETE n" in query
 
+    def test_build_delete_edge_query(self):
+        """Should build DELETE query for edge using relationship syntax."""
+        mutation = MutationOperation(
+            op=MutationOperationType.DELETE,
+            type=EntityType.EDGE,
+            id="knows:abc123def456789a",
+        )
+
+        applier = MutationApplier(client=Mock())
+        query = applier._build_query(mutation)
+
+        assert query is not None
+
+        # Should use relationship syntax for edges
+        assert "MATCH ()-[r {id: 'knows:abc123def456789a'}]->()" in query
+        assert "DELETE r" in query
+
+    def test_build_update_edge_query(self):
+        """Should build UPDATE query for edge using relationship syntax."""
+        mutation = MutationOperation(
+            op=MutationOperationType.UPDATE,
+            type=EntityType.EDGE,
+            id="knows:abc123def456789a",
+            set_properties={"since": 2020},
+        )
+
+        applier = MutationApplier(client=Mock())
+        query = applier._build_query(mutation)
+
+        assert query is not None
+
+        # Should use relationship syntax for edges
+        assert "MATCH ()-[r {id: 'knows:abc123def456789a'}]->()" in query
+        assert "SET r.since = 2020" in query
+
+    def test_build_update_edge_remove_properties(self):
+        """Should build REMOVE query for edge using relationship syntax."""
+        mutation = MutationOperation(
+            op=MutationOperationType.UPDATE,
+            type=EntityType.EDGE,
+            id="knows:abc123def456789a",
+            remove_properties=["old_field", "temp_prop"],
+        )
+
+        applier = MutationApplier(client=Mock())
+        query = applier._build_query(mutation)
+
+        assert query is not None
+
+        # Should use relationship syntax for edges
+        assert "MATCH ()-[r {id: 'knows:abc123def456789a'}]->()" in query
+        assert "REMOVE r.old_field, r.temp_prop" in query
+
     def test_format_string_value(self):
         """Should properly escape string values."""
         applier = MutationApplier(client=Mock())

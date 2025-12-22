@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.9.2...v0.10.0) (2025-12-22)
+
+
+### Features
+
+* **graph:** enable schema learning for UPDATE operations ([#79](https://github.com/openshift-hyperfleet/kartograph/issues/79)) ([8fdbdc5](https://github.com/openshift-hyperfleet/kartograph/commit/8fdbdc536a64a33d5c40b1b661b1d4d83a521a38))
+* **shared-kernel:** add edge ID generation with tenant_id support ([#78](https://github.com/openshift-hyperfleet/kartograph/issues/78)) ([3135935](https://github.com/openshift-hyperfleet/kartograph/commit/31359355269ef4759f54eff30a5133eae97702d6))
+
 ## [0.9.2](https://github.com/openshift-hyperfleet/kartograph/compare/v0.9.1...v0.9.2) (2025-12-22)
 
 

@@ -18,6 +18,8 @@ This JSONL mutation format is the contract between Extraction and Graph bounded 
 Here's what a complete extraction workflow looks like:
 
 ```python
+from shared_kernel.graph_primitives import EntityIdGenerator
+
 # 1. Create a repository scoped to your data source
 repo = GraphExtractionReadOnlyRepository(
     client=graph_client,
@@ -25,13 +27,13 @@ repo = GraphExtractionReadOnlyRepository(
 )
 
 # 2. Generate deterministic IDs
-alice_id = repo.generate_id("Person", "alice-smith")
+alice_id = EntityIdGenerator.generate("Person", "alice-smith")
 # Returns: "person:1a2b3c4d5e6f7890"
 
-bob_id = repo.generate_id("Person", "bob-jones")
+bob_id = EntityIdGenerator.generate("Person", "bob-jones")
 # Returns: "person:abcdef0123456789"
 
-relationship_id = repo.generate_id("KNOWS", "alice-smith:bob-jones")
+relationship_id = EntityIdGenerator.generate_edge_id("KNOWS", alice_id, bob_id)
 # Returns: "knows:9f8e7d6c5b4a3210"
 
 # 3. Check what already exists
@@ -297,10 +299,18 @@ The extraction process produces a **JSONL file** (one JSON object per line), whi
 <details>
 <summary>Can I create multiple edges between the same nodes?</summary>
 
-Yes! Just use different IDs:
+Yes! Different edge labels generate different IDs:
 ```python
-knows_id = repo.generate_id("KNOWS", "alice:bob")
-collaborates_id = repo.generate_id("COLLABORATES", "alice:bob")
+from shared_kernel.graph_primitives import EntityIdGenerator
+
+alice_id = EntityIdGenerator.generate("Person", "alice-smith")
+bob_id = EntityIdGenerator.generate("Person", "bob-jones")
+
+# Different edge labels → different IDs
+knows_id = EntityIdGenerator.generate_edge_id("KNOWS", alice_id, bob_id)
+collaborates_id = EntityIdGenerator.generate_edge_id("COLLABORATES", alice_id, bob_id)
+
+# knows_id ≠ collaborates_id (edge label is part of the hash)
 ```
 </details>
 

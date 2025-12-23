@@ -87,7 +87,7 @@ Migration files use Alembic's revision ID + descriptive name:
 ```
 
 Examples:
-- `7fbe65eaef1b_create_teams_table.py`
+- `7fbe65eaef1b_create_groups_table.py`
 - `a1b2c3d4e5f6_add_user_email_index.py`
 
 ### Database Objects
@@ -96,20 +96,20 @@ Follow these naming conventions in migrations:
 
 **Tables**: Plural, snake_case
 ```python
-"teams", "workspaces", "api_keys"
+"groups", "workspaces", "api_keys"
 ```
 
 **Indexes**: Use `op.f()` for automatic naming
 ```python
-op.create_index(op.f("ix_teams_workspace_id"), "teams", ["workspace_id"])
-# Creates: ix_teams_workspace_id
+op.create_index(op.f("ix_groups_workspace_id"), "groups", ["workspace_id"])
+# Creates: ix_groups_workspace_id
 ```
 
 **Foreign Keys**: `fk_<table>_<column>_<referenced_table>`
 ```python
 op.create_foreign_key(
-    "fk_teams_workspace_id_workspaces",
-    "teams", "workspaces",
+    "fk_groups_workspace_id_workspaces",
+    "groups", "workspaces",
     ["workspace_id"], ["id"]
 )
 ```
@@ -117,8 +117,8 @@ op.create_foreign_key(
 **Unique Constraints**: `uq_<table>_<columns>`
 ```python
 op.create_unique_constraint(
-    "uq_teams_workspace_id_name",
-    "teams",
+    "uq_groups_workspace_id_name",
+    "groups",
     ["workspace_id", "name"]
 )
 ```

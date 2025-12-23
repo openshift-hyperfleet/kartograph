@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.10.1...v0.11.0) (2025-12-23)
+
+
+### Features
+
+* **api:** authorization abstractions and SpiceDB client ([#85](https://github.com/openshift-hyperfleet/kartograph/issues/85)) ([8fc16b5](https://github.com/openshift-hyperfleet/kartograph/commit/8fc16b5346f68f14fd1f0c2676345eb455f13d66))
+
 ## [0.10.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.10.0...v0.10.1) (2025-12-22)
 
 

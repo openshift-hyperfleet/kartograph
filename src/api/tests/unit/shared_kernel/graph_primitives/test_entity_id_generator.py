@@ -207,6 +207,20 @@ class TestEntityIdGeneratorValidation:
         # Should be identical
         assert id1 == id2
 
+    def test_rejects_non_string_entity_type(self):
+        """Should reject non-string entity_type."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        with pytest.raises(ValueError, match="entity_type must be a non-None string"):
+            EntityIdGenerator.generate(123, "alice")
+
+    def test_rejects_non_string_entity_slug(self):
+        """Should reject non-string entity_slug."""
+        from shared_kernel.graph_primitives import EntityIdGenerator
+
+        with pytest.raises(ValueError, match="entity_slug must be a non-None string"):
+            EntityIdGenerator.generate("person", 123)
+
 
 class TestEntityIdGeneratorEdges:
     """Test suite for EntityIdGenerator.generate_edge_id method."""

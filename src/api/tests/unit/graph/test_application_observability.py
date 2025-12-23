@@ -96,7 +96,7 @@ class TestWithContext:
 
     def test_with_context_creates_new_probe(self):
         """with_context should create a new probe with context bound."""
-        from infrastructure.observability.context import ObservationContext
+        from shared_kernel.observability_context import ObservationContext
 
         probe = DefaultGraphServiceProbe()
         context = ObservationContext(request_id="req-123", graph_name="test_graph")
@@ -108,7 +108,7 @@ class TestWithContext:
 
     def test_with_context_preserves_logger(self):
         """with_context should preserve the original logger."""
-        from infrastructure.observability.context import ObservationContext
+        from shared_kernel.observability_context import ObservationContext
 
         mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
         probe = DefaultGraphServiceProbe(logger=mock_logger)
@@ -120,7 +120,7 @@ class TestWithContext:
 
     def test_context_included_in_log_calls(self):
         """Bound context should be included in log calls."""
-        from infrastructure.observability.context import ObservationContext
+        from shared_kernel.observability_context import ObservationContext
 
         mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
         probe = DefaultGraphServiceProbe(logger=mock_logger)

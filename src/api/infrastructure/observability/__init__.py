@@ -11,10 +11,14 @@ from shared_kernel.observability_context import ObservationContext
 from infrastructure.observability.probes import (
     ConnectionProbe,
     DefaultConnectionProbe,
+    DefaultMigrationProbe,
+    MigrationProbe,
 )
 
 __all__ = [
     "ConnectionProbe",
     "DefaultConnectionProbe",
+    "DefaultMigrationProbe",
+    "MigrationProbe",
     "ObservationContext",
 ]

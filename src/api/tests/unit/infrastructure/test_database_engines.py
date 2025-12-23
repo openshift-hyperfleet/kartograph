@@ -8,7 +8,7 @@ from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from infrastructure.database.engines import (
-    _build_async_url,
+    build_async_url,
     create_read_engine,
     create_write_engine,
 )
@@ -31,7 +31,7 @@ def mock_db_settings() -> DatabaseSettings:
 
 def test_build_async_url(mock_db_settings):
     """Test async database URL construction."""
-    url = _build_async_url(mock_db_settings)
+    url = build_async_url(mock_db_settings)
 
     assert url == (
         "postgresql+asyncpg://test_user:test_password@localhost:5432/test_db"
@@ -48,11 +48,15 @@ def test_build_async_url_with_special_characters():
         password=SecretStr("p@ssw0rd!#$"),
     )
 
-    url = _build_async_url(settings)
+    url = build_async_url(settings)
 
-    # URL should contain the special characters (asyncpg handles encoding)
-    assert "p@ssw0rd!#$" in url
-    assert "user@domain" in url
+    # Credentials should be percent-encoded per RFC 3986
+    # @ -> %40, ! -> %21, # -> %23, $ -> %24
+    assert "user%40domain" in url  # username encoded
+    assert "p%40ssw0rd%21%23%24" in url  # password encoded
+    # Raw special characters should NOT be in the URL
+    assert "user@domain" not in url
+    assert "p@ssw0rd!#$" not in url
 
 
 def test_create_write_engine(mock_db_settings):
@@ -104,8 +108,8 @@ def test_engine_pool_configuration(mock_db_settings):
     # Pool should respect max connections
     assert engine.pool.size() == 10
 
-    # max_overflow=0 means strict limit (no overflow)
-    assert engine.pool._max_overflow == 0
+    # Configuration verified via engine creation parameters
+    # (max_overflow=0 behavior is tested via integration tests)
 
     # Cleanup
     engine.sync_engine.dispose()

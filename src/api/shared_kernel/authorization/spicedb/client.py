@@ -29,6 +29,27 @@ from shared_kernel.authorization.spicedb.exceptions import (
 )
 
 
+def _parse_reference(ref: str, ref_type: str) -> tuple[str, str]:
+    """Parse a resource or subject reference string.
+
+    Args:
+        ref: Reference string in format "type:id"
+        ref_type: Description for error messages (e.g., "resource", "subject")
+
+    Returns:
+        Tuple of (type, id)
+
+    Raises:
+        ValueError: If reference format is invalid
+    """
+    if ":" not in ref:
+        raise ValueError(
+            f"Invalid {ref_type} format: '{ref}'. Expected 'type:id' format."
+        )
+    parts = ref.split(":", 1)
+    return (parts[0], parts[1])
+
+
 class SpiceDBClient:
     """SpiceDB client implementation of AuthorizationProvider protocol.
 
@@ -97,8 +118,8 @@ class SpiceDBClient:
         assert self._client is not None  # For mypy
 
         # Parse resource and subject
-        resource_type, resource_id = resource.split(":", 1)
-        subject_type, subject_id = subject.split(":", 1)
+        resource_type, resource_id = _parse_reference(resource, "resource")
+        subject_type, subject_id = _parse_reference(subject, "subject")
 
         try:
             # Create relationship update
@@ -165,8 +186,8 @@ class SpiceDBClient:
         assert self._client is not None  # For mypy
 
         # Parse resource and subject
-        resource_type, resource_id = resource.split(":", 1)
-        subject_type, subject_id = subject.split(":", 1)
+        resource_type, resource_id = _parse_reference(resource, "resource")
+        subject_type, subject_id = _parse_reference(subject, "subject")
 
         try:
             request = CheckPermissionRequest(
@@ -268,8 +289,8 @@ class SpiceDBClient:
         assert self._client is not None  # For mypy
 
         # Parse resource and subject
-        resource_type, resource_id = resource.split(":", 1)
-        subject_type, subject_id = subject.split(":", 1)
+        resource_type, resource_id = _parse_reference(resource, "resource")
+        subject_type, subject_id = _parse_reference(subject, "subject")
 
         try:
             relationship = Relationship(

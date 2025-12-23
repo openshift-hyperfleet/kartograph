@@ -13,6 +13,15 @@ from sqlalchemy import DateTime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
+def _utc_now() -> datetime:
+    """Generate UTC timestamp for database defaults.
+
+    Uses a named function instead of lambda for SQLAlchemy 2.0 compatibility.
+    Ensures proper INSERT-time evaluation.
+    """
+    return datetime.now(timezone.utc)
+
+
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy ORM models.
 
@@ -28,18 +37,18 @@ class TimestampMixin:
     """Mixin providing created_at and updated_at timestamp columns.
 
     Automatically sets created_at on insert and updates updated_at on modification.
-    Uses timezone-aware UTC timestamps.
+    Uses timezone-aware UTC timestamps with Python-side default generation.
     """
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        insert_default=_utc_now,  # Evaluated at INSERT time
         nullable=False,
     )
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        insert_default=_utc_now,  # Evaluated at INSERT time
+        onupdate=_utc_now,  # Evaluated at UPDATE time
         nullable=False,
     )

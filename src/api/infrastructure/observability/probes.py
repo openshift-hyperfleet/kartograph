@@ -169,3 +169,78 @@ class DefaultConnectionProbe:
             "connection_pool_closed",
             **self._get_context_kwargs(),
         )
+
+
+class MigrationProbe(Protocol):
+    """Domain probe for database migration observability.
+
+    This probe captures domain-significant events related to database
+    migrations without exposing logging implementation details.
+    """
+
+    def migration_started(self, mode: str) -> None:
+        """Record that a migration process has started."""
+        ...
+
+    def migration_completed(self, mode: str) -> None:
+        """Record that a migration process completed successfully."""
+        ...
+
+    def migration_failed(self, mode: str, error: Exception) -> None:
+        """Record that a migration process failed."""
+        ...
+
+    def with_context(self, context: ObservationContext) -> MigrationProbe:
+        """Create a new probe with observation context bound."""
+        ...
+
+
+class DefaultMigrationProbe:
+    """Default implementation of MigrationProbe using structlog.
+
+    Supports observation context for including request-scoped metadata
+    with all log events.
+    """
+
+    def __init__(
+        self,
+        logger: structlog.stdlib.BoundLogger | None = None,
+        context: ObservationContext | None = None,
+    ):
+        self._logger = logger or structlog.get_logger()
+        self._context = context
+
+    def _get_context_kwargs(self) -> dict[str, Any]:
+        """Get context metadata as kwargs for logging."""
+        if self._context is None:
+            return {}
+        return self._context.as_dict()
+
+    def with_context(self, context: ObservationContext) -> DefaultMigrationProbe:
+        """Create a new probe with observation context bound."""
+        return DefaultMigrationProbe(logger=self._logger, context=context)
+
+    def migration_started(self, mode: str) -> None:
+        """Record that a migration process has started."""
+        self._logger.info(
+            "database_migration_started",
+            mode=mode,
+            **self._get_context_kwargs(),
+        )
+
+    def migration_completed(self, mode: str) -> None:
+        """Record that a migration process completed successfully."""
+        self._logger.info(
+            "database_migration_completed",
+            mode=mode,
+            **self._get_context_kwargs(),
+        )
+
+    def migration_failed(self, mode: str, error: Exception) -> None:
+        """Record that a migration process failed."""
+        self._logger.error(
+            "database_migration_failed",
+            mode=mode,
+            error=str(error),
+            **self._get_context_kwargs(),
+        )

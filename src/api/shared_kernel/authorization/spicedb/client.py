@@ -6,6 +6,8 @@ error handling and type safety.
 
 from __future__ import annotations
 
+import asyncio
+
 from authzed.api.v1 import (
     CheckPermissionRequest,
     Consistency,
@@ -74,29 +76,33 @@ class SpiceDBClient:
         self._preshared_key = preshared_key
         self._client = None
         self._probe = probe or DefaultAuthorizationProbe()
+        self._init_lock = asyncio.Lock()
 
     async def _ensure_client(self):
-        """Lazily initialize the gRPC client."""
+        """Lazily initialize the gRPC client with thread-safe double-check locking."""
         if self._client is None:
-            try:
-                from authzed.api.v1 import Client
+            async with self._init_lock:
+                # Double-check after acquiring lock
+                if self._client is None:
+                    try:
+                        from authzed.api.v1 import Client
 
-                # Create credentials with preshared key
-                credentials = bearer_token_credentials(self._preshared_key)
+                        # Create credentials with preshared key
+                        credentials = bearer_token_credentials(self._preshared_key)
 
-                # Initialize client
-                self._client = Client(
-                    self._endpoint,
-                    credentials,
-                )
-            except Exception as e:
-                self._probe.connection_failed(
-                    endpoint=self._endpoint,
-                    error=e,
-                )
-                raise SpiceDBConnectionError(
-                    f"Failed to connect to SpiceDB at {self._endpoint}: {e}"
-                ) from e
+                        # Initialize client
+                        self._client = Client(
+                            self._endpoint,
+                            credentials,
+                        )
+                    except Exception as e:
+                        self._probe.connection_failed(
+                            endpoint=self._endpoint,
+                            error=e,
+                        )
+                        raise SpiceDBConnectionError(
+                            f"Failed to connect to SpiceDB at {self._endpoint}: {e}"
+                        ) from e
 
     async def write_relationship(
         self,

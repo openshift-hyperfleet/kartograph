@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.12.0...v0.13.0) (2025-12-23)
+
+
+### Features
+
+* **iam:** IAM domain models and business logic ([#86](https://github.com/openshift-hyperfleet/kartograph/issues/86)) ([0adb133](https://github.com/openshift-hyperfleet/kartograph/commit/0adb133efbb075bf5a150f294d29c2e363b69d47))
+
 ## [0.12.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.11.0...v0.12.0) (2025-12-23)
 
 

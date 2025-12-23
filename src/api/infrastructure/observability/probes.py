@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 import structlog
 
 if TYPE_CHECKING:
-    from infrastructure.observability.context import ObservationContext
+    from shared_kernel.observability_context import ObservationContext
 
 
 class ConnectionProbe(Protocol):

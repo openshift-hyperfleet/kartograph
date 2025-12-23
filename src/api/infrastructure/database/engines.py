@@ -11,8 +11,13 @@ from typing import TYPE_CHECKING
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+from infrastructure.observability import DefaultConnectionProbe
+
 if TYPE_CHECKING:
     from infrastructure.settings import DatabaseSettings
+
+# Module-level probe for connection observability
+_connection_probe = DefaultConnectionProbe()
 
 __all__ = [
     "create_write_engine",
@@ -35,13 +40,22 @@ def create_write_engine(settings: DatabaseSettings) -> AsyncEngine:
     """
     url = build_async_url(settings)
 
-    return create_async_engine(
-        url,
-        pool_size=settings.pool_max_connections,
-        max_overflow=0,  # No overflow - strict pool limit
-        pool_pre_ping=True,  # Verify connections before using
-        echo=False,  # Set to True for SQL logging
-    )
+    try:
+        engine = create_async_engine(
+            url,
+            pool_size=settings.pool_max_connections,
+            max_overflow=0,  # No overflow - strict pool limit
+            pool_pre_ping=True,  # Verify connections before using
+            echo=False,  # Set to True for SQL logging
+        )
+        _connection_probe.pool_initialized(
+            min_conn=0,  # asyncpg doesn't use min connections
+            max_conn=settings.pool_max_connections,
+        )
+        return engine
+    except Exception as e:
+        _connection_probe.pool_initialization_failed(e)
+        raise
 
 
 def create_read_engine(settings: DatabaseSettings) -> AsyncEngine:
@@ -58,16 +72,25 @@ def create_read_engine(settings: DatabaseSettings) -> AsyncEngine:
     """
     url = build_async_url(settings)
 
-    return create_async_engine(
-        url,
-        pool_size=settings.pool_max_connections,
-        max_overflow=0,
-        pool_pre_ping=True,
-        echo=False,
-        # Note: postgresql_readonly execution option doesn't prevent writes at engine level,
-        # it's more of a hint. True read-only enforcement requires database role permissions.
-        # For now, we rely on application discipline to use read engine only for queries.
-    )
+    try:
+        engine = create_async_engine(
+            url,
+            pool_size=settings.pool_max_connections,
+            max_overflow=0,
+            pool_pre_ping=True,
+            echo=False,
+            # Note: postgresql_readonly execution option doesn't prevent writes at engine level,
+            # it's more of a hint. True read-only enforcement requires database role permissions.
+            # For now, we rely on application discipline to use read engine only for queries.
+        )
+        _connection_probe.pool_initialized(
+            min_conn=0,  # asyncpg doesn't use min connections
+            max_conn=settings.pool_max_connections,
+        )
+        return engine
+    except Exception as e:
+        _connection_probe.pool_initialization_failed(e)
+        raise
 
 
 def build_async_url(settings: DatabaseSettings) -> str:

@@ -15,7 +15,11 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 # Import our Base and settings
 from infrastructure.database.engines import build_async_url
 from infrastructure.database.models import Base
+from infrastructure.observability import DefaultMigrationProbe
 from infrastructure.settings import get_database_settings
+
+# Initialize migration probe for observability
+migration_probe = DefaultMigrationProbe()
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -48,16 +52,23 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
-    context.configure(
-        url=url,
-        target_metadata=target_metadata,
-        literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
-    )
+    migration_probe.migration_started("offline")
+    try:
+        url = config.get_main_option("sqlalchemy.url")
+        context.configure(
+            url=url,
+            target_metadata=target_metadata,
+            literal_binds=True,
+            dialect_opts={"paramstyle": "named"},
+        )
 
-    with context.begin_transaction():
-        context.run_migrations()
+        with context.begin_transaction():
+            context.run_migrations()
+
+        migration_probe.migration_completed("offline")
+    except Exception as e:
+        migration_probe.migration_failed("offline", e)
+        raise
 
 
 def do_run_migrations(connection: Connection) -> None:
@@ -78,16 +89,22 @@ async def run_async_migrations() -> None:
     In this scenario we need to create an async Engine
     and associate a connection with the context.
     """
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,  # No pooling for migrations
-    )
+    migration_probe.migration_started("online")
+    try:
+        connectable = async_engine_from_config(
+            config.get_section(config.config_ini_section, {}),
+            prefix="sqlalchemy.",
+            poolclass=pool.NullPool,  # No pooling for migrations
+        )
 
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
+        async with connectable.connect() as connection:
+            await connection.run_sync(do_run_migrations)
 
-    await connectable.dispose()
+        await connectable.dispose()
+        migration_probe.migration_completed("online")
+    except Exception as e:
+        migration_probe.migration_failed("online", e)
+        raise
 
 
 def run_migrations_online() -> None:

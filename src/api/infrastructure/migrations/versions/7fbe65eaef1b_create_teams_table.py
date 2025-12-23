@@ -33,9 +33,17 @@ def upgrade() -> None:
     op.create_index(
         op.f("ix_teams_workspace_id"), "teams", ["workspace_id"], unique=False
     )
+    # Ensure team names are unique within each workspace
+    op.create_index(
+        op.f("ix_teams_workspace_id_name"),
+        "teams",
+        ["workspace_id", "name"],
+        unique=True,
+    )
 
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.drop_index(op.f("ix_teams_workspace_id_name"), table_name="teams")
     op.drop_index(op.f("ix_teams_workspace_id"), table_name="teams")
     op.drop_table("teams")

@@ -6,15 +6,16 @@ transaction management and connection pooling.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from infrastructure.database.engines import create_read_engine, create_write_engine
+from infrastructure.observability import DefaultConnectionProbe
 from infrastructure.settings import get_database_settings
 
-if TYPE_CHECKING:
-    pass
+# Module-level probe for observability
+_probe = DefaultConnectionProbe()
 
 # Module-level engine instances (created on first use)
 _write_engine: AsyncEngine | None = None
@@ -119,8 +120,10 @@ async def close_database_connections() -> None:
 
     if _write_engine is not None:
         await _write_engine.dispose()
+        _probe.pool_closed()
         _write_engine = None
 
     if _read_engine is not None:
         await _read_engine.dispose()
+        _probe.pool_closed()
         _read_engine = None

@@ -1,4 +1,4 @@
-"""create teams table
+"""create groups table
 
 Revision ID: 7fbe65eaef1b
 Revises:
@@ -22,7 +22,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Upgrade schema."""
     op.create_table(
-        "teams",
+        "groups",
         sa.Column("id", sa.String(length=26), nullable=False),  # ULID
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("workspace_id", sa.String(length=26), nullable=False),  # ULID
@@ -31,12 +31,12 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(
-        op.f("ix_teams_workspace_id"), "teams", ["workspace_id"], unique=False
+        op.f("ix_groups_workspace_id"), "groups", ["workspace_id"], unique=False
     )
-    # Ensure team names are unique within each workspace
+    # Ensure group names are unique within each workspace
     op.create_index(
-        op.f("ix_teams_workspace_id_name"),
-        "teams",
+        op.f("ix_groups_workspace_id_name"),
+        "groups",
         ["workspace_id", "name"],
         unique=True,
     )
@@ -44,6 +44,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
-    op.drop_index(op.f("ix_teams_workspace_id_name"), table_name="teams")
-    op.drop_index(op.f("ix_teams_workspace_id"), table_name="teams")
-    op.drop_table("teams")
+    op.drop_index(op.f("ix_groups_workspace_id_name"), table_name="groups")
+    op.drop_index(op.f("ix_groups_workspace_id"), table_name="groups")
+    op.drop_table("groups")

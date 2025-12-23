@@ -5,12 +5,17 @@ description = "Enterprise-Ready Bi-Temporal Knowledge Graphs as a Service"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.17.2",
     "apache-age-python>=0.0.7",
+    "asyncpg>=0.31.0",
+    "authzed>=1.24.0",
     "cyclopts==5.0.0a1",
     "fastapi[standard]>=0.123.9",
     "fastmcp==2.14.1",
     "psycopg2>=2.9.11",
     "pydantic-settings>=2.12.0",
+    "python-ulid>=3.1.0",
+    "sqlalchemy[asyncio]>=2.0.45",
     "structlog>=25.5.0",
 ]
 

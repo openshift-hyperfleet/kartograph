@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from infrastructure.observability.context import ObservationContext
+    from shared_kernel.observability_context import ObservationContext
 
 
 class GraphServiceProbe(Protocol):

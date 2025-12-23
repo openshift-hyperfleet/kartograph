@@ -82,7 +82,7 @@ Kartograph uses async SQLAlchemy with asyncpg, but Alembic migrations run **sync
 ### Migration Files
 
 Migration files use Alembic's revision ID + descriptive name:
-```
+```text
 <revision_id>_<description>.py
 ```
 

@@ -8,7 +8,7 @@ from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from infrastructure.database.engines import (
-    _build_async_url,
+    build_async_url,
     create_read_engine,
     create_write_engine,
 )
@@ -31,7 +31,7 @@ def mock_db_settings() -> DatabaseSettings:
 
 def test_build_async_url(mock_db_settings):
     """Test async database URL construction."""
-    url = _build_async_url(mock_db_settings)
+    url = build_async_url(mock_db_settings)
 
     assert url == (
         "postgresql+asyncpg://test_user:test_password@localhost:5432/test_db"
@@ -48,7 +48,7 @@ def test_build_async_url_with_special_characters():
         password=SecretStr("p@ssw0rd!#$"),
     )
 
-    url = _build_async_url(settings)
+    url = build_async_url(settings)
 
     # URL should contain the special characters (asyncpg handles encoding)
     assert "p@ssw0rd!#$" in url

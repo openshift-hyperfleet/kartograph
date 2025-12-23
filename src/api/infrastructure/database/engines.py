@@ -13,6 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 if TYPE_CHECKING:
     from infrastructure.settings import DatabaseSettings
 
+__all__ = [
+    "create_write_engine",
+    "create_read_engine",
+    "build_async_url",
+]
+
 
 def create_write_engine(settings: DatabaseSettings) -> AsyncEngine:
     """Create async engine for write operations.
@@ -26,7 +32,7 @@ def create_write_engine(settings: DatabaseSettings) -> AsyncEngine:
     Returns:
         Configured async engine for write operations
     """
-    url = _build_async_url(settings)
+    url = build_async_url(settings)
 
     return create_async_engine(
         url,
@@ -49,7 +55,7 @@ def create_read_engine(settings: DatabaseSettings) -> AsyncEngine:
     Returns:
         Configured async engine for read operations
     """
-    url = _build_async_url(settings)
+    url = build_async_url(settings)
 
     return create_async_engine(
         url,
@@ -63,7 +69,7 @@ def create_read_engine(settings: DatabaseSettings) -> AsyncEngine:
     )
 
 
-def _build_async_url(settings: DatabaseSettings) -> str:
+def build_async_url(settings: DatabaseSettings) -> str:
     """Build async database URL for asyncpg.
 
     Args:

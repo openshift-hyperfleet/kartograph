@@ -13,6 +13,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 # Import our Base and settings
+from infrastructure.database.engines import build_async_url
 from infrastructure.database.models import Base
 from infrastructure.settings import get_database_settings
 
@@ -31,13 +32,7 @@ target_metadata = Base.metadata
 
 # Configure database URL from settings
 db_settings = get_database_settings()
-password = db_settings.password.get_secret_value()
-database_url = (
-    f"postgresql+asyncpg://"
-    f"{db_settings.username}:{password}@"
-    f"{db_settings.host}:{db_settings.port}/"
-    f"{db_settings.database}"
-)
+database_url = build_async_url(db_settings)
 config.set_main_option("sqlalchemy.url", database_url)
 
 

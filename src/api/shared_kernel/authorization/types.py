@@ -54,11 +54,11 @@ def format_resource(resource_type: ResourceType, resource_id: str) -> str:
         resource_id: The unique identifier for the resource
 
     Returns:
-        Formatted resource string (e.g., "team:abc123")
+        Formatted resource string (e.g., "workspace:abc123")
 
     Example:
-        >>> format_resource(ResourceType.TEAM, "abc123")
-        "team:abc123"
+        >>> format_resource(ResourceType.WORKSPACE, "abc123")
+        "workspace:abc123"
     """
     return f"{resource_type}:{resource_id}"
 

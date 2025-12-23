@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.11.0...v0.12.0) (2025-12-23)
+
+
+### Features
+
+* **api:** database foundation with SQLAlchemy and Alembic ([#84](https://github.com/openshift-hyperfleet/kartograph/issues/84)) ([9327b82](https://github.com/openshift-hyperfleet/kartograph/commit/9327b82eab2fd98b6cec2c90af708b428fe3b56a))
+
 ## [0.11.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.10.1...v0.11.0) (2025-12-23)
 
 

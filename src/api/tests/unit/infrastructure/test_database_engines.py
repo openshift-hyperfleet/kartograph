@@ -50,9 +50,13 @@ def test_build_async_url_with_special_characters():
 
     url = build_async_url(settings)
 
-    # URL should contain the special characters (asyncpg handles encoding)
-    assert "p@ssw0rd!#$" in url
-    assert "user@domain" in url
+    # Credentials should be percent-encoded per RFC 3986
+    # @ -> %40, ! -> %21, # -> %23, $ -> %24
+    assert "user%40domain" in url  # username encoded
+    assert "p%40ssw0rd%21%23%24" in url  # password encoded
+    # Raw special characters should NOT be in the URL
+    assert "user@domain" not in url
+    assert "p@ssw0rd!#$" not in url
 
 
 def test_create_write_engine(mock_db_settings):

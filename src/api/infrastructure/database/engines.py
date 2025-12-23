@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 if TYPE_CHECKING:
@@ -72,16 +73,22 @@ def create_read_engine(settings: DatabaseSettings) -> AsyncEngine:
 def build_async_url(settings: DatabaseSettings) -> str:
     """Build async database URL for asyncpg.
 
+    Properly percent-encodes username and password to handle special characters
+    per RFC 3986 using SQLAlchemy's URL builder.
+
     Args:
         settings: Database connection settings
 
     Returns:
         Connection URL string in format: postgresql+asyncpg://user:pass@host:port/db
+        with credentials properly percent-encoded
     """
-    password = settings.password.get_secret_value()
-    return (
-        f"postgresql+asyncpg://"
-        f"{settings.username}:{password}@"
-        f"{settings.host}:{settings.port}/"
-        f"{settings.database}"
+    url = URL.create(
+        drivername="postgresql+asyncpg",
+        username=settings.username,
+        password=settings.password.get_secret_value(),
+        host=settings.host,
+        port=settings.port,
+        database=settings.database,
     )
+    return url.render_as_string(hide_password=False)

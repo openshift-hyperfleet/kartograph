@@ -8,6 +8,7 @@ dependencies = [
     "alembic>=1.17.2",
     "apache-age-python>=0.0.7",
     "asyncpg>=0.31.0",
+    "authzed>=1.24.0",
     "cyclopts==5.0.0a1",
     "fastapi[standard]>=0.123.9",
     "fastmcp==2.14.1",

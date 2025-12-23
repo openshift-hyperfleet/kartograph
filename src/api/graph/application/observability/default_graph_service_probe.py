@@ -13,7 +13,7 @@ import structlog
 from graph.application.observability.graph_service_probe import GraphServiceProbe
 
 if TYPE_CHECKING:
-    from infrastructure.observability.context import ObservationContext
+    from shared_kernel.observability_context import ObservationContext
 
 
 class DefaultGraphServiceProbe(GraphServiceProbe):

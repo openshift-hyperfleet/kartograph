@@ -210,8 +210,11 @@ class TestGetByName:
     @pytest.mark.asyncio
     async def test_returns_none_when_not_found(self, repository, mock_session):
         """Should return None when group name doesn't exist."""
+        # Mock empty list when no groups found
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = []
+        mock_result.scalars.return_value = mock_scalars
         mock_session.execute.return_value = mock_result
 
         result = await repository.get_by_name("Nonexistent", TenantId.generate())
@@ -224,9 +227,15 @@ class TestGetByName:
         group_id = GroupId.generate()
         model = GroupModel(id=group_id.value, name="Engineering")
 
+        # Mock scalars().all() to return list of models
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = model
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [model]
+        mock_result.scalars.return_value = mock_scalars
         mock_session.execute.return_value = mock_result
+
+        # Mock SpiceDB tenant check to return True
+        mock_authz.check_permission.return_value = True
 
         result = await repository.get_by_name("Engineering", TenantId.generate())
 

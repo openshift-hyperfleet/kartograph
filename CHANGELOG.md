@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.13.0...v0.13.1) (2026-01-05)
+
+
+### Bug Fixes
+
+* **deps:** update dependency fastmcp to v2.14.2 ([#90](https://github.com/openshift-hyperfleet/kartograph/issues/90)) ([5317dd8](https://github.com/openshift-hyperfleet/kartograph/commit/5317dd8875eec132fc9a1615e8b2194d420d4b2c))
+
 ## [0.13.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.12.0...v0.13.0) (2025-12-23)
 
 

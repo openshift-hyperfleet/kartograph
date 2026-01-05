@@ -1,4 +1,7 @@
 services:
+  spicedb:
+    image: authzed/spicedb:v1.48.0
+
   postgres:
     image: apache/age:release_PG17_1.6.0
     env_file:

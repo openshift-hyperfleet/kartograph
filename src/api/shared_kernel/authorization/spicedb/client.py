@@ -64,7 +64,7 @@ def _parse_reference(ref: str, ref_type: str) -> tuple[str, str]:
 
 
 def _build_relationship_update(
-    resource: str, relation: str, subject: str, operation: int
+    resource: str, relation: str, subject: str, operation: RelationshipOperation
 ) -> RelationshipUpdate:
     """Build a RelationshipUpdate for write or delete operations.
 
@@ -72,7 +72,7 @@ def _build_relationship_update(
         resource: Resource identifier (e.g., "group:abc123")
         relation: Relation name (e.g., "member")
         subject: Subject identifier (e.g., "user:alice")
-        operation: RelationshipUpdate.OPERATION_TOUCH or OPERATION_DELETE
+        operation: RelationshipOperation.WRITE or DELETE
 
     Returns:
         RelationshipUpdate object ready for WriteRelationshipsRequest
@@ -95,7 +95,7 @@ def _build_relationship_update(
     )
 
     return RelationshipUpdate(
-        operation=operation,
+        operation=int(operation),  # Convert enum to int for protobuf
         relationship=relationship,
     )
 

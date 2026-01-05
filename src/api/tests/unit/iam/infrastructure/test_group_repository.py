@@ -29,6 +29,7 @@ def mock_authz():
     authz = create_autospec(AuthorizationProvider, instance=True)
     # Make all methods async
     authz.write_relationship = AsyncMock()
+    authz.write_relationships = AsyncMock()
     authz.delete_relationship = AsyncMock()
     authz.delete_relationships = AsyncMock()
     authz.lookup_subjects = AsyncMock(return_value=[])

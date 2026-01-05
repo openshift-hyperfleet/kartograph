@@ -174,6 +174,74 @@ class SpiceDBClient(AuthorizationProvider):
                 f"Failed to write relationship: {resource} {relation} {subject}"
             ) from e
 
+    async def write_relationships(
+        self,
+        relationships: list[tuple[str, str, str]],
+    ) -> None:
+        """Write multiple relationships in a single request.
+
+        Args:
+            relationships: List of (resource, relation, subject) tuples to write
+
+        Raises:
+            SpiceDBPermissionError: If the write fails
+        """
+        if not relationships:
+            return
+
+        await self._ensure_client()
+        assert self._client is not None  # For mypy
+
+        try:
+            updates = []
+            for resource, relation, subject in relationships:
+                # Parse resource and subject
+                resource_type, resource_id = _parse_reference(resource, "resource")
+                subject_type, subject_id = _parse_reference(subject, "subject")
+
+                relationship = Relationship(
+                    resource=ObjectReference(
+                        object_type=resource_type,
+                        object_id=resource_id,
+                    ),
+                    relation=relation,
+                    subject=SubjectReference(
+                        object=ObjectReference(
+                            object_type=subject_type,
+                            object_id=subject_id,
+                        ),
+                    ),
+                )
+
+                updates.append(
+                    RelationshipUpdate(
+                        operation=RelationshipUpdate.OPERATION_TOUCH,
+                        relationship=relationship,
+                    )
+                )
+
+            request = WriteRelationshipsRequest(updates=updates)
+            await self._client.WriteRelationships(request)
+
+            # Log successful bulk write
+            for resource, relation, subject in relationships:
+                self._probe.relationship_written(
+                    resource=resource,
+                    relation=relation,
+                    subject=subject,
+                )
+
+        except Exception as e:
+            self._probe.relationship_write_failed(
+                resource="<bulk>",
+                relation="<multiple>",
+                subject="<multiple>",
+                error=e,
+            )
+            raise SpiceDBPermissionError(
+                f"Failed to write {len(relationships)} relationships"
+            ) from e
+
     async def check_permission(
         self,
         resource: str,

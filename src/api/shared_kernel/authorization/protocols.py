@@ -55,6 +55,20 @@ class AuthorizationProvider(Protocol):
         """
         ...
 
+    async def write_relationships(
+        self,
+        relationships: list[tuple[str, str, str]],
+    ) -> None:
+        """Write multiple relationships in a single request.
+
+        Args:
+            relationships: List of (resource, relation, subject) tuples to write
+
+        Raises:
+            AuthorizationError: If the write fails
+        """
+        ...
+
     async def check_permission(
         self,
         resource: str,

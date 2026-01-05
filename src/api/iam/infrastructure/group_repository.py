@@ -330,20 +330,33 @@ class GroupRepository(IGroupRepository):
         current_member_keys = {(m.user_id.value, m.role.value) for m in current_members}
         new_member_keys = {(m.user_id.value, m.role.value) for m in group.members}
 
-        # Delete removed members
+        # Build bulk delete list for removed members
+        deletes = []
         for member_key in current_member_keys - new_member_keys:
             user_id, role = member_key
-            await self._authz.delete_relationship(
-                resource=group_resource,
-                relation=role,
-                subject=format_subject(ResourceType.USER, user_id),
+            deletes.append(
+                (
+                    group_resource,
+                    role,
+                    format_subject(ResourceType.USER, user_id),
+                )
             )
 
-        # Add new members
+        # Build bulk write list for new members
+        writes = []
         for member_key in new_member_keys - current_member_keys:
             user_id, role = member_key
-            await self._authz.write_relationship(
-                resource=group_resource,
-                relation=role,
-                subject=format_subject(ResourceType.USER, user_id),
+            writes.append(
+                (
+                    group_resource,
+                    role,
+                    format_subject(ResourceType.USER, user_id),
+                )
             )
+
+        # Execute bulk operations
+        if deletes:
+            await self._authz.delete_relationships(deletes)
+
+        if writes:
+            await self._authz.write_relationships(writes)

@@ -5,10 +5,14 @@ Probes for repository operations following Domain-Oriented Observability pattern
 
 from iam.infrastructure.observability.repository_probe import (
     DefaultGroupRepositoryProbe,
+    DefaultUserRepositoryProbe,
     GroupRepositoryProbe,
+    UserRepositoryProbe,
 )
 
 __all__ = [
     "GroupRepositoryProbe",
     "DefaultGroupRepositoryProbe",
+    "UserRepositoryProbe",
+    "DefaultUserRepositoryProbe",
 ]

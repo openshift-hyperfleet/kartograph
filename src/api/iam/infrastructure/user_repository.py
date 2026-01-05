@@ -12,6 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from iam.domain.aggregates import User
 from iam.domain.value_objects import UserId
 from iam.infrastructure.models import UserModel
+from iam.infrastructure.observability import (
+    DefaultUserRepositoryProbe,
+    UserRepositoryProbe,
+)
 from iam.ports.repositories import IUserRepository
 
 
@@ -22,13 +26,17 @@ class UserRepository(IUserRepository):
     so this only stores minimal metadata for lookup and reference.
     """
 
-    def __init__(self, session: AsyncSession) -> None:
-        """Initialize repository with database session.
+    def __init__(
+        self, session: AsyncSession, probe: UserRepositoryProbe | None = None
+    ) -> None:
+        """Initialize repository with database session and probe.
 
         Args:
             session: AsyncSession from FastAPI dependency injection
+            probe: Optional domain probe for observability
         """
         self._session = session
+        self._probe = probe or DefaultUserRepositoryProbe()
 
     async def save(self, user: User) -> None:
         """Persist a user aggregate.
@@ -54,6 +62,8 @@ class UserRepository(IUserRepository):
             )
             self._session.add(model)
 
+        self._probe.user_saved(user.id.value, user.username)
+
     async def get_by_id(self, user_id: UserId) -> User | None:
         """Retrieve a user by their ID.
 
@@ -68,8 +78,10 @@ class UserRepository(IUserRepository):
         model = result.scalar_one_or_none()
 
         if model is None:
+            self._probe.user_not_found(user_id.value)
             return None
 
+        self._probe.user_retrieved(user_id.value)
         return User(
             id=UserId(value=model.id),
             username=model.username,
@@ -89,8 +101,10 @@ class UserRepository(IUserRepository):
         model = result.scalar_one_or_none()
 
         if model is None:
+            self._probe.username_not_found(username)
             return None
 
+        self._probe.user_retrieved(model.id)
         return User(
             id=UserId(value=model.id),
             username=model.username,

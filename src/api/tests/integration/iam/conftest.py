@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator
 import os
 
 import pytest
+import pytest_asyncio
 from pydantic import SecretStr
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -33,7 +34,7 @@ def iam_db_settings() -> DatabaseSettings:
     )
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def async_session(
     iam_db_settings: DatabaseSettings,
 ) -> AsyncGenerator[AsyncSession, None]:
@@ -59,13 +60,21 @@ def spicedb_client() -> SpiceDBClient:
     )
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def clean_iam_data(async_session: AsyncSession, spicedb_client: SpiceDBClient):
-    """Clean IAM tables and SpiceDB relationships before and after tests."""
+    """Clean IAM tables and SpiceDB relationships before and after tests.
+
+    Note: Requires migrations to be run first. If tables don't exist,
+    this fixture will skip cleanup gracefully.
+    """
     # Clean before test
     async with async_session.begin():
-        await async_session.execute(text("TRUNCATE TABLE groups CASCADE"))
-        await async_session.execute(text("TRUNCATE TABLE users CASCADE"))
+        try:
+            await async_session.execute(text("TRUNCATE TABLE groups CASCADE"))
+            await async_session.execute(text("TRUNCATE TABLE users CASCADE"))
+        except Exception:
+            # Tables might not exist if migrations haven't been run
+            pass
 
     # Note: SpiceDB cleanup would require iterating over all relationships
     # For now, rely on test isolation
@@ -74,8 +83,11 @@ async def clean_iam_data(async_session: AsyncSession, spicedb_client: SpiceDBCli
 
     # Clean after test
     async with async_session.begin():
-        await async_session.execute(text("TRUNCATE TABLE groups CASCADE"))
-        await async_session.execute(text("TRUNCATE TABLE users CASCADE"))
+        try:
+            await async_session.execute(text("TRUNCATE TABLE groups CASCADE"))
+            await async_session.execute(text("TRUNCATE TABLE users CASCADE"))
+        except Exception:
+            pass
 
 
 @pytest.fixture

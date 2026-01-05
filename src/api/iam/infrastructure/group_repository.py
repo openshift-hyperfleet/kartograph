@@ -152,42 +152,41 @@ class GroupRepository(IGroupRepository):
         Returns:
             The Group aggregate with members loaded, or None if not found
         """
-        # Query PostgreSQL for all groups with this name
-        stmt = select(GroupModel).where(GroupModel.name == name)
+        # Query SpiceDB for all group IDs in this tenant
+        tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
+        group_ids = await self._authz.lookup_resources(
+            resource_type=ResourceType.GROUP.value,
+            permission=RelationType.TENANT,
+            subject=tenant_resource,
+        )
+
+        if not group_ids:
+            # No groups in this tenant
+            return None
+
+        # Query PostgreSQL for group with matching name AND id in tenant
+        stmt = select(GroupModel).where(
+            GroupModel.name == name, GroupModel.id.in_(group_ids)
+        )
         result = await self._session.execute(stmt)
-        models = result.scalars().all()
+        model = result.scalar_one_or_none()
 
-        # Check each group to find one that belongs to the specified tenant
-        for model in models:
-            # Verify group belongs to tenant via SpiceDB
-            try:
-                group_resource = format_resource(ResourceType.GROUP, model.id)
-                tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
+        if model is None:
+            return None
 
-                # Check if group has tenant relationship in SpiceDB
-                has_relationship = await self._authz.check_permission(
-                    resource=group_resource,
-                    permission=RelationType.TENANT,
-                    subject=tenant_resource,
-                )
+        # Hydrate members from SpiceDB
+        try:
+            members = await self._hydrate_members(model.id)
+            self._probe.group_retrieved(model.id, len(members))
 
-                if has_relationship:
-                    # This group belongs to the tenant - hydrate and return
-                    members = await self._hydrate_members(model.id)
-                    self._probe.group_retrieved(model.id, len(members))
-
-                    return Group(
-                        id=GroupId(value=model.id),
-                        name=model.name,
-                        members=members,
-                    )
-            except Exception as e:
-                self._probe.membership_hydration_failed(model.id, str(e))
-                # Continue checking other groups with same name
-                continue
-
-        # No group with this name belongs to the tenant
-        return None
+            return Group(
+                id=GroupId(value=model.id),
+                name=model.name,
+                members=members,
+            )
+        except Exception as e:
+            self._probe.membership_hydration_failed(model.id, str(e))
+            raise
 
     async def list_by_tenant(self, tenant_id: TenantId) -> list[Group]:
         """List all groups in a tenant.

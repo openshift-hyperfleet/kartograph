@@ -212,14 +212,12 @@ class TestGetByName:
     """Tests for get_by_name method."""
 
     @pytest.mark.asyncio
-    async def test_returns_none_when_not_found(self, repository, mock_session):
+    async def test_returns_none_when_not_found(
+        self, repository, mock_session, mock_authz
+    ):
         """Should return None when group name doesn't exist."""
-        # Mock empty list when no groups found
-        mock_result = MagicMock()
-        mock_scalars = MagicMock()
-        mock_scalars.all.return_value = []
-        mock_result.scalars.return_value = mock_scalars
-        mock_session.execute.return_value = mock_result
+        # Mock SpiceDB lookup_resources to return empty list (no groups in tenant)
+        mock_authz.lookup_resources.return_value = []
 
         result = await repository.get_by_name("Nonexistent", TenantId.generate())
 
@@ -231,15 +229,13 @@ class TestGetByName:
         group_id = GroupId.generate()
         model = GroupModel(id=group_id.value, name="Engineering")
 
-        # Mock scalars().all() to return list of models
-        mock_result = MagicMock()
-        mock_scalars = MagicMock()
-        mock_scalars.all.return_value = [model]
-        mock_result.scalars.return_value = mock_scalars
-        mock_session.execute.return_value = mock_result
+        # Mock SpiceDB lookup_resources to return this group's ID
+        mock_authz.lookup_resources.return_value = [group_id.value]
 
-        # Mock SpiceDB tenant check to return True
-        mock_authz.check_permission.return_value = True
+        # Mock PostgreSQL query result
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
 
         result = await repository.get_by_name("Engineering", TenantId.generate())
 

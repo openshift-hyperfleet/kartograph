@@ -4,6 +4,8 @@ services:
     command: "serve"
     env_file:
       - env/spicedb.env
+    ports:
+      - "50051:50051"
     networks:
       - kartograph
     restart: unless-stopped
@@ -12,6 +14,12 @@ services:
     depends_on:
       spicedb-migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=:50051"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   spicedb-migrate:
     image: "authzed/spicedb"
@@ -85,11 +93,11 @@ services:
     command: ["schema", "write", "/schema/schema.zed"]
     environment:
       - ZED_ENDPOINT=spicedb:50051
-      - ZED_TOKEN=changeme
+      - ZED_TOKEN=${SPICEDB_PRESHARED_KEY:-changeme}
     restart: "on-failure"
     depends_on:
       spicedb:
-        condition: service_started
+        condition: service_healthy
 
   api:
     build:

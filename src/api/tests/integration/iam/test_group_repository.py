@@ -268,3 +268,64 @@ class TestGetByName:
         assert retrieved is not None
         assert retrieved.id.value == group.id.value
         assert retrieved.name == "Engineering"
+
+
+class TestListByTenant:
+    """Tests for listing groups by tenant."""
+
+    @pytest.mark.asyncio
+    async def test_lists_only_groups_in_tenant(
+        self, group_repository: GroupRepository, async_session, clean_iam_data
+    ):
+        """Should list only groups belonging to specified tenant."""
+        tenant1 = TenantId.generate()
+        tenant2 = TenantId.generate()
+
+        # Create groups in different tenants
+        group1 = Group(id=GroupId.generate(), name="Engineering-T1")
+        group2 = Group(id=GroupId.generate(), name="Design-T1")
+        group3 = Group(id=GroupId.generate(), name="Engineering-T2")
+
+        async with async_session.begin():
+            await group_repository.save(group1, tenant1)
+            await group_repository.save(group2, tenant1)
+            await group_repository.save(group3, tenant2)
+
+        # List groups in tenant1
+        tenant1_groups = await group_repository.list_by_tenant(tenant1)
+
+        assert len(tenant1_groups) == 2
+        group_ids = {g.id.value for g in tenant1_groups}
+        assert group1.id.value in group_ids
+        assert group2.id.value in group_ids
+        assert group3.id.value not in group_ids
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_for_tenant_with_no_groups(
+        self, group_repository: GroupRepository, async_session, clean_iam_data
+    ):
+        """Should return empty list when tenant has no groups."""
+        empty_tenant = TenantId.generate()
+
+        groups = await group_repository.list_by_tenant(empty_tenant)
+
+        assert groups == []
+
+    @pytest.mark.asyncio
+    async def test_hydrates_members_for_listed_groups(
+        self, group_repository: GroupRepository, async_session, clean_iam_data
+    ):
+        """Should hydrate members for all groups in list."""
+        tenant_id = TenantId.generate()
+        group = Group(id=GroupId.generate(), name="Engineering")
+        user_id = UserId.generate()
+        group.add_member(user_id, Role.ADMIN)
+
+        async with async_session.begin():
+            await group_repository.save(group, tenant_id)
+
+        groups = await group_repository.list_by_tenant(tenant_id)
+
+        assert len(groups) == 1
+        assert len(groups[0].members) == 1
+        assert groups[0].members[0].user_id.value == user_id.value

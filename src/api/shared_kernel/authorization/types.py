@@ -4,7 +4,27 @@ Defines resource types, relations, and permissions that map to the SpiceDB schem
 These enums ensure type safety and prevent hardcoded strings across the codebase.
 """
 
+from dataclasses import dataclass
 from enum import StrEnum
+
+
+@dataclass(frozen=True)
+class SubjectRelation:
+    """A subject and its relationship to a resource.
+
+    Returned by lookup_subjects() to represent subjects that have
+    a specific relationship to a resource in SpiceDB.
+
+    Attributes:
+        subject_id: The ID of the subject (e.g., user ID without type prefix)
+        relation: The relation type (e.g., "member", "owner", "admin")
+
+    Example:
+        >>> SubjectRelation(subject_id="01ARZ3...", relation="owner")
+    """
+
+    subject_id: str
+    relation: str
 
 
 class ResourceType(StrEnum):

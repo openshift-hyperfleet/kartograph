@@ -11,6 +11,7 @@ import asyncio
 from authzed.api.v1 import (
     CheckPermissionRequest,
     Consistency,
+    LookupSubjectsRequest,
     ObjectReference,
     Relationship,
     RelationshipUpdate,
@@ -29,6 +30,7 @@ from shared_kernel.authorization.spicedb.exceptions import (
     SpiceDBConnectionError,
     SpiceDBPermissionError,
 )
+from shared_kernel.authorization.types import SubjectRelation
 
 
 def _parse_reference(ref: str, ref_type: str) -> tuple[str, str]:
@@ -337,4 +339,75 @@ class SpiceDBClient(AuthorizationProvider):
             )
             raise SpiceDBPermissionError(
                 f"Failed to delete relationship: {resource} {relation} {subject}"
+            ) from e
+
+    async def lookup_subjects(
+        self,
+        resource: str,
+        relation: str,
+        subject_type: str,
+    ) -> list[SubjectRelation]:
+        """Find all subjects with a relationship to a resource.
+
+        Args:
+            resource: Resource identifier (e.g., "group:01ARZ3...")
+            relation: Relation name to look up (e.g., "member")
+            subject_type: Type of subjects to find (e.g., "user")
+
+        Returns:
+            List of SubjectRelation objects with subject IDs and their relations
+
+        Raises:
+            SpiceDBPermissionError: If the lookup fails
+
+        Example:
+            >>> await client.lookup_subjects("group:abc123", "member", "user")
+            [SubjectRelation(subject_id="user123", relation="member"), ...]
+        """
+        await self._ensure_client()
+        assert self._client is not None  # For mypy
+
+        # Parse resource
+        resource_type, resource_id = _parse_reference(resource, "resource")
+
+        try:
+            request = LookupSubjectsRequest(
+                consistency=Consistency(fully_consistent=True),
+                resource=ObjectReference(
+                    object_type=resource_type,
+                    object_id=resource_id,
+                ),
+                permission=relation,
+                subject_object_type=subject_type,
+            )
+
+            subjects = []
+            async for response in self._client.LookupSubjects(request):
+                # Extract subject ID from the response
+                # The subject_object_id contains the ID without the type prefix
+                subjects.append(
+                    SubjectRelation(
+                        subject_id=response.subject_object_id,
+                        relation=relation,
+                    )
+                )
+
+            self._probe.subjects_looked_up(
+                resource=resource,
+                relation=relation,
+                subject_type=subject_type,
+                count=len(subjects),
+            )
+
+            return subjects
+
+        except Exception as e:
+            self._probe.subject_lookup_failed(
+                resource=resource,
+                relation=relation,
+                subject_type=subject_type,
+                error=e,
+            )
+            raise SpiceDBPermissionError(
+                f"Failed to lookup subjects: {resource} {relation} {subject_type}"
             ) from e

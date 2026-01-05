@@ -24,7 +24,7 @@ from shared_kernel.authorization.observability import (
     AuthorizationProbe,
     DefaultAuthorizationProbe,
 )
-from shared_kernel.authorization.protocols import CheckRequest
+from shared_kernel.authorization.protocols import AuthorizationProvider, CheckRequest
 from shared_kernel.authorization.spicedb.exceptions import (
     SpiceDBConnectionError,
     SpiceDBPermissionError,
@@ -52,7 +52,7 @@ def _parse_reference(ref: str, ref_type: str) -> tuple[str, str]:
     return (parts[0], parts[1])
 
 
-class SpiceDBClient:
+class SpiceDBClient(AuthorizationProvider):
     """SpiceDB client implementation of AuthorizationProvider protocol.
 
     This client provides async methods for writing relationships, checking
@@ -85,13 +85,13 @@ class SpiceDBClient:
                 # Double-check after acquiring lock
                 if self._client is None:
                     try:
-                        from authzed.api.v1 import Client
+                        from authzed.api.v1 import AsyncClient
 
                         # Create credentials with preshared key
                         credentials = bearer_token_credentials(self._preshared_key)
 
                         # Initialize client
-                        self._client = Client(
+                        self._client = AsyncClient(
                             self._endpoint,
                             credentials,
                         )

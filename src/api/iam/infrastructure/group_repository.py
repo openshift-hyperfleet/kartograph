@@ -255,7 +255,7 @@ class GroupRepository(IGroupRepository):
         group_resource = format_resource(ResourceType.GROUP, group_id)
 
         # Lookup all subjects with each role type
-        for role in [Role.OWNER, Role.ADMIN, Role.MEMBER]:
+        for role in [Role.ADMIN, Role.MEMBER]:
             subjects = await self._authz.lookup_subjects(
                 resource=group_resource,
                 relation=role.value,

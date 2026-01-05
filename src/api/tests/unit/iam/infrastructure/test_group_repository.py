@@ -122,7 +122,7 @@ class TestSave:
             id=GroupId.generate(),
             name="Engineering",
         )
-        group.add_member(UserId.generate(), Role.OWNER)
+        group.add_member(UserId.generate(), Role.ADMIN)
         tenant_id = TenantId.generate()
 
         # Mock get_by_name to return None
@@ -186,10 +186,10 @@ class TestGetById:
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        # Mock SpiceDB members - return members only for OWNER role, empty for others
+        # Mock SpiceDB members - return members only for ADMIN role, empty for others
         async def mock_lookup(resource, relation, subject_type):
-            if relation == "owner":
-                return [SubjectRelation(subject_id=user_id.value, relation="owner")]
+            if relation == "admin":
+                return [SubjectRelation(subject_id=user_id.value, relation="admin")]
             return []
 
         mock_authz.lookup_subjects.side_effect = mock_lookup
@@ -201,7 +201,7 @@ class TestGetById:
         assert result.name == "Engineering"
         assert len(result.members) == 1
         assert result.members[0].user_id.value == user_id.value
-        assert result.members[0].role == Role.OWNER
+        assert result.members[0].role == Role.ADMIN
 
 
 class TestGetByName:
@@ -281,9 +281,12 @@ class TestDelete:
         mock_session.execute.return_value = mock_result
 
         # Mock members in SpiceDB
-        mock_authz.lookup_subjects.return_value = [
-            SubjectRelation(subject_id=user_id.value, relation="owner")
-        ]
+        async def mock_lookup(resource, relation, subject_type):
+            if relation == "admin":
+                return [SubjectRelation(subject_id=user_id.value, relation="admin")]
+            return []
+
+        mock_authz.lookup_subjects.side_effect = mock_lookup
 
         await repository.delete(group_id)
 

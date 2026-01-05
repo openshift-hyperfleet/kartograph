@@ -28,23 +28,17 @@ definition group {
     /** The tenant this group belongs to */
     relation tenant: tenant
 
-    /** Users who are owners of this group (full control) */
-    relation owner: user
-
-    /** Users who can administer this group (add/remove members) */
+    /** Users who can administer this group (manage members, delete group) */
     relation admin: user
 
     /** Users who are members of this group */
     relation member: user
 
     /** Permission to view group details */
-    permission view = owner + admin + member
+    permission view = admin + member
 
-    /** Permission to manage group membership */
-    permission manage = owner + admin
-
-    /** Permission to delete group */
-    permission delete = owner
+    /** Permission to manage group membership and delete group */
+    permission manage = admin
 }
 
 /**

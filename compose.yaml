@@ -85,7 +85,7 @@ services:
     command: ["schema", "write", "/schema/schema.zed"]
     environment:
       - ZED_ENDPOINT=spicedb:50051
-      - ZED_TOKEN=${SPICEDB_PRESHARED_KEY}
+      - ZED_TOKEN=changeme
     restart: "on-failure"
     depends_on:
       spicedb:

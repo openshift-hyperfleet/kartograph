@@ -49,7 +49,7 @@ class TestGroupRoundTrip:
             name="Engineering",
         )
         user_id = UserId.generate()
-        group.add_member(user_id, Role.OWNER)
+        group.add_member(user_id, Role.ADMIN)
         tenant_id = TenantId.generate()
 
         async with async_session.begin():
@@ -61,7 +61,7 @@ class TestGroupRoundTrip:
         assert retrieved is not None
         assert len(retrieved.members) == 1
         assert retrieved.members[0].user_id.value == user_id.value
-        assert retrieved.members[0].role == Role.OWNER
+        assert retrieved.members[0].role == Role.ADMIN
 
 
 class TestGroupUpdates:
@@ -95,8 +95,8 @@ class TestGroupUpdates:
     ):
         """Should add member and sync to SpiceDB."""
         group = Group(id=GroupId.generate(), name="Engineering")
-        owner_id = UserId.generate()
-        group.add_member(owner_id, Role.OWNER)
+        admin_id = UserId.generate()
+        group.add_member(admin_id, Role.ADMIN)
         tenant_id = TenantId.generate()
 
         # Save initial group
@@ -120,18 +120,18 @@ class TestGroupUpdates:
     ):
         """Should remove member and delete from SpiceDB."""
         group = Group(id=GroupId.generate(), name="Engineering")
-        owner1 = UserId.generate()
-        owner2 = UserId.generate()
-        group.add_member(owner1, Role.OWNER)
-        group.add_member(owner2, Role.OWNER)
+        admin1 = UserId.generate()
+        admin2 = UserId.generate()
+        group.add_member(admin1, Role.ADMIN)
+        group.add_member(admin2, Role.ADMIN)
         tenant_id = TenantId.generate()
 
         # Save initial group
         async with async_session.begin():
             await group_repository.save(group, tenant_id)
 
-        # Remove one owner
-        group.remove_member(owner2)
+        # Remove one admin
+        group.remove_member(admin2)
         async with async_session.begin():
             await group_repository.save(group, tenant_id)
 
@@ -139,7 +139,7 @@ class TestGroupUpdates:
         retrieved = await group_repository.get_by_id(group.id)
         assert retrieved is not None
         assert len(retrieved.members) == 1
-        assert retrieved.members[0].user_id.value == owner1.value
+        assert retrieved.members[0].user_id.value == admin1.value
 
     @pytest.mark.asyncio
     async def test_updates_member_role(
@@ -147,9 +147,9 @@ class TestGroupUpdates:
     ):
         """Should update member role in SpiceDB."""
         group = Group(id=GroupId.generate(), name="Engineering")
-        owner_id = UserId.generate()
+        admin_id = UserId.generate()
         member_id = UserId.generate()
-        group.add_member(owner_id, Role.OWNER)
+        group.add_member(admin_id, Role.ADMIN)
         group.add_member(member_id, Role.MEMBER)
         tenant_id = TenantId.generate()
 
@@ -182,7 +182,7 @@ class TestGroupDeletion:
         """Should delete group from PostgreSQL and members from SpiceDB."""
         group = Group(id=GroupId.generate(), name="Engineering")
         user_id = UserId.generate()
-        group.add_member(user_id, Role.OWNER)
+        group.add_member(user_id, Role.ADMIN)
         tenant_id = TenantId.generate()
 
         # Save group

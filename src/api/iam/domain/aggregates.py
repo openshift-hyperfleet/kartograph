@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from iam.domain.value_objects import GroupId, GroupMember, Role, UserId, WorkspaceId
+from iam.domain.value_objects import GroupId, GroupMember, Role, UserId
 
 
 @dataclass
@@ -16,7 +16,7 @@ class Group:
     """Group aggregate representing a collection of users working together.
 
     Groups are the primary unit for resource sharing and collaboration.
-    They belong to workspaces and can own knowledge graphs and data sources.
+    Workspace and tenant relationships are managed through the authorization system (SpiceDB).
 
     Business rules:
     - A group must have at least one owner at all times
@@ -26,7 +26,6 @@ class Group:
 
     id: GroupId
     name: str
-    workspace_id: WorkspaceId
     members: list[GroupMember] = field(default_factory=list)
 
     def add_member(self, user_id: UserId, role: Role) -> None:

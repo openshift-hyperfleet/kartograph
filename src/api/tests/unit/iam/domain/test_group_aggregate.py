@@ -7,7 +7,7 @@ then implement the Group aggregate to make these tests pass.
 import pytest
 
 from iam.domain.aggregates import Group
-from iam.domain.value_objects import GroupId, Role, UserId, WorkspaceId
+from iam.domain.value_objects import GroupId, Role, UserId
 
 
 class TestGroupCreation:
@@ -16,17 +16,14 @@ class TestGroupCreation:
     def test_creates_with_required_fields(self):
         """Test that Group can be created with required fields."""
         group_id = GroupId.generate()
-        workspace_id = WorkspaceId.generate()
 
         group = Group(
             id=group_id,
             name="Engineering",
-            workspace_id=workspace_id,
         )
 
         assert group.id == group_id
         assert group.name == "Engineering"
-        assert group.workspace_id == workspace_id
         assert group.members == []
 
     def test_requires_id(self):
@@ -34,7 +31,6 @@ class TestGroupCreation:
         with pytest.raises(TypeError):
             Group(
                 name="Engineering",
-                workspace_id=WorkspaceId.generate(),
             )
 
     def test_requires_name(self):
@@ -42,15 +38,6 @@ class TestGroupCreation:
         with pytest.raises(TypeError):
             Group(
                 id=GroupId.generate(),
-                workspace_id=WorkspaceId.generate(),
-            )
-
-    def test_requires_workspace_id(self):
-        """Test that Group requires a workspace_id."""
-        with pytest.raises(TypeError):
-            Group(
-                id=GroupId.generate(),
-                name="Engineering",
             )
 
 
@@ -62,7 +49,6 @@ class TestAddMember:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
 
@@ -77,7 +63,6 @@ class TestAddMember:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         owner_id = UserId.generate()
 
@@ -90,7 +75,6 @@ class TestAddMember:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         alice = UserId.generate()
         bob = UserId.generate()
@@ -105,7 +89,6 @@ class TestAddMember:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
 
@@ -123,7 +106,6 @@ class TestHasMember:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
         group.add_member(user_id, Role.MEMBER)
@@ -135,7 +117,6 @@ class TestHasMember:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
 
@@ -150,7 +131,6 @@ class TestGetMemberRole:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
         group.add_member(user_id, Role.ADMIN)
@@ -164,7 +144,6 @@ class TestGetMemberRole:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
 
@@ -181,7 +160,6 @@ class TestRemoveMember:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
         group.add_member(user_id, Role.MEMBER)
@@ -196,7 +174,6 @@ class TestRemoveMember:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
 
@@ -208,7 +185,6 @@ class TestRemoveMember:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         owner_id = UserId.generate()
         group.add_member(owner_id, Role.OWNER)
@@ -221,7 +197,6 @@ class TestRemoveMember:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         owner1 = UserId.generate()
         owner2 = UserId.generate()
@@ -242,7 +217,6 @@ class TestUpdateMemberRole:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
         group.add_member(user_id, Role.MEMBER)
@@ -256,7 +230,6 @@ class TestUpdateMemberRole:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
 
@@ -268,7 +241,6 @@ class TestUpdateMemberRole:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         owner_id = UserId.generate()
         group.add_member(owner_id, Role.OWNER)
@@ -281,7 +253,6 @@ class TestUpdateMemberRole:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         owner1 = UserId.generate()
         owner2 = UserId.generate()

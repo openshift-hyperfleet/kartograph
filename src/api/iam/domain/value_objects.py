@@ -90,6 +90,16 @@ class WorkspaceId(BaseId):
     pass
 
 
+@dataclass(frozen=True)
+class TenantId(BaseId):
+    """Identifier for a Tenant.
+
+    Uses ULID for sortability and distribution-friendly generation.
+    """
+
+    pass
+
+
 class Role(StrEnum):
     """Roles for group membership.
 

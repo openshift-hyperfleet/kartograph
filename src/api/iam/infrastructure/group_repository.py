@@ -196,34 +196,35 @@ class GroupRepository(IGroupRepository):
         Returns:
             List of Group aggregates (with members loaded from SpiceDB)
         """
-        # Fetch all groups from PostgreSQL, then filter by tenant relationship
-        stmt = select(GroupModel)
+        # Query SpiceDB to get all group IDs for this tenant (O(1) operation)
+        tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
+        group_ids = await self._authz.lookup_resources(
+            resource_type=ResourceType.GROUP.value,
+            permission="tenant",
+            subject=tenant_resource,
+        )
+
+        if not group_ids:
+            # No groups in this tenant
+            return []
+
+        # Fetch only those groups from PostgreSQL (single query with IN clause)
+        stmt = select(GroupModel).where(GroupModel.id.in_(group_ids))
         result = await self._session.execute(stmt)
         models = result.scalars().all()
 
+        # Hydrate members for each group
         groups = []
-        tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
-
         for model in models:
-            # Check if this group belongs to the tenant via SpiceDB
-            group_resource = format_resource(ResourceType.GROUP, model.id)
             try:
-                has_tenant = await self._authz.check_permission(
-                    resource=group_resource,
-                    permission="tenant",
-                    subject=tenant_resource,
-                )
-
-                if has_tenant:
-                    # Group belongs to tenant - hydrate and add to results
-                    members = await self._hydrate_members(model.id)
-                    groups.append(
-                        Group(
-                            id=GroupId(value=model.id),
-                            name=model.name,
-                            members=members,
-                        )
+                members = await self._hydrate_members(model.id)
+                groups.append(
+                    Group(
+                        id=GroupId(value=model.id),
+                        name=model.name,
+                        members=members,
                     )
+                )
             except Exception as e:
                 self._probe.membership_hydration_failed(model.id, str(e))
                 # Continue with other groups

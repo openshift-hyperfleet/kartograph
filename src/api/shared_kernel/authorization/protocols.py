@@ -134,3 +134,24 @@ class AuthorizationProvider(Protocol):
             AuthorizationError: If the lookup fails
         """
         ...
+
+    async def lookup_resources(
+        self,
+        resource_type: str,
+        permission: str,
+        subject: str,
+    ) -> list[str]:
+        """Find all resources of a type that a subject has permission on.
+
+        Args:
+            resource_type: Type of resources to find (e.g., "group")
+            permission: Permission or relation to check (e.g., "tenant")
+            subject: Subject identifier (e.g., "tenant:abc123")
+
+        Returns:
+            List of resource IDs (without type prefix)
+
+        Raises:
+            AuthorizationError: If the lookup fails
+        """
+        ...

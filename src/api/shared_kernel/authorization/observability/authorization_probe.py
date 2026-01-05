@@ -111,6 +111,26 @@ class AuthorizationProbe(Protocol):
         """Record that looking up subjects failed."""
         ...
 
+    def resources_looked_up(
+        self,
+        resource_type: str,
+        permission: str,
+        subject: str,
+        count: int,
+    ) -> None:
+        """Record that resources were looked up for a subject."""
+        ...
+
+    def resource_lookup_failed(
+        self,
+        resource_type: str,
+        permission: str,
+        subject: str,
+        error: Exception,
+    ) -> None:
+        """Record that looking up resources failed."""
+        ...
+
     def with_context(self, context: ObservationContext) -> AuthorizationProbe:
         """Create a new probe with observation context bound."""
         ...
@@ -295,6 +315,41 @@ class DefaultAuthorizationProbe:
             resource=resource,
             relation=relation,
             subject_type=subject_type,
+            error=str(error),
+            error_type=type(error).__name__,
+            **self._get_context_kwargs(),
+        )
+
+    def resources_looked_up(
+        self,
+        resource_type: str,
+        permission: str,
+        subject: str,
+        count: int,
+    ) -> None:
+        """Record that resources were looked up for a subject."""
+        self._logger.info(
+            "authorization_resources_looked_up",
+            resource_type=resource_type,
+            permission=permission,
+            subject=subject,
+            count=count,
+            **self._get_context_kwargs(),
+        )
+
+    def resource_lookup_failed(
+        self,
+        resource_type: str,
+        permission: str,
+        subject: str,
+        error: Exception,
+    ) -> None:
+        """Record that looking up resources failed."""
+        self._logger.error(
+            "authorization_resource_lookup_failed",
+            resource_type=resource_type,
+            permission=permission,
+            subject=subject,
             error=str(error),
             error_type=type(error).__name__,
             **self._get_context_kwargs(),

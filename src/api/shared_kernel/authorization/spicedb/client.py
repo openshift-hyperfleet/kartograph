@@ -11,6 +11,7 @@ import asyncio
 from authzed.api.v1 import (
     CheckPermissionRequest,
     Consistency,
+    LookupResourcesRequest,
     LookupSubjectsRequest,
     ObjectReference,
     Relationship,
@@ -412,4 +413,71 @@ class SpiceDBClient(AuthorizationProvider):
             )
             raise SpiceDBPermissionError(
                 f"Failed to lookup subjects: {resource} {relation} {subject_type}"
+            ) from e
+
+    async def lookup_resources(
+        self,
+        resource_type: str,
+        permission: str,
+        subject: str,
+    ) -> list[str]:
+        """Find all resources of a type that a subject has permission on.
+
+        Args:
+            resource_type: Type of resources to find (e.g., "group")
+            permission: Permission or relation to check (e.g., "tenant")
+            subject: Subject identifier (e.g., "tenant:abc123")
+
+        Returns:
+            List of resource IDs (without type prefix)
+
+        Raises:
+            SpiceDBPermissionError: If the lookup fails
+
+        Example:
+            >>> await client.lookup_resources("group", "tenant", "tenant:abc123")
+            ["group-id-1", "group-id-2", ...]
+        """
+        await self._ensure_client()
+        assert self._client is not None  # For mypy
+
+        # Parse subject
+        subject_type, subject_id = _parse_reference(subject, "subject")
+
+        try:
+            request = LookupResourcesRequest(
+                consistency=Consistency(fully_consistent=True),
+                resource_object_type=resource_type,
+                permission=permission,
+                subject=SubjectReference(
+                    object=ObjectReference(
+                        object_type=subject_type,
+                        object_id=subject_id,
+                    ),
+                ),
+            )
+
+            resource_ids = []
+            async for response in self._client.LookupResources(request):
+                # Extract resource ID from the response
+                resource_ids.append(response.resource_object_id)
+
+            self._probe.resources_looked_up(
+                resource_type=resource_type,
+                permission=permission,
+                subject=subject,
+                count=len(resource_ids),
+            )
+
+            return resource_ids
+
+        except Exception as e:
+            self._probe.resource_lookup_failed(
+                resource_type=resource_type,
+                permission=permission,
+                subject=subject,
+                error=e,
+            )
+            raise SpiceDBPermissionError(
+                f"Failed to lookup resources: {resource_type} {permission} {subject}"
             ) from e

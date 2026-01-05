@@ -60,6 +60,37 @@ services:
       timeout: 5s
       retries: 5
 
+  # Init service: Run Alembic database migrations
+  db-migrate:
+    build:
+      context: ./src/api
+      dockerfile: Dockerfile
+    env_file:
+      - env/api.env
+    networks:
+      - kartograph
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    restart: "on-failure"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Init service: Load SpiceDB authorization schema
+  spicedb-schema-init:
+    image: authzed/zed:latest
+    networks:
+      - kartograph
+    volumes:
+      - ./src/api/shared_kernel/authorization/spicedb/schema.zed:/schema/schema.zed:ro
+    command: ["schema", "write", "/schema/schema.zed"]
+    environment:
+      - ZED_ENDPOINT=spicedb:50051
+      - ZED_TOKEN=${SPICEDB_PRESHARED_KEY}
+    restart: "on-failure"
+    depends_on:
+      spicedb:
+        condition: service_started
+
   api:
     build:
       context: ./src/api
@@ -73,6 +104,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+      spicedb-schema-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
       test:

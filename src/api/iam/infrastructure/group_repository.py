@@ -21,6 +21,8 @@ from iam.ports.exceptions import DuplicateGroupNameError
 from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
+    RelationshipSpec,
+    RelationType,
     ResourceType,
     format_resource,
     format_subject,
@@ -95,7 +97,7 @@ class GroupRepository(IGroupRepository):
             tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
             await self._authz.write_relationship(
                 resource=group_resource,
-                relation="tenant",
+                relation=RelationType.TENANT,
                 subject=tenant_resource,
             )
 
@@ -165,7 +167,7 @@ class GroupRepository(IGroupRepository):
                 # Check if group has tenant relationship in SpiceDB
                 has_relationship = await self._authz.check_permission(
                     resource=group_resource,
-                    permission="tenant",
+                    permission=RelationType.TENANT,
                     subject=tenant_resource,
                 )
 
@@ -200,7 +202,7 @@ class GroupRepository(IGroupRepository):
         tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
         group_ids = await self._authz.lookup_resources(
             resource_type=ResourceType.GROUP.value,
-            permission="tenant",
+            permission=RelationType.TENANT,
             subject=tenant_resource,
         )
 
@@ -265,15 +267,21 @@ class GroupRepository(IGroupRepository):
         # Add member relationships
         for member in members:
             relationships_to_delete.append(
-                (
-                    group_resource,
-                    member.role.value,
-                    format_subject(ResourceType.USER, member.user_id.value),
+                RelationshipSpec(
+                    resource=group_resource,
+                    relation=member.role.value,
+                    subject=format_subject(ResourceType.USER, member.user_id.value),
                 )
             )
 
         # Add tenant relationship
-        relationships_to_delete.append((group_resource, "tenant", tenant_resource))
+        relationships_to_delete.append(
+            RelationshipSpec(
+                resource=group_resource,
+                relation=RelationType.TENANT,
+                subject=tenant_resource,
+            )
+        )
 
         # Bulk delete in single SpiceDB request
         await self._authz.delete_relationships(relationships_to_delete)
@@ -335,10 +343,10 @@ class GroupRepository(IGroupRepository):
         for member_key in current_member_keys - new_member_keys:
             user_id, role = member_key
             deletes.append(
-                (
-                    group_resource,
-                    role,
-                    format_subject(ResourceType.USER, user_id),
+                RelationshipSpec(
+                    resource=group_resource,
+                    relation=role,
+                    subject=format_subject(ResourceType.USER, user_id),
                 )
             )
 
@@ -347,10 +355,10 @@ class GroupRepository(IGroupRepository):
         for member_key in new_member_keys - current_member_keys:
             user_id, role = member_key
             writes.append(
-                (
-                    group_resource,
-                    role,
-                    format_subject(ResourceType.USER, user_id),
+                RelationshipSpec(
+                    resource=group_resource,
+                    relation=role,
+                    subject=format_subject(ResourceType.USER, user_id),
                 )
             )
 

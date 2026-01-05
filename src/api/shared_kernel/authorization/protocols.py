@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Protocol, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from shared_kernel.authorization.types import SubjectRelation
+    from shared_kernel.authorization.types import RelationshipSpec, SubjectRelation
 
 
 @dataclass(frozen=True)
@@ -57,12 +57,12 @@ class AuthorizationProvider(Protocol):
 
     async def write_relationships(
         self,
-        relationships: list[tuple[str, str, str]],
+        relationships: list[RelationshipSpec],
     ) -> None:
         """Write multiple relationships in a single request.
 
         Args:
-            relationships: List of (resource, relation, subject) tuples to write
+            relationships: List of RelationshipSpec objects to write
 
         Raises:
             AuthorizationError: If the write fails
@@ -130,12 +130,12 @@ class AuthorizationProvider(Protocol):
 
     async def delete_relationships(
         self,
-        relationships: list[tuple[str, str, str]],
+        relationships: list[RelationshipSpec],
     ) -> None:
         """Delete multiple relationships in a single request.
 
         Args:
-            relationships: List of (resource, relation, subject) tuples to delete
+            relationships: List of RelationshipSpec objects to delete
 
         Raises:
             AuthorizationError: If the delete fails

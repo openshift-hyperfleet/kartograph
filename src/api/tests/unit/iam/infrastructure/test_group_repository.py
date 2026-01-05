@@ -13,7 +13,7 @@ from iam.infrastructure.models import GroupModel
 from iam.ports.exceptions import DuplicateGroupNameError
 from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
-from shared_kernel.authorization.types import SubjectRelation
+from shared_kernel.authorization.types import RelationshipSpec, SubjectRelation
 
 
 @pytest.fixture
@@ -308,7 +308,8 @@ class TestDelete:
 
         # Should call delete_relationships with both member and tenant
         assert mock_authz.delete_relationships.called
-        # Verify bulk delete was called with list of relationships
+        # Verify bulk delete was called with list of RelationshipSpec objects
         call_args = mock_authz.delete_relationships.call_args
         relationships = call_args[0][0]
         assert len(relationships) >= 2  # At least member + tenant
+        assert all(isinstance(r, RelationshipSpec) for r in relationships)

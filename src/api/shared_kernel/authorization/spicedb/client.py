@@ -32,7 +32,7 @@ from shared_kernel.authorization.spicedb.exceptions import (
     SpiceDBConnectionError,
     SpiceDBPermissionError,
 )
-from shared_kernel.authorization.types import SubjectRelation
+from shared_kernel.authorization.types import RelationshipSpec, SubjectRelation
 
 
 class RelationshipOperation(IntEnum):
@@ -221,13 +221,13 @@ class SpiceDBClient(AuthorizationProvider):
 
     async def _execute_relationship_updates(
         self,
-        relationships: list[tuple[str, str, str]],
+        relationships: list[RelationshipSpec],
         operation: RelationshipOperation,
     ) -> None:
         """Execute relationship updates (write or delete) with error handling.
 
         Args:
-            relationships: List of (resource, relation, subject) tuples
+            relationships: List of RelationshipSpec objects
             operation: RelationshipOperation.WRITE or DELETE
 
         Raises:
@@ -241,19 +241,25 @@ class SpiceDBClient(AuthorizationProvider):
 
         try:
             updates = [
-                _build_relationship_update(resource, relation, subject, operation)
-                for resource, relation, subject in relationships
+                _build_relationship_update(
+                    rel.resource, rel.relation, rel.subject, operation
+                )
+                for rel in relationships
             ]
 
             request = WriteRelationshipsRequest(updates=updates)
             await self._client.WriteRelationships(request)
 
             # Log successful operations
-            for resource, relation, subject in relationships:
+            for rel in relationships:
                 if operation == RelationshipOperation.WRITE:
-                    self._probe.relationship_written(resource, relation, subject)
+                    self._probe.relationship_written(
+                        rel.resource, rel.relation, rel.subject
+                    )
                 else:
-                    self._probe.relationship_deleted(resource, relation, subject)
+                    self._probe.relationship_deleted(
+                        rel.resource, rel.relation, rel.subject
+                    )
 
         except Exception as e:
             if operation == RelationshipOperation.WRITE:
@@ -270,12 +276,12 @@ class SpiceDBClient(AuthorizationProvider):
 
     async def write_relationships(
         self,
-        relationships: list[tuple[str, str, str]],
+        relationships: list[RelationshipSpec],
     ) -> None:
         """Write multiple relationships in a single request.
 
         Args:
-            relationships: List of (resource, relation, subject) tuples to write
+            relationships: List of RelationshipSpec objects to write
 
         Raises:
             SpiceDBPermissionError: If the write fails
@@ -456,12 +462,12 @@ class SpiceDBClient(AuthorizationProvider):
 
     async def delete_relationships(
         self,
-        relationships: list[tuple[str, str, str]],
+        relationships: list[RelationshipSpec],
     ) -> None:
         """Delete multiple relationships in a single request.
 
         Args:
-            relationships: List of (resource, relation, subject) tuples to delete
+            relationships: List of RelationshipSpec objects to delete
 
         Raises:
             SpiceDBPermissionError: If the delete fails

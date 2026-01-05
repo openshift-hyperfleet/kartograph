@@ -55,6 +55,43 @@ def _parse_reference(ref: str, ref_type: str) -> tuple[str, str]:
     return (parts[0], parts[1])
 
 
+def _build_relationship_update(
+    resource: str, relation: str, subject: str, operation: int
+) -> RelationshipUpdate:
+    """Build a RelationshipUpdate for write or delete operations.
+
+    Args:
+        resource: Resource identifier (e.g., "group:abc123")
+        relation: Relation name (e.g., "member")
+        subject: Subject identifier (e.g., "user:alice")
+        operation: RelationshipUpdate.OPERATION_TOUCH or OPERATION_DELETE
+
+    Returns:
+        RelationshipUpdate object ready for WriteRelationshipsRequest
+    """
+    resource_type, resource_id = _parse_reference(resource, "resource")
+    subject_type, subject_id = _parse_reference(subject, "subject")
+
+    relationship = Relationship(
+        resource=ObjectReference(
+            object_type=resource_type,
+            object_id=resource_id,
+        ),
+        relation=relation,
+        subject=SubjectReference(
+            object=ObjectReference(
+                object_type=subject_type,
+                object_id=subject_id,
+            ),
+        ),
+    )
+
+    return RelationshipUpdate(
+        operation=operation,
+        relationship=relationship,
+    )
+
+
 class SpiceDBClient(AuthorizationProvider):
     """SpiceDB client implementation of AuthorizationProvider protocol.
 
@@ -193,32 +230,12 @@ class SpiceDBClient(AuthorizationProvider):
         assert self._client is not None  # For mypy
 
         try:
-            updates = []
-            for resource, relation, subject in relationships:
-                # Parse resource and subject
-                resource_type, resource_id = _parse_reference(resource, "resource")
-                subject_type, subject_id = _parse_reference(subject, "subject")
-
-                relationship = Relationship(
-                    resource=ObjectReference(
-                        object_type=resource_type,
-                        object_id=resource_id,
-                    ),
-                    relation=relation,
-                    subject=SubjectReference(
-                        object=ObjectReference(
-                            object_type=subject_type,
-                            object_id=subject_id,
-                        ),
-                    ),
+            updates = [
+                _build_relationship_update(
+                    resource, relation, subject, RelationshipUpdate.OPERATION_TOUCH
                 )
-
-                updates.append(
-                    RelationshipUpdate(
-                        operation=RelationshipUpdate.OPERATION_TOUCH,
-                        relationship=relationship,
-                    )
-                )
+                for resource, relation, subject in relationships
+            ]
 
             request = WriteRelationshipsRequest(updates=updates)
             await self._client.WriteRelationships(request)
@@ -431,32 +448,12 @@ class SpiceDBClient(AuthorizationProvider):
         assert self._client is not None  # For mypy
 
         try:
-            updates = []
-            for resource, relation, subject in relationships:
-                # Parse resource and subject
-                resource_type, resource_id = _parse_reference(resource, "resource")
-                subject_type, subject_id = _parse_reference(subject, "subject")
-
-                relationship = Relationship(
-                    resource=ObjectReference(
-                        object_type=resource_type,
-                        object_id=resource_id,
-                    ),
-                    relation=relation,
-                    subject=SubjectReference(
-                        object=ObjectReference(
-                            object_type=subject_type,
-                            object_id=subject_id,
-                        ),
-                    ),
+            updates = [
+                _build_relationship_update(
+                    resource, relation, subject, RelationshipUpdate.OPERATION_DELETE
                 )
-
-                updates.append(
-                    RelationshipUpdate(
-                        operation=RelationshipUpdate.OPERATION_DELETE,
-                        relationship=relationship,
-                    )
-                )
+                for resource, relation, subject in relationships
+            ]
 
             request = WriteRelationshipsRequest(updates=updates)
             await self._client.WriteRelationships(request)

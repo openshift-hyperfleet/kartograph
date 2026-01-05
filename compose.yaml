@@ -1,6 +1,47 @@
 services:
   spicedb:
     image: authzed/spicedb:v1.48.0
+    command: "serve"
+    env_file:
+      - env/spicedb.env
+    networks:
+      - kartograph
+    restart: unless-stopped
+    environment:
+      - "SPICEDB_DATASTORE_ENGINE=postgres"
+    depends_on:
+      spicedb-migrate:
+        condition: service_completed_successfully
+
+  spicedb-migrate:
+    image: "authzed/spicedb"
+    command: "migrate head"
+    restart: "on-failure"
+    networks:
+      - kartograph
+    env_file:
+      - env/spicedb.env
+    environment:
+      - "SPICEDB_DATASTORE_ENGINE=postgres"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+  # Transient service to ensure the 'spicedb' database exists
+  db-init:
+    image: postgres:17-alpine
+    networks:
+      - kartograph
+    env_file:
+      - env/postgres.env
+    command: >
+      sh -c "
+      PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres -U $${POSTGRES_USER} -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname = 'spicedb'\" | grep -q 1 || 
+      PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres -U $${POSTGRES_USER} -d postgres -c \"CREATE DATABASE spicedb;\"
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   postgres:
     image: apache/age:release_PG17_1.6.0

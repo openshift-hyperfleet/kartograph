@@ -196,26 +196,34 @@ class GroupRepository(IGroupRepository):
         Returns:
             List of Group aggregates (with members loaded from SpiceDB)
         """
-        # TODO: Implement proper tenant filtering via SpiceDB
-        # For now, return all groups
-        # In production, we'd query SpiceDB for all groups with tenant relationship
-        # then fetch those from PostgreSQL and hydrate
-
+        # Fetch all groups from PostgreSQL, then filter by tenant relationship
         stmt = select(GroupModel)
         result = await self._session.execute(stmt)
         models = result.scalars().all()
 
         groups = []
+        tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
+
         for model in models:
+            # Check if this group belongs to the tenant via SpiceDB
+            group_resource = format_resource(ResourceType.GROUP, model.id)
             try:
-                members = await self._hydrate_members(model.id)
-                groups.append(
-                    Group(
-                        id=GroupId(value=model.id),
-                        name=model.name,
-                        members=members,
-                    )
+                has_tenant = await self._authz.check_permission(
+                    resource=group_resource,
+                    permission="tenant",
+                    subject=tenant_resource,
                 )
+
+                if has_tenant:
+                    # Group belongs to tenant - hydrate and add to results
+                    members = await self._hydrate_members(model.id)
+                    groups.append(
+                        Group(
+                            id=GroupId(value=model.id),
+                            name=model.name,
+                            members=members,
+                        )
+                    )
             except Exception as e:
                 self._probe.membership_hydration_failed(model.id, str(e))
                 # Continue with other groups

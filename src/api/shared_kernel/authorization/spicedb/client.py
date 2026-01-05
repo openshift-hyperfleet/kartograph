@@ -7,6 +7,7 @@ error handling and type safety.
 from __future__ import annotations
 
 import asyncio
+from enum import IntEnum
 
 from authzed.api.v1 import (
     CheckPermissionRequest,
@@ -32,6 +33,13 @@ from shared_kernel.authorization.spicedb.exceptions import (
     SpiceDBPermissionError,
 )
 from shared_kernel.authorization.types import SubjectRelation
+
+
+class RelationshipOperation(IntEnum):
+    """Enum for relationship operation types."""
+
+    WRITE = RelationshipUpdate.OPERATION_TOUCH
+    DELETE = RelationshipUpdate.OPERATION_DELETE
 
 
 def _parse_reference(ref: str, ref_type: str) -> tuple[str, str]:
@@ -214,15 +222,13 @@ class SpiceDBClient(AuthorizationProvider):
     async def _execute_relationship_updates(
         self,
         relationships: list[tuple[str, str, str]],
-        operation: int,
-        operation_name: str,
+        operation: RelationshipOperation,
     ) -> None:
         """Execute relationship updates (write or delete) with error handling.
 
         Args:
             relationships: List of (resource, relation, subject) tuples
-            operation: OPERATION_TOUCH or OPERATION_DELETE
-            operation_name: "write" or "delete" for error messages
+            operation: RelationshipOperation.WRITE or DELETE
 
         Raises:
             SpiceDBPermissionError: If the operation fails
@@ -244,13 +250,13 @@ class SpiceDBClient(AuthorizationProvider):
 
             # Log successful operations
             for resource, relation, subject in relationships:
-                if operation == RelationshipUpdate.OPERATION_TOUCH:
+                if operation == RelationshipOperation.WRITE:
                     self._probe.relationship_written(resource, relation, subject)
                 else:
                     self._probe.relationship_deleted(resource, relation, subject)
 
         except Exception as e:
-            if operation == RelationshipUpdate.OPERATION_TOUCH:
+            if operation == RelationshipOperation.WRITE:
                 self._probe.relationship_write_failed(
                     "<bulk>", "<multiple>", "<multiple>", e
                 )
@@ -259,7 +265,7 @@ class SpiceDBClient(AuthorizationProvider):
                     "<bulk>", "<multiple>", "<multiple>", e
                 )
             raise SpiceDBPermissionError(
-                f"Failed to {operation_name} {len(relationships)} relationships"
+                f"Failed to {repr(operation)} {len(relationships)} relationships"
             ) from e
 
     async def write_relationships(
@@ -275,7 +281,7 @@ class SpiceDBClient(AuthorizationProvider):
             SpiceDBPermissionError: If the write fails
         """
         await self._execute_relationship_updates(
-            relationships, RelationshipUpdate.OPERATION_TOUCH, "write"
+            relationships, RelationshipOperation.WRITE
         )
 
     async def check_permission(
@@ -461,7 +467,7 @@ class SpiceDBClient(AuthorizationProvider):
             SpiceDBPermissionError: If the delete fails
         """
         await self._execute_relationship_updates(
-            relationships, RelationshipUpdate.OPERATION_DELETE, "delete"
+            relationships, RelationshipOperation.DELETE
         )
 
     async def lookup_subjects(

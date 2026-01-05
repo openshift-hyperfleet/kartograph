@@ -90,7 +90,7 @@ services:
       - kartograph
     volumes:
       - ./src/api/shared_kernel/authorization/spicedb/schema.zed:/schema/schema.zed:ro
-    command: ["schema", "write", "/schema/schema.zed"]
+    command: ["schema", "write", "--insecure", "/schema/schema.zed"]
     environment:
       - ZED_ENDPOINT=spicedb:50051
       - ZED_TOKEN=${SPICEDB_PRESHARED_KEY:-changeme}

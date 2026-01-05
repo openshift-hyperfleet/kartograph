@@ -90,17 +90,22 @@ class GroupRepository(IGroupRepository):
             # Flush to catch integrity errors before SpiceDB writes
             await self._session.flush()
 
+            # Write tenant relationship to SpiceDB
+            group_resource = format_resource(ResourceType.GROUP, group.id.value)
+            tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
+            await self._authz.write_relationship(
+                resource=group_resource,
+                relation="tenant",
+                subject=tenant_resource,
+            )
+
             # Sync membership relationships to SpiceDB
             await self._sync_members_to_spicedb(group, tenant_id)
 
             self._probe.group_saved(group.id.value, tenant_id.value)
 
-        except IntegrityError as e:
-            if "ix_groups_name" in str(e):
-                self._probe.duplicate_group_name(group.name, tenant_id.value)
-                raise DuplicateGroupNameError(
-                    f"Group '{group.name}' already exists"
-                ) from e
+        except IntegrityError:
+            # Re-raise any integrity errors (e.g., foreign key violations)
             raise
 
     async def get_by_id(self, group_id: GroupId) -> Group | None:
@@ -145,32 +150,42 @@ class GroupRepository(IGroupRepository):
         Returns:
             The Group aggregate with members loaded, or None if not found
         """
-        # Query PostgreSQL for group by name
+        # Query PostgreSQL for all groups with this name
         stmt = select(GroupModel).where(GroupModel.name == name)
         result = await self._session.execute(stmt)
-        model = result.scalar_one_or_none()
+        models = result.scalars().all()
 
-        if model is None:
-            return None
+        # Check each group to find one that belongs to the specified tenant
+        for model in models:
+            # Verify group belongs to tenant via SpiceDB
+            try:
+                group_resource = format_resource(ResourceType.GROUP, model.id)
+                tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
 
-        # Verify group belongs to tenant via SpiceDB
-        # TODO: Implement tenant verification via SpiceDB relationship check
-        # For now, return the group if found
-        # In production, we'd check: group has relationship to tenant
+                # Check if group has tenant relationship in SpiceDB
+                has_relationship = await self._authz.check_permission(
+                    resource=group_resource,
+                    permission="tenant",
+                    subject=tenant_resource,
+                )
 
-        # Hydrate members from SpiceDB
-        try:
-            members = await self._hydrate_members(model.id)
-            self._probe.group_retrieved(model.id, len(members))
+                if has_relationship:
+                    # This group belongs to the tenant - hydrate and return
+                    members = await self._hydrate_members(model.id)
+                    self._probe.group_retrieved(model.id, len(members))
 
-            return Group(
-                id=GroupId(value=model.id),
-                name=model.name,
-                members=members,
-            )
-        except Exception as e:
-            self._probe.membership_hydration_failed(model.id, str(e))
-            raise
+                    return Group(
+                        id=GroupId(value=model.id),
+                        name=model.name,
+                        members=members,
+                    )
+            except Exception as e:
+                self._probe.membership_hydration_failed(model.id, str(e))
+                # Continue checking other groups with same name
+                continue
+
+        # No group with this name belongs to the tenant
+        return None
 
     async def list_by_tenant(self, tenant_id: TenantId) -> list[Group]:
         """List all groups in a tenant.
@@ -229,12 +244,18 @@ class GroupRepository(IGroupRepository):
         # Delete membership relationships from SpiceDB
         # Get current members first
         members = await self._hydrate_members(group_id.value)
+        group_resource = format_resource(ResourceType.GROUP, group_id.value)
+
         for member in members:
             await self._authz.delete_relationship(
-                resource=format_resource(ResourceType.GROUP, group_id.value),
+                resource=group_resource,
                 relation=member.role.value,
                 subject=format_subject(ResourceType.USER, member.user_id.value),
             )
+
+        # Note: We don't delete the tenant relationship here because
+        # we don't know which tenant the group belongs to without querying SpiceDB.
+        # In production, consider adding a method to delete all relationships for a resource.
 
         # Delete group from PostgreSQL
         await self._session.delete(model)

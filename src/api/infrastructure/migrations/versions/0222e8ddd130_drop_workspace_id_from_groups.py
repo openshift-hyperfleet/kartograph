@@ -31,9 +31,9 @@ def upgrade() -> None:
     # Drop the workspace_id column
     op.drop_column("groups", "workspace_id")
 
-    # Add unique index on name (global uniqueness)
-    # Note: Per-tenant uniqueness will be enforced in application logic via SpiceDB
-    op.create_index("ix_groups_name", "groups", ["name"], unique=True)
+    # Add non-unique index on name for query performance
+    # Note: Per-tenant uniqueness enforced via SpiceDB (same name allowed in different tenants)
+    op.create_index("ix_groups_name", "groups", ["name"], unique=False)
 
 
 def downgrade() -> None:

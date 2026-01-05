@@ -52,7 +52,7 @@ async def async_session(
 def spicedb_client() -> SpiceDBClient:
     """Provide a SpiceDB client for integration tests."""
     endpoint = os.getenv("SPICEDB_ENDPOINT", "localhost:50051")
-    preshared_key = os.getenv("SPICEDB_PRESHARED_KEY", "test_key")
+    preshared_key = os.getenv("SPICEDB_PRESHARED_KEY", "changeme")
 
     return SpiceDBClient(
         endpoint=endpoint,
@@ -68,13 +68,13 @@ async def clean_iam_data(async_session: AsyncSession, spicedb_client: SpiceDBCli
     this fixture will skip cleanup gracefully.
     """
     # Clean before test
-    async with async_session.begin():
-        try:
-            await async_session.execute(text("TRUNCATE TABLE groups CASCADE"))
-            await async_session.execute(text("TRUNCATE TABLE users CASCADE"))
-        except Exception:
-            # Tables might not exist if migrations haven't been run
-            pass
+    try:
+        await async_session.execute(text("TRUNCATE TABLE groups CASCADE"))
+        await async_session.execute(text("TRUNCATE TABLE users CASCADE"))
+        await async_session.commit()
+    except Exception:
+        # Tables might not exist if migrations haven't been run
+        await async_session.rollback()
 
     # Note: SpiceDB cleanup would require iterating over all relationships
     # For now, rely on test isolation
@@ -82,12 +82,12 @@ async def clean_iam_data(async_session: AsyncSession, spicedb_client: SpiceDBCli
     yield
 
     # Clean after test
-    async with async_session.begin():
-        try:
-            await async_session.execute(text("TRUNCATE TABLE groups CASCADE"))
-            await async_session.execute(text("TRUNCATE TABLE users CASCADE"))
-        except Exception:
-            pass
+    try:
+        await async_session.execute(text("TRUNCATE TABLE groups CASCADE"))
+        await async_session.execute(text("TRUNCATE TABLE users CASCADE"))
+        await async_session.commit()
+    except Exception:
+        await async_session.rollback()
 
 
 @pytest.fixture

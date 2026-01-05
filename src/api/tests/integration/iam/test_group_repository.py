@@ -190,7 +190,9 @@ class TestGroupDeletion:
             await group_repository.save(group, tenant_id)
 
         # Verify it exists
-        assert await group_repository.get_by_id(group.id) is not None
+        retrieved = await group_repository.get_by_id(group.id)
+        assert retrieved is not None
+        await async_session.commit()  # Commit the autobegin transaction
 
         # Delete group
         async with async_session.begin():
@@ -199,7 +201,8 @@ class TestGroupDeletion:
         assert result is True
 
         # Verify it's gone
-        assert await group_repository.get_by_id(group.id) is None
+        deleted = await group_repository.get_by_id(group.id)
+        assert deleted is None
 
 
 class TestGroupUniqueness:

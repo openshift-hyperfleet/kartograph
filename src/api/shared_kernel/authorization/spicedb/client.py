@@ -19,7 +19,7 @@ from authzed.api.v1 import (
     WriteRelationshipsRequest,
 )
 from authzed.api.v1.permission_service_pb2 import CheckPermissionResponse
-from grpcutil import bearer_token_credentials
+from grpcutil import insecure_bearer_token_credentials
 
 from shared_kernel.authorization.observability import (
     AuthorizationProbe,
@@ -90,7 +90,9 @@ class SpiceDBClient(AuthorizationProvider):
                         from authzed.api.v1 import AsyncClient
 
                         # Create credentials with preshared key
-                        credentials = bearer_token_credentials(self._preshared_key)
+                        credentials = insecure_bearer_token_credentials(
+                            self._preshared_key
+                        )
 
                         # Initialize client
                         self._client = AsyncClient(

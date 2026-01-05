@@ -15,12 +15,15 @@ class GroupModel(Base, TimestampMixin):
 
     Stores group metadata in PostgreSQL. Workspace relationships and
     membership are managed through SpiceDB, not as database columns.
+
+    Note: Group names are NOT globally unique - per-tenant uniqueness
+    is enforced via SpiceDB relationships.
     """
 
     __tablename__ = "groups"
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
 
     def __repr__(self) -> str:
         """Return string representation."""

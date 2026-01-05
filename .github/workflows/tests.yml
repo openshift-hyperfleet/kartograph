@@ -31,6 +31,19 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      spicedb:
+        image: authzed/spicedb:v1.48.0
+        env:
+          SPICEDB_GRPC_PRESHARED_KEY: test_key
+          SPICEDB_DATASTORE_ENGINE: memory
+        ports:
+          - 50051:50051
+        options: >-
+          --health-cmd "grpc_health_probe -addr=:50051 || exit 0"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -47,6 +60,25 @@ jobs:
       - name: Install dependencies
         working-directory: src/api
         run: uv sync --frozen
+
+      - name: Run Alembic migrations
+        working-directory: src/api
+        env:
+          KARTOGRAPH_DB_HOST: localhost
+          KARTOGRAPH_DB_PORT: 5432
+          KARTOGRAPH_DB_DATABASE: kartograph
+          KARTOGRAPH_DB_USERNAME: kartograph
+          KARTOGRAPH_DB_PASSWORD: kartograph_dev_password
+        run: uv run alembic upgrade head
+
+      - name: Load SpiceDB schema
+        working-directory: src/api
+        run: |
+          docker run --rm --network host \
+            -v $PWD/shared_kernel/authorization/spicedb/schema.zed:/schema/schema.zed:ro \
+            -e ZED_ENDPOINT=localhost:50051 \
+            -e ZED_TOKEN=test_key \
+            authzed/zed:latest schema write --insecure /schema/schema.zed
 
       - name: Run ruff (linter)
         working-directory: src/api
@@ -69,4 +101,6 @@ jobs:
           KARTOGRAPH_DB_USERNAME: kartograph
           KARTOGRAPH_DB_PASSWORD: kartograph_dev_password
           KARTOGRAPH_DB_GRAPH_NAME: test_graph
+          SPICEDB_ENDPOINT: localhost:50051
+          SPICEDB_PRESHARED_KEY: test_key
         run: uv run pytest -v

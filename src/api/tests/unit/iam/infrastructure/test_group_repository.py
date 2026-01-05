@@ -30,7 +30,10 @@ def mock_authz():
     # Make all methods async
     authz.write_relationship = AsyncMock()
     authz.delete_relationship = AsyncMock()
+    authz.delete_relationships = AsyncMock()
     authz.lookup_subjects = AsyncMock(return_value=[])
+    authz.lookup_resources = AsyncMock(return_value=[])
+    authz.check_permission = AsyncMock(return_value=False)
     return authz
 
 
@@ -250,12 +253,13 @@ class TestDelete:
     async def test_returns_false_when_not_found(self, repository, mock_session):
         """Should return False when group doesn't exist."""
         group_id = GroupId.generate()
+        tenant_id = TenantId.generate()
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
         mock_session.execute.return_value = mock_result
 
-        result = await repository.delete(group_id)
+        result = await repository.delete(group_id, tenant_id)
 
         assert result is False
 
@@ -265,13 +269,14 @@ class TestDelete:
     ):
         """Should delete group from PostgreSQL."""
         group_id = GroupId.generate()
+        tenant_id = TenantId.generate()
         model = GroupModel(id=group_id.value, name="Engineering")
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        result = await repository.delete(group_id)
+        result = await repository.delete(group_id, tenant_id)
 
         assert result is True
         mock_session.delete.assert_called_once_with(model)
@@ -282,6 +287,7 @@ class TestDelete:
     ):
         """Should delete member relationships from SpiceDB."""
         group_id = GroupId.generate()
+        tenant_id = TenantId.generate()
         user_id = UserId.generate()
         model = GroupModel(id=group_id.value, name="Engineering")
 
@@ -297,7 +303,11 @@ class TestDelete:
 
         mock_authz.lookup_subjects.side_effect = mock_lookup
 
-        await repository.delete(group_id)
+        await repository.delete(group_id, tenant_id)
 
-        # Should delete relationship
-        assert mock_authz.delete_relationship.called
+        # Should call delete_relationships with both member and tenant
+        assert mock_authz.delete_relationships.called
+        # Verify bulk delete was called with list of relationships
+        call_args = mock_authz.delete_relationships.call_args
+        relationships = call_args[0][0]
+        assert len(relationships) >= 2  # At least member + tenant

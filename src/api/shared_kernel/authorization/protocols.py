@@ -114,6 +114,20 @@ class AuthorizationProvider(Protocol):
         """
         ...
 
+    async def delete_relationships(
+        self,
+        relationships: list[tuple[str, str, str]],
+    ) -> None:
+        """Delete multiple relationships in a single request.
+
+        Args:
+            relationships: List of (resource, relation, subject) tuples to delete
+
+        Raises:
+            AuthorizationError: If the delete fails
+        """
+        ...
+
     async def lookup_subjects(
         self,
         resource: str,

@@ -232,11 +232,15 @@ class GroupRepository(IGroupRepository):
 
         return groups
 
-    async def delete(self, group_id: GroupId) -> bool:
-        """Delete a group and all its membership relationships.
+    async def delete(self, group_id: GroupId, tenant_id: TenantId) -> bool:
+        """Delete a group and all its relationships.
+
+        Removes the group from PostgreSQL and all relationships from SpiceDB
+        (membership and tenant relationships).
 
         Args:
             group_id: The group to delete
+            tenant_id: The tenant this group belongs to
 
         Returns:
             True if deleted, False if not found
@@ -250,21 +254,29 @@ class GroupRepository(IGroupRepository):
             self._probe.group_not_found(group_id.value)
             return False
 
-        # Delete membership relationships from SpiceDB
-        # Get current members first
-        members = await self._hydrate_members(group_id.value)
         group_resource = format_resource(ResourceType.GROUP, group_id.value)
+        tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
 
+        # Delete all relationships from SpiceDB in a single bulk operation
+        # Build list of relationships to delete (members + tenant)
+        members = await self._hydrate_members(group_id.value)
+        relationships_to_delete = []
+
+        # Add member relationships
         for member in members:
-            await self._authz.delete_relationship(
-                resource=group_resource,
-                relation=member.role.value,
-                subject=format_subject(ResourceType.USER, member.user_id.value),
+            relationships_to_delete.append(
+                (
+                    group_resource,
+                    member.role.value,
+                    format_subject(ResourceType.USER, member.user_id.value),
+                )
             )
 
-        # Note: We don't delete the tenant relationship here because
-        # we don't know which tenant the group belongs to without querying SpiceDB.
-        # In production, consider adding a method to delete all relationships for a resource.
+        # Add tenant relationship
+        relationships_to_delete.append((group_resource, "tenant", tenant_resource))
+
+        # Bulk delete in single SpiceDB request
+        await self._authz.delete_relationships(relationships_to_delete)
 
         # Delete group from PostgreSQL
         await self._session.delete(model)

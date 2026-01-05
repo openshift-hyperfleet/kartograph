@@ -196,7 +196,7 @@ class TestGroupDeletion:
 
         # Delete group
         async with async_session.begin():
-            result = await group_repository.delete(group.id)
+            result = await group_repository.delete(group.id, tenant_id)
 
         assert result is True
 

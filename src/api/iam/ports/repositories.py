@@ -73,14 +73,15 @@ class IGroupRepository(Protocol):
         """
         ...
 
-    async def delete(self, group_id: GroupId) -> bool:
-        """Delete a group and all its membership relationships.
+    async def delete(self, group_id: GroupId, tenant_id: TenantId) -> bool:
+        """Delete a group and all its relationships.
 
-        Removes the group from PostgreSQL and all membership relationships
-        from SpiceDB.
+        Removes the group from PostgreSQL and all relationships from SpiceDB
+        (membership and tenant relationships).
 
         Args:
             group_id: The group to delete
+            tenant_id: The tenant this group belongs to
 
         Returns:
             True if deleted, False if not found

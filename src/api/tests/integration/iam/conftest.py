@@ -53,10 +53,12 @@ def spicedb_client() -> SpiceDBClient:
     """Provide a SpiceDB client for integration tests."""
     endpoint = os.getenv("SPICEDB_ENDPOINT", "localhost:50051")
     preshared_key = os.getenv("SPICEDB_PRESHARED_KEY", "changeme")
+    use_tls = os.getenv("SPICEDB_USE_TLS", "false").lower() == "true"
 
     return SpiceDBClient(
         endpoint=endpoint,
         preshared_key=preshared_key,
+        use_tls=use_tls,
     )
 
 

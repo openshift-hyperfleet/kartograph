@@ -72,6 +72,35 @@ class DatabaseSettings(BaseSettings):
         return f"postgresql://{self.username}@{self.host}:{self.port}/{self.database}"
 
 
+class SpiceDBSettings(BaseSettings):
+    """SpiceDB authorization service settings.
+
+    Environment variables:
+        SPICEDB_ENDPOINT: gRPC endpoint (default: localhost:50051)
+        SPICEDB_PRESHARED_KEY: Pre-shared authentication key (required)
+        SPICEDB_USE_TLS: Use TLS for connection (default: true for production)
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="SPICEDB_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    endpoint: str = Field(
+        default="localhost:50051", description="SpiceDB gRPC endpoint"
+    )
+    preshared_key: SecretStr = Field(
+        default=SecretStr("changeme"),
+        description="Pre-shared key for authentication",
+    )
+    use_tls: bool = Field(
+        default=True,
+        description="Use TLS for connection (false for local development only)",
+    )
+
+
 class Settings(BaseSettings):
     """Main application settings aggregating all configuration sections."""
 
@@ -90,6 +119,11 @@ class Settings(BaseSettings):
         """Get database settings."""
         return get_database_settings()
 
+    @property
+    def spicedb(self) -> SpiceDBSettings:
+        """Get SpiceDB settings."""
+        return get_spicedb_settings()
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -107,3 +141,12 @@ def get_database_settings() -> DatabaseSettings:
     Uses lru_cache to ensure settings are only loaded once.
     """
     return DatabaseSettings()
+
+
+@lru_cache
+def get_spicedb_settings() -> SpiceDBSettings:
+    """Get cached SpiceDB settings.
+
+    Uses lru_cache to ensure settings are only loaded once.
+    """
+    return SpiceDBSettings()

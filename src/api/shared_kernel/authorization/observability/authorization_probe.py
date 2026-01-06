@@ -91,6 +91,13 @@ class AuthorizationProbe(Protocol):
         """Record that connection to authorization system failed."""
         ...
 
+    def insecure_connection_used(
+        self,
+        endpoint: str,
+    ) -> None:
+        """Record that an insecure connection is being used."""
+        ...
+
     def subjects_looked_up(
         self,
         resource: str,
@@ -282,6 +289,18 @@ class DefaultAuthorizationProbe:
             endpoint=endpoint,
             error=str(error),
             error_type=type(error).__name__,
+            **self._get_context_kwargs(),
+        )
+
+    def insecure_connection_used(
+        self,
+        endpoint: str,
+    ) -> None:
+        """Record that an insecure connection is being used."""
+        self._logger.warning(
+            "authorization_insecure_connection",
+            endpoint=endpoint,
+            message="Using insecure credentials - NOT for production use",
             **self._get_context_kwargs(),
         )
 

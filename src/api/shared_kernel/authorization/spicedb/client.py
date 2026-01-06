@@ -21,7 +21,7 @@ from authzed.api.v1 import (
     WriteRelationshipsRequest,
 )
 from authzed.api.v1.permission_service_pb2 import CheckPermissionResponse
-from grpcutil import insecure_bearer_token_credentials
+from grpcutil import bearer_token_credentials, insecure_bearer_token_credentials
 
 from shared_kernel.authorization.observability import (
     AuthorizationProbe,
@@ -111,6 +111,7 @@ class SpiceDBClient(AuthorizationProvider):
         self,
         endpoint: str,
         preshared_key: str,
+        use_tls: bool = True,
         probe: AuthorizationProbe | None = None,
     ):
         """Initialize SpiceDB client.
@@ -118,10 +119,12 @@ class SpiceDBClient(AuthorizationProvider):
         Args:
             endpoint: SpiceDB gRPC endpoint (e.g., "localhost:50051")
             preshared_key: Pre-shared key for authentication
+            use_tls: Use TLS for connection (default: True, False for local dev only)
             probe: Optional domain probe for observability
         """
         self._endpoint = endpoint
         self._preshared_key = preshared_key
+        self._use_tls = use_tls
         self._client = None
         self._probe = probe or DefaultAuthorizationProbe()
         self._init_lock = asyncio.Lock()
@@ -136,9 +139,13 @@ class SpiceDBClient(AuthorizationProvider):
                         from authzed.api.v1 import AsyncClient
 
                         # Create credentials with preshared key
-                        credentials = insecure_bearer_token_credentials(
-                            self._preshared_key
-                        )
+                        if self._use_tls:
+                            credentials = bearer_token_credentials(self._preshared_key)
+                        else:
+                            credentials = insecure_bearer_token_credentials(
+                                self._preshared_key
+                            )
+                            self._probe.insecure_connection_used(self._endpoint)
 
                         # Initialize client
                         self._client = AsyncClient(

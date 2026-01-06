@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.14.0...v0.15.0) (2026-01-06)
+
+
+### Features
+
+* **iam:** implement application service layer ([#99](https://github.com/openshift-hyperfleet/kartograph/issues/99)) ([a3d4b7b](https://github.com/openshift-hyperfleet/kartograph/commit/a3d4b7b5c0c74d3a8097d89b3ed6277353fef257))
+
 ## [0.14.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.13.2...v0.14.0) (2026-01-06)
 
 

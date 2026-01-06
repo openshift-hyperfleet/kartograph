@@ -7,10 +7,13 @@ error handling and type safety.
 from __future__ import annotations
 
 import asyncio
+from enum import IntEnum
 
 from authzed.api.v1 import (
     CheckPermissionRequest,
     Consistency,
+    LookupResourcesRequest,
+    LookupSubjectsRequest,
     ObjectReference,
     Relationship,
     RelationshipUpdate,
@@ -18,7 +21,7 @@ from authzed.api.v1 import (
     WriteRelationshipsRequest,
 )
 from authzed.api.v1.permission_service_pb2 import CheckPermissionResponse
-from grpcutil import bearer_token_credentials
+from grpcutil import bearer_token_credentials, insecure_bearer_token_credentials
 
 from shared_kernel.authorization.observability import (
     AuthorizationProbe,
@@ -29,6 +32,14 @@ from shared_kernel.authorization.spicedb.exceptions import (
     SpiceDBConnectionError,
     SpiceDBPermissionError,
 )
+from shared_kernel.authorization.types import RelationshipSpec, SubjectRelation
+
+
+class RelationshipOperation(IntEnum):
+    """Enum for relationship operation types."""
+
+    WRITE = RelationshipUpdate.OPERATION_TOUCH
+    DELETE = RelationshipUpdate.OPERATION_DELETE
 
 
 def _parse_reference(ref: str, ref_type: str) -> tuple[str, str]:
@@ -52,6 +63,43 @@ def _parse_reference(ref: str, ref_type: str) -> tuple[str, str]:
     return (parts[0], parts[1])
 
 
+def _build_relationship_update(
+    resource: str, relation: str, subject: str, operation: RelationshipOperation
+) -> RelationshipUpdate:
+    """Build a RelationshipUpdate for write or delete operations.
+
+    Args:
+        resource: Resource identifier (e.g., "group:abc123")
+        relation: Relation name (e.g., "member")
+        subject: Subject identifier (e.g., "user:alice")
+        operation: RelationshipOperation.WRITE or DELETE
+
+    Returns:
+        RelationshipUpdate object ready for WriteRelationshipsRequest
+    """
+    resource_type, resource_id = _parse_reference(resource, "resource")
+    subject_type, subject_id = _parse_reference(subject, "subject")
+
+    relationship = Relationship(
+        resource=ObjectReference(
+            object_type=resource_type,
+            object_id=resource_id,
+        ),
+        relation=relation,
+        subject=SubjectReference(
+            object=ObjectReference(
+                object_type=subject_type,
+                object_id=subject_id,
+            ),
+        ),
+    )
+
+    return RelationshipUpdate(
+        operation=int(operation),  # type: ignore[arg-type]  # Protobuf expects ValueType, but accepts int
+        relationship=relationship,
+    )
+
+
 class SpiceDBClient(AuthorizationProvider):
     """SpiceDB client implementation of AuthorizationProvider protocol.
 
@@ -63,6 +111,7 @@ class SpiceDBClient(AuthorizationProvider):
         self,
         endpoint: str,
         preshared_key: str,
+        use_tls: bool = True,
         probe: AuthorizationProbe | None = None,
     ):
         """Initialize SpiceDB client.
@@ -70,10 +119,12 @@ class SpiceDBClient(AuthorizationProvider):
         Args:
             endpoint: SpiceDB gRPC endpoint (e.g., "localhost:50051")
             preshared_key: Pre-shared key for authentication
+            use_tls: Use TLS for connection (default: True, False for local dev only)
             probe: Optional domain probe for observability
         """
         self._endpoint = endpoint
         self._preshared_key = preshared_key
+        self._use_tls = use_tls
         self._client = None
         self._probe = probe or DefaultAuthorizationProbe()
         self._init_lock = asyncio.Lock()
@@ -88,7 +139,13 @@ class SpiceDBClient(AuthorizationProvider):
                         from authzed.api.v1 import AsyncClient
 
                         # Create credentials with preshared key
-                        credentials = bearer_token_credentials(self._preshared_key)
+                        if self._use_tls:
+                            credentials = bearer_token_credentials(self._preshared_key)
+                        else:
+                            credentials = insecure_bearer_token_credentials(
+                                self._preshared_key
+                            )
+                            self._probe.insecure_connection_used(self._endpoint)
 
                         # Initialize client
                         self._client = AsyncClient(
@@ -168,6 +225,77 @@ class SpiceDBClient(AuthorizationProvider):
             raise SpiceDBPermissionError(
                 f"Failed to write relationship: {resource} {relation} {subject}"
             ) from e
+
+    async def _execute_relationship_updates(
+        self,
+        relationships: list[RelationshipSpec],
+        operation: RelationshipOperation,
+    ) -> None:
+        """Execute relationship updates (write or delete) with error handling.
+
+        Args:
+            relationships: List of RelationshipSpec objects
+            operation: RelationshipOperation.WRITE or DELETE
+
+        Raises:
+            SpiceDBPermissionError: If the operation fails
+        """
+        if not relationships:
+            return
+
+        await self._ensure_client()
+        assert self._client is not None
+
+        try:
+            updates = [
+                _build_relationship_update(
+                    rel.resource, rel.relation, rel.subject, operation
+                )
+                for rel in relationships
+            ]
+
+            request = WriteRelationshipsRequest(updates=updates)
+            await self._client.WriteRelationships(request)
+
+            # Log successful operations
+            for rel in relationships:
+                if operation == RelationshipOperation.WRITE:
+                    self._probe.relationship_written(
+                        rel.resource, rel.relation, rel.subject
+                    )
+                else:
+                    self._probe.relationship_deleted(
+                        rel.resource, rel.relation, rel.subject
+                    )
+
+        except Exception as e:
+            if operation == RelationshipOperation.WRITE:
+                self._probe.relationship_write_failed(
+                    "<bulk>", "<multiple>", "<multiple>", e
+                )
+            else:
+                self._probe.relationship_delete_failed(
+                    "<bulk>", "<multiple>", "<multiple>", e
+                )
+            raise SpiceDBPermissionError(
+                f"Failed to {repr(operation)} {len(relationships)} relationships"
+            ) from e
+
+    async def write_relationships(
+        self,
+        relationships: list[RelationshipSpec],
+    ) -> None:
+        """Write multiple relationships in a single request.
+
+        Args:
+            relationships: List of RelationshipSpec objects to write
+
+        Raises:
+            SpiceDBPermissionError: If the write fails
+        """
+        await self._execute_relationship_updates(
+            relationships, RelationshipOperation.WRITE
+        )
 
     async def check_permission(
         self,
@@ -337,4 +465,158 @@ class SpiceDBClient(AuthorizationProvider):
             )
             raise SpiceDBPermissionError(
                 f"Failed to delete relationship: {resource} {relation} {subject}"
+            ) from e
+
+    async def delete_relationships(
+        self,
+        relationships: list[RelationshipSpec],
+    ) -> None:
+        """Delete multiple relationships in a single request.
+
+        Args:
+            relationships: List of RelationshipSpec objects to delete
+
+        Raises:
+            SpiceDBPermissionError: If the delete fails
+        """
+        await self._execute_relationship_updates(
+            relationships, RelationshipOperation.DELETE
+        )
+
+    async def lookup_subjects(
+        self,
+        resource: str,
+        relation: str,
+        subject_type: str,
+    ) -> list[SubjectRelation]:
+        """Find all subjects with a relationship to a resource.
+
+        Args:
+            resource: Resource identifier (e.g., "group:01ARZ3...")
+            relation: Relation name to look up (e.g., "member")
+            subject_type: Type of subjects to find (e.g., "user")
+
+        Returns:
+            List of SubjectRelation objects with subject IDs and their relations
+
+        Raises:
+            SpiceDBPermissionError: If the lookup fails
+
+        Example:
+            >>> await client.lookup_subjects("group:abc123", "member", "user")
+            [SubjectRelation(subject_id="user123", relation="member"), ...]
+        """
+        await self._ensure_client()
+        assert self._client is not None  # For mypy
+
+        # Parse resource
+        resource_type, resource_id = _parse_reference(resource, "resource")
+
+        try:
+            request = LookupSubjectsRequest(
+                consistency=Consistency(fully_consistent=True),
+                resource=ObjectReference(
+                    object_type=resource_type,
+                    object_id=resource_id,
+                ),
+                permission=relation,
+                subject_object_type=subject_type,
+            )
+
+            subjects = []
+            async for response in self._client.LookupSubjects(request):
+                # Extract subject ID from the response
+                # The subject_object_id contains the ID without the type prefix
+                subjects.append(
+                    SubjectRelation(
+                        subject_id=response.subject_object_id,
+                        relation=relation,
+                    )
+                )
+
+            self._probe.subjects_looked_up(
+                resource=resource,
+                relation=relation,
+                subject_type=subject_type,
+                count=len(subjects),
+            )
+
+            return subjects
+
+        except Exception as e:
+            self._probe.subject_lookup_failed(
+                resource=resource,
+                relation=relation,
+                subject_type=subject_type,
+                error=e,
+            )
+            raise SpiceDBPermissionError(
+                f"Failed to lookup subjects: {resource} {relation} {subject_type}"
+            ) from e
+
+    async def lookup_resources(
+        self,
+        resource_type: str,
+        permission: str,
+        subject: str,
+    ) -> list[str]:
+        """Find all resources of a type that a subject has permission on.
+
+        Args:
+            resource_type: Type of resources to find (e.g., "group")
+            permission: Permission or relation to check (e.g., "tenant")
+            subject: Subject identifier (e.g., "tenant:abc123")
+
+        Returns:
+            List of resource IDs (without type prefix)
+
+        Raises:
+            SpiceDBPermissionError: If the lookup fails
+
+        Example:
+            >>> await client.lookup_resources("group", "tenant", "tenant:abc123")
+            ["group-id-1", "group-id-2", ...]
+        """
+        await self._ensure_client()
+        assert self._client is not None  # For mypy
+
+        # Parse subject
+        subject_type, subject_id = _parse_reference(subject, "subject")
+
+        try:
+            request = LookupResourcesRequest(
+                consistency=Consistency(fully_consistent=True),
+                resource_object_type=resource_type,
+                permission=permission,
+                subject=SubjectReference(
+                    object=ObjectReference(
+                        object_type=subject_type,
+                        object_id=subject_id,
+                    ),
+                ),
+            )
+
+            resource_ids = []
+            async for response in self._client.LookupResources(request):
+                # Extract resource ID from the response
+                resource_ids.append(response.resource_object_id)
+
+            self._probe.resources_looked_up(
+                resource_type=resource_type,
+                permission=permission,
+                subject=subject,
+                count=len(resource_ids),
+            )
+
+            return resource_ids
+
+        except Exception as e:
+            self._probe.resource_lookup_failed(
+                resource_type=resource_type,
+                permission=permission,
+                subject=subject,
+                error=e,
+            )
+            raise SpiceDBPermissionError(
+                f"Failed to lookup resources: {resource_type} {permission} {subject}"
             ) from e

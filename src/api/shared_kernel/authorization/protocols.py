@@ -7,7 +7,10 @@ implementations (SpiceDB, mock, alternative providers).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from shared_kernel.authorization.types import RelationshipSpec, SubjectRelation
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,20 @@ class AuthorizationProvider(Protocol):
             resource: Resource identifier (e.g., "team:abc123")
             relation: Relation name (e.g., "member", "owner")
             subject: Subject identifier (e.g., "user:alice")
+
+        Raises:
+            AuthorizationError: If the write fails
+        """
+        ...
+
+    async def write_relationships(
+        self,
+        relationships: list[RelationshipSpec],
+    ) -> None:
+        """Write multiple relationships in a single request.
+
+        Args:
+            relationships: List of RelationshipSpec objects to write
 
         Raises:
             AuthorizationError: If the write fails
@@ -108,5 +125,61 @@ class AuthorizationProvider(Protocol):
 
         Raises:
             AuthorizationError: If the delete fails
+        """
+        ...
+
+    async def delete_relationships(
+        self,
+        relationships: list[RelationshipSpec],
+    ) -> None:
+        """Delete multiple relationships in a single request.
+
+        Args:
+            relationships: List of RelationshipSpec objects to delete
+
+        Raises:
+            AuthorizationError: If the delete fails
+        """
+        ...
+
+    async def lookup_subjects(
+        self,
+        resource: str,
+        relation: str,
+        subject_type: str,
+    ) -> list[SubjectRelation]:
+        """Find all subjects with a relationship to a resource.
+
+        Args:
+            resource: Resource identifier (e.g., "group:abc123")
+            relation: Relation name to look up (e.g., "member")
+            subject_type: Type of subjects to find (e.g., "user")
+
+        Returns:
+            List of SubjectRelation objects with subject IDs and their relations
+
+        Raises:
+            AuthorizationError: If the lookup fails
+        """
+        ...
+
+    async def lookup_resources(
+        self,
+        resource_type: str,
+        permission: str,
+        subject: str,
+    ) -> list[str]:
+        """Find all resources of a type that a subject has permission on.
+
+        Args:
+            resource_type: Type of resources to find (e.g., "group")
+            permission: Permission or relation to check (e.g., "tenant")
+            subject: Subject identifier (e.g., "tenant:abc123")
+
+        Returns:
+            List of resource IDs (without type prefix)
+
+        Raises:
+            AuthorizationError: If the lookup fails
         """
         ...

@@ -25,16 +25,19 @@ definition user {}
  * Groups own workspaces and can have members.
  */
 definition group {
+    /** The tenant this group belongs to */
+    relation tenant: tenant
+
+    /** Users who can administer this group (manage members, delete group) */
+    relation admin: user
+
     /** Users who are members of this group */
     relation member: user
 
-    /** Users who can administer this group (add/remove members) */
-    relation admin: user
-
     /** Permission to view group details */
-    permission view = member + admin
+    permission view = admin + member
 
-    /** Permission to manage group membership */
+    /** Permission to manage group membership and delete group */
     permission manage = admin
 }
 

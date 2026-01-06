@@ -7,7 +7,7 @@ then implement the Group aggregate to make these tests pass.
 import pytest
 
 from iam.domain.aggregates import Group
-from iam.domain.value_objects import GroupId, Role, UserId, WorkspaceId
+from iam.domain.value_objects import GroupId, Role, UserId
 
 
 class TestGroupCreation:
@@ -16,17 +16,14 @@ class TestGroupCreation:
     def test_creates_with_required_fields(self):
         """Test that Group can be created with required fields."""
         group_id = GroupId.generate()
-        workspace_id = WorkspaceId.generate()
 
         group = Group(
             id=group_id,
             name="Engineering",
-            workspace_id=workspace_id,
         )
 
         assert group.id == group_id
         assert group.name == "Engineering"
-        assert group.workspace_id == workspace_id
         assert group.members == []
 
     def test_requires_id(self):
@@ -34,7 +31,6 @@ class TestGroupCreation:
         with pytest.raises(TypeError):
             Group(
                 name="Engineering",
-                workspace_id=WorkspaceId.generate(),
             )
 
     def test_requires_name(self):
@@ -42,15 +38,6 @@ class TestGroupCreation:
         with pytest.raises(TypeError):
             Group(
                 id=GroupId.generate(),
-                workspace_id=WorkspaceId.generate(),
-            )
-
-    def test_requires_workspace_id(self):
-        """Test that Group requires a workspace_id."""
-        with pytest.raises(TypeError):
-            Group(
-                id=GroupId.generate(),
-                name="Engineering",
             )
 
 
@@ -62,7 +49,6 @@ class TestAddMember:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
 
@@ -72,30 +58,28 @@ class TestAddMember:
         assert group.members[0].user_id == user_id
         assert group.members[0].role == Role.MEMBER
 
-    def test_adds_owner(self):
-        """Test that owner can be added."""
+    def test_adds_admin(self):
+        """Test that admin can be added."""
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
-        owner_id = UserId.generate()
+        admin_id = UserId.generate()
 
-        group.add_member(owner_id, Role.OWNER)
+        group.add_member(admin_id, Role.ADMIN)
 
-        assert group.members[0].role == Role.OWNER
+        assert group.members[0].role == Role.ADMIN
 
     def test_adds_multiple_members(self):
         """Test that multiple members can be added."""
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         alice = UserId.generate()
         bob = UserId.generate()
 
-        group.add_member(alice, Role.OWNER)
+        group.add_member(alice, Role.ADMIN)
         group.add_member(bob, Role.MEMBER)
 
         assert len(group.members) == 2
@@ -105,7 +89,6 @@ class TestAddMember:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
 
@@ -123,7 +106,6 @@ class TestHasMember:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
         group.add_member(user_id, Role.MEMBER)
@@ -135,7 +117,6 @@ class TestHasMember:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
 
@@ -150,7 +131,6 @@ class TestGetMemberRole:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
         group.add_member(user_id, Role.ADMIN)
@@ -164,7 +144,6 @@ class TestGetMemberRole:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
 
@@ -181,7 +160,6 @@ class TestRemoveMember:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
         group.add_member(user_id, Role.MEMBER)
@@ -196,42 +174,39 @@ class TestRemoveMember:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
 
         with pytest.raises(ValueError, match="not a member"):
             group.remove_member(user_id)
 
-    def test_prevents_removing_last_owner(self):
-        """Test that last owner cannot be removed."""
+    def test_prevents_removing_last_admin(self):
+        """Test that last admin cannot be removed."""
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
-        owner_id = UserId.generate()
-        group.add_member(owner_id, Role.OWNER)
+        admin_id = UserId.generate()
+        group.add_member(admin_id, Role.ADMIN)
 
-        with pytest.raises(ValueError, match="last owner"):
-            group.remove_member(owner_id)
+        with pytest.raises(ValueError, match="last admin"):
+            group.remove_member(admin_id)
 
-    def test_can_remove_owner_when_multiple_owners_exist(self):
-        """Test that owner can be removed if other owners exist."""
+    def test_can_remove_admin_when_multiple_admins_exist(self):
+        """Test that admin can be removed if other admins exist."""
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
-        owner1 = UserId.generate()
-        owner2 = UserId.generate()
-        group.add_member(owner1, Role.OWNER)
-        group.add_member(owner2, Role.OWNER)
+        admin1 = UserId.generate()
+        admin2 = UserId.generate()
+        group.add_member(admin1, Role.ADMIN)
+        group.add_member(admin2, Role.ADMIN)
 
-        group.remove_member(owner1)
+        group.remove_member(admin1)
 
         assert len(group.members) == 1
-        assert group.has_member(owner2)
+        assert group.has_member(admin2)
 
 
 class TestUpdateMemberRole:
@@ -242,7 +217,6 @@ class TestUpdateMemberRole:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
         group.add_member(user_id, Role.MEMBER)
@@ -256,38 +230,35 @@ class TestUpdateMemberRole:
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
         user_id = UserId.generate()
 
         with pytest.raises(ValueError, match="not a member"):
             group.update_member_role(user_id, Role.ADMIN)
 
-    def test_prevents_demoting_last_owner(self):
-        """Test that last owner cannot be demoted."""
+    def test_prevents_demoting_last_admin(self):
+        """Test that last admin cannot be demoted."""
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
-        owner_id = UserId.generate()
-        group.add_member(owner_id, Role.OWNER)
+        admin_id = UserId.generate()
+        group.add_member(admin_id, Role.ADMIN)
 
-        with pytest.raises(ValueError, match="last owner"):
-            group.update_member_role(owner_id, Role.ADMIN)
+        with pytest.raises(ValueError, match="last admin"):
+            group.update_member_role(admin_id, Role.MEMBER)
 
-    def test_can_demote_owner_when_multiple_owners_exist(self):
-        """Test that owner can be demoted if other owners exist."""
+    def test_can_demote_admin_when_multiple_admins_exist(self):
+        """Test that admin can be demoted if other admins exist."""
         group = Group(
             id=GroupId.generate(),
             name="Engineering",
-            workspace_id=WorkspaceId.generate(),
         )
-        owner1 = UserId.generate()
-        owner2 = UserId.generate()
-        group.add_member(owner1, Role.OWNER)
-        group.add_member(owner2, Role.OWNER)
+        admin1 = UserId.generate()
+        admin2 = UserId.generate()
+        group.add_member(admin1, Role.ADMIN)
+        group.add_member(admin2, Role.ADMIN)
 
-        group.update_member_role(owner1, Role.ADMIN)
+        group.update_member_role(admin1, Role.MEMBER)
 
-        assert group.get_member_role(owner1) == Role.ADMIN
+        assert group.get_member_role(admin1) == Role.MEMBER

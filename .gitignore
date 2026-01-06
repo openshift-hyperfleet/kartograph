@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+agent-notes/
+
 # C extensions
 *.so
 kartograph-ddd-draft.md

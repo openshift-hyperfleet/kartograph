@@ -50,6 +50,17 @@ class UserService:
         # Check if user already exists
         existing = await self._user_repository.get_by_id(user_id)
         if existing:
+            # Sync username if changed in SSO
+            if existing.username != username:
+                user = User(id=user_id, username=username)
+                await self._user_repository.save(user)
+                self._probe.user_ensured(
+                    user_id=user_id.value,
+                    username=username,
+                    was_created=False,
+                )
+                return user
+
             self._probe.user_ensured(
                 user_id=user_id.value,
                 username=username,

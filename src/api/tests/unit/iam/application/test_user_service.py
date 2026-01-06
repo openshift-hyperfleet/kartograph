@@ -102,6 +102,24 @@ class TestEnsureUser:
         )
 
     @pytest.mark.asyncio
+    async def test_syncs_username_when_changed(
+        self, user_service, mock_user_repository, mock_probe
+    ):
+        """Should update username if changed in SSO."""
+        user_id = UserId.generate()
+        existing_user = User(id=user_id, username="alice_old")
+
+        mock_user_repository.get_by_id = AsyncMock(return_value=existing_user)
+        mock_user_repository.save = AsyncMock()
+
+        result = await user_service.ensure_user(user_id, "alice_new")
+
+        assert result.username == "alice_new"
+        mock_user_repository.save.assert_called_once()
+        saved_user = mock_user_repository.save.call_args[0][0]
+        assert saved_user.username == "alice_new"
+
+    @pytest.mark.asyncio
     async def test_records_failure_on_exception(
         self, user_service, mock_user_repository, mock_probe
     ):

@@ -18,6 +18,13 @@ certs:
 	else \
 		echo "✓ Certificates already exist"; \
 	fi
+	@echo "📦 Copying certificates to Docker volume..."
+	@docker volume create kartograph_spicedb_certs > /dev/null 2>&1 || true
+	@docker run --rm \
+		-v kartograph_spicedb_certs:/certs \
+		-v ./certs:/host-certs:ro \
+		alpine sh -c "cp /host-certs/spicedb-*.pem /certs/ && chmod 644 /certs/*.pem"
+	@echo "✓ Certificates ready in Docker volume"
 
 .PHONY: dev
 dev: certs

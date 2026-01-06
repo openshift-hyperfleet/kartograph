@@ -11,11 +11,10 @@ services:
     restart: unless-stopped
     environment:
       - "SPICEDB_DATASTORE_ENGINE=postgres"
-      - "SPICEDB_GRPC_TLS_CERT_PATH=/etc/spicedb/tls/cert.pem"
-      - "SPICEDB_GRPC_TLS_KEY_PATH=/etc/spicedb/tls/key.pem"
+      - "SPICEDB_GRPC_TLS_CERT_PATH=/certs/spicedb-cert.pem"
+      - "SPICEDB_GRPC_TLS_KEY_PATH=/certs/spicedb-key.pem"
     volumes:
-      - ./certs/spicedb-cert.pem:/etc/spicedb/tls/cert.pem:ro
-      - ./certs/spicedb-key.pem:/etc/spicedb/tls/key.pem:ro
+      - spicedb_certs:/certs:ro
     depends_on:
       spicedb-migrate:
         condition: service_completed_successfully
@@ -95,11 +94,12 @@ services:
       - kartograph
     volumes:
       - ./src/api/shared_kernel/authorization/spicedb/schema.zed:/schema/schema.zed:ro
-      - ./certs/spicedb-cert.pem:/etc/ssl/certs/spicedb.pem:ro
+      - spicedb_certs:/certs:ro
     command: ["schema", "write", "--skip-verify", "/schema/schema.zed"]
     environment:
       - ZED_ENDPOINT=spicedb:50051
       - ZED_TOKEN=${SPICEDB_PRESHARED_KEY:-changeme}
+      - GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/certs/spicedb-cert.pem
     restart: "on-failure"
     depends_on:
       spicedb:
@@ -116,9 +116,9 @@ services:
     networks:
       - kartograph
     volumes:
-      - ./certs/spicedb-cert.pem:/etc/ssl/certs/spicedb.pem:ro
+      - spicedb_certs:/certs:ro
     environment:
-      - GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/spicedb.pem
+      - GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/certs/spicedb-cert.pem
     depends_on:
       postgres:
         condition: service_healthy
@@ -146,3 +146,4 @@ networks:
 
 volumes:
   postgres_data:
+  spicedb_certs:

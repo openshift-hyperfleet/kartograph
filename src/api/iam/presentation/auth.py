@@ -10,9 +10,12 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.domain.value_objects import TenantId, UserId
-from iam.dependencies import get_user_service, UserService
+from iam.dependencies import get_user_service
+from iam.application.services import UserService
+from infrastructure.database.dependencies import get_write_session
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,7 @@ class CurrentUser:
 
 
 async def get_current_user(
+    session: Annotated[AsyncSession, Depends(get_write_session)],
     user_service: Annotated[UserService, Depends(get_user_service)],
     x_user_id: str = Header(..., description="User ID from SSO (stub)"),
     x_username: str = Header(..., description="Username from SSO (stub)"),
@@ -48,8 +52,9 @@ async def get_current_user(
     application database.
 
     Args:
+        session: Database session for transaction management
         user_service: The user service
-        x_user_id: User ID header (ULID format)
+        x_user_id: User ID header (any format from SSO)
         x_username: Username header
         x_tenant_id: Tenant ID header (ULID format)
 
@@ -63,8 +68,9 @@ async def get_current_user(
         # User IDs come from external SSO - accept any string format
         user_id = UserId(value=x_user_id)
 
-        # Ensure the user exists in the system
-        await user_service.ensure_user(user_id=user_id, username=x_username)
+        # Ensure the user exists in the system (with transaction)
+        async with session.begin():
+            await user_service.ensure_user(user_id=user_id, username=x_username)
 
         # Tenant IDs are internal - validate ULID format
         tenant_id = TenantId.from_string(x_tenant_id)

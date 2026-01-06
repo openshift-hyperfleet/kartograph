@@ -84,3 +84,26 @@ class GroupService:
                 error=str(e),
             )
             raise
+
+    async def get_group(self, group_id: GroupId) -> Group | None:
+        """Get a group by ID.
+
+        Args:
+            group_id: The group ID to retrieve
+
+        Returns:
+            The Group aggregate, or None if not found
+        """
+        return await self._group_repository.get_by_id(group_id)
+
+    async def delete_group(self, group_id: GroupId, tenant_id: TenantId) -> bool:
+        """Delete a group.
+
+        Args:
+            group_id: The group ID to delete
+            tenant_id: The tenant this group belongs to
+
+        Returns:
+            True if deleted, False if not found
+        """
+        return await self._group_repository.delete(group_id, tenant_id)

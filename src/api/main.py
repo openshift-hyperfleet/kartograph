@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, HTTPException, status
 from graph.dependencies import get_age_graph_client
 from graph.infrastructure.age_client import AgeGraphClient
 from graph.presentation import routes as graph_routes
+from iam.presentation import routes as iam_routes
 from infrastructure.dependencies import get_age_connection_pool
 from infrastructure.version import __version__
 from query.presentation.mcp import query_mcp_app
@@ -47,6 +48,9 @@ app.mount(path="/query", app=query_mcp_app)
 
 # Include Graph bounded context routes
 app.include_router(graph_routes.router)
+
+# Include IAM bounded context routes
+app.include_router(iam_routes.router)
 
 
 @app.get("/health")

@@ -95,7 +95,7 @@ def _build_relationship_update(
     )
 
     return RelationshipUpdate(
-        operation=int(operation),  # Convert enum to int for protobuf
+        operation=operation,
         relationship=relationship,
     )
 

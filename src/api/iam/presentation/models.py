@@ -8,10 +8,12 @@ from iam.domain.aggregates import Group
 
 
 class CreateGroupRequest(BaseModel):
-    """Request model for creating a group."""
+    """Request model for creating a group.
+
+    Tenant ID comes from authenticated user context (JWT claims in production).
+    """
 
     name: str = Field(..., description="Group name", min_length=1, max_length=255)
-    tenant_id: str = Field(..., description="Tenant ID (ULID format)")
 
 
 class GroupMemberResponse(BaseModel):

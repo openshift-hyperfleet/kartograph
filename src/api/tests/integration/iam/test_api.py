@@ -32,8 +32,12 @@ class TestCreateGroup:
 
         response = await async_client.post(
             "/iam/groups",
-            json={"name": "Engineering", "tenant_id": tenant_id.value},
-            headers={"X-User-Id": user_id.value, "X-Username": "alice"},
+            json={"name": "Engineering"},
+            headers={
+                "X-User-Id": user_id.value,
+                "X-Username": "alice",
+                "X-Tenant-Id": tenant_id.value,
+            },
         )
 
         assert response.status_code == 201
@@ -49,19 +53,24 @@ class TestCreateGroup:
         """Should return 409 Conflict if group name exists in tenant."""
         user_id = UserId.generate()
         tenant_id = TenantId.generate()
+        headers = {
+            "X-User-Id": user_id.value,
+            "X-Username": "alice",
+            "X-Tenant-Id": tenant_id.value,
+        }
 
         # Create first group
         await async_client.post(
             "/iam/groups",
-            json={"name": "Engineering", "tenant_id": tenant_id.value},
-            headers={"X-User-Id": user_id.value, "X-Username": "alice"},
+            json={"name": "Engineering"},
+            headers=headers,
         )
 
         # Try to create duplicate
         response = await async_client.post(
             "/iam/groups",
-            json={"name": "Engineering", "tenant_id": tenant_id.value},
-            headers={"X-User-Id": user_id.value, "X-Username": "alice"},
+            json={"name": "Engineering"},
+            headers=headers,
         )
 
         assert response.status_code == 409
@@ -79,16 +88,24 @@ class TestCreateGroup:
         # Create in tenant 1
         response1 = await async_client.post(
             "/iam/groups",
-            json={"name": "Engineering", "tenant_id": tenant1.value},
-            headers={"X-User-Id": user_id.value, "X-Username": "alice"},
+            json={"name": "Engineering"},
+            headers={
+                "X-User-Id": user_id.value,
+                "X-Username": "alice",
+                "X-Tenant-Id": tenant1.value,
+            },
         )
         assert response1.status_code == 201
 
         # Create same name in tenant 2
         response2 = await async_client.post(
             "/iam/groups",
-            json={"name": "Engineering", "tenant_id": tenant2.value},
-            headers={"X-User-Id": user_id.value, "X-Username": "alice"},
+            json={"name": "Engineering"},
+            headers={
+                "X-User-Id": user_id.value,
+                "X-Username": "alice",
+                "X-Tenant-Id": tenant2.value,
+            },
         )
         assert response2.status_code == 201
 
@@ -97,12 +114,16 @@ class TestCreateGroup:
         """Should return 400 for invalid tenant ID format."""
         response = await async_client.post(
             "/iam/groups",
-            json={"name": "Engineering", "tenant_id": "invalid"},
-            headers={"X-User-Id": UserId.generate().value, "X-Username": "alice"},
+            json={"name": "Engineering"},
+            headers={
+                "X-User-Id": UserId.generate().value,
+                "X-Username": "alice",
+                "X-Tenant-Id": "invalid",
+            },
         )
 
         assert response.status_code == 400
-        assert "Invalid tenant ID" in response.json()["detail"]
+        assert "Invalid ID format" in response.json()["detail"]
 
 
 class TestGetGroup:
@@ -113,12 +134,17 @@ class TestGetGroup:
         """Should retrieve group with members."""
         user_id = UserId.generate()
         tenant_id = TenantId.generate()
+        headers = {
+            "X-User-Id": user_id.value,
+            "X-Username": "alice",
+            "X-Tenant-Id": tenant_id.value,
+        }
 
         # Create group
         create_response = await async_client.post(
             "/iam/groups",
-            json={"name": "Engineering", "tenant_id": tenant_id.value},
-            headers={"X-User-Id": user_id.value, "X-Username": "alice"},
+            json={"name": "Engineering"},
+            headers=headers,
         )
         group_id = create_response.json()["id"]
 
@@ -154,19 +180,24 @@ class TestDeleteGroup:
         """Should delete group and return 204."""
         user_id = UserId.generate()
         tenant_id = TenantId.generate()
+        headers = {
+            "X-User-Id": user_id.value,
+            "X-Username": "alice",
+            "X-Tenant-Id": tenant_id.value,
+        }
 
         # Create group
         create_response = await async_client.post(
             "/iam/groups",
-            json={"name": "Engineering", "tenant_id": tenant_id.value},
-            headers={"X-User-Id": user_id.value, "X-Username": "alice"},
+            json={"name": "Engineering"},
+            headers=headers,
         )
         group_id = create_response.json()["id"]
 
         # Delete group
         response = await async_client.delete(
             f"/iam/groups/{group_id}",
-            params={"tenant_id": tenant_id.value},
+            headers=headers,
         )
 
         assert response.status_code == 204
@@ -178,19 +209,31 @@ class TestDeleteGroup:
     @pytest.mark.asyncio
     async def test_returns_404_for_nonexistent_group(self, async_client):
         """Should return 404 if group doesn't exist."""
+        headers = {
+            "X-User-Id": UserId.generate().value,
+            "X-Username": "alice",
+            "X-Tenant-Id": TenantId.generate().value,
+        }
+
         response = await async_client.delete(
             f"/iam/groups/{GroupId.generate().value}",
-            params={"tenant_id": TenantId.generate().value},
+            headers=headers,
         )
 
         assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_returns_400_for_invalid_id(self, async_client):
-        """Should return 400 for invalid group ID or tenant ID."""
+        """Should return 400 for invalid group ID."""
+        headers = {
+            "X-User-Id": UserId.generate().value,
+            "X-Username": "alice",
+            "X-Tenant-Id": TenantId.generate().value,
+        }
+
         response = await async_client.delete(
             "/iam/groups/invalid",
-            params={"tenant_id": "invalid"},
+            headers=headers,
         )
 
         assert response.status_code == 400

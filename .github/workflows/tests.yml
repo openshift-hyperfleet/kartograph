@@ -31,23 +31,18 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-      spicedb:
-        image: authzed/spicedb:v1.48.0
-        env:
-          SPICEDB_GRPC_PRESHARED_KEY: test_key
-        ports:
-          - 50051:50051
-        options: >-
-          --health-cmd "grpc_health_probe -addr=:50051 || exit 0"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-          --entrypoint spicedb
-          serve-testing
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Start SpiceDB
+        run: |
+          docker run -d --name spicedb \
+            --network host \
+            -e SPICEDB_GRPC_PRESHARED_KEY=test_key \
+            authzed/spicedb:v1.48.0 serve-testing
+          # Wait for SpiceDB to be ready
+          sleep 5
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5

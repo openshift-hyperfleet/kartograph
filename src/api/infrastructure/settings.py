@@ -96,8 +96,8 @@ class SpiceDBSettings(BaseSettings):
         description="Pre-shared key for authentication",
     )
     use_tls: bool = Field(
-        default=False,
-        description="Use TLS for connection (true for production, false for local dev)",
+        default=True,
+        description="Use TLS for connection (true for production, false for local dev. Note: Only works if endpoint is localhost due to a limitation in the underlying grpc client.)",
     )
 
 

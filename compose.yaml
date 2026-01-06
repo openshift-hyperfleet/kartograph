@@ -11,11 +11,16 @@ services:
     restart: unless-stopped
     environment:
       - "SPICEDB_DATASTORE_ENGINE=postgres"
+      - "SPICEDB_GRPC_TLS_CERT_PATH=/etc/spicedb/tls/cert.pem"
+      - "SPICEDB_GRPC_TLS_KEY_PATH=/etc/spicedb/tls/key.pem"
+    volumes:
+      - ./certs/spicedb-cert.pem:/etc/spicedb/tls/cert.pem:ro
+      - ./certs/spicedb-key.pem:/etc/spicedb/tls/key.pem:ro
     depends_on:
       spicedb-migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "grpc_health_probe", "-addr=:50051"]
+      test: ["CMD", "grpc_health_probe", "-addr=:50051", "-tls", "-tls-no-verify"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -90,7 +95,8 @@ services:
       - kartograph
     volumes:
       - ./src/api/shared_kernel/authorization/spicedb/schema.zed:/schema/schema.zed:ro
-    command: ["schema", "write", "--insecure", "/schema/schema.zed"]
+      - ./certs/spicedb-cert.pem:/etc/ssl/certs/spicedb.pem:ro
+    command: ["schema", "write", "--skip-verify", "/schema/schema.zed"]
     environment:
       - ZED_ENDPOINT=spicedb:50051
       - ZED_TOKEN=${SPICEDB_PRESHARED_KEY:-changeme}
@@ -109,6 +115,10 @@ services:
       - "8000:8000"
     networks:
       - kartograph
+    volumes:
+      - ./certs/spicedb-cert.pem:/etc/ssl/certs/spicedb.pem:ro
+    environment:
+      - GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/spicedb.pem
     depends_on:
       postgres:
         condition: service_healthy

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.13.2...v0.14.0) (2026-01-06)
+
+
+### Features
+
+* **iam:** implement repository layer ([#95](https://github.com/openshift-hyperfleet/kartograph/issues/95)) ([49a89d8](https://github.com/openshift-hyperfleet/kartograph/commit/49a89d82ac131e45a473e3d244eaeebc014a7236))
+
 ## [0.13.2](https://github.com/openshift-hyperfleet/kartograph/compare/v0.13.1...v0.13.2) (2026-01-05)
 
 

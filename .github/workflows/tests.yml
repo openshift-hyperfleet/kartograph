@@ -35,7 +35,6 @@ jobs:
         image: authzed/spicedb:v1.48.0
         env:
           SPICEDB_GRPC_PRESHARED_KEY: test_key
-          SPICEDB_DATASTORE_ENGINE: memory
         ports:
           - 50051:50051
         options: >-
@@ -43,6 +42,8 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+          --entrypoint spicedb
+          serve-testing
 
     steps:
       - name: Checkout code

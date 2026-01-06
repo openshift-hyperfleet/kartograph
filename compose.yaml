@@ -14,7 +14,7 @@ services:
       - "SPICEDB_GRPC_TLS_CERT_PATH=/certs/spicedb-cert.pem"
       - "SPICEDB_GRPC_TLS_KEY_PATH=/certs/spicedb-key.pem"
     volumes:
-      - spicedb_certs:/certs:ro
+      - ./certs:/certs:ro
     depends_on:
       spicedb-migrate:
         condition: service_completed_successfully
@@ -117,7 +117,7 @@ services:
     networks:
       - kartograph
     volumes:
-      - spicedb_certs:/certs:ro
+      - ./certs:/certs:ro
     environment:
       - GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/certs/spicedb-cert.pem
     depends_on:
@@ -147,4 +147,3 @@ networks:
 
 volumes:
   postgres_data:
-  spicedb_certs:

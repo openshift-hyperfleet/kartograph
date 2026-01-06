@@ -4,22 +4,22 @@ all:
 
 .PHONY: certs
 certs:
-	@echo "🔐 [Certificates] Ensuring SpiceDB certificates in Docker volume..."
-	@docker volume create kartograph_spicedb_certs > /dev/null 2>&1 || true
-	@docker run --rm -v kartograph_spicedb_certs:/certs alpine sh -c "\
-		if [ ! -f /certs/spicedb-cert.pem ] || [ ! -f /certs/spicedb-key.pem ]; then \
-			apk add --no-cache openssl > /dev/null 2>&1 && \
-			openssl req -x509 -newkey rsa:4096 \
-				-keyout /certs/spicedb-key.pem \
-				-out /certs/spicedb-cert.pem \
-				-days 365 -nodes \
-				-subj '/CN=spicedb/O=Kartograph Dev' \
-				-addext 'subjectAltName=DNS:spicedb,DNS:localhost,IP:127.0.0.1' && \
-			chmod 644 /certs/*.pem && \
-			echo '✓ Generated new certificates in Docker volume'; \
-		else \
-			echo '✓ Certificates already exist in Docker volume'; \
-		fi"
+	@echo "🔐 [Certificates] Generating self-signed certificates for SpiceDB..."
+	@mkdir -p certs
+	@if [ ! -f certs/spicedb-cert.pem ] || [ ! -f certs/spicedb-key.pem ]; then \
+		openssl req -x509 -newkey rsa:4096 \
+			-keyout certs/spicedb-key.pem \
+			-out certs/spicedb-cert.pem \
+			-days 365 -nodes \
+			-subj "/CN=spicedb/O=Kartograph Dev" \
+			-addext "subjectAltName=DNS:spicedb,DNS:localhost,IP:127.0.0.1"; \
+		chmod 644 certs/spicedb-cert.pem certs/spicedb-key.pem; \
+		echo "✓ Certificates generated in certs/"; \
+		echo "  → Available for local tests via certs/spicedb-cert.pem"; \
+		echo "  → Mounted into Docker containers via bind mount"; \
+	else \
+		echo "✓ Certificates already exist in certs/"; \
+	fi
 
 .PHONY: dev
 dev: certs

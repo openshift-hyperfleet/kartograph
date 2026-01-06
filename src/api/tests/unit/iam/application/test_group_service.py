@@ -47,7 +47,17 @@ def mock_probe():
 
 
 @pytest.fixture
-def group_service(mock_session, mock_group_repository, mock_user_service, mock_probe):
+def mock_authz():
+    """Create mock authorization provider."""
+    from shared_kernel.authorization.protocols import AuthorizationProvider
+
+    return create_autospec(AuthorizationProvider, instance=True)
+
+
+@pytest.fixture
+def group_service(
+    mock_session, mock_group_repository, mock_user_service, mock_authz, mock_probe
+):
     """Create GroupService with mock dependencies."""
     from iam.application.services.group_service import GroupService
 
@@ -55,6 +65,7 @@ def group_service(mock_session, mock_group_repository, mock_user_service, mock_p
         session=mock_session,
         group_repository=mock_group_repository,
         user_service=mock_user_service,
+        authz=mock_authz,
         probe=mock_probe,
     )
 
@@ -63,7 +74,7 @@ class TestGroupServiceInit:
     """Tests for GroupService initialization."""
 
     def test_stores_session(
-        self, mock_session, mock_group_repository, mock_user_service
+        self, mock_session, mock_group_repository, mock_user_service, mock_authz
     ):
         """Service should store session reference."""
         from iam.application.services.group_service import GroupService
@@ -72,11 +83,12 @@ class TestGroupServiceInit:
             session=mock_session,
             group_repository=mock_group_repository,
             user_service=mock_user_service,
+            authz=mock_authz,
         )
         assert service._session is mock_session
 
     def test_stores_repository(
-        self, mock_session, mock_group_repository, mock_user_service
+        self, mock_session, mock_group_repository, mock_user_service, mock_authz
     ):
         """Service should store repository reference."""
         from iam.application.services.group_service import GroupService
@@ -85,11 +97,12 @@ class TestGroupServiceInit:
             session=mock_session,
             group_repository=mock_group_repository,
             user_service=mock_user_service,
+            authz=mock_authz,
         )
         assert service._group_repository is mock_group_repository
 
     def test_stores_user_service(
-        self, mock_session, mock_group_repository, mock_user_service
+        self, mock_session, mock_group_repository, mock_user_service, mock_authz
     ):
         """Service should store user service reference."""
         from iam.application.services.group_service import GroupService
@@ -98,11 +111,12 @@ class TestGroupServiceInit:
             session=mock_session,
             group_repository=mock_group_repository,
             user_service=mock_user_service,
+            authz=mock_authz,
         )
         assert service._user_service is mock_user_service
 
     def test_uses_default_probe_when_not_provided(
-        self, mock_session, mock_group_repository, mock_user_service
+        self, mock_session, mock_group_repository, mock_user_service, mock_authz
     ):
         """Service should create default probe when not provided."""
         from iam.application.services.group_service import GroupService
@@ -111,6 +125,7 @@ class TestGroupServiceInit:
             session=mock_session,
             group_repository=mock_group_repository,
             user_service=mock_user_service,
+            authz=mock_authz,
         )
         assert service._probe is not None
 

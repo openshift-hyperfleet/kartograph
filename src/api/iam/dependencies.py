@@ -113,5 +113,6 @@ def get_group_service(
         session=session,
         group_repository=group_repo,
         user_service=user_service,
+        authz=authz,
         probe=group_service_probe,
     )

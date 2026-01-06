@@ -69,10 +69,14 @@ async def get_group(
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[GroupService, Depends(get_group_service)],
 ) -> GroupResponse:
-    """Get group by ID.
+    """Get group by ID with tenant isolation.
 
-    Requires authentication. In production, tenant isolation will be enforced
-    via SpiceDB permissions.
+    Requires authentication. Service verifies group belongs to authenticated
+    user's tenant via SpiceDB.
+
+    TODO: Add presentation-layer FastAPI dependency for tenant-level access checks
+    (e.g., Depends(require_tenant_access)). Service will still handle operation-specific
+    authorization (e.g., can this user delete THIS specific group).
 
     Args:
         group_id: Group ID (ULID format)
@@ -84,7 +88,7 @@ async def get_group(
 
     Raises:
         HTTPException: 400 if group ID is invalid
-        HTTPException: 404 if group not found
+        HTTPException: 404 if group not found or not accessible in tenant
         HTTPException: 500 for unexpected errors
     """
     try:
@@ -96,14 +100,12 @@ async def get_group(
         ) from e
 
     try:
-        group = await service.get_group(group_id_obj)
+        group = await service.get_group(group_id_obj, current_user.tenant_id)
         if group is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Group {group_id} not found",
             )
-        # TODO: Verify group belongs to current_user.tenant_id via SpiceDB
-        # For tracer bullet, we trust the group exists and return it
         return GroupResponse.from_domain(group)
 
     except HTTPException:

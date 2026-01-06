@@ -12,6 +12,12 @@ from iam.application.services.user_service import UserService
 from iam.domain.aggregates import Group
 from iam.domain.value_objects import GroupId, Role, TenantId, UserId
 from iam.ports.repositories import IGroupRepository
+from shared_kernel.authorization.protocols import AuthorizationProvider
+from shared_kernel.authorization.types import (
+    RelationType,
+    ResourceType,
+    format_resource,
+)
 
 
 class GroupService:
@@ -26,6 +32,7 @@ class GroupService:
         session: AsyncSession,
         group_repository: IGroupRepository,
         user_service: UserService,
+        authz: AuthorizationProvider,
         probe: GroupServiceProbe | None = None,
     ):
         """Initialize GroupService with dependencies.
@@ -34,11 +41,13 @@ class GroupService:
             session: Database session for transaction management
             group_repository: Repository for group persistence
             user_service: Service for user management
+            authz: Authorization provider for permission checks
             probe: Optional domain probe for observability
         """
         self._session = session
         self._group_repository = group_repository
         self._user_service = user_service
+        self._authz = authz
         self._probe = probe or DefaultGroupServiceProbe()
 
     async def create_group(
@@ -93,16 +102,39 @@ class GroupService:
             )
             raise
 
-    async def get_group(self, group_id: GroupId) -> Group | None:
-        """Get a group by ID.
+    async def get_group(self, group_id: GroupId, tenant_id: TenantId) -> Group | None:
+        """Get a group by ID with tenant isolation.
+
+        Verifies the group belongs to the specified tenant via SpiceDB.
 
         Args:
             group_id: The group ID to retrieve
+            tenant_id: The tenant context (from auth)
 
         Returns:
-            The Group aggregate, or None if not found
+            The Group aggregate, or None if not found or not accessible
         """
-        return await self._group_repository.get_by_id(group_id)
+        # Fetch group from repository
+        group = await self._group_repository.get_by_id(group_id)
+        if group is None:
+            return None
+
+        # Verify group belongs to tenant via SpiceDB
+        group_resource = format_resource(ResourceType.GROUP, group_id.value)
+        tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
+
+        has_access = await self._authz.check_permission(
+            resource=group_resource,
+            permission=RelationType.TENANT,
+            subject=tenant_resource,
+        )
+
+        if not has_access:
+            # Group exists but doesn't belong to this tenant
+            # Return None (act as if not found) for security
+            return None
+
+        return group
 
     async def delete_group(self, group_id: GroupId, tenant_id: TenantId) -> bool:
         """Delete a group.

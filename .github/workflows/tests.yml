@@ -36,13 +36,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Start SpiceDB
-        run: |
-          docker run -d --name spicedb \
-            --network host \
-            -e SPICEDB_GRPC_PRESHARED_KEY=test_key \
-            authzed/spicedb:v1.48.0 serve-testing
-          # Wait for SpiceDB to be ready
-          sleep 5
+        uses: authzed/action-spicedb@v1
+        with:
+          version: 'v1.48.0'
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5

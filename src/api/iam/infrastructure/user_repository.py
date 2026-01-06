@@ -47,21 +47,20 @@ class UserRepository(IUserRepository):
             user: The User aggregate to persist
         """
         # Check if user exists
-        async with self._session.begin():
-            stmt = select(UserModel).where(UserModel.id == user.id.value)
-            result = await self._session.execute(stmt)
-            model = result.scalar_one_or_none()
+        stmt = select(UserModel).where(UserModel.id == user.id.value)
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
 
-            if model:
-                # Update existing user
-                model.username = user.username
-            else:
-                # Create new user
-                model = UserModel(
-                    id=user.id.value,
-                    username=user.username,
-                )
-                self._session.add(model)
+        if model:
+            # Update existing user
+            model.username = user.username
+        else:
+            # Create new user
+            model = UserModel(
+                id=user.id.value,
+                username=user.username,
+            )
+            self._session.add(model)
 
         self._probe.user_saved(user.id.value, user.username)
 

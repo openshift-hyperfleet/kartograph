@@ -70,11 +70,11 @@ class GroupService:
             Exception: If group creation fails
         """
         try:
-            async with self._session.begin():
-                # Create group with creator as admin
-                group = Group(id=GroupId.generate(), name=name)
-                group.add_member(creator_id, Role.ADMIN)
+            # Create group with creator as admin
+            group = Group(id=GroupId.generate(), name=name)
+            group.add_member(creator_id, Role.ADMIN)
 
+            async with self._session.begin():
                 # Persist group (writes to PostgreSQL and SpiceDB)
                 await self._group_repository.save(group, tenant_id)
 

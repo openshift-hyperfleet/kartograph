@@ -85,7 +85,7 @@ def get_user_service(
         UserService instance
     """
     user_repo = UserRepository(session=session)
-    return UserService(user_repository=user_repo, probe=probe)
+    return UserService(user_repository=user_repo, probe=probe, session=session)
 
 
 def get_group_service(

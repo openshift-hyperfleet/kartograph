@@ -96,8 +96,8 @@ class SpiceDBSettings(BaseSettings):
         description="Pre-shared key for authentication",
     )
     use_tls: bool = Field(
-        default=True,
-        description="Use TLS for connection (false for local development only)",
+        default=False,
+        description="Use TLS for connection (true for production, false for local dev)",
     )
 
 

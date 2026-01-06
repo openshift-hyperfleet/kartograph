@@ -16,7 +16,8 @@ from iam.infrastructure.group_repository import GroupRepository
 from iam.infrastructure.user_repository import UserRepository
 from infrastructure.database.engines import create_write_engine
 from infrastructure.settings import DatabaseSettings
-from shared_kernel.authorization.spicedb.client import SpiceDBClient
+from shared_kernel.authorization.dependencies import get_spicedb_client
+from shared_kernel.authorization.protocols import AuthorizationProvider
 
 
 @pytest.fixture(scope="session")
@@ -49,21 +50,19 @@ async def async_session(
 
 
 @pytest.fixture
-def spicedb_client() -> SpiceDBClient:
-    """Provide a SpiceDB client for integration tests."""
-    endpoint = os.getenv("SPICEDB_ENDPOINT", "localhost:50051")
-    preshared_key = os.getenv("SPICEDB_PRESHARED_KEY", "changeme")
-    use_tls = os.getenv("SPICEDB_USE_TLS", "false").lower() == "true"
+def spicedb_client() -> AuthorizationProvider:
+    """Provide a SpiceDB client for integration tests.
 
-    return SpiceDBClient(
-        endpoint=endpoint,
-        preshared_key=preshared_key,
-        use_tls=use_tls,
-    )
+    Uses the application's dependency injection to get a configured client
+    from settings. This ensures tests use the same configuration as the app.
+    """
+    return get_spicedb_client()
 
 
 @pytest_asyncio.fixture
-async def clean_iam_data(async_session: AsyncSession, spicedb_client: SpiceDBClient):
+async def clean_iam_data(
+    async_session: AsyncSession, spicedb_client: AuthorizationProvider
+):
     """Clean IAM tables and SpiceDB relationships before and after tests.
 
     Note: Requires migrations to be run first. If tables don't exist,
@@ -94,7 +93,7 @@ async def clean_iam_data(async_session: AsyncSession, spicedb_client: SpiceDBCli
 
 @pytest.fixture
 def group_repository(
-    async_session: AsyncSession, spicedb_client: SpiceDBClient
+    async_session: AsyncSession, spicedb_client: AuthorizationProvider
 ) -> GroupRepository:
     """Provide a GroupRepository for integration tests."""
     return GroupRepository(

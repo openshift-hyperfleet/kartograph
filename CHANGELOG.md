@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.2](https://github.com/openshift-hyperfleet/kartograph/compare/v0.13.1...v0.13.2) (2026-01-05)
+
+
+### Bug Fixes
+
+* **api.shared_kernel:** use async SpiceDB client ([#92](https://github.com/openshift-hyperfleet/kartograph/issues/92)) ([bac441e](https://github.com/openshift-hyperfleet/kartograph/commit/bac441ebee51da1a218589c3044917a7e5e4aee8))
+
 ## [0.13.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.13.0...v0.13.1) (2026-01-05)
 
 

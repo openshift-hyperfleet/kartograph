@@ -10,6 +10,12 @@ from typing import Annotated
 
 from fastapi import Depends
 
+from graph.application.observability import (
+    DefaultGraphServiceProbe,
+    DefaultSchemaServiceProbe,
+    GraphServiceProbe,
+    SchemaServiceProbe,
+)
 from graph.application.services import (
     GraphMutationService,
     GraphQueryService,
@@ -26,6 +32,24 @@ from infrastructure.database.connection import ConnectionFactory
 from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.dependencies import get_age_connection_pool
 from infrastructure.settings import get_database_settings
+
+
+def get_graph_service_probe() -> GraphServiceProbe:
+    """Get GraphServiceProbe instance.
+
+    Returns:
+        DefaultGraphServiceProbe instance for observability
+    """
+    return DefaultGraphServiceProbe()
+
+
+def get_schema_service_probe() -> SchemaServiceProbe:
+    """Get SchemaServiceProbe instance.
+
+    Returns:
+        DefaultSchemaServiceProbe instance for observability
+    """
+    return DefaultSchemaServiceProbe()
 
 
 def get_age_graph_client(
@@ -54,12 +78,14 @@ def get_age_graph_client(
 
 def get_graph_query_service(
     client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
+    probe: Annotated[GraphServiceProbe, Depends(get_graph_service_probe)],
     graph_id: str = get_database_settings().graph_name,
 ) -> GraphQueryService:
     """Get GraphQueryService for scoped read operations.
 
     Args:
         client: Request-scoped graph client
+        probe: Graph service probe for observability
         graph_id: Data source ID for query scoping
 
     Returns:
@@ -69,7 +95,7 @@ def get_graph_query_service(
         client=client,
         graph_id=graph_id,
     )
-    return GraphQueryService(repository=repository)
+    return GraphQueryService(repository=repository, probe=probe)
 
 
 def get_mutation_applier(
@@ -121,13 +147,15 @@ def get_schema_service(
     type_def_repo: Annotated[
         ITypeDefinitionRepository, Depends(get_type_definition_repository)
     ],
+    probe: Annotated[SchemaServiceProbe, Depends(get_schema_service_probe)],
 ) -> GraphSchemaService:
     """Get GraphSchemaService instance.
 
     Args:
         type_def_repo: Type definition repository
+        probe: Schema service probe for observability
 
     Returns:
         GraphSchemaService instance
     """
-    return GraphSchemaService(type_definition_repository=type_def_repo)
+    return GraphSchemaService(type_definition_repository=type_def_repo, probe=probe)

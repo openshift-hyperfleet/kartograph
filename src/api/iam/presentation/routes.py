@@ -46,7 +46,6 @@ async def create_group(
         group = await service.create_group(
             name=request.name,
             creator_id=current_user.user_id,
-            creator_username=current_user.username,
             tenant_id=current_user.tenant_id,
         )
         return GroupResponse.from_domain(group)

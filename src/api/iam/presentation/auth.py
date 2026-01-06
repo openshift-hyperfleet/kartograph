@@ -7,10 +7,12 @@ In production, this will validate x-rh-identity header from Red Hat SSO.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Annotated
 
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 
 from iam.domain.value_objects import TenantId, UserId
+from iam.dependencies import get_user_service, UserService
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,7 @@ class CurrentUser:
 
 
 async def get_current_user(
+    user_service: Annotated[UserService, Depends(get_user_service)],
     x_user_id: str = Header(..., description="User ID from SSO (stub)"),
     x_username: str = Header(..., description="Username from SSO (stub)"),
     x_tenant_id: str = Header(..., description="Tenant ID from SSO (stub)"),
@@ -41,9 +44,11 @@ async def get_current_user(
     - Handle authentication errors properly
 
     For now, we accept user info from custom headers to enable testing
-    without a full SSO/JWT integration.
+    without a full SSO/JWT integration, and ensure the user exists in the
+    application database.
 
     Args:
+        user_service: The user service
         x_user_id: User ID header (ULID format)
         x_username: Username header
         x_tenant_id: Tenant ID header (ULID format)
@@ -57,6 +62,10 @@ async def get_current_user(
     try:
         # User IDs come from external SSO - accept any string format
         user_id = UserId(value=x_user_id)
+
+        # Ensure the user exists in the system
+        await user_service.ensure_user(user_id=user_id, username=x_username)
+
         # Tenant IDs are internal - validate ULID format
         tenant_id = TenantId.from_string(x_tenant_id)
         return CurrentUser(user_id=user_id, username=x_username, tenant_id=tenant_id)

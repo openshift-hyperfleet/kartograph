@@ -91,7 +91,6 @@ def get_user_service(
 def get_group_service(
     session: Annotated[AsyncSession, Depends(get_write_session)],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
-    user_service_probe: Annotated[UserServiceProbe, Depends(get_user_service_probe)],
     group_service_probe: Annotated[GroupServiceProbe, Depends(get_group_service_probe)],
 ) -> GroupService:
     """Get GroupService instance.
@@ -105,14 +104,11 @@ def get_group_service(
     Returns:
         GroupService instance
     """
-    user_repo = UserRepository(session=session)
     group_repo = GroupRepository(session=session, authz=authz)
-    user_service = UserService(user_repository=user_repo, probe=user_service_probe)
 
     return GroupService(
         session=session,
         group_repository=group_repo,
-        user_service=user_service,
         authz=authz,
         probe=group_service_probe,
     )

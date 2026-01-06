@@ -8,7 +8,6 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.application.observability import DefaultGroupServiceProbe, GroupServiceProbe
-from iam.application.services.user_service import UserService
 from iam.domain.aggregates import Group
 from iam.domain.value_objects import GroupId, Role, TenantId, UserId
 from iam.ports.repositories import IGroupRepository
@@ -31,7 +30,6 @@ class GroupService:
         self,
         session: AsyncSession,
         group_repository: IGroupRepository,
-        user_service: UserService,
         authz: AuthorizationProvider,
         probe: GroupServiceProbe | None = None,
     ):
@@ -46,7 +44,6 @@ class GroupService:
         """
         self._session = session
         self._group_repository = group_repository
-        self._user_service = user_service
         self._authz = authz
         self._probe = probe or DefaultGroupServiceProbe()
 
@@ -54,7 +51,6 @@ class GroupService:
         self,
         name: str,
         creator_id: UserId,
-        creator_username: str,
         tenant_id: TenantId,
     ) -> Group:
         """Create a new group with creator as admin.
@@ -64,7 +60,6 @@ class GroupService:
         Args:
             name: Group name
             creator_id: ID of user creating the group
-            creator_username: Username of creator (for JIT provisioning)
             tenant_id: Tenant this group belongs to
 
         Returns:
@@ -76,9 +71,6 @@ class GroupService:
         """
         try:
             async with self._session.begin():
-                # Ensure creator user exists (JIT provisioning from SSO)
-                await self._user_service.ensure_user(creator_id, creator_username)
-
                 # Create group with creator as admin
                 group = Group(id=GroupId.generate(), name=name)
                 group.add_member(creator_id, Role.ADMIN)

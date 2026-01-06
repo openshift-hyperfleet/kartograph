@@ -22,6 +22,7 @@ class UserServiceProbe(Protocol):
         user_id: str,
         username: str,
         was_created: bool,
+        was_updated: bool,
     ) -> None:
         """Record that a user was ensured to exist (found or created)."""
         ...
@@ -66,6 +67,7 @@ class DefaultUserServiceProbe:
         user_id: str,
         username: str,
         was_created: bool,
+        was_updated: bool,
     ) -> None:
         """Record that a user was ensured to exist."""
         self._logger.info(
@@ -73,6 +75,7 @@ class DefaultUserServiceProbe:
             user_id=user_id,
             username=username,
             was_created=was_created,
+            was_updated=was_updated,
             **self._get_context_kwargs(),
         )
 

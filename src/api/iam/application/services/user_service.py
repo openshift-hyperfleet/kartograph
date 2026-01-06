@@ -59,6 +59,7 @@ class UserService:
                         user_id=user_id.value,
                         username=username,
                         was_created=False,
+                        was_updated=True,
                     )
                     return user
                 except Exception as e:
@@ -73,6 +74,7 @@ class UserService:
                 user_id=user_id.value,
                 username=username,
                 was_created=False,
+                was_updated=False,
             )
             return existing
 
@@ -85,6 +87,7 @@ class UserService:
                 user_id=user_id.value,
                 username=username,
                 was_created=True,
+                was_updated=False,
             )
             return user
 

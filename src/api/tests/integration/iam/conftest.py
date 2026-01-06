@@ -14,9 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from iam.infrastructure.group_repository import GroupRepository
 from iam.infrastructure.user_repository import UserRepository
+from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.database.engines import create_write_engine
 from infrastructure.settings import DatabaseSettings
-from shared_kernel.authorization.dependencies import get_spicedb_client
 from shared_kernel.authorization.protocols import AuthorizationProvider
 
 

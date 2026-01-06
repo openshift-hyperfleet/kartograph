@@ -66,12 +66,17 @@ async def create_group(
 @router.get("/groups/{group_id}")
 async def get_group(
     group_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[GroupService, Depends(get_group_service)],
 ) -> GroupResponse:
     """Get group by ID.
 
+    Requires authentication. In production, tenant isolation will be enforced
+    via SpiceDB permissions.
+
     Args:
         group_id: Group ID (ULID format)
+        current_user: Current authenticated user with tenant context
         service: Group service
 
     Returns:
@@ -97,6 +102,8 @@ async def get_group(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Group {group_id} not found",
             )
+        # TODO: Verify group belongs to current_user.tenant_id via SpiceDB
+        # For tracer bullet, we trust the group exists and return it
         return GroupResponse.from_domain(group)
 
     except HTTPException:

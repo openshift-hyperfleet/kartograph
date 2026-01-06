@@ -160,14 +160,29 @@ class TestGetGroup:
     @pytest.mark.asyncio
     async def test_returns_404_for_nonexistent_group(self, async_client):
         """Should return 404 if group doesn't exist."""
-        response = await async_client.get(f"/iam/groups/{GroupId.generate().value}")
+        headers = {
+            "X-User-Id": UserId.generate().value,
+            "X-Username": "alice",
+            "X-Tenant-Id": TenantId.generate().value,
+        }
+
+        response = await async_client.get(
+            f"/iam/groups/{GroupId.generate().value}",
+            headers=headers,
+        )
 
         assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_returns_400_for_invalid_group_id(self, async_client):
         """Should return 400 for invalid group ID format."""
-        response = await async_client.get("/iam/groups/invalid")
+        headers = {
+            "X-User-Id": UserId.generate().value,
+            "X-Username": "alice",
+            "X-Tenant-Id": TenantId.generate().value,
+        }
+
+        response = await async_client.get("/iam/groups/invalid", headers=headers)
 
         assert response.status_code == 400
 

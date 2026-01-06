@@ -49,17 +49,19 @@ async def get_current_user(
         x_tenant_id: Tenant ID header (ULID format)
 
     Returns:
-        CurrentUser with validated user ID, username, and tenant ID
+        CurrentUser with user ID (from SSO), username, and validated tenant ID
 
     Raises:
-        HTTPException: 400 if user ID or tenant ID are invalid ULID format
+        HTTPException: 400 if tenant ID is invalid ULID format
     """
     try:
-        user_id = UserId.from_string(x_user_id)
+        # User IDs come from external SSO - accept any string format
+        user_id = UserId(value=x_user_id)
+        # Tenant IDs are internal - validate ULID format
         tenant_id = TenantId.from_string(x_tenant_id)
         return CurrentUser(user_id=user_id, username=x_username, tenant_id=tenant_id)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid ID format: {e}",
+            detail=f"Invalid tenant ID format: {e}",
         ) from e

@@ -350,3 +350,116 @@ class TestSharedKernelBoundaries:
             .may_import("shared_kernel*")
             .check("query")
         )
+
+    def test_iam_context_can_import_shared_kernel(self):
+        """IAM context may import from shared kernel.
+
+        This is the intended use case for the Shared Kernel pattern -
+        contexts explicitly agree to depend on shared foundational components.
+        """
+        (
+            archrule("iam_may_import_shared_kernel")
+            .match("iam*")
+            .may_import("shared_kernel*")
+            .check("iam")
+        )
+
+
+class TestIAMDomainLayerBoundaries:
+    """Tests that the IAM domain layer has no forbidden dependencies."""
+
+    def test_iam_domain_does_not_import_infrastructure(self):
+        """IAM domain layer should not depend on infrastructure.
+
+        The domain layer contains pure business logic and should not
+        know about database clients, SQL, or other infrastructure concerns.
+        """
+        (
+            archrule("iam_domain_no_infrastructure")
+            .match("iam.domain*")
+            .should_not_import("iam.infrastructure*")
+            .check("iam")
+        )
+
+    def test_iam_domain_does_not_import_application(self):
+        """IAM domain layer should not depend on application layer.
+
+        Domain objects should be usable without application services.
+        """
+        (
+            archrule("iam_domain_no_application")
+            .match("iam.domain*")
+            .should_not_import("iam.application*")
+            .check("iam")
+        )
+
+    def test_iam_domain_does_not_import_fastapi(self):
+        """IAM domain layer should not depend on FastAPI.
+
+        Domain objects should be framework-agnostic.
+        """
+        (
+            archrule("iam_domain_no_fastapi")
+            .match("iam.domain*")
+            .should_not_import("fastapi*", "starlette*")
+            .check("iam")
+        )
+
+
+class TestIAMPortsLayerBoundaries:
+    """Tests that the IAM ports layer has no forbidden dependencies."""
+
+    def test_iam_ports_does_not_import_infrastructure(self):
+        """IAM ports should not depend on infrastructure implementations.
+
+        Ports define interfaces; they should not know about
+        concrete implementations like GroupRepository.
+        """
+        (
+            archrule("iam_ports_no_infrastructure")
+            .match("iam.ports*")
+            .should_not_import("iam.infrastructure*")
+            .check("iam")
+        )
+
+    def test_iam_ports_does_not_import_application(self):
+        """IAM ports should not depend on application layer.
+
+        Ports are interfaces for the application layer to use,
+        not the other way around.
+        """
+        (
+            archrule("iam_ports_no_application")
+            .match("iam.ports*")
+            .should_not_import("iam.application*")
+            .check("iam")
+        )
+
+
+class TestIAMInfrastructureLayerBoundaries:
+    """Tests that IAM infrastructure has appropriate dependencies."""
+
+    def test_iam_infrastructure_does_not_import_application(self):
+        """IAM infrastructure should not depend on application layer.
+
+        Infrastructure is used BY the application layer, not vice versa.
+        """
+        (
+            archrule("iam_infrastructure_no_application")
+            .match("iam.infrastructure*")
+            .should_not_import("iam.application*")
+            .check("iam")
+        )
+
+    def test_iam_infrastructure_can_import_domain_and_ports(self):
+        """IAM infrastructure can import domain and ports.
+
+        Repository implementations need to convert between ORM models
+        and domain aggregates, and implement the port interfaces.
+        """
+        (
+            archrule("iam_infrastructure_may_import_domain_ports")
+            .match("iam.infrastructure*")
+            .may_import("iam.domain*", "iam.ports*")
+            .check("iam")
+        )

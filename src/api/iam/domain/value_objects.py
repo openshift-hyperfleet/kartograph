@@ -90,13 +90,22 @@ class WorkspaceId(BaseId):
     pass
 
 
+@dataclass(frozen=True)
+class TenantId(BaseId):
+    """Identifier for a Tenant.
+
+    Uses ULID for sortability and distribution-friendly generation.
+    """
+
+    pass
+
+
 class Role(StrEnum):
     """Roles for group membership.
 
     Defines the hierarchy of permissions within a group.
     """
 
-    OWNER = "owner"
     ADMIN = "admin"
     MEMBER = "member"
 
@@ -112,10 +121,6 @@ class GroupMember:
     user_id: UserId
     role: Role
 
-    def is_owner(self) -> bool:
-        """Check if this member is an owner."""
-        return self.role == Role.OWNER
-
     def is_admin(self) -> bool:
         """Check if this member is an admin."""
         return self.role == Role.ADMIN
@@ -125,5 +130,5 @@ class GroupMember:
         return self.role == Role.MEMBER
 
     def has_admin_privileges(self) -> bool:
-        """Check if this member has admin or owner privileges."""
-        return self.role in (Role.OWNER, Role.ADMIN)
+        """Check if this member has admin privileges."""
+        return self.role == Role.ADMIN

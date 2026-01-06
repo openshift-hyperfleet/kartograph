@@ -1,4 +1,56 @@
 services:
+  spicedb:
+    image: authzed/spicedb:v1.48.0
+    command: "serve"
+    env_file:
+      - env/spicedb.env
+    ports:
+      - "50051:50051"
+    networks:
+      - kartograph
+    restart: unless-stopped
+    environment:
+      - "SPICEDB_DATASTORE_ENGINE=postgres"
+    depends_on:
+      spicedb-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=:50051"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  spicedb-migrate:
+    image: "authzed/spicedb"
+    command: "migrate head"
+    restart: "on-failure"
+    networks:
+      - kartograph
+    env_file:
+      - env/spicedb.env
+    environment:
+      - "SPICEDB_DATASTORE_ENGINE=postgres"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+  # Transient service to ensure the 'spicedb' database exists
+  db-init:
+    image: postgres:17-alpine
+    networks:
+      - kartograph
+    env_file:
+      - env/postgres.env
+    command: >
+      sh -c "
+      PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres -U $${POSTGRES_USER} -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname = 'spicedb'\" | grep -q 1 || 
+      PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres -U $${POSTGRES_USER} -d postgres -c \"CREATE DATABASE spicedb;\"
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     image: apache/age:release_PG17_1.6.0
     env_file:
@@ -16,6 +68,37 @@ services:
       timeout: 5s
       retries: 5
 
+  # Init service: Run Alembic database migrations
+  db-migrate:
+    build:
+      context: ./src/api
+      dockerfile: Dockerfile
+    env_file:
+      - env/api.env
+    networks:
+      - kartograph
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    restart: "on-failure"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Init service: Load SpiceDB authorization schema
+  spicedb-schema-init:
+    image: authzed/zed:latest
+    networks:
+      - kartograph
+    volumes:
+      - ./src/api/shared_kernel/authorization/spicedb/schema.zed:/schema/schema.zed:ro
+    command: ["schema", "write", "--insecure", "/schema/schema.zed"]
+    environment:
+      - ZED_ENDPOINT=spicedb:50051
+      - ZED_TOKEN=${SPICEDB_PRESHARED_KEY:-changeme}
+    restart: "on-failure"
+    depends_on:
+      spicedb:
+        condition: service_healthy
+
   api:
     build:
       context: ./src/api
@@ -29,6 +112,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+      spicedb-schema-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
       test:

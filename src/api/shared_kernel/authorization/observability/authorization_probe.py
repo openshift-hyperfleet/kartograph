@@ -91,6 +91,53 @@ class AuthorizationProbe(Protocol):
         """Record that connection to authorization system failed."""
         ...
 
+    def insecure_connection_used(
+        self,
+        endpoint: str,
+    ) -> None:
+        """Record that an insecure connection is being used."""
+        ...
+
+    def subjects_looked_up(
+        self,
+        resource: str,
+        relation: str,
+        subject_type: str,
+        count: int,
+    ) -> None:
+        """Record that subjects were looked up for a resource."""
+        ...
+
+    def subject_lookup_failed(
+        self,
+        resource: str,
+        relation: str,
+        subject_type: str,
+        error: Exception,
+    ) -> None:
+        """Record that looking up subjects failed."""
+        ...
+
+    def resources_looked_up(
+        self,
+        resource_type: str,
+        permission: str,
+        subject: str,
+        count: int,
+    ) -> None:
+        """Record that resources were looked up for a subject."""
+        ...
+
+    def resource_lookup_failed(
+        self,
+        resource_type: str,
+        permission: str,
+        subject: str,
+        error: Exception,
+    ) -> None:
+        """Record that looking up resources failed."""
+        ...
+
     def with_context(self, context: ObservationContext) -> AuthorizationProbe:
         """Create a new probe with observation context bound."""
         ...
@@ -240,6 +287,88 @@ class DefaultAuthorizationProbe:
         self._logger.error(
             "authorization_connection_failed",
             endpoint=endpoint,
+            error=str(error),
+            error_type=type(error).__name__,
+            **self._get_context_kwargs(),
+        )
+
+    def insecure_connection_used(
+        self,
+        endpoint: str,
+    ) -> None:
+        """Record that an insecure connection is being used."""
+        self._logger.warning(
+            "authorization_insecure_connection",
+            endpoint=endpoint,
+            message="Using insecure credentials - NOT for production use",
+            **self._get_context_kwargs(),
+        )
+
+    def subjects_looked_up(
+        self,
+        resource: str,
+        relation: str,
+        subject_type: str,
+        count: int,
+    ) -> None:
+        """Record that subjects were looked up for a resource."""
+        self._logger.info(
+            "authorization_subjects_looked_up",
+            resource=resource,
+            relation=relation,
+            subject_type=subject_type,
+            count=count,
+            **self._get_context_kwargs(),
+        )
+
+    def subject_lookup_failed(
+        self,
+        resource: str,
+        relation: str,
+        subject_type: str,
+        error: Exception,
+    ) -> None:
+        """Record that looking up subjects failed."""
+        self._logger.error(
+            "authorization_subject_lookup_failed",
+            resource=resource,
+            relation=relation,
+            subject_type=subject_type,
+            error=str(error),
+            error_type=type(error).__name__,
+            **self._get_context_kwargs(),
+        )
+
+    def resources_looked_up(
+        self,
+        resource_type: str,
+        permission: str,
+        subject: str,
+        count: int,
+    ) -> None:
+        """Record that resources were looked up for a subject."""
+        self._logger.info(
+            "authorization_resources_looked_up",
+            resource_type=resource_type,
+            permission=permission,
+            subject=subject,
+            count=count,
+            **self._get_context_kwargs(),
+        )
+
+    def resource_lookup_failed(
+        self,
+        resource_type: str,
+        permission: str,
+        subject: str,
+        error: Exception,
+    ) -> None:
+        """Record that looking up resources failed."""
+        self._logger.error(
+            "authorization_resource_lookup_failed",
+            resource_type=resource_type,
+            permission=permission,
+            subject=subject,
             error=str(error),
             error_type=type(error).__name__,
             **self._get_context_kwargs(),

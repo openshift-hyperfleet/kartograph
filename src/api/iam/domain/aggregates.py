@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from iam.domain.value_objects import GroupId, GroupMember, Role, UserId, WorkspaceId
+from iam.domain.value_objects import GroupId, GroupMember, Role, UserId
 
 
 @dataclass
@@ -16,17 +16,16 @@ class Group:
     """Group aggregate representing a collection of users working together.
 
     Groups are the primary unit for resource sharing and collaboration.
-    They belong to workspaces and can own knowledge graphs and data sources.
+    Workspace and tenant relationships are managed through the authorization system (SpiceDB).
 
     Business rules:
-    - A group must have at least one owner at all times
+    - A group must have at least one admin at all times
     - Users can only be added once
-    - Members have roles (OWNER, ADMIN, MEMBER)
+    - Members have roles (ADMIN, MEMBER)
     """
 
     id: GroupId
     name: str
-    workspace_id: WorkspaceId
     members: list[GroupMember] = field(default_factory=list)
 
     def add_member(self, user_id: UserId, role: Role) -> None:
@@ -54,19 +53,19 @@ class Group:
             user_id: The user to remove
 
         Raises:
-            ValueError: If user is not a member or is the last owner
+            ValueError: If user is not a member or is the last admin
         """
         # Check if user is a member
         if not self.has_member(user_id):
             raise ValueError(f"User {user_id} is not a member of this group")
 
-        # Check if removing last owner
+        # Check if removing last admin
         member_role = self.get_member_role(user_id)
-        if member_role == Role.OWNER:
-            owner_count = sum(1 for m in self.members if m.role == Role.OWNER)
-            if owner_count == 1:
+        if member_role == Role.ADMIN:
+            admin_count = sum(1 for m in self.members if m.role == Role.ADMIN)
+            if admin_count == 1:
                 raise ValueError(
-                    "Cannot remove the last owner. Promote another member first."
+                    "Cannot remove the last admin. Promote another member first."
                 )
 
         # Remove member
@@ -80,7 +79,7 @@ class Group:
             new_role: The new role to assign
 
         Raises:
-            ValueError: If user is not a member or is the last owner being demoted
+            ValueError: If user is not a member or is the last admin being demoted
         """
         # Check if user is a member
         if not self.has_member(user_id):
@@ -88,12 +87,12 @@ class Group:
 
         current_role = self.get_member_role(user_id)
 
-        # Check if demoting last owner
-        if current_role == Role.OWNER and new_role != Role.OWNER:
-            owner_count = sum(1 for m in self.members if m.role == Role.OWNER)
-            if owner_count == 1:
+        # Check if demoting last admin
+        if current_role == Role.ADMIN and new_role != Role.ADMIN:
+            admin_count = sum(1 for m in self.members if m.role == Role.ADMIN)
+            if admin_count == 1:
                 raise ValueError(
-                    "Cannot demote the last owner. Promote another member first."
+                    "Cannot demote the last admin. Promote another member first."
                 )
 
         # Update role by replacing the member

@@ -5,6 +5,8 @@ Orchestrates group creation with proper user validation and authorization setup.
 
 from __future__ import annotations
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from iam.application.observability import DefaultGroupServiceProbe, GroupServiceProbe
 from iam.application.services.user_service import UserService
 from iam.domain.aggregates import Group
@@ -16,11 +18,12 @@ class GroupService:
     """Application service for group management.
 
     Orchestrates group creation with proper user validation and
-    authorization setup.
+    authorization setup. Manages database transactions.
     """
 
     def __init__(
         self,
+        session: AsyncSession,
         group_repository: IGroupRepository,
         user_service: UserService,
         probe: GroupServiceProbe | None = None,
@@ -28,10 +31,12 @@ class GroupService:
         """Initialize GroupService with dependencies.
 
         Args:
+            session: Database session for transaction management
             group_repository: Repository for group persistence
             user_service: Service for user management
             probe: Optional domain probe for observability
         """
+        self._session = session
         self._group_repository = group_repository
         self._user_service = user_service
         self._probe = probe or DefaultGroupServiceProbe()
@@ -44,6 +49,8 @@ class GroupService:
         tenant_id: TenantId,
     ) -> Group:
         """Create a new group with creator as admin.
+
+        Manages database transaction for the entire use case.
 
         Args:
             name: Group name
@@ -59,15 +66,16 @@ class GroupService:
             Exception: If group creation fails
         """
         try:
-            # Ensure creator user exists (JIT provisioning from SSO)
-            await self._user_service.ensure_user(creator_id, creator_username)
+            async with self._session.begin():
+                # Ensure creator user exists (JIT provisioning from SSO)
+                await self._user_service.ensure_user(creator_id, creator_username)
 
-            # Create group with creator as admin
-            group = Group(id=GroupId.generate(), name=name)
-            group.add_member(creator_id, Role.ADMIN)
+                # Create group with creator as admin
+                group = Group(id=GroupId.generate(), name=name)
+                group.add_member(creator_id, Role.ADMIN)
 
-            # Persist group (writes to PostgreSQL and SpiceDB)
-            await self._group_repository.save(group, tenant_id)
+                # Persist group (writes to PostgreSQL and SpiceDB)
+                await self._group_repository.save(group, tenant_id)
 
             self._probe.group_created(
                 group_id=group.id.value,
@@ -99,6 +107,8 @@ class GroupService:
     async def delete_group(self, group_id: GroupId, tenant_id: TenantId) -> bool:
         """Delete a group.
 
+        Manages database transaction for deletion.
+
         Args:
             group_id: The group ID to delete
             tenant_id: The tenant this group belongs to
@@ -106,4 +116,5 @@ class GroupService:
         Returns:
             True if deleted, False if not found
         """
-        return await self._group_repository.delete(group_id, tenant_id)
+        async with self._session.begin():
+            return await self._group_repository.delete(group_id, tenant_id)

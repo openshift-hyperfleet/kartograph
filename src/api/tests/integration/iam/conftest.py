@@ -7,6 +7,16 @@ from collections.abc import AsyncGenerator
 import os
 
 import pytest
+
+# Set default environment variables for integration tests
+os.environ.setdefault("KARTOGRAPH_DB_HOST", "localhost")
+os.environ.setdefault("KARTOGRAPH_DB_PORT", "5432")
+os.environ.setdefault("KARTOGRAPH_DB_DATABASE", "kartograph")
+os.environ.setdefault("KARTOGRAPH_DB_USERNAME", "kartograph")
+os.environ.setdefault("KARTOGRAPH_DB_PASSWORD", "kartograph_dev_password")
+os.environ.setdefault("SPICEDB_ENDPOINT", "localhost:50051")
+os.environ.setdefault("SPICEDB_PRESHARED_KEY", "changeme")
+os.environ.setdefault("SPICEDB_USE_TLS", "false")
 import pytest_asyncio
 from pydantic import SecretStr
 from sqlalchemy import text

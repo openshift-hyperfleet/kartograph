@@ -72,38 +72,46 @@ def get_group_repository(
 
 
 def get_user_service(
-    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    session: Annotated[AsyncSession, Depends(get_write_session)],
     probe: Annotated[UserServiceProbe, Depends(get_user_service_probe)],
 ) -> UserService:
     """Get UserService instance.
 
     Args:
-        user_repo: User repository
+        session: Database session for transaction management
         probe: User service probe for observability
 
     Returns:
         UserService instance
     """
+    user_repo = UserRepository(session=session)
     return UserService(user_repository=user_repo, probe=probe)
 
 
 def get_group_service(
-    group_repo: Annotated[GroupRepository, Depends(get_group_repository)],
-    user_service: Annotated[UserService, Depends(get_user_service)],
-    probe: Annotated[GroupServiceProbe, Depends(get_group_service_probe)],
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+    user_service_probe: Annotated[UserServiceProbe, Depends(get_user_service_probe)],
+    group_service_probe: Annotated[GroupServiceProbe, Depends(get_group_service_probe)],
 ) -> GroupService:
     """Get GroupService instance.
 
     Args:
-        group_repo: Group repository
-        user_service: User service for JIT user provisioning
-        probe: Group service probe for observability
+        session: Database session for transaction management
+        authz: Authorization provider (SpiceDB client)
+        user_service_probe: User service probe for observability
+        group_service_probe: Group service probe for observability
 
     Returns:
         GroupService instance
     """
+    user_repo = UserRepository(session=session)
+    group_repo = GroupRepository(session=session, authz=authz)
+    user_service = UserService(user_repository=user_repo, probe=user_service_probe)
+
     return GroupService(
+        session=session,
         group_repository=group_repo,
         user_service=user_service,
-        probe=probe,
+        probe=group_service_probe,
     )

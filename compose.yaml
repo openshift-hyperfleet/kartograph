@@ -19,7 +19,8 @@ services:
       spicedb-migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "grpc_health_probe", "-addr=:50051", "-tls", "-tls-no-verify"]
+      test:
+        ["CMD", "grpc_health_probe", "-addr=:50051", "-tls", "-tls-no-verify"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -95,7 +96,7 @@ services:
     volumes:
       - ./src/api/shared_kernel/authorization/spicedb/schema.zed:/schema/schema.zed:ro
       - spicedb_certs:/certs:ro
-    command: ["schema", "write", "--skip-verify", "/schema/schema.zed"]
+    command: ["schema", "write", "--no-verify-ca", "/schema/schema.zed"]
     environment:
       - ZED_ENDPOINT=spicedb:50051
       - ZED_TOKEN=${SPICEDB_PRESHARED_KEY:-changeme}

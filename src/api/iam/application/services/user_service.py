@@ -52,14 +52,22 @@ class UserService:
         if existing:
             # Sync username if changed in SSO
             if existing.username != username:
-                user = User(id=user_id, username=username)
-                await self._user_repository.save(user)
-                self._probe.user_ensured(
-                    user_id=user_id.value,
-                    username=username,
-                    was_created=False,
-                )
-                return user
+                try:
+                    user = User(id=user_id, username=username)
+                    await self._user_repository.save(user)
+                    self._probe.user_ensured(
+                        user_id=user_id.value,
+                        username=username,
+                        was_created=False,
+                    )
+                    return user
+                except Exception as e:
+                    self._probe.user_provision_failed(
+                        user_id=user_id.value,
+                        username=username,
+                        error=str(e),
+                    )
+                    raise
 
             self._probe.user_ensured(
                 user_id=user_id.value,

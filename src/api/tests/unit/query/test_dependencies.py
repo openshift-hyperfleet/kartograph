@@ -36,10 +36,12 @@ class TestGetMCPQueryService:
     def test_returns_mcp_query_service(self):
         """Should return MCPQueryService instance."""
         from graph.infrastructure.age_client import AgeGraphClient
+        from query.application.observability import QueryServiceProbe
 
         mock_client = create_autospec(AgeGraphClient, instance=True)
+        mock_probe = create_autospec(QueryServiceProbe, instance=True)
 
-        result = get_mcp_query_service(client=mock_client)
+        result = get_mcp_query_service(client=mock_client, probe=mock_probe)
 
         assert isinstance(result, MCPQueryService)
         assert result._repository is not None

@@ -14,8 +14,12 @@ from infrastructure.database.dependencies import (
     init_database_engines,
 )
 from infrastructure.dependencies import get_age_connection_pool
+from infrastructure.logging import configure_logging
 from infrastructure.version import __version__
 from query.presentation.mcp import query_mcp_app
+
+# Configure structlog before any loggers are created
+configure_logging()
 
 
 @asynccontextmanager

@@ -4,13 +4,10 @@ Provides dependencies local to the Query context only.
 Cross-context composition is handled in infrastructure.mcp_dependencies.
 """
 
-from collections.abc import Generator
-from typing import TYPE_CHECKING, Annotated
-
-from fastmcp.dependencies import Depends
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Generator
 
 from infrastructure.database.connection import ConnectionFactory
-from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.dependencies import get_age_connection_pool
 from infrastructure.settings import get_database_settings
 from query.application.observability import (
@@ -35,16 +32,12 @@ def get_query_service_probe() -> QueryServiceProbe:
     return DefaultQueryServiceProbe()
 
 
-def get_mcp_graph_client(
-    pool: Annotated[ConnectionPool, Depends(get_age_connection_pool)],
-) -> Generator["AgeGraphClient", None, None]:
-    """Get request-scoped AGE graph client for MCP operations.
+@contextmanager
+def mcp_graph_client_context() -> Generator["AgeGraphClient", None, None]:
+    """Context manager for MCP graph client lifecycle.
 
-    Each MCP request gets its own client with a connection from the pool.
-    Connection is automatically returned to pool on cleanup.
-
-    Args:
-        pool: Application-scoped connection pool
+    Creates a connected graph client and ensures proper cleanup.
+    Uses the shared connection pool for efficiency.
 
     Yields:
         Connected AgeGraphClient instance
@@ -52,6 +45,7 @@ def get_mcp_graph_client(
     # Runtime import to avoid static dependency on Graph infrastructure
     from graph.infrastructure.age_client import AgeGraphClient
 
+    pool = get_age_connection_pool()
     settings = get_database_settings()
     factory = ConnectionFactory(settings, pool=pool)
     client = AgeGraphClient(settings, connection_factory=factory)
@@ -62,21 +56,22 @@ def get_mcp_graph_client(
         client.disconnect()
 
 
-def get_mcp_query_service(
-    client: Annotated["AgeGraphClient", Depends(get_mcp_graph_client)],
-    probe: Annotated[QueryServiceProbe, Depends(get_query_service_probe)],
-) -> MCPQueryService:
+@contextmanager
+def get_mcp_query_service() -> Generator[MCPQueryService, None, None]:
     """Get MCPQueryService for MCP operations.
 
-    Args:
-        client: Request-scoped graph client
-        probe: Query service probe for observability
+    Context manager that manually resolves all dependencies to work with
+    FastMCP's docket DI system, which doesn't support nested Depends() chains.
 
-    Returns:
-        MCPQueryService instance
+    Handles graph client lifecycle (connect/disconnect) automatically.
+
+    Yields:
+        MCPQueryService instance with active database connection
     """
-    repository = QueryGraphRepository(client=client)
-    return MCPQueryService(repository=repository, probe=probe)
+    with mcp_graph_client_context() as client:
+        probe = get_query_service_probe()
+        repository = QueryGraphRepository(client=client)
+        yield MCPQueryService(repository=repository, probe=probe)
 
 
 def get_schema_resource_probe() -> SchemaResourceProbe:

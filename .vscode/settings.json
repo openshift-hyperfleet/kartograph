@@ -1,8 +1,9 @@
 {
     "editor.formatOnSave": true,
     "python.testing.pytestArgs": [
-        "src"
+        "tests"
     ],
+    "python.testing.cwd": "${workspaceFolder}/src/api",
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true
 }

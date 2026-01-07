@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 
 from graph.dependencies import get_age_graph_client
 from graph.infrastructure.age_client import AgeGraphClient
@@ -15,6 +16,7 @@ from infrastructure.database.dependencies import (
 )
 from infrastructure.dependencies import get_age_connection_pool
 from infrastructure.logging import configure_logging
+from infrastructure.settings import get_cors_settings
 from infrastructure.version import __version__
 from query.presentation.mcp import query_mcp_app
 
@@ -66,6 +68,18 @@ app = FastAPI(
     version=__version__,
     lifespan=kartograph_lifespan,
 )
+# Configure CORS if origins are specified
+cors_settings = get_cors_settings()
+print(cors_settings.origins)
+
+if cors_settings.is_enabled:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_settings.origins,
+        allow_credentials=cors_settings.allow_credentials,
+        allow_methods=cors_settings.allow_methods,
+        allow_headers=cors_settings.allow_headers,
+    )
 
 app.mount(path="/query", app=query_mcp_app)
 

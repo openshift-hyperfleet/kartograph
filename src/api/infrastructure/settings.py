@@ -72,6 +72,49 @@ class DatabaseSettings(BaseSettings):
         return f"postgresql://{self.username}@{self.host}:{self.port}/{self.database}"
 
 
+class CORSSettings(BaseSettings):
+    """CORS (Cross-Origin Resource Sharing) settings.
+
+    Environment variables:
+        KARTOGRAPH_CORS_ORIGINS: Comma-separated list of allowed origins
+            (default: empty, which disables CORS)
+        KARTOGRAPH_CORS_ALLOW_CREDENTIALS: Allow credentials (default: true)
+        KARTOGRAPH_CORS_ALLOW_METHODS: Comma-separated list of allowed methods
+            (default: GET,POST,PUT,DELETE,OPTIONS,PATCH)
+        KARTOGRAPH_CORS_ALLOW_HEADERS: Comma-separated list of allowed headers
+            (default: *)
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="KARTOGRAPH_CORS_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    origins: list[str] = Field(
+        default_factory=list,
+        description="List of allowed origins for CORS",
+    )
+    allow_credentials: bool = Field(
+        default=True,
+        description="Allow credentials in CORS requests",
+    )
+    allow_methods: list[str] = Field(
+        default_factory=lambda: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+        description="Allowed HTTP methods for CORS",
+    )
+    allow_headers: list[str] = Field(
+        default_factory=lambda: ["*"],
+        description="Allowed headers for CORS",
+    )
+
+    @property
+    def is_enabled(self) -> bool:
+        """Check if CORS is enabled (has at least one origin configured)."""
+        return len(self.origins) > 0
+
+
 class SpiceDBSettings(BaseSettings):
     """SpiceDB authorization service settings.
 
@@ -129,6 +172,11 @@ class Settings(BaseSettings):
         """Get SpiceDB settings."""
         return get_spicedb_settings()
 
+    @property
+    def cors(self) -> CORSSettings:
+        """Get CORS settings."""
+        return get_cors_settings()
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -155,3 +203,12 @@ def get_spicedb_settings() -> SpiceDBSettings:
     Uses lru_cache to ensure settings are only loaded once.
     """
     return SpiceDBSettings()
+
+
+@lru_cache
+def get_cors_settings() -> CORSSettings:
+    """Get cached CORS settings.
+
+    Uses lru_cache to ensure settings are only loaded once.
+    """
+    return CORSSettings()

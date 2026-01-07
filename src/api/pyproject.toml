@@ -48,7 +48,7 @@ KARTOGRAPH_DB_PASSWORD = "kartograph_dev_password"
 
 # SpiceDB settings for integration tests
 SPICEDB_ENDPOINT = "localhost:50051"
-SPICEDB_PRESHARED_KEY = "changeme"
+SPICEDB_PRESHARED_KEY = { value = "changeme", skip_if_set = true }
 SPICEDB_USE_TLS = { value = "true", skip_if_set = true }
 # Path to self-signed certificate (relative to src/api)
 SPICEDB_CERT_PATH = { value = "../../certs/spicedb-cert.pem", transform = true }

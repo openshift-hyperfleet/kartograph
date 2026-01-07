@@ -78,13 +78,23 @@ jobs:
       - name: Load SpiceDB schema
         working-directory: src/api
         run: |
+          echo "Schema file contents:"
+          head -20 shared_kernel/authorization/spicedb/schema.zed
+          echo "---"
+          echo "Loading schema into SpiceDB..."
           docker run --rm --network host \
-            -v $PWD/shared_kernel/authorization/spicedb/schema.zed:/schema/schema.zed:ro \
+            -v ${{ github.workspace }}/src/api/shared_kernel/authorization/spicedb/schema.zed:/schema/schema.zed:ro \
             authzed/zed:latest schema write \
               --endpoint=localhost:50051 \
               --token=test_key \
               --insecure \
               /schema/schema.zed
+          echo "Schema load complete, verifying..."
+          docker run --rm --network host \
+            authzed/zed:latest schema read \
+              --endpoint=localhost:50051 \
+              --token=test_key \
+              --insecure
 
       - name: Run ruff (linter)
         working-directory: src/api

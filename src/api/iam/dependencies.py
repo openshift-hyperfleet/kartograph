@@ -98,7 +98,6 @@ def get_group_service(
     Args:
         session: Database session for transaction management
         authz: Authorization provider (SpiceDB client)
-        user_service_probe: User service probe for observability
         group_service_probe: Group service probe for observability
 
     Returns:

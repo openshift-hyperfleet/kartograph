@@ -38,7 +38,6 @@ class GroupService:
         Args:
             session: Database session for transaction management
             group_repository: Repository for group persistence
-            user_service: Service for user management
             authz: Authorization provider for permission checks
             probe: Optional domain probe for observability
         """

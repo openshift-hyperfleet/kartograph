@@ -64,19 +64,20 @@ async def get_current_user(
     Raises:
         HTTPException: 400 if tenant ID is invalid ULID format
     """
+    # Validate tenant ID first (before user provisioning to avoid orphaned users)
     try:
-        # User IDs come from external SSO - accept any string format
-        user_id = UserId(value=x_user_id)
-
-        # Ensure the user exists in the system (with transaction)
-        async with session.begin():
-            await user_service.ensure_user(user_id=user_id, username=x_username)
-
-        # Tenant IDs are internal - validate ULID format
         tenant_id = TenantId.from_string(x_tenant_id)
-        return CurrentUser(user_id=user_id, username=x_username, tenant_id=tenant_id)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid tenant ID format: {e}",
         ) from e
+
+    # User IDs come from external SSO - accept any string format
+    user_id = UserId(value=x_user_id)
+
+    # Ensure the user exists in the system (with transaction)
+    async with session.begin():
+        await user_service.ensure_user(user_id=user_id, username=x_username)
+
+    return CurrentUser(user_id=user_id, username=x_username, tenant_id=tenant_id)

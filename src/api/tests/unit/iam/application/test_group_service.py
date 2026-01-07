@@ -55,16 +55,13 @@ def mock_authz():
 
 
 @pytest.fixture
-def group_service(
-    mock_session, mock_group_repository, mock_user_service, mock_authz, mock_probe
-):
+def group_service(mock_session, mock_group_repository, mock_authz, mock_probe):
     """Create GroupService with mock dependencies."""
     from iam.application.services.group_service import GroupService
 
     return GroupService(
         session=mock_session,
         group_repository=mock_group_repository,
-        user_service=mock_user_service,
         authz=mock_authz,
         probe=mock_probe,
     )
@@ -73,50 +70,30 @@ def group_service(
 class TestGroupServiceInit:
     """Tests for GroupService initialization."""
 
-    def test_stores_session(
-        self, mock_session, mock_group_repository, mock_user_service, mock_authz
-    ):
+    def test_stores_session(self, mock_session, mock_group_repository, mock_authz):
         """Service should store session reference."""
         from iam.application.services.group_service import GroupService
 
         service = GroupService(
             session=mock_session,
             group_repository=mock_group_repository,
-            user_service=mock_user_service,
             authz=mock_authz,
         )
         assert service._session is mock_session
 
-    def test_stores_repository(
-        self, mock_session, mock_group_repository, mock_user_service, mock_authz
-    ):
+    def test_stores_repository(self, mock_session, mock_group_repository, mock_authz):
         """Service should store repository reference."""
         from iam.application.services.group_service import GroupService
 
         service = GroupService(
             session=mock_session,
             group_repository=mock_group_repository,
-            user_service=mock_user_service,
             authz=mock_authz,
         )
         assert service._group_repository is mock_group_repository
 
-    def test_stores_user_service(
-        self, mock_session, mock_group_repository, mock_user_service, mock_authz
-    ):
-        """Service should store user service reference."""
-        from iam.application.services.group_service import GroupService
-
-        service = GroupService(
-            session=mock_session,
-            group_repository=mock_group_repository,
-            user_service=mock_user_service,
-            authz=mock_authz,
-        )
-        assert service._user_service is mock_user_service
-
     def test_uses_default_probe_when_not_provided(
-        self, mock_session, mock_group_repository, mock_user_service, mock_authz
+        self, mock_session, mock_group_repository, mock_authz
     ):
         """Service should create default probe when not provided."""
         from iam.application.services.group_service import GroupService
@@ -124,7 +101,6 @@ class TestGroupServiceInit:
         service = GroupService(
             session=mock_session,
             group_repository=mock_group_repository,
-            user_service=mock_user_service,
             authz=mock_authz,
         )
         assert service._probe is not None
@@ -134,41 +110,18 @@ class TestCreateGroup:
     """Tests for create_group method."""
 
     @pytest.mark.asyncio
-    async def test_ensures_creator_exists(
-        self, group_service, mock_user_service, mock_probe
-    ):
-        """Should ensure creator user exists before creating group."""
-        creator_id = UserId.generate()
-        tenant_id = TenantId.generate()
-        creator = User(id=creator_id, username="alice")
-
-        mock_user_service.ensure_user = AsyncMock(return_value=creator)
-
-        await group_service.create_group(
-            name="Engineering",
-            creator_id=creator_id,
-            creator_username="alice",
-            tenant_id=tenant_id,
-        )
-
-        mock_user_service.ensure_user.assert_called_once_with(creator_id, "alice")
-
-    @pytest.mark.asyncio
     async def test_creates_group_with_creator_as_admin(
-        self, group_service, mock_user_service, mock_group_repository
+        self, group_service, mock_group_repository
     ):
         """Should create group with creator as admin member."""
         creator_id = UserId.generate()
         tenant_id = TenantId.generate()
-        creator = User(id=creator_id, username="alice")
 
-        mock_user_service.ensure_user = AsyncMock(return_value=creator)
         mock_group_repository.save = AsyncMock()
 
         result = await group_service.create_group(
             name="Engineering",
             creator_id=creator_id,
-            creator_username="alice",
             tenant_id=tenant_id,
         )
 
@@ -194,7 +147,6 @@ class TestCreateGroup:
         await group_service.create_group(
             name="Engineering",
             creator_id=creator_id,
-            creator_username="alice",
             tenant_id=tenant_id,
         )
 
@@ -218,7 +170,6 @@ class TestCreateGroup:
         result = await group_service.create_group(
             name="Engineering",
             creator_id=creator_id,
-            creator_username="alice",
             tenant_id=tenant_id,
         )
 
@@ -247,7 +198,6 @@ class TestCreateGroup:
             await group_service.create_group(
                 name="Engineering",
                 creator_id=creator_id,
-                creator_username="alice",
                 tenant_id=tenant_id,
             )
 

@@ -38,7 +38,7 @@ jobs:
       - name: Start SpiceDB
         uses: authzed/action-spicedb@v1
         with:
-          version: 'v1.48.0'
+          version: "v1.48.0"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -95,4 +95,5 @@ jobs:
           KARTOGRAPH_DB_GRAPH_NAME: test_graph
           SPICEDB_ENDPOINT: localhost:50051
           SPICEDB_PRESHARED_KEY: test_key
+          SPICEDB_USE_TLS: "false"
         run: uv run pytest -v

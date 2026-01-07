@@ -5,7 +5,7 @@ Cross-context composition is handled in infrastructure.mcp_dependencies.
 """
 
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Generator
+from typing import TYPE_CHECKING, Generator, Iterator
 
 from infrastructure.database.connection import ConnectionFactory
 from infrastructure.dependencies import get_age_connection_pool
@@ -57,7 +57,7 @@ def mcp_graph_client_context() -> Generator["AgeGraphClient", None, None]:
 
 
 @contextmanager
-def get_mcp_query_service() -> Generator[MCPQueryService, None, None]:
+def get_mcp_query_service() -> Iterator[MCPQueryService]:
     """Get MCPQueryService for MCP operations.
 
     Context manager that manually resolves all dependencies to work with

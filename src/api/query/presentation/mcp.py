@@ -51,7 +51,7 @@ def query_graph(
     cypher: str,
     timeout_seconds: int = 30,
     max_rows: int = 1000,
-    service: MCPQueryService = Depends(get_mcp_query_service),
+    service: MCPQueryService = Depends(get_mcp_query_service),  # type: ignore[arg-type]
 ) -> Dict[str, Any]:
     """Execute a Cypher query against the knowledge graph.
 

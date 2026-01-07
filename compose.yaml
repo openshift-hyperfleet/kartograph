@@ -95,7 +95,7 @@ services:
       - kartograph
     volumes:
       - ./src/api/shared_kernel/authorization/spicedb/schema.zed:/schema/schema.zed:ro
-      - spicedb_certs:/certs:ro
+      - ./certs:/certs:ro
     command: ["schema", "write", "--no-verify-ca", "/schema/schema.zed"]
     environment:
       - ZED_ENDPOINT=spicedb:50051

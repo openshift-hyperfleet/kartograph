@@ -13,10 +13,9 @@ certs:
 			-days 365 -nodes \
 			-subj "/CN=spicedb/O=Kartograph Dev" \
 			-addext "subjectAltName=DNS:spicedb,DNS:localhost,IP:127.0.0.1"; \
-		chmod 644 certs/spicedb-cert.pem certs/spicedb-key.pem; \
+		chmod 555 certs/spicedb-cert.pem certs/spicedb-key.pem; \
 		echo "✓ Certificates generated in certs/"; \
 		echo "  → Available for local tests via certs/spicedb-cert.pem"; \
-		echo "  → Mounted into Docker containers via bind mount"; \
 	else \
 		echo "✓ Certificates already exist in certs/"; \
 	fi

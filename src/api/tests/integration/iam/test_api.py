@@ -232,8 +232,8 @@ class TestDeleteGroup:
         assert get_response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_returns_404_for_nonexistent_group(self, async_client):
-        """Should return 404 if group doesn't exist."""
+    async def test_returns_403_for_nonexistent_group(self, async_client):
+        """Should return 403 if user lacks permission (doesn't leak existence)."""
         headers = {
             "X-User-Id": UserId.generate().value,
             "X-Username": "alice",
@@ -245,7 +245,8 @@ class TestDeleteGroup:
             headers=headers,
         )
 
-        assert response.status_code == 404
+        # Returns 403 (not 404) to avoid leaking group existence information
+        assert response.status_code == 403
 
     @pytest.mark.asyncio
     async def test_returns_400_for_invalid_id(self, async_client, clean_iam_data):

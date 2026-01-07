@@ -148,13 +148,20 @@ async def delete_group(
         ) from e
 
     try:
-        deleted = await service.delete_group(group_id_obj, current_user.tenant_id)
+        deleted = await service.delete_group(
+            group_id_obj, current_user.tenant_id, current_user.user_id
+        )
         if not deleted:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Group {group_id} not found",
             )
 
+    except PermissionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        ) from e
     except HTTPException:
         raise
     except Exception as e:

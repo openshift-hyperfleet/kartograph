@@ -13,6 +13,7 @@ from iam.domain.value_objects import GroupId, Role, TenantId, UserId
 from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
+    Permission,
     RelationType,
     ResourceType,
     format_resource,
@@ -127,17 +128,37 @@ class GroupService:
 
         return group
 
-    async def delete_group(self, group_id: GroupId, tenant_id: TenantId) -> bool:
+    async def delete_group(
+        self, group_id: GroupId, tenant_id: TenantId, user_id: UserId
+    ) -> bool:
         """Delete a group.
 
+        Verifies the user has manage permission on the group before deletion.
         Manages database transaction for deletion.
 
         Args:
             group_id: The group ID to delete
             tenant_id: The tenant this group belongs to
+            user_id: The user attempting to delete (must have manage permission)
 
         Returns:
             True if deleted, False if not found
+
+        Raises:
+            PermissionError: If user lacks manage permission on the group
         """
+        # Check user has manage permission on this group
+        resource = format_resource(ResourceType.GROUP, group_id.value)
+        subject = format_resource(ResourceType.USER, user_id.value)
+        has_permission = await self._authz.check_permission(
+            resource=resource,
+            permission=Permission.MANAGE,
+            subject=subject,
+        )
+        if not has_permission:
+            raise PermissionError(
+                f"User {user_id.value} lacks manage permission on group {group_id.value}"
+            )
+
         async with self._session.begin():
             return await self._group_repository.delete(group_id, tenant_id)

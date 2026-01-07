@@ -55,11 +55,24 @@ def _create_tls_credentials(
 
     Returns:
         Composite channel credentials with TLS and bearer token
+
+    Raises:
+        ValueError: If cert_path is provided but file doesn't exist or can't be read
     """
     # Load custom root certificate if provided
     root_certs = None
     if cert_path:
-        root_certs = Path(cert_path).read_bytes()
+        cert_file = Path(cert_path)
+        if not cert_file.exists():
+            raise ValueError(f"TLS certificate file not found: {cert_path}")
+        if not cert_file.is_file():
+            raise ValueError(f"TLS certificate path is not a file: {cert_path}")
+        try:
+            root_certs = cert_file.read_bytes()
+        except OSError as e:
+            raise ValueError(
+                f"Failed to read TLS certificate file '{cert_path}': {e}"
+            ) from e
 
     # Create SSL credentials
     ssl_creds = grpc.ssl_channel_credentials(root_certificates=root_certs)

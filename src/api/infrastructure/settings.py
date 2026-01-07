@@ -79,6 +79,7 @@ class SpiceDBSettings(BaseSettings):
         SPICEDB_ENDPOINT: gRPC endpoint (default: localhost:50051)
         SPICEDB_PRESHARED_KEY: Pre-shared authentication key (required)
         SPICEDB_USE_TLS: Use TLS for connection (default: true for production)
+        SPICEDB_CERT_PATH: Path to custom TLS root certificate (for self-signed certs)
     """
 
     model_config = SettingsConfigDict(
@@ -97,7 +98,11 @@ class SpiceDBSettings(BaseSettings):
     )
     use_tls: bool = Field(
         default=True,
-        description="Use TLS for connection (true for production, false for local dev. Note: Only works if endpoint is localhost due to a limitation in the underlying grpc client.)",
+        description="Use TLS for connection (true for production, false for local dev)",
+    )
+    cert_path: str | None = Field(
+        default=None,
+        description="Path to custom TLS root certificate (for self-signed certs)",
     )
 
 

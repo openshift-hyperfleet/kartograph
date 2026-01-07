@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import asyncio
 from enum import IntEnum
+from pathlib import Path
 
+import grpc
 from authzed.api.v1 import (
     CheckPermissionRequest,
     Consistency,
@@ -21,7 +23,7 @@ from authzed.api.v1 import (
     WriteRelationshipsRequest,
 )
 from authzed.api.v1.permission_service_pb2 import CheckPermissionResponse
-from grpcutil import bearer_token_credentials, insecure_bearer_token_credentials
+from grpcutil import insecure_bearer_token_credentials
 
 from shared_kernel.authorization.observability import (
     AuthorizationProbe,
@@ -40,6 +42,33 @@ class RelationshipOperation(IntEnum):
 
     WRITE = RelationshipUpdate.OPERATION_TOUCH
     DELETE = RelationshipUpdate.OPERATION_DELETE
+
+
+def _create_tls_credentials(
+    preshared_key: str, cert_path: str | None = None
+) -> grpc.ChannelCredentials:
+    """Create TLS channel credentials with optional custom root certificate.
+
+    Args:
+        preshared_key: Bearer token for authentication
+        cert_path: Path to custom root certificate (e.g., self-signed cert)
+
+    Returns:
+        Composite channel credentials with TLS and bearer token
+    """
+    # Load custom root certificate if provided
+    root_certs = None
+    if cert_path:
+        root_certs = Path(cert_path).read_bytes()
+
+    # Create SSL credentials
+    ssl_creds = grpc.ssl_channel_credentials(root_certificates=root_certs)
+
+    # Create bearer token call credentials
+    call_creds = grpc.access_token_call_credentials(preshared_key)
+
+    # Combine into composite credentials
+    return grpc.composite_channel_credentials(ssl_creds, call_creds)
 
 
 def _parse_reference(ref: str, ref_type: str) -> tuple[str, str]:
@@ -112,6 +141,7 @@ class SpiceDBClient(AuthorizationProvider):
         endpoint: str,
         preshared_key: str,
         use_tls: bool = True,
+        cert_path: str | None = None,
         probe: AuthorizationProbe | None = None,
     ):
         """Initialize SpiceDB client.
@@ -120,11 +150,13 @@ class SpiceDBClient(AuthorizationProvider):
             endpoint: SpiceDB gRPC endpoint (e.g., "localhost:50051")
             preshared_key: Pre-shared key for authentication
             use_tls: Use TLS for connection (default: True, False for local dev only)
+            cert_path: Path to custom root certificate for TLS (e.g., self-signed cert)
             probe: Optional domain probe for observability
         """
         self._endpoint = endpoint
         self._preshared_key = preshared_key
         self._use_tls = use_tls
+        self._cert_path = cert_path
         self._client = None
         self._probe = probe or DefaultAuthorizationProbe()
         self._init_lock = asyncio.Lock()
@@ -140,7 +172,9 @@ class SpiceDBClient(AuthorizationProvider):
 
                         # Create credentials with preshared key
                         if self._use_tls:
-                            credentials = bearer_token_credentials(self._preshared_key)
+                            credentials = _create_tls_credentials(
+                                self._preshared_key, self._cert_path
+                            )
                         else:
                             credentials = insecure_bearer_token_credentials(
                                 self._preshared_key

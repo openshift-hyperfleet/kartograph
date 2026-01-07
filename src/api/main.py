@@ -9,6 +9,10 @@ from graph.dependencies import get_age_graph_client
 from graph.infrastructure.age_client import AgeGraphClient
 from graph.presentation import routes as graph_routes
 from iam.presentation import routes as iam_routes
+from infrastructure.database.dependencies import (
+    close_database_engines,
+    init_database_engines,
+)
 from infrastructure.dependencies import get_age_connection_pool
 from infrastructure.version import __version__
 from query.presentation.mcp import query_mcp_app
@@ -19,16 +23,31 @@ async def kartograph_lifespan(app: FastAPI):
     """Application lifespan context.
 
     Manages:
+    - Database engine lifecycle (created on startup, disposed on shutdown)
     - MCP server lifespan
-    - Connection pool lifecycle (created lazily, closed on shutdown)
+    - AGE connection pool lifecycle
 
-    Note: MCP resources and tools use dependency injection via Depends(),
-    so no manual service initialization is needed here.
+    Engines are created here (within the running event loop) to ensure
+    proper async context for database connections.
     """
-    async with query_mcp_app.lifespan(app):
-        yield
+    # Startup: initialize database engines
+    init_database_engines(app)
 
-    # Shutdown: close pool
+    # MCP lifespan - may fail if already run (e.g., in tests with multiple lifespans)
+    try:
+        async with query_mcp_app.lifespan(app):
+            yield
+    except RuntimeError as e:
+        if "can only be called once" in str(e):
+            # MCP already initialized, just yield for database operations
+            yield
+        else:
+            raise
+
+    # Shutdown: close database engines
+    await close_database_engines(app)
+
+    # Shutdown: close AGE connection pool
     try:
         pool = get_age_connection_pool()
         pool.close_all()

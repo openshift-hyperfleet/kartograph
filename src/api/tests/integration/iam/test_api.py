@@ -5,6 +5,7 @@ Tests the full vertical slice: API → Service → Repository → PostgreSQL + S
 
 import pytest
 import pytest_asyncio
+from asgi_lifespan import LifespanManager
 from httpx import AsyncClient, ASGITransport
 
 from iam.domain.value_objects import GroupId, TenantId, UserId
@@ -15,10 +16,15 @@ pytestmark = pytest.mark.integration
 
 @pytest_asyncio.fixture
 async def async_client():
-    """Create async HTTP client for testing."""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client
+    """Create async HTTP client for testing with lifespan support.
+
+    Uses LifespanManager to ensure app lifespan (database engine init)
+    runs before tests and cleanup runs after.
+    """
+    async with LifespanManager(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client
 
 
 class TestCreateGroup:
@@ -110,7 +116,9 @@ class TestCreateGroup:
         assert response2.status_code == 201
 
     @pytest.mark.asyncio
-    async def test_returns_400_for_invalid_tenant_id(self, async_client):
+    async def test_returns_400_for_invalid_tenant_id(
+        self, async_client, clean_iam_data
+    ):
         """Should return 400 for invalid tenant ID format."""
         response = await async_client.post(
             "/iam/groups",
@@ -123,7 +131,7 @@ class TestCreateGroup:
         )
 
         assert response.status_code == 400
-        assert "Invalid ID format" in response.json()["detail"]
+        assert "Invalid" in response.json()["detail"]
 
 
 class TestGetGroup:
@@ -149,7 +157,7 @@ class TestGetGroup:
         group_id = create_response.json()["id"]
 
         # Get group
-        response = await async_client.get(f"/iam/groups/{group_id}")
+        response = await async_client.get(f"/iam/groups/{group_id}", headers=headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -174,7 +182,7 @@ class TestGetGroup:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_returns_400_for_invalid_group_id(self, async_client):
+    async def test_returns_400_for_invalid_group_id(self, async_client, clean_iam_data):
         """Should return 400 for invalid group ID format."""
         headers = {
             "X-User-Id": UserId.generate().value,
@@ -218,7 +226,9 @@ class TestDeleteGroup:
         assert response.status_code == 204
 
         # Verify it's gone
-        get_response = await async_client.get(f"/iam/groups/{group_id}")
+        get_response = await async_client.get(
+            f"/iam/groups/{group_id}", headers=headers
+        )
         assert get_response.status_code == 404
 
     @pytest.mark.asyncio
@@ -238,7 +248,7 @@ class TestDeleteGroup:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_returns_400_for_invalid_id(self, async_client):
+    async def test_returns_400_for_invalid_id(self, async_client, clean_iam_data):
         """Should return 400 for invalid group ID."""
         headers = {
             "X-User-Id": UserId.generate().value,

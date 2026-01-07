@@ -21,6 +21,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "asgi-lifespan>=2.1.0",
     "httpx>=0.28.1",
     "mypy>=1.19.0",
     "pytest>=9.0.1",
@@ -35,7 +36,6 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
-asyncio_default_fixture_loop_scope = "session"
 pythonpath = ["."]
 
 [tool.pytest_env]

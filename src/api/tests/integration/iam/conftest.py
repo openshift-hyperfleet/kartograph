@@ -50,6 +50,22 @@ async def async_session(
     await engine.dispose()
 
 
+@pytest_asyncio.fixture
+async def session_factory(
+    iam_db_settings: DatabaseSettings,
+) -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
+    """Provide a session factory for tests that need to create multiple sessions.
+
+    This is needed for the outbox worker which creates its own sessions.
+    """
+    engine = create_write_engine(iam_db_settings)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    yield factory
+
+    await engine.dispose()
+
+
 @pytest.fixture
 def spicedb_client() -> AuthorizationProvider:
     """Provide a SpiceDB client for integration tests.
@@ -71,6 +87,7 @@ async def clean_iam_data(
     """
     # Clean before test
     try:
+        await async_session.execute(text("TRUNCATE TABLE outbox CASCADE"))
         await async_session.execute(text("TRUNCATE TABLE groups CASCADE"))
         await async_session.execute(text("TRUNCATE TABLE users CASCADE"))
         await async_session.commit()
@@ -85,6 +102,7 @@ async def clean_iam_data(
 
     # Clean after test
     try:
+        await async_session.execute(text("TRUNCATE TABLE outbox CASCADE"))
         await async_session.execute(text("TRUNCATE TABLE groups CASCADE"))
         await async_session.execute(text("TRUNCATE TABLE users CASCADE"))
         await async_session.commit()

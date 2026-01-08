@@ -7,8 +7,14 @@ They enforce invariants and business rules without depending on infrastructure.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
+from iam.domain.events import MemberAdded, MemberRemoved, MemberRoleChanged
 from iam.domain.value_objects import GroupId, GroupMember, Role, UserId
+
+if TYPE_CHECKING:
+    from iam.domain.events import DomainEvent
 
 
 @dataclass
@@ -22,11 +28,16 @@ class Group:
     - A group must have at least one admin at all times
     - Users can only be added once
     - Members have roles (ADMIN, MEMBER)
+
+    Event collection:
+    - All mutating operations record domain events
+    - Events can be collected via collect_events() for the outbox pattern
     """
 
     id: GroupId
     name: str
     members: list[GroupMember] = field(default_factory=list)
+    _pending_events: list[DomainEvent] = field(default_factory=list, repr=False)
 
     def add_member(self, user_id: UserId, role: Role) -> None:
         """Add a member to the group with a specific role.
@@ -46,6 +57,16 @@ class Group:
         member = GroupMember(user_id=user_id, role=role)
         self.members.append(member)
 
+        # Record event
+        self._pending_events.append(
+            MemberAdded(
+                group_id=self.id.value,
+                user_id=user_id.value,
+                role=role,
+                occurred_at=datetime.now(UTC),
+            )
+        )
+
     def remove_member(self, user_id: UserId) -> None:
         """Remove a member from the group.
 
@@ -59,8 +80,10 @@ class Group:
         if not self.has_member(user_id):
             raise ValueError(f"User {user_id} is not a member of this group")
 
-        # Check if removing last admin
+        # Get the role before removing (needed for event)
         member_role = self.get_member_role(user_id)
+
+        # Check if removing last admin
         if member_role == Role.ADMIN:
             admin_count = sum(1 for m in self.members if m.role == Role.ADMIN)
             if admin_count == 1:
@@ -70,6 +93,17 @@ class Group:
 
         # Remove member
         self.members = [m for m in self.members if m.user_id != user_id]
+
+        # Record event (member_role is guaranteed to be not None here)
+        if member_role is not None:
+            self._pending_events.append(
+                MemberRemoved(
+                    group_id=self.id.value,
+                    user_id=user_id.value,
+                    role=member_role,
+                    occurred_at=datetime.now(UTC),
+                )
+            )
 
     def update_member_role(self, user_id: UserId, new_role: Role) -> None:
         """Update a member's role.
@@ -101,6 +135,18 @@ class Group:
             for m in self.members
         ]
 
+        # Record event (current_role is guaranteed to be not None here)
+        if current_role is not None:
+            self._pending_events.append(
+                MemberRoleChanged(
+                    group_id=self.id.value,
+                    user_id=user_id.value,
+                    old_role=current_role,
+                    new_role=new_role,
+                    occurred_at=datetime.now(UTC),
+                )
+            )
+
     def has_member(self, user_id: UserId) -> bool:
         """Check if a user is a member of this group.
 
@@ -125,6 +171,20 @@ class Group:
             if member.user_id == user_id:
                 return member.role
         return None
+
+    def collect_events(self) -> list[DomainEvent]:
+        """Return and clear pending domain events.
+
+        This method returns all domain events that have been recorded since
+        the last call to collect_events(). It clears the internal list, so
+        subsequent calls will return an empty list until new events are recorded.
+
+        Returns:
+            List of pending domain events
+        """
+        events = self._pending_events.copy()
+        self._pending_events.clear()
+        return events
 
 
 @dataclass(frozen=True)

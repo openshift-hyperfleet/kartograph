@@ -262,3 +262,123 @@ class TestUpdateMemberRole:
         group.update_member_role(admin1, Role.MEMBER)
 
         assert group.get_member_role(admin1) == Role.MEMBER
+
+
+class TestEventCollection:
+    """Tests for Group event collection mechanism.
+
+    The aggregate should record domain events during mutations that can be
+    collected and processed by the repository for the outbox pattern.
+    """
+
+    def test_collect_events_returns_empty_list_initially(self):
+        """Test that a new group has no pending events."""
+        group = Group(
+            id=GroupId.generate(),
+            name="Engineering",
+        )
+
+        events = group.collect_events()
+
+        assert events == []
+
+    def test_add_member_records_member_added_event(self):
+        """Test that add_member records a MemberAdded event."""
+        from iam.domain.events import MemberAdded
+
+        group = Group(
+            id=GroupId.generate(),
+            name="Engineering",
+        )
+        user_id = UserId.generate()
+
+        group.add_member(user_id, Role.MEMBER)
+        events = group.collect_events()
+
+        assert len(events) == 1
+        assert isinstance(events[0], MemberAdded)
+        assert events[0].group_id == group.id.value
+        assert events[0].user_id == user_id.value
+        assert events[0].role == Role.MEMBER
+
+    def test_remove_member_records_member_removed_event(self):
+        """Test that remove_member records a MemberRemoved event."""
+        from iam.domain.events import MemberRemoved
+
+        group = Group(
+            id=GroupId.generate(),
+            name="Engineering",
+        )
+        admin_id = UserId.generate()
+        user_id = UserId.generate()
+        group.add_member(admin_id, Role.ADMIN)
+        group.add_member(user_id, Role.MEMBER)
+        group.collect_events()  # Clear creation events
+
+        group.remove_member(user_id)
+        events = group.collect_events()
+
+        assert len(events) == 1
+        assert isinstance(events[0], MemberRemoved)
+        assert events[0].group_id == group.id.value
+        assert events[0].user_id == user_id.value
+        assert events[0].role == Role.MEMBER
+
+    def test_update_member_role_records_member_role_changed_event(self):
+        """Test that update_member_role records a MemberRoleChanged event."""
+        from iam.domain.events import MemberRoleChanged
+
+        group = Group(
+            id=GroupId.generate(),
+            name="Engineering",
+        )
+        admin_id = UserId.generate()
+        user_id = UserId.generate()
+        group.add_member(admin_id, Role.ADMIN)
+        group.add_member(user_id, Role.MEMBER)
+        group.collect_events()  # Clear creation events
+
+        group.update_member_role(user_id, Role.ADMIN)
+        events = group.collect_events()
+
+        assert len(events) == 1
+        assert isinstance(events[0], MemberRoleChanged)
+        assert events[0].group_id == group.id.value
+        assert events[0].user_id == user_id.value
+        assert events[0].old_role == Role.MEMBER
+        assert events[0].new_role == Role.ADMIN
+
+    def test_collect_events_clears_pending_events(self):
+        """Test that collect_events clears the pending events list."""
+        group = Group(
+            id=GroupId.generate(),
+            name="Engineering",
+        )
+        user_id = UserId.generate()
+        group.add_member(user_id, Role.MEMBER)
+
+        # First collection should have events
+        events1 = group.collect_events()
+        assert len(events1) == 1
+
+        # Second collection should be empty
+        events2 = group.collect_events()
+        assert events2 == []
+
+    def test_multiple_operations_record_multiple_events(self):
+        """Test that multiple operations record multiple events."""
+        group = Group(
+            id=GroupId.generate(),
+            name="Engineering",
+        )
+        user1 = UserId.generate()
+        user2 = UserId.generate()
+        user3 = UserId.generate()
+
+        group.add_member(user1, Role.ADMIN)
+        group.add_member(user2, Role.MEMBER)
+        group.add_member(user3, Role.MEMBER)
+
+        events = group.collect_events()
+
+        assert len(events) == 3

@@ -192,8 +192,10 @@ class TestGetById:
 
         # Mock SpiceDB members - return members only for ADMIN role, empty for others
         async def mock_lookup(resource, relation, subject_type):
-            if relation == "admin":
-                return [SubjectRelation(subject_id=user_id.value, relation="admin")]
+            if relation == Role.ADMIN.value:
+                return [
+                    SubjectRelation(subject_id=user_id.value, relation=Role.ADMIN.value)
+                ]
             return []
 
         mock_authz.lookup_subjects.side_effect = mock_lookup
@@ -294,8 +296,10 @@ class TestDelete:
 
         # Mock members in SpiceDB
         async def mock_lookup(resource, relation, subject_type):
-            if relation == "admin":
-                return [SubjectRelation(subject_id=user_id.value, relation="admin")]
+            if relation == Role.ADMIN.value:
+                return [
+                    SubjectRelation(subject_id=user_id.value, relation=Role.ADMIN.value)
+                ]
             return []
 
         mock_authz.lookup_subjects.side_effect = mock_lookup

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from iam.domain.aggregates import Group
+from iam.domain.value_objects import Role
 
 
 class CreateGroupRequest(BaseModel):
@@ -20,7 +21,7 @@ class GroupMemberResponse(BaseModel):
     """Response model for group member."""
 
     user_id: str = Field(..., description="User ID (ULID format)")
-    role: str = Field(..., description="Member role (admin or member)")
+    role: Role = Field(..., description="Member role (admin or member)")
 
 
 class GroupResponse(BaseModel):
@@ -48,7 +49,7 @@ class GroupResponse(BaseModel):
             members=[
                 GroupMemberResponse(
                     user_id=member.user_id.value,
-                    role=member.role.value,
+                    role=member.role,
                 )
                 for member in group.members
             ],

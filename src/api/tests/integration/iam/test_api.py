@@ -8,7 +8,7 @@ import pytest_asyncio
 from asgi_lifespan import LifespanManager
 from httpx import AsyncClient, ASGITransport
 
-from iam.domain.value_objects import GroupId, TenantId, UserId
+from iam.domain.value_objects import GroupId, Role, TenantId, UserId
 from main import app
 
 pytestmark = pytest.mark.integration
@@ -52,7 +52,7 @@ class TestCreateGroup:
         assert data["id"] is not None
         assert len(data["members"]) == 1
         assert data["members"][0]["user_id"] == user_id.value
-        assert data["members"][0]["role"] == "admin"
+        assert data["members"][0]["role"] == Role.ADMIN.value
 
     @pytest.mark.asyncio
     async def test_returns_409_for_duplicate_name(self, async_client, clean_iam_data):

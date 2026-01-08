@@ -38,7 +38,7 @@ jobs:
       - name: Start SpiceDB
         uses: authzed/action-spicedb@v1
         with:
-          version: 'v1.48.0'
+          version: "v1.48.0"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -63,14 +63,38 @@ jobs:
           KARTOGRAPH_DB_PASSWORD: kartograph_dev_password
         run: uv run alembic upgrade head
 
+      - name: Wait for SpiceDB to be ready
+        run: |
+          echo "Waiting for SpiceDB to be ready..."
+          for i in {1..30}; do
+            if nc -z localhost 50051 2>/dev/null; then
+              echo "SpiceDB is ready!"
+              break
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 1
+          done
+
       - name: Load SpiceDB schema
         working-directory: src/api
         run: |
+          echo "Schema file contents:"
+          head -20 shared_kernel/authorization/spicedb/schema.zed
+          echo "---"
+          echo "Loading schema into SpiceDB..."
           docker run --rm --network host \
-            -v $PWD/shared_kernel/authorization/spicedb/schema.zed:/schema/schema.zed:ro \
-            -e ZED_ENDPOINT=localhost:50051 \
-            -e ZED_TOKEN=test_key \
-            authzed/zed:latest schema write --insecure /schema/schema.zed
+            -v ${{ github.workspace }}/src/api/shared_kernel/authorization/spicedb/schema.zed:/schema/schema.zed:ro \
+            authzed/zed:latest schema write \
+              --endpoint=localhost:50051 \
+              --token=test_key \
+              --insecure \
+              /schema/schema.zed
+          echo "Schema load complete, verifying..."
+          docker run --rm --network host \
+            authzed/zed:latest schema read \
+              --endpoint=localhost:50051 \
+              --token=test_key \
+              --insecure
 
       - name: Run ruff (linter)
         working-directory: src/api
@@ -95,4 +119,5 @@ jobs:
           KARTOGRAPH_DB_GRAPH_NAME: test_graph
           SPICEDB_ENDPOINT: localhost:50051
           SPICEDB_PRESHARED_KEY: test_key
+          SPICEDB_USE_TLS: "false"
         run: uv run pytest -v

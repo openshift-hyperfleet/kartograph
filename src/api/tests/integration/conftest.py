@@ -2,10 +2,16 @@
 
 These fixtures require a running PostgreSQL instance with AGE extension.
 Use docker-compose for testing.
+
+IMPORTANT: Environment variables must be set at the top of this file,
+before ANY imports that might trigger settings caching.
 """
 
-from collections.abc import Generator
+# Step 1: Set environment variables FIRST, before any other imports
 import os
+
+# Step 2: Now safe to import other modules
+from collections.abc import Generator
 
 import pytest
 from pydantic import SecretStr
@@ -14,6 +20,17 @@ from graph.infrastructure.age_client import AgeGraphClient
 from infrastructure.database.connection import ConnectionFactory
 from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.settings import DatabaseSettings
+
+os.environ.setdefault("SPICEDB_ENDPOINT", "localhost:50051")
+os.environ.setdefault("SPICEDB_PRESHARED_KEY", "changeme")
+os.environ.setdefault("SPICEDB_USE_TLS", "true")
+
+# Configure SpiceDB client to use the self-signed certificate
+_cert_path = os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", "certs", "spicedb-cert.pem"
+)
+if os.path.exists(_cert_path):
+    os.environ.setdefault("SPICEDB_CERT_PATH", os.path.abspath(_cert_path))
 
 
 def pytest_configure(config):

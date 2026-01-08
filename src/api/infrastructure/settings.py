@@ -212,3 +212,46 @@ def get_cors_settings() -> CORSSettings:
     Uses lru_cache to ensure settings are only loaded once.
     """
     return CORSSettings()
+
+
+class OutboxWorkerSettings(BaseSettings):
+    """Outbox worker settings.
+
+    Environment variables:
+        KARTOGRAPH_OUTBOX_ENABLED: Enable the outbox worker (default: true)
+        KARTOGRAPH_OUTBOX_POLL_INTERVAL_SECONDS: Poll interval in seconds (default: 30)
+        KARTOGRAPH_OUTBOX_BATCH_SIZE: Maximum entries per batch (default: 100)
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="KARTOGRAPH_OUTBOX_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable the outbox worker",
+    )
+    poll_interval_seconds: int = Field(
+        default=30,
+        description="How often to poll for unprocessed entries",
+        ge=1,
+        le=3600,
+    )
+    batch_size: int = Field(
+        default=100,
+        description="Maximum entries to process per batch",
+        ge=1,
+        le=1000,
+    )
+
+
+@lru_cache
+def get_outbox_worker_settings() -> OutboxWorkerSettings:
+    """Get cached outbox worker settings.
+
+    Uses lru_cache to ensure settings are only loaded once.
+    """
+    return OutboxWorkerSettings()

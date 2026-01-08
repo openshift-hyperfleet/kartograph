@@ -74,23 +74,25 @@ def get_group_repository(
 
 
 def get_user_service(
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     session: Annotated[AsyncSession, Depends(get_write_session)],
     probe: Annotated[UserServiceProbe, Depends(get_user_service_probe)],
 ) -> UserService:
     """Get UserService instance.
 
     Args:
+        user_repo: User repository (shares session via FastAPI dependency caching)
         session: Database session for transaction management
         probe: User service probe for observability
 
     Returns:
         UserService instance
     """
-    user_repo = UserRepository(session=session)
     return UserService(user_repository=user_repo, probe=probe, session=session)
 
 
 def get_group_service(
+    group_repo: Annotated[GroupRepository, Depends(get_group_repository)],
     session: Annotated[AsyncSession, Depends(get_write_session)],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
     group_service_probe: Annotated[GroupServiceProbe, Depends(get_group_service_probe)],
@@ -98,6 +100,7 @@ def get_group_service(
     """Get GroupService instance.
 
     Args:
+        group_repo: Group repository (shares session via FastAPI dependency caching)
         session: Database session for transaction management
         authz: Authorization provider (SpiceDB client)
         group_service_probe: Group service probe for observability
@@ -105,8 +108,6 @@ def get_group_service(
     Returns:
         GroupService instance
     """
-    group_repo = GroupRepository(session=session, authz=authz)
-
     return GroupService(
         session=session,
         group_repository=group_repo,

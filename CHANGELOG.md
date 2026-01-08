@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.15.0...v0.16.0) (2026-01-08)
+
+
+### Features
+
+* **iam:** add IAM FastAPI endpoints with integration tests ([#103](https://github.com/openshift-hyperfleet/kartograph/issues/103)) ([ffadff4](https://github.com/openshift-hyperfleet/kartograph/commit/ffadff466dc6a9b3608d3bc137baf33265b8a603))
+
 ## [0.15.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.14.0...v0.15.0) (2026-01-06)
 
 

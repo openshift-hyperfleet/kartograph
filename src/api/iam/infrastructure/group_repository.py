@@ -2,15 +2,23 @@
 
 This repository coordinates PostgreSQL (metadata storage) and SpiceDB
 (membership and authorization) to reconstitute complete Group aggregates.
+
+For write operations, the repository uses the outbox pattern - domain events
+are collected from the aggregate and appended to the outbox table, rather than
+writing directly to SpiceDB. This ensures atomicity and eventual consistency.
 """
 
 from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.domain.aggregates import Group
+from iam.domain.events import GroupCreated, GroupDeleted
 from iam.domain.value_objects import GroupId, GroupMember, Role, TenantId, UserId
 from iam.infrastructure.models import GroupModel
 from iam.infrastructure.observability import (
@@ -28,6 +36,9 @@ from shared_kernel.authorization.types import (
     format_subject,
 )
 
+if TYPE_CHECKING:
+    from shared_kernel.outbox.repository import OutboxRepository
+
 
 class GroupRepository(IGroupRepository):
     """Repository coordinating PostgreSQL and SpiceDB for Group aggregates.
@@ -35,6 +46,11 @@ class GroupRepository(IGroupRepository):
     This implementation stores group metadata in PostgreSQL and membership
     relationships in SpiceDB. It ensures that Group aggregates are fully
     hydrated when retrieved, following DDD principles.
+
+    Write operations use the outbox pattern:
+    - Domain events are collected from the aggregate
+    - Events are appended to the outbox table (same transaction as PostgreSQL)
+    - The outbox worker processes events and writes to SpiceDB
     """
 
     def __init__(
@@ -42,20 +58,27 @@ class GroupRepository(IGroupRepository):
         session: AsyncSession,
         authz: AuthorizationProvider,
         probe: GroupRepositoryProbe | None = None,
+        outbox: "OutboxRepository | None" = None,
     ) -> None:
         """Initialize repository with database session and authorization provider.
 
         Args:
             session: AsyncSession from FastAPI dependency injection
-            authz: Authorization provider (SpiceDB client)
+            authz: Authorization provider (SpiceDB client) for reads
             probe: Optional domain probe for observability
+            outbox: Optional outbox repository for the transactional outbox pattern
         """
         self._session = session
         self._authz = authz
         self._probe = probe or DefaultGroupRepositoryProbe()
+        self._outbox = outbox
 
     async def save(self, group: Group, tenant_id: TenantId) -> None:
-        """Persist group metadata to PostgreSQL, membership to SpiceDB.
+        """Persist group metadata to PostgreSQL, events to outbox.
+
+        Uses the transactional outbox pattern: instead of writing directly
+        to SpiceDB, domain events are appended to the outbox table within
+        the same database transaction. The outbox worker will process them.
 
         Args:
             group: The Group aggregate to persist
@@ -78,6 +101,8 @@ class GroupRepository(IGroupRepository):
             result = await self._session.execute(stmt)
             model = result.scalar_one_or_none()
 
+            is_new = model is None
+
             if model:
                 # Update existing
                 model.name = group.name
@@ -89,20 +114,43 @@ class GroupRepository(IGroupRepository):
                 )
                 self._session.add(model)
 
-            # Flush to catch integrity errors before SpiceDB writes
+            # Flush to catch integrity errors before outbox writes
             await self._session.flush()
 
-            # Write tenant relationship to SpiceDB
-            group_resource = format_resource(ResourceType.GROUP, group.id.value)
-            tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
-            await self._authz.write_relationship(
-                resource=group_resource,
-                relation=RelationType.TENANT,
-                subject=tenant_resource,
-            )
+            # Use outbox pattern if available
+            if self._outbox:
+                # For new groups, append GroupCreated event
+                if is_new:
+                    group_created = GroupCreated(
+                        group_id=group.id.value,
+                        tenant_id=tenant_id.value,
+                        occurred_at=datetime.now(UTC),
+                    )
+                    await self._outbox.append(
+                        group_created,
+                        aggregate_type="group",
+                        aggregate_id=group.id.value,
+                    )
 
-            # Sync membership relationships to SpiceDB
-            await self._sync_members_to_spicedb(group, tenant_id)
+                # Collect and append events from the aggregate
+                events = group.collect_events()
+                for event in events:
+                    await self._outbox.append(
+                        event,
+                        aggregate_type="group",
+                        aggregate_id=group.id.value,
+                    )
+            else:
+                # Fallback: direct SpiceDB writes (for backward compatibility)
+                group_resource = format_resource(ResourceType.GROUP, group.id.value)
+                tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
+                await self._authz.write_relationship(
+                    resource=group_resource,
+                    relation=RelationType.TENANT,
+                    subject=tenant_resource,
+                )
+                # Sync membership relationships to SpiceDB
+                await self._sync_members_to_spicedb(group, tenant_id)
 
             self._probe.group_saved(group.id.value, tenant_id.value)
 
@@ -236,8 +284,8 @@ class GroupRepository(IGroupRepository):
     async def delete(self, group_id: GroupId, tenant_id: TenantId) -> bool:
         """Delete a group and all its relationships.
 
-        Removes the group from PostgreSQL and all relationships from SpiceDB
-        (membership and tenant relationships).
+        Removes the group from PostgreSQL and appends GroupDeleted event
+        to the outbox (or directly deletes from SpiceDB if outbox not available).
 
         Args:
             group_id: The group to delete
@@ -255,38 +303,53 @@ class GroupRepository(IGroupRepository):
             self._probe.group_not_found(group_id.value)
             return False
 
-        group_resource = format_resource(ResourceType.GROUP, group_id.value)
-        tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
+        # Delete group from PostgreSQL first
+        await self._session.delete(model)
 
-        # Delete all relationships from SpiceDB in a single bulk operation
-        # Build list of relationships to delete (members + tenant)
-        members = await self._hydrate_members(group_id.value)
-        relationships_to_delete = []
+        # Use outbox pattern if available
+        if self._outbox:
+            # Append GroupDeleted event - the worker will delete from SpiceDB
+            group_deleted = GroupDeleted(
+                group_id=group_id.value,
+                tenant_id=tenant_id.value,
+                occurred_at=datetime.now(UTC),
+            )
+            await self._outbox.append(
+                group_deleted,
+                aggregate_type="group",
+                aggregate_id=group_id.value,
+            )
+        else:
+            # Fallback: direct SpiceDB deletes
+            group_resource = format_resource(ResourceType.GROUP, group_id.value)
+            tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
 
-        # Add member relationships
-        for member in members:
+            # Delete all relationships from SpiceDB in a single bulk operation
+            # Build list of relationships to delete (members + tenant)
+            members = await self._hydrate_members(group_id.value)
+            relationships_to_delete = []
+
+            # Add member relationships
+            for member in members:
+                relationships_to_delete.append(
+                    RelationshipSpec(
+                        resource=group_resource,
+                        relation=member.role.value,
+                        subject=format_subject(ResourceType.USER, member.user_id.value),
+                    )
+                )
+
+            # Add tenant relationship
             relationships_to_delete.append(
                 RelationshipSpec(
                     resource=group_resource,
-                    relation=member.role.value,
-                    subject=format_subject(ResourceType.USER, member.user_id.value),
+                    relation=RelationType.TENANT,
+                    subject=tenant_resource,
                 )
             )
 
-        # Add tenant relationship
-        relationships_to_delete.append(
-            RelationshipSpec(
-                resource=group_resource,
-                relation=RelationType.TENANT,
-                subject=tenant_resource,
-            )
-        )
-
-        # Bulk delete in single SpiceDB request
-        await self._authz.delete_relationships(relationships_to_delete)
-
-        # Delete group from PostgreSQL
-        await self._session.delete(model)
+            # Bulk delete in single SpiceDB request
+            await self._authz.delete_relationships(relationships_to_delete)
 
         self._probe.group_deleted(group_id.value)
         return True

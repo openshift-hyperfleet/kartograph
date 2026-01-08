@@ -4,13 +4,24 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 
 from graph.dependencies import get_age_graph_client
 from graph.infrastructure.age_client import AgeGraphClient
 from graph.presentation import routes as graph_routes
+from iam.presentation import routes as iam_routes
+from infrastructure.database.dependencies import (
+    close_database_engines,
+    init_database_engines,
+)
 from infrastructure.dependencies import get_age_connection_pool
+from infrastructure.logging import configure_logging
+from infrastructure.settings import get_cors_settings
 from infrastructure.version import __version__
 from query.presentation.mcp import query_mcp_app
+
+# Configure structlog before any loggers are created
+configure_logging()
 
 
 @asynccontextmanager
@@ -18,16 +29,36 @@ async def kartograph_lifespan(app: FastAPI):
     """Application lifespan context.
 
     Manages:
+    - Database engine lifecycle (created on startup, disposed on shutdown)
     - MCP server lifespan
-    - Connection pool lifecycle (created lazily, closed on shutdown)
+    - AGE connection pool lifecycle
 
-    Note: MCP resources and tools use dependency injection via Depends(),
-    so no manual service initialization is needed here.
+    Engines are created here (within the running event loop) to ensure
+    proper async context for database connections.
+
+    State is tracked per-app instance (app.state._mcp_initialized) to maintain
+    test isolation when multiple app instances are created.
     """
-    async with query_mcp_app.lifespan(app):
+    # Initialize MCP state tracking on this app instance
+    if not hasattr(app.state, "_mcp_initialized"):
+        app.state._mcp_initialized = False
+
+    # Startup: initialize database engines
+    init_database_engines(app)
+
+    # MCP lifespan - skip if already initialized (e.g., in tests with multiple lifespans)
+    if not app.state._mcp_initialized:
+        async with query_mcp_app.lifespan(app):
+            app.state._mcp_initialized = True
+            yield
+    else:
+        # MCP already initialized in previous lifespan cycle
         yield
 
-    # Shutdown: close pool
+    # Shutdown: close database engines
+    await close_database_engines(app)
+
+    # Shutdown: close AGE connection pool
     try:
         pool = get_age_connection_pool()
         pool.close_all()
@@ -42,11 +73,25 @@ app = FastAPI(
     version=__version__,
     lifespan=kartograph_lifespan,
 )
+# Configure CORS if origins are specified
+cors_settings = get_cors_settings()
+
+if cors_settings.is_enabled:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_settings.origins,
+        allow_credentials=cors_settings.allow_credentials,
+        allow_methods=cors_settings.allow_methods,
+        allow_headers=cors_settings.allow_headers,
+    )
 
 app.mount(path="/query", app=query_mcp_app)
 
 # Include Graph bounded context routes
 app.include_router(graph_routes.router)
+
+# Include IAM bounded context routes
+app.include_router(iam_routes.router)
 
 
 @app.get("/health")

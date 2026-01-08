@@ -30,4 +30,5 @@ def get_spicedb_client() -> AuthorizationProvider:
         endpoint=settings.endpoint,
         preshared_key=settings.preshared_key.get_secret_value(),
         use_tls=settings.use_tls,
+        cert_path=settings.cert_path,
     )

@@ -1,6 +1,7 @@
 """Integration test fixtures for IAM bounded context.
 
 These fixtures require running PostgreSQL and SpiceDB instances.
+SpiceDB settings are configured in the parent conftest.
 """
 
 from collections.abc import AsyncGenerator

@@ -1,47 +1,43 @@
 """Unit tests for Query context dependencies."""
 
-from unittest.mock import create_autospec
+from unittest.mock import MagicMock, patch
 
-
-from infrastructure.database.connection_pool import ConnectionPool
 from query.application.services import MCPQueryService
-from query.dependencies import get_mcp_graph_client, get_mcp_query_service
+from query.dependencies import get_mcp_query_service, mcp_graph_client_context
 
 
-class TestGetMCPGraphClient:
-    """Tests for get_mcp_graph_client dependency provider."""
+class TestMCPGraphClientContext:
+    """Tests for mcp_graph_client_context context manager."""
 
-    def test_returns_connected_client(self):
-        """Should return connected AgeGraphClient."""
+    @patch("query.dependencies.get_age_connection_pool")
+    @patch("query.dependencies.get_database_settings")
+    def test_returns_connected_client(self, mock_get_settings, mock_get_pool):
+        """Should yield connected AgeGraphClient and disconnect on exit."""
         from graph.infrastructure.age_client import AgeGraphClient
 
-        mock_pool = create_autospec(ConnectionPool, instance=True)
-        client_gen = get_mcp_graph_client(pool=mock_pool)
+        mock_get_pool.return_value = MagicMock()
+        mock_get_settings.return_value = MagicMock()
 
-        client = next(client_gen)
+        with mcp_graph_client_context() as client:
+            assert isinstance(client, AgeGraphClient)
+            assert client.is_connected()
 
-        assert isinstance(client, AgeGraphClient)
-        assert client.is_connected()
-
-        # Cleanup
-        try:
-            next(client_gen)
-        except StopIteration:
-            pass
+        # After context exit, client should be disconnected
+        assert not client.is_connected()
 
 
 class TestGetMCPQueryService:
     """Tests for get_mcp_query_service dependency provider."""
 
-    def test_returns_mcp_query_service(self):
-        """Should return MCPQueryService instance."""
+    @patch("query.dependencies.mcp_graph_client_context")
+    def test_returns_mcp_query_service(self, mock_client_context):
+        """Should yield MCPQueryService instance with active connection."""
         from graph.infrastructure.age_client import AgeGraphClient
-        from query.application.observability import QueryServiceProbe
 
-        mock_client = create_autospec(AgeGraphClient, instance=True)
-        mock_probe = create_autospec(QueryServiceProbe, instance=True)
+        mock_client = MagicMock(spec=AgeGraphClient)
+        mock_client_context.return_value.__enter__ = MagicMock(return_value=mock_client)
+        mock_client_context.return_value.__exit__ = MagicMock(return_value=False)
 
-        result = get_mcp_query_service(client=mock_client, probe=mock_probe)
-
-        assert isinstance(result, MCPQueryService)
-        assert result._repository is not None
+        with get_mcp_query_service() as service:
+            assert isinstance(service, MCPQueryService)
+            assert service._repository is not None

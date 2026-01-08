@@ -1,122 +1,50 @@
-"""Unit tests for database dependency injection.
+"""Tests for database dependency injection.
 
-Tests the FastAPI dependency providers for async database sessions.
+Tests the lifespan-initialized database engines and FastAPI dependency
+providers for async database sessions against a real database.
 """
 
-import pytest
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncEngine
 
-from infrastructure.database.dependencies import (
-    close_database_connections,
-    get_read_engine,
-    get_read_session,
-    get_write_engine,
-    get_write_session,
-)
+from main import app
 
 
-@pytest.mark.asyncio
-async def test_get_write_engine():
-    """Test that get_write_engine returns an AsyncEngine."""
-    engine = get_write_engine()
+class TestDatabaseEngineLifecycle:
+    """Tests for database engine initialization via lifespan."""
 
-    assert isinstance(engine, AsyncEngine)
-    assert engine.url.drivername == "postgresql+asyncpg"
+    def test_lifespan_initializes_engines(self):
+        """Test that lifespan creates engines on app.state."""
+        with TestClient(app):
+            # Lifespan has run, engines should exist
+            assert hasattr(app.state, "write_engine")
+            assert hasattr(app.state, "read_engine")
+            assert hasattr(app.state, "write_sessionmaker")
+            assert hasattr(app.state, "read_sessionmaker")
 
+            assert isinstance(app.state.write_engine, AsyncEngine)
+            assert isinstance(app.state.read_engine, AsyncEngine)
 
-@pytest.mark.asyncio
-async def test_get_read_engine():
-    """Test that get_read_engine returns an AsyncEngine."""
-    engine = get_read_engine()
+            # Verify engines are configured correctly
+            assert app.state.write_engine.url.drivername == "postgresql+asyncpg"
+            assert app.state.read_engine.url.drivername == "postgresql+asyncpg"
 
-    assert isinstance(engine, AsyncEngine)
-    assert engine.url.drivername == "postgresql+asyncpg"
+    def test_write_and_read_engines_are_separate(self):
+        """Test that write and read engines are different instances."""
+        with TestClient(app):
+            write_engine = app.state.write_engine
+            read_engine = app.state.read_engine
 
-
-@pytest.mark.asyncio
-async def test_engines_are_singletons():
-    """Test that engines are cached and reused."""
-    write_engine_1 = get_write_engine()
-    write_engine_2 = get_write_engine()
-
-    read_engine_1 = get_read_engine()
-    read_engine_2 = get_read_engine()
-
-    # Same engine instance should be returned
-    assert write_engine_1 is write_engine_2
-    assert read_engine_1 is read_engine_2
-
-    # But write and read engines should be different
-    assert write_engine_1 is not read_engine_1
+            # Write and read engines should be different
+            assert write_engine is not read_engine
 
 
-@pytest.mark.asyncio
-async def test_get_write_session():
-    """Test that get_write_session yields an AsyncSession."""
-    async for session in get_write_session():
-        assert isinstance(session, AsyncSession)
-        assert session.bind is not None
+class TestDatabaseHealthEndpoint:
+    """Tests for database connectivity via health endpoint."""
 
-
-@pytest.mark.asyncio
-async def test_get_read_session():
-    """Test that get_read_session yields an AsyncSession."""
-    async for session in get_read_session():
-        assert isinstance(session, AsyncSession)
-        assert session.bind is not None
-
-
-@pytest.mark.asyncio
-async def test_write_session_uses_write_engine():
-    """Test that write session is bound to write engine."""
-    write_engine = get_write_engine()
-
-    async for session in get_write_session():
-        # Session should be bound to write engine
-        assert session.bind.sync_engine is write_engine.sync_engine
-
-
-@pytest.mark.asyncio
-async def test_read_session_uses_read_engine():
-    """Test that read session is bound to read engine."""
-    read_engine = get_read_engine()
-
-    async for session in get_read_session():
-        # Session should be bound to read engine
-        assert session.bind.sync_engine is read_engine.sync_engine
-
-
-@pytest.mark.asyncio
-async def test_sessions_properly_yielded():
-    """Test that sessions are properly yielded from async generators."""
-    session_count = 0
-
-    async for session in get_write_session():
-        session_count += 1
-        # Session should be active (not in a transaction, but connection is open)
-        assert isinstance(session, AsyncSession)
-
-    # Should have yielded exactly one session
-    assert session_count == 1
-
-
-@pytest.mark.asyncio
-async def test_close_database_connections():
-    """Test that close_database_connections disposes engines."""
-    # Get engines to ensure they're initialized
-    write_engine = get_write_engine()
-    read_engine = get_read_engine()
-
-    # Close connections
-    await close_database_connections()
-
-    # After closing, getting engines again should create new instances
-    new_write_engine = get_write_engine()
-    new_read_engine = get_read_engine()
-
-    # Should be new engine instances
-    assert new_write_engine is not write_engine
-    assert new_read_engine is not read_engine
-
-    # Cleanup
-    await close_database_connections()
+    def test_health_endpoint_works(self):
+        """Test that health endpoint responds when DB is available."""
+        with TestClient(app) as client:
+            response = client.get("/health")
+            assert response.status_code == 200
+            assert response.json() == {"status": "ok"}

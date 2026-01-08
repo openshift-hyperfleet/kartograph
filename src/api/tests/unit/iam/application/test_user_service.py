@@ -4,11 +4,24 @@ Following TDD - write tests first to define desired behavior.
 """
 
 import pytest
-from unittest.mock import AsyncMock, create_autospec
+from unittest.mock import AsyncMock, MagicMock, create_autospec
 
 from iam.domain.aggregates import User
 from iam.domain.value_objects import UserId
 from iam.ports.repositories import IUserRepository
+
+
+@pytest.fixture
+def mock_session():
+    """Create mock async session with transaction support."""
+    session = AsyncMock()
+    # Mock the begin() context manager
+    ctx_manager = MagicMock()
+    ctx_manager.__aenter__ = AsyncMock(return_value=None)
+    ctx_manager.__aexit__ = AsyncMock(return_value=None)
+    # Make begin() a sync method that returns the context manager
+    session.begin = MagicMock(return_value=ctx_manager)
+    return session
 
 
 @pytest.fixture
@@ -26,12 +39,13 @@ def mock_probe():
 
 
 @pytest.fixture
-def user_service(mock_user_repository, mock_probe):
+def user_service(mock_user_repository, mock_session, mock_probe):
     """Create UserService with mock dependencies."""
     from iam.application.services.user_service import UserService
 
     return UserService(
         user_repository=mock_user_repository,
+        session=mock_session,
         probe=mock_probe,
     )
 
@@ -39,18 +53,26 @@ def user_service(mock_user_repository, mock_probe):
 class TestUserServiceInit:
     """Tests for UserService initialization."""
 
-    def test_stores_repository(self, mock_user_repository):
+    def test_stores_repository(self, mock_user_repository, mock_session):
         """Service should store repository reference."""
         from iam.application.services.user_service import UserService
 
-        service = UserService(user_repository=mock_user_repository)
+        service = UserService(
+            user_repository=mock_user_repository,
+            session=mock_session,
+        )
         assert service._user_repository is mock_user_repository
 
-    def test_uses_default_probe_when_not_provided(self, mock_user_repository):
+    def test_uses_default_probe_when_not_provided(
+        self, mock_user_repository, mock_session
+    ):
         """Service should create default probe when not provided."""
         from iam.application.services.user_service import UserService
 
-        service = UserService(user_repository=mock_user_repository)
+        service = UserService(
+            user_repository=mock_user_repository,
+            session=mock_session,
+        )
         assert service._probe is not None
 
 
@@ -75,6 +97,7 @@ class TestEnsureUser:
             user_id=user_id.value,
             username="alice",
             was_created=False,
+            was_updated=False,
         )
 
     @pytest.mark.asyncio
@@ -99,6 +122,7 @@ class TestEnsureUser:
             user_id=user_id.value,
             username="bob",
             was_created=True,
+            was_updated=False,
         )
 
     @pytest.mark.asyncio
@@ -118,6 +142,12 @@ class TestEnsureUser:
         mock_user_repository.save.assert_called_once()
         saved_user = mock_user_repository.save.call_args[0][0]
         assert saved_user.username == "alice_new"
+        mock_probe.user_ensured.assert_called_once_with(
+            user_id=user_id.value,
+            username="alice_new",
+            was_created=False,
+            was_updated=True,
+        )
 
     @pytest.mark.asyncio
     async def test_records_failure_on_exception(

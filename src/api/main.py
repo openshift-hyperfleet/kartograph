@@ -23,6 +23,9 @@ from query.presentation.mcp import query_mcp_app
 # Configure structlog before any loggers are created
 configure_logging()
 
+# Track MCP initialization state to avoid re-initialization in tests
+_mcp_initialized = False
+
 
 @asynccontextmanager
 async def kartograph_lifespan(app: FastAPI):
@@ -36,19 +39,19 @@ async def kartograph_lifespan(app: FastAPI):
     Engines are created here (within the running event loop) to ensure
     proper async context for database connections.
     """
+    global _mcp_initialized
+
     # Startup: initialize database engines
     init_database_engines(app)
 
-    # MCP lifespan - may fail if already run (e.g., in tests with multiple lifespans)
-    try:
+    # MCP lifespan - skip if already initialized (e.g., in tests with multiple lifespans)
+    if not _mcp_initialized:
         async with query_mcp_app.lifespan(app):
+            _mcp_initialized = True
             yield
-    except RuntimeError as e:
-        if "can only be called once" in str(e):
-            # MCP already initialized, just yield for database operations
-            yield
-        else:
-            raise
+    else:
+        # MCP already initialized in previous lifespan cycle
+        yield
 
     # Shutdown: close database engines
     await close_database_engines(app)

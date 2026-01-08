@@ -23,9 +23,6 @@ from query.presentation.mcp import query_mcp_app
 # Configure structlog before any loggers are created
 configure_logging()
 
-# Track MCP initialization state to avoid re-initialization in tests
-_mcp_initialized = False
-
 
 @asynccontextmanager
 async def kartograph_lifespan(app: FastAPI):
@@ -38,16 +35,21 @@ async def kartograph_lifespan(app: FastAPI):
 
     Engines are created here (within the running event loop) to ensure
     proper async context for database connections.
+
+    State is tracked per-app instance (app.state._mcp_initialized) to maintain
+    test isolation when multiple app instances are created.
     """
-    global _mcp_initialized
+    # Initialize MCP state tracking on this app instance
+    if not hasattr(app.state, "_mcp_initialized"):
+        app.state._mcp_initialized = False
 
     # Startup: initialize database engines
     init_database_engines(app)
 
     # MCP lifespan - skip if already initialized (e.g., in tests with multiple lifespans)
-    if not _mcp_initialized:
+    if not app.state._mcp_initialized:
         async with query_mcp_app.lifespan(app):
-            _mcp_initialized = True
+            app.state._mcp_initialized = True
             yield
     else:
         # MCP already initialized in previous lifespan cycle
@@ -73,7 +75,6 @@ app = FastAPI(
 )
 # Configure CORS if origins are specified
 cors_settings = get_cors_settings()
-print(cors_settings.origins)
 
 if cors_settings.is_enabled:
     app.add_middleware(

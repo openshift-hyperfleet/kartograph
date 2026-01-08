@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import AsyncGenerator
 
-from fastapi import Request
+from fastapi import Request, FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from infrastructure.database.engines import create_read_engine, create_write_engine
@@ -28,7 +28,7 @@ from infrastructure.settings import get_database_settings
 _probe = DefaultConnectionProbe()
 
 
-def init_database_engines(app) -> None:
+def init_database_engines(app: FastAPI) -> None:
     """Initialize database engines and store on app.state.
 
     Must be called from FastAPI lifespan startup handler to ensure engines

@@ -27,11 +27,11 @@ from shared_kernel.authorization.types import (
     format_resource,
     format_subject,
 )
-from shared_kernel.outbox.models import OutboxModel
-from shared_kernel.outbox.repository import OutboxRepository
+from infrastructure.outbox.models import OutboxModel
+from infrastructure.outbox.repository import OutboxRepository
+from infrastructure.outbox.worker import OutboxWorker
 from shared_kernel.outbox.serialization import deserialize_event
 from shared_kernel.outbox.spicedb_translator import SpiceDBTranslator
-from shared_kernel.outbox.worker import OutboxWorker
 from shared_kernel.outbox.observability import DefaultOutboxWorkerProbe
 
 pytestmark = pytest.mark.integration

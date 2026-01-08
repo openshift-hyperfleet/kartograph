@@ -12,7 +12,7 @@ import pytest
 
 from iam.domain.events import GroupCreated, MemberAdded
 from iam.domain.value_objects import Role
-from shared_kernel.outbox.repository import OutboxRepository
+from infrastructure.outbox.repository import OutboxRepository
 
 
 class TestOutboxRepositoryAppend:

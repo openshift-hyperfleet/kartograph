@@ -26,7 +26,7 @@ from infrastructure.version import __version__
 from shared_kernel.authorization.spicedb.client import SpiceDBClient
 from shared_kernel.outbox.observability import DefaultOutboxWorkerProbe
 from shared_kernel.outbox.spicedb_translator import SpiceDBTranslator
-from shared_kernel.outbox.worker import OutboxWorker
+from infrastructure.outbox.worker import OutboxWorker
 from query.presentation.mcp import query_mcp_app
 
 # Configure structlog before any loggers are created

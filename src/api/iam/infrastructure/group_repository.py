@@ -37,7 +37,7 @@ from shared_kernel.authorization.types import (
 )
 
 if TYPE_CHECKING:
-    from shared_kernel.outbox.repository import OutboxRepository
+    from infrastructure.outbox.repository import OutboxRepository
 
 
 class GroupRepository(IGroupRepository):

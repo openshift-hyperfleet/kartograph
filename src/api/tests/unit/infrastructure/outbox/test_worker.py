@@ -16,7 +16,7 @@ from shared_kernel.outbox.spicedb_translator import (
     WriteRelationship,
 )
 from shared_kernel.outbox.value_objects import OutboxEntry
-from shared_kernel.outbox.worker import OutboxWorker
+from infrastructure.outbox.worker import OutboxWorker
 
 
 class TestOutboxWorkerProcessBatch:

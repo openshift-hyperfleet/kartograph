@@ -13,7 +13,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.domain.events import DomainEvent
-from shared_kernel.outbox.models import OutboxModel
+from infrastructure.outbox.models import OutboxModel
 from shared_kernel.outbox.serialization import serialize_event
 from shared_kernel.outbox.value_objects import OutboxEntry
 

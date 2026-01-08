@@ -14,7 +14,7 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from shared_kernel.outbox.models import OutboxModel
+from infrastructure.outbox.models import OutboxModel
 from shared_kernel.outbox.observability import OutboxWorkerProbe
 from shared_kernel.outbox.serialization import deserialize_event
 from shared_kernel.outbox.spicedb_translator import (
@@ -115,17 +115,20 @@ class OutboxWorker:
 
         Uses asyncpg-listen for reliable connection handling.
         """
-        from asyncpg_listen import NotificationOrLazyConnection, connect_func
+        from asyncpg_listen import ListenPolicy, NotificationListener, connect_func
 
         self._probe.listen_loop_started()
 
         try:
-            listener = NotificationOrLazyConnection(
+            listener = NotificationListener(
                 connect_func(self._db_url),
                 "outbox_events",
+                notification_timeout=self._poll_interval,
             )
 
-            async for notification in listener:
+            async for notification in listener.iter(
+                policy=ListenPolicy.ALL,
+            ):
                 if not self._running:
                     break
 

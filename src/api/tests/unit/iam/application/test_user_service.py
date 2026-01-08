@@ -4,7 +4,7 @@ Following TDD - write tests first to define desired behavior.
 """
 
 import pytest
-from unittest.mock import AsyncMock, create_autospec
+from unittest.mock import AsyncMock, MagicMock, create_autospec
 
 from iam.domain.aggregates import User
 from iam.domain.value_objects import UserId
@@ -13,8 +13,15 @@ from iam.ports.repositories import IUserRepository
 
 @pytest.fixture
 def mock_session():
-    """Create mock async session."""
-    return AsyncMock()
+    """Create mock async session with transaction support."""
+    session = AsyncMock()
+    # Mock the begin() context manager
+    ctx_manager = MagicMock()
+    ctx_manager.__aenter__ = AsyncMock(return_value=None)
+    ctx_manager.__aexit__ = AsyncMock(return_value=None)
+    # Make begin() a sync method that returns the context manager
+    session.begin = MagicMock(return_value=ctx_manager)
+    return session
 
 
 @pytest.fixture

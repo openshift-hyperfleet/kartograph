@@ -10,10 +10,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from iam.application.services import GroupService
-from iam.dependencies import get_group_service
+from iam.application.value_objects import CurrentUser
+from iam.dependencies import get_current_user, get_group_service
 from iam.domain.value_objects import GroupId
 from iam.ports.exceptions import DuplicateGroupNameError
-from iam.presentation.auth import CurrentUser, get_current_user
 from iam.presentation.models import CreateGroupRequest, GroupResponse
 
 router = APIRouter(prefix="/iam", tags=["iam"])

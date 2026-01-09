@@ -94,6 +94,57 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
       margin-top: 8px;
     }
     .btn:hover { background: #444; }
+    #metadata {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      background: rgba(20, 20, 20, 0.95);
+      padding: 16px;
+      border-radius: 8px;
+      z-index: 1000;
+      min-width: 320px;
+      max-width: 400px;
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      display: none;
+    }
+    #metadata.visible { display: block; }
+    #metadata h2 { font-size: 14px; margin-bottom: 12px; color: #4fc3f7; }
+    #metadata .close-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 18px;
+      cursor: pointer;
+    }
+    #metadata .close-btn:hover { color: #fff; }
+    #metadata table { width: 100%; border-collapse: collapse; }
+    #metadata td { 
+      padding: 4px 8px; 
+      font-size: 12px; 
+      border-bottom: 1px solid #333;
+      vertical-align: top;
+    }
+    #metadata td:first-child { 
+      color: #888; 
+      font-weight: 500;
+      white-space: nowrap;
+      width: 100px;
+    }
+    #metadata td:last-child { 
+      color: #fff; 
+      word-break: break-word;
+    }
+    #metadata .hint {
+      font-size: 11px;
+      color: #666;
+      margin-top: 8px;
+      font-style: italic;
+    }
   </style>
 </head>
 <body>
@@ -113,6 +164,13 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
     <div id="status"></div>
   </div>
   
+  <div id="metadata">
+    <button class="close-btn" id="closeMetadata">&times;</button>
+    <h2 id="metadataTitle">Node Details</h2>
+    <table id="metadataTable"></table>
+    <div class="hint">Click a node to pin details</div>
+  </div>
+  
   <div id="loading">Loading graph data...</div>
 
   <script type="module">
@@ -122,12 +180,56 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
     const loading = document.getElementById('loading');
     const statusEl = document.getElementById('status');
     const searchInput = document.getElementById('search');
+    const metadataPanel = document.getElementById('metadata');
+    const metadataTitle = document.getElementById('metadataTitle');
+    const metadataTable = document.getElementById('metadataTable');
     
     let cosmograph = null;
     let isPaused = false;
+    let rawNodes = [];  // Keep raw node data for metadata lookup
+    let rawEdges = [];  // Keep raw edge data
+    let pinnedNodeIndex = null;  // Track pinned node for click
+    
+    function showMetadata(node, pinned = false) {
+      if (!node) {
+        if (!pinned && pinnedNodeIndex === null) {
+          metadataPanel.classList.remove('visible');
+        }
+        return;
+      }
+      
+      metadataTitle.textContent = node.type + ': ' + (node.label || node.id);
+      
+      // Build table rows for all properties
+      const rows = Object.entries(node)
+        .filter(([key]) => !['id'].includes(key))  // Skip internal AGE id
+        .map(([key, value]) => {
+          const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+          return '<tr><td>' + key + '</td><td>' + displayValue + '</td></tr>';
+        })
+        .join('');
+      
+      metadataTable.innerHTML = rows;
+      metadataPanel.classList.add('visible');
+    }
+    
+    function hideMetadata() {
+      if (pinnedNodeIndex === null) {
+        metadataPanel.classList.remove('visible');
+      }
+    }
+    
+    // Close metadata panel
+    document.getElementById('closeMetadata').addEventListener('click', () => {
+      pinnedNodeIndex = null;
+      metadataPanel.classList.remove('visible');
+    });
     
     async function initGraph(data) {
       loading.textContent = 'Preparing data...';
+      
+      rawNodes = data.nodes;
+      rawEdges = data.edges;
       
       const nodeCount = data.nodes.length;
       const edgeCount = data.edges.length;
@@ -199,6 +301,22 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
           onSimulationEnd: () => {
             statusEl.textContent = 'Layout complete';
           },
+          // Show metadata on hover
+          onPointMouseOver: (index) => {
+            if (index !== undefined && index !== null && rawNodes[index]) {
+              showMetadata(rawNodes[index], false);
+            }
+          },
+          onPointMouseOut: () => {
+            hideMetadata();
+          },
+          // Pin metadata on click
+          onPointClick: (index) => {
+            if (index !== undefined && index !== null && rawNodes[index]) {
+              pinnedNodeIndex = index;
+              showMetadata(rawNodes[index], true);
+            }
+          },
         });
         
       } catch (err) {
@@ -208,9 +326,14 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
       }
     }
     
-    // Fit view
+    // Fit view (pause first for stable view, then animate)
     document.getElementById('fitView').addEventListener('click', () => {
-      if (cosmograph) cosmograph.fitView();
+      if (!cosmograph) return;
+      cosmograph.pause();
+      isPaused = true;
+      document.getElementById('pausePlay').textContent = 'Play';
+      statusEl.textContent = 'Paused';
+      setTimeout(() => cosmograph.fitView(500), 50);
     });
     
     // Pause/Play
@@ -228,23 +351,42 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
       }
     });
     
-    // Search
-    searchInput.addEventListener('input', async (e) => {
+    // Client-side search (works on raw data)
+    searchInput.addEventListener('input', (e) => {
       if (!cosmograph) return;
       
       const query = e.target.value.toLowerCase().trim();
       if (!query) {
         cosmograph.unselectAllPoints();
+        statusEl.textContent = isPaused ? 'Paused' : 'Layout complete';
         return;
       }
       
-      // Get point indices matching the query
-      const indices = await cosmograph.getPointIndicesByExactValues('label', [query], { partial: true });
-      if (indices && indices.length > 0) {
-        cosmograph.selectPoints(indices);
-        if (indices.length === 1) {
-          cosmograph.zoomToPoint(indices[0]);
+      // Search in raw nodes by label, type, domainId, name, etc.
+      const matchingIndices = [];
+      rawNodes.forEach((node, index) => {
+        const searchFields = [
+          node.label,
+          node.type,
+          node.domainId,
+          node.name,
+          node.slug,
+        ].filter(Boolean).map(s => String(s).toLowerCase());
+        
+        if (searchFields.some(field => field.includes(query))) {
+          matchingIndices.push(index);
         }
+      });
+      
+      if (matchingIndices.length > 0) {
+        cosmograph.selectPoints(matchingIndices);
+        statusEl.textContent = matchingIndices.length + ' matches';
+        if (matchingIndices.length === 1) {
+          cosmograph.zoomToPoint(matchingIndices[0], 1000);
+        }
+      } else {
+        cosmograph.unselectAllPoints();
+        statusEl.textContent = 'No matches';
       }
     });
 

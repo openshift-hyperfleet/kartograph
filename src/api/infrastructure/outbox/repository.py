@@ -14,7 +14,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.outbox.models import OutboxModel
-from shared_kernel.outbox.value_objects import OutboxEntry
+from shared_kernel.outbox.value_objects import OutboxEntry  # noqa: F401 - used in type hints
 
 if TYPE_CHECKING:
     from shared_kernel.outbox.ports import EventSerializer
@@ -96,22 +96,7 @@ class OutboxRepository:
         result = await self._session.execute(stmt)
         models = result.scalars().all()
 
-        return [
-            OutboxEntry(
-                id=model.id,
-                aggregate_type=model.aggregate_type,
-                aggregate_id=model.aggregate_id,
-                event_type=model.event_type,
-                payload=model.payload,
-                occurred_at=model.occurred_at,
-                processed_at=model.processed_at,
-                created_at=model.created_at,
-                retry_count=model.retry_count,
-                last_error=model.last_error,
-                failed_at=model.failed_at,
-            )
-            for model in models
-        ]
+        return [model.to_value_object() for model in models]
 
     async def mark_processed(self, entry_id: UUID) -> None:
         """Mark an entry as processed.

@@ -15,6 +15,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.database.models import Base
+from shared_kernel.outbox.value_objects import OutboxEntry
 
 
 class OutboxModel(Base):
@@ -69,6 +70,26 @@ class OutboxModel(Base):
     def is_failed(self) -> bool:
         """Check if this entry has been moved to the DLQ."""
         return self.failed_at is not None
+
+    def to_value_object(self) -> OutboxEntry:
+        """Convert this ORM model to an OutboxEntry value object.
+
+        Returns:
+            An immutable OutboxEntry with all fields copied from this model.
+        """
+        return OutboxEntry(
+            id=self.id,
+            aggregate_type=self.aggregate_type,
+            aggregate_id=self.aggregate_id,
+            event_type=self.event_type,
+            payload=self.payload,
+            occurred_at=self.occurred_at,
+            processed_at=self.processed_at,
+            created_at=self.created_at,
+            retry_count=self.retry_count,
+            last_error=self.last_error,
+            failed_at=self.failed_at,
+        )
 
     def __repr__(self) -> str:
         """Return string representation."""

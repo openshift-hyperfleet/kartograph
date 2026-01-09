@@ -80,25 +80,32 @@ class TestOutboxRepositoryFetchUnprocessed:
     @pytest.mark.asyncio
     async def test_fetch_unprocessed_returns_outbox_entries(self):
         """Test that fetch_unprocessed returns OutboxEntry value objects."""
+        from shared_kernel.outbox.value_objects import OutboxEntry
+
         # Arrange
         mock_session = AsyncMock()
         entry_id = uuid4()
         occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
         created_at = datetime(2026, 1, 8, 12, 0, 1, tzinfo=UTC)
 
-        # Create a mock model row
+        # Create the expected OutboxEntry that to_value_object will return
+        expected_entry = OutboxEntry(
+            id=entry_id,
+            aggregate_type="group",
+            aggregate_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            event_type="GroupCreated",
+            payload={
+                "__type__": "GroupCreated",
+                "group_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            },
+            occurred_at=occurred_at,
+            processed_at=None,
+            created_at=created_at,
+        )
+
+        # Create a mock model that returns the expected entry
         mock_model = MagicMock()
-        mock_model.id = entry_id
-        mock_model.aggregate_type = "group"
-        mock_model.aggregate_id = "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
-        mock_model.event_type = "GroupCreated"
-        mock_model.payload = {
-            "__type__": "GroupCreated",
-            "group_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
-        }
-        mock_model.occurred_at = occurred_at
-        mock_model.processed_at = None
-        mock_model.created_at = created_at
+        mock_model.to_value_object.return_value = expected_entry
 
         # Setup mock result
         mock_result = MagicMock()
@@ -118,6 +125,7 @@ class TestOutboxRepositoryFetchUnprocessed:
         assert entry.aggregate_type == "group"
         assert entry.event_type == "GroupCreated"
         assert entry.processed_at is None
+        mock_model.to_value_object.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_fetch_unprocessed_respects_limit(self):

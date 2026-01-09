@@ -195,7 +195,7 @@ class OutboxWorker:
             result = await session.execute(stmt)
             models = result.scalars().all()
 
-            entries = [self._model_to_entry(model) for model in models]
+            entries = [model.to_value_object() for model in models]
 
             if entries:
                 await self._process_entries(entries, session)
@@ -217,7 +217,7 @@ class OutboxWorker:
             model = result.scalar_one_or_none()
 
             if model:
-                entry = self._model_to_entry(model)
+                entry = model.to_value_object()
                 await self._process_entries([entry], session)
                 await session.commit()
 
@@ -352,19 +352,3 @@ class OutboxWorker:
             )
         )
         await session.execute(stmt)
-
-    def _model_to_entry(self, model: OutboxModel) -> OutboxEntry:
-        """Convert an OutboxModel to an OutboxEntry value object."""
-        return OutboxEntry(
-            id=model.id,
-            aggregate_type=model.aggregate_type,
-            aggregate_id=model.aggregate_id,
-            event_type=model.event_type,
-            payload=model.payload,
-            occurred_at=model.occurred_at,
-            processed_at=model.processed_at,
-            created_at=model.created_at,
-            retry_count=model.retry_count,
-            last_error=model.last_error,
-            failed_at=model.failed_at,
-        )

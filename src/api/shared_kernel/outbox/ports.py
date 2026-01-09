@@ -7,6 +7,7 @@ event translators and serializers without shared_kernel knowing about them.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from uuid import UUID
 
@@ -29,18 +30,22 @@ class IOutboxRepository(Protocol):
 
     async def append(
         self,
-        event: Any,
+        event_type: str,
+        payload: dict[str, Any],
+        occurred_at: datetime,
         aggregate_type: str,
         aggregate_id: str,
     ) -> None:
-        """Append an event to the outbox within the current transaction.
+        """Append a pre-serialized event to the outbox within the current transaction.
 
         This method should be called after the aggregate is persisted but
         before the transaction is committed. The event will be stored in
         the outbox table and processed asynchronously by the worker.
 
         Args:
-            event: The domain event to append
+            event_type: Name of the domain event type (e.g., "GroupCreated")
+            payload: Pre-serialized event data as a dictionary
+            occurred_at: When the domain event occurred
             aggregate_type: Type of aggregate (e.g., "group")
             aggregate_id: ULID of the aggregate
         """

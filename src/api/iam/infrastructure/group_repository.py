@@ -121,7 +121,7 @@ class GroupRepository(IGroupRepository):
                     event_type=type(event).__name__,
                     payload=payload,
                     occurred_at=event.occurred_at,
-                    aggregate_type="group",
+                    aggregate_type=ResourceType.GROUP.value,
                     aggregate_id=group.id.value,
                 )
 
@@ -266,7 +266,7 @@ class GroupRepository(IGroupRepository):
                 event_type=type(event).__name__,
                 payload=payload,
                 occurred_at=event.occurred_at,
-                aggregate_type="group",
+                aggregate_type=ResourceType.GROUP.value,
                 aggregate_id=group.id.value,
             )
 

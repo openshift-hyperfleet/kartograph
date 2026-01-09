@@ -45,6 +45,31 @@ class TestOutboxWorkerProbeProtocol:
         # Multiple operations is common
         probe.event_translated(uuid4(), "MemberAdded", 1)
 
+    def test_default_probe_has_translator_registered(self):
+        """DefaultOutboxWorkerProbe should have translator_registered method."""
+        probe = DefaultOutboxWorkerProbe()
+        assert hasattr(probe, "translator_registered")
+        assert callable(probe.translator_registered)
+
+    def test_translator_registered_accepts_parameters(self):
+        """translator_registered should accept context_name and event_types."""
+        probe = DefaultOutboxWorkerProbe()
+        # Should not raise
+        probe.translator_registered(
+            "iam", frozenset({"GroupCreated", "MemberAdded", "MemberRemoved"})
+        )
+
+    def test_translator_registered_logs_event_types(self):
+        """translator_registered provides visibility into registered plugins."""
+        probe = DefaultOutboxWorkerProbe()
+        # Single event type
+        probe.translator_registered("simple", frozenset({"SimpleEvent"}))
+        # Multiple event types
+        probe.translator_registered(
+            "iam",
+            frozenset({"GroupCreated", "GroupDeleted", "MemberAdded", "MemberRemoved"}),
+        )
+
     def test_default_probe_implements_all_protocol_methods(self):
         """DefaultOutboxWorkerProbe should implement all protocol methods."""
         probe = DefaultOutboxWorkerProbe()
@@ -60,3 +85,4 @@ class TestOutboxWorkerProbeProtocol:
         probe.poll_loop_started()
         probe.poll_loop_error("Connection error")
         probe.event_translated(uuid4(), "GroupCreated", 2)
+        probe.translator_registered("iam", frozenset({"GroupCreated"}))

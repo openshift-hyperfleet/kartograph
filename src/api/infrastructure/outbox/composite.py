@@ -7,10 +7,13 @@ the plugin architecture where each bounded context registers its own handlers.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from shared_kernel.outbox.operations import SpiceDBOperation
 from shared_kernel.outbox.ports import EventSerializer, EventTranslator
+
+if TYPE_CHECKING:
+    from shared_kernel.outbox.observability import OutboxWorkerProbe
 
 
 class CompositeTranslator:
@@ -21,21 +24,38 @@ class CompositeTranslator:
     the event type.
     """
 
-    def __init__(self) -> None:
-        """Initialize with empty translator list."""
+    def __init__(self, probe: "OutboxWorkerProbe | None" = None) -> None:
+        """Initialize with empty translator list.
+
+        Args:
+            probe: Optional observability probe for logging registrations
+        """
         self._translators: list[EventTranslator] = []
         self._type_cache: dict[str, EventTranslator] = {}
+        self._probe = probe
 
-    def register(self, translator: EventTranslator) -> None:
+    def register(
+        self, translator: EventTranslator, context_name: str | None = None
+    ) -> None:
         """Register a context-specific translator.
 
         Args:
             translator: The translator to register
+            context_name: Optional bounded context name (defaults to class name)
         """
         self._translators.append(translator)
+        event_types = translator.supported_event_types()
+
         # Update cache for fast lookup
-        for event_type in translator.supported_event_types():
+        for event_type in event_types:
             self._type_cache[event_type] = translator
+
+        # Log registration if probe is available
+        if self._probe is not None:
+            name = (
+                context_name if context_name is not None else type(translator).__name__
+            )
+            self._probe.translator_registered(name, event_types)
 
     def supported_event_types(self) -> frozenset[str]:
         """Return all supported event types across all translators."""

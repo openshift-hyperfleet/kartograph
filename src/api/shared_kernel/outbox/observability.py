@@ -68,6 +68,16 @@ class OutboxWorkerProbe(Protocol):
         """
         ...
 
+    def translator_registered(
+        self, context_name: str, event_types: frozenset[str]
+    ) -> None:
+        """Called when a translator plugin is registered.
+
+        Provides visibility into which bounded contexts have registered
+        their event translators and what event types they handle.
+        """
+        ...
+
 
 class DefaultOutboxWorkerProbe:
     """Default implementation using structlog.
@@ -142,4 +152,15 @@ class DefaultOutboxWorkerProbe:
             entry_id=str(entry_id),
             event_type=event_type,
             operation_count=operation_count,
+        )
+
+    def translator_registered(
+        self, context_name: str, event_types: frozenset[str]
+    ) -> None:
+        """Log translator plugin registration."""
+        self._log.info(
+            "outbox_translator_registered",
+            context=context_name,
+            event_types=sorted(event_types),
+            event_count=len(event_types),
         )

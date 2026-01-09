@@ -78,16 +78,19 @@ async def kartograph_lifespan(app: FastAPI):
             cert_path=spicedb_settings.cert_path,
         )
 
+        # Create observability probe
+        probe = DefaultOutboxWorkerProbe()
+
         # Build composite translator with registered bounded context translators
-        translator = CompositeTranslator()
-        translator.register(IAMEventTranslator())
-        # Future: translator.register(ManagementEventTranslator())
+        translator = CompositeTranslator(probe=probe)
+        translator.register(IAMEventTranslator(), context_name="iam")
+        # Future: translator.register(ManagementEventTranslator(), context_name="management")
 
         worker = OutboxWorker(
             session_factory=app.state.write_sessionmaker,
             authz=authz,
             translator=translator,
-            probe=DefaultOutboxWorkerProbe(),
+            probe=probe,
             db_url=db_url,
             poll_interval_seconds=outbox_settings.poll_interval_seconds,
             batch_size=outbox_settings.batch_size,

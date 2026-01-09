@@ -32,8 +32,14 @@ class OutboxWorkerProbe(Protocol):
         """Called when an event is successfully processed."""
         ...
 
-    def event_processing_failed(self, entry_id: UUID, error: str) -> None:
-        """Called when event processing fails."""
+    def event_processing_failed(
+        self, entry_id: UUID, error: str, retry_count: int
+    ) -> None:
+        """Called when event processing fails and will be retried."""
+        ...
+
+    def event_moved_to_dlq(self, entry_id: UUID, event_type: str, error: str) -> None:
+        """Called when an event exceeds max retries and is moved to DLQ."""
         ...
 
     def batch_processed(self, count: int) -> None:
@@ -75,11 +81,23 @@ class DefaultOutboxWorkerProbe:
             event_type=event_type,
         )
 
-    def event_processing_failed(self, entry_id: UUID, error: str) -> None:
-        """Log failed event processing."""
-        self._log.error(
+    def event_processing_failed(
+        self, entry_id: UUID, error: str, retry_count: int
+    ) -> None:
+        """Log failed event processing that will be retried."""
+        self._log.warning(
             "outbox_event_processing_failed",
             entry_id=str(entry_id),
+            error=error,
+            retry_count=retry_count,
+        )
+
+    def event_moved_to_dlq(self, entry_id: UUID, event_type: str, error: str) -> None:
+        """Log event moved to dead letter queue."""
+        self._log.error(
+            "outbox_event_moved_to_dlq",
+            entry_id=str(entry_id),
+            event_type=event_type,
             error=error,
         )
 

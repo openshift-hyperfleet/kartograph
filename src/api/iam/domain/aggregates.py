@@ -10,8 +10,15 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from iam.domain.events import MemberAdded, MemberRemoved, MemberRoleChanged
-from iam.domain.value_objects import GroupId, GroupMember, Role, UserId
+from iam.domain.events import (
+    GroupCreated,
+    GroupDeleted,
+    MemberAdded,
+    MemberRemoved,
+    MemberRoleChanged,
+    MemberSnapshot,
+)
+from iam.domain.value_objects import GroupId, GroupMember, Role, TenantId, UserId
 
 if TYPE_CHECKING:
     from iam.domain.events import DomainEvent
@@ -22,7 +29,8 @@ class Group:
     """Group aggregate representing a collection of users working together.
 
     Groups are the primary unit for resource sharing and collaboration.
-    Workspace and tenant relationships are managed through the authorization system (SpiceDB).
+    Each group belongs to a tenant and membership relationships are managed
+    through the authorization system (SpiceDB).
 
     Business rules:
     - A group must have at least one admin at all times
@@ -35,29 +43,55 @@ class Group:
     """
 
     id: GroupId
+    tenant_id: TenantId
     name: str
     members: list[GroupMember] = field(default_factory=list)
     _pending_events: list[DomainEvent] = field(default_factory=list, repr=False)
+
+    @classmethod
+    def create(cls, name: str, tenant_id: TenantId) -> "Group":
+        """Factory method for creating a new group.
+
+        This is the proper DDD way to create aggregates. It generates the ID,
+        initializes the aggregate, and records the GroupCreated event.
+
+        Args:
+            name: The name of the group
+            tenant_id: The tenant this group belongs to
+
+        Returns:
+            A new Group aggregate with GroupCreated event recorded
+        """
+        group = cls(
+            id=GroupId.generate(),
+            tenant_id=tenant_id,
+            name=name,
+        )
+        group._pending_events.append(
+            GroupCreated(
+                group_id=group.id.value,
+                tenant_id=tenant_id.value,
+                occurred_at=datetime.now(UTC),
+            )
+        )
+        return group
 
     def add_member(self, user_id: UserId, role: Role) -> None:
         """Add a member to the group with a specific role.
 
         Args:
             user_id: The user to add
-            role: The role to assign (OWNER, ADMIN, or MEMBER)
+            role: The role to assign (ADMIN or MEMBER)
 
         Raises:
             ValueError: If user is already a member
         """
-        # Check if user is already a member
         if self.has_member(user_id):
             raise ValueError(f"User {user_id} is already a member of this group")
 
-        # Add member with role
         member = GroupMember(user_id=user_id, role=role)
         self.members.append(member)
 
-        # Record event
         self._pending_events.append(
             MemberAdded(
                 group_id=self.id.value,
@@ -76,11 +110,9 @@ class Group:
         Raises:
             ValueError: If user is not a member or is the last admin
         """
-        # Check if user is a member
         if not self.has_member(user_id):
             raise ValueError(f"User {user_id} is not a member of this group")
 
-        # Get the role before removing (needed for event)
         member_role = self.get_member_role(user_id)
 
         # Check if removing last admin
@@ -91,19 +123,17 @@ class Group:
                     "Cannot remove the last admin. Promote another member first."
                 )
 
-        # Remove member
         self.members = [m for m in self.members if m.user_id != user_id]
 
-        # Record event (member_role is guaranteed to be not None here)
-        if member_role is not None:
-            self._pending_events.append(
-                MemberRemoved(
-                    group_id=self.id.value,
-                    user_id=user_id.value,
-                    role=member_role,
-                    occurred_at=datetime.now(UTC),
-                )
+        # member_role is guaranteed non-None since we checked has_member above
+        self._pending_events.append(
+            MemberRemoved(
+                group_id=self.id.value,
+                user_id=user_id.value,
+                role=member_role,  # type: ignore[arg-type]
+                occurred_at=datetime.now(UTC),
             )
+        )
 
     def update_member_role(self, user_id: UserId, new_role: Role) -> None:
         """Update a member's role.
@@ -115,7 +145,6 @@ class Group:
         Raises:
             ValueError: If user is not a member or is the last admin being demoted
         """
-        # Check if user is a member
         if not self.has_member(user_id):
             raise ValueError(f"User {user_id} is not a member of this group")
 
@@ -129,23 +158,39 @@ class Group:
                     "Cannot demote the last admin. Promote another member first."
                 )
 
-        # Update role by replacing the member
         self.members = [
             GroupMember(user_id=m.user_id, role=new_role) if m.user_id == user_id else m
             for m in self.members
         ]
 
-        # Record event (current_role is guaranteed to be not None here)
-        if current_role is not None:
-            self._pending_events.append(
-                MemberRoleChanged(
-                    group_id=self.id.value,
-                    user_id=user_id.value,
-                    old_role=current_role,
-                    new_role=new_role,
-                    occurred_at=datetime.now(UTC),
-                )
+        # current_role is guaranteed non-None since we checked has_member above
+        self._pending_events.append(
+            MemberRoleChanged(
+                group_id=self.id.value,
+                user_id=user_id.value,
+                old_role=current_role,  # type: ignore[arg-type]
+                new_role=new_role,
+                occurred_at=datetime.now(UTC),
             )
+        )
+
+    def mark_for_deletion(self) -> None:
+        """Mark the group for deletion and record the GroupDeleted event.
+
+        This captures a snapshot of all current members so the outbox worker
+        can clean up all SpiceDB relationships without needing external lookups.
+        """
+        members_snapshot = tuple(
+            MemberSnapshot(user_id=m.user_id.value, role=m.role) for m in self.members
+        )
+        self._pending_events.append(
+            GroupDeleted(
+                group_id=self.id.value,
+                tenant_id=self.tenant_id.value,
+                members=members_snapshot,
+                occurred_at=datetime.now(UTC),
+            )
+        )
 
     def has_member(self, user_id: UserId) -> bool:
         """Check if a user is a member of this group.

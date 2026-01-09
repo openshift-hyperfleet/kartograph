@@ -54,6 +54,14 @@ def mock_outbox():
 
 
 @pytest.fixture
+def mock_serializer():
+    """Create mock event serializer."""
+    serializer = MagicMock()
+    serializer.serialize.return_value = {"test": "payload"}
+    return serializer
+
+
+@pytest.fixture
 def repository(mock_session, mock_authz, mock_probe, mock_outbox):
     """Create repository with mock dependencies."""
     return GroupRepository(
@@ -341,3 +349,51 @@ class TestDelete:
         calls = mock_outbox.append.call_args_list
         event_types = [call.kwargs.get("event_type") for call in calls]
         assert "GroupDeleted" in event_types
+
+
+class TestSerializerInjection:
+    """Tests for serializer dependency injection."""
+
+    @pytest.mark.asyncio
+    async def test_uses_injected_serializer(
+        self, mock_session, mock_authz, mock_outbox, mock_probe, mock_serializer
+    ):
+        """Should use injected serializer instead of creating default."""
+        repository = GroupRepository(
+            session=mock_session,
+            authz=mock_authz,
+            outbox=mock_outbox,
+            probe=mock_probe,
+            serializer=mock_serializer,
+        )
+
+        tenant_id = TenantId.generate()
+        group = Group.create(name="Test Group", tenant_id=tenant_id)
+
+        # Mock get_by_name to return None
+        repository.get_by_name = AsyncMock(return_value=None)
+
+        # Mock session
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        await repository.save(group)
+
+        # Injected serializer should have been called
+        mock_serializer.serialize.assert_called()
+
+    def test_uses_default_serializer_when_not_injected(
+        self, mock_session, mock_authz, mock_outbox, mock_probe
+    ):
+        """Should create default serializer when not injected."""
+        from iam.infrastructure.outbox import IAMEventSerializer
+
+        repository = GroupRepository(
+            session=mock_session,
+            authz=mock_authz,
+            outbox=mock_outbox,
+            probe=mock_probe,
+        )
+
+        assert isinstance(repository._serializer, IAMEventSerializer)

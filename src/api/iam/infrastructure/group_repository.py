@@ -55,6 +55,7 @@ class GroupRepository(IGroupRepository):
         authz: AuthorizationProvider,
         outbox: "OutboxRepository",
         probe: GroupRepositoryProbe | None = None,
+        serializer: IAMEventSerializer | None = None,
     ) -> None:
         """Initialize repository with database session and authorization provider.
 
@@ -63,12 +64,13 @@ class GroupRepository(IGroupRepository):
             authz: Authorization provider (SpiceDB client) for reads
             outbox: Outbox repository for the transactional outbox pattern
             probe: Optional domain probe for observability
+            serializer: Optional event serializer for testability
         """
         self._session = session
         self._authz = authz
         self._outbox = outbox
         self._probe = probe or DefaultGroupRepositoryProbe()
-        self._serializer = IAMEventSerializer()
+        self._serializer = serializer or IAMEventSerializer()
 
     async def save(self, group: Group) -> None:
         """Persist group metadata to PostgreSQL, events to outbox.

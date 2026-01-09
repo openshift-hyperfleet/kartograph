@@ -10,13 +10,12 @@ from uuid import uuid4
 
 import pytest
 
-from shared_kernel.outbox.spicedb_translator import (
-    DeleteRelationship,
-    SpiceDBTranslator,
-    WriteRelationship,
-)
-from shared_kernel.outbox.value_objects import OutboxEntry
+from iam.domain.value_objects import Role
 from infrastructure.outbox.worker import OutboxWorker
+from shared_kernel.authorization.types import RelationType, ResourceType
+from shared_kernel.outbox.operations import DeleteRelationship, WriteRelationship
+from shared_kernel.outbox.ports import EventTranslator
+from shared_kernel.outbox.value_objects import OutboxEntry
 
 
 class TestOutboxWorkerProcessBatch:
@@ -31,7 +30,7 @@ class TestOutboxWorkerProcessBatch:
         mock_session_factory.return_value.__aenter__.return_value = mock_session
 
         mock_authz = AsyncMock()
-        mock_translator = MagicMock(spec=SpiceDBTranslator)
+        mock_translator = MagicMock(spec=EventTranslator)
         mock_probe = MagicMock()
 
         # Create a test entry
@@ -51,12 +50,14 @@ class TestOutboxWorkerProcessBatch:
             created_at=datetime(2026, 1, 8, 12, 0, 1, tzinfo=UTC),
         )
 
-        # Setup translator to return a write operation
+        # Setup translator to return a write operation with typed enums
         mock_translator.translate.return_value = [
             WriteRelationship(
-                resource="group:01ARZCX0P0HZGQP3MZXQQ0NNZZ",
-                relation="tenant",
-                subject="tenant:01ARZCX0P0HZGQP3MZXQQ0NNYY",
+                resource_type=ResourceType.GROUP,
+                resource_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+                relation=RelationType.TENANT,
+                subject_type=ResourceType.TENANT,
+                subject_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
             )
         ]
 
@@ -73,6 +74,7 @@ class TestOutboxWorkerProcessBatch:
 
         # Assert
         mock_translator.translate.assert_called_once()
+        # Worker calls authz with formatted resource/relation/subject strings
         mock_authz.write_relationship.assert_called_once_with(
             resource="group:01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             relation="tenant",
@@ -85,7 +87,7 @@ class TestOutboxWorkerProcessBatch:
         """Test that delete operations are executed correctly."""
         mock_session = AsyncMock()
         mock_authz = AsyncMock()
-        mock_translator = MagicMock(spec=SpiceDBTranslator)
+        mock_translator = MagicMock(spec=EventTranslator)
         mock_probe = MagicMock()
 
         entry = OutboxEntry(
@@ -107,9 +109,11 @@ class TestOutboxWorkerProcessBatch:
 
         mock_translator.translate.return_value = [
             DeleteRelationship(
-                resource="group:01ARZCX0P0HZGQP3MZXQQ0NNZZ",
-                relation="member",
-                subject="user:01ARZCX0P0HZGQP3MZXQQ0NNWW",
+                resource_type=ResourceType.GROUP,
+                resource_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+                relation=Role.MEMBER,
+                subject_type=ResourceType.USER,
+                subject_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
             )
         ]
 
@@ -134,7 +138,7 @@ class TestOutboxWorkerProcessBatch:
         """Test that entries are marked as processed after SpiceDB write."""
         mock_session = AsyncMock()
         mock_authz = AsyncMock()
-        mock_translator = MagicMock(spec=SpiceDBTranslator)
+        mock_translator = MagicMock(spec=EventTranslator)
         mock_probe = MagicMock()
 
         entry_id = uuid4()
@@ -156,9 +160,11 @@ class TestOutboxWorkerProcessBatch:
 
         mock_translator.translate.return_value = [
             WriteRelationship(
-                resource="group:01ARZCX0P0HZGQP3MZXQQ0NNZZ",
-                relation="tenant",
-                subject="tenant:01ARZCX0P0HZGQP3MZXQQ0NNYY",
+                resource_type=ResourceType.GROUP,
+                resource_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+                relation=RelationType.TENANT,
+                subject_type=ResourceType.TENANT,
+                subject_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
             )
         ]
 
@@ -182,10 +188,11 @@ class TestOutboxWorkerLifecycle:
     @pytest.mark.asyncio
     async def test_start_sets_running_flag(self):
         """Test that start() sets the running flag."""
+        mock_translator = MagicMock(spec=EventTranslator)
         worker = OutboxWorker(
             session_factory=AsyncMock(),
             authz=AsyncMock(),
-            translator=SpiceDBTranslator(),
+            translator=mock_translator,
             probe=MagicMock(),
             db_url="postgresql://test",
         )
@@ -199,10 +206,11 @@ class TestOutboxWorkerLifecycle:
     @pytest.mark.asyncio
     async def test_stop_clears_running_flag(self):
         """Test that stop() clears the running flag."""
+        mock_translator = MagicMock(spec=EventTranslator)
         worker = OutboxWorker(
             session_factory=AsyncMock(),
             authz=AsyncMock(),
-            translator=SpiceDBTranslator(),
+            translator=mock_translator,
             probe=MagicMock(),
             db_url="postgresql://test",
         )
@@ -221,7 +229,7 @@ class TestOutboxWorkerProbeIntegration:
         """Test that probe.event_processed is called on success."""
         mock_session = AsyncMock()
         mock_authz = AsyncMock()
-        mock_translator = MagicMock(spec=SpiceDBTranslator)
+        mock_translator = MagicMock(spec=EventTranslator)
         mock_probe = MagicMock()
 
         entry_id = uuid4()
@@ -243,9 +251,11 @@ class TestOutboxWorkerProbeIntegration:
 
         mock_translator.translate.return_value = [
             WriteRelationship(
-                resource="group:test",
-                relation="tenant",
-                subject="tenant:test",
+                resource_type=ResourceType.GROUP,
+                resource_id="test",
+                relation=RelationType.TENANT,
+                subject_type=ResourceType.TENANT,
+                subject_id="test",
             )
         ]
 
@@ -267,7 +277,7 @@ class TestOutboxWorkerProbeIntegration:
         mock_session = AsyncMock()
         mock_authz = AsyncMock()
         mock_authz.write_relationship.side_effect = Exception("SpiceDB unavailable")
-        mock_translator = MagicMock(spec=SpiceDBTranslator)
+        mock_translator = MagicMock(spec=EventTranslator)
         mock_probe = MagicMock()
 
         entry_id = uuid4()
@@ -289,9 +299,11 @@ class TestOutboxWorkerProbeIntegration:
 
         mock_translator.translate.return_value = [
             WriteRelationship(
-                resource="group:test",
-                relation="tenant",
-                subject="tenant:test",
+                resource_type=ResourceType.GROUP,
+                resource_id="test",
+                relation=RelationType.TENANT,
+                subject_type=ResourceType.TENANT,
+                subject_id="test",
             )
         ]
 

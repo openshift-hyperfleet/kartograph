@@ -1,7 +1,7 @@
-"""Unit tests for event serialization (TDD - tests first).
+"""Unit tests for IAMEventSerializer (TDD - tests first).
 
-Following TDD: Write tests that describe the desired behavior,
-then implement the serialization functions to make these tests pass.
+These tests verify that IAM domain events are correctly serialized
+and deserialized for outbox storage.
 """
 
 from datetime import UTC, datetime
@@ -15,16 +15,33 @@ from iam.domain.events import (
     MemberAdded,
     MemberRemoved,
     MemberRoleChanged,
+    MemberSnapshot,
 )
 from iam.domain.value_objects import Role
-from shared_kernel.outbox.serialization import deserialize_event, serialize_event
+from iam.infrastructure.outbox import IAMEventSerializer
 
 
-class TestSerializeEvent:
-    """Tests for serialize_event function."""
+class TestIAMEventSerializerSupportedEvents:
+    """Tests for supported event types."""
+
+    def test_supports_all_iam_domain_events(self):
+        """Serializer should support all IAM domain event types."""
+        serializer = IAMEventSerializer()
+        supported = serializer.supported_event_types()
+
+        assert "GroupCreated" in supported
+        assert "GroupDeleted" in supported
+        assert "MemberAdded" in supported
+        assert "MemberRemoved" in supported
+        assert "MemberRoleChanged" in supported
+
+
+class TestIAMEventSerializerSerialize:
+    """Tests for serialize method."""
 
     def test_serializes_group_created(self):
-        """Test that GroupCreated is serialized correctly."""
+        """GroupCreated should be serialized correctly."""
+        serializer = IAMEventSerializer()
         occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
         event = GroupCreated(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
@@ -32,30 +49,38 @@ class TestSerializeEvent:
             occurred_at=occurred_at,
         )
 
-        payload = serialize_event(event)
+        payload = serializer.serialize(event)
 
-        assert payload["__type__"] == "GroupCreated"
         assert payload["group_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
         assert payload["tenant_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNYY"
         assert payload["occurred_at"] == "2026-01-08T12:00:00+00:00"
 
-    def test_serializes_group_deleted(self):
-        """Test that GroupDeleted is serialized correctly."""
+    def test_serializes_group_deleted_with_members(self):
+        """GroupDeleted should include member snapshots."""
+        serializer = IAMEventSerializer()
         occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
+        members = (
+            MemberSnapshot(user_id="user1", role=Role.ADMIN),
+            MemberSnapshot(user_id="user2", role=Role.MEMBER),
+        )
         event = GroupDeleted(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             tenant_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
+            members=members,
             occurred_at=occurred_at,
         )
 
-        payload = serialize_event(event)
+        payload = serializer.serialize(event)
 
-        assert payload["__type__"] == "GroupDeleted"
         assert payload["group_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
-        assert payload["tenant_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNYY"
+        assert len(payload["members"]) == 2
+        assert payload["members"][0]["user_id"] == "user1"
+        assert payload["members"][0]["role"] == "admin"
+        assert payload["members"][1]["role"] == "member"
 
     def test_serializes_member_added(self):
-        """Test that MemberAdded is serialized correctly."""
+        """MemberAdded should serialize role enum to string."""
+        serializer = IAMEventSerializer()
         occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
         event = MemberAdded(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
@@ -64,30 +89,15 @@ class TestSerializeEvent:
             occurred_at=occurred_at,
         )
 
-        payload = serialize_event(event)
+        payload = serializer.serialize(event)
 
-        assert payload["__type__"] == "MemberAdded"
         assert payload["group_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
         assert payload["user_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNWW"
-        assert payload["role"] == "member"  # Role enum serialized to string
-
-    def test_serializes_member_removed(self):
-        """Test that MemberRemoved is serialized correctly."""
-        occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
-        event = MemberRemoved(
-            group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
-            user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-            role=Role.ADMIN,
-            occurred_at=occurred_at,
-        )
-
-        payload = serialize_event(event)
-
-        assert payload["__type__"] == "MemberRemoved"
-        assert payload["role"] == "admin"
+        assert payload["role"] == "member"
 
     def test_serializes_member_role_changed(self):
-        """Test that MemberRoleChanged is serialized correctly."""
+        """MemberRoleChanged should serialize both roles."""
+        serializer = IAMEventSerializer()
         occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
         event = MemberRoleChanged(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
@@ -97,16 +107,16 @@ class TestSerializeEvent:
             occurred_at=occurred_at,
         )
 
-        payload = serialize_event(event)
+        payload = serializer.serialize(event)
 
-        assert payload["__type__"] == "MemberRoleChanged"
         assert payload["old_role"] == "member"
         assert payload["new_role"] == "admin"
 
     def test_payload_is_json_serializable(self):
-        """Test that the payload can be serialized to JSON."""
+        """Serialized payload should be JSON-compatible."""
         import json
 
+        serializer = IAMEventSerializer()
         occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
         event = GroupCreated(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
@@ -114,78 +124,87 @@ class TestSerializeEvent:
             occurred_at=occurred_at,
         )
 
-        payload = serialize_event(event)
+        payload = serializer.serialize(event)
         json_str = json.dumps(payload)
 
         assert isinstance(json_str, str)
 
+    def test_raises_for_unsupported_event(self):
+        """Serializer should raise for unsupported event types."""
+        from dataclasses import dataclass
 
-class TestDeserializeEvent:
-    """Tests for deserialize_event function."""
+        serializer = IAMEventSerializer()
+
+        @dataclass(frozen=True)
+        class UnknownEvent:
+            data: str
+
+        with pytest.raises(ValueError) as exc_info:
+            serializer.serialize(UnknownEvent(data="test"))
+
+        assert "Unsupported event type" in str(exc_info.value)
+
+
+class TestIAMEventSerializerDeserialize:
+    """Tests for deserialize method."""
 
     def test_deserializes_group_created(self):
-        """Test that GroupCreated is deserialized correctly."""
+        """GroupCreated should be deserialized correctly."""
+        serializer = IAMEventSerializer()
         payload = {
-            "__type__": "GroupCreated",
             "group_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             "tenant_id": "01ARZCX0P0HZGQP3MZXQQ0NNYY",
             "occurred_at": "2026-01-08T12:00:00+00:00",
         }
 
-        event = deserialize_event(payload)
+        event = serializer.deserialize("GroupCreated", payload)
 
         assert isinstance(event, GroupCreated)
         assert event.group_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
         assert event.tenant_id == "01ARZCX0P0HZGQP3MZXQQ0NNYY"
         assert event.occurred_at == datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
 
-    def test_deserializes_group_deleted(self):
-        """Test that GroupDeleted is deserialized correctly."""
+    def test_deserializes_group_deleted_with_members(self):
+        """GroupDeleted should reconstruct member snapshots."""
+        serializer = IAMEventSerializer()
         payload = {
-            "__type__": "GroupDeleted",
             "group_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             "tenant_id": "01ARZCX0P0HZGQP3MZXQQ0NNYY",
+            "members": [
+                {"user_id": "user1", "role": "admin"},
+                {"user_id": "user2", "role": "member"},
+            ],
             "occurred_at": "2026-01-08T12:00:00+00:00",
         }
 
-        event = deserialize_event(payload)
+        event = serializer.deserialize("GroupDeleted", payload)
 
         assert isinstance(event, GroupDeleted)
+        assert len(event.members) == 2
+        assert isinstance(event.members, tuple)
+        assert isinstance(event.members[0], MemberSnapshot)
+        assert event.members[0].role == Role.ADMIN
+        assert event.members[1].role == Role.MEMBER
 
     def test_deserializes_member_added(self):
-        """Test that MemberAdded is deserialized correctly."""
+        """MemberAdded should reconstruct Role enum."""
+        serializer = IAMEventSerializer()
         payload = {
-            "__type__": "MemberAdded",
             "group_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             "user_id": "01ARZCX0P0HZGQP3MZXQQ0NNWW",
             "role": "member",
             "occurred_at": "2026-01-08T12:00:00+00:00",
         }
 
-        event = deserialize_event(payload)
+        event = serializer.deserialize("MemberAdded", payload)
 
         assert isinstance(event, MemberAdded)
         assert event.role == Role.MEMBER
 
-    def test_deserializes_member_removed(self):
-        """Test that MemberRemoved is deserialized correctly."""
-        payload = {
-            "__type__": "MemberRemoved",
-            "group_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
-            "user_id": "01ARZCX0P0HZGQP3MZXQQ0NNWW",
-            "role": "admin",
-            "occurred_at": "2026-01-08T12:00:00+00:00",
-        }
-
-        event = deserialize_event(payload)
-
-        assert isinstance(event, MemberRemoved)
-        assert event.role == Role.ADMIN
-
     def test_deserializes_member_role_changed(self):
-        """Test that MemberRoleChanged is deserialized correctly."""
+        """MemberRoleChanged should reconstruct both roles."""
+        serializer = IAMEventSerializer()
         payload = {
-            "__type__": "MemberRoleChanged",
             "group_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             "user_id": "01ARZCX0P0HZGQP3MZXQQ0NNWW",
             "old_role": "member",
@@ -193,64 +212,61 @@ class TestDeserializeEvent:
             "occurred_at": "2026-01-08T12:00:00+00:00",
         }
 
-        event = deserialize_event(payload)
+        event = serializer.deserialize("MemberRoleChanged", payload)
 
         assert isinstance(event, MemberRoleChanged)
         assert event.old_role == Role.MEMBER
         assert event.new_role == Role.ADMIN
 
     def test_raises_for_unknown_event_type(self):
-        """Test that unknown event types raise an error."""
-        payload = {
-            "__type__": "UnknownEvent",
-            "some_field": "value",
-        }
+        """Deserializer should raise for unknown event types."""
+        serializer = IAMEventSerializer()
 
-        with pytest.raises(ValueError, match="Unknown event type"):
-            deserialize_event(payload)
+        with pytest.raises(ValueError) as exc_info:
+            serializer.deserialize("UnknownEvent", {})
 
-    def test_raises_for_missing_type(self):
-        """Test that missing __type__ raises an error."""
-        payload = {
-            "group_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
-        }
-
-        with pytest.raises(KeyError):
-            deserialize_event(payload)
+        assert "Unsupported event type" in str(exc_info.value)
 
 
-class TestRoundTrip:
+class TestIAMEventSerializerRoundTrip:
     """Test serialize -> deserialize round trip."""
 
     def test_round_trip_group_created(self):
-        """Test round trip for GroupCreated."""
+        """GroupCreated should round trip correctly."""
+        serializer = IAMEventSerializer()
         original = GroupCreated(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             tenant_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
             occurred_at=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
         )
 
-        payload = serialize_event(original)
-        restored = deserialize_event(payload)
+        payload = serializer.serialize(original)
+        restored = serializer.deserialize("GroupCreated", payload)
 
         assert restored == original
 
-    def test_round_trip_member_added(self):
-        """Test round trip for MemberAdded."""
-        original = MemberAdded(
+    def test_round_trip_group_deleted(self):
+        """GroupDeleted should round trip with members."""
+        serializer = IAMEventSerializer()
+        members = (
+            MemberSnapshot(user_id="user1", role=Role.ADMIN),
+            MemberSnapshot(user_id="user2", role=Role.MEMBER),
+        )
+        original = GroupDeleted(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
-            user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-            role=Role.ADMIN,
+            tenant_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
+            members=members,
             occurred_at=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
         )
 
-        payload = serialize_event(original)
-        restored = deserialize_event(payload)
+        payload = serializer.serialize(original)
+        restored = serializer.deserialize("GroupDeleted", payload)
 
         assert restored == original
 
     def test_round_trip_all_events(self):
-        """Test round trip for all event types."""
+        """All event types should round trip correctly."""
+        serializer = IAMEventSerializer()
         occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
         events: list[DomainEvent] = [
             GroupCreated(
@@ -261,6 +277,7 @@ class TestRoundTrip:
             GroupDeleted(
                 group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
                 tenant_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
+                members=(),
                 occurred_at=occurred_at,
             ),
             MemberAdded(
@@ -285,6 +302,7 @@ class TestRoundTrip:
         ]
 
         for original in events:
-            payload = serialize_event(original)
-            restored = deserialize_event(payload)
-            assert restored == original, f"Round trip failed for {type(original)}"
+            event_type = type(original).__name__
+            payload = serializer.serialize(original)
+            restored = serializer.deserialize(event_type, payload)
+            assert restored == original, f"Round trip failed for {event_type}"

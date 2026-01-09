@@ -37,10 +37,11 @@ class TestMutationApplierQueryBuilding:
         # Should use MERGE for idempotency
         assert "MERGE" in query
         assert "(n:person {id: 'person:abc123def456789a'})" in query
-        assert "SET n.slug = 'alice-smith'" in query
-        assert "SET n.name = 'Alice Smith'" in query
-        assert "SET n.data_source_id = 'ds-123'" in query
-        assert "SET n.source_path = 'people/alice.md'" in query
+        # Property names are escaped with backticks to avoid reserved keyword conflicts
+        assert "SET n.`slug` = 'alice-smith'" in query
+        assert "SET n.`name` = 'Alice Smith'" in query
+        assert "SET n.`data_source_id` = 'ds-123'" in query
+        assert "SET n.`source_path` = 'people/alice.md'" in query
 
     def test_build_create_edge_query(self):
         """Should build MERGE query for CREATE edge operation."""
@@ -69,8 +70,9 @@ class TestMutationApplierQueryBuilding:
         assert (
             "MERGE (source)-[r:knows {id: 'knows:abc123def456789a'}]->(target)" in query
         )
-        assert "SET r.since = 2020" in query
-        assert "SET r.data_source_id = 'ds-123'" in query
+        # Property names are escaped with backticks
+        assert "SET r.`since` = 2020" in query
+        assert "SET r.`data_source_id` = 'ds-123'" in query
 
     def test_build_update_with_set_properties_query(self):
         """Should build SET query for UPDATE operation."""
@@ -91,8 +93,9 @@ class TestMutationApplierQueryBuilding:
 
         assert "MATCH (n {id: 'person:abc123def456789a'})" in query
         assert "SET" in query
-        assert "n.name = 'Alice Updated'" in query
-        assert "n.email = 'alice@example.com'" in query
+        # Property names are escaped with backticks
+        assert "n.`name` = 'Alice Updated'" in query
+        assert "n.`email` = 'alice@example.com'" in query
 
     def test_build_update_with_remove_properties_query(self):
         """Should build REMOVE query for UPDATE operation."""
@@ -109,7 +112,8 @@ class TestMutationApplierQueryBuilding:
         assert query is not None
 
         assert "MATCH (n {id: 'person:abc123def456789a'})" in query
-        assert "REMOVE n.middle_name, n.old_email" in query
+        # Property names are escaped with backticks
+        assert "REMOVE n.`middle_name`, n.`old_email`" in query
 
     def test_build_update_with_both_set_and_remove_query(self):
         """Should build both SET and REMOVE for UPDATE operation."""
@@ -127,8 +131,9 @@ class TestMutationApplierQueryBuilding:
         assert query is not None
 
         assert "MATCH (n {id: 'person:abc123def456789a'})" in query
-        assert "SET n.name = 'Alice Smith'" in query
-        assert "REMOVE n.nickname" in query
+        # Property names are escaped with backticks
+        assert "SET n.`name` = 'Alice Smith'" in query
+        assert "REMOVE n.`nickname`" in query
 
     def test_build_delete_query(self):
         """Should build DETACH DELETE query for DELETE operation."""
@@ -180,7 +185,8 @@ class TestMutationApplierQueryBuilding:
 
         # Should use relationship syntax for edges
         assert "MATCH ()-[r {id: 'knows:abc123def456789a'}]->()" in query
-        assert "SET r.since = 2020" in query
+        # Property names are escaped with backticks
+        assert "SET r.`since` = 2020" in query
 
     def test_build_update_edge_remove_properties(self):
         """Should build REMOVE query for edge using relationship syntax."""
@@ -198,7 +204,8 @@ class TestMutationApplierQueryBuilding:
 
         # Should use relationship syntax for edges
         assert "MATCH ()-[r {id: 'knows:abc123def456789a'}]->()" in query
-        assert "REMOVE r.old_field, r.temp_prop" in query
+        # Property names are escaped with backticks
+        assert "REMOVE r.`old_field`, r.`temp_prop`" in query
 
     def test_format_string_value(self):
         """Should properly escape string values."""

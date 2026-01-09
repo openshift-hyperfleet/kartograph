@@ -35,8 +35,8 @@ class TestGraphIdStamping:
 
         query = applier._build_create(mutation)
 
-        # Should include graph_id in SET clauses
-        assert "SET n.graph_id = 'test_graph'" in query
+        # Should include graph_id in SET clauses (with backticks for keyword safety)
+        assert "SET n.`graph_id` = 'test_graph'" in query
 
     def test_create_edge_includes_graph_id(self):
         """Should automatically add graph_id when creating edges."""
@@ -61,8 +61,8 @@ class TestGraphIdStamping:
 
         query = applier._build_create(mutation)
 
-        # Should include graph_id in SET clauses
-        assert "SET r.graph_id = 'test_graph'" in query
+        # Should include graph_id in SET clauses (with backticks for keyword safety)
+        assert "SET r.`graph_id` = 'test_graph'" in query
 
     def test_graph_id_not_in_set_properties(self):
         """graph_id should be added by infrastructure, not in set_properties."""
@@ -86,7 +86,7 @@ class TestGraphIdStamping:
 
         query = applier._build_create(mutation)
 
-        # graph_id should be added automatically
-        assert "SET n.graph_id = 'test_graph'" in query
+        # graph_id should be added automatically (with backticks for keyword safety)
+        assert "SET n.`graph_id` = 'test_graph'" in query
         # Should have exactly one graph_id SET clause
         assert query.count("graph_id") == 1

@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from util import dev_routes
 
 from graph.dependencies import get_age_graph_client
 from graph.infrastructure.age_client import AgeGraphClient
@@ -149,6 +150,9 @@ app.include_router(graph_routes.router)
 
 # Include IAM bounded context routes
 app.include_router(iam_routes.router)
+
+# Include dev utility routes (easy to remove for production)
+app.include_router(dev_routes.router)
 
 
 @app.get("/health")

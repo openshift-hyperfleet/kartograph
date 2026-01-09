@@ -121,8 +121,6 @@ class TypeDefinitionSchema(BaseModel):
     label: str
     entity_type: str
     description: str
-    example_file_path: str
-    example_in_file_path: str
     required_properties: list[str]
     optional_properties: list[str]
 

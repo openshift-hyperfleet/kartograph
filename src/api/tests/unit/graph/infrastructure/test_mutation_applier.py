@@ -285,8 +285,6 @@ class TestMutationApplierBatchExecution:
                 type=EntityType.NODE,
                 label="test",
                 description="Test",
-                example_file_path="test.md",
-                example_in_file_path="test",
                 required_properties=set(),
             ),
         ]

@@ -4,8 +4,9 @@ These fixtures require running PostgreSQL and SpiceDB instances.
 SpiceDB settings are configured in the parent conftest.
 """
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable, Coroutine
 import os
+from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -14,11 +15,15 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from iam.infrastructure.group_repository import GroupRepository
+from iam.infrastructure.outbox import IAMEventSerializer, IAMEventTranslator
 from iam.infrastructure.user_repository import UserRepository
 from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.database.engines import create_write_engine
+from infrastructure.outbox.repository import OutboxRepository
+from infrastructure.outbox.worker import OutboxWorker
 from infrastructure.settings import DatabaseSettings
 from shared_kernel.authorization.protocols import AuthorizationProvider
+from shared_kernel.outbox.observability import DefaultOutboxWorkerProbe
 
 
 @pytest.fixture(scope="session")
@@ -115,9 +120,12 @@ def group_repository(
     async_session: AsyncSession, spicedb_client: AuthorizationProvider
 ) -> GroupRepository:
     """Provide a GroupRepository for integration tests."""
+    serializer = IAMEventSerializer()
+    outbox = OutboxRepository(session=async_session, serializer=serializer)
     return GroupRepository(
         session=async_session,
         authz=spicedb_client,
+        outbox=outbox,
     )
 
 
@@ -125,3 +133,38 @@ def group_repository(
 def user_repository(async_session: AsyncSession) -> UserRepository:
     """Provide a UserRepository for integration tests."""
     return UserRepository(session=async_session)
+
+
+@pytest_asyncio.fixture
+async def process_outbox(
+    session_factory: async_sessionmaker[AsyncSession],
+    spicedb_client: AuthorizationProvider,
+    iam_db_settings: DatabaseSettings,
+) -> Callable[[], Coroutine[Any, Any, None]]:
+    """Provide a function to process all pending outbox entries.
+
+    Call this after saves to synchronously process outbox entries
+    and write relationships to SpiceDB before assertions.
+    """
+    translator = IAMEventTranslator()
+    probe = DefaultOutboxWorkerProbe()
+    db_url = (
+        f"postgresql://{iam_db_settings.username}:"
+        f"{iam_db_settings.password.get_secret_value()}@"
+        f"{iam_db_settings.host}:{iam_db_settings.port}/"
+        f"{iam_db_settings.database}"
+    )
+
+    worker = OutboxWorker(
+        session_factory=session_factory,
+        authz=spicedb_client,
+        translator=translator,
+        probe=probe,
+        db_url=db_url,
+    )
+
+    async def _process() -> None:
+        """Process all pending outbox entries."""
+        await worker._process_batch()
+
+    return _process

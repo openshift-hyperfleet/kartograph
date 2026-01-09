@@ -138,7 +138,7 @@ class GroupService:
         Raises:
             PermissionError: If user lacks manage permission on the group
         """
-        # Check user has manage permission on this group
+        # Check user has manage permission on this group (SpiceDB - no session needed)
         resource = format_resource(ResourceType.GROUP, group_id.value)
         subject = format_resource(ResourceType.USER, user_id.value)
         has_permission = await self._authz.check_permission(
@@ -151,17 +151,19 @@ class GroupService:
                 f"User {user_id.value} lacks manage permission on group {group_id.value}"
             )
 
-        # Load the group aggregate
-        group = await self._group_repository.get_by_id(group_id)
-        if group is None:
-            return False
-
-        # Verify tenant ownership
-        if group.tenant_id.value != tenant_id.value:
-            return False
-
-        # Mark for deletion (records GroupDeleted event with member snapshot)
-        group.mark_for_deletion()
-
+        # All database operations (reads + writes) in a single transaction
+        # This avoids SQLAlchemy 2.0 autobegin issues
         async with self._session.begin():
+            # Load the group aggregate
+            group = await self._group_repository.get_by_id(group_id)
+            if group is None:
+                return False
+
+            # Verify tenant ownership
+            if group.tenant_id.value != tenant_id.value:
+                return False
+
+            # Mark for deletion (records GroupDeleted event with member snapshot)
+            group.mark_for_deletion()
+
             return await self._group_repository.delete(group)

@@ -29,6 +29,9 @@ class OutboxEntry:
         occurred_at: When the domain event occurred
         processed_at: When the entry was processed (None if unprocessed)
         created_at: When the entry was created in the outbox
+        retry_count: Number of times this entry has been retried
+        last_error: The most recent error message (if any)
+        failed_at: When the entry was moved to DLQ (None if not failed)
     """
 
     id: UUID
@@ -39,6 +42,9 @@ class OutboxEntry:
     occurred_at: datetime
     processed_at: datetime | None
     created_at: datetime
+    retry_count: int = 0
+    last_error: str | None = None
+    failed_at: datetime | None = None
 
     @property
     def is_processed(self) -> bool:
@@ -48,3 +54,12 @@ class OutboxEntry:
             True if processed_at is set, False otherwise
         """
         return self.processed_at is not None
+
+    @property
+    def is_failed(self) -> bool:
+        """Check if this entry has been moved to the DLQ.
+
+        Returns:
+            True if failed_at is set, False otherwise
+        """
+        return self.failed_at is not None

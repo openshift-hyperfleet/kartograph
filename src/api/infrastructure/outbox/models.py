@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, String, text
+from sqlalchemy import DateTime, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -23,8 +23,9 @@ class OutboxModel(Base):
     Stores domain events that need to be processed asynchronously and
     applied to SpiceDB for authorization consistency.
 
-    The table uses a partial index on unprocessed entries for efficient
-    polling by the worker.
+    The table uses partial indexes for efficient polling:
+    - idx_outbox_unprocessed: For fetching pending entries
+    - idx_outbox_failed: For monitoring failed entries (DLQ)
     """
 
     __tablename__ = "outbox"
@@ -49,6 +50,25 @@ class OutboxModel(Base):
         nullable=False,
         server_default=text("NOW()"),
     )
+    # Retry/DLQ columns
+    retry_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default="0",
+    )
+    last_error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    failed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    @property
+    def is_failed(self) -> bool:
+        """Check if this entry has been moved to the DLQ."""
+        return self.failed_at is not None
 
     def __repr__(self) -> str:
         """Return string representation."""
@@ -57,6 +77,7 @@ class OutboxModel(Base):
             f"id={self.id}, "
             f"aggregate_type={self.aggregate_type}, "
             f"event_type={self.event_type}, "
-            f"processed_at={self.processed_at}"
+            f"processed_at={self.processed_at}, "
+            f"retry_count={self.retry_count}"
             f")>"
         )

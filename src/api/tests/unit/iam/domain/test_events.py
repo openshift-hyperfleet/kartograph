@@ -19,6 +19,7 @@ from iam.domain.events import (
     MemberAdded,
     MemberRemoved,
     MemberRoleChanged,
+    MemberSnapshot,
 )
 from iam.domain.value_objects import Role
 
@@ -87,15 +88,21 @@ class TestGroupDeleted:
     def test_creates_with_required_fields(self):
         """Test that GroupDeleted can be created with required fields."""
         occurred_at = datetime.now(UTC)
+        members = (
+            MemberSnapshot(user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW", role=Role.ADMIN),
+            MemberSnapshot(user_id="01ARZCX0P0HZGQP3MZXQQ0NNXX", role=Role.MEMBER),
+        )
 
         event = GroupDeleted(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             tenant_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
+            members=members,
             occurred_at=occurred_at,
         )
 
         assert event.group_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
         assert event.tenant_id == "01ARZCX0P0HZGQP3MZXQQ0NNYY"
+        assert event.members == members
         assert event.occurred_at == occurred_at
 
     def test_is_immutable(self):
@@ -103,11 +110,32 @@ class TestGroupDeleted:
         event = GroupDeleted(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             tenant_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
+            members=(),
             occurred_at=datetime.now(UTC),
         )
 
         with pytest.raises(FrozenInstanceError):
             event.group_id = "different"  # type: ignore[misc]
+
+    def test_members_snapshot_captures_all_members(self):
+        """Test that members snapshot captures all members with their roles."""
+        members = (
+            MemberSnapshot(user_id="admin1", role=Role.ADMIN),
+            MemberSnapshot(user_id="member1", role=Role.MEMBER),
+            MemberSnapshot(user_id="member2", role=Role.MEMBER),
+        )
+
+        event = GroupDeleted(
+            group_id="group1",
+            tenant_id="tenant1",
+            members=members,
+            occurred_at=datetime.now(UTC),
+        )
+
+        assert len(event.members) == 3
+        # Verify member snapshot structure
+        admin_snapshot = next(m for m in event.members if m.user_id == "admin1")
+        assert admin_snapshot.role == Role.ADMIN
 
 
 class TestMemberAdded:
@@ -273,6 +301,11 @@ class TestEventTypeUnion:
             GroupDeleted(
                 group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
                 tenant_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
+                members=(
+                    MemberSnapshot(
+                        user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW", role=Role.ADMIN
+                    ),
+                ),
                 occurred_at=occurred_at,
             ),
             MemberAdded(

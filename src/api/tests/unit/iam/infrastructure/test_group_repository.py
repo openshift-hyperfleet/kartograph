@@ -13,7 +13,7 @@ from iam.infrastructure.models import GroupModel
 from iam.ports.exceptions import DuplicateGroupNameError
 from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
-from shared_kernel.authorization.types import RelationshipSpec, SubjectRelation
+from shared_kernel.authorization.types import SubjectRelation
 
 
 @pytest.fixture
@@ -46,11 +46,20 @@ def mock_probe():
 
 
 @pytest.fixture
-def repository(mock_session, mock_authz, mock_probe):
+def mock_outbox():
+    """Create mock outbox repository."""
+    outbox = MagicMock()
+    outbox.append = AsyncMock()
+    return outbox
+
+
+@pytest.fixture
+def repository(mock_session, mock_authz, mock_probe, mock_outbox):
     """Create repository with mock dependencies."""
     return GroupRepository(
         session=mock_session,
         authz=mock_authz,
+        outbox=mock_outbox,
         probe=mock_probe,
     )
 
@@ -71,11 +80,12 @@ class TestSave:
         self, repository, mock_session, mock_authz
     ):
         """Should add new group model to session."""
+        tenant_id = TenantId.generate()
         group = Group(
             id=GroupId.generate(),
+            tenant_id=tenant_id,
             name="Engineering",
         )
-        tenant_id = TenantId.generate()
 
         # Mock get_by_name to return None (no existing group)
         repository.get_by_name = AsyncMock(return_value=None)
@@ -85,7 +95,7 @@ class TestSave:
         mock_result.scalar_one_or_none.return_value = None
         mock_session.execute.return_value = mock_result
 
-        await repository.save(group, tenant_id)
+        await repository.save(group)
 
         # Should add new model
         mock_session.add.assert_called_once()
@@ -98,36 +108,39 @@ class TestSave:
     async def test_updates_existing_group(self, repository, mock_session, mock_authz):
         """Should update existing group model."""
         group_id = GroupId.generate()
+        tenant_id = TenantId.generate()
         group = Group(
             id=group_id,
+            tenant_id=tenant_id,
             name="Engineering Updated",
         )
-        tenant_id = TenantId.generate()
 
         # Mock get_by_name to return None (no name conflict)
         repository.get_by_name = AsyncMock(return_value=None)
 
         # Mock existing group
-        existing_model = GroupModel(id=group_id.value, name="Engineering")
+        existing_model = GroupModel(
+            id=group_id.value, tenant_id=tenant_id.value, name="Engineering"
+        )
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = existing_model
         mock_session.execute.return_value = mock_result
 
-        await repository.save(group, tenant_id)
+        await repository.save(group)
 
         # Should not add, should update
         mock_session.add.assert_not_called()
         assert existing_model.name == "Engineering Updated"
 
     @pytest.mark.asyncio
-    async def test_syncs_members_to_spicedb(self, repository, mock_session, mock_authz):
-        """Should sync member relationships to SpiceDB."""
-        group = Group(
-            id=GroupId.generate(),
-            name="Engineering",
-        )
-        group.add_member(UserId.generate(), Role.ADMIN)
+    async def test_appends_events_to_outbox(
+        self, repository, mock_session, mock_authz, mock_outbox
+    ):
+        """Should append collected events to outbox."""
         tenant_id = TenantId.generate()
+        # Use factory to generate events
+        group = Group.create(name="Engineering", tenant_id=tenant_id)
+        group.add_member(UserId.generate(), Role.ADMIN)
 
         # Mock get_by_name to return None
         repository.get_by_name = AsyncMock(return_value=None)
@@ -137,10 +150,10 @@ class TestSave:
         mock_result.scalar_one_or_none.return_value = None
         mock_session.execute.return_value = mock_result
 
-        await repository.save(group, tenant_id)
+        await repository.save(group)
 
-        # Should write relationship to SpiceDB
-        assert mock_authz.write_relationship.called
+        # Should have appended events to outbox (GroupCreated + MemberAdded)
+        assert mock_outbox.append.call_count >= 2
 
     @pytest.mark.asyncio
     async def test_raises_duplicate_group_name_error(
@@ -149,15 +162,15 @@ class TestSave:
         """Should raise DuplicateGroupNameError when name exists in tenant."""
         group_id = GroupId.generate()
         different_id = GroupId.generate()
-        group = Group(id=group_id, name="Engineering")
         tenant_id = TenantId.generate()
+        group = Group(id=group_id, tenant_id=tenant_id, name="Engineering")
 
         # Mock get_by_name to return existing group with different ID
-        existing_group = Group(id=different_id, name="Engineering")
+        existing_group = Group(id=different_id, tenant_id=tenant_id, name="Engineering")
         repository.get_by_name = AsyncMock(return_value=existing_group)
 
         with pytest.raises(DuplicateGroupNameError):
-            await repository.save(group, tenant_id)
+            await repository.save(group)
 
 
 class TestGetById:
@@ -182,10 +195,13 @@ class TestGetById:
     ):
         """Should return group with members loaded from SpiceDB."""
         group_id = GroupId.generate()
+        tenant_id = TenantId.generate()
         user_id = UserId.generate()
 
         # Mock PostgreSQL group
-        model = GroupModel(id=group_id.value, name="Engineering")
+        model = GroupModel(
+            id=group_id.value, tenant_id=tenant_id.value, name="Engineering"
+        )
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
@@ -204,6 +220,7 @@ class TestGetById:
 
         assert result is not None
         assert result.id.value == group_id.value
+        assert result.tenant_id.value == tenant_id.value
         assert result.name == "Engineering"
         assert len(result.members) == 1
         assert result.members[0].user_id.value == user_id.value
@@ -218,8 +235,9 @@ class TestGetByName:
         self, repository, mock_session, mock_authz
     ):
         """Should return None when group name doesn't exist."""
-        # Mock SpiceDB lookup_resources to return empty list (no groups in tenant)
-        mock_authz.lookup_resources.return_value = []
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
 
         result = await repository.get_by_name("Nonexistent", TenantId.generate())
 
@@ -229,17 +247,17 @@ class TestGetByName:
     async def test_returns_group_by_name(self, repository, mock_session, mock_authz):
         """Should return group when found by name."""
         group_id = GroupId.generate()
-        model = GroupModel(id=group_id.value, name="Engineering")
-
-        # Mock SpiceDB lookup_resources to return this group's ID
-        mock_authz.lookup_resources.return_value = [group_id.value]
+        tenant_id = TenantId.generate()
+        model = GroupModel(
+            id=group_id.value, tenant_id=tenant_id.value, name="Engineering"
+        )
 
         # Mock PostgreSQL query result
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        result = await repository.get_by_name("Engineering", TenantId.generate())
+        result = await repository.get_by_name("Engineering", tenant_id)
 
         assert result is not None
         assert result.name == "Engineering"
@@ -251,14 +269,18 @@ class TestDelete:
     @pytest.mark.asyncio
     async def test_returns_false_when_not_found(self, repository, mock_session):
         """Should return False when group doesn't exist."""
-        group_id = GroupId.generate()
         tenant_id = TenantId.generate()
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=tenant_id,
+            name="Engineering",
+        )
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
         mock_session.execute.return_value = mock_result
 
-        result = await repository.delete(group_id, tenant_id)
+        result = await repository.delete(group)
 
         assert result is False
 
@@ -267,155 +289,56 @@ class TestDelete:
         self, repository, mock_session, mock_authz
     ):
         """Should delete group from PostgreSQL."""
-        group_id = GroupId.generate()
         tenant_id = TenantId.generate()
-        model = GroupModel(id=group_id.value, name="Engineering")
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=tenant_id,
+            name="Engineering",
+        )
+        # Mark for deletion to record event
+        group.mark_for_deletion()
+
+        model = GroupModel(
+            id=group.id.value, tenant_id=tenant_id.value, name="Engineering"
+        )
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        result = await repository.delete(group_id, tenant_id)
+        result = await repository.delete(group)
 
         assert result is True
         mock_session.delete.assert_called_once_with(model)
 
     @pytest.mark.asyncio
-    async def test_deletes_members_from_spicedb(
-        self, repository, mock_session, mock_authz
+    async def test_appends_group_deleted_to_outbox(
+        self, repository, mock_session, mock_authz, mock_outbox
     ):
-        """Should delete member relationships from SpiceDB."""
-        group_id = GroupId.generate()
-        tenant_id = TenantId.generate()
-        user_id = UserId.generate()
-        model = GroupModel(id=group_id.value, name="Engineering")
-
-        mock_result = AsyncMock()
-        mock_result.scalar_one_or_none.return_value = model
-        mock_session.execute.return_value = mock_result
-
-        # Mock members in SpiceDB
-        async def mock_lookup(resource, relation, subject_type):
-            if relation == Role.ADMIN.value:
-                return [
-                    SubjectRelation(subject_id=user_id.value, relation=Role.ADMIN.value)
-                ]
-            return []
-
-        mock_authz.lookup_subjects.side_effect = mock_lookup
-
-        await repository.delete(group_id, tenant_id)
-
-        # Should call delete_relationships with both member and tenant
-        assert mock_authz.delete_relationships.called
-        # Verify bulk delete was called with list of RelationshipSpec objects
-        call_args = mock_authz.delete_relationships.call_args
-        relationships = call_args[0][0]
-        assert len(relationships) >= 2  # At least member + tenant
-        assert all(isinstance(r, RelationshipSpec) for r in relationships)
-
-
-class TestOutboxIntegration:
-    """Tests for outbox pattern integration.
-
-    These tests verify that the repository uses the outbox pattern for
-    membership changes instead of direct SpiceDB writes.
-    """
-
-    @pytest.fixture
-    def mock_outbox_repo(self):
-        """Create mock outbox repository."""
-        outbox = MagicMock()
-        outbox.append = AsyncMock()
-        return outbox
-
-    @pytest.fixture
-    def repository_with_outbox(
-        self, mock_session, mock_authz, mock_probe, mock_outbox_repo
-    ):
-        """Create repository with outbox dependency."""
-        return GroupRepository(
-            session=mock_session,
-            authz=mock_authz,
-            probe=mock_probe,
-            outbox=mock_outbox_repo,
-        )
-
-    @pytest.mark.asyncio
-    async def test_save_appends_events_to_outbox(
-        self, repository_with_outbox, mock_session, mock_outbox_repo
-    ):
-        """Should append collected events to outbox when saving."""
-
-        group = Group(
-            id=GroupId.generate(),
-            name="Engineering",
-        )
-        user_id = UserId.generate()
-        group.add_member(user_id, Role.ADMIN)
-        tenant_id = TenantId.generate()
-
-        # Mock get_by_name to return None
-        repository_with_outbox.get_by_name = AsyncMock(return_value=None)
-
-        # Mock session
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_session.execute.return_value = mock_result
-
-        await repository_with_outbox.save(group, tenant_id)
-
-        # Should have appended events to outbox
-        assert mock_outbox_repo.append.called
-        # At least one call should be for MemberAdded (plus GroupCreated)
-        calls = mock_outbox_repo.append.call_args_list
-        event_types = [call[0][0].__class__.__name__ for call in calls]
-        assert "MemberAdded" in event_types
-
-    @pytest.mark.asyncio
-    async def test_save_new_group_appends_group_created(
-        self, repository_with_outbox, mock_session, mock_outbox_repo
-    ):
-        """Should append GroupCreated event when creating new group."""
-        from iam.domain.events import GroupCreated
-
-        group = Group(
-            id=GroupId.generate(),
-            name="Engineering",
-        )
-        tenant_id = TenantId.generate()
-
-        # Mock get_by_name to return None
-        repository_with_outbox.get_by_name = AsyncMock(return_value=None)
-
-        # Mock session - group doesn't exist
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_session.execute.return_value = mock_result
-
-        await repository_with_outbox.save(group, tenant_id)
-
-        # Should have appended GroupCreated event
-        calls = mock_outbox_repo.append.call_args_list
-        assert any(isinstance(call[0][0], GroupCreated) for call in calls)
-
-    @pytest.mark.asyncio
-    async def test_delete_appends_group_deleted(
-        self, repository_with_outbox, mock_session, mock_authz, mock_outbox_repo
-    ):
-        """Should append GroupDeleted event when deleting group."""
+        """Should append GroupDeleted event to outbox."""
         from iam.domain.events import GroupDeleted
 
-        group_id = GroupId.generate()
         tenant_id = TenantId.generate()
-        model = GroupModel(id=group_id.value, name="Engineering")
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=tenant_id,
+            name="Engineering",
+        )
+        admin_id = UserId.generate()
+        group.add_member(admin_id, Role.ADMIN)
+        group.collect_events()  # Clear the add event
+        group.mark_for_deletion()
+
+        model = GroupModel(
+            id=group.id.value, tenant_id=tenant_id.value, name="Engineering"
+        )
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        await repository_with_outbox.delete(group_id, tenant_id)
+        await repository.delete(group)
 
         # Should have appended GroupDeleted event
-        calls = mock_outbox_repo.append.call_args_list
+        calls = mock_outbox.append.call_args_list
         assert any(isinstance(call[0][0], GroupDeleted) for call in calls)

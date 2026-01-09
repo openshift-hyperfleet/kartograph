@@ -18,8 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.domain.aggregates import Group
 from iam.domain.events import GroupCreated, MemberAdded, MemberRemoved
-from iam.domain.value_objects import GroupId, Role, TenantId, UserId
+from iam.domain.value_objects import Role, TenantId, UserId
 from iam.infrastructure.group_repository import GroupRepository
+from iam.infrastructure.outbox import IAMEventSerializer, IAMEventTranslator
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     ResourceType,
@@ -30,8 +31,7 @@ from shared_kernel.authorization.types import (
 from infrastructure.outbox.models import OutboxModel
 from infrastructure.outbox.repository import OutboxRepository
 from infrastructure.outbox.worker import OutboxWorker
-from shared_kernel.outbox.serialization import deserialize_event
-from shared_kernel.outbox.spicedb_translator import SpiceDBTranslator
+from infrastructure.outbox.composite import CompositeTranslator
 from shared_kernel.outbox.observability import DefaultOutboxWorkerProbe
 
 pytestmark = pytest.mark.integration
@@ -45,18 +45,20 @@ class TestOutboxEventCreation:
         self, async_session: AsyncSession, spicedb_client: AuthorizationProvider
     ):
         """When a group is created, a GroupCreated event should be appended to the outbox."""
-        outbox_repo = OutboxRepository(async_session)
+        serializer = IAMEventSerializer()
+        outbox_repo = OutboxRepository(async_session, serializer=serializer)
         group_repo = GroupRepository(
             session=async_session,
             authz=spicedb_client,
             outbox=outbox_repo,
         )
 
-        group = Group(id=GroupId.generate(), name="Test Group for Outbox")
         tenant_id = TenantId.generate()
+        # Use factory method which records GroupCreated event
+        group = Group.create(name="Test Group for Outbox", tenant_id=tenant_id)
 
         async with async_session.begin():
-            await group_repo.save(group, tenant_id)
+            await group_repo.save(group)
 
         # Query the outbox for the GroupCreated event
         stmt = select(OutboxModel).where(
@@ -72,7 +74,7 @@ class TestOutboxEventCreation:
         assert outbox_entry.processed_at is None
 
         # Verify the payload can be deserialized
-        event = deserialize_event(outbox_entry.payload)
+        event = serializer.deserialize(outbox_entry.event_type, outbox_entry.payload)
         assert isinstance(event, GroupCreated)
         assert event.group_id == group.id.value
         assert event.tenant_id == tenant_id.value
@@ -93,22 +95,24 @@ class TestOutboxEventCreation:
         self, async_session: AsyncSession, spicedb_client: AuthorizationProvider
     ):
         """When a member is added, a MemberAdded event should be appended to the outbox."""
-        outbox_repo = OutboxRepository(async_session)
+        serializer = IAMEventSerializer()
+        outbox_repo = OutboxRepository(async_session, serializer=serializer)
         group_repo = GroupRepository(
             session=async_session,
             authz=spicedb_client,
             outbox=outbox_repo,
         )
 
-        group = Group(id=GroupId.generate(), name="Test Group Members")
         tenant_id = TenantId.generate()
+        # Use factory method
+        group = Group.create(name="Test Group Members", tenant_id=tenant_id)
         user_id = UserId.generate()
 
         # Add member to the group
         group.add_member(user_id, Role.ADMIN)
 
         async with async_session.begin():
-            await group_repo.save(group, tenant_id)
+            await group_repo.save(group)
 
         # Query the outbox for the MemberAdded event
         stmt = select(OutboxModel).where(
@@ -122,7 +126,7 @@ class TestOutboxEventCreation:
         assert outbox_entry.aggregate_type == "group"
 
         # Verify the payload
-        event = deserialize_event(outbox_entry.payload)
+        event = serializer.deserialize(outbox_entry.event_type, outbox_entry.payload)
         assert isinstance(event, MemberAdded)
         assert event.group_id == group.id.value
         assert event.user_id == user_id.value
@@ -144,15 +148,17 @@ class TestOutboxEventCreation:
         self, async_session: AsyncSession, spicedb_client: AuthorizationProvider
     ):
         """When a member is removed, a MemberRemoved event should be appended."""
-        outbox_repo = OutboxRepository(async_session)
+        serializer = IAMEventSerializer()
+        outbox_repo = OutboxRepository(async_session, serializer=serializer)
         group_repo = GroupRepository(
             session=async_session,
             authz=spicedb_client,
             outbox=outbox_repo,
         )
 
-        group = Group(id=GroupId.generate(), name="Test Group Remove")
         tenant_id = TenantId.generate()
+        # Use factory method
+        group = Group.create(name="Test Group Remove", tenant_id=tenant_id)
         admin1 = UserId.generate()
         admin2 = UserId.generate()
 
@@ -161,7 +167,7 @@ class TestOutboxEventCreation:
         group.add_member(admin2, Role.ADMIN)
 
         async with async_session.begin():
-            await group_repo.save(group, tenant_id)
+            await group_repo.save(group)
 
         # Clear the outbox to isolate the remove event
         await async_session.execute(
@@ -173,7 +179,7 @@ class TestOutboxEventCreation:
         # Now remove one member
         group.remove_member(admin2)
         async with async_session.begin():
-            await group_repo.save(group, tenant_id)
+            await group_repo.save(group)
 
         # Query the outbox for the MemberRemoved event
         stmt = select(OutboxModel).where(
@@ -184,7 +190,7 @@ class TestOutboxEventCreation:
         outbox_entry = result.scalar_one_or_none()
 
         assert outbox_entry is not None
-        event = deserialize_event(outbox_entry.payload)
+        event = serializer.deserialize(outbox_entry.event_type, outbox_entry.payload)
         assert isinstance(event, MemberRemoved)
         assert event.user_id == admin2.value
         assert event.role == Role.ADMIN
@@ -212,25 +218,31 @@ class TestOutboxWorkerProcessing:
         spicedb_client: AuthorizationProvider,
     ):
         """Worker should process GroupCreated and write tenant relationship to SpiceDB."""
-        outbox_repo = OutboxRepository(async_session)
+        serializer = IAMEventSerializer()
+        outbox_repo = OutboxRepository(async_session, serializer=serializer)
         group_repo = GroupRepository(
             session=async_session,
             authz=spicedb_client,
             outbox=outbox_repo,
         )
 
-        group = Group(id=GroupId.generate(), name="Worker Test Group")
         tenant_id = TenantId.generate()
+        # Use factory method
+        group = Group.create(name="Worker Test Group", tenant_id=tenant_id)
 
         # Create the group (will add to outbox)
         async with async_session.begin():
-            await group_repo.save(group, tenant_id)
+            await group_repo.save(group)
+
+        # Build composite translator with IAM translator
+        translator = CompositeTranslator()
+        translator.register(IAMEventTranslator())
 
         # Process the outbox entries using the worker's processing logic directly
         worker = OutboxWorker(
             session_factory=session_factory,
             authz=spicedb_client,
-            translator=SpiceDBTranslator(),
+            translator=translator,
             probe=DefaultOutboxWorkerProbe(),
             db_url="",  # Not used for direct processing
         )
@@ -284,26 +296,32 @@ class TestOutboxWorkerProcessing:
         spicedb_client: AuthorizationProvider,
     ):
         """Worker should process MemberAdded and write member relationship to SpiceDB."""
-        outbox_repo = OutboxRepository(async_session)
+        serializer = IAMEventSerializer()
+        outbox_repo = OutboxRepository(async_session, serializer=serializer)
         group_repo = GroupRepository(
             session=async_session,
             authz=spicedb_client,
             outbox=outbox_repo,
         )
 
-        group = Group(id=GroupId.generate(), name="Member Test Group")
         tenant_id = TenantId.generate()
+        # Use factory method
+        group = Group.create(name="Member Test Group", tenant_id=tenant_id)
         user_id = UserId.generate()
         group.add_member(user_id, Role.MEMBER)
 
         async with async_session.begin():
-            await group_repo.save(group, tenant_id)
+            await group_repo.save(group)
+
+        # Build composite translator with IAM translator
+        translator = CompositeTranslator()
+        translator.register(IAMEventTranslator())
 
         # Process the outbox
         worker = OutboxWorker(
             session_factory=session_factory,
             authz=spicedb_client,
-            translator=SpiceDBTranslator(),
+            translator=translator,
             probe=DefaultOutboxWorkerProbe(),
             db_url="",
         )
@@ -351,19 +369,21 @@ class TestAtomicityGuarantees:
         self, async_session: AsyncSession, spicedb_client: AuthorizationProvider
     ):
         """Outbox entry and group should be committed atomically."""
-        outbox_repo = OutboxRepository(async_session)
+        serializer = IAMEventSerializer()
+        outbox_repo = OutboxRepository(async_session, serializer=serializer)
         group_repo = GroupRepository(
             session=async_session,
             authz=spicedb_client,
             outbox=outbox_repo,
         )
 
-        group = Group(id=GroupId.generate(), name="Atomic Test Group")
         tenant_id = TenantId.generate()
+        # Use factory method
+        group = Group.create(name="Atomic Test Group", tenant_id=tenant_id)
 
         # Save within a transaction
         async with async_session.begin():
-            await group_repo.save(group, tenant_id)
+            await group_repo.save(group)
             # Before commit, both should be visible within the transaction
 
         # After commit, verify both exist
@@ -397,19 +417,21 @@ class TestAtomicityGuarantees:
         self, async_session: AsyncSession, spicedb_client: AuthorizationProvider
     ):
         """On rollback, neither group nor outbox entry should persist."""
-        outbox_repo = OutboxRepository(async_session)
+        serializer = IAMEventSerializer()
+        outbox_repo = OutboxRepository(async_session, serializer=serializer)
         group_repo = GroupRepository(
             session=async_session,
             authz=spicedb_client,
             outbox=outbox_repo,
         )
 
-        group = Group(id=GroupId.generate(), name="Rollback Test Group")
         tenant_id = TenantId.generate()
+        # Use factory method
+        group = Group.create(name="Rollback Test Group", tenant_id=tenant_id)
 
         try:
             async with async_session.begin():
-                await group_repo.save(group, tenant_id)
+                await group_repo.save(group)
                 # Force a rollback
                 raise Exception("Forced rollback for test")
         except Exception:
@@ -439,18 +461,20 @@ class TestUnprocessedEventsRetry:
         self, async_session: AsyncSession, spicedb_client: AuthorizationProvider
     ):
         """Events that fail to process should remain unprocessed for retry."""
-        outbox_repo = OutboxRepository(async_session)
+        serializer = IAMEventSerializer()
+        outbox_repo = OutboxRepository(async_session, serializer=serializer)
         group_repo = GroupRepository(
             session=async_session,
             authz=spicedb_client,
             outbox=outbox_repo,
         )
 
-        group = Group(id=GroupId.generate(), name="Retry Test Group")
         tenant_id = TenantId.generate()
+        # Use factory method
+        group = Group.create(name="Retry Test Group", tenant_id=tenant_id)
 
         async with async_session.begin():
-            await group_repo.save(group, tenant_id)
+            await group_repo.save(group)
 
         # Verify the entry exists and is unprocessed
         stmt = select(OutboxModel).where(

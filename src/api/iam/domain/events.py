@@ -17,6 +17,22 @@ from iam.domain.value_objects import Role
 
 
 @dataclass(frozen=True)
+class MemberSnapshot:
+    """Immutable snapshot of a member's state at a point in time.
+
+    Used in GroupDeleted to capture the members that need to have their
+    relationships cleaned up in SpiceDB.
+
+    Attributes:
+        user_id: The ULID of the user
+        role: The role the user had in the group
+    """
+
+    user_id: str
+    role: Role
+
+
+@dataclass(frozen=True)
 class GroupCreated:
     """Event raised when a new group is created.
 
@@ -38,16 +54,19 @@ class GroupDeleted:
     """Event raised when a group is deleted.
 
     This event triggers the deletion of all relationships for this group
-    in SpiceDB.
+    in SpiceDB. The event carries a snapshot of the members at deletion time
+    to ensure all relationships can be cleaned up without external lookups.
 
     Attributes:
         group_id: The ULID of the deleted group
         tenant_id: The ULID of the tenant the group belonged to
+        members: Snapshot of members at deletion time
         occurred_at: When the event occurred (UTC)
     """
 
     group_id: str
     tenant_id: str
+    members: tuple[MemberSnapshot, ...]
     occurred_at: datetime
 
 

@@ -115,30 +115,45 @@ class OutboxWorker:
 
         Uses asyncpg-listen for reliable connection handling.
         """
-        from asyncpg_listen import ListenPolicy, NotificationListener, connect_func
+        from asyncpg_listen import (
+            ListenPolicy,
+            NotificationListener,
+            NotificationOrTimeout,
+            Timeout,
+            connect_func,
+        )
 
         self._probe.listen_loop_started()
 
+        async def handle_notification(
+            notification: NotificationOrTimeout,
+        ) -> None:
+            """Handler for outbox_events notifications."""
+            if not self._running:
+                return
+
+            # Skip timeouts
+            if isinstance(notification, Timeout):
+                return
+
+            # Process the notification payload
+            if notification.payload:
+                try:
+                    entry_id = UUID(notification.payload)
+                    await self._process_single(entry_id)
+                except (ValueError, Exception):
+                    # Invalid UUID or processing error, will be picked up by poll
+                    pass
+
         try:
-            listener = NotificationListener(
-                connect_func(self._db_url),
-                "outbox_events",
+            listener = NotificationListener(connect_func(self._db_url))
+
+            # Run the listener - this blocks until cancelled
+            await listener.run(
+                {"outbox_events": handle_notification},
+                policy=ListenPolicy.ALL,
                 notification_timeout=self._poll_interval,
             )
-
-            async for notification in listener.iter(
-                policy=ListenPolicy.ALL,
-            ):
-                if not self._running:
-                    break
-
-                if notification.payload:
-                    try:
-                        entry_id = UUID(notification.payload)
-                        await self._process_single(entry_id)
-                    except (ValueError, Exception):
-                        # Invalid UUID or processing error, will be picked up by poll
-                        pass
 
         except asyncio.CancelledError:
             pass

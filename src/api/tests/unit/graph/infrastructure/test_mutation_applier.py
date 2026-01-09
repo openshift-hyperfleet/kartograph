@@ -1,6 +1,6 @@
 """Unit tests for MutationApplier infrastructure component."""
 
-from unittest.mock import MagicMock, Mock
+from unittest.mock import ANY, MagicMock, Mock
 
 
 from graph.domain.value_objects import (
@@ -9,6 +9,37 @@ from graph.domain.value_objects import (
     MutationOperationType,
 )
 from graph.infrastructure.mutation_applier import MutationApplier
+
+
+def create_mock_client_with_transaction():
+    """Create a mock client with transaction support and dummy node methods.
+
+    Sets up:
+    - graph_name property
+    - transaction context manager
+    - execute_cypher for dummy node checks (returns empty results)
+    - ensure_all_labels_indexed
+    """
+    mock_client = Mock()
+    mock_client.graph_name = "test_graph"
+
+    # Set up transaction context manager
+    mock_tx = Mock()
+    mock_client.transaction = MagicMock()
+    mock_client.transaction.return_value.__enter__.return_value = mock_tx
+    mock_client.transaction.return_value.__exit__.return_value = None
+
+    # Set up execute_cypher for dummy node existence checks
+    # Returns empty result (label doesn't exist yet)
+    mock_result = Mock()
+    mock_result.row_count = 0
+    mock_result.rows = []
+    mock_client.execute_cypher.return_value = mock_result
+
+    # Set up ensure_all_labels_indexed
+    mock_client.ensure_all_labels_indexed.return_value = 0
+
+    return mock_client, mock_tx
 
 
 class TestMutationApplierQueryBuilding:
@@ -364,11 +395,7 @@ class TestMutationApplierBatchExecution:
 
     def test_apply_batch_success(self):
         """Should apply all operations in a transaction."""
-        mock_client = Mock()
-        mock_tx = Mock()
-        mock_client.transaction = MagicMock()
-        mock_client.transaction.return_value.__enter__.return_value = mock_tx
-        mock_client.transaction.return_value.__exit__.return_value = None
+        mock_client, mock_tx = create_mock_client_with_transaction()
 
         operations = [
             MutationOperation(
@@ -407,12 +434,8 @@ class TestMutationApplierBatchExecution:
 
     def test_apply_batch_failure_rolls_back(self):
         """Should rollback transaction on failure."""
-        mock_client = Mock()
-        mock_tx = Mock()
+        mock_client, mock_tx = create_mock_client_with_transaction()
         mock_tx.execute_cypher.side_effect = Exception("Database error")
-        mock_client.transaction = MagicMock()
-        mock_client.transaction.return_value.__enter__.return_value = mock_tx
-        mock_client.transaction.return_value.__exit__.return_value = None
 
         operations = [
             MutationOperation(
@@ -473,12 +496,8 @@ class TestMutationApplierObservability:
     """Tests for domain-oriented observability."""
 
     def test_emits_probe_events(self):
-        """Should emit probe events for each mutation."""
-        mock_client = Mock()
-        mock_tx = Mock()
-        mock_client.transaction = MagicMock()
-        mock_client.transaction.return_value.__enter__.return_value = mock_tx
-        mock_client.transaction.return_value.__exit__.return_value = None
+        """Should emit batch probe events for mutations."""
+        mock_client, mock_tx = create_mock_client_with_transaction()
         mock_probe = Mock()
 
         operations = [
@@ -499,9 +518,19 @@ class TestMutationApplierObservability:
         applier = MutationApplier(client=mock_client, probe=mock_probe)
         applier.apply_batch(operations)
 
-        # Should emit probe event
-        mock_probe.mutation_applied.assert_called_once_with(
-            operation="CREATE",
+        # Should emit batch probe event with timing
+        mock_probe.batch_applied.assert_called_once_with(
+            operation=MutationOperationType.CREATE,
             entity_type=EntityType.NODE,
-            entity_id="person:abc123def456789a",
+            label="person",
+            count=1,
+            duration_ms=ANY,
+        )
+
+        # Should emit apply_batch_completed event
+        mock_probe.apply_batch_completed.assert_called_once_with(
+            total_operations=1,
+            total_batches=1,
+            duration_ms=ANY,
+            success=True,
         )

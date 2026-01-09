@@ -169,6 +169,42 @@ class MutationProbe(Protocol):
         """
         ...
 
+    def batch_applied(
+        self,
+        operation: str,
+        entity_type: str,
+        label: str | None,
+        count: int,
+        duration_ms: float,
+    ) -> None:
+        """Record that a batch of mutations was successfully applied.
+
+        Args:
+            operation: The operation type (CREATE, UPDATE, DELETE)
+            entity_type: The entity type (node or edge)
+            label: The label for CREATE operations (None for UPDATE/DELETE)
+            count: Number of operations in the batch
+            duration_ms: Time taken to execute the batch in milliseconds
+        """
+        ...
+
+    def apply_batch_completed(
+        self,
+        total_operations: int,
+        total_batches: int,
+        duration_ms: float,
+        success: bool,
+    ) -> None:
+        """Record completion of the entire apply_batch operation.
+
+        Args:
+            total_operations: Total number of operations processed
+            total_batches: Total number of batch queries executed
+            duration_ms: Total time for the entire operation in milliseconds
+            success: Whether the operation completed successfully
+        """
+        ...
+
     def with_context(self, context: ObservationContext) -> MutationProbe:
         """Create a new probe with observation context bound."""
         ...
@@ -207,5 +243,41 @@ class DefaultMutationProbe:
             operation=operation,
             entity_type=entity_type,
             entity_id=entity_id,
+            **self._get_context_kwargs(),
+        )
+
+    def batch_applied(
+        self,
+        operation: str,
+        entity_type: str,
+        label: str | None,
+        count: int,
+        duration_ms: float,
+    ) -> None:
+        """Record that a batch of mutations was successfully applied."""
+        self._logger.info(
+            "mutation_batch_applied",
+            operation=operation,
+            entity_type=entity_type,
+            label=label,
+            count=count,
+            duration_ms=round(duration_ms, 2),
+            **self._get_context_kwargs(),
+        )
+
+    def apply_batch_completed(
+        self,
+        total_operations: int,
+        total_batches: int,
+        duration_ms: float,
+        success: bool,
+    ) -> None:
+        """Record completion of the entire apply_batch operation."""
+        self._logger.info(
+            "mutation_apply_batch_completed",
+            total_operations=total_operations,
+            total_batches=total_batches,
+            duration_ms=round(duration_ms, 2),
+            success=success,
             **self._get_context_kwargs(),
         )

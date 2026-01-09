@@ -40,6 +40,7 @@ class AgeGraphClient(GraphClientProtocol):
     - Low-level Cypher query execution
     - Transaction management
     - Connection verification
+    - Automatic index creation for label id properties
 
     Example:
         settings = DatabaseSettings()
@@ -71,6 +72,8 @@ class AgeGraphClient(GraphClientProtocol):
         self._connected = False
         self._current_connection: PsycopgConnection | None = None
         self._probe = probe or DefaultGraphClientProbe()
+        # Track labels that have been indexed in this session
+        self._indexed_labels: set[str] = set()
 
     @property
     def graph_name(self) -> str:
@@ -122,6 +125,133 @@ class AgeGraphClient(GraphClientProtocol):
                 )
                 self._connection.commit()
                 self._probe.graph_created(self._graph_name)
+
+    def ensure_label_index(self, label: str) -> bool:
+        """Ensure a GIN index exists on properties for a label.
+
+        Apache AGE stores graph data in PostgreSQL tables with properties
+        stored as agtype (not JSONB). Without indexes, MATCH operations
+        do full table scans which is extremely slow for large graphs.
+
+        This creates a GIN index on the properties column for fast lookups
+        on any property including 'id'. GIN indexes are the recommended
+        approach for AGE agtype properties.
+
+        Args:
+            label: The label name (e.g., 'Person', 'documentationmodule')
+
+        Returns:
+            True if index was created, False if it already existed
+
+        Note:
+            Labels are case-sensitive in AGE. The internal table name
+            uses the exact label casing from the first CREATE.
+
+        References:
+            - https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/generative-ai-age-performance
+            - https://github.com/apache/age/issues/920
+        """
+        if not self.is_connected():
+            raise DatabaseConnectionError("Not connected to database")
+
+        # Skip if already indexed this session
+        if label in self._indexed_labels:
+            return False
+
+        # Sanitize label name for SQL identifier (prevent SQL injection)
+        # AGE labels can only contain alphanumeric and underscore
+        if not label.replace("_", "").isalnum():
+            raise ValueError(f"Invalid label name: {label}")
+
+        # Index name format: idx_{graph}_{label}_props_gin
+        index_name = f"idx_{self._graph_name}_{label}_props_gin"
+
+        with self._connection.cursor() as cursor:
+            # Check if index already exists
+            cursor.execute(
+                """
+                SELECT 1 FROM pg_indexes
+                WHERE schemaname = %s AND indexname = %s
+                """,
+                (self._graph_name, index_name),
+            )
+            if cursor.fetchone() is not None:
+                self._indexed_labels.add(label)
+                return False
+
+            # Check if the label table exists
+            cursor.execute(
+                """
+                SELECT 1 FROM ag_catalog.ag_label
+                WHERE graph = (SELECT graphid FROM ag_catalog.ag_graph WHERE name = %s)
+                AND name = %s
+                """,
+                (self._graph_name, label),
+            )
+            if cursor.fetchone() is None:
+                # Label doesn't exist yet, will be created on first use
+                return False
+
+            # Create GIN index on properties column
+            # GIN indexes work with agtype and support efficient key-value lookups
+            # Note: We use format() here because index/table names can't be parameterized
+            cursor.execute(
+                f'CREATE INDEX IF NOT EXISTS "{index_name}" '
+                f'ON "{self._graph_name}"."{label}" USING GIN (properties)'
+            )
+            self._connection.commit()
+
+            self._indexed_labels.add(label)
+            self._probe.query_executed(query=f"CREATE INDEX {index_name}", row_count=0)
+            return True
+
+    def ensure_labels_indexed(self, labels: set[str]) -> int:
+        """Ensure indexes exist for multiple labels.
+
+        Args:
+            labels: Set of label names to index
+
+        Returns:
+            Number of new indexes created
+        """
+        created = 0
+        for label in labels:
+            if self.ensure_label_index(label):
+                created += 1
+        return created
+
+    def ensure_all_labels_indexed(self) -> int:
+        """Ensure indexes exist for ALL vertex labels in the graph.
+
+        This is important for edge operations that MATCH nodes without
+        specifying labels - AGE needs to scan all vertex tables, and
+        having indexes on all of them dramatically improves performance.
+
+        Note: Edge labels are not indexed because AGE edge tables have a
+        different structure (properties stored as agtype, not JSONB).
+        Edge lookups by id are rare since edges are typically accessed
+        through their connected nodes.
+
+        Returns:
+            Number of new indexes created
+        """
+        if not self.is_connected():
+            raise DatabaseConnectionError("Not connected to database")
+
+        with self._connection.cursor() as cursor:
+            # Get all vertex labels in this graph
+            # Skip edge labels - they have different table structure
+            cursor.execute(
+                """
+                SELECT name FROM ag_catalog.ag_label
+                WHERE graph = (SELECT graphid FROM ag_catalog.ag_graph WHERE name = %s)
+                AND kind = 'v'
+                """,
+                (self._graph_name,),
+            )
+            labels = {row[0] for row in cursor.fetchall()}
+
+        return self.ensure_labels_indexed(labels)
 
     def disconnect(self) -> None:
         """Close the database connection and return it to the pool."""

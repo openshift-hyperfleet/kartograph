@@ -146,3 +146,33 @@ class GraphClientProtocol(
     def graph_name(self) -> str:
         """The name of the graph being operated on."""
         ...
+
+    def ensure_label_index(self, label: str) -> bool:
+        """Ensure an index exists on the id property for a label.
+
+        Args:
+            label: The label name
+
+        Returns:
+            True if index was created, False if it already existed
+        """
+        ...
+
+    def ensure_labels_indexed(self, labels: set[str]) -> int:
+        """Ensure indexes exist for multiple labels.
+
+        Args:
+            labels: Set of label names to index
+
+        Returns:
+            Number of new indexes created
+        """
+        ...
+
+    def ensure_all_labels_indexed(self) -> int:
+        """Ensure indexes exist for ALL labels in the graph.
+
+        Returns:
+            Number of new indexes created
+        """
+        ...

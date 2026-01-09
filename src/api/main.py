@@ -23,10 +23,11 @@ from infrastructure.settings import (
     get_spicedb_settings,
 )
 from infrastructure.version import __version__
+from iam.infrastructure.outbox import IAMEventTranslator
+from infrastructure.outbox.composite import CompositeTranslator
+from infrastructure.outbox.worker import OutboxWorker
 from shared_kernel.authorization.spicedb.client import SpiceDBClient
 from shared_kernel.outbox.observability import DefaultOutboxWorkerProbe
-from shared_kernel.outbox.spicedb_translator import SpiceDBTranslator
-from infrastructure.outbox.worker import OutboxWorker
 from query.presentation.mcp import query_mcp_app
 
 # Configure structlog before any loggers are created
@@ -77,14 +78,20 @@ async def kartograph_lifespan(app: FastAPI):
             cert_path=spicedb_settings.cert_path,
         )
 
+        # Build composite translator with registered bounded context translators
+        translator = CompositeTranslator()
+        translator.register(IAMEventTranslator())
+        # Future: translator.register(ManagementEventTranslator())
+
         worker = OutboxWorker(
             session_factory=app.state.write_sessionmaker,
             authz=authz,
-            translator=SpiceDBTranslator(),
+            translator=translator,
             probe=DefaultOutboxWorkerProbe(),
             db_url=db_url,
             poll_interval_seconds=outbox_settings.poll_interval_seconds,
             batch_size=outbox_settings.batch_size,
+            max_retries=outbox_settings.max_retries,
         )
         await worker.start()
         app.state.outbox_worker = worker

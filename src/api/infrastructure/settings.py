@@ -246,6 +246,12 @@ class OutboxWorkerSettings(BaseSettings):
         ge=1,
         le=1000,
     )
+    max_retries: int = Field(
+        default=5,
+        description="Maximum retry attempts before moving to DLQ",
+        ge=1,
+        le=100,
+    )
 
 
 @lru_cache

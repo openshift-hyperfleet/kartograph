@@ -14,7 +14,6 @@ from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
-    RelationType,
     ResourceType,
     format_resource,
 )
@@ -70,13 +69,14 @@ class GroupService:
             Exception: If group creation fails
         """
         try:
-            # Create group with creator as admin
-            group = Group(id=GroupId.generate(), name=name)
+            # Create group using factory method (records GroupCreated event)
+            group = Group.create(name=name, tenant_id=tenant_id)
+            # Add creator as admin (records MemberAdded event)
             group.add_member(creator_id, Role.ADMIN)
 
             async with self._session.begin():
-                # Persist group (writes to PostgreSQL and SpiceDB)
-                await self._group_repository.save(group, tenant_id)
+                # Persist group (writes to PostgreSQL and outbox)
+                await self._group_repository.save(group)
 
             self._probe.group_created(
                 group_id=group.id.value,
@@ -111,17 +111,8 @@ class GroupService:
         if group is None:
             return None
 
-        # Verify group belongs to tenant via SpiceDB
-        group_resource = format_resource(ResourceType.GROUP, group_id.value)
-        tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
-
-        has_access = await self._authz.check_permission(
-            resource=group_resource,
-            permission=RelationType.TENANT,
-            subject=tenant_resource,
-        )
-
-        if not has_access:
+        # Verify group belongs to the expected tenant
+        if group.tenant_id.value != tenant_id.value:
             # Group exists but doesn't belong to this tenant
             # Return None (act as if not found) for security
             return None
@@ -160,5 +151,17 @@ class GroupService:
                 f"User {user_id.value} lacks manage permission on group {group_id.value}"
             )
 
+        # Load the group aggregate
+        group = await self._group_repository.get_by_id(group_id)
+        if group is None:
+            return False
+
+        # Verify tenant ownership
+        if group.tenant_id.value != tenant_id.value:
+            return False
+
+        # Mark for deletion (records GroupDeleted event with member snapshot)
+        group.mark_for_deletion()
+
         async with self._session.begin():
-            return await self._group_repository.delete(group_id, tenant_id)
+            return await self._group_repository.delete(group)

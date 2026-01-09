@@ -54,6 +54,10 @@ class OutboxWorkerProbe(Protocol):
         """Called when the poll loop starts."""
         ...
 
+    def poll_loop_error(self, error: str) -> None:
+        """Called when an error occurs in the poll loop."""
+        ...
+
 
 class DefaultOutboxWorkerProbe:
     """Default implementation using structlog.
@@ -113,3 +117,7 @@ class DefaultOutboxWorkerProbe:
     def poll_loop_started(self) -> None:
         """Log poll loop start."""
         self._log.info("outbox_poll_loop_started")
+
+    def poll_loop_error(self, error: str) -> None:
+        """Log poll loop error."""
+        self._log.warning("outbox_poll_loop_error", error=error)

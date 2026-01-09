@@ -173,9 +173,8 @@ class OutboxWorker:
         while self._running:
             try:
                 await self._process_batch()
-            except Exception:
-                # Log error but continue polling
-                pass
+            except Exception as e:
+                self._probe.poll_loop_error(str(e))
 
             await asyncio.sleep(self._poll_interval)
 

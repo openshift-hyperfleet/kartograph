@@ -19,11 +19,13 @@ from iam.application.services import GroupService, UserService
 from iam.application.value_objects import CurrentUser
 from iam.domain.value_objects import TenantId, UserId
 from iam.infrastructure.group_repository import GroupRepository
+from iam.infrastructure.outbox import IAMEventSerializer
 from iam.infrastructure.user_repository import UserRepository
 from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.database.dependencies import get_write_session
 from infrastructure.outbox.repository import OutboxRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
+from shared_kernel.outbox.ports import EventSerializer
 
 
 def get_user_service_probe() -> UserServiceProbe:
@@ -44,18 +46,32 @@ def get_group_service_probe() -> GroupServiceProbe:
     return DefaultGroupServiceProbe()
 
 
+def get_event_serializer() -> EventSerializer:
+    """Get EventSerializer instance.
+
+    Returns the IAM-specific serializer. In a multi-bounded-context setup,
+    this could return a CompositeSerializer with multiple registered serializers.
+
+    Returns:
+        IAMEventSerializer instance
+    """
+    return IAMEventSerializer()
+
+
 def get_outbox_repository(
     session: Annotated[AsyncSession, Depends(get_write_session)],
+    serializer: Annotated[EventSerializer, Depends(get_event_serializer)],
 ) -> OutboxRepository:
     """Get OutboxRepository instance.
 
     Args:
         session: Async database session (shared with calling repository)
+        serializer: Event serializer for converting events to payloads
 
     Returns:
         OutboxRepository instance
     """
-    return OutboxRepository(session=session)
+    return OutboxRepository(session=session, serializer=serializer)
 
 
 def get_user_repository(

@@ -7,15 +7,17 @@ It handles persisting domain events to the outbox table for later processing.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from iam.domain.events import DomainEvent
 from infrastructure.outbox.models import OutboxModel
-from shared_kernel.outbox.serialization import serialize_event
 from shared_kernel.outbox.value_objects import OutboxEntry
+
+if TYPE_CHECKING:
+    from shared_kernel.outbox.ports import EventSerializer
 
 
 class OutboxRepository:
@@ -30,17 +32,21 @@ class OutboxRepository:
     calls session.commit(). The calling service owns the transaction boundary.
     """
 
-    def __init__(self, session: AsyncSession) -> None:
-        """Initialize the repository with a session.
+    def __init__(
+        self,
+        session: AsyncSession,
+        serializer: "EventSerializer",
+    ) -> None:
+        """Initialize the repository with a session and serializer.
 
         Args:
             session: The SQLAlchemy async session (shared with calling service)
+            serializer: The event serializer for converting events to payloads
         """
         self._session = session
+        self._serializer = serializer
 
-    async def append(
-        self, event: DomainEvent, aggregate_type: str, aggregate_id: str
-    ) -> None:
+    async def append(self, event: Any, aggregate_type: str, aggregate_id: str) -> None:
         """Append an event to the outbox within the current transaction.
 
         This method creates an OutboxModel and adds it to the session.
@@ -52,7 +58,7 @@ class OutboxRepository:
             aggregate_type: Type of aggregate (e.g., "group")
             aggregate_id: ULID of the aggregate
         """
-        payload = serialize_event(event)
+        payload = self._serializer.serialize(event)
 
         model = OutboxModel(
             aggregate_type=aggregate_type,
@@ -81,6 +87,7 @@ class OutboxRepository:
         stmt = (
             select(OutboxModel)
             .where(OutboxModel.processed_at.is_(None))
+            .where(OutboxModel.failed_at.is_(None))
             .order_by(OutboxModel.created_at)
             .limit(limit)
             .with_for_update(skip_locked=True)
@@ -99,6 +106,9 @@ class OutboxRepository:
                 occurred_at=model.occurred_at,
                 processed_at=model.processed_at,
                 created_at=model.created_at,
+                retry_count=model.retry_count,
+                last_error=model.last_error,
+                failed_at=model.failed_at,
             )
             for model in models
         ]

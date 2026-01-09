@@ -1,16 +1,17 @@
-"""Repository protocols (ports) for the outbox pattern.
+"""Protocols (ports) for the outbox pattern.
 
-These protocols define the interface for outbox operations. Implementations
-handle the actual persistence to PostgreSQL.
+These protocols define the interfaces for outbox operations. They enable
+a plugin architecture where each bounded context can register its own
+event translators and serializers without shared_kernel knowing about them.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from uuid import UUID
 
 if TYPE_CHECKING:
-    from iam.domain.events import DomainEvent
+    from shared_kernel.outbox.operations import SpiceDBOperation
     from shared_kernel.outbox.value_objects import OutboxEntry
 
 
@@ -27,7 +28,10 @@ class IOutboxRepository(Protocol):
     """
 
     async def append(
-        self, event: "DomainEvent", aggregate_type: str, aggregate_id: str
+        self,
+        event: Any,
+        aggregate_type: str,
+        aggregate_id: str,
     ) -> None:
         """Append an event to the outbox within the current transaction.
 
@@ -63,5 +67,94 @@ class IOutboxRepository(Protocol):
 
         Args:
             entry_id: The UUID of the entry to mark as processed
+        """
+        ...
+
+
+@runtime_checkable
+class EventTranslator(Protocol):
+    """Translates domain events to SpiceDB operations.
+
+    Each bounded context provides its own implementation that knows how to
+    translate its domain events to the appropriate SpiceDB relationship
+    operations. This keeps shared_kernel agnostic of specific domain events.
+    """
+
+    def supported_event_types(self) -> frozenset[str]:
+        """Return the event type names this translator handles.
+
+        Returns:
+            Frozenset of event type names (e.g., {"GroupCreated", "MemberAdded"})
+        """
+        ...
+
+    def translate(
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> list["SpiceDBOperation"]:
+        """Convert an event payload to SpiceDB operations.
+
+        Args:
+            event_type: The name of the event type
+            payload: The serialized event data
+
+        Returns:
+            List of SpiceDB operations to execute
+
+        Raises:
+            ValueError: If the event type is not supported
+        """
+        ...
+
+
+@runtime_checkable
+class EventSerializer(Protocol):
+    """Serializes and deserializes domain events.
+
+    Each bounded context provides its own implementation that knows how to
+    serialize its domain events to JSON-compatible dictionaries and
+    deserialize them back. This keeps shared_kernel agnostic of specific
+    domain event structures.
+    """
+
+    def supported_event_types(self) -> frozenset[str]:
+        """Return the event type names this serializer handles.
+
+        Returns:
+            Frozenset of event type names (e.g., {"GroupCreated", "MemberAdded"})
+        """
+        ...
+
+    def serialize(self, event: Any) -> dict[str, Any]:
+        """Convert a domain event to a JSON-serializable dictionary.
+
+        Args:
+            event: The domain event to serialize
+
+        Returns:
+            Dictionary with all event fields
+
+        Raises:
+            ValueError: If the event type is not supported
+        """
+        ...
+
+    def deserialize(
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> Any:
+        """Reconstruct a domain event from a payload.
+
+        Args:
+            event_type: The name of the event type
+            payload: The serialized event data
+
+        Returns:
+            The reconstructed domain event
+
+        Raises:
+            ValueError: If the event type is not supported
         """
         ...

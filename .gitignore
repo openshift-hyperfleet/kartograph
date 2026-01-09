@@ -154,3 +154,6 @@ website/node_modules/
 website/dist/
 website/.astro/
 certs/
+
+# Demo web interface (not for production)
+demo-web/

@@ -63,17 +63,13 @@ class TestGetOntology:
                 label="person",
                 entity_type=EntityType.NODE,
                 description="A person entity",
-                example_file_path="people/alice.md",
-                example_in_file_path="Alice Smith is...",
-                required_properties=["slug", "name"],
+                required_properties={"slug", "name"},
             ),
             TypeDefinition(
                 label="knows",
                 entity_type=EntityType.EDGE,
                 description="Person knows another person",
-                example_file_path="people/alice.md",
-                example_in_file_path="Alice knows Bob",
-                required_properties=[],
+                required_properties=set(),
             ),
         ]
         mock_repository.get_all.return_value = type_defs
@@ -90,9 +86,7 @@ class TestGetOntology:
                 label="person",
                 entity_type=EntityType.NODE,
                 description="test",
-                example_file_path="test.md",
-                example_in_file_path="test content",
-                required_properties=[],
+                required_properties=set(),
             )
         ]
         mock_repository.get_all.return_value = type_defs
@@ -122,25 +116,23 @@ class TestGetNodeLabels:
                 label="person",
                 entity_type=EntityType.NODE,
                 description="A person",
-                example_file_path="test.md",
-                example_in_file_path="test",
-                required_properties=["slug"],
+                required_properties={
+                    "slug",
+                },
             ),
             TypeDefinition(
                 label="repository",
                 entity_type=EntityType.NODE,
                 description="A code repository",
-                example_file_path="test.md",
-                example_in_file_path="test",
-                required_properties=["slug"],
+                required_properties={
+                    "slug",
+                },
             ),
             TypeDefinition(
                 label="knows",
                 entity_type=EntityType.EDGE,
                 description="An edge",
-                example_file_path="test.md",
-                example_in_file_path="test",
-                required_properties=[],
+                required_properties=set(),
             ),
         ]
         mock_repository.get_all.return_value = type_defs
@@ -157,17 +149,13 @@ class TestGetNodeLabels:
                 label="person",
                 entity_type=EntityType.NODE,
                 description="A person",
-                example_file_path="test.md",
-                example_in_file_path="test",
-                required_properties=[],
+                required_properties=set(),
             ),
             TypeDefinition(
                 label="repository",
                 entity_type=EntityType.NODE,
                 description="A repo",
-                example_file_path="test.md",
-                example_in_file_path="test",
-                required_properties=[],
+                required_properties=set(),
             ),
         ]
         mock_repository.get_all.return_value = type_defs
@@ -184,19 +172,19 @@ class TestGetNodeLabels:
                 label="person",
                 entity_type=EntityType.NODE,
                 description="A person",
-                example_file_path="test.md",
-                example_in_file_path="test",
-                required_properties=["slug"],
-                optional_properties=["email", "age"],
+                required_properties={
+                    "slug",
+                },
+                optional_properties={"email", "age"},
             ),
             TypeDefinition(
                 label="repository",
                 entity_type=EntityType.NODE,
                 description="A repo",
-                example_file_path="test.md",
-                example_in_file_path="test",
-                required_properties=["slug"],
-                optional_properties=["url"],
+                required_properties={
+                    "slug",
+                },
+                optional_properties={"url"},
             ),
         ]
         mock_repository.get_all.return_value = type_defs
@@ -217,25 +205,19 @@ class TestGetEdgeLabels:
                 label="person",
                 entity_type=EntityType.NODE,
                 description="A person",
-                example_file_path="test.md",
-                example_in_file_path="test",
-                required_properties=[],
+                required_properties=set(),
             ),
             TypeDefinition(
                 label="knows",
                 entity_type=EntityType.EDGE,
                 description="Knows relationship",
-                example_file_path="test.md",
-                example_in_file_path="test",
-                required_properties=[],
+                required_properties=set(),
             ),
             TypeDefinition(
                 label="owns",
                 entity_type=EntityType.EDGE,
                 description="Owns relationship",
-                example_file_path="test.md",
-                example_in_file_path="test",
-                required_properties=[],
+                required_properties=set(),
             ),
         ]
         mock_repository.get_all.return_value = type_defs
@@ -255,10 +237,8 @@ class TestGetNodeSchema:
             label="person",
             entity_type=EntityType.NODE,
             description="A person",
-            example_file_path="test.md",
-            example_in_file_path="test",
-            required_properties=["slug", "name"],
-            optional_properties=["email"],
+            required_properties={"slug", "name"},
+            optional_properties={"email"},
         )
         mock_repository.get.return_value = type_def
 
@@ -285,9 +265,7 @@ class TestGetEdgeSchema:
             label="knows",
             entity_type=EntityType.EDGE,
             description="Knows relationship",
-            example_file_path="test.md",
-            example_in_file_path="test",
-            required_properties=[],
+            required_properties=set(),
         )
         mock_repository.get.return_value = type_def
 

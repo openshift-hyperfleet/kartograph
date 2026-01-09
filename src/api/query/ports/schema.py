@@ -34,8 +34,6 @@ class TypeDefinitionLike(Protocol):
     label: str
     entity_type: EntityTypeLike
     description: str
-    example_file_path: str
-    example_in_file_path: str
     required_properties: set[str]
     optional_properties: set[str]
 

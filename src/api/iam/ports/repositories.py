@@ -20,19 +20,18 @@ class IGroupRepository(Protocol):
     Implementations coordinate PostgreSQL (metadata) and SpiceDB (membership).
     Returns fully hydrated Group aggregates per DDD pattern.
 
-    Tenant context is provided via method parameters for operations that
-    require tenant scoping (save, get_by_name, list_by_tenant).
+    The Group aggregate contains tenant_id, so tenant context is self-contained.
+    Only get_by_name and list_by_tenant require tenant_id as a query parameter.
     """
 
-    async def save(self, group: Group, tenant_id: TenantId) -> None:
+    async def save(self, group: Group) -> None:
         """Persist a group aggregate.
 
         Creates a new group or updates an existing one. Persists group metadata
-        to PostgreSQL and membership relationships to SpiceDB.
+        to PostgreSQL and domain events to the outbox.
 
         Args:
-            group: The Group aggregate to persist
-            tenant_id: The tenant this group belongs to
+            group: The Group aggregate to persist (includes tenant_id)
 
         Raises:
             DuplicateGroupNameError: If group name already exists in tenant
@@ -73,15 +72,15 @@ class IGroupRepository(Protocol):
         """
         ...
 
-    async def delete(self, group_id: GroupId, tenant_id: TenantId) -> bool:
+    async def delete(self, group: Group) -> bool:
         """Delete a group and all its relationships.
 
-        Removes the group from PostgreSQL and all relationships from SpiceDB
-        (membership and tenant relationships).
+        The group should have mark_for_deletion() called before this method
+        to record the GroupDeleted event with member snapshot. The outbox
+        worker will handle removing relationships from SpiceDB.
 
         Args:
-            group_id: The group to delete
-            tenant_id: The tenant this group belongs to
+            group: The Group aggregate to delete (with deletion event recorded)
 
         Returns:
             True if deleted, False if not found

@@ -178,22 +178,24 @@ class MutationApplier:
         """
         if op.type == EntityType.NODE:
             # MERGE on id, set all properties
+            # Use backticks around property names to avoid reserved keyword conflicts
             set_clauses = []
             for k, v in (op.set_properties or {}).items():
-                set_clauses.append(f"SET n.{k} = {self._format_value(v)}")
+                set_clauses.append(f"SET n.`{k}` = {self._format_value(v)}")
 
             # Infrastructure automatically stamps graph_id
-            set_clauses.append(f"SET n.graph_id = '{self._client.graph_name}'")
+            set_clauses.append(f"SET n.`graph_id` = '{self._client.graph_name}'")
 
             return f"MERGE (n:{op.label} {{id: '{op.id}'}}) " + " ".join(set_clauses)
         else:  # edge
             # MERGE on id, match source/target nodes, set properties
+            # Use backticks around property names to avoid reserved keyword conflicts
             set_clauses = []
             for k, v in (op.set_properties or {}).items():
-                set_clauses.append(f"SET r.{k} = {self._format_value(v)}")
+                set_clauses.append(f"SET r.`{k}` = {self._format_value(v)}")
 
             # Infrastructure automatically stamps graph_id
-            set_clauses.append(f"SET r.graph_id = '{self._client.graph_name}'")
+            set_clauses.append(f"SET r.`graph_id` = '{self._client.graph_name}'")
 
             return (
                 f"MATCH (source {{id: '{op.start_id}'}}) "
@@ -221,14 +223,15 @@ class MutationApplier:
 
         parts = [match_pattern]
 
+        # Use backticks around property names to avoid reserved keyword conflicts
         if op.set_properties:
             set_clauses = []
             for k, v in op.set_properties.items():
-                set_clauses.append(f"{var_name}.{k} = {self._format_value(v)}")
+                set_clauses.append(f"{var_name}.`{k}` = {self._format_value(v)}")
             parts.append("SET " + ", ".join(set_clauses))
 
         if op.remove_properties:
-            remove_clauses = [f"{var_name}.{k}" for k in op.remove_properties]
+            remove_clauses = [f"{var_name}.`{k}`" for k in op.remove_properties]
             parts.append("REMOVE " + ", ".join(remove_clauses))
 
         return " ".join(parts)
@@ -268,5 +271,14 @@ class MutationApplier:
             return "true" if value else "false"
         elif value is None:
             return "null"
+        elif isinstance(value, dict):
+            # Convert dict to array of "key: value" strings
+            # AGE has issues with map keys containing special characters like '-' or '.'
+            items = [f"{k}: {v}" for k, v in value.items()]
+            return self._format_value(items)
+        elif isinstance(value, list):
+            # Recursively format list items
+            formatted_items = [self._format_value(item) for item in value]
+            return f"[{', '.join(formatted_items)}]"
         else:
             return str(value)

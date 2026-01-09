@@ -50,8 +50,6 @@ class TestSchemaLearning:
             type=EntityType.NODE,
             label="person",
             description="A person",
-            example_file_path="test.md",
-            example_in_file_path="test",
             required_properties={"slug", "name"},
         )
 
@@ -106,8 +104,6 @@ class TestSchemaLearning:
             label="person",
             entity_type=EntityType.NODE,
             description="A person",
-            example_file_path="test.md",
-            example_in_file_path="test",
             required_properties={"slug", "name"},
             optional_properties={"email"},  # Already has email
         )
@@ -142,8 +138,6 @@ class TestSchemaLearning:
             label="person",
             entity_type=EntityType.NODE,
             description="A person",
-            example_file_path="test.md",
-            example_in_file_path="test",
             required_properties={"slug"},
         )
         mock_type_repo.get.return_value = existing_type_def
@@ -174,8 +168,6 @@ class TestSchemaLearning:
             label="person",
             entity_type=EntityType.NODE,
             description="A person",
-            example_file_path="test.md",
-            example_in_file_path="test",
             required_properties={"slug", "name"},
             optional_properties={"email"},
         )
@@ -207,8 +199,6 @@ class TestSchemaLearning:
             label="person",
             entity_type=EntityType.NODE,
             description="A person",
-            example_file_path="test.md",
-            example_in_file_path="test",
             required_properties={"slug", "name"},
             optional_properties={"email"},
         )

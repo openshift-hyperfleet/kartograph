@@ -18,6 +18,8 @@ from pydantic import BaseModel, ConfigDict, Field
 # scalars, or other AGE data types.
 QueryResultRow: TypeAlias = dict[str, Any]
 
+ID_REGEX = r"^[0-9a-z_]+:[0-9a-f]{16}$"
+
 
 class EntityType(str, Enum):
     """Enum for graph entity types."""
@@ -128,8 +130,6 @@ class TypeDefinition(BaseModel):
         label: The type label (e.g., "Person", "KNOWS")
         entity_type: Whether this is a node or edge type
         description: Plain-text description of this type
-        example_file_path: Example file where this type is found
-        example_in_file_path: Example instance as it appears in file
         required_properties: Properties that must be present on all instances
         optional_properties: Properties that may be present on instances
     """
@@ -139,8 +139,6 @@ class TypeDefinition(BaseModel):
     label: str = Field(description="Type label (must be lowercase)")
     entity_type: EntityType
     description: str
-    example_file_path: str
-    example_in_file_path: str
     required_properties: set[str]
     optional_properties: set[str] = Field(default_factory=set)
 
@@ -178,8 +176,6 @@ class MutationOperation(BaseModel):
         set_properties: Properties to set/update
         remove_properties: Properties to remove (UPDATE only)
         description: Type description (DEFINE only)
-        example_file_path: Example file path (DEFINE only)
-        example_in_file_path: Example instance (DEFINE only)
         required_properties: Required property names (DEFINE only)
         optional_properties: Optional property names (DEFINE only)
     """
@@ -188,14 +184,14 @@ class MutationOperation(BaseModel):
 
     op: MutationOperationType
     type: EntityType
-    id: str | None = Field(default=None, pattern="^[a-z_]+:[0-9a-f]{16}$")
+    id: str | None = Field(default=None, pattern=ID_REGEX)
 
     # CREATE/DEFINE fields
     label: str | None = Field(default=None, description="Type label")
 
     # CREATE edge fields
-    start_id: str | None = Field(default=None, pattern="^[a-z_]+:[0-9a-f]{16}$")
-    end_id: str | None = Field(default=None, pattern="^[a-z_]+:[0-9a-f]{16}$")
+    start_id: str | None = Field(default=None, pattern=ID_REGEX)
+    end_id: str | None = Field(default=None, pattern=ID_REGEX)
 
     # CREATE/UPDATE fields
     set_properties: dict[str, Any] | None = None
@@ -203,8 +199,6 @@ class MutationOperation(BaseModel):
 
     # DEFINE fields
     description: str | None = None
-    example_file_path: str | None = None
-    example_in_file_path: str | None = None
     required_properties: set[str] | None = None
     optional_properties: set[str] | None = None
 
@@ -220,14 +214,11 @@ class MutationOperation(BaseModel):
                 [
                     self.label,
                     self.description,
-                    self.example_file_path,
-                    self.example_in_file_path,
                     self.required_properties is not None,
                 ]
             ):
                 raise ValueError(
-                    "DEFINE requires 'label', 'description', 'example_file_path', "
-                    "'example_in_file_path', and 'required_properties'"
+                    "DEFINE requires 'label', 'description', and 'required_properties'"
                 )
             if any(
                 [
@@ -305,8 +296,6 @@ class MutationOperation(BaseModel):
             label=self.label or "",
             entity_type=entity_type,
             description=self.description or "",
-            example_file_path=self.example_file_path or "",
-            example_in_file_path=self.example_in_file_path or "",
             required_properties=self.required_properties or set(),
             optional_properties=self.optional_properties or set(),
         )

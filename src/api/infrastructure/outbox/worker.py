@@ -230,6 +230,9 @@ class OutboxWorker:
             try:
                 # Translate to SpiceDB operations using the injected translator
                 operations = self._translator.translate(entry.event_type, entry.payload)
+                self._probe.event_translated(
+                    entry.id, entry.event_type, len(operations)
+                )
 
                 # Apply each operation
                 for operation in operations:

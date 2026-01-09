@@ -58,6 +58,16 @@ class OutboxWorkerProbe(Protocol):
         """Called when an error occurs in the poll loop."""
         ...
 
+    def event_translated(
+        self, entry_id: UUID, event_type: str, operation_count: int
+    ) -> None:
+        """Called when an event is translated to SpiceDB operations.
+
+        Provides visibility into how many operations each event produces.
+        Zero operations may indicate misconfiguration or unsupported event type.
+        """
+        ...
+
 
 class DefaultOutboxWorkerProbe:
     """Default implementation using structlog.
@@ -121,3 +131,15 @@ class DefaultOutboxWorkerProbe:
     def poll_loop_error(self, error: str) -> None:
         """Log poll loop error."""
         self._log.warning("outbox_poll_loop_error", error=error)
+
+    def event_translated(
+        self, entry_id: UUID, event_type: str, operation_count: int
+    ) -> None:
+        """Log event translation with operation count."""
+        log_level = "debug" if operation_count > 0 else "warning"
+        getattr(self._log, log_level)(
+            "outbox_event_translated",
+            entry_id=str(entry_id),
+            event_type=event_type,
+            operation_count=operation_count,
+        )

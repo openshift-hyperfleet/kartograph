@@ -25,6 +25,26 @@ class TestOutboxWorkerProbeProtocol:
         # Should not raise
         probe.poll_loop_error("Connection timeout")
 
+    def test_default_probe_has_event_translated(self):
+        """DefaultOutboxWorkerProbe should have event_translated method."""
+        probe = DefaultOutboxWorkerProbe()
+        assert hasattr(probe, "event_translated")
+        assert callable(probe.event_translated)
+
+    def test_event_translated_accepts_parameters(self):
+        """event_translated should accept entry_id, event_type, and operation_count."""
+        probe = DefaultOutboxWorkerProbe()
+        # Should not raise
+        probe.event_translated(uuid4(), "GroupCreated", 2)
+
+    def test_event_translated_logs_operation_count(self):
+        """event_translated provides visibility into how many SpiceDB ops each event produces."""
+        probe = DefaultOutboxWorkerProbe()
+        # Zero operations is valid (but worth observing - could indicate misconfiguration)
+        probe.event_translated(uuid4(), "UnknownEvent", 0)
+        # Multiple operations is common
+        probe.event_translated(uuid4(), "MemberAdded", 1)
+
     def test_default_probe_implements_all_protocol_methods(self):
         """DefaultOutboxWorkerProbe should implement all protocol methods."""
         probe = DefaultOutboxWorkerProbe()
@@ -39,3 +59,4 @@ class TestOutboxWorkerProbeProtocol:
         probe.listen_loop_started()
         probe.poll_loop_started()
         probe.poll_loop_error("Connection error")
+        probe.event_translated(uuid4(), "GroupCreated", 2)

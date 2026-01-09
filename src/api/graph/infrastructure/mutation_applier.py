@@ -268,5 +268,14 @@ class MutationApplier:
             return "true" if value else "false"
         elif value is None:
             return "null"
+        elif isinstance(value, dict):
+            # Convert dict to array of "key: value" strings
+            # AGE has issues with map keys containing special characters like '-' or '.'
+            items = [f"{k}: {v}" for k, v in value.items()]
+            return self._format_value(items)
+        elif isinstance(value, list):
+            # Recursively format list items
+            formatted_items = [self._format_value(item) for item in value]
+            return f"[{', '.join(formatted_items)}]"
         else:
             return str(value)

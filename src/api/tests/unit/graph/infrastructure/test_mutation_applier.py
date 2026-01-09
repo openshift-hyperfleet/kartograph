@@ -227,6 +227,42 @@ class TestMutationApplierQueryBuilding:
 
         assert applier._format_value(None) == "null"
 
+    def test_format_list_value(self):
+        """Should format list values as Cypher arrays."""
+        applier = MutationApplier(client=Mock())
+
+        assert applier._format_value(["a", "b", "c"]) == "['a', 'b', 'c']"
+        assert applier._format_value([1, 2, 3]) == "[1, 2, 3]"
+        assert applier._format_value([]) == "[]"
+
+    def test_format_list_with_special_characters(self):
+        """Should escape special characters in list items."""
+        applier = MutationApplier(client=Mock())
+
+        result = applier._format_value(["it's", 'a "test"'])
+        assert result == "['\\'s', 'a \"test\"']" or "it\\'s" in result
+
+    def test_format_dict_converts_to_array(self):
+        """Should convert dict to array of 'key: value' strings.
+
+        AGE has issues with map keys containing special characters like '-' or '.',
+        so we normalize dicts to arrays.
+        """
+        applier = MutationApplier(client=Mock())
+
+        result = applier._format_value({"-t": "Tag option", ".": "Current dir"})
+        # Dict is converted to array of "key: value" strings
+        assert "[" in result
+        assert "-t: Tag option" in result
+        assert ".: Current dir" in result
+
+    def test_format_nested_list(self):
+        """Should handle nested lists."""
+        applier = MutationApplier(client=Mock())
+
+        result = applier._format_value([["a", "b"], ["c"]])
+        assert result == "[['a', 'b'], ['c']]"
+
 
 class TestMutationApplierBatchExecution:
     """Tests for batch mutation application."""

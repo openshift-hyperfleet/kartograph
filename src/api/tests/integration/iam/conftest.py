@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from iam.infrastructure.group_repository import GroupRepository
-from iam.infrastructure.outbox import IAMEventSerializer, IAMEventTranslator
+from iam.infrastructure.outbox import IAMEventTranslator
 from iam.infrastructure.user_repository import UserRepository
 from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.database.engines import create_write_engine
@@ -120,8 +120,7 @@ def group_repository(
     async_session: AsyncSession, spicedb_client: AuthorizationProvider
 ) -> GroupRepository:
     """Provide a GroupRepository for integration tests."""
-    serializer = IAMEventSerializer()
-    outbox = OutboxRepository(session=async_session, serializer=serializer)
+    outbox = OutboxRepository(session=async_session)
     return GroupRepository(
         session=async_session,
         authz=spicedb_client,

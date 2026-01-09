@@ -23,6 +23,7 @@ from iam.infrastructure.observability import (
     DefaultGroupRepositoryProbe,
     GroupRepositoryProbe,
 )
+from iam.infrastructure.outbox import IAMEventSerializer
 from iam.ports.exceptions import DuplicateGroupNameError
 from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
@@ -67,6 +68,7 @@ class GroupRepository(IGroupRepository):
         self._authz = authz
         self._outbox = outbox
         self._probe = probe or DefaultGroupRepositoryProbe()
+        self._serializer = IAMEventSerializer()
 
     async def save(self, group: Group) -> None:
         """Persist group metadata to PostgreSQL, events to outbox.
@@ -111,11 +113,14 @@ class GroupRepository(IGroupRepository):
             # Flush to catch integrity errors before outbox writes
             await self._session.flush()
 
-            # Collect and append events from the aggregate to outbox
+            # Collect, serialize, and append events from the aggregate to outbox
             events = group.collect_events()
             for event in events:
+                payload = self._serializer.serialize(event)
                 await self._outbox.append(
-                    event,
+                    event_type=type(event).__name__,
+                    payload=payload,
+                    occurred_at=event.occurred_at,
                     aggregate_type="group",
                     aggregate_id=group.id.value,
                 )
@@ -253,11 +258,14 @@ class GroupRepository(IGroupRepository):
         # Delete group from PostgreSQL
         await self._session.delete(model)
 
-        # Collect and append events (should include GroupDeleted with members)
+        # Collect, serialize, and append events (should include GroupDeleted with members)
         events = group.collect_events()
         for event in events:
+            payload = self._serializer.serialize(event)
             await self._outbox.append(
-                event,
+                event_type=type(event).__name__,
+                payload=payload,
+                occurred_at=event.occurred_at,
                 aggregate_type="group",
                 aggregate_id=group.id.value,
             )

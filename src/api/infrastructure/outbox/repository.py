@@ -1,13 +1,13 @@
 """Outbox repository implementation.
 
 This module provides the PostgreSQL implementation of the outbox repository.
-It handles persisting domain events to the outbox table for later processing.
+It handles persisting pre-serialized events to the outbox table for later processing.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select, update
@@ -15,9 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.outbox.models import OutboxModel
 from shared_kernel.outbox.value_objects import OutboxEntry  # noqa: F401 - used in type hints
-
-if TYPE_CHECKING:
-    from shared_kernel.outbox.ports import EventSerializer
 
 
 class OutboxRepository:
@@ -30,42 +27,49 @@ class OutboxRepository:
 
     The repository only calls session.add() and session.execute() - it never
     calls session.commit(). The calling service owns the transaction boundary.
+
+    This repository is context-agnostic - it accepts pre-serialized payloads
+    rather than domain events, keeping serialization in the bounded context.
     """
 
     def __init__(
         self,
         session: AsyncSession,
-        serializer: "EventSerializer",
     ) -> None:
-        """Initialize the repository with a session and serializer.
+        """Initialize the repository with a session.
 
         Args:
             session: The SQLAlchemy async session (shared with calling service)
-            serializer: The event serializer for converting events to payloads
         """
         self._session = session
-        self._serializer = serializer
 
-    async def append(self, event: Any, aggregate_type: str, aggregate_id: str) -> None:
-        """Append an event to the outbox within the current transaction.
+    async def append(
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+        occurred_at: datetime,
+        aggregate_type: str,
+        aggregate_id: str,
+    ) -> None:
+        """Append a pre-serialized event to the outbox within the current transaction.
 
         This method creates an OutboxModel and adds it to the session.
-        The event is serialized to a JSON payload. The transaction is not
+        The payload should already be serialized to a dict. The transaction is not
         committed - that is the responsibility of the calling service.
 
         Args:
-            event: The domain event to append
+            event_type: Name of the domain event type (e.g., "GroupCreated")
+            payload: Pre-serialized event data as a dictionary
+            occurred_at: When the domain event occurred
             aggregate_type: Type of aggregate (e.g., "group")
             aggregate_id: ULID of the aggregate
         """
-        payload = self._serializer.serialize(event)
-
         model = OutboxModel(
             aggregate_type=aggregate_type,
             aggregate_id=aggregate_id,
-            event_type=type(event).__name__,
+            event_type=event_type,
             payload=payload,
-            occurred_at=event.occurred_at,
+            occurred_at=occurred_at,
             processed_at=None,
         )
 

@@ -46,7 +46,7 @@ class TestOutboxEventCreation:
     ):
         """When a group is created, a GroupCreated event should be appended to the outbox."""
         serializer = IAMEventSerializer()
-        outbox_repo = OutboxRepository(async_session, serializer=serializer)
+        outbox_repo = OutboxRepository(async_session)
         group_repo = GroupRepository(
             session=async_session,
             authz=spicedb_client,
@@ -96,7 +96,7 @@ class TestOutboxEventCreation:
     ):
         """When a member is added, a MemberAdded event should be appended to the outbox."""
         serializer = IAMEventSerializer()
-        outbox_repo = OutboxRepository(async_session, serializer=serializer)
+        outbox_repo = OutboxRepository(async_session)
         group_repo = GroupRepository(
             session=async_session,
             authz=spicedb_client,
@@ -149,7 +149,7 @@ class TestOutboxEventCreation:
     ):
         """When a member is removed, a MemberRemoved event should be appended."""
         serializer = IAMEventSerializer()
-        outbox_repo = OutboxRepository(async_session, serializer=serializer)
+        outbox_repo = OutboxRepository(async_session)
         group_repo = GroupRepository(
             session=async_session,
             authz=spicedb_client,
@@ -218,8 +218,7 @@ class TestOutboxWorkerProcessing:
         spicedb_client: AuthorizationProvider,
     ):
         """Worker should process GroupCreated and write tenant relationship to SpiceDB."""
-        serializer = IAMEventSerializer()
-        outbox_repo = OutboxRepository(async_session, serializer=serializer)
+        outbox_repo = OutboxRepository(async_session)
         group_repo = GroupRepository(
             session=async_session,
             authz=spicedb_client,
@@ -296,8 +295,7 @@ class TestOutboxWorkerProcessing:
         spicedb_client: AuthorizationProvider,
     ):
         """Worker should process MemberAdded and write member relationship to SpiceDB."""
-        serializer = IAMEventSerializer()
-        outbox_repo = OutboxRepository(async_session, serializer=serializer)
+        outbox_repo = OutboxRepository(async_session)
         group_repo = GroupRepository(
             session=async_session,
             authz=spicedb_client,
@@ -369,8 +367,7 @@ class TestAtomicityGuarantees:
         self, async_session: AsyncSession, spicedb_client: AuthorizationProvider
     ):
         """Outbox entry and group should be committed atomically."""
-        serializer = IAMEventSerializer()
-        outbox_repo = OutboxRepository(async_session, serializer=serializer)
+        outbox_repo = OutboxRepository(async_session)
         group_repo = GroupRepository(
             session=async_session,
             authz=spicedb_client,
@@ -417,8 +414,7 @@ class TestAtomicityGuarantees:
         self, async_session: AsyncSession, spicedb_client: AuthorizationProvider
     ):
         """On rollback, neither group nor outbox entry should persist."""
-        serializer = IAMEventSerializer()
-        outbox_repo = OutboxRepository(async_session, serializer=serializer)
+        outbox_repo = OutboxRepository(async_session)
         group_repo = GroupRepository(
             session=async_session,
             authz=spicedb_client,
@@ -461,8 +457,7 @@ class TestUnprocessedEventsRetry:
         self, async_session: AsyncSession, spicedb_client: AuthorizationProvider
     ):
         """Events that fail to process should remain unprocessed for retry."""
-        serializer = IAMEventSerializer()
-        outbox_repo = OutboxRepository(async_session, serializer=serializer)
+        outbox_repo = OutboxRepository(async_session)
         group_repo = GroupRepository(
             session=async_session,
             authz=spicedb_client,

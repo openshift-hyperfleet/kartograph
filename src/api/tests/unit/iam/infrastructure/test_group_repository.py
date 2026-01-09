@@ -316,8 +316,6 @@ class TestDelete:
         self, repository, mock_session, mock_authz, mock_outbox
     ):
         """Should append GroupDeleted event to outbox."""
-        from iam.domain.events import GroupDeleted
-
         tenant_id = TenantId.generate()
         group = Group(
             id=GroupId.generate(),
@@ -339,6 +337,7 @@ class TestDelete:
 
         await repository.delete(group)
 
-        # Should have appended GroupDeleted event
+        # Should have appended GroupDeleted event (check event_type kwarg)
         calls = mock_outbox.append.call_args_list
-        assert any(isinstance(call[0][0], GroupDeleted) for call in calls)
+        event_types = [call.kwargs.get("event_type") for call in calls]
+        assert "GroupDeleted" in event_types

@@ -5,14 +5,12 @@ without requiring a real database connection.
 """
 
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
 
-from iam.domain.events import GroupCreated, MemberAdded
-from iam.domain.value_objects import Role
-from iam.infrastructure.outbox import IAMEventSerializer
 from infrastructure.outbox.repository import OutboxRepository
 
 
@@ -24,18 +22,22 @@ class TestOutboxRepositoryAppend:
         """Test that append creates an OutboxModel and adds it to session."""
         # Arrange
         mock_session = MagicMock()
-        serializer = IAMEventSerializer()
-        repo = OutboxRepository(mock_session, serializer=serializer)
+        repo = OutboxRepository(mock_session)
 
-        event = GroupCreated(
-            group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
-            tenant_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
-            occurred_at=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
-        )
+        payload: dict[str, Any] = {
+            "group_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            "tenant_id": "01ARZCX0P0HZGQP3MZXQQ0NNYY",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+        occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
 
         # Act
         await repo.append(
-            event, aggregate_type="group", aggregate_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ"
+            event_type="GroupCreated",
+            payload=payload,
+            occurred_at=occurred_at,
+            aggregate_type="group",
+            aggregate_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
         )
 
         # Assert
@@ -44,28 +46,31 @@ class TestOutboxRepositoryAppend:
         assert added_model.aggregate_type == "group"
         assert added_model.aggregate_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
         assert added_model.event_type == "GroupCreated"
-        # Payload contains serialized event data (no __type__, that's stored in event_type)
         assert added_model.payload["group_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
         assert added_model.payload["tenant_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNYY"
-        assert added_model.occurred_at == datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
+        assert added_model.occurred_at == occurred_at
         assert added_model.processed_at is None
 
     @pytest.mark.asyncio
-    async def test_append_serializes_event_correctly(self):
-        """Test that the event is properly serialized in the payload."""
+    async def test_append_accepts_pre_serialized_payload(self):
+        """Test that the repository accepts pre-serialized payloads."""
         mock_session = MagicMock()
-        serializer = IAMEventSerializer()
-        repo = OutboxRepository(mock_session, serializer=serializer)
+        repo = OutboxRepository(mock_session)
 
-        event = MemberAdded(
-            group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
-            user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-            role=Role.ADMIN,
-            occurred_at=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
-        )
+        payload: dict[str, Any] = {
+            "group_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            "user_id": "01ARZCX0P0HZGQP3MZXQQ0NNWW",
+            "role": "admin",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+        occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
 
         await repo.append(
-            event, aggregate_type="group", aggregate_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ"
+            event_type="MemberAdded",
+            payload=payload,
+            occurred_at=occurred_at,
+            aggregate_type="group",
+            aggregate_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
         )
 
         added_model = mock_session.add.call_args[0][0]
@@ -95,7 +100,6 @@ class TestOutboxRepositoryFetchUnprocessed:
             aggregate_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             event_type="GroupCreated",
             payload={
-                "__type__": "GroupCreated",
                 "group_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             },
             occurred_at=occurred_at,
@@ -112,8 +116,7 @@ class TestOutboxRepositoryFetchUnprocessed:
         mock_result.scalars.return_value.all.return_value = [mock_model]
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        serializer = IAMEventSerializer()
-        repo = OutboxRepository(mock_session, serializer=serializer)
+        repo = OutboxRepository(mock_session)
 
         # Act
         entries = await repo.fetch_unprocessed(limit=10)
@@ -135,8 +138,7 @@ class TestOutboxRepositoryFetchUnprocessed:
         mock_result.scalars.return_value.all.return_value = []
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        serializer = IAMEventSerializer()
-        repo = OutboxRepository(mock_session, serializer=serializer)
+        repo = OutboxRepository(mock_session)
 
         await repo.fetch_unprocessed(limit=50)
 
@@ -153,8 +155,7 @@ class TestOutboxRepositoryMarkProcessed:
         mock_session = AsyncMock()
         entry_id = uuid4()
 
-        serializer = IAMEventSerializer()
-        repo = OutboxRepository(mock_session, serializer=serializer)
+        repo = OutboxRepository(mock_session)
 
         await repo.mark_processed(entry_id)
 

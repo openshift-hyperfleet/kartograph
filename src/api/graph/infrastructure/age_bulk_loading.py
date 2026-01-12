@@ -620,7 +620,26 @@ class AgeBulkLoadingStrategy:
         probe: MutationProbe,
         graph_name: str,
     ) -> int:
-        """Execute DELETE operations using direct SQL."""
+        """Execute DELETE operations using direct SQL.
+
+        WARNING: This directly manipulates AGE's internal parent tables
+        (_ag_label_vertex, _ag_label_edge). It relies on PostgreSQL table
+        inheritance where all label-specific tables (person, project, etc.)
+        inherit from these parent tables. Deleting from the parent cascades
+        to all child label tables.
+
+        This approach is necessary to maintain transaction atomicity - using
+        client.execute_cypher() would auto-commit and break the transaction.
+
+        Fragility considerations:
+        - If AGE changes from table inheritance to partitioning/sharding,
+          this will break
+        - We're using undocumented internal tables (prefixed with _)
+        - Property access via agtype_object_field_text_agtype is AGE-specific
+
+        For node deletes, we implement DETACH DELETE semantics by first
+        deleting connected edges, then deleting the nodes themselves.
+        """
         batches = 0
         for i in range(0, len(operations), self._batch_size):
             batch = operations[i : i + self._batch_size]

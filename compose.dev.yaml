@@ -11,4 +11,4 @@ services:
       - /bin/bash
       - -c
       - |
-        uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+        uv run fastapi dev main.py --host 0.0.0.0 --port 8000

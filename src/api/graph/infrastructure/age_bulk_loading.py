@@ -158,6 +158,8 @@ class AgeBulkLoadingStrategy:
         start_time = time.perf_counter()
         session_id = uuid.uuid4().hex[:16]
 
+        created_dummy_labels: set = set()
+
         try:
             sorted_ops = self._sort_operations(operations)
 
@@ -184,10 +186,14 @@ class AgeBulkLoadingStrategy:
             update_ops = [op for op in sorted_ops if op.op == "UPDATE"]
 
             node_labels = {op.label for op in create_nodes if op.label}
+            edge_labels = {op.label for op in create_edges if op.label}
 
-            # Phase 1: Create dummy nodes for new labels (needed for table creation)
+            # Phase 1: Create dummy nodes/edges for new labels (needed for table creation)
             created_dummy_labels = self._create_dummy_nodes(
                 client, node_labels, session_id
+            )
+            created_dummy_edge_labels = self._create_dummy_edges(
+                client, edge_labels, session_id
             )
 
             # Phase 2: Ensure indexes exist
@@ -264,9 +270,9 @@ class AgeBulkLoadingStrategy:
                 errors=[str(e)],
             )
         finally:
-            if created_dummy_labels:
+            if created_dummy_labels or created_dummy_edge_labels:
                 try:
-                    self._cleanup_dummy_nodes(client, session_id)
+                    self._cleanup_dummy_entities(client, session_id)
                 except Exception:
                     pass
 
@@ -340,8 +346,69 @@ class AgeBulkLoadingStrategy:
 
         return created_labels
 
-    def _cleanup_dummy_nodes(self, client: GraphClientProtocol, session_id: str) -> int:
-        """Delete dummy nodes created by this session."""
+    def _create_dummy_edges(
+        self,
+        client: GraphClientProtocol,
+        labels: set[str],
+        session_id: str,
+    ) -> set[str]:
+        """Create dummy edges to pre-create edge label tables.
+
+        Creates a temporary edge for each edge label that doesn't exist yet.
+        This requires two dummy nodes to connect, which are also created
+        and marked for cleanup.
+        """
+        created_labels: set[str] = set()
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        for label in labels:
+            # Check if edge label already exists
+            result = client.execute_cypher(f"MATCH ()-[r:{label}]->() RETURN r LIMIT 1")
+            if result.row_count > 0:
+                continue
+
+            # Create two dummy nodes and connect them with the edge label
+            dummy_src_id = f"_dummy_edge_src_{session_id}_{label}"
+            dummy_tgt_id = f"_dummy_edge_tgt_{session_id}_{label}"
+            dummy_edge_id = f"_dummy_edge_{session_id}_{label}"
+
+            # Create source and target dummy nodes, then the edge between them
+            client.execute_cypher(
+                f"CREATE (src:_DummyNode {{"
+                f"id: '{dummy_src_id}', "
+                f"_kartograph_dummy: true, "
+                f"_kartograph_session_id: '{session_id}', "
+                f"_kartograph_created_at: '{timestamp}'"
+                f"}})"
+                f"-[r:{label} {{"
+                f"id: '{dummy_edge_id}', "
+                f"_kartograph_dummy: true, "
+                f"_kartograph_session_id: '{session_id}', "
+                f"_kartograph_created_at: '{timestamp}'"
+                f"}}]->"
+                f"(tgt:_DummyNode {{"
+                f"id: '{dummy_tgt_id}', "
+                f"_kartograph_dummy: true, "
+                f"_kartograph_session_id: '{session_id}', "
+                f"_kartograph_created_at: '{timestamp}'"
+                f"}})"
+            )
+            created_labels.add(label)
+
+        return created_labels
+
+    def _cleanup_dummy_entities(
+        self, client: GraphClientProtocol, session_id: str
+    ) -> int:
+        """Delete all dummy entities (nodes and edges) created by this session."""
+        # First delete edges with the session_id
+        client.execute_cypher(
+            f"MATCH ()-[r {{_kartograph_session_id: '{session_id}'}}]->() "
+            f"WHERE r._kartograph_dummy = true "
+            f"DELETE r"
+        )
+
+        # Then delete nodes with the session_id (including _DummyNode nodes)
         result = client.execute_cypher(
             f"MATCH (n {{_kartograph_session_id: '{session_id}'}}) "
             f"WHERE n._kartograph_dummy = true "

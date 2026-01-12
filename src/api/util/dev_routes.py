@@ -597,10 +597,11 @@ def _fetch_graph_data(pool: ConnectionPool, graph_name: str) -> dict:
             cur.execute("LOAD 'age';")
             cur.execute("SET search_path = ag_catalog, '$user', public;")
 
-            # Fetch nodes - cast to text to avoid AGE type parsing issues
-            cur.execute(
-                f"SELECT node::text FROM cypher('{graph_name}', $$ MATCH (n) RETURN n $$) AS (node agtype);"
-            )
+            # Fetch nodes - use ag_catalog.agtype_out for text conversion
+            cur.execute(f"""
+                SELECT ag_catalog.agtype_out(node)
+                FROM cypher('{graph_name}', $$ MATCH (n) RETURN n $$) AS (node agtype);
+            """)
             nodes = []
             for row in cur.fetchall():
                 node_data = _parse_agtype_vertex(row[0])
@@ -609,9 +610,11 @@ def _fetch_graph_data(pool: ConnectionPool, graph_name: str) -> dict:
 
             logger.info(f"Fetched {len(nodes)} nodes")
 
-            # Fetch edges with source/target IDs - cast to text
+            # Fetch edges with source/target IDs
             cur.execute(f"""
-                SELECT source_id::text, target_id::text, edge::text
+                SELECT ag_catalog.agtype_out(source_id),
+                       ag_catalog.agtype_out(target_id),
+                       ag_catalog.agtype_out(edge)
                 FROM cypher('{graph_name}', $$
                     MATCH (s)-[r]->(t)
                     RETURN id(s), id(t), r

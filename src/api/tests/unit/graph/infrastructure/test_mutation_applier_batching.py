@@ -22,7 +22,9 @@ def create_mock_client_with_transaction():
     - graph_name property
     - transaction context manager
     - execute_cypher for dummy node checks (returns empty results)
-    - ensure_all_labels_indexed
+
+    Returns:
+        Tuple of (mock_client, mock_tx, mock_indexing_client)
     """
     mock_client = Mock()
     mock_client.graph_name = "test_graph"
@@ -40,10 +42,12 @@ def create_mock_client_with_transaction():
     mock_result.rows = []
     mock_client.execute_cypher.return_value = mock_result
 
-    # Set up ensure_all_labels_indexed
-    mock_client.ensure_all_labels_indexed.return_value = 0
+    # Create separate mock for indexing client (implements GraphIndexingProtocol)
+    mock_indexing_client = Mock()
+    mock_indexing_client.graph_name = "test_graph"
+    mock_indexing_client.ensure_all_labels_indexed.return_value = 0
 
-    return mock_client, mock_tx
+    return mock_client, mock_tx, mock_indexing_client
 
 
 class TestBatchedQueryBuilding:
@@ -404,7 +408,7 @@ class TestBatchExecution:
 
     def test_executes_fewer_queries_than_operations(self):
         """Should execute fewer queries than total operations."""
-        mock_client, mock_tx = create_mock_client_with_transaction()
+        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
 
         # Create 10 operations of the same type/label
         operations = [
@@ -432,7 +436,7 @@ class TestBatchExecution:
 
     def test_respects_batch_size_limit(self):
         """Should split into multiple batches when exceeding batch_size."""
-        mock_client, mock_tx = create_mock_client_with_transaction()
+        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
 
         # Create 25 operations with batch_size=10
         operations = [
@@ -460,7 +464,7 @@ class TestBatchExecution:
 
     def test_maintains_operation_order_across_types(self):
         """Should maintain correct execution order: DELETE edges, DELETE nodes, CREATE nodes, CREATE edges, UPDATE."""
-        mock_client, mock_tx = create_mock_client_with_transaction()
+        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
 
         operations = [
             # Deliberately mixed order
@@ -522,7 +526,7 @@ class TestBatchExecution:
 
     def test_transaction_rollback_on_failure(self):
         """Should rollback entire transaction if any batch fails."""
-        mock_client, mock_tx = create_mock_client_with_transaction()
+        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
         # Fail on second execute
         mock_tx.execute_cypher.side_effect = [None, Exception("Database error")]
 
@@ -582,7 +586,7 @@ class TestBatchSizeConfiguration:
 
     def test_batch_size_of_one_degrades_to_individual(self):
         """Batch size of 1 should still work (no optimization)."""
-        mock_client, mock_tx = create_mock_client_with_transaction()
+        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
 
         operations = [
             MutationOperation(
@@ -612,7 +616,7 @@ class TestObservability:
 
     def test_emits_batch_probe_events(self):
         """Should emit probe events for batches, not individual operations."""
-        mock_client, mock_tx = create_mock_client_with_transaction()
+        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
         mock_probe = Mock()
 
         operations = [
@@ -656,7 +660,7 @@ class TestUpdateWithRemoveProperties:
 
     def test_update_with_remove_falls_back_to_individual(self):
         """UPDATE with remove_properties should use individual queries."""
-        mock_client, mock_tx = create_mock_client_with_transaction()
+        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
 
         operations = [
             MutationOperation(

@@ -104,12 +104,14 @@ def get_mutation_applier(
     """Get MutationApplier instance.
 
     Args:
-        client: Request-scoped graph client
+        client: Request-scoped graph client (implements both GraphClientProtocol
+            and GraphIndexingProtocol)
 
     Returns:
-        MutationApplier instance
+        MutationApplier instance with indexing support
     """
-    return MutationApplier(client=client)
+    # AgeGraphClient implements both GraphClientProtocol and GraphIndexingProtocol
+    return MutationApplier(client=client, indexing_client=client)
 
 
 @lru_cache

@@ -140,6 +140,27 @@ class GraphClientProtocol(
 
     This is the primary interface that will be injected into services
     and repositories within the Graph bounded context.
+
+    Note: For index management, see GraphIndexingProtocol which is
+    implemented by database-specific clients like AgeGraphClient.
+    """
+
+    @property
+    def graph_name(self) -> str:
+        """The name of the graph being operated on."""
+        ...
+
+
+class GraphIndexingProtocol(Protocol):
+    """Protocol for graph database index management.
+
+    This protocol is separate from GraphClientProtocol because index
+    management is database-specific. Apache AGE uses PostgreSQL indexes
+    (BTREE, GIN), while other graph databases (Neo4j, Neptune) have
+    different indexing mechanisms.
+
+    Implementations should create indexes appropriate for their database
+    to optimize query performance.
     """
 
     @property
@@ -148,7 +169,7 @@ class GraphClientProtocol(
         ...
 
     def ensure_label_index(self, label: str) -> bool:
-        """Ensure a GIN index exists on properties for a label.
+        """Ensure a basic index exists on properties for a label.
 
         Legacy method - prefer ensure_label_indexes for comprehensive indexing.
 
@@ -161,7 +182,7 @@ class GraphClientProtocol(
         ...
 
     def ensure_labels_indexed(self, labels: set[str]) -> int:
-        """Ensure GIN indexes exist for multiple labels.
+        """Ensure basic indexes exist for multiple labels.
 
         Legacy method - prefer ensure_label_indexes for comprehensive indexing.
 
@@ -176,7 +197,9 @@ class GraphClientProtocol(
     def ensure_label_indexes(self, label: str, kind: str = "v") -> int:
         """Ensure all recommended indexes exist for a label.
 
-        Creates comprehensive indexes following best practices:
+        Creates comprehensive indexes following database-specific best practices.
+
+        For Apache AGE (PostgreSQL):
         - BTREE on id column (graphid) for fast vertex/edge lookups
         - GIN on properties column for property-based queries
         - BTREE on properties.id for logical ID lookups

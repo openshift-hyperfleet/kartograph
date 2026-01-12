@@ -18,7 +18,9 @@ def create_mock_client_with_transaction():
     - graph_name property
     - transaction context manager
     - execute_cypher for dummy node checks (returns empty results)
-    - ensure_all_labels_indexed
+
+    Returns:
+        Tuple of (mock_client, mock_tx, mock_indexing_client)
     """
     mock_client = Mock()
     mock_client.graph_name = "test_graph"
@@ -36,10 +38,12 @@ def create_mock_client_with_transaction():
     mock_result.rows = []
     mock_client.execute_cypher.return_value = mock_result
 
-    # Set up ensure_all_labels_indexed
-    mock_client.ensure_all_labels_indexed.return_value = 0
+    # Create separate mock for indexing client (implements GraphIndexingProtocol)
+    mock_indexing_client = Mock()
+    mock_indexing_client.graph_name = "test_graph"
+    mock_indexing_client.ensure_all_labels_indexed.return_value = 0
 
-    return mock_client, mock_tx
+    return mock_client, mock_tx, mock_indexing_client
 
 
 class TestMutationApplierQueryBuilding:
@@ -395,7 +399,7 @@ class TestMutationApplierBatchExecution:
 
     def test_apply_batch_success(self):
         """Should apply all operations in a transaction."""
-        mock_client, mock_tx = create_mock_client_with_transaction()
+        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
 
         operations = [
             MutationOperation(
@@ -418,7 +422,7 @@ class TestMutationApplierBatchExecution:
             ),
         ]
 
-        applier = MutationApplier(client=mock_client)
+        applier = MutationApplier(client=mock_client, indexing_client=mock_indexing)
         result = applier.apply_batch(operations)
 
         # Should use transaction context manager
@@ -434,7 +438,7 @@ class TestMutationApplierBatchExecution:
 
     def test_apply_batch_failure_rolls_back(self):
         """Should rollback transaction on failure."""
-        mock_client, mock_tx = create_mock_client_with_transaction()
+        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
         mock_tx.execute_cypher.side_effect = Exception("Database error")
 
         operations = [
@@ -445,7 +449,7 @@ class TestMutationApplierBatchExecution:
             ),
         ]
 
-        applier = MutationApplier(client=mock_client)
+        applier = MutationApplier(client=mock_client, indexing_client=mock_indexing)
         result = applier.apply_batch(operations)
 
         # Should return failure result
@@ -497,7 +501,7 @@ class TestMutationApplierObservability:
 
     def test_emits_probe_events(self):
         """Should emit batch probe events for mutations."""
-        mock_client, mock_tx = create_mock_client_with_transaction()
+        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
         mock_probe = Mock()
 
         operations = [
@@ -515,7 +519,9 @@ class TestMutationApplierObservability:
             ),
         ]
 
-        applier = MutationApplier(client=mock_client, probe=mock_probe)
+        applier = MutationApplier(
+            client=mock_client, probe=mock_probe, indexing_client=mock_indexing
+        )
         applier.apply_batch(operations)
 
         # Should emit batch probe event with timing

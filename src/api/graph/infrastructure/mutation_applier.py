@@ -20,7 +20,7 @@ from typing import Any, TypedDict
 
 from graph.domain.value_objects import EntityType, MutationOperation, MutationResult
 from graph.infrastructure.observability import DefaultMutationProbe, MutationProbe
-from graph.ports.protocols import GraphClientProtocol
+from graph.ports.protocols import GraphClientProtocol, GraphIndexingProtocol
 
 
 class OperationGroup(TypedDict):
@@ -50,6 +50,7 @@ class MutationApplier:
         client: GraphClientProtocol,
         probe: MutationProbe | None = None,
         batch_size: int | None = None,
+        indexing_client: GraphIndexingProtocol | None = None,
     ):
         """Initialize the mutation applier.
 
@@ -57,10 +58,14 @@ class MutationApplier:
             client: Graph database client for executing queries
             probe: Domain probe for observability (optional, defaults to DefaultMutationProbe)
             batch_size: Maximum operations per UNWIND batch (default: 200)
+            indexing_client: Optional client for index management. If not provided,
+                indexing will be skipped. For AgeGraphClient, pass the same client
+                as it implements both protocols.
         """
         self._client = client
         self._probe = probe or DefaultMutationProbe()
         self._batch_size = batch_size or self.DEFAULT_BATCH_SIZE
+        self._indexing_client = indexing_client
 
     def _extract_labels(self, operations: list[MutationOperation]) -> set[str]:
         """Extract all unique labels from CREATE NODE operations.
@@ -207,7 +212,8 @@ class MutationApplier:
             # Phase 2: Ensure all labels (existing + newly created) have indexes
             # This is critical for performance - without indexes, MATCH operations
             # do full table scans which is extremely slow for large graphs
-            self._client.ensure_all_labels_indexed()
+            if self._indexing_client is not None:
+                self._indexing_client.ensure_all_labels_indexed()
 
             # Phase 3: Execute all batched operations in a transaction
             with self._client.transaction() as tx:

@@ -108,7 +108,11 @@ class StagingTableManager:
             props["graph_id"] = graph_name
 
             # Format as TSV: id, label, properties_json
-            row = f"{op.id}\t{op.label}\t{json.dumps(props)}\n"
+            # Escape backslashes for COPY format - PostgreSQL COPY uses backslash
+            # as escape character, so JSON's \" becomes unescaped " breaking JSON.
+            # By escaping backslashes (\ -> \\), COPY will preserve the JSON escapes.
+            props_json = json.dumps(props).replace("\\", "\\\\")
+            row = f"{op.id}\t{op.label}\t{props_json}\n"
             buffer.write(row)
 
         buffer.seek(0)
@@ -146,7 +150,9 @@ class StagingTableManager:
             props["graph_id"] = graph_name
 
             # Format as TSV: id, label, start_id, end_id, properties_json
-            row = f"{op.id}\t{op.label}\t{op.start_id}\t{op.end_id}\t{json.dumps(props)}\n"
+            # Escape backslashes for COPY format (see copy_nodes_to_staging)
+            props_json = json.dumps(props).replace("\\", "\\\\")
+            row = f"{op.id}\t{op.label}\t{op.start_id}\t{op.end_id}\t{props_json}\n"
             buffer.write(row)
 
         buffer.seek(0)

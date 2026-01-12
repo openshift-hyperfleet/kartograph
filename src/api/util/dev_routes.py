@@ -303,29 +303,37 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
     async function initGraph(data) {
       loading.textContent = 'Preparing data...';
 
-      rawNodes = data.nodes;
-      rawEdges = data.edges;
+      rawNodes = data.nodes || [];
+      rawEdges = data.edges || [];
+
+      const nodeCount = rawNodes.length;
+      const edgeCount = rawEdges.length;
+
+      document.getElementById('nodeCount').textContent = nodeCount.toLocaleString();
+      document.getElementById('edgeCount').textContent = edgeCount.toLocaleString();
+
+      // Handle empty graph
+      if (nodeCount === 0) {
+        loading.textContent = 'No nodes in graph. Add some data first.';
+        loading.style.display = 'block';
+        statusEl.textContent = 'Empty graph';
+        return;
+      }
 
       // Build node ID lookup map for edge tooltip
       nodeIdToData = {};
       rawNodes.forEach(node => {
         nodeIdToData[node.id] = node;
       });
-      
-      const nodeCount = data.nodes.length;
-      const edgeCount = data.edges.length;
-      
-      document.getElementById('nodeCount').textContent = nodeCount.toLocaleString();
-      document.getElementById('edgeCount').textContent = edgeCount.toLocaleString();
-      
+
       // Transform data to match Cosmograph expected format
-      const points = data.nodes.map(n => ({
+      const points = rawNodes.map(n => ({
         id: n.id,
         label: n.label || n.id,
         nodeType: n.type || 'unknown',
       }));
       
-      const links = data.edges.map(e => ({
+      const links = rawEdges.map(e => ({
         source: e.source,
         target: e.target,
         edgeType: e.type || 'unknown',
@@ -333,35 +341,38 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
 
       // Store links for tooltip lookup (same order as passed to Cosmograph)
       linksForTooltip = links;
-      
+
       // Prepare data using Cosmograph Data Kit
+      const hasLinks = links.length > 0;
       const dataConfig = {
         points: {
           pointIdBy: 'id',
           pointLabelBy: 'label',
           pointColorBy: 'nodeType',
         },
-        links: {
-          linkSourceBy: 'source',
-          linkTargetsBy: ['target'],
-        },
+        ...(hasLinks && {
+          links: {
+            linkSourceBy: 'source',
+            linkTargetsBy: ['target'],
+          },
+        }),
         pointSizeBy: "degree",
         pointSizeRange: [1, 100],
       };
-      
+
       statusEl.textContent = 'Preparing graph data...';
-      
+
       try {
-        const result = await prepareCosmographData(dataConfig, points, links);
-        
+        const result = await prepareCosmographData(dataConfig, points, hasLinks ? links : undefined);
+
         if (!result) {
           throw new Error('Failed to prepare data');
         }
-        
+
         const { points: preparedPoints, links: preparedLinks, cosmographConfig } = result;
 
-        // Store prepared links as array for tooltip lookup
-        preparedLinksRef = Array.from(preparedLinks);
+        // Store prepared links as array for tooltip lookup (if available)
+        preparedLinksRef = preparedLinks ? Array.from(preparedLinks) : [];
 
         loading.style.display = 'none';
         statusEl.textContent = 'Running simulation...';
@@ -375,7 +386,7 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
         cosmograph = new Cosmograph(container, {
           ...cosmographConfig,
           points: preparedPoints,
-          links: preparedLinks,
+          ...(preparedLinks && { links: preparedLinks }),
           backgroundColor: '#0a0a0a',
 
           linkWidth: 0.5,

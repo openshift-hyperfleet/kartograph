@@ -461,11 +461,11 @@ class AgeBulkLoadingStrategy:
             )
             updated = cursor.rowcount
 
-            # Insert new nodes
+            # Insert new nodes (DISTINCT ON ensures idempotency for duplicate IDs in batch)
             cursor.execute(
                 f"""
                 INSERT INTO "{graph_name}"."{label}" (id, properties)
-                SELECT
+                SELECT DISTINCT ON (s.id)
                     ag_catalog._graphid(%s, nextval('"{graph_name}"."{seq_name}"')),
                     (s.properties::text)::ag_catalog.agtype
                 FROM "{table_name}" AS s
@@ -533,11 +533,12 @@ class AgeBulkLoadingStrategy:
             updated = cursor.rowcount
 
             # Insert new edges with graphid resolution
+            # DISTINCT ON ensures idempotency for duplicate IDs in batch
             # Join against ALL vertex tables to find start/end nodes
             cursor.execute(
                 f"""
                 INSERT INTO "{graph_name}"."{label}" (id, start_id, end_id, properties)
-                SELECT
+                SELECT DISTINCT ON (s.id)
                     ag_catalog._graphid(%s, nextval('"{graph_name}"."{seq_name}"')),
                     src.id,
                     tgt.id,

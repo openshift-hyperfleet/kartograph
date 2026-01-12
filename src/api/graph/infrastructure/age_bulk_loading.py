@@ -14,7 +14,6 @@ import io
 import json
 import time
 import uuid
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from graph.domain.value_objects import EntityType, MutationOperation, MutationResult
@@ -189,8 +188,6 @@ class AgeBulkLoadingStrategy:
         start_time = time.perf_counter()
         session_id = uuid.uuid4().hex[:16]
 
-        created_dummy_labels: set = set()
-
         try:
             sorted_ops = self._sort_operations(operations)
 
@@ -216,28 +213,19 @@ class AgeBulkLoadingStrategy:
             ]
             update_ops = [op for op in sorted_ops if op.op == "UPDATE"]
 
-            node_labels = {op.label for op in create_nodes if op.label}
-            edge_labels = {op.label for op in create_edges if op.label}
-
-            # Phase 1: Create dummy nodes/edges for new labels (needed for table creation)
-            created_dummy_labels = self._create_dummy_nodes(
-                client, node_labels, session_id
-            )
-            created_dummy_edge_labels = self._create_dummy_edges(
-                client, edge_labels, session_id
-            )
-
-            # Phase 2: Ensure indexes exist
+            # Phase 1: Ensure indexes exist
             if self._indexing_client is not None:
                 self._indexing_client.ensure_all_labels_indexed()
 
-            # Phase 3: Execute all operations in a single transaction
+            # Phase 2: Execute all operations in a single transaction
             conn = client.raw_connection
             total_batches = 0
 
             with conn.cursor() as cursor:
                 # Acquire advisory locks for all labels we'll modify
-                all_labels = node_labels | {op.label for op in create_edges if op.label}
+                all_labels = {op.label for op in create_nodes if op.label} | {
+                    op.label for op in create_edges if op.label
+                }
                 self._acquire_label_locks(cursor, graph_name, all_labels)
 
                 # Execute DELETEs first
@@ -300,12 +288,6 @@ class AgeBulkLoadingStrategy:
                 operations_applied=0,
                 errors=[str(e)],
             )
-        finally:
-            if created_dummy_labels or created_dummy_edge_labels:
-                try:
-                    self._cleanup_dummy_entities(client, session_id)
-                except Exception:
-                    pass
 
     def _sort_operations(
         self, operations: list[MutationOperation]
@@ -333,8 +315,12 @@ class AgeBulkLoadingStrategy:
 
     def _get_label_info(
         self, cursor: Any, graph_name: str, label: str
-    ) -> tuple[int, str]:
-        """Get label_id and sequence name for a label."""
+    ) -> tuple[int, str] | None:
+        """Get label_id and sequence name for a label.
+
+        Returns:
+            Tuple of (label_id, seq_name) if label exists, None otherwise
+        """
         cursor.execute(
             """
             SELECT l.id, l.seq_name
@@ -346,111 +332,73 @@ class AgeBulkLoadingStrategy:
         )
         row = cursor.fetchone()
         if not row:
-            raise ValueError(f"Label '{label}' not found in graph '{graph_name}'")
+            return None
         return (row[0], row[1])
 
-    def _create_dummy_nodes(
-        self,
-        client: GraphClientProtocol,
-        labels: set[str],
-        session_id: str,
-    ) -> set[str]:
-        """Create dummy nodes to pre-create label tables for indexing."""
-        created_labels: set[str] = set()
-        timestamp = datetime.now(timezone.utc).isoformat()
+    def _create_label_with_first_entity(
+        self, cursor: Any, graph_name: str, label: str, entity_id: str, properties: dict
+    ) -> None:
+        """Create a new node label by inserting the first entity via Cypher.
 
-        for label in labels:
-            result = client.execute_cypher(f"MATCH (n:{label}) RETURN n LIMIT 1")
-            if result.row_count > 0:
-                continue
+        This uses Cypher (via cursor) to create the first entity, which causes
+        AGE to automatically create the label table, sequence, and metadata.
+        Executes within the current transaction context.
 
-            dummy_id = f"_dummy_{session_id}_{label}"
-            client.execute_cypher(
-                f"CREATE (n:{label} {{"
-                f"id: '{dummy_id}', "
-                f"_kartograph_dummy: true, "
-                f"_kartograph_session_id: '{session_id}', "
-                f"_kartograph_created_at: '{timestamp}'"
-                f"}})"
-            )
-            created_labels.add(label)
-
-        return created_labels
-
-    def _create_dummy_edges(
-        self,
-        client: GraphClientProtocol,
-        labels: set[str],
-        session_id: str,
-    ) -> set[str]:
-        """Create dummy edges to pre-create edge label tables.
-
-        Creates a temporary edge for each edge label that doesn't exist yet.
-        This requires two dummy nodes to connect, which are also created
-        and marked for cleanup.
+        Args:
+            cursor: Database cursor (within transaction)
+            graph_name: Graph name
+            label: Label to create
+            entity_id: ID of first entity
+            properties: Properties for first entity
         """
-        created_labels: set[str] = set()
-        timestamp = datetime.now(timezone.utc).isoformat()
+        import json
 
-        for label in labels:
-            # Check if edge label already exists
-            result = client.execute_cypher(f"MATCH ()-[r:{label}]->() RETURN r LIMIT 1")
-            if result.row_count > 0:
-                continue
+        # Build Cypher CREATE statement
+        props_str = json.dumps(properties).replace("'", "\\'")
+        cypher = f"CREATE (n:{label} {props_str})"
 
-            # Create two dummy nodes and connect them with the edge label
-            dummy_src_id = f"_dummy_edge_src_{session_id}_{label}"
-            dummy_tgt_id = f"_dummy_edge_tgt_{session_id}_{label}"
-            dummy_edge_id = f"_dummy_edge_{session_id}_{label}"
+        # Wrap in AGE's cypher() function and execute via cursor
+        # This stays in the transaction unlike client.execute_cypher()
+        sql = f"SELECT * FROM cypher('{graph_name}', $$ {cypher} $$) AS (result agtype)"
+        cursor.execute(sql)
 
-            # Create source and target dummy nodes, then the edge between them
-            client.execute_cypher(
-                f"CREATE (src:_DummyNode {{"
-                f"id: '{dummy_src_id}', "
-                f"_kartograph_dummy: true, "
-                f"_kartograph_session_id: '{session_id}', "
-                f"_kartograph_created_at: '{timestamp}'"
-                f"}})"
-                f"-[r:{label} {{"
-                f"id: '{dummy_edge_id}', "
-                f"_kartograph_dummy: true, "
-                f"_kartograph_session_id: '{session_id}', "
-                f"_kartograph_created_at: '{timestamp}'"
-                f"}}]->"
-                f"(tgt:_DummyNode {{"
-                f"id: '{dummy_tgt_id}', "
-                f"_kartograph_dummy: true, "
-                f"_kartograph_session_id: '{session_id}', "
-                f"_kartograph_created_at: '{timestamp}'"
-                f"}})"
-            )
-            created_labels.add(label)
+    def _create_edge_label_with_first_entity(
+        self,
+        cursor: Any,
+        graph_name: str,
+        label: str,
+        edge_id: str,
+        start_id: str,
+        end_id: str,
+        properties: dict,
+    ) -> None:
+        """Create a new edge label by inserting the first edge via Cypher.
 
-        return created_labels
+        This uses Cypher (via cursor) to create the first edge, which causes
+        AGE to automatically create the edge label table, sequence, and metadata.
+        Executes within the current transaction context.
 
-    def _cleanup_dummy_entities(
-        self, client: GraphClientProtocol, session_id: str
-    ) -> int:
-        """Delete all dummy entities (nodes and edges) created by this session."""
-        # First delete edges with the session_id
-        client.execute_cypher(
-            f"MATCH ()-[r {{_kartograph_session_id: '{session_id}'}}]->() "
-            f"WHERE r._kartograph_dummy = true "
-            f"DELETE r"
-        )
+        Args:
+            cursor: Database cursor (within transaction)
+            graph_name: Graph name
+            label: Edge label to create
+            edge_id: ID of first edge
+            start_id: Start node ID
+            end_id: End node ID
+            properties: Properties for first edge
+        """
+        import json
 
-        # Then delete nodes with the session_id (including _DummyNode nodes)
-        result = client.execute_cypher(
-            f"MATCH (n {{_kartograph_session_id: '{session_id}'}}) "
-            f"WHERE n._kartograph_dummy = true "
-            f"DETACH DELETE n "
-            f"RETURN count(n) as deleted"
-        )
-        if result.rows and result.rows[0]:
-            deleted = result.rows[0][0]
-            if isinstance(deleted, int):
-                return deleted
-        return 0
+        # Build Cypher CREATE statement
+        props_str = json.dumps(properties).replace("'", "\\'")
+        cypher = f"""
+        MATCH (src {{id: '{start_id}'}}), (tgt {{id: '{end_id}'}})
+        CREATE (src)-[r:{label} {props_str}]->(tgt)
+        """
+
+        # Wrap in AGE's cypher() function and execute via cursor
+        sql = f"SELECT * FROM cypher('{graph_name}', $$ {cypher} $$) AS (result agtype)"
+        cursor.execute(sql)
 
     def _execute_node_creates(
         self,
@@ -478,7 +426,36 @@ class AgeBulkLoadingStrategy:
 
         for label in labels:
             batch_start = time.perf_counter()
-            label_id, seq_name = self._get_label_info(cursor, graph_name, label)
+
+            # Check if label exists, create if needed
+            label_info = self._get_label_info(cursor, graph_name, label)
+            first_entity_id = None  # Track if we created via Cypher
+            if label_info is None:
+                # Label doesn't exist - create it by inserting first entity via Cypher
+                cursor.execute(
+                    f"""
+                    SELECT id, properties
+                    FROM "{table_name}"
+                    WHERE label = %s
+                    LIMIT 1
+                    """,
+                    (label,),
+                )
+                first_row = cursor.fetchone()
+                if first_row:
+                    first_entity_id, first_props = first_row
+                    self._create_label_with_first_entity(
+                        cursor, graph_name, label, first_entity_id, first_props
+                    )
+                    # Now get the label info
+                    label_info = self._get_label_info(cursor, graph_name, label)
+                    if label_info is None:
+                        raise ValueError(f"Failed to create label '{label}'")
+
+            if label_info is None:
+                raise ValueError(f"Label '{label}' not found in graph '{graph_name}'")
+
+            label_id, seq_name = label_info
 
             # Update existing nodes
             cursor.execute(
@@ -495,24 +472,44 @@ class AgeBulkLoadingStrategy:
             )
             updated = cursor.rowcount
 
-            # Insert new nodes
-            cursor.execute(
-                f"""
-                INSERT INTO "{graph_name}"."{label}" (id, properties)
-                SELECT
-                    ag_catalog._graphid(%s, nextval('"{graph_name}"."{seq_name}"')),
-                    (s.properties::text)::ag_catalog.agtype
-                FROM "{table_name}" AS s
-                WHERE s.label = %s
-                AND NOT EXISTS (
-                    SELECT 1 FROM "{graph_name}"."{label}" AS t
-                    WHERE ag_catalog.agtype_object_field_text_agtype(
-                        t.properties, '"id"'::ag_catalog.agtype
-                    ) = s.id
+            # Insert new nodes (skip first entity if we created it via Cypher)
+            if first_entity_id is not None:
+                cursor.execute(
+                    f"""
+                    INSERT INTO "{graph_name}"."{label}" (id, properties)
+                    SELECT
+                        ag_catalog._graphid(%s, nextval('"{graph_name}"."{seq_name}"')),
+                        (s.properties::text)::ag_catalog.agtype
+                    FROM "{table_name}" AS s
+                    WHERE s.label = %s
+                    AND s.id != %s
+                    AND NOT EXISTS (
+                        SELECT 1 FROM "{graph_name}"."{label}" AS t
+                        WHERE ag_catalog.agtype_object_field_text_agtype(
+                            t.properties, '"id"'::ag_catalog.agtype
+                        ) = s.id
+                    )
+                    """,
+                    (label_id, label, first_entity_id),
                 )
-                """,
-                (label_id, label),
-            )
+            else:
+                cursor.execute(
+                    f"""
+                    INSERT INTO "{graph_name}"."{label}" (id, properties)
+                    SELECT
+                        ag_catalog._graphid(%s, nextval('"{graph_name}"."{seq_name}"')),
+                        (s.properties::text)::ag_catalog.agtype
+                    FROM "{table_name}" AS s
+                    WHERE s.label = %s
+                    AND NOT EXISTS (
+                        SELECT 1 FROM "{graph_name}"."{label}" AS t
+                        WHERE ag_catalog.agtype_object_field_text_agtype(
+                            t.properties, '"id"'::ag_catalog.agtype
+                        ) = s.id
+                    )
+                    """,
+                    (label_id, label),
+                )
             inserted = cursor.rowcount
 
             batch_duration = (time.perf_counter() - batch_start) * 1000
@@ -552,7 +549,44 @@ class AgeBulkLoadingStrategy:
 
         for label in labels:
             batch_start = time.perf_counter()
-            label_id, seq_name = self._get_label_info(cursor, graph_name, label)
+
+            # Check if label exists, create if needed
+            label_info = self._get_label_info(cursor, graph_name, label)
+            first_edge_id = None  # Track if we created via Cypher
+            if label_info is None:
+                # Label doesn't exist - create it by inserting first edge via Cypher
+                cursor.execute(
+                    f"""
+                    SELECT id, start_id, end_id, properties
+                    FROM "{table_name}"
+                    WHERE label = %s
+                    LIMIT 1
+                    """,
+                    (label,),
+                )
+                first_row = cursor.fetchone()
+                if first_row:
+                    first_edge_id, start_id, end_id, first_props = first_row
+                    self._create_edge_label_with_first_entity(
+                        cursor,
+                        graph_name,
+                        label,
+                        first_edge_id,
+                        start_id,
+                        end_id,
+                        first_props,
+                    )
+                    # Now get the label info
+                    label_info = self._get_label_info(cursor, graph_name, label)
+                    if label_info is None:
+                        raise ValueError(f"Failed to create edge label '{label}'")
+
+            if label_info is None:
+                raise ValueError(
+                    f"Edge label '{label}' not found in graph '{graph_name}'"
+                )
+
+            label_id, seq_name = label_info
 
             # Update existing edges
             cursor.execute(
@@ -569,35 +603,65 @@ class AgeBulkLoadingStrategy:
             )
             updated = cursor.rowcount
 
-            # Insert new edges with graphid resolution
+            # Insert new edges with graphid resolution (skip first if created via Cypher)
             # Join against ALL vertex tables to find start/end nodes
-            cursor.execute(
-                f"""
-                INSERT INTO "{graph_name}"."{label}" (id, start_id, end_id, properties)
-                SELECT
-                    ag_catalog._graphid(%s, nextval('"{graph_name}"."{seq_name}"')),
-                    src.id,
-                    tgt.id,
-                    (s.properties::text)::ag_catalog.agtype
-                FROM "{table_name}" AS s
-                JOIN "{graph_name}"._ag_label_vertex AS src
-                    ON ag_catalog.agtype_object_field_text_agtype(
-                        src.properties, '"id"'::ag_catalog.agtype
-                    ) = s.start_id
-                JOIN "{graph_name}"._ag_label_vertex AS tgt
-                    ON ag_catalog.agtype_object_field_text_agtype(
-                        tgt.properties, '"id"'::ag_catalog.agtype
-                    ) = s.end_id
-                WHERE s.label = %s
-                AND NOT EXISTS (
-                    SELECT 1 FROM "{graph_name}"."{label}" AS e
-                    WHERE ag_catalog.agtype_object_field_text_agtype(
-                        e.properties, '"id"'::ag_catalog.agtype
-                    ) = s.id
+            if first_edge_id is not None:
+                cursor.execute(
+                    f"""
+                    INSERT INTO "{graph_name}"."{label}" (id, start_id, end_id, properties)
+                    SELECT
+                        ag_catalog._graphid(%s, nextval('"{graph_name}"."{seq_name}"')),
+                        src.id,
+                        tgt.id,
+                        (s.properties::text)::ag_catalog.agtype
+                    FROM "{table_name}" AS s
+                    JOIN "{graph_name}"._ag_label_vertex AS src
+                        ON ag_catalog.agtype_object_field_text_agtype(
+                            src.properties, '"id"'::ag_catalog.agtype
+                        ) = s.start_id
+                    JOIN "{graph_name}"._ag_label_vertex AS tgt
+                        ON ag_catalog.agtype_object_field_text_agtype(
+                            tgt.properties, '"id"'::ag_catalog.agtype
+                        ) = s.end_id
+                    WHERE s.label = %s
+                    AND s.id != %s
+                    AND NOT EXISTS (
+                        SELECT 1 FROM "{graph_name}"."{label}" AS e
+                        WHERE ag_catalog.agtype_object_field_text_agtype(
+                            e.properties, '"id"'::ag_catalog.agtype
+                        ) = s.id
+                    )
+                    """,
+                    (label_id, label, first_edge_id),
                 )
-                """,
-                (label_id, label),
-            )
+            else:
+                cursor.execute(
+                    f"""
+                    INSERT INTO "{graph_name}"."{label}" (id, start_id, end_id, properties)
+                    SELECT
+                        ag_catalog._graphid(%s, nextval('"{graph_name}"."{seq_name}"')),
+                        src.id,
+                        tgt.id,
+                        (s.properties::text)::ag_catalog.agtype
+                    FROM "{table_name}" AS s
+                    JOIN "{graph_name}"._ag_label_vertex AS src
+                        ON ag_catalog.agtype_object_field_text_agtype(
+                            src.properties, '"id"'::ag_catalog.agtype
+                        ) = s.start_id
+                    JOIN "{graph_name}"._ag_label_vertex AS tgt
+                        ON ag_catalog.agtype_object_field_text_agtype(
+                            tgt.properties, '"id"'::ag_catalog.agtype
+                        ) = s.end_id
+                    WHERE s.label = %s
+                    AND NOT EXISTS (
+                        SELECT 1 FROM "{graph_name}"."{label}" AS e
+                        WHERE ag_catalog.agtype_object_field_text_agtype(
+                            e.properties, '"id"'::ag_catalog.agtype
+                        ) = s.id
+                    )
+                    """,
+                    (label_id, label),
+                )
             inserted = cursor.rowcount
 
             batch_duration = (time.perf_counter() - batch_start) * 1000

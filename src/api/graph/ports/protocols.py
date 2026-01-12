@@ -148,7 +148,9 @@ class GraphClientProtocol(
         ...
 
     def ensure_label_index(self, label: str) -> bool:
-        """Ensure an index exists on the id property for a label.
+        """Ensure a GIN index exists on properties for a label.
+
+        Legacy method - prefer ensure_label_indexes for comprehensive indexing.
 
         Args:
             label: The label name
@@ -159,7 +161,9 @@ class GraphClientProtocol(
         ...
 
     def ensure_labels_indexed(self, labels: set[str]) -> int:
-        """Ensure indexes exist for multiple labels.
+        """Ensure GIN indexes exist for multiple labels.
+
+        Legacy method - prefer ensure_label_indexes for comprehensive indexing.
 
         Args:
             labels: Set of label names to index
@@ -169,8 +173,28 @@ class GraphClientProtocol(
         """
         ...
 
+    def ensure_label_indexes(self, label: str, kind: str = "v") -> int:
+        """Ensure all recommended indexes exist for a label.
+
+        Creates comprehensive indexes following best practices:
+        - BTREE on id column (graphid) for fast vertex/edge lookups
+        - GIN on properties column for property-based queries
+        - BTREE on properties.id for logical ID lookups
+        - For edges: BTREE on start_id and end_id for join performance
+
+        Args:
+            label: The label name (e.g., 'person', 'knows')
+            kind: 'v' for vertex labels, 'e' for edge labels
+
+        Returns:
+            Number of new indexes created
+        """
+        ...
+
     def ensure_all_labels_indexed(self) -> int:
         """Ensure indexes exist for ALL labels in the graph.
+
+        Creates comprehensive indexes for both vertex and edge labels.
 
         Returns:
             Number of new indexes created

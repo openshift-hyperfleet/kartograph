@@ -220,17 +220,147 @@ class AgeGraphClient(GraphClientProtocol):
                 created += 1
         return created
 
+    def ensure_label_indexes(self, label: str, kind: str = "v") -> int:
+        """Ensure all recommended indexes exist for a label.
+
+        Creates comprehensive indexes following Microsoft Azure best practices:
+        - BTREE on id column (graphid) for fast vertex/edge lookups
+        - GIN on properties column for property-based queries
+        - BTREE on properties.id for logical ID lookups via agtype_access_operator
+        - For edges: BTREE on start_id and end_id for join performance
+
+        Args:
+            label: The label name (e.g., 'person', 'knows')
+            kind: 'v' for vertex labels, 'e' for edge labels
+
+        Returns:
+            Number of new indexes created
+
+        Raises:
+            DatabaseConnectionError: If not connected to database
+            ValueError: If label name is invalid
+
+        References:
+            - https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/generative-ai-age-performance
+            - https://github.com/apache/age/issues/2176
+        """
+        if not self.is_connected():
+            raise DatabaseConnectionError("Not connected to database")
+
+        # Validate label name (prevent SQL injection)
+        if not label.replace("_", "").isalnum():
+            raise ValueError(f"Invalid label name: {label}")
+
+        with self._connection.cursor() as cursor:
+            # Check if the label table exists
+            cursor.execute(
+                """
+                SELECT 1 FROM ag_catalog.ag_label
+                WHERE graph = (SELECT graphid FROM ag_catalog.ag_graph WHERE name = %s)
+                AND name = %s
+                """,
+                (self._graph_name, label),
+            )
+            if cursor.fetchone() is None:
+                # Label doesn't exist yet
+                return 0
+
+            # Define indexes to create
+            indexes = []
+
+            # BTREE on id column (graphid) - critical for all labels
+            indexes.append(
+                {
+                    "name": f"idx_{self._graph_name}_{label}_id_btree",
+                    "sql": f'CREATE INDEX IF NOT EXISTS "idx_{self._graph_name}_{label}_id_btree" '
+                    f'ON "{self._graph_name}"."{label}" USING BTREE (id)',
+                }
+            )
+
+            # GIN on properties column - for property-based queries
+            indexes.append(
+                {
+                    "name": f"idx_{self._graph_name}_{label}_props_gin",
+                    "sql": f'CREATE INDEX IF NOT EXISTS "idx_{self._graph_name}_{label}_props_gin" '
+                    f'ON "{self._graph_name}"."{label}" USING GIN (properties)',
+                }
+            )
+
+            # BTREE on properties.id - for logical ID lookups
+            # Uses agtype_access_operator for efficient access to specific property
+            indexes.append(
+                {
+                    "name": f"idx_{self._graph_name}_{label}_prop_id_btree",
+                    "sql": f'CREATE INDEX IF NOT EXISTS "idx_{self._graph_name}_{label}_prop_id_btree" '
+                    f'ON "{self._graph_name}"."{label}" USING BTREE ('
+                    f"agtype_access_operator(VARIADIC ARRAY[properties, '\"id\"'::agtype]))",
+                }
+            )
+
+            # Edge-specific indexes
+            if kind == "e":
+                # BTREE on start_id - for join performance
+                indexes.append(
+                    {
+                        "name": f"idx_{self._graph_name}_{label}_start_id_btree",
+                        "sql": f'CREATE INDEX IF NOT EXISTS "idx_{self._graph_name}_{label}_start_id_btree" '
+                        f'ON "{self._graph_name}"."{label}" USING BTREE (start_id)',
+                    }
+                )
+                # BTREE on end_id - for join performance
+                indexes.append(
+                    {
+                        "name": f"idx_{self._graph_name}_{label}_end_id_btree",
+                        "sql": f'CREATE INDEX IF NOT EXISTS "idx_{self._graph_name}_{label}_end_id_btree" '
+                        f'ON "{self._graph_name}"."{label}" USING BTREE (end_id)',
+                    }
+                )
+
+            created = 0
+            for idx in indexes:
+                # Check if index already exists
+                cursor.execute(
+                    """
+                    SELECT 1 FROM pg_indexes
+                    WHERE schemaname = %s AND indexname = %s
+                    """,
+                    (self._graph_name, idx["name"]),
+                )
+                if cursor.fetchone() is not None:
+                    continue
+
+                # Create the index
+                cursor.execute(idx["sql"])
+                created += 1
+                self._probe.query_executed(
+                    query=f"CREATE INDEX {idx['name']}", row_count=0
+                )
+
+            if created > 0:
+                self._connection.commit()
+
+            # Track that this label has been fully indexed
+            self._indexed_labels.add(label)
+
+            return created
+
     def ensure_all_labels_indexed(self) -> int:
-        """Ensure indexes exist for ALL vertex labels in the graph.
+        """Ensure indexes exist for ALL labels in the graph.
 
-        This is important for edge operations that MATCH nodes without
-        specifying labels - AGE needs to scan all vertex tables, and
-        having indexes on all of them dramatically improves performance.
+        Creates comprehensive indexes for both vertex and edge labels.
+        This is critical for performance - without indexes, MATCH operations
+        do full table scans which is extremely slow for large graphs.
 
-        Note: Edge labels are not indexed because AGE edge tables have a
-        different structure (properties stored as agtype, not JSONB).
-        Edge lookups by id are rare since edges are typically accessed
-        through their connected nodes.
+        For vertex labels:
+        - BTREE on id (graphid column)
+        - GIN on properties
+        - BTREE on properties.id (logical ID)
+
+        For edge labels:
+        - BTREE on id (graphid column)
+        - BTREE on start_id and end_id (for joins)
+        - GIN on properties
+        - BTREE on properties.id (logical ID)
 
         Returns:
             Number of new indexes created
@@ -239,19 +369,23 @@ class AgeGraphClient(GraphClientProtocol):
             raise DatabaseConnectionError("Not connected to database")
 
         with self._connection.cursor() as cursor:
-            # Get all vertex labels in this graph
-            # Skip edge labels - they have different table structure
+            # Get all labels in this graph with their kind (vertex or edge)
             cursor.execute(
                 """
-                SELECT name FROM ag_catalog.ag_label
+                SELECT name, kind FROM ag_catalog.ag_label
                 WHERE graph = (SELECT graphid FROM ag_catalog.ag_graph WHERE name = %s)
-                AND kind = 'v'
+                AND name NOT LIKE '_ag_label%%'
                 """,
                 (self._graph_name,),
             )
-            labels = {row[0] for row in cursor.fetchall()}
+            labels = [(row[0], row[1]) for row in cursor.fetchall()]
 
-        return self.ensure_labels_indexed(labels)
+        total_created = 0
+        for label_name, kind in labels:
+            created = self.ensure_label_indexes(label_name, kind=kind)
+            total_created += created
+
+        return total_created
 
     def disconnect(self) -> None:
         """Close the database connection and return it to the pool."""

@@ -51,9 +51,6 @@ async def apply_mutations(
     {"op": "CREATE", "type": "edge", "id": "knows:9f8e7d6c5b4a3210", "label": "knows", "start_id": "person:1a2b3c4d5e6f7890", "end_id": "person:abcdef0123456789", "set_properties": {"since": 2020, "data_source_id": "ds-123", "source_path": "people/alice.md"}}
     {"op": "DEFINE","type": "node","label": "person","description": "A person entity representing an individual contributor, maintainer, or team member. Extracted from MAINTAINERS.md, git commit authors, @-mentions in pull requests, and people/ directory markdown files.","required_properties": ["name"]}
     {"op": "DEFINE","type": "edge","label": "knows","description": "Represents a professional relationship or acquaintance between two people, typically colleagues or collaborators. Extracted from co-authorship on pull requests, shared repository maintainership, or explicit mentions in people profiles.","required_properties": ["since"]}
-    {"op": "CREATE","type": "node","id": "person:1a2b3c4d5e6f7890","label": "person","set_properties": {"slug": "alice-smith","name": "Alice Smith","data_source_id": "ds-123","source_path": "people/alice.md"}}
-    {"op": "CREATE","type": "node","id": "person:abcdef0123456789","label": "person","set_properties": {"slug": "bob-jones","name": "Bob Jones","data_source_id": "ds-123","source_path": "people/bob.md"}}
-    {"op": "CREATE","type": "edge","id": "knows:9f8e7d6c5b4a3210","label": "knows","start_id": "person:1a2b3c4d5e6f7890","end_id": "person:abcdef0123456789","set_properties": {"since": "2020","data_source_id": "ds-123","source_path": "people/alice.md"}}
     ```
 
 

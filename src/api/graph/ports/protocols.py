@@ -150,6 +150,18 @@ class GraphClientProtocol(
         """The name of the graph being operated on."""
         ...
 
+    @property
+    def raw_connection(self) -> Any:
+        """Get raw database connection for bulk operations like COPY.
+
+        Warning: Use with caution. Direct connection access bypasses
+        normal query execution paths and security wrappers.
+
+        Returns:
+            The underlying database connection object.
+        """
+        ...
+
 
 class GraphIndexingProtocol(Protocol):
     """Protocol for graph database index management.

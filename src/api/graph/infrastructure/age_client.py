@@ -91,6 +91,18 @@ class AgeGraphClient(GraphClientProtocol):
             raise ValueError("No active connection. Call connect() first.")
         return self._current_connection
 
+    @property
+    def raw_connection(self):
+        """Get raw database connection for bulk operations like COPY.
+
+        Warning: Use with caution. Direct connection access bypasses
+        normal query execution paths and security wrappers.
+
+        Returns:
+            The underlying psycopg2 connection object.
+        """
+        return self._connection
+
     def connect(self) -> None:
         """Establish connection to the graph database."""
         if self._connection_factory is None:

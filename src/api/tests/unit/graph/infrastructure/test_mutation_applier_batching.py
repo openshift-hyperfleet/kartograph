@@ -1,18 +1,30 @@
 """Unit tests for batched UNWIND mutation applier.
 
-Tests the performance-optimized batch processing that uses UNWIND
-to reduce round-trips when applying large numbers of mutations.
+Tests the legacy helper methods on MutationApplier that are still
+available for backwards compatibility. The actual batching is now
+handled by AgeBulkLoadingStrategy.
 """
 
-from unittest.mock import ANY, MagicMock, Mock
+from unittest.mock import MagicMock, Mock
 
 
 from graph.domain.value_objects import (
     EntityType,
     MutationOperation,
     MutationOperationType,
+    MutationResult,
 )
 from graph.infrastructure.mutation_applier import MutationApplier
+
+
+def create_mock_strategy():
+    """Create a mock bulk loading strategy."""
+    mock_strategy = Mock()
+    mock_strategy.apply_batch.return_value = MutationResult(
+        success=True,
+        operations_applied=0,
+    )
+    return mock_strategy
 
 
 def create_mock_client_with_transaction():
@@ -24,7 +36,7 @@ def create_mock_client_with_transaction():
     - execute_cypher for dummy node checks (returns empty results)
 
     Returns:
-        Tuple of (mock_client, mock_tx, mock_indexing_client)
+        Tuple of (mock_client, mock_tx, mock_strategy)
     """
     mock_client = Mock()
     mock_client.graph_name = "test_graph"
@@ -42,12 +54,10 @@ def create_mock_client_with_transaction():
     mock_result.rows = []
     mock_client.execute_cypher.return_value = mock_result
 
-    # Create separate mock for indexing client (implements GraphIndexingProtocol)
-    mock_indexing_client = Mock()
-    mock_indexing_client.graph_name = "test_graph"
-    mock_indexing_client.ensure_all_labels_indexed.return_value = 0
+    # Create mock for bulk loading strategy
+    mock_strategy = create_mock_strategy()
 
-    return mock_client, mock_tx, mock_indexing_client
+    return mock_client, mock_tx, mock_strategy
 
 
 class TestBatchedQueryBuilding:
@@ -58,7 +68,9 @@ class TestBatchedQueryBuilding:
         mock_client = Mock()
         mock_client.graph_name = "test_graph"
 
-        applier = MutationApplier(client=mock_client, batch_size=100)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
         operations = [
             MutationOperation(
@@ -101,7 +113,9 @@ class TestBatchedQueryBuilding:
         mock_client = Mock()
         mock_client.graph_name = "test_graph"
 
-        applier = MutationApplier(client=mock_client, batch_size=100)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
         operations = [
             MutationOperation(
@@ -125,7 +139,9 @@ class TestBatchedQueryBuilding:
         mock_client = Mock()
         mock_client.graph_name = "test_graph"
 
-        applier = MutationApplier(client=mock_client, batch_size=100)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
         operations = [
             MutationOperation(
@@ -158,7 +174,9 @@ class TestBatchedQueryBuilding:
         mock_client = Mock()
         mock_client.graph_name = "test_graph"
 
-        applier = MutationApplier(client=mock_client, batch_size=100)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
         operations = [
             MutationOperation(
@@ -186,7 +204,9 @@ class TestBatchedQueryBuilding:
         mock_client = Mock()
         mock_client.graph_name = "test_graph"
 
-        applier = MutationApplier(client=mock_client, batch_size=100)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
         operations = [
             MutationOperation(
@@ -207,7 +227,9 @@ class TestBatchedQueryBuilding:
         mock_client = Mock()
         mock_client.graph_name = "test_graph"
 
-        applier = MutationApplier(client=mock_client, batch_size=100)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
         operations = [
             MutationOperation(
@@ -231,7 +253,9 @@ class TestBatchedQueryBuilding:
         mock_client = Mock()
         mock_client.graph_name = "test_graph"
 
-        applier = MutationApplier(client=mock_client, batch_size=100)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
         operations = [
             MutationOperation(
@@ -263,7 +287,9 @@ class TestOperationGrouping:
         mock_client = Mock()
         mock_client.graph_name = "test_graph"
 
-        applier = MutationApplier(client=mock_client, batch_size=100)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
         # Operations with same labels grouped together (consecutive)
         operations = [
@@ -311,7 +337,9 @@ class TestOperationGrouping:
         mock_client = Mock()
         mock_client.graph_name = "test_graph"
 
-        applier = MutationApplier(client=mock_client, batch_size=100)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
         operations = [
             MutationOperation(
@@ -348,7 +376,9 @@ class TestOperationGrouping:
         mock_client = Mock()
         mock_client.graph_name = "test_graph"
 
-        applier = MutationApplier(client=mock_client, batch_size=100)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
         operations = [
             MutationOperation(
@@ -377,7 +407,9 @@ class TestOperationGrouping:
         mock_client = Mock()
         mock_client.graph_name = "test_graph"
 
-        applier = MutationApplier(client=mock_client, batch_size=100)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
         operations = [
             MutationOperation(
@@ -404,11 +436,17 @@ class TestOperationGrouping:
 
 
 class TestBatchExecution:
-    """Tests for batched execution within transactions."""
+    """Tests for delegation to BulkLoadingStrategy."""
 
-    def test_executes_fewer_queries_than_operations(self):
-        """Should execute fewer queries than total operations."""
-        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
+    def test_delegates_to_strategy(self):
+        """Should delegate batch execution to the strategy."""
+        mock_client, mock_tx, mock_strategy = create_mock_client_with_transaction()
+
+        # Configure strategy to return success
+        mock_strategy.apply_batch.return_value = MutationResult(
+            success=True,
+            operations_applied=10,
+        )
 
         # Create 10 operations of the same type/label
         operations = [
@@ -426,109 +464,30 @@ class TestBatchExecution:
             for i in range(10)
         ]
 
-        applier = MutationApplier(client=mock_client, batch_size=100)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=mock_strategy
+        )
         result = applier.apply_batch(operations)
 
-        # Should execute only 1 query (all 10 in one UNWIND batch)
-        assert mock_tx.execute_cypher.call_count == 1
+        # Should delegate to strategy
+        mock_strategy.apply_batch.assert_called_once()
+
+        # Should pass all operations to strategy
+        call_kwargs = mock_strategy.apply_batch.call_args.kwargs
+        assert len(call_kwargs["operations"]) == 10
+
         assert result.success is True
         assert result.operations_applied == 10
 
-    def test_respects_batch_size_limit(self):
-        """Should split into multiple batches when exceeding batch_size."""
-        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
+    def test_passes_client_and_graph_name_to_strategy(self):
+        """Should pass client and graph_name to strategy."""
+        mock_client, mock_tx, mock_strategy = create_mock_client_with_transaction()
+        mock_client.graph_name = "my_graph"
 
-        # Create 25 operations with batch_size=10
-        operations = [
-            MutationOperation(
-                op=MutationOperationType.CREATE,
-                type=EntityType.NODE,
-                id=f"person:{i:016x}",
-                label="person",
-                set_properties={
-                    "slug": f"person-{i}",
-                    "data_source_id": "ds-123",
-                    "source_path": f"people/{i}.md",
-                },
-            )
-            for i in range(25)
-        ]
-
-        applier = MutationApplier(client=mock_client, batch_size=10)
-        result = applier.apply_batch(operations)
-
-        # Should execute 3 queries (10 + 10 + 5)
-        assert mock_tx.execute_cypher.call_count == 3
-        assert result.success is True
-        assert result.operations_applied == 25
-
-    def test_maintains_operation_order_across_types(self):
-        """Should maintain correct execution order: DELETE edges, DELETE nodes, CREATE nodes, CREATE edges, UPDATE."""
-        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
-
-        operations = [
-            # Deliberately mixed order
-            MutationOperation(
-                op=MutationOperationType.UPDATE,
-                type=EntityType.NODE,
-                id="person:1111111111111111",
-                set_properties={"name": "Updated"},
-            ),
-            MutationOperation(
-                op=MutationOperationType.CREATE,
-                type=EntityType.EDGE,
-                id="knows:2222222222222222",
-                label="knows",
-                start_id="person:aaaaaaaaaaaaaaaa",
-                end_id="person:bbbbbbbbbbbbbbbb",
-                set_properties={
-                    "data_source_id": "ds-123",
-                    "source_path": "test.md",
-                },
-            ),
-            MutationOperation(
-                op=MutationOperationType.DELETE,
-                type=EntityType.NODE,
-                id="person:3333333333333333",
-            ),
-            MutationOperation(
-                op=MutationOperationType.CREATE,
-                type=EntityType.NODE,
-                id="person:4444444444444444",
-                label="person",
-                set_properties={
-                    "slug": "new",
-                    "data_source_id": "ds-123",
-                    "source_path": "test.md",
-                },
-            ),
-            MutationOperation(
-                op=MutationOperationType.DELETE,
-                type=EntityType.EDGE,
-                id="knows:5555555555555555",
-            ),
-        ]
-
-        applier = MutationApplier(client=mock_client, batch_size=100)
-        applier.apply_batch(operations)
-
-        # Extract executed queries
-        executed_queries = [
-            call.args[0] for call in mock_tx.execute_cypher.call_args_list
-        ]
-
-        # Verify order: DELETE edge, DELETE node, CREATE node, CREATE edge, UPDATE node
-        assert "DELETE r" in executed_queries[0]  # DELETE edge first
-        assert "DETACH DELETE n" in executed_queries[1]  # DELETE node second
-        assert "MERGE (n:person" in executed_queries[2]  # CREATE node third
-        assert "MERGE (source)-[r:knows" in executed_queries[3]  # CREATE edge fourth
-        assert "SET n.`name`" in executed_queries[4]  # UPDATE node fifth
-
-    def test_transaction_rollback_on_failure(self):
-        """Should rollback entire transaction if any batch fails."""
-        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
-        # Fail on second execute
-        mock_tx.execute_cypher.side_effect = [None, Exception("Database error")]
+        mock_strategy.apply_batch.return_value = MutationResult(
+            success=True,
+            operations_applied=1,
+        )
 
         operations = [
             MutationOperation(
@@ -542,20 +501,46 @@ class TestBatchExecution:
                     "source_path": "people/alice.md",
                 },
             ),
+        ]
+
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=mock_strategy
+        )
+        applier.apply_batch(operations)
+
+        # Should pass client and graph_name to strategy
+        call_kwargs = mock_strategy.apply_batch.call_args.kwargs
+        assert call_kwargs["client"] == mock_client
+        assert call_kwargs["graph_name"] == "my_graph"
+
+    def test_returns_strategy_failure_result(self):
+        """Should return failure result from strategy."""
+        mock_client, mock_tx, mock_strategy = create_mock_client_with_transaction()
+
+        # Configure strategy to return failure
+        mock_strategy.apply_batch.return_value = MutationResult(
+            success=False,
+            operations_applied=0,
+            errors=["Database error"],
+        )
+
+        operations = [
             MutationOperation(
                 op=MutationOperationType.CREATE,
                 type=EntityType.NODE,
-                id="organization:def456abc123789b",
-                label="organization",  # Different label = different batch
+                id="person:abc123def456789a",
+                label="person",
                 set_properties={
-                    "slug": "acme",
+                    "slug": "alice",
                     "data_source_id": "ds-123",
-                    "source_path": "orgs/acme.md",
+                    "source_path": "people/alice.md",
                 },
             ),
         ]
 
-        applier = MutationApplier(client=mock_client, batch_size=100)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=mock_strategy
+        )
         result = applier.apply_batch(operations)
 
         assert result.success is False
@@ -563,61 +548,18 @@ class TestBatchExecution:
         assert "Database error" in result.errors[0]
 
 
-class TestBatchSizeConfiguration:
-    """Tests for batch size configuration."""
-
-    def test_default_batch_size(self):
-        """Should use default batch size when not specified."""
-        mock_client = Mock()
-        mock_client.graph_name = "test_graph"
-
-        applier = MutationApplier(client=mock_client)
-
-        assert applier._batch_size == MutationApplier.DEFAULT_BATCH_SIZE
-
-    def test_custom_batch_size(self):
-        """Should use custom batch size when specified."""
-        mock_client = Mock()
-        mock_client.graph_name = "test_graph"
-
-        applier = MutationApplier(client=mock_client, batch_size=500)
-
-        assert applier._batch_size == 500
-
-    def test_batch_size_of_one_degrades_to_individual(self):
-        """Batch size of 1 should still work (no optimization)."""
-        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
-
-        operations = [
-            MutationOperation(
-                op=MutationOperationType.CREATE,
-                type=EntityType.NODE,
-                id=f"person:{i:016x}",
-                label="person",
-                set_properties={
-                    "slug": f"person-{i}",
-                    "data_source_id": "ds-123",
-                    "source_path": f"people/{i}.md",
-                },
-            )
-            for i in range(3)
-        ]
-
-        applier = MutationApplier(client=mock_client, batch_size=1)
-        result = applier.apply_batch(operations)
-
-        # Should execute 3 separate queries
-        assert mock_tx.execute_cypher.call_count == 3
-        assert result.success is True
-
-
 class TestObservability:
-    """Tests for observability probes with batched operations."""
+    """Tests for observability probes passed to strategy."""
 
-    def test_emits_batch_probe_events(self):
-        """Should emit probe events for batches, not individual operations."""
-        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
+    def test_passes_probe_to_strategy(self):
+        """Should pass probe to strategy for observability."""
+        mock_client, mock_tx, mock_strategy = create_mock_client_with_transaction()
         mock_probe = Mock()
+
+        mock_strategy.apply_batch.return_value = MutationResult(
+            success=True,
+            operations_applied=10,
+        )
 
         operations = [
             MutationOperation(
@@ -634,60 +576,42 @@ class TestObservability:
             for i in range(10)
         ]
 
-        applier = MutationApplier(client=mock_client, batch_size=100, probe=mock_probe)
+        applier = MutationApplier(
+            client=mock_client,
+            bulk_loading_strategy=mock_strategy,
+            probe=mock_probe,
+        )
         applier.apply_batch(operations)
 
-        # Should emit one batch event, not 10 individual events
-        mock_probe.batch_applied.assert_called_once_with(
-            operation=MutationOperationType.CREATE,
-            entity_type=EntityType.NODE,
-            label="person",
-            count=10,
-            duration_ms=ANY,
-        )
-
-        # Should emit apply_batch_completed event
-        mock_probe.apply_batch_completed.assert_called_once_with(
-            total_operations=10,
-            total_batches=1,
-            duration_ms=ANY,
-            success=True,
-        )
+        # Should pass probe to strategy
+        call_kwargs = mock_strategy.apply_batch.call_args.kwargs
+        assert call_kwargs["probe"] == mock_probe
 
 
 class TestUpdateWithRemoveProperties:
-    """Tests for UPDATE operations with remove_properties."""
+    """Tests for UPDATE operations with remove_properties via legacy helpers."""
 
-    def test_update_with_remove_falls_back_to_individual(self):
-        """UPDATE with remove_properties should use individual queries."""
-        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
+    def test_build_update_with_remove_query(self):
+        """Legacy _build_update should generate REMOVE clause."""
+        mock_client = Mock()
+        mock_client.graph_name = "test_graph"
 
-        operations = [
-            MutationOperation(
-                op=MutationOperationType.UPDATE,
-                type=EntityType.NODE,
-                id="person:abc123def456789a",
-                remove_properties=["old_field"],
-            ),
-            MutationOperation(
-                op=MutationOperationType.UPDATE,
-                type=EntityType.NODE,
-                id="person:def456abc123789a",
-                set_properties={"name": "Bob"},  # This one can be batched
-            ),
-        ]
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
-        applier = MutationApplier(client=mock_client, batch_size=100)
-        applier.apply_batch(operations)
+        operation = MutationOperation(
+            op=MutationOperationType.UPDATE,
+            type=EntityType.NODE,
+            id="person:abc123def456789a",
+            remove_properties=["old_field"],
+        )
 
-        # The remove operation should be executed individually
-        executed_queries = [
-            call.args[0] for call in mock_tx.execute_cypher.call_args_list
-        ]
+        query = applier._build_update(operation)
 
-        # Should have at least one REMOVE query
-        remove_queries = [q for q in executed_queries if "REMOVE" in q]
-        assert len(remove_queries) >= 1
+        # Should have REMOVE clause
+        assert "REMOVE" in query
+        assert "old_field" in query
 
 
 class TestSpecialCharacterHandling:
@@ -698,7 +622,9 @@ class TestSpecialCharacterHandling:
         mock_client = Mock()
         mock_client.graph_name = "test_graph"
 
-        applier = MutationApplier(client=mock_client, batch_size=100)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
         operations = [
             MutationOperation(
@@ -721,7 +647,9 @@ class TestSpecialCharacterHandling:
         mock_client = Mock()
         mock_client.graph_name = "test_graph"
 
-        applier = MutationApplier(client=mock_client, batch_size=100)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
         operations = [
             MutationOperation(

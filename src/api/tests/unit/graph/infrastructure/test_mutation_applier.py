@@ -1,14 +1,29 @@
 """Unit tests for MutationApplier infrastructure component."""
 
-from unittest.mock import ANY, MagicMock, Mock
+from unittest.mock import MagicMock, Mock
 
 
 from graph.domain.value_objects import (
     EntityType,
     MutationOperation,
     MutationOperationType,
+    MutationResult,
 )
 from graph.infrastructure.mutation_applier import MutationApplier
+
+
+def create_mock_strategy():
+    """Create a mock bulk loading strategy.
+
+    Returns:
+        Mock strategy that returns success result
+    """
+    mock_strategy = Mock()
+    mock_strategy.apply_batch.return_value = MutationResult(
+        success=True,
+        operations_applied=0,
+    )
+    return mock_strategy
 
 
 def create_mock_client_with_transaction():
@@ -20,7 +35,7 @@ def create_mock_client_with_transaction():
     - execute_cypher for dummy node checks (returns empty results)
 
     Returns:
-        Tuple of (mock_client, mock_tx, mock_indexing_client)
+        Tuple of (mock_client, mock_tx, mock_strategy)
     """
     mock_client = Mock()
     mock_client.graph_name = "test_graph"
@@ -38,16 +53,18 @@ def create_mock_client_with_transaction():
     mock_result.rows = []
     mock_client.execute_cypher.return_value = mock_result
 
-    # Create separate mock for indexing client (implements GraphIndexingProtocol)
-    mock_indexing_client = Mock()
-    mock_indexing_client.graph_name = "test_graph"
-    mock_indexing_client.ensure_all_labels_indexed.return_value = 0
+    # Create mock for bulk loading strategy
+    mock_strategy = create_mock_strategy()
 
-    return mock_client, mock_tx, mock_indexing_client
+    return mock_client, mock_tx, mock_strategy
 
 
 class TestMutationApplierQueryBuilding:
-    """Tests for Cypher query building logic."""
+    """Tests for Cypher query building logic.
+
+    These tests verify the legacy query building methods that are still
+    available on MutationApplier for backwards compatibility.
+    """
 
     def test_build_create_node_query(self):
         """Should build MERGE query for CREATE node operation."""
@@ -64,7 +81,9 @@ class TestMutationApplierQueryBuilding:
             },
         )
 
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
         query = applier._build_query(mutation)
 
         assert query is not None
@@ -94,7 +113,9 @@ class TestMutationApplierQueryBuilding:
             },
         )
 
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
         query = applier._build_query(mutation)
 
         assert query is not None
@@ -121,7 +142,9 @@ class TestMutationApplierQueryBuilding:
             },
         )
 
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
         query = applier._build_query(mutation)
 
         assert query is not None
@@ -141,7 +164,9 @@ class TestMutationApplierQueryBuilding:
             remove_properties=["middle_name", "old_email"],
         )
 
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
         query = applier._build_query(mutation)
 
         assert query is not None
@@ -160,7 +185,9 @@ class TestMutationApplierQueryBuilding:
             remove_properties=["nickname"],
         )
 
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
         query = applier._build_query(mutation)
 
         assert query is not None
@@ -178,7 +205,9 @@ class TestMutationApplierQueryBuilding:
             id="person:abc123def456789a",
         )
 
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
         query = applier._build_query(mutation)
 
         assert query is not None
@@ -195,7 +224,9 @@ class TestMutationApplierQueryBuilding:
             id="knows:abc123def456789a",
         )
 
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
         query = applier._build_query(mutation)
 
         assert query is not None
@@ -213,7 +244,9 @@ class TestMutationApplierQueryBuilding:
             set_properties={"since": 2020},
         )
 
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
         query = applier._build_query(mutation)
 
         assert query is not None
@@ -232,7 +265,9 @@ class TestMutationApplierQueryBuilding:
             remove_properties=["old_field", "temp_prop"],
         )
 
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
         query = applier._build_query(mutation)
 
         assert query is not None
@@ -244,34 +279,44 @@ class TestMutationApplierQueryBuilding:
 
     def test_format_string_value(self):
         """Should properly escape string values."""
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
 
         assert applier._format_value("test") == "'test'"
         assert applier._format_value("it's") == "'it\\'s'"
 
     def test_format_numeric_value(self):
         """Should format numeric values without quotes."""
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
 
         assert applier._format_value(42) == "42"
         assert applier._format_value(3.14) == "3.14"
 
     def test_format_boolean_value(self):
         """Should format boolean values as lowercase."""
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
 
         assert applier._format_value(True) == "true"
         assert applier._format_value(False) == "false"
 
     def test_format_none_value(self):
         """Should format None as null."""
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
 
         assert applier._format_value(None) == "null"
 
     def test_format_list_value(self):
         """Should format list values as Cypher arrays."""
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
 
         assert applier._format_value(["a", "b", "c"]) == "['a', 'b', 'c']"
         assert applier._format_value([1, 2, 3]) == "[1, 2, 3]"
@@ -279,7 +324,9 @@ class TestMutationApplierQueryBuilding:
 
     def test_format_list_with_special_characters(self):
         """Should escape special characters in list items."""
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
 
         result = applier._format_value(["it's", 'a "test"'])
         assert result == "['\\'s', 'a \"test\"']" or "it\\'s" in result
@@ -290,7 +337,9 @@ class TestMutationApplierQueryBuilding:
         AGE has issues with map keys containing special characters like '-' or '.',
         so we normalize dicts to arrays.
         """
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
 
         result = applier._format_value({"-t": "Tag option", ".": "Current dir"})
         # Dict is converted to array of "key: value" strings
@@ -300,7 +349,9 @@ class TestMutationApplierQueryBuilding:
 
     def test_format_nested_list(self):
         """Should handle nested lists."""
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
 
         result = applier._format_value([["a", "b"], ["c"]])
         assert result == "[['a', 'b'], ['c']]"
@@ -367,7 +418,9 @@ class TestMutationApplierBatchExecution:
             ),
         ]
 
-        applier = MutationApplier(client=Mock())
+        applier = MutationApplier(
+            client=Mock(), bulk_loading_strategy=create_mock_strategy()
+        )
         sorted_ops = applier._sort_operations(operations)
 
         # Verify order: DEFINE, DELETE edge, DELETE node, CREATE node, CREATE edge, UPDATE node, UPDATE edge
@@ -398,8 +451,8 @@ class TestMutationApplierBatchExecution:
         )
 
     def test_apply_batch_success(self):
-        """Should apply all operations in a transaction."""
-        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
+        """Should apply all operations by delegating to strategy."""
+        mock_client, mock_tx, mock_strategy = create_mock_client_with_transaction()
 
         operations = [
             MutationOperation(
@@ -422,24 +475,35 @@ class TestMutationApplierBatchExecution:
             ),
         ]
 
-        applier = MutationApplier(client=mock_client, indexing_client=mock_indexing)
+        # Configure strategy to return success
+        mock_strategy.apply_batch.return_value = MutationResult(
+            success=True,
+            operations_applied=2,
+        )
+
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=mock_strategy
+        )
         result = applier.apply_batch(operations)
 
-        # Should use transaction context manager
-        mock_client.transaction.assert_called_once()
+        # Should delegate to strategy
+        mock_strategy.apply_batch.assert_called_once()
 
-        # Should execute both operations
-        assert mock_tx.execute_cypher.call_count == 2
-
-        # Should return success result
+        # Should return success result from strategy
         assert result.success is True
         assert result.operations_applied == 2
         assert result.errors == []
 
-    def test_apply_batch_failure_rolls_back(self):
-        """Should rollback transaction on failure."""
-        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
-        mock_tx.execute_cypher.side_effect = Exception("Database error")
+    def test_apply_batch_failure_returns_error(self):
+        """Should return failure when strategy fails."""
+        mock_client, mock_tx, mock_strategy = create_mock_client_with_transaction()
+
+        # Configure strategy to return failure
+        mock_strategy.apply_batch.return_value = MutationResult(
+            success=False,
+            operations_applied=0,
+            errors=["Database error"],
+        )
 
         operations = [
             MutationOperation(
@@ -449,18 +513,21 @@ class TestMutationApplierBatchExecution:
             ),
         ]
 
-        applier = MutationApplier(client=mock_client, indexing_client=mock_indexing)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=mock_strategy
+        )
         result = applier.apply_batch(operations)
 
-        # Should return failure result
+        # Should return failure result from strategy
         assert result.success is False
         assert result.operations_applied == 0
         assert len(result.errors) == 1
         assert "Database error" in result.errors[0]
 
     def test_apply_batch_validates_operations(self):
-        """Should validate operations before applying."""
+        """Should validate operations before delegating to strategy."""
         mock_client = Mock()
+        mock_strategy = create_mock_strategy()
 
         # Invalid operation (missing label for CREATE)
         operations = [
@@ -476,7 +543,9 @@ class TestMutationApplierBatchExecution:
             ),
         ]
 
-        applier = MutationApplier(client=mock_client)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=mock_strategy
+        )
         result = applier.apply_batch(operations)
 
         # Should fail validation before executing
@@ -484,24 +553,33 @@ class TestMutationApplierBatchExecution:
         assert result.operations_applied == 0
         assert len(result.errors) > 0
 
+        # Strategy should NOT be called if validation fails
+        mock_strategy.apply_batch.assert_not_called()
+
     def test_apply_empty_batch(self):
         """Should handle empty operation list."""
         mock_client = Mock()
+        mock_strategy = create_mock_strategy()
 
-        applier = MutationApplier(client=mock_client)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=mock_strategy
+        )
         result = applier.apply_batch([])
 
         assert result.success is True
         assert result.operations_applied == 0
         assert result.errors == []
 
+        # Strategy should NOT be called for empty batch
+        mock_strategy.apply_batch.assert_not_called()
+
 
 class TestMutationApplierObservability:
     """Tests for domain-oriented observability."""
 
-    def test_emits_probe_events(self):
-        """Should emit batch probe events for mutations."""
-        mock_client, mock_tx, mock_indexing = create_mock_client_with_transaction()
+    def test_passes_probe_to_strategy(self):
+        """Should pass probe to strategy for observability."""
+        mock_client, mock_tx, mock_strategy = create_mock_client_with_transaction()
         mock_probe = Mock()
 
         operations = [
@@ -519,24 +597,20 @@ class TestMutationApplierObservability:
             ),
         ]
 
+        # Configure strategy to return success
+        mock_strategy.apply_batch.return_value = MutationResult(
+            success=True,
+            operations_applied=1,
+        )
+
         applier = MutationApplier(
-            client=mock_client, probe=mock_probe, indexing_client=mock_indexing
+            client=mock_client,
+            bulk_loading_strategy=mock_strategy,
+            probe=mock_probe,
         )
         applier.apply_batch(operations)
 
-        # Should emit batch probe event with timing
-        mock_probe.batch_applied.assert_called_once_with(
-            operation=MutationOperationType.CREATE,
-            entity_type=EntityType.NODE,
-            label="person",
-            count=1,
-            duration_ms=ANY,
-        )
-
-        # Should emit apply_batch_completed event
-        mock_probe.apply_batch_completed.assert_called_once_with(
-            total_operations=1,
-            total_batches=1,
-            duration_ms=ANY,
-            success=True,
-        )
+        # Should pass probe to strategy
+        call_args = mock_strategy.apply_batch.call_args
+        assert call_args is not None
+        assert call_args.kwargs["probe"] == mock_probe

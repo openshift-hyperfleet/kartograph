@@ -1,26 +1,27 @@
 """Mutation applier for Graph bounded context.
 
-Applies mutation operations to the graph database in transactional batches.
-Uses Domain-Oriented Observability for tracking.
+Applies mutation operations to the graph database using a pluggable
+bulk loading strategy. Uses Domain-Oriented Observability for tracking.
 
-Performance optimization: Uses UNWIND for batch operations to minimize
-round-trips when applying large numbers of mutations.
+The MutationApplier is a thin coordinator that:
+1. Validates operations
+2. Delegates execution to a database-specific BulkLoadingStrategy
 
-Index optimization: For new labels, creates temporary dummy nodes to
-pre-create label tables, then creates indexes before the main transaction.
-This ensures MATCH operations use indexes even on first insert.
+Different strategies optimize for their target database:
+- AgeBulkLoadingStrategy: PostgreSQL COPY + staging tables for AGE
+- Neo4jBulkLoadingStrategy (future): Large UNWIND batches
 """
 
 from __future__ import annotations
 
-import time
-import uuid
 from datetime import datetime, timezone
 from typing import Any, TypedDict
 
 from graph.domain.value_objects import EntityType, MutationOperation, MutationResult
-from graph.infrastructure.observability import DefaultMutationProbe, MutationProbe
-from graph.ports.protocols import GraphClientProtocol, GraphIndexingProtocol
+from graph.infrastructure.observability import DefaultMutationProbe
+from graph.ports.bulk_loading import BulkLoadingStrategy
+from graph.ports.observability import MutationProbe
+from graph.ports.protocols import GraphClientProtocol
 
 
 class OperationGroup(TypedDict):
@@ -35,37 +36,28 @@ class OperationGroup(TypedDict):
 class MutationApplier:
     """Applies mutation operations to the graph database.
 
-    All operations are applied within a transaction for atomicity.
+    This is a thin coordinator that validates operations and delegates
+    execution to a database-specific BulkLoadingStrategy.
+
     Uses Domain-Oriented Observability for tracking.
-
-    Performance optimization: Operations are batched using UNWIND to
-    reduce database round-trips. A batch of 200 CREATE operations
-    executes as a single query instead of 200 separate queries.
     """
-
-    DEFAULT_BATCH_SIZE = 200
 
     def __init__(
         self,
         client: GraphClientProtocol,
+        bulk_loading_strategy: BulkLoadingStrategy,
         probe: MutationProbe | None = None,
-        batch_size: int | None = None,
-        indexing_client: GraphIndexingProtocol | None = None,
     ):
         """Initialize the mutation applier.
 
         Args:
             client: Graph database client for executing queries
+            bulk_loading_strategy: Database-specific strategy for bulk loading
             probe: Domain probe for observability (optional, defaults to DefaultMutationProbe)
-            batch_size: Maximum operations per UNWIND batch (default: 200)
-            indexing_client: Optional client for index management. If not provided,
-                indexing will be skipped. For AgeGraphClient, pass the same client
-                as it implements both protocols.
         """
         self._client = client
+        self._strategy = bulk_loading_strategy
         self._probe = probe or DefaultMutationProbe()
-        self._batch_size = batch_size or self.DEFAULT_BATCH_SIZE
-        self._indexing_client = indexing_client
 
     def _extract_labels(self, operations: list[MutationOperation]) -> set[str]:
         """Extract all unique labels from CREATE NODE operations.
@@ -153,20 +145,7 @@ class MutationApplier:
     ) -> MutationResult:
         """Apply a batch of mutations atomically.
 
-        All operations are executed within a single transaction. If any operation
-        fails, the entire batch is rolled back.
-
-        Operations are automatically sorted into the correct execution order:
-        1. DEFINE
-        2. DELETE <edge>
-        3. DELETE <node>
-        4. CREATE <node>
-        5. CREATE <edge>
-        6. UPDATE <node>
-        7. UPDATE <edge>
-
-        Performance: Operations of the same type are batched using UNWIND
-        to minimize database round-trips.
+        Validates operations and delegates execution to the bulk loading strategy.
 
         Args:
             operations: List of mutation operations to apply (order does not matter)
@@ -186,58 +165,15 @@ class MutationApplier:
                 operations_applied=0,
             )
 
-        start_time = time.perf_counter()
-        total_batches = 0
-        session_id = str(uuid.uuid4())
-        created_dummy_labels: set[str] = set()
-
+        # Validate all operations before executing
         try:
-            # Validate all operations before executing
             for op in operations:
                 op.validate_operation()
-
-            # Sort operations into correct execution order
-            sorted_ops = self._sort_operations(operations)
-
-            # Group operations for batching
-            groups = self._group_operations(sorted_ops)
-
-            # Extract labels from operations to ensure they exist for indexing
-            labels = self._extract_labels(operations)
-
-            # Phase 1: Create dummy nodes for new labels (outside main transaction)
-            # This creates the label tables in PostgreSQL so we can create indexes
-            created_dummy_labels = self._create_dummy_nodes(labels, session_id)
-
-            # Phase 2: Ensure all labels (existing + newly created) have indexes
-            # This is critical for performance - without indexes, MATCH operations
-            # do full table scans which is extremely slow for large graphs
-            if self._indexing_client is not None:
-                self._indexing_client.ensure_all_labels_indexed()
-
-            # Phase 3: Execute all batched operations in a transaction
-            with self._client.transaction() as tx:
-                for group in groups:
-                    total_batches += self._execute_group(tx, group)
-
-            duration_ms = (time.perf_counter() - start_time) * 1000
-            self._probe.apply_batch_completed(
-                total_operations=len(operations),
-                total_batches=total_batches,
-                duration_ms=duration_ms,
-                success=True,
-            )
-
-            return MutationResult(
-                success=True,
-                operations_applied=len(operations),
-            )
         except Exception as e:
-            duration_ms = (time.perf_counter() - start_time) * 1000
             self._probe.apply_batch_completed(
                 total_operations=len(operations),
-                total_batches=total_batches,
-                duration_ms=duration_ms,
+                total_batches=0,
+                duration_ms=0.0,
                 success=False,
             )
             return MutationResult(
@@ -245,16 +181,14 @@ class MutationApplier:
                 operations_applied=0,
                 errors=[str(e)],
             )
-        finally:
-            # Phase 4: Clean up dummy nodes (always, success or failure)
-            # This runs outside the main transaction to ensure cleanup happens
-            if created_dummy_labels:
-                try:
-                    self._cleanup_dummy_nodes(session_id)
-                except Exception:
-                    # Log but don't fail - orphaned dummies can be cleaned up later
-                    # via _kartograph_dummy metadata
-                    pass
+
+        # Delegate to the bulk loading strategy
+        return self._strategy.apply_batch(
+            client=self._client,
+            operations=operations,
+            probe=self._probe,
+            graph_name=self._client.graph_name,
+        )
 
     def _sort_operations(
         self,
@@ -389,63 +323,7 @@ class MutationApplier:
 
         return groups
 
-    def _execute_group(self, tx: Any, group: OperationGroup) -> int:
-        """Execute a group of operations in batches.
-
-        Args:
-            tx: Transaction context
-            group: Group of operations to execute
-
-        Returns:
-            Number of batches executed
-        """
-        ops = group["operations"]
-        op_type = group["op"]
-        entity_type = group["entity_type"]
-        label = group["label"]
-        batch_count = 0
-
-        # Split into batches
-        for i in range(0, len(ops), self._batch_size):
-            batch = ops[i : i + self._batch_size]
-
-            # Build and execute the appropriate batch query
-            if op_type == "CREATE":
-                if entity_type == EntityType.NODE or entity_type == "node":
-                    query = self._build_batch_create_nodes(batch)
-                else:
-                    query = self._build_batch_create_edges(batch)
-            elif op_type == "DELETE":
-                if entity_type == EntityType.NODE or entity_type == "node":
-                    query = self._build_batch_delete_nodes(batch)
-                else:
-                    query = self._build_batch_delete_edges(batch)
-            elif op_type == "UPDATE":
-                if len(batch) == 1 and batch[0].remove_properties:
-                    # Individual UPDATE with REMOVE
-                    query = self._build_update(batch[0])
-                elif entity_type == EntityType.NODE or entity_type == "node":
-                    query = self._build_batch_update_nodes(batch)
-                else:
-                    query = self._build_batch_update_edges(batch)
-            else:
-                raise ValueError(f"Unknown operation type: {op_type}")
-
-            batch_start = time.perf_counter()
-            tx.execute_cypher(query)
-            batch_duration_ms = (time.perf_counter() - batch_start) * 1000
-
-            # Emit batch probe event with timing
-            self._probe.batch_applied(
-                operation=op_type,
-                entity_type=entity_type,
-                label=label,
-                count=len(batch),
-                duration_ms=batch_duration_ms,
-            )
-            batch_count += 1
-
-        return batch_count
+    # Legacy methods for backwards compatibility with existing tests
 
     def _build_batch_create_nodes(self, operations: list[MutationOperation]) -> str:
         """Build UNWIND query for batch node creation.

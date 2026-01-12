@@ -6,19 +6,32 @@ from graph.domain.value_objects import (
     EntityType,
     MutationOperation,
     MutationOperationType,
+    MutationResult,
 )
 from graph.infrastructure.mutation_applier import MutationApplier
 
 
+def create_mock_strategy():
+    """Create a mock bulk loading strategy."""
+    mock_strategy = Mock()
+    mock_strategy.apply_batch.return_value = MutationResult(
+        success=True,
+        operations_applied=0,
+    )
+    return mock_strategy
+
+
 class TestGraphIdStamping:
-    """Tests that MutationApplier automatically stamps graph_id."""
+    """Tests that MutationApplier legacy _build_create method stamps graph_id."""
 
     def test_create_node_includes_graph_id(self):
         """Should automatically add graph_id when creating nodes."""
         mock_client = Mock()
         mock_client.graph_name = "test_graph"
 
-        applier = MutationApplier(client=mock_client)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
         mutation = MutationOperation(
             op=MutationOperationType.CREATE,
@@ -43,7 +56,9 @@ class TestGraphIdStamping:
         mock_client = Mock()
         mock_client.graph_name = "test_graph"
 
-        applier = MutationApplier(client=mock_client)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
         mutation = MutationOperation(
             op=MutationOperationType.CREATE,
@@ -69,7 +84,9 @@ class TestGraphIdStamping:
         mock_client = Mock()
         mock_client.graph_name = "test_graph"
 
-        applier = MutationApplier(client=mock_client)
+        applier = MutationApplier(
+            client=mock_client, bulk_loading_strategy=create_mock_strategy()
+        )
 
         # CREATE operation without graph_id in set_properties
         mutation = MutationOperation(

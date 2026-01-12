@@ -240,14 +240,14 @@ class AgeBulkLoadingStrategy:
                 all_labels = node_labels | {op.label for op in create_edges if op.label}
                 self._acquire_label_locks(cursor, graph_name, all_labels)
 
-                # Execute DELETEs first (via Cypher - simpler and less frequent)
+                # Execute DELETEs first
                 if delete_edges:
                     total_batches += self._execute_deletes(
-                        client, delete_edges, EntityType.EDGE, probe
+                        cursor, delete_edges, EntityType.EDGE, probe, graph_name
                     )
                 if delete_nodes:
                     total_batches += self._execute_deletes(
-                        client, delete_nodes, EntityType.NODE, probe
+                        cursor, delete_nodes, EntityType.NODE, probe, graph_name
                     )
 
                 # Execute CREATEs using direct SQL
@@ -614,43 +614,71 @@ class AgeBulkLoadingStrategy:
 
     def _execute_deletes(
         self,
-        client: GraphClientProtocol,
+        cursor: Any,
         operations: list[MutationOperation],
         entity_type: EntityType,
         probe: MutationProbe,
+        graph_name: str,
     ) -> int:
-        """Execute DELETE operations using Cypher (simpler for deletes)."""
+        """Execute DELETE operations using direct SQL."""
         batches = 0
         for i in range(0, len(operations), self._batch_size):
             batch = operations[i : i + self._batch_size]
             batch_start = time.perf_counter()
 
-            ids = [f"{{id: '{op.id}'}}" for op in batch]
-            ids_str = ", ".join(ids)
+            # Build list of IDs to delete
+            ids = [op.id for op in batch]
 
             if entity_type == EntityType.NODE:
-                query = (
-                    f"WITH [{ids_str}] AS items "
-                    f"UNWIND items AS item "
-                    f"MATCH (n {{id: item.id}}) "
-                    f"DETACH DELETE n"
+                # Delete from parent vertex table (cascades to specific label tables)
+                # Note: DETACH DELETE equivalent - first delete connected edges
+                cursor.execute(
+                    f"""
+                    DELETE FROM "{graph_name}"._ag_label_edge
+                    WHERE start_id IN (
+                        SELECT id FROM "{graph_name}"._ag_label_vertex
+                        WHERE ag_catalog.agtype_object_field_text_agtype(
+                            properties, '"id"'::ag_catalog.agtype
+                        ) = ANY(%s)
+                    ) OR end_id IN (
+                        SELECT id FROM "{graph_name}"._ag_label_vertex
+                        WHERE ag_catalog.agtype_object_field_text_agtype(
+                            properties, '"id"'::ag_catalog.agtype
+                        ) = ANY(%s)
+                    )
+                    """,
+                    (ids, ids),
+                )
+                # Then delete the nodes themselves
+                cursor.execute(
+                    f"""
+                    DELETE FROM "{graph_name}"._ag_label_vertex
+                    WHERE ag_catalog.agtype_object_field_text_agtype(
+                        properties, '"id"'::ag_catalog.agtype
+                    ) = ANY(%s)
+                    """,
+                    (ids,),
                 )
             else:
-                query = (
-                    f"WITH [{ids_str}] AS items "
-                    f"UNWIND items AS item "
-                    f"MATCH ()-[r {{id: item.id}}]->() "
-                    f"DELETE r"
+                # Delete edges
+                cursor.execute(
+                    f"""
+                    DELETE FROM "{graph_name}"._ag_label_edge
+                    WHERE ag_catalog.agtype_object_field_text_agtype(
+                        properties, '"id"'::ag_catalog.agtype
+                    ) = ANY(%s)
+                    """,
+                    (ids,),
                 )
 
-            client.execute_cypher(query)
+            deleted = cursor.rowcount
             batch_duration = (time.perf_counter() - batch_start) * 1000
 
             probe.batch_applied(
                 operation="DELETE",
                 entity_type=str(entity_type),
                 label=None,
-                count=len(batch),
+                count=deleted,
                 duration_ms=batch_duration,
             )
             batches += 1

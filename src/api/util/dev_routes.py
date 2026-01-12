@@ -145,6 +145,31 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
       margin-top: 8px;
       font-style: italic;
     }
+    #edgeTooltip {
+      position: fixed;
+      background: rgba(20, 20, 20, 0.95);
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      pointer-events: none;
+      z-index: 2000;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      border: 1px solid #333;
+      max-width: 300px;
+    }
+    #edgeTooltip.visible { display: block; }
+    #edgeTooltip .edge-type {
+      color: #4fc3f7;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    #edgeTooltip .edge-nodes {
+      color: #888;
+      font-size: 11px;
+      margin-top: 4px;
+    }
   </style>
 </head>
 <body>
@@ -173,6 +198,11 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
   
   <div id="loading">Loading graph data...</div>
 
+  <div id="edgeTooltip">
+    <div class="edge-type"></div>
+    <div class="edge-nodes"></div>
+  </div>
+
   <script type="module">
     import { Cosmograph, prepareCosmographData } from 'https://esm.sh/@cosmograph/cosmograph@2.0.1';
     
@@ -183,12 +213,55 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
     const metadataPanel = document.getElementById('metadata');
     const metadataTitle = document.getElementById('metadataTitle');
     const metadataTable = document.getElementById('metadataTable');
-    
+    const edgeTooltip = document.getElementById('edgeTooltip');
+    const edgeTooltipType = edgeTooltip.querySelector('.edge-type');
+    const edgeTooltipNodes = edgeTooltip.querySelector('.edge-nodes');
+
     let cosmograph = null;
     let isPaused = false;
     let rawNodes = [];  // Keep raw node data for metadata lookup
     let rawEdges = [];  // Keep raw edge data
     let pinnedNodeIndex = null;  // Track pinned node for click
+    let mouseX = 0;  // Track mouse position for edge tooltip
+    let mouseY = 0;
+
+    // Track mouse position globally for edge tooltip placement
+    document.addEventListener('mousemove', (e) => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+      // Update tooltip position if visible
+      if (edgeTooltip.classList.contains('visible')) {
+        edgeTooltip.style.left = (mouseX + 12) + 'px';
+        edgeTooltip.style.top = (mouseY + 12) + 'px';
+      }
+    });
+
+    // Build a map from node ID to node data for quick lookup
+    let nodeIdToData = {};
+
+    function showEdgeTooltip(edge) {
+      if (!edge) {
+        edgeTooltip.classList.remove('visible');
+        return;
+      }
+
+      // Get source and target node labels
+      const sourceNode = nodeIdToData[edge.source];
+      const targetNode = nodeIdToData[edge.target];
+      const sourceLabel = sourceNode ? (sourceNode.label || sourceNode.id) : edge.source;
+      const targetLabel = targetNode ? (targetNode.label || targetNode.id) : edge.target;
+
+      edgeTooltipType.textContent = edge.type || 'unknown';
+      edgeTooltipNodes.textContent = sourceLabel + ' → ' + targetLabel;
+
+      edgeTooltip.style.left = (mouseX + 12) + 'px';
+      edgeTooltip.style.top = (mouseY + 12) + 'px';
+      edgeTooltip.classList.add('visible');
+    }
+
+    function hideEdgeTooltip() {
+      edgeTooltip.classList.remove('visible');
+    }
     
     function showMetadata(node, pinned = false) {
       if (!node) {
@@ -227,9 +300,15 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
     
     async function initGraph(data) {
       loading.textContent = 'Preparing data...';
-      
+
       rawNodes = data.nodes;
       rawEdges = data.edges;
+
+      // Build node ID lookup map for edge tooltip
+      nodeIdToData = {};
+      rawNodes.forEach(node => {
+        nodeIdToData[node.id] = node;
+      });
       
       const nodeCount = data.nodes.length;
       const edgeCount = data.edges.length;
@@ -261,6 +340,8 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
           linkSourceBy: 'source',
           linkTargetsBy: ['target'],
         },
+        pointSizeBy: "degree",
+        pointSizeRange: [1, 100],
       };
       
       statusEl.textContent = 'Preparing graph data...';
@@ -288,12 +369,18 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
           points: preparedPoints,
           links: preparedLinks,
           backgroundColor: '#0a0a0a',
-          pointSize: 4,
+
           linkWidth: 0.5,
           linkArrows: false,
           linkColor: '#555555',
+          // Link hover effects (v2.5+)
+          hoveredLinkColor: '#4fc3f7',
+          hoveredLinkWidthIncrease: 3,
+          hoveredLinkCursor: 'pointer',
+          // Point hover/focus effects
           hoveredPointRingColor: '#ffffff',
           focusedPointRingColor: '#4fc3f7',
+          // Simulation parameters
           simulationGravity: 0.1,
           simulationRepulsion: 1.0,
           simulationLinkSpring: 0.5,
@@ -315,6 +402,21 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
             if (index !== undefined && index !== null && rawNodes[index]) {
               pinnedNodeIndex = index;
               showMetadata(rawNodes[index], true);
+            }
+          },
+          // Edge hover - show tooltip with relationship type (v2.5+)
+          onLinkMouseOver: (linkIndex) => {
+            if (linkIndex !== undefined && linkIndex !== null && rawEdges[linkIndex]) {
+              showEdgeTooltip(rawEdges[linkIndex]);
+            }
+          },
+          onLinkMouseOut: () => {
+            hideEdgeTooltip();
+          },
+          // Edge click - could pin edge details in the future
+          onLinkClick: (linkIndex) => {
+            if (linkIndex !== undefined && linkIndex !== null && rawEdges[linkIndex]) {
+              console.log('Clicked edge:', rawEdges[linkIndex]);
             }
           },
         });

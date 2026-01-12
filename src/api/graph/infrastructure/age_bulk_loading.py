@@ -45,7 +45,7 @@ class StagingTableManager:
         return table_name
 
     def create_edge_staging_table(self, cursor: Any, session_id: str) -> str:
-        """Create a temporary staging table for edges."""
+        """Create a temporary staging table for edges with graphid resolution columns."""
         table_name = f"_staging_edges_{session_id}"
         cursor.execute(
             f"""
@@ -54,6 +54,8 @@ class StagingTableManager:
                 label TEXT NOT NULL,
                 start_id TEXT NOT NULL,
                 end_id TEXT NOT NULL,
+                start_graphid ag_catalog.graphid,
+                end_graphid ag_catalog.graphid,
                 properties JSONB NOT NULL
             ) ON COMMIT DROP
             """
@@ -122,6 +124,35 @@ class StagingTableManager:
         """Fetch distinct labels from staging table."""
         cursor.execute(f'SELECT DISTINCT label FROM "{table_name}"')
         return [row[0] for row in cursor.fetchall()]
+
+    def resolve_edge_graphids(
+        self, cursor: Any, table_name: str, graph_name: str
+    ) -> None:
+        """Resolve start_id and end_id to graphids in a single batch operation.
+
+        This updates the staging table's start_graphid and end_graphid columns
+        by looking up the actual graphids from _ag_label_vertex. This is much
+        faster than joining on every INSERT.
+
+        Edges with unresolvable node IDs will have NULL graphids and be skipped
+        during INSERT.
+        """
+        cursor.execute(
+            f"""
+            UPDATE "{table_name}" AS s
+            SET
+                start_graphid = v_src.id,
+                end_graphid = v_tgt.id
+            FROM "{graph_name}"._ag_label_vertex AS v_src,
+                 "{graph_name}"._ag_label_vertex AS v_tgt
+            WHERE ag_catalog.agtype_object_field_text_agtype(
+                      v_src.properties, '"id"'::ag_catalog.agtype
+                  ) = s.start_id
+              AND ag_catalog.agtype_object_field_text_agtype(
+                      v_tgt.properties, '"id"'::ag_catalog.agtype
+                  ) = s.end_id
+            """
+        )
 
     def check_for_duplicate_ids(
         self, cursor: Any, table_name: str, entity_type: str, probe: Any
@@ -542,6 +573,9 @@ class AgeBulkLoadingStrategy:
             cursor, table_name, operations, graph_name
         )
 
+        # Pre-resolve graphids in a single batch operation (major performance win)
+        staging_manager.resolve_edge_graphids(cursor, table_name, graph_name)
+
         # Check for duplicates and fail fast
         staging_manager.check_for_duplicate_ids(cursor, table_name, "edge", probe)
 
@@ -603,28 +637,22 @@ class AgeBulkLoadingStrategy:
             )
             updated = cursor.rowcount
 
-            # Insert new edges with graphid resolution (skip first if created via Cypher)
-            # Join against ALL vertex tables to find start/end nodes
+            # Insert new edges using pre-resolved graphids (skip first if created via Cypher)
+            # This is much faster than joining on every INSERT
             if first_edge_id is not None:
                 cursor.execute(
                     f"""
                     INSERT INTO "{graph_name}"."{label}" (id, start_id, end_id, properties)
                     SELECT
                         ag_catalog._graphid(%s, nextval('"{graph_name}"."{seq_name}"')),
-                        src.id,
-                        tgt.id,
+                        s.start_graphid,
+                        s.end_graphid,
                         (s.properties::text)::ag_catalog.agtype
                     FROM "{table_name}" AS s
-                    JOIN "{graph_name}"._ag_label_vertex AS src
-                        ON ag_catalog.agtype_object_field_text_agtype(
-                            src.properties, '"id"'::ag_catalog.agtype
-                        ) = s.start_id
-                    JOIN "{graph_name}"._ag_label_vertex AS tgt
-                        ON ag_catalog.agtype_object_field_text_agtype(
-                            tgt.properties, '"id"'::ag_catalog.agtype
-                        ) = s.end_id
                     WHERE s.label = %s
                     AND s.id != %s
+                    AND s.start_graphid IS NOT NULL
+                    AND s.end_graphid IS NOT NULL
                     AND NOT EXISTS (
                         SELECT 1 FROM "{graph_name}"."{label}" AS e
                         WHERE ag_catalog.agtype_object_field_text_agtype(
@@ -640,19 +668,13 @@ class AgeBulkLoadingStrategy:
                     INSERT INTO "{graph_name}"."{label}" (id, start_id, end_id, properties)
                     SELECT
                         ag_catalog._graphid(%s, nextval('"{graph_name}"."{seq_name}"')),
-                        src.id,
-                        tgt.id,
+                        s.start_graphid,
+                        s.end_graphid,
                         (s.properties::text)::ag_catalog.agtype
                     FROM "{table_name}" AS s
-                    JOIN "{graph_name}"._ag_label_vertex AS src
-                        ON ag_catalog.agtype_object_field_text_agtype(
-                            src.properties, '"id"'::ag_catalog.agtype
-                        ) = s.start_id
-                    JOIN "{graph_name}"._ag_label_vertex AS tgt
-                        ON ag_catalog.agtype_object_field_text_agtype(
-                            tgt.properties, '"id"'::ag_catalog.agtype
-                        ) = s.end_id
                     WHERE s.label = %s
+                    AND s.start_graphid IS NOT NULL
+                    AND s.end_graphid IS NOT NULL
                     AND NOT EXISTS (
                         SELECT 1 FROM "{graph_name}"."{label}" AS e
                         WHERE ag_catalog.agtype_object_field_text_agtype(

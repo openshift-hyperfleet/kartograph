@@ -221,6 +221,8 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
     let isPaused = false;
     let rawNodes = [];  // Keep raw node data for metadata lookup
     let rawEdges = [];  // Keep raw edge data
+    let linksForTooltip = [];  // Links array in same order as passed to Cosmograph
+    let preparedLinksRef = null;  // Reference to prepared links for index lookup
     let pinnedNodeIndex = null;  // Track pinned node for click
     let mouseX = 0;  // Track mouse position for edge tooltip
     let mouseY = 0;
@@ -251,7 +253,7 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
       const sourceLabel = sourceNode ? (sourceNode.label || sourceNode.id) : edge.source;
       const targetLabel = targetNode ? (targetNode.label || targetNode.id) : edge.target;
 
-      edgeTooltipType.textContent = edge.type || 'unknown';
+      edgeTooltipType.textContent = edge.edgeType || edge.type || 'unknown';
       edgeTooltipNodes.textContent = sourceLabel + ' → ' + targetLabel;
 
       edgeTooltip.style.left = (mouseX + 12) + 'px';
@@ -328,6 +330,9 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
         target: e.target,
         edgeType: e.type || 'unknown',
       }));
+
+      // Store links for tooltip lookup (same order as passed to Cosmograph)
+      linksForTooltip = links;
       
       // Prepare data using Cosmograph Data Kit
       const dataConfig = {
@@ -354,7 +359,10 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
         }
         
         const { points: preparedPoints, links: preparedLinks, cosmographConfig } = result;
-        
+
+        // Store prepared links as array for tooltip lookup
+        preparedLinksRef = Array.from(preparedLinks);
+
         loading.style.display = 'none';
         statusEl.textContent = 'Running simulation...';
         
@@ -404,20 +412,29 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
               showMetadata(rawNodes[index], true);
             }
           },
-          // Edge hover - show tooltip with relationship type (v2.5+)
+          // Edge hover - show tooltip with relationship type
           onLinkMouseOver: (linkIndex) => {
-            if (linkIndex !== undefined && linkIndex !== null && rawEdges[linkIndex]) {
-              showEdgeTooltip(rawEdges[linkIndex]);
+            const link = preparedLinksRef?.[linkIndex];
+            if (link) {
+              // Use sourceidx/targetidx for point indices
+              const sourceNode = rawNodes[link.sourceidx];
+              const targetNode = rawNodes[link.targetidx];
+
+              if (sourceNode && targetNode) {
+                // Find the edge type by matching source/target IDs
+                const matchingLink = linksForTooltip.find(l =>
+                  l.source === sourceNode.id && l.target === targetNode.id
+                );
+                showEdgeTooltip({
+                  source: sourceNode.id,
+                  target: targetNode.id,
+                  edgeType: matchingLink?.edgeType || 'unknown'
+                });
+              }
             }
           },
           onLinkMouseOut: () => {
             hideEdgeTooltip();
-          },
-          // Edge click - could pin edge details in the future
-          onLinkClick: (linkIndex) => {
-            if (linkIndex !== undefined && linkIndex !== null && rawEdges[linkIndex]) {
-              console.log('Clicked edge:', rawEdges[linkIndex]);
-            }
           },
         });
         

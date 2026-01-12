@@ -1,9 +1,9 @@
 """Integration tests for AGE bulk loading strategy.
 
 These tests verify that the bulk loading strategy correctly handles:
-1. Idempotency - duplicate operations in the same batch should not create duplicates
+1. Duplicate detection - duplicate IDs in a batch should raise an error
 2. Edge label pre-creation - edge tables should be created even on empty databases
-3. Concurrent safety - advisory locks should prevent race conditions
+3. Idempotency across batches - running the same batch twice is safe
 """
 
 import pytest
@@ -19,13 +19,13 @@ from graph.infrastructure.observability import DefaultMutationProbe
 
 
 @pytest.mark.integration
-class TestBulkLoadingIdempotency:
-    """Tests for idempotent CREATE operations."""
+class TestBulkLoadingDuplicateDetection:
+    """Tests for duplicate ID detection within a batch."""
 
-    def test_duplicate_node_ids_in_same_batch_creates_single_node(
+    def test_duplicate_node_ids_in_same_batch_raises_error(
         self, clean_graph: AgeGraphClient
     ):
-        """Duplicate node IDs in same batch should create only one node."""
+        """Duplicate node IDs in same batch should raise an error."""
         strategy = AgeBulkLoadingStrategy()
         probe = DefaultMutationProbe()
 
@@ -64,19 +64,15 @@ class TestBulkLoadingIdempotency:
             graph_name=clean_graph.graph_name,
         )
 
-        assert result.success is True
+        assert result.success is False
+        assert len(result.errors) == 1
+        assert "Duplicate IDs found in batch" in result.errors[0]
+        assert "person:aaaa111122223333" in result.errors[0]
 
-        # Verify only one node was created
-        query_result = clean_graph.execute_cypher(
-            "MATCH (n:person {id: 'person:aaaa111122223333'}) RETURN count(n) as cnt"
-        )
-        count = query_result.rows[0][0]
-        assert count == 1, f"Expected 1 node, got {count}"
-
-    def test_duplicate_edge_ids_in_same_batch_creates_single_edge(
+    def test_duplicate_edge_ids_in_same_batch_raises_error(
         self, clean_graph: AgeGraphClient
     ):
-        """Duplicate edge IDs in same batch should create only one edge."""
+        """Duplicate edge IDs in same batch should raise an error."""
         strategy = AgeBulkLoadingStrategy()
         probe = DefaultMutationProbe()
 
@@ -152,14 +148,15 @@ class TestBulkLoadingIdempotency:
             graph_name=clean_graph.graph_name,
         )
 
-        assert result.success is True
+        assert result.success is False
+        assert len(result.errors) == 1
+        assert "Duplicate IDs found in batch" in result.errors[0]
+        assert "knows:cccc111122223333" in result.errors[0]
 
-        # Verify only one edge was created
-        query_result = clean_graph.execute_cypher(
-            "MATCH ()-[r:knows {id: 'knows:cccc111122223333'}]->() RETURN count(r) as cnt"
-        )
-        count = query_result.rows[0][0]
-        assert count == 1, f"Expected 1 edge, got {count}"
+
+@pytest.mark.integration
+class TestBulkLoadingIdempotency:
+    """Tests for idempotent operations across batches."""
 
     def test_repeated_batch_is_idempotent(self, clean_graph: AgeGraphClient):
         """Running the same batch twice should not create duplicates."""

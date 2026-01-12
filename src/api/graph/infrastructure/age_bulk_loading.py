@@ -124,6 +124,37 @@ class StagingTableManager:
         cursor.execute(f'SELECT DISTINCT label FROM "{table_name}"')
         return [row[0] for row in cursor.fetchall()]
 
+    def check_for_duplicate_ids(
+        self, cursor: Any, table_name: str, entity_type: str, probe: Any
+    ) -> None:
+        """Check for duplicate IDs in staging table and raise error if found.
+
+        Args:
+            cursor: Database cursor
+            table_name: Staging table name
+            entity_type: Type of entity ("node" or "edge")
+            probe: Mutation probe for observability
+
+        Raises:
+            ValueError: If duplicate IDs are found in the batch
+        """
+        cursor.execute(
+            f"""
+            SELECT id, COUNT(*) as cnt
+            FROM "{table_name}"
+            GROUP BY id
+            HAVING COUNT(*) > 1
+            """
+        )
+        duplicates = cursor.fetchall()
+        if duplicates:
+            duplicate_ids = [row[0] for row in duplicates]
+            probe.duplicate_ids_detected(duplicate_ids, entity_type)
+            raise ValueError(
+                f"Duplicate IDs found in batch: {', '.join(duplicate_ids)}. "
+                f"Each operation must have a unique ID."
+            )
+
 
 class AgeBulkLoadingStrategy:
     """AGE-specific bulk loading strategy using direct SQL INSERT.
@@ -439,6 +470,9 @@ class AgeBulkLoadingStrategy:
             cursor, table_name, operations, graph_name
         )
 
+        # Check for duplicates and fail fast
+        staging_manager.check_for_duplicate_ids(cursor, table_name, "node", probe)
+
         # Process each label
         labels = staging_manager.fetch_distinct_labels(cursor, table_name)
 
@@ -461,11 +495,11 @@ class AgeBulkLoadingStrategy:
             )
             updated = cursor.rowcount
 
-            # Insert new nodes (DISTINCT ON ensures idempotency for duplicate IDs in batch)
+            # Insert new nodes
             cursor.execute(
                 f"""
                 INSERT INTO "{graph_name}"."{label}" (id, properties)
-                SELECT DISTINCT ON (s.id)
+                SELECT
                     ag_catalog._graphid(%s, nextval('"{graph_name}"."{seq_name}"')),
                     (s.properties::text)::ag_catalog.agtype
                 FROM "{table_name}" AS s
@@ -511,6 +545,9 @@ class AgeBulkLoadingStrategy:
             cursor, table_name, operations, graph_name
         )
 
+        # Check for duplicates and fail fast
+        staging_manager.check_for_duplicate_ids(cursor, table_name, "edge", probe)
+
         labels = staging_manager.fetch_distinct_labels(cursor, table_name)
 
         for label in labels:
@@ -533,12 +570,11 @@ class AgeBulkLoadingStrategy:
             updated = cursor.rowcount
 
             # Insert new edges with graphid resolution
-            # DISTINCT ON ensures idempotency for duplicate IDs in batch
             # Join against ALL vertex tables to find start/end nodes
             cursor.execute(
                 f"""
                 INSERT INTO "{graph_name}"."{label}" (id, start_id, end_id, properties)
-                SELECT DISTINCT ON (s.id)
+                SELECT
                     ag_catalog._graphid(%s, nextval('"{graph_name}"."{seq_name}"')),
                     src.id,
                     tgt.id,

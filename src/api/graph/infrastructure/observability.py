@@ -221,3 +221,17 @@ class DefaultMutationProbe:
             success=success,
             **self._get_context_kwargs(),
         )
+
+    def duplicate_ids_detected(
+        self,
+        duplicate_ids: list[str],
+        entity_type: str,
+    ) -> None:
+        """Record that duplicate IDs were detected in a batch."""
+        self._logger.warning(
+            "mutation_duplicate_ids_detected",
+            duplicate_ids=duplicate_ids,
+            entity_type=entity_type,
+            count=len(duplicate_ids),
+            **self._get_context_kwargs(),
+        )

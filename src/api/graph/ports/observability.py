@@ -69,6 +69,19 @@ class MutationProbe(Protocol):
         """
         ...
 
+    def duplicate_ids_detected(
+        self,
+        duplicate_ids: list[str],
+        entity_type: str,
+    ) -> None:
+        """Record that duplicate IDs were detected in a batch.
+
+        Args:
+            duplicate_ids: List of IDs that appear more than once
+            entity_type: The entity type (node or edge)
+        """
+        ...
+
     def with_context(self, context: ObservationContext) -> MutationProbe:
         """Create a new probe with observation context bound."""
         ...

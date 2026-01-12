@@ -451,8 +451,10 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
         
       } catch (err) {
         console.error('Error preparing data:', err);
-        loading.textContent = 'Error: ' + err.message;
+        loading.innerHTML = '<div style="color: #f87171;">Error: ' + err.message + '</div>' +
+          '<div style="margin-top: 8px; font-size: 12px; color: #888;">Try refreshing (Ctrl+Shift+R)</div>';
         loading.style.display = 'block';
+        statusEl.textContent = 'Error loading graph';
       }
     }
     
@@ -583,9 +585,18 @@ def _fetch_graph_data(pool: ConnectionPool, graph_name: str) -> dict:
     Uses the same technique as the dump-graph-json.py script for speed.
     Returns data in format expected by the Cosmograph viewer.
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.info(f"Fetching graph data for graph: {graph_name}")
+
     conn = pool.get_connection()
     try:
         with conn.cursor() as cur:
+            # Ensure AGE extension is loaded for this connection
+            cur.execute("LOAD 'age';")
+            cur.execute("SET search_path = ag_catalog, '$user', public;")
+
             # Fetch nodes
             cur.execute(
                 f"SELECT * FROM cypher('{graph_name}', $$ MATCH (n) RETURN n $$) AS (node agtype);"
@@ -596,11 +607,13 @@ def _fetch_graph_data(pool: ConnectionPool, graph_name: str) -> dict:
                 if node_data:
                     nodes.append(node_data)
 
+            logger.info(f"Fetched {len(nodes)} nodes")
+
             # Fetch edges with source/target IDs
             cur.execute(f"""
-                SELECT * FROM cypher('{graph_name}', $$ 
-                    MATCH (s)-[r]->(t) 
-                    RETURN id(s), id(t), r 
+                SELECT * FROM cypher('{graph_name}', $$
+                    MATCH (s)-[r]->(t)
+                    RETURN id(s), id(t), r
                 $$) AS (source_id agtype, target_id agtype, edge agtype);
             """)
             edges = []
@@ -612,6 +625,8 @@ def _fetch_graph_data(pool: ConnectionPool, graph_name: str) -> dict:
                     edge_data["source"] = source_id
                     edge_data["target"] = target_id
                     edges.append(edge_data)
+
+            logger.info(f"Fetched {len(edges)} edges")
 
         return {"nodes": nodes, "edges": edges}
     finally:
@@ -640,7 +655,14 @@ def graph_viewer(
         graph_data = _fetch_graph_data(pool, settings.graph_name)
         html_content = _build_viewer_html(graph_data)
 
-        return HTMLResponse(content=html_content)
+        return HTMLResponse(
+            content=html_content,
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     except Exception as e:
         raise HTTPException(

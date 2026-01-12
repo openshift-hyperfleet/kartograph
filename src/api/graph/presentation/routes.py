@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
+from starlette.concurrency import run_in_threadpool
 
 from graph.ports.protocols import NodeNeighborsResult
 from graph.application.services import (
@@ -64,7 +65,10 @@ async def apply_mutations(
         HTTPException: 500 if mutation application fails.
     """
 
-    result = service.apply_mutations_from_jsonl(jsonl_content=jsonl_content)
+    # Run sync database operations in thread pool to avoid blocking event loop
+    result = await run_in_threadpool(
+        service.apply_mutations_from_jsonl, jsonl_content=jsonl_content
+    )
 
     if not result.success:
         # Check if it's a validation error vs execution error
@@ -117,7 +121,7 @@ async def find_by_slug(
             "nodes": [...]
         }
     """
-    nodes = service.search_by_slug(slug, node_type=node_type)
+    nodes = await run_in_threadpool(service.search_by_slug, slug, node_type=node_type)
     return {"nodes": [n.model_dump() for n in nodes]}
 
 
@@ -137,7 +141,7 @@ async def get_neighbors(
             "edges": [...]
         }
     """
-    response = service.get_neighbors(node_id)
+    response = await run_in_threadpool(service.get_neighbors, node_id)
 
     return response
 
@@ -157,7 +161,9 @@ async def get_node_labels_endpoint(
     Returns:
         SchemaLabelsResponse with labels and count
     """
-    labels = service.get_node_labels(search=search, has_property=has_property)
+    labels = await run_in_threadpool(
+        service.get_node_labels, search=search, has_property=has_property
+    )
     return SchemaLabelsResponse(labels=labels, count=len(labels))
 
 
@@ -174,7 +180,7 @@ async def get_edge_labels_endpoint(
     Returns:
         SchemaLabelsResponse with labels and count
     """
-    labels = service.get_edge_labels(search=search)
+    labels = await run_in_threadpool(service.get_edge_labels, search=search)
     return SchemaLabelsResponse(labels=labels, count=len(labels))
 
 
@@ -194,7 +200,7 @@ async def get_node_schema_endpoint(
     Raises:
         HTTPException: 404 if label not found
     """
-    schema = service.get_node_schema(label)
+    schema = await run_in_threadpool(service.get_node_schema, label)
 
     if schema is None:
         raise HTTPException(
@@ -221,7 +227,7 @@ async def get_edge_schema_endpoint(
     Raises:
         HTTPException: 404 if label not found
     """
-    schema = service.get_edge_schema(label)
+    schema = await run_in_threadpool(service.get_edge_schema, label)
 
     if schema is None:
         raise HTTPException(

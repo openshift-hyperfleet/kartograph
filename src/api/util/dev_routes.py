@@ -22,8 +22,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
 
-from graph.dependencies import get_age_graph_client
-from graph.infrastructure.age_client import AgeGraphClient
+from infrastructure.database.connection_pool import ConnectionPool
+from infrastructure.dependencies import get_age_connection_pool
+from infrastructure.settings import get_database_settings
 
 logger = logging.getLogger(__name__)
 
@@ -581,63 +582,58 @@ def _parse_agtype_edge(agtype_str: str) -> dict | None:
         return None
 
 
-def _fetch_graph_data(client: AgeGraphClient) -> dict:
-    """Fetch all nodes and edges from the graph using AgeGraphClient.
+def _fetch_graph_data(pool: ConnectionPool, graph_name: str) -> dict:
+    """Fetch all nodes and edges from the graph using raw SQL.
 
+    Uses direct SQL queries for maximum performance with large graphs.
     Returns data in format expected by the Cosmograph viewer.
     """
-    from age.models import Edge as AgeEdge
-    from age.models import Vertex as AgeVertex
+    logger.info(f"Fetching graph data for graph: {graph_name}")
 
-    logger.info("Fetching graph data using AgeGraphClient")
-
+    conn = pool.get_connection()
     try:
-        # Fetch nodes using the same approach as /util/nodes
-        node_result = client.execute_cypher("MATCH (n) RETURN n")
-        nodes = []
-        for row in node_result.rows:
-            if len(row) > 0 and isinstance(row[0], AgeVertex):
-                vertex = row[0]
-                props = dict(vertex.properties) if vertex.properties else {}
-                nodes.append(
-                    {
-                        "id": str(vertex.id),
-                        "domainId": props.get("id", ""),
-                        "label": props.get("name")
-                        or props.get("slug")
-                        or props.get("id", "")
-                        or vertex.label,
-                        "type": vertex.label,
-                        **{k: v for k, v in props.items() if k != "id"},
-                    }
-                )
+        with conn.cursor() as cur:
+            # Ensure AGE extension is loaded for this connection
+            cur.execute("LOAD 'age';")
+            cur.execute("SET search_path = ag_catalog, '$user', public;")
 
-        logger.info(f"Fetched {len(nodes)} nodes")
+            # Fetch nodes
+            cur.execute(
+                f"SELECT * FROM cypher('{graph_name}', $$ MATCH (n) RETURN n $$) AS (node agtype);"
+            )
+            nodes = []
+            for row in cur.fetchall():
+                node_data = _parse_agtype_vertex(row[0])
+                if node_data:
+                    nodes.append(node_data)
 
-        # Fetch edges - edge objects contain start_id and end_id
-        edge_result = client.execute_cypher("MATCH ()-[r]->() RETURN r")
-        edges = []
-        for row in edge_result.rows:
-            if len(row) > 0 and isinstance(row[0], AgeEdge):
-                edge = row[0]
-                props = dict(edge.properties) if edge.properties else {}
-                edges.append(
-                    {
-                        "id": str(edge.id),
-                        "source": str(edge.start_id),
-                        "target": str(edge.end_id),
-                        "type": edge.label,
-                        "domainId": props.get("id", ""),
-                        **{k: v for k, v in props.items() if k != "id"},
-                    }
-                )
+            logger.info(f"Fetched {len(nodes)} nodes")
 
-        logger.info(f"Fetched {len(edges)} edges")
+            # Fetch edges with source/target IDs using a single query
+            cur.execute(f"""
+                SELECT * FROM cypher('{graph_name}', $$
+                    MATCH (s)-[r]->(t)
+                    RETURN id(s), id(t), r
+                $$) AS (source_id agtype, target_id agtype, edge agtype);
+            """)
+            edges = []
+            for row in cur.fetchall():
+                source_id = str(row[0]).strip('"')
+                target_id = str(row[1]).strip('"')
+                edge_data = _parse_agtype_edge(row[2])
+                if edge_data:
+                    edge_data["source"] = source_id
+                    edge_data["target"] = target_id
+                    edges.append(edge_data)
+
+            logger.info(f"Fetched {len(edges)} edges")
 
         return {"nodes": nodes, "edges": edges}
     except Exception as e:
         logger.exception(f"Error fetching graph data: {e}")
         raise
+    finally:
+        pool.return_connection(conn)
 
 
 def _build_viewer_html(graph_data: dict) -> str:
@@ -648,7 +644,7 @@ def _build_viewer_html(graph_data: dict) -> str:
 
 @router.get("/graph-viewer", response_class=HTMLResponse)
 def graph_viewer(
-    client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
+    pool: Annotated[ConnectionPool, Depends(get_age_connection_pool)],
 ) -> HTMLResponse:
     """Serve interactive graph visualization with embedded data.
 
@@ -658,7 +654,8 @@ def graph_viewer(
     Development utility only - no authentication required.
     """
     try:
-        graph_data = _fetch_graph_data(client)
+        settings = get_database_settings()
+        graph_data = _fetch_graph_data(pool, settings.graph_name)
         html_content = _build_viewer_html(graph_data)
 
         return HTMLResponse(

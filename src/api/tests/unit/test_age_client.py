@@ -15,9 +15,8 @@ from infrastructure.database.exceptions import DatabaseConnectionError
 def composable_to_string(composed: sql.Composable) -> str:
     """Convert a sql.Composable to a string for testing purposes.
 
-    This handles sql.Composed, sql.SQL, and sql.Literal objects
-    without requiring a real database connection. The resulting string
-    is suitable for assertion testing but may not match exact SQL output.
+    This handles sql.Composed, sql.SQL, sql.Literal, and sql.Identifier objects
+    without requiring a real database connection. Uses public psycopg2 attributes.
 
     Args:
         composed: A psycopg2 sql.Composable object
@@ -28,17 +27,18 @@ def composable_to_string(composed: sql.Composable) -> str:
     if isinstance(composed, sql.Composed):
         return "".join(composable_to_string(part) for part in composed.seq)
     elif isinstance(composed, sql.SQL):
-        # Access the wrapped string value
-        return composed._wrapped  # type: ignore[attr-defined]
+        # Use public .string attribute
+        return composed.string
     elif isinstance(composed, sql.Literal):
-        # For literals, return the quoted representation
-        val = composed._wrapped  # type: ignore[attr-defined]
+        # Use public .wrapped attribute
+        val = composed.wrapped
         if isinstance(val, str):
             return repr(val)  # Returns 'value' with quotes
         return str(val)
     elif isinstance(composed, sql.Identifier):
-        # For identifiers, return with double quotes
-        return '"' + composed._wrapped + '"'  # type: ignore[attr-defined]
+        # Use public .strings attribute (tuple of identifier parts)
+        parts = composed.strings
+        return '"' + ".".join(parts) + '"'
     else:
         return str(composed)
 

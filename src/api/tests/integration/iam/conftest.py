@@ -92,9 +92,12 @@ async def clean_iam_data(
     """
     # Clean before test
     try:
-        await async_session.execute(text("TRUNCATE TABLE outbox CASCADE"))
-        await async_session.execute(text("TRUNCATE TABLE groups CASCADE"))
-        await async_session.execute(text("TRUNCATE TABLE users CASCADE"))
+        # Use DELETE instead of TRUNCATE to avoid deadlocks in parallel tests
+        # TRUNCATE requires AccessExclusiveLock which can cause circular dependencies
+        # when multiple tests cleanup concurrently
+        await async_session.execute(text("DELETE FROM outbox"))
+        await async_session.execute(text("DELETE FROM groups"))
+        await async_session.execute(text("DELETE FROM users"))
         await async_session.commit()
     except Exception:
         # Tables might not exist if migrations haven't been run
@@ -107,9 +110,10 @@ async def clean_iam_data(
 
     # Clean after test
     try:
-        await async_session.execute(text("TRUNCATE TABLE outbox CASCADE"))
-        await async_session.execute(text("TRUNCATE TABLE groups CASCADE"))
-        await async_session.execute(text("TRUNCATE TABLE users CASCADE"))
+        # Use DELETE instead of TRUNCATE to avoid deadlocks in parallel tests
+        await async_session.execute(text("DELETE FROM outbox"))
+        await async_session.execute(text("DELETE FROM groups"))
+        await async_session.execute(text("DELETE FROM users"))
         await async_session.commit()
     except Exception:
         await async_session.rollback()

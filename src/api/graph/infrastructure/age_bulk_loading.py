@@ -119,8 +119,10 @@ def dict_to_cypher_map(properties: dict) -> str:
         # Keys are unquoted in Cypher (unless they have special chars)
         # For safety, validate keys only contain alphanumeric + underscore
         if not key.replace("_", "").isalnum():
-            # Use backticks for special keys
-            key = f"`{key}`"
+            # Escape interior backticks by doubling them (Cypher escape mechanism)
+            escaped_key = key.replace("`", "``")
+            # Wrap in backticks for special keys
+            key = f"`{escaped_key}`"
         pairs.append(f"{key}: {format_value(value)}")
 
     return "{" + ", ".join(pairs) + "}"

@@ -7,6 +7,7 @@ import pytest
 from psycopg2 import sql
 
 from graph.infrastructure.age_client import AgeGraphClient
+from graph.infrastructure.cypher_utils import generate_cypher_nonce
 from graph.infrastructure.exceptions import InsecureCypherQueryError
 from infrastructure.database.exceptions import DatabaseConnectionError
 
@@ -108,22 +109,19 @@ class TestNonceGeneration:
 
     def test_generate_nonce_returns_64_characters(self, mock_db_settings):
         """Nonce should be exactly 64 characters long."""
-        client = AgeGraphClient(mock_db_settings)
-        nonce = client._generate_nonce()
+        nonce = generate_cypher_nonce()
 
         assert len(nonce) == 64
 
     def test_generate_nonce_contains_only_letters(self, mock_db_settings):
         """Nonce should contain only ASCII letters."""
-        client = AgeGraphClient(mock_db_settings)
-        nonce = client._generate_nonce()
+        nonce = generate_cypher_nonce()
 
         assert nonce.isalpha()
 
     def test_generate_nonce_is_unique(self, mock_db_settings):
         """Each call should generate a different nonce."""
-        client = AgeGraphClient(mock_db_settings)
-        nonces = [client._generate_nonce() for _ in range(100)]
+        nonces = [generate_cypher_nonce() for _ in range(100)]
 
         # All nonces should be unique
         assert len(set(nonces)) == 100

@@ -14,8 +14,6 @@ import hashlib
 import io
 import json
 import re
-import secrets
-import string
 import time
 import uuid
 from typing import Any
@@ -23,6 +21,7 @@ from typing import Any
 from psycopg2 import sql
 
 from graph.domain.value_objects import EntityType, MutationOperation, MutationResult
+from graph.infrastructure.cypher_utils import generate_cypher_nonce
 from graph.ports.observability import MutationProbe
 from graph.ports.protocols import GraphClientProtocol, GraphIndexingProtocol
 
@@ -31,18 +30,6 @@ from graph.ports.protocols import GraphClientProtocol, GraphIndexingProtocol
 # Max length 63 (PostgreSQL identifier limit)
 _VALID_LABEL_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _MAX_LABEL_LENGTH = 63
-
-
-def generate_cypher_nonce() -> str:
-    """Generate a random nonce for Cypher dollar-quoting.
-
-    Returns a 64-character random string for use as a unique delimiter
-    in Cypher queries. This prevents injection attacks via $$ breakout.
-
-    Returns:
-        64-character random alphabetic string
-    """
-    return "".join(secrets.choice(string.ascii_letters) for _ in range(64))
 
 
 def validate_label_name(label: str) -> None:

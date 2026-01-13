@@ -6,8 +6,6 @@ using psycopg2 with Apache AGE extension and AGType parsing.
 
 from __future__ import annotations
 
-import secrets
-import string
 import typing
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Iterator
@@ -16,6 +14,7 @@ import age  # type: ignore
 import psycopg2
 from psycopg2 import sql
 
+from graph.infrastructure.cypher_utils import generate_cypher_nonce
 from graph.infrastructure.exceptions import InsecureCypherQueryError
 from graph.infrastructure.observability import (
     DefaultGraphClientProbe,
@@ -428,13 +427,6 @@ class AgeGraphClient(GraphClientProtocol):
             self._probe.connection_verification_failed(e)
             return False
 
-    def _generate_nonce(self) -> str:
-        """
-        Generate a random 64 character string for use as a nonce
-        when generating a unique tag for quoting cypher queries in Apache AGE.
-        """
-        return "".join(secrets.choice(string.ascii_letters) for _ in range(64))
-
     def build_secure_cypher_sql(
         self,
         graph_name: str,
@@ -459,7 +451,7 @@ class AgeGraphClient(GraphClientProtocol):
             A psycopg2.sql.Composable object that safely handles identifier escaping
         """
 
-        nonce_generator = nonce_generator if nonce_generator else self._generate_nonce
+        nonce_generator = nonce_generator if nonce_generator else generate_cypher_nonce
 
         nonce = nonce_generator()
 

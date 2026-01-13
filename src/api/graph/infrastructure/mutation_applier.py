@@ -14,7 +14,6 @@ Different strategies optimize for their target database:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any, TypedDict
 
 from graph.domain.value_objects import EntityType, MutationOperation, MutationResult
@@ -58,86 +57,6 @@ class MutationApplier:
         self._client = client
         self._strategy = bulk_loading_strategy
         self._probe = probe or DefaultMutationProbe()
-
-    def _extract_labels(self, operations: list[MutationOperation]) -> set[str]:
-        """Extract all unique labels from CREATE NODE operations.
-
-        Only extracts node labels because edge labels cannot be pre-created
-        as dummy nodes in AGE (edge labels are for edges, not vertices).
-
-        Args:
-            operations: List of mutation operations
-
-        Returns:
-            Set of unique node label names
-        """
-        labels: set[str] = set()
-        for op in operations:
-            if op.op == "CREATE" and op.type == EntityType.NODE and op.label:
-                labels.add(op.label)
-        return labels
-
-    def _create_dummy_nodes(
-        self,
-        labels: set[str],
-        session_id: str,
-    ) -> set[str]:
-        """Create dummy nodes to pre-create label tables for indexing.
-
-        Creates a temporary node for each label that doesn't exist yet.
-        These nodes have special metadata for identification and cleanup.
-
-        Args:
-            labels: Set of labels that need to exist
-            session_id: Unique identifier for this session (for cleanup)
-
-        Returns:
-            Set of labels for which dummy nodes were created
-        """
-        created_labels: set[str] = set()
-        timestamp = datetime.now(timezone.utc).isoformat()
-
-        for label in labels:
-            # Check if label already exists
-            result = self._client.execute_cypher(f"MATCH (n:{label}) RETURN n LIMIT 1")
-            if result.row_count > 0:
-                continue
-
-            # Create dummy node with cleanup metadata
-            dummy_id = f"_dummy_{session_id}_{label}"
-            self._client.execute_cypher(
-                f"CREATE (n:{label} {{"
-                f"id: '{dummy_id}', "
-                f"_kartograph_dummy: true, "
-                f"_kartograph_session_id: '{session_id}', "
-                f"_kartograph_created_at: '{timestamp}'"
-                f"}})"
-            )
-            created_labels.add(label)
-
-        return created_labels
-
-    def _cleanup_dummy_nodes(self, session_id: str) -> int:
-        """Delete dummy nodes created by this session.
-
-        Args:
-            session_id: The session ID used when creating dummies
-
-        Returns:
-            Number of dummy nodes deleted
-        """
-        result = self._client.execute_cypher(
-            f"MATCH (n {{_kartograph_session_id: '{session_id}'}}) "
-            f"WHERE n._kartograph_dummy = true "
-            f"DETACH DELETE n "
-            f"RETURN count(n) as deleted"
-        )
-        if result.rows and result.rows[0]:
-            # AGE returns the count differently, handle both cases
-            deleted = result.rows[0][0]
-            if isinstance(deleted, int):
-                return deleted
-        return 0
 
     def apply_batch(
         self,
@@ -654,27 +573,6 @@ class MutationApplier:
         else:  # EntityType.EDGE
             # Edges don't need DETACH, just DELETE
             return f"MATCH ()-[r {{id: '{op.id}'}}]->() DELETE r"
-
-    def _format_map(self, props: dict[str, Any]) -> str:
-        """Format a dictionary as a Cypher map.
-
-        Uses backticks around property names to avoid reserved keyword conflicts.
-
-        Args:
-            props: Dictionary of properties
-
-        Returns:
-            Formatted Cypher map string
-        """
-        if not props:
-            return "{}"
-
-        items = []
-        for k, v in props.items():
-            # Use backticks for property names in maps
-            items.append(f"`{k}`: {self._format_value(v)}")
-
-        return "{" + ", ".join(items) + "}"
 
     def _format_value(self, value: Any) -> str:
         """Format Python value for Cypher query.

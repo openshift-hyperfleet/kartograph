@@ -216,8 +216,10 @@ class StagingTableManager:
             # (tab, newline, backslash) in the resulting string
             props_json = escape_copy_value(json.dumps(props))
             # Also escape the ID and label fields (these should never be None for CREATE)
-            assert op.id is not None, "Node operation must have an ID"
-            assert op.label is not None, "Node operation must have a label"
+            if op.id is None:
+                raise ValueError("Node CREATE operation must have an ID")
+            if op.label is None:
+                raise ValueError("Node CREATE operation must have a label")
             escaped_id = escape_copy_value(op.id)
             escaped_label = escape_copy_value(op.label)
             row = f"{escaped_id}\t{escaped_label}\t{props_json}\n"
@@ -257,10 +259,14 @@ class StagingTableManager:
             props_json = escape_copy_value(json.dumps(props))
             # Also escape the ID, label, start_id, and end_id fields
             # These should never be None for edge CREATE operations
-            assert op.id is not None, "Edge operation must have an ID"
-            assert op.label is not None, "Edge operation must have a label"
-            assert op.start_id is not None, "Edge operation must have a start_id"
-            assert op.end_id is not None, "Edge operation must have an end_id"
+            if op.id is None:
+                raise ValueError("Edge CREATE operation must have an ID")
+            if op.label is None:
+                raise ValueError("Edge CREATE operation must have a label")
+            if op.start_id is None:
+                raise ValueError("Edge CREATE operation must have a start_id")
+            if op.end_id is None:
+                raise ValueError("Edge CREATE operation must have an end_id")
             escaped_id = escape_copy_value(op.id)
             escaped_label = escape_copy_value(op.label)
             escaped_start_id = escape_copy_value(op.start_id)

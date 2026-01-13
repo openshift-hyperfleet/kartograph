@@ -16,16 +16,13 @@ import json
 import re
 import time
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from psycopg2 import sql
 
 from graph.domain.value_objects import EntityType, MutationOperation, MutationResult
 from graph.ports.observability import MutationProbe
 from graph.ports.protocols import GraphClientProtocol, GraphIndexingProtocol
-
-if TYPE_CHECKING:
-    pass
 
 
 # Label name validation regex: only alphanumeric, underscore, must start with letter or underscore
@@ -93,7 +90,6 @@ def dict_to_cypher_map(properties: dict) -> str:
     Returns:
         Cypher map literal string
     """
-    import json
 
     def format_value(v):
         """Format a value for Cypher."""
@@ -158,9 +154,6 @@ def escape_copy_value(value: str) -> str:
 
 class StagingTableManager:
     """Manages temporary staging tables for bulk COPY operations."""
-
-    def __init__(self, graph_name: str):
-        self._graph_name = graph_name
 
     def create_node_staging_table(self, cursor: Any, session_id: str) -> str:
         """Create a temporary staging table for nodes."""
@@ -428,17 +421,14 @@ class AgeBulkLoadingStrategy:
     """
 
     DEFAULT_BATCH_SIZE = 1000
-    COPY_THRESHOLD = 50  # Use COPY for batches >= this size
 
     def __init__(
         self,
         indexing_client: GraphIndexingProtocol | None = None,
         batch_size: int | None = None,
-        copy_threshold: int | None = None,
     ):
         self._indexing_client = indexing_client
         self._batch_size = batch_size or self.DEFAULT_BATCH_SIZE
-        self._copy_threshold = copy_threshold or self.COPY_THRESHOLD
 
     def apply_batch(
         self,
@@ -698,7 +688,7 @@ class AgeBulkLoadingStrategy:
             if op.label:
                 validate_label_name(op.label)
 
-        staging_manager = StagingTableManager(graph_name)
+        staging_manager = StagingTableManager()
         batches = 0
 
         # Create staging table and COPY data
@@ -848,7 +838,7 @@ class AgeBulkLoadingStrategy:
             if op.label:
                 validate_label_name(op.label)
 
-        staging_manager = StagingTableManager(graph_name)
+        staging_manager = StagingTableManager()
         batches = 0
 
         # Create staging table and COPY data

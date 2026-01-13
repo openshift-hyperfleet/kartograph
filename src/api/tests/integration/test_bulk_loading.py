@@ -361,12 +361,6 @@ class TestCopyFormatSafety:
         # After proper escaping, tabs in values become literal \t
         assert "\\t" in data or "\t" in data
 
-    def test_escape_copy_data_handles_newlines(self):
-        """Newline characters in property values should be escaped."""
-        # The escape function should convert newlines to literal \n
-        # This is tested with actual integration tests below
-        pass
-
     @pytest.mark.integration
     def test_node_with_tab_in_property_is_created(self, clean_graph: AgeGraphClient):
         """Nodes with tab characters in properties should be created safely.

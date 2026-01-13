@@ -442,29 +442,28 @@ class AgeBulkLoadingStrategy:
         session_id = uuid.uuid4().hex[:16]
 
         try:
-            sorted_ops = self._sort_operations(operations)
-
+            # Operations are pre-sorted by MutationApplier for referential integrity
             create_nodes = [
                 op
-                for op in sorted_ops
+                for op in operations
                 if op.op == "CREATE" and op.type == EntityType.NODE
             ]
             create_edges = [
                 op
-                for op in sorted_ops
+                for op in operations
                 if op.op == "CREATE" and op.type == EntityType.EDGE
             ]
             delete_edges = [
                 op
-                for op in sorted_ops
+                for op in operations
                 if op.op == "DELETE" and op.type == EntityType.EDGE
             ]
             delete_nodes = [
                 op
-                for op in sorted_ops
+                for op in operations
                 if op.op == "DELETE" and op.type == EntityType.NODE
             ]
-            update_ops = [op for op in sorted_ops if op.op == "UPDATE"]
+            update_ops = [op for op in operations if op.op == "UPDATE"]
 
             # Phase 1: Ensure indexes exist
             if self._indexing_client is not None:
@@ -541,21 +540,6 @@ class AgeBulkLoadingStrategy:
                 operations_applied=0,
                 errors=[str(e)],
             )
-
-    def _sort_operations(
-        self, operations: list[MutationOperation]
-    ) -> list[MutationOperation]:
-        """Sort operations into correct execution order."""
-
-        def sort_key(op: MutationOperation) -> tuple[int, int]:
-            op_priority = {"DEFINE": 0, "DELETE": 1, "CREATE": 2, "UPDATE": 3}
-            if op.op == "DELETE":
-                type_priority = 0 if op.type == EntityType.EDGE else 1
-            else:
-                type_priority = 0 if op.type == EntityType.NODE else 1
-            return (op_priority.get(op.op, 999), type_priority)
-
-        return sorted(operations, key=sort_key)
 
     def _acquire_label_locks(
         self, cursor: Any, graph_name: str, labels: set[str]

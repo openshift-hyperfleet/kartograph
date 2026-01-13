@@ -36,9 +36,13 @@ class BulkLoadingStrategy(Protocol):
     ) -> MutationResult:
         """Apply a batch of mutations using database-optimized bulk loading.
 
+        IMPORTANT: Operations are PRE-SORTED by MutationApplier to respect
+        referential integrity (DELETEs before CREATEs, edges before nodes for
+        DELETE, nodes before edges for CREATE). Strategies should NOT re-sort.
+
         Args:
             client: Graph database client for executing queries
-            operations: List of mutation operations to apply (pre-sorted)
+            operations: List of mutation operations (PRE-SORTED for referential integrity)
             probe: Domain probe for observability
             graph_name: Name of the graph being operated on
 

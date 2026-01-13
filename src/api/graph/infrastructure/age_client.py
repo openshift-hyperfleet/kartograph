@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Iterator
 
 import age  # type: ignore
 import psycopg2
+from psycopg2 import sql
 
 from graph.infrastructure.exceptions import InsecureCypherQueryError
 from graph.infrastructure.observability import (
@@ -439,7 +440,7 @@ class AgeGraphClient(GraphClientProtocol):
         graph_name: str,
         query: str,
         nonce_generator: typing.Optional[typing.Callable[[], str]] = None,
-    ) -> str:
+    ) -> sql.Composable:
         """Build the SQL statement for executing a Cypher query via AGE.
 
         AGE requires Cypher queries to be wrapped in:
@@ -453,6 +454,9 @@ class AgeGraphClient(GraphClientProtocol):
 
         Note that there is a hard-coded return type of (result agtype), which means
         the query _must_ be written such that it returns a single object (which may contain multiple items.)
+
+        Returns:
+            A psycopg2.sql.Composable object that safely handles identifier escaping
         """
 
         nonce_generator = nonce_generator if nonce_generator else self._generate_nonce
@@ -468,11 +472,15 @@ class AgeGraphClient(GraphClientProtocol):
         # between the two $'s.
         tag = f"${nonce}$"
 
-        return f"""\
-SELECT * FROM cypher('{graph_name}', {tag} {query} {tag}) AS (result agtype)\
-"""
+        # Use sql.Literal to safely escape graph_name for SQL injection protection
+        return sql.SQL("SELECT * FROM cypher({}, {} {} {}) AS (result agtype)").format(
+            sql.Literal(graph_name),
+            sql.SQL(tag),
+            sql.SQL(query),
+            sql.SQL(tag),
+        )
 
-    def _build_cypher_sql(self, query: str) -> str:
+    def _build_cypher_sql(self, query: str) -> sql.Composable:
         return self.build_secure_cypher_sql(graph_name=self.graph_name, query=query)
 
     def execute_cypher(
@@ -587,7 +595,7 @@ class _AgeTransaction:
         connection: PsycopgConnection,
         graph_name: str,
         probe: GraphClientProbe,
-        sql_builder: typing.Callable[[str], str],
+        sql_builder: typing.Callable[[str], sql.Composable],
     ):
         self._connection = connection
         self._graph_name = graph_name

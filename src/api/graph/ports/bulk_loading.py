@@ -11,7 +11,7 @@ bulk loading approaches:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from graph.domain.value_objects import MutationOperation, MutationResult
@@ -48,28 +48,5 @@ class BulkLoadingStrategy(Protocol):
 
         Returns:
             MutationResult with success status and operation count
-        """
-        ...
-
-
-class RawConnectionProtocol(Protocol):
-    """Protocol for accessing raw database connection for bulk operations.
-
-    This protocol is separate from GraphClientProtocol because direct
-    connection access is only needed for specific bulk loading operations
-    like PostgreSQL COPY.
-
-    Warning: Use with caution. Direct connection access bypasses normal
-    query execution paths and security wrappers.
-    """
-
-    @property
-    def raw_connection(self) -> Any:
-        """Access the underlying database connection.
-
-        For psycopg2, this returns the connection object directly.
-
-        Returns:
-            The raw database connection object.
         """
         ...

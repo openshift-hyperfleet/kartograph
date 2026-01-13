@@ -380,6 +380,7 @@ class TestCopyFormatSafety:
                 id="document:00007ab112223333",
                 label="document",
                 set_properties={
+                    "slug": "document-tab-test",
                     "content": "line1\tcolumn2\tcolumn3",  # Tabs in content
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -426,6 +427,7 @@ class TestCopyFormatSafety:
                 id="document:0e01111122223333",
                 label="document",
                 set_properties={
+                    "slug": "document-newline-test",
                     "content": "line1\nline2\nline3",  # Newlines in content
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -470,6 +472,7 @@ class TestCopyFormatSafety:
                 id="document:bac0111122223333",
                 label="document",
                 set_properties={
+                    "slug": "document-backslash-test",
                     "content": "C:\\Users\\Alice\\file.txt",  # Backslashes
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -518,6 +521,7 @@ class TestOrphanedEdgeDetection:
                 id="person:0a01111122223333",
                 label="person",
                 set_properties={
+                    "slug": "alice-orphan-end-test",
                     "name": "Alice",
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -576,6 +580,7 @@ class TestOrphanedEdgeDetection:
                 id="person:0a02222233334444",
                 label="person",
                 set_properties={
+                    "slug": "bob-orphan-start-test",
                     "name": "Bob",
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -633,6 +638,7 @@ class TestOrphanedEdgeDetection:
                 id="person:0011100000000111",
                 label="person",
                 set_properties={
+                    "slug": "alice-multi-orphan-test",
                     "name": "Alice",
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -744,6 +750,7 @@ class TestLabelValidation:
                 id="person:0000111122223333",
                 label="Person; DROP TABLE users--",  # Injection attempt
                 set_properties={
+                    "slug": "hacker-injection-test",
                     "name": "Hacker",
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -786,6 +793,7 @@ class TestUpdateOperations:
                 id="person:0d01111122223333",
                 label="person",
                 set_properties={
+                    "slug": "alice-update-add-props",
                     "name": "Alice",
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -848,6 +856,7 @@ class TestUpdateOperations:
                 id="person:0d02222233334444",
                 label="person",
                 set_properties={
+                    "slug": "bob-update-modify-props",
                     "name": "Bob",
                     "age": 25,
                     "data_source_id": "ds-123",
@@ -904,6 +913,7 @@ class TestUpdateOperations:
                 id="person:0d03333344445555",
                 label="person",
                 set_properties={
+                    "slug": "charlie-update-remove-props",
                     "name": "Charlie",
                     "temp_field": "to_remove",
                     "another_temp": "also_remove",
@@ -971,6 +981,7 @@ class TestUpdateOperations:
                 id="person:ed9e0d11100000a1",
                 label="person",
                 set_properties={
+                    "slug": "alice-update-edge",
                     "name": "Alice",
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -982,6 +993,7 @@ class TestUpdateOperations:
                 id="person:ed9e0d22200000a2",
                 label="person",
                 set_properties={
+                    "slug": "bob-update-edge",
                     "name": "Bob",
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -1063,6 +1075,7 @@ class TestDeleteOperations:
                 id="person:de1e111122223333",
                 label="person",
                 set_properties={
+                    "slug": "delete-me-node",
                     "name": "DeleteMe",
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -1121,6 +1134,7 @@ class TestDeleteOperations:
                 id="person:de7ac0111a000001",
                 label="person",
                 set_properties={
+                    "slug": "alice-detach-delete",
                     "name": "Alice",
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -1132,6 +1146,7 @@ class TestDeleteOperations:
                 id="person:de7ac0222a000002",
                 label="person",
                 set_properties={
+                    "slug": "bob-detach-delete",
                     "name": "Bob",
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -1203,6 +1218,7 @@ class TestDeleteOperations:
                 id="person:de1ed9e111000001",
                 label="person",
                 set_properties={
+                    "slug": "alice-delete-edge",
                     "name": "Alice",
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -1214,6 +1230,7 @@ class TestDeleteOperations:
                 id="person:de1ed9e222000002",
                 label="person",
                 set_properties={
+                    "slug": "bob-delete-edge",
                     "name": "Bob",
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -1302,6 +1319,7 @@ class TestCartesianJoinFix:
                 id=f"person:ca00000000000{i:03x}",  # Uses hex format
                 label="person",
                 set_properties={
+                    "slug": f"person-cartesian-{i:03x}",
                     "name": f"Person {i}",
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -1375,6 +1393,7 @@ class TestOperationCount:
                 id=f"newlabelcount:c00000000000{i:04x}",  # Uses hex format
                 label="newlabelcount",
                 set_properties={
+                    "slug": f"entity-count-{i:04x}",
                     "name": f"Entity {i}",
                     "data_source_id": "ds-123",
                     "source_path": "test.md",
@@ -1424,6 +1443,7 @@ class TestBatchPropertyRemoval:
                 id="person:ba7c0e0e0000011a",
                 label="person",
                 set_properties={
+                    "slug": "alice-batch-prop-removal",
                     "name": "Alice",
                     "prop1": "value1",
                     "prop2": "value2",

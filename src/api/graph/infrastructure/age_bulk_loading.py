@@ -14,6 +14,8 @@ import hashlib
 import io
 import json
 import re
+import secrets
+import string
 import time
 import uuid
 from typing import Any
@@ -29,6 +31,18 @@ from graph.ports.protocols import GraphClientProtocol, GraphIndexingProtocol
 # Max length 63 (PostgreSQL identifier limit)
 _VALID_LABEL_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _MAX_LABEL_LENGTH = 63
+
+
+def generate_cypher_nonce() -> str:
+    """Generate a random nonce for Cypher dollar-quoting.
+
+    Returns a 64-character random string for use as a unique delimiter
+    in Cypher queries. This prevents injection attacks via $$ breakout.
+
+    Returns:
+        64-character random alphabetic string
+    """
+    return "".join(secrets.choice(string.ascii_letters) for _ in range(64))
 
 
 def validate_label_name(label: str) -> None:
@@ -603,11 +617,18 @@ class AgeBulkLoadingStrategy:
         props_str = dict_to_cypher_map(properties)
         cypher = f"CREATE (n:{label} {props_str})"
 
+        # Generate unique nonce to prevent $$ injection attacks
+        nonce = generate_cypher_nonce()
+        if nonce in cypher:
+            # Extremely unlikely (64 random chars), but check anyway
+            raise ValueError("Generated nonce appears in Cypher query")
+        tag = f"${nonce}$"
+
         # Wrap in AGE's cypher() function and execute via cursor
         # This stays in the transaction unlike client.execute_cypher()
         # Use sql.Literal for the graph name since cypher() expects a string literal
-        query = sql.SQL("SELECT * FROM cypher({}, $$ {} $$) AS (result agtype)").format(
-            sql.Literal(graph_name), sql.SQL(cypher)
+        query = sql.SQL("SELECT * FROM cypher({}, {} {} {}) AS (result agtype)").format(
+            sql.Literal(graph_name), sql.SQL(tag), sql.SQL(cypher), sql.SQL(tag)
         )
         cursor.execute(query)
 
@@ -653,10 +674,17 @@ class AgeBulkLoadingStrategy:
         CREATE (src)-[r:{label} {props_str}]->(tgt)
         """
 
+        # Generate unique nonce to prevent $$ injection attacks
+        nonce = generate_cypher_nonce()
+        if nonce in cypher:
+            # Extremely unlikely (64 random chars), but check anyway
+            raise ValueError("Generated nonce appears in Cypher query")
+        tag = f"${nonce}$"
+
         # Wrap in AGE's cypher() function and execute via cursor
         # Use sql.Literal for the graph name since cypher() expects a string literal
-        query = sql.SQL("SELECT * FROM cypher({}, $$ {} $$) AS (result agtype)").format(
-            sql.Literal(graph_name), sql.SQL(cypher)
+        query = sql.SQL("SELECT * FROM cypher({}, {} {} {}) AS (result agtype)").format(
+            sql.Literal(graph_name), sql.SQL(tag), sql.SQL(cypher), sql.SQL(tag)
         )
         cursor.execute(query)
 

@@ -650,12 +650,14 @@ class AgeBulkLoadingStrategy:
 
         # Build Cypher CREATE statement with Cypher-style property map
         # AGE Cypher requires unquoted keys, not JSON-style double-quoted keys
-        # Note: start_id and end_id are used as Cypher string literals within the query
-        # They are escaped via json.dumps in dict_to_cypher_map's format_value()
         props_str = dict_to_cypher_map(properties)
-        # Escape single quotes in IDs for Cypher string literals
-        escaped_start_id = start_id.replace("'", "\\'")
-        escaped_end_id = end_id.replace("'", "\\'")
+
+        # Escape IDs for Cypher string literals
+        # IMPORTANT: Must escape backslashes FIRST, then single quotes
+        # Otherwise "foo\'" becomes "foo\'" which Cypher interprets as escaped quote
+        escaped_start_id = start_id.replace("\\", "\\\\").replace("'", "\\'")
+        escaped_end_id = end_id.replace("\\", "\\\\").replace("'", "\\'")
+
         cypher = f"""
         MATCH (src {{id: '{escaped_start_id}'}}), (tgt {{id: '{escaped_end_id}'}})
         CREATE (src)-[r:{label} {props_str}]->(tgt)

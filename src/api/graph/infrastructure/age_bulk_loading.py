@@ -18,6 +18,8 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from psycopg2 import sql
+
 from graph.domain.value_objects import EntityType, MutationOperation, MutationResult
 from graph.ports.observability import MutationProbe
 from graph.ports.protocols import GraphClientProtocol, GraphIndexingProtocol
@@ -163,23 +165,24 @@ class StagingTableManager:
     def create_node_staging_table(self, cursor: Any, session_id: str) -> str:
         """Create a temporary staging table for nodes."""
         table_name = f"_staging_nodes_{session_id}"
-        cursor.execute(
-            f"""
-            CREATE TEMP TABLE "{table_name}" (
+        query = sql.SQL(
+            """
+            CREATE TEMP TABLE {} (
                 id TEXT NOT NULL,
                 label TEXT NOT NULL,
                 properties JSONB NOT NULL
             ) ON COMMIT DROP
             """
-        )
+        ).format(sql.Identifier(table_name))
+        cursor.execute(query)
         return table_name
 
     def create_edge_staging_table(self, cursor: Any, session_id: str) -> str:
         """Create a temporary staging table for edges with graphid resolution columns."""
         table_name = f"_staging_edges_{session_id}"
-        cursor.execute(
-            f"""
-            CREATE TEMP TABLE "{table_name}" (
+        query = sql.SQL(
+            """
+            CREATE TEMP TABLE {} (
                 id TEXT NOT NULL,
                 label TEXT NOT NULL,
                 start_id TEXT NOT NULL,
@@ -189,7 +192,8 @@ class StagingTableManager:
                 properties JSONB NOT NULL
             ) ON COMMIT DROP
             """
-        )
+        ).format(sql.Identifier(table_name))
+        cursor.execute(query)
         return table_name
 
     def copy_nodes_to_staging(
@@ -285,7 +289,10 @@ class StagingTableManager:
 
     def fetch_distinct_labels(self, cursor: Any, table_name: str) -> list[str]:
         """Fetch distinct labels from staging table."""
-        cursor.execute(f'SELECT DISTINCT label FROM "{table_name}"')
+        query = sql.SQL("SELECT DISTINCT label FROM {}").format(
+            sql.Identifier(table_name)
+        )
+        cursor.execute(query)
         return [row[0] for row in cursor.fetchall()]
 
     def resolve_edge_graphids(
@@ -302,28 +309,30 @@ class StagingTableManager:
         detected by check_for_orphaned_edges.
         """
         # Resolve start_graphid separately to avoid cartesian join
-        cursor.execute(
-            f"""
-            UPDATE "{table_name}" AS s
+        query = sql.SQL(
+            """
+            UPDATE {} AS s
             SET start_graphid = v.id
-            FROM "{graph_name}"._ag_label_vertex AS v
+            FROM {}._ag_label_vertex AS v
             WHERE ag_catalog.agtype_object_field_text_agtype(
                       v.properties, '"id"'::ag_catalog.agtype
                   ) = s.start_id
             """
-        )
+        ).format(sql.Identifier(table_name), sql.Identifier(graph_name))
+        cursor.execute(query)
 
         # Resolve end_graphid separately to avoid cartesian join
-        cursor.execute(
-            f"""
-            UPDATE "{table_name}" AS s
+        query = sql.SQL(
+            """
+            UPDATE {} AS s
             SET end_graphid = v.id
-            FROM "{graph_name}"._ag_label_vertex AS v
+            FROM {}._ag_label_vertex AS v
             WHERE ag_catalog.agtype_object_field_text_agtype(
                       v.properties, '"id"'::ag_catalog.agtype
                   ) = s.end_id
             """
-        )
+        ).format(sql.Identifier(table_name), sql.Identifier(graph_name))
+        cursor.execute(query)
 
     def check_for_orphaned_edges(
         self, cursor: Any, table_name: str, probe: Any
@@ -342,13 +351,14 @@ class StagingTableManager:
         Raises:
             ValueError: If orphaned edges are detected
         """
-        cursor.execute(
-            f"""
+        query = sql.SQL(
+            """
             SELECT s.id, s.start_id, s.end_id, s.start_graphid, s.end_graphid
-            FROM "{table_name}" AS s
+            FROM {} AS s
             WHERE s.start_graphid IS NULL OR s.end_graphid IS NULL
             """
-        )
+        ).format(sql.Identifier(table_name))
+        cursor.execute(query)
         orphaned = cursor.fetchall()
 
         if orphaned:
@@ -389,14 +399,15 @@ class StagingTableManager:
         Raises:
             ValueError: If duplicate IDs are found in the batch
         """
-        cursor.execute(
-            f"""
+        query = sql.SQL(
+            """
             SELECT id, COUNT(*) as cnt
-            FROM "{table_name}"
+            FROM {}
             GROUP BY id
             HAVING COUNT(*) > 1
             """
-        )
+        ).format(sql.Identifier(table_name))
+        cursor.execute(query)
         duplicates = cursor.fetchall()
         if duplicates:
             duplicate_ids = [row[0] for row in duplicates]
@@ -607,6 +618,10 @@ class AgeBulkLoadingStrategy:
             entity_id: ID of first entity
             properties: Properties for first entity
         """
+        # Validate graph_name to prevent injection in Cypher wrapper
+        validate_label_name(graph_name)
+        # Label is already validated by caller
+
         # Build Cypher CREATE statement with Cypher-style property map
         # AGE Cypher requires unquoted keys, not JSON-style double-quoted keys
         props_str = dict_to_cypher_map(properties)
@@ -614,8 +629,11 @@ class AgeBulkLoadingStrategy:
 
         # Wrap in AGE's cypher() function and execute via cursor
         # This stays in the transaction unlike client.execute_cypher()
-        sql = f"SELECT * FROM cypher('{graph_name}', $$ {cypher} $$) AS (result agtype)"
-        cursor.execute(sql)
+        # Use sql.Literal for the graph name since cypher() expects a string literal
+        query = sql.SQL("SELECT * FROM cypher({}, $$ {} $$) AS (result agtype)").format(
+            sql.Literal(graph_name), sql.SQL(cypher)
+        )
+        cursor.execute(query)
 
     def _create_edge_label_with_first_entity(
         self,
@@ -642,17 +660,29 @@ class AgeBulkLoadingStrategy:
             end_id: End node ID
             properties: Properties for first edge
         """
+        # Validate graph_name to prevent injection in Cypher wrapper
+        validate_label_name(graph_name)
+        # Label is already validated by caller
+
         # Build Cypher CREATE statement with Cypher-style property map
         # AGE Cypher requires unquoted keys, not JSON-style double-quoted keys
+        # Note: start_id and end_id are used as Cypher string literals within the query
+        # They are escaped via json.dumps in dict_to_cypher_map's format_value()
         props_str = dict_to_cypher_map(properties)
+        # Escape single quotes in IDs for Cypher string literals
+        escaped_start_id = start_id.replace("'", "\\'")
+        escaped_end_id = end_id.replace("'", "\\'")
         cypher = f"""
-        MATCH (src {{id: '{start_id}'}}), (tgt {{id: '{end_id}'}})
+        MATCH (src {{id: '{escaped_start_id}'}}), (tgt {{id: '{escaped_end_id}'}})
         CREATE (src)-[r:{label} {props_str}]->(tgt)
         """
 
         # Wrap in AGE's cypher() function and execute via cursor
-        sql = f"SELECT * FROM cypher('{graph_name}', $$ {cypher} $$) AS (result agtype)"
-        cursor.execute(sql)
+        # Use sql.Literal for the graph name since cypher() expects a string literal
+        query = sql.SQL("SELECT * FROM cypher({}, $$ {} $$) AS (result agtype)").format(
+            sql.Literal(graph_name), sql.SQL(cypher)
+        )
+        cursor.execute(query)
 
     def _execute_node_creates(
         self,
@@ -691,15 +721,15 @@ class AgeBulkLoadingStrategy:
             first_entity_id = None  # Track if we created via Cypher
             if label_info is None:
                 # Label doesn't exist - create it by inserting first entity via Cypher
-                cursor.execute(
-                    f"""
+                query = sql.SQL(
+                    """
                     SELECT id, properties
-                    FROM "{table_name}"
+                    FROM {}
                     WHERE label = %s
                     LIMIT 1
-                    """,
-                    (label,),
-                )
+                    """
+                ).format(sql.Identifier(table_name))
+                cursor.execute(query, (label,))
                 first_row = cursor.fetchone()
                 if first_row:
                     first_entity_id, first_props = first_row
@@ -717,58 +747,76 @@ class AgeBulkLoadingStrategy:
             label_id, seq_name = label_info
 
             # Update existing nodes
-            cursor.execute(
-                f"""
-                UPDATE "{graph_name}"."{label}" AS t
+            query = sql.SQL(
+                """
+                UPDATE {}.{} AS t
                 SET properties = (s.properties::text)::ag_catalog.agtype
-                FROM "{table_name}" AS s
+                FROM {} AS s
                 WHERE s.label = %s
                 AND ag_catalog.agtype_object_field_text_agtype(
                     t.properties, '"id"'::ag_catalog.agtype
                 ) = s.id
-                """,
-                (label,),
+                """
+            ).format(
+                sql.Identifier(graph_name),
+                sql.Identifier(label),
+                sql.Identifier(table_name),
             )
+            cursor.execute(query, (label,))
             updated = cursor.rowcount
 
             # Insert new nodes (skip first entity if we created it via Cypher)
             if first_entity_id is not None:
-                cursor.execute(
-                    f"""
-                    INSERT INTO "{graph_name}"."{label}" (id, properties)
+                query = sql.SQL(
+                    """
+                    INSERT INTO {}.{} (id, properties)
                     SELECT
-                        ag_catalog._graphid(%s, nextval('"{graph_name}"."{seq_name}"')),
+                        ag_catalog._graphid(%s, nextval({seq})),
                         (s.properties::text)::ag_catalog.agtype
-                    FROM "{table_name}" AS s
+                    FROM {} AS s
                     WHERE s.label = %s
                     AND s.id != %s
                     AND NOT EXISTS (
-                        SELECT 1 FROM "{graph_name}"."{label}" AS t
+                        SELECT 1 FROM {}.{} AS t
                         WHERE ag_catalog.agtype_object_field_text_agtype(
                             t.properties, '"id"'::ag_catalog.agtype
                         ) = s.id
                     )
-                    """,
-                    (label_id, label, first_entity_id),
+                    """
+                ).format(
+                    sql.Identifier(graph_name),
+                    sql.Identifier(label),
+                    sql.Identifier(table_name),
+                    sql.Identifier(graph_name),
+                    sql.Identifier(label),
+                    seq=sql.Literal(f"{graph_name}.{seq_name}"),
                 )
+                cursor.execute(query, (label_id, label, first_entity_id))
             else:
-                cursor.execute(
-                    f"""
-                    INSERT INTO "{graph_name}"."{label}" (id, properties)
+                query = sql.SQL(
+                    """
+                    INSERT INTO {}.{} (id, properties)
                     SELECT
-                        ag_catalog._graphid(%s, nextval('"{graph_name}"."{seq_name}"')),
+                        ag_catalog._graphid(%s, nextval({seq})),
                         (s.properties::text)::ag_catalog.agtype
-                    FROM "{table_name}" AS s
+                    FROM {} AS s
                     WHERE s.label = %s
                     AND NOT EXISTS (
-                        SELECT 1 FROM "{graph_name}"."{label}" AS t
+                        SELECT 1 FROM {}.{} AS t
                         WHERE ag_catalog.agtype_object_field_text_agtype(
                             t.properties, '"id"'::ag_catalog.agtype
                         ) = s.id
                     )
-                    """,
-                    (label_id, label),
+                    """
+                ).format(
+                    sql.Identifier(graph_name),
+                    sql.Identifier(label),
+                    sql.Identifier(table_name),
+                    sql.Identifier(graph_name),
+                    sql.Identifier(label),
+                    seq=sql.Literal(f"{graph_name}.{seq_name}"),
                 )
+                cursor.execute(query, (label_id, label))
             inserted = cursor.rowcount
 
             # Account for first entity created via Cypher (not in inserted count)
@@ -828,15 +876,15 @@ class AgeBulkLoadingStrategy:
             first_edge_id = None  # Track if we created via Cypher
             if label_info is None:
                 # Label doesn't exist - create it by inserting first edge via Cypher
-                cursor.execute(
-                    f"""
+                query = sql.SQL(
+                    """
                     SELECT id, start_id, end_id, properties
-                    FROM "{table_name}"
+                    FROM {}
                     WHERE label = %s
                     LIMIT 1
-                    """,
-                    (label,),
-                )
+                    """
+                ).format(sql.Identifier(table_name))
+                cursor.execute(query, (label,))
                 first_row = cursor.fetchone()
                 if first_row:
                     first_edge_id, start_id, end_id, first_props = first_row
@@ -862,67 +910,85 @@ class AgeBulkLoadingStrategy:
             label_id, seq_name = label_info
 
             # Update existing edges
-            cursor.execute(
-                f"""
-                UPDATE "{graph_name}"."{label}" AS t
+            query = sql.SQL(
+                """
+                UPDATE {}.{} AS t
                 SET properties = (s.properties::text)::ag_catalog.agtype
-                FROM "{table_name}" AS s
+                FROM {} AS s
                 WHERE s.label = %s
                 AND ag_catalog.agtype_object_field_text_agtype(
                     t.properties, '"id"'::ag_catalog.agtype
                 ) = s.id
-                """,
-                (label,),
+                """
+            ).format(
+                sql.Identifier(graph_name),
+                sql.Identifier(label),
+                sql.Identifier(table_name),
             )
+            cursor.execute(query, (label,))
             updated = cursor.rowcount
 
             # Insert new edges using pre-resolved graphids (skip first if created via Cypher)
             # This is much faster than joining on every INSERT
             if first_edge_id is not None:
-                cursor.execute(
-                    f"""
-                    INSERT INTO "{graph_name}"."{label}" (id, start_id, end_id, properties)
+                query = sql.SQL(
+                    """
+                    INSERT INTO {}.{} (id, start_id, end_id, properties)
                     SELECT
-                        ag_catalog._graphid(%s, nextval('"{graph_name}"."{seq_name}"')),
+                        ag_catalog._graphid(%s, nextval({seq})),
                         s.start_graphid,
                         s.end_graphid,
                         (s.properties::text)::ag_catalog.agtype
-                    FROM "{table_name}" AS s
+                    FROM {} AS s
                     WHERE s.label = %s
                     AND s.id != %s
                     AND s.start_graphid IS NOT NULL
                     AND s.end_graphid IS NOT NULL
                     AND NOT EXISTS (
-                        SELECT 1 FROM "{graph_name}"."{label}" AS e
+                        SELECT 1 FROM {}.{} AS e
                         WHERE ag_catalog.agtype_object_field_text_agtype(
                             e.properties, '"id"'::ag_catalog.agtype
                         ) = s.id
                     )
-                    """,
-                    (label_id, label, first_edge_id),
+                    """
+                ).format(
+                    sql.Identifier(graph_name),
+                    sql.Identifier(label),
+                    sql.Identifier(table_name),
+                    sql.Identifier(graph_name),
+                    sql.Identifier(label),
+                    seq=sql.Literal(f"{graph_name}.{seq_name}"),
                 )
+                cursor.execute(query, (label_id, label, first_edge_id))
             else:
-                cursor.execute(
-                    f"""
-                    INSERT INTO "{graph_name}"."{label}" (id, start_id, end_id, properties)
+                query = sql.SQL(
+                    """
+                    INSERT INTO {}.{} (id, start_id, end_id, properties)
                     SELECT
-                        ag_catalog._graphid(%s, nextval('"{graph_name}"."{seq_name}"')),
+                        ag_catalog._graphid(%s, nextval({seq})),
                         s.start_graphid,
                         s.end_graphid,
                         (s.properties::text)::ag_catalog.agtype
-                    FROM "{table_name}" AS s
+                    FROM {} AS s
                     WHERE s.label = %s
                     AND s.start_graphid IS NOT NULL
                     AND s.end_graphid IS NOT NULL
                     AND NOT EXISTS (
-                        SELECT 1 FROM "{graph_name}"."{label}" AS e
+                        SELECT 1 FROM {}.{} AS e
                         WHERE ag_catalog.agtype_object_field_text_agtype(
                             e.properties, '"id"'::ag_catalog.agtype
                         ) = s.id
                     )
-                    """,
-                    (label_id, label),
+                    """
+                ).format(
+                    sql.Identifier(graph_name),
+                    sql.Identifier(label),
+                    sql.Identifier(table_name),
+                    sql.Identifier(graph_name),
+                    sql.Identifier(label),
+                    seq=sql.Literal(f"{graph_name}.{seq_name}"),
                 )
+                cursor.execute(query, (label_id, label))
             inserted = cursor.rowcount
 
             # Account for first edge created via Cypher (not in inserted count)
@@ -979,44 +1045,48 @@ class AgeBulkLoadingStrategy:
             if entity_type == EntityType.NODE:
                 # Delete from parent vertex table (cascades to specific label tables)
                 # Note: DETACH DELETE equivalent - first delete connected edges
-                cursor.execute(
-                    f"""
-                    DELETE FROM "{graph_name}"._ag_label_edge
+                query = sql.SQL(
+                    """
+                    DELETE FROM {}._ag_label_edge
                     WHERE start_id IN (
-                        SELECT id FROM "{graph_name}"._ag_label_vertex
+                        SELECT id FROM {}._ag_label_vertex
                         WHERE ag_catalog.agtype_object_field_text_agtype(
                             properties, '"id"'::ag_catalog.agtype
                         ) = ANY(%s)
                     ) OR end_id IN (
-                        SELECT id FROM "{graph_name}"._ag_label_vertex
+                        SELECT id FROM {}._ag_label_vertex
                         WHERE ag_catalog.agtype_object_field_text_agtype(
                             properties, '"id"'::ag_catalog.agtype
                         ) = ANY(%s)
                     )
-                    """,
-                    (ids, ids),
+                    """
+                ).format(
+                    sql.Identifier(graph_name),
+                    sql.Identifier(graph_name),
+                    sql.Identifier(graph_name),
                 )
+                cursor.execute(query, (ids, ids))
                 # Then delete the nodes themselves
-                cursor.execute(
-                    f"""
-                    DELETE FROM "{graph_name}"._ag_label_vertex
+                query = sql.SQL(
+                    """
+                    DELETE FROM {}._ag_label_vertex
                     WHERE ag_catalog.agtype_object_field_text_agtype(
                         properties, '"id"'::ag_catalog.agtype
                     ) = ANY(%s)
-                    """,
-                    (ids,),
-                )
+                    """
+                ).format(sql.Identifier(graph_name))
+                cursor.execute(query, (ids,))
             else:
                 # Delete edges
-                cursor.execute(
-                    f"""
-                    DELETE FROM "{graph_name}"._ag_label_edge
+                query = sql.SQL(
+                    """
+                    DELETE FROM {}._ag_label_edge
                     WHERE ag_catalog.agtype_object_field_text_agtype(
                         properties, '"id"'::ag_catalog.agtype
                     ) = ANY(%s)
-                    """,
-                    (ids,),
-                )
+                    """
+                ).format(sql.Identifier(graph_name))
+                cursor.execute(query, (ids,))
 
             deleted = cursor.rowcount
             batch_duration = (time.perf_counter() - batch_start) * 1000
@@ -1047,99 +1117,107 @@ class AgeBulkLoadingStrategy:
 
             if op.type == EntityType.NODE:
                 # Find the label table for this node
-                cursor.execute(
-                    f"""
+                query = sql.SQL(
+                    """
                     SELECT tableoid::regclass
-                    FROM "{graph_name}"._ag_label_vertex
+                    FROM {}._ag_label_vertex
                     WHERE ag_catalog.agtype_object_field_text_agtype(
                         properties, '"id"'::ag_catalog.agtype
                     ) = %s
-                    """,
-                    (op.id,),
-                )
+                    """
+                ).format(sql.Identifier(graph_name))
+                cursor.execute(query, (op.id,))
                 row = cursor.fetchone()
                 if not row:
                     continue
+                # table_name is from regclass, which is already a safe, quoted identifier
+                # We use sql.SQL() to embed it directly since it's trusted system output
                 table_name = str(row[0])
 
                 if op.set_properties:
                     # Merge new properties with existing
                     props_json = json.dumps(op.set_properties)
-                    cursor.execute(
-                        f"""
-                        UPDATE {table_name} AS t
+                    # table_name from regclass is pre-formatted (e.g., "graph"."label")
+                    # It's safe to use sql.SQL() since it comes from the database itself
+                    query = sql.SQL(
+                        """
+                        UPDATE {} AS t
                         SET properties = (
                             (t.properties::text)::jsonb || %s::jsonb
                         )::text::ag_catalog.agtype
                         WHERE ag_catalog.agtype_object_field_text_agtype(
                             t.properties, '"id"'::ag_catalog.agtype
                         ) = %s
-                        """,
-                        (props_json, op.id),
-                    )
+                        """
+                    ).format(sql.SQL(table_name))
+                    cursor.execute(query, (props_json, op.id))
 
                 if op.remove_properties:
                     # Batch remove all properties in a single UPDATE
                     # Using JSONB - TEXT[] syntax for efficient multi-property removal
-                    cursor.execute(
-                        f"""
-                        UPDATE {table_name} AS t
+                    query = sql.SQL(
+                        """
+                        UPDATE {} AS t
                         SET properties = (
                             (t.properties::text)::jsonb - %s::text[]
                         )::text::ag_catalog.agtype
                         WHERE ag_catalog.agtype_object_field_text_agtype(
                             t.properties, '"id"'::ag_catalog.agtype
                         ) = %s
-                        """,
-                        (list(op.remove_properties), op.id),
-                    )
+                        """
+                    ).format(sql.SQL(table_name))
+                    cursor.execute(query, (list(op.remove_properties), op.id))
             else:
                 # Edge update - similar logic
-                cursor.execute(
-                    f"""
+                query = sql.SQL(
+                    """
                     SELECT tableoid::regclass
-                    FROM "{graph_name}"._ag_label_edge
+                    FROM {}._ag_label_edge
                     WHERE ag_catalog.agtype_object_field_text_agtype(
                         properties, '"id"'::ag_catalog.agtype
                     ) = %s
-                    """,
-                    (op.id,),
-                )
+                    """
+                ).format(sql.Identifier(graph_name))
+                cursor.execute(query, (op.id,))
                 row = cursor.fetchone()
                 if not row:
                     continue
+                # table_name is from regclass, which is already a safe, quoted identifier
+                # We use sql.SQL() to embed it directly since it's trusted system output
                 table_name = str(row[0])
 
                 if op.set_properties:
                     props_json = json.dumps(op.set_properties)
-                    cursor.execute(
-                        f"""
-                        UPDATE {table_name} AS t
+                    # table_name from regclass is pre-formatted (e.g., "graph"."label")
+                    # It's safe to use sql.SQL() since it comes from the database itself
+                    query = sql.SQL(
+                        """
+                        UPDATE {} AS t
                         SET properties = (
                             (t.properties::text)::jsonb || %s::jsonb
                         )::text::ag_catalog.agtype
                         WHERE ag_catalog.agtype_object_field_text_agtype(
                             t.properties, '"id"'::ag_catalog.agtype
                         ) = %s
-                        """,
-                        (props_json, op.id),
-                    )
+                        """
+                    ).format(sql.SQL(table_name))
+                    cursor.execute(query, (props_json, op.id))
 
                 if op.remove_properties:
                     # Batch remove all properties in a single UPDATE
                     # Using JSONB - TEXT[] syntax for efficient multi-property removal
-                    cursor.execute(
-                        f"""
-                        UPDATE {table_name} AS t
+                    query = sql.SQL(
+                        """
+                        UPDATE {} AS t
                         SET properties = (
                             (t.properties::text)::jsonb - %s::text[]
                         )::text::ag_catalog.agtype
                         WHERE ag_catalog.agtype_object_field_text_agtype(
                             t.properties, '"id"'::ag_catalog.agtype
                         ) = %s
-                        """,
-                        (list(op.remove_properties), op.id),
-                    )
+                        """
+                    ).format(sql.SQL(table_name))
+                    cursor.execute(query, (list(op.remove_properties), op.id))
 
             batch_duration = (time.perf_counter() - batch_start) * 1000
             probe.batch_applied(

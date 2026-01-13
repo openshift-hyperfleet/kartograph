@@ -235,3 +235,18 @@ class DefaultMutationProbe:
             count=len(duplicate_ids),
             **self._get_context_kwargs(),
         )
+
+    def orphaned_edges_detected(
+        self,
+        orphaned_edge_ids: list[str],
+        missing_node_ids: list[str],
+    ) -> None:
+        """Record that edges were detected with missing source or target nodes."""
+        self._logger.error(
+            "mutation_orphaned_edges_detected",
+            orphaned_edge_ids=orphaned_edge_ids,
+            missing_node_ids=missing_node_ids,
+            orphaned_edge_count=len(orphaned_edge_ids),
+            missing_node_count=len(missing_node_ids),
+            **self._get_context_kwargs(),
+        )

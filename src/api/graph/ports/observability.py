@@ -82,6 +82,19 @@ class MutationProbe(Protocol):
         """
         ...
 
+    def orphaned_edges_detected(
+        self,
+        orphaned_edge_ids: list[str],
+        missing_node_ids: list[str],
+    ) -> None:
+        """Record that edges were detected with missing source or target nodes.
+
+        Args:
+            orphaned_edge_ids: List of edge IDs that reference non-existent nodes
+            missing_node_ids: List of node IDs that were referenced but don't exist
+        """
+        ...
+
     def with_context(self, context: ObservationContext) -> MutationProbe:
         """Create a new probe with observation context bound."""
         ...

@@ -459,7 +459,14 @@ def compute_degree_stats(data: GraphData, config: MetricsConfig) -> dict:
 
     avg_degree = sum(degrees) / len(degrees)
     sorted_degrees = sorted(degrees)
-    median_degree = sorted_degrees[len(sorted_degrees) // 2]
+
+    # Calculate median correctly for both odd and even-length lists
+    n = len(sorted_degrees)
+    if n % 2 == 1:
+        median_degree = sorted_degrees[n // 2]
+    else:
+        median_degree = (sorted_degrees[n // 2 - 1] + sorted_degrees[n // 2]) / 2
+
     variance = sum((d - avg_degree) ** 2 for d in degrees) / len(degrees)
 
     orphan_nodes = sum(1 for d in degrees if d == 0)

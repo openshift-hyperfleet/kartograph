@@ -147,9 +147,6 @@ class DefaultGraphClientProbe:
         )
 
 
-# Re-export MutationProbe protocol from ports for backwards compatibility
-
-
 class DefaultMutationProbe:
     """Default implementation of MutationProbe using structlog."""
 

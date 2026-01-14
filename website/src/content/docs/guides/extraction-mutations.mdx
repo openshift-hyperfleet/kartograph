@@ -115,8 +115,6 @@ with open("mutations.jsonl", "w") as f:
   "type": "node",
   "label": "Person",
   "description": "A person entity representing an individual contributor, maintainer, or team member. Extracted from MAINTAINERS.md, git commit authors, @-mentions in pull requests, and people/ directory markdown files.",
-  "example_file_path": "people/alice-smith.md",
-  "example_in_file_path": "---\nname: Alice Smith\nemail: alice@example.com\ngithub: asmith\nrole: Senior Engineer\n---\n\n# Alice Smith\n\nAlice is a senior engineer focusing on backend systems.",
   "required_properties": ["email", "name"]
 }
 ```
@@ -129,8 +127,6 @@ with open("mutations.jsonl", "w") as f:
   "type": "edge",
   "label": "KNOWS",
   "description": "Represents a professional relationship or acquaintance between two people, typically colleagues or collaborators. Extracted from co-authorship on pull requests, shared repository maintainership, or explicit mentions in people profiles.",
-  "example_file_path": "people/alice-smith.md",
-  "example_in_file_path": "## Colleagues\n\n- [@bob-jones](../people/bob-jones.md) - worked together since 2020\n- [@charlie-wilson](../people/charlie-wilson.md) - collaborated on Project X",
   "required_properties": ["since"]
 }
 ```
@@ -140,8 +136,6 @@ with open("mutations.jsonl", "w") as f:
 **Required fields:**
 - `label` - The graph label, i.e. Entity Type/Relationship Type (PascalCase: `"Person"`, `"KNOWS"`)
 - `description` - What this type is and when to use it
-- `example_file_path` - Where this type is typically found
-- `example_in_file_path` - An actual example of this type as it appears in the file
 - `required_properties` - Array of property names that MUST be present. This is in addition to any globally-required properties (such as `slug` and `data_source_id`)
 
 <Aside>
@@ -286,8 +280,8 @@ will execute operations in the following order:
 The extraction process produces a **JSONL file** (one JSON object per line), which might look something like:
 
 ```jsonl
-{"op": "DEFINE","type": "node","label": "Person","description": "A person entity representing an individual contributor, maintainer, or team member. Extracted from MAINTAINERS.md, git commit authors, @-mentions in pull requests, and people/ directory markdown files.","example_file_path": "people/alice-smith.md","example_in_file_path": "---\nname: Alice Smith\nemail: alice@example.com\ngithub: asmith\nrole: Senior Engineer\n---\n\n# Alice Smith\n\nAlice is a senior engineer focusing on backend systems.","required_properties": ["name"]}
-{"op": "DEFINE","type": "edge","label": "KNOWS","description": "Represents a professional relationship or acquaintance between two people, typically colleagues or collaborators. Extracted from co-authorship on pull requests, shared repository maintainership, or explicit mentions in people profiles.","example_file_path": "people/alice-smith.md","example_in_file_path": "## Colleagues\n\n- [@bob-jones](../people/bob-jones.md) - worked together since 2020\n- [@charlie-wilson](../people/charlie-wilson.md) - collaborated on Project X","required_properties": ["since"]}
+{"op": "DEFINE","type": "node","label": "Person","description": "A person entity representing an individual contributor, maintainer, or team member. Extracted from MAINTAINERS.md, git commit authors, @-mentions in pull requests, and people/ directory markdown files.","required_properties": ["name"]}
+{"op": "DEFINE","type": "edge","label": "KNOWS","description": "Represents a professional relationship or acquaintance between two people, typically colleagues or collaborators. Extracted from co-authorship on pull requests, shared repository maintainership, or explicit mentions in people profiles.","required_properties": ["since"]}
 {"op": "CREATE","type": "node","id": "person:1a2b3c4d5e6f7890","label": "Person","set_properties": {"slug": "alice-smith","name": "Alice Smith","data_source_id": "ds-123","source_path": "people/alice.md"}}
 {"op": "CREATE","type": "node","id": "person:abcdef0123456789","label": "Person","set_properties": {"slug": "bob-jones","name": "Bob Jones","data_source_id": "ds-123","source_path": "people/bob.md"}}
 {"op": "CREATE","type": "edge","id": "knows:9f8e7d6c5b4a3210","label": "KNOWS","start_id": "person:1a2b3c4d5e6f7890","end_id": "person:abcdef0123456789","set_properties": {"since": "2020","data_source_id": "ds-123","source_path": "people/alice.md"}}

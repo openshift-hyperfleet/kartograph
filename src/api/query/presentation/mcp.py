@@ -39,8 +39,6 @@ def _convert_type_definition_to_schema(td: TypeDefinitionLike) -> TypeDefinition
         label=td.label,
         entity_type=td.entity_type.value,
         description=td.description,
-        example_file_path=td.example_file_path,
-        example_in_file_path=td.example_in_file_path,
         required_properties=sorted(list(td.required_properties)),
         optional_properties=sorted(list(td.optional_properties)),
     )

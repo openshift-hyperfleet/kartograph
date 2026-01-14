@@ -150,11 +150,11 @@ class TestCreateGroup:
             tenant_id=tenant_id,
         )
 
-        # Verify save was called with tenant_id
+        # Verify save was called - Group now contains tenant_id
         mock_group_repository.save.assert_called_once()
-        saved_group, saved_tenant_id = mock_group_repository.save.call_args[0]
+        saved_group = mock_group_repository.save.call_args[0][0]
         assert saved_group.name == "Engineering"
-        assert saved_tenant_id == tenant_id
+        assert saved_group.tenant_id == tenant_id
 
     @pytest.mark.asyncio
     async def test_records_success_probe_event(
@@ -212,22 +212,23 @@ class TestGetGroup:
     """Tests for get_group method."""
 
     @pytest.mark.asyncio
-    async def test_returns_group_when_found_and_authorized(
+    async def test_returns_group_when_found_and_tenant_matches(
         self, group_service, mock_group_repository, mock_authz
     ):
-        """Should return group when found and tenant access verified."""
+        """Should return group when found and tenant_id matches."""
         group_id = GroupId.generate()
         tenant_id = TenantId.generate()
-        group = Group(id=group_id, name="Engineering")
+        # Group has the same tenant_id
+        group = Group(id=group_id, tenant_id=tenant_id, name="Engineering")
 
         mock_group_repository.get_by_id = AsyncMock(return_value=group)
-        mock_authz.check_permission = AsyncMock(return_value=True)
 
         result = await group_service.get_group(group_id, tenant_id)
 
         assert result == group
         mock_group_repository.get_by_id.assert_called_once_with(group_id)
-        mock_authz.check_permission.assert_called_once()
+        # Tenant check is now done via group.tenant_id, not SpiceDB
+        mock_authz.check_permission.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_returns_none_when_group_not_found(
@@ -243,26 +244,27 @@ class TestGetGroup:
 
         assert result is None
         mock_group_repository.get_by_id.assert_called_once_with(group_id)
-        # Should not check permissions if group doesn't exist
         mock_authz.check_permission.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_returns_none_when_tenant_access_denied(
+    async def test_returns_none_when_tenant_mismatch(
         self, group_service, mock_group_repository, mock_authz
     ):
-        """Should return None when group exists but tenant lacks access."""
+        """Should return None when group exists but tenant_id doesn't match."""
         group_id = GroupId.generate()
         tenant_id = TenantId.generate()
-        group = Group(id=group_id, name="Engineering")
+        other_tenant_id = TenantId.generate()
+        # Group has a different tenant_id
+        group = Group(id=group_id, tenant_id=other_tenant_id, name="Engineering")
 
         mock_group_repository.get_by_id = AsyncMock(return_value=group)
-        mock_authz.check_permission = AsyncMock(return_value=False)
 
         result = await group_service.get_group(group_id, tenant_id)
 
         # Returns None for security (don't leak group existence)
         assert result is None
-        mock_authz.check_permission.assert_called_once()
+        # Tenant check is done via group.tenant_id comparison
+        mock_authz.check_permission.assert_not_called()
 
 
 class TestDeleteGroup:
@@ -276,15 +278,20 @@ class TestDeleteGroup:
         group_id = GroupId.generate()
         tenant_id = TenantId.generate()
         user_id = UserId.generate()
+        group = Group(id=group_id, tenant_id=tenant_id, name="Engineering")
 
         mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_group_repository.get_by_id = AsyncMock(return_value=group)
         mock_group_repository.delete = AsyncMock(return_value=True)
 
         result = await group_service.delete_group(group_id, tenant_id, user_id)
 
         assert result is True
         mock_authz.check_permission.assert_called_once()
-        mock_group_repository.delete.assert_called_once_with(group_id, tenant_id)
+        # delete now takes the full aggregate
+        mock_group_repository.delete.assert_called_once()
+        deleted_group = mock_group_repository.delete.call_args[0][0]
+        assert deleted_group.id == group_id
 
     @pytest.mark.asyncio
     async def test_raises_permission_error_when_unauthorized(
@@ -315,8 +322,29 @@ class TestDeleteGroup:
         user_id = UserId.generate()
 
         mock_authz.check_permission = AsyncMock(return_value=True)
-        mock_group_repository.delete = AsyncMock(return_value=False)
+        mock_group_repository.get_by_id = AsyncMock(return_value=None)
 
         result = await group_service.delete_group(group_id, tenant_id, user_id)
 
         assert result is False
+        mock_group_repository.delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_tenant_mismatch(
+        self, group_service, mock_group_repository, mock_authz
+    ):
+        """Should return False when group exists but tenant doesn't match."""
+        group_id = GroupId.generate()
+        tenant_id = TenantId.generate()
+        other_tenant_id = TenantId.generate()
+        user_id = UserId.generate()
+        # Group belongs to a different tenant
+        group = Group(id=group_id, tenant_id=other_tenant_id, name="Engineering")
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_group_repository.get_by_id = AsyncMock(return_value=group)
+
+        result = await group_service.delete_group(group_id, tenant_id, user_id)
+
+        assert result is False
+        mock_group_repository.delete.assert_not_called()

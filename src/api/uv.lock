@@ -127,6 +127,18 @@ wheels = [
 ]
 
 [[package]]
+name = "asyncpg-listen"
+version = "0.0.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "asyncpg" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/31/d7/0491b438a8d97128e52441d5dc09c4a975b662da8e05da53974146fce939/asyncpg-listen-0.0.9.tar.gz", hash = "sha256:f94c4752f7ca1077eaaad0fa2c08fcef4990eaae81a61c423683a722ca3f3a33", size = 7980, upload-time = "2025-07-16T11:03:29.069Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/21/5fe6b94db1f34d84590c7e997d76d11d11af87c6f4048dfd6f4c97325e4f/asyncpg_listen-0.0.9-py3-none-any.whl", hash = "sha256:44a4fe25a589de71bb8822aa3db6dde6e32d7f95c8e6b674be037473ca1f2775", size = 5882, upload-time = "2025-07-16T11:03:28.299Z" },
+]
+
+[[package]]
 name = "attrs"
 version = "25.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1087,6 +1099,7 @@ dependencies = [
     { name = "alembic" },
     { name = "apache-age-python" },
     { name = "asyncpg" },
+    { name = "asyncpg-listen" },
     { name = "authzed" },
     { name = "cyclopts" },
     { name = "fastapi", extra = ["standard"] },
@@ -1109,6 +1122,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "pytest-env" },
     { name = "pytest-mock" },
+    { name = "rich" },
     { name = "ruff" },
     { name = "types-psycopg2" },
 ]
@@ -1118,6 +1132,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.17.2" },
     { name = "apache-age-python", specifier = ">=0.0.7" },
     { name = "asyncpg", specifier = ">=0.31.0" },
+    { name = "asyncpg-listen", specifier = ">=0.0.9" },
     { name = "authzed", specifier = ">=1.24.0" },
     { name = "cyclopts", specifier = "==5.0.0a1" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.123.9" },
@@ -1140,6 +1155,7 @@ dev = [
     { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "pytest-env", specifier = ">=1.2.0" },
     { name = "pytest-mock", specifier = ">=3.15.1" },
+    { name = "rich", specifier = ">=14.2.0" },
     { name = "ruff", specifier = ">=0.14.8" },
     { name = "types-psycopg2", specifier = ">=2.9.21.20251012" },
 ]

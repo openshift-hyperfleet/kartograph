@@ -758,13 +758,13 @@ class AgeBulkLoadingStrategy:
             cursor.execute(query, (label,))
             updated = cursor.rowcount
 
+            # Build sequence name for nextval() with proper quoting
+            # nextval() expects a text argument containing the properly-quoted identifier
+            # Format: '"schema_name"."sequence_name"' (quotes inside the string literal)
+            seq_literal = sql.Literal(f'"{graph_name}"."{seq_name}"')
+
             # Insert new nodes (skip first entity if we created it via Cypher)
             if first_entity_id is not None:
-                # Build sequence name for nextval() with proper quoting
-                # nextval() expects a text argument containing the properly-quoted identifier
-                # Format: '"schema_name"."sequence_name"' (quotes inside the string literal)
-                seq_literal = sql.Literal(f'"{graph_name}"."{seq_name}"')
-
                 query = sql.SQL(
                     """
                     INSERT INTO {}.{} (id, properties)
@@ -791,11 +791,6 @@ class AgeBulkLoadingStrategy:
                 )
                 cursor.execute(query, (label_id, label, first_entity_id))
             else:
-                # Build sequence name for nextval() with proper quoting
-                # nextval() expects a text argument containing the properly-quoted identifier
-                # Format: '"schema_name"."sequence_name"' (quotes inside the string literal)
-                seq_literal = sql.Literal(f'"{graph_name}"."{seq_name}"')
-
                 query = sql.SQL(
                     """
                     INSERT INTO {}.{} (id, properties)
@@ -931,14 +926,14 @@ class AgeBulkLoadingStrategy:
             cursor.execute(query, (label,))
             updated = cursor.rowcount
 
+            # Build sequence name for nextval() with proper quoting
+            # nextval() expects a text argument containing the properly-quoted identifier
+            # Format: '"schema_name"."sequence_name"' (quotes inside the string literal)
+            seq_literal = sql.Literal(f'"{graph_name}"."{seq_name}"')
+
             # Insert new edges using pre-resolved graphids (skip first if created via Cypher)
             # This is much faster than joining on every INSERT
             if first_edge_id is not None:
-                # Build sequence name for nextval() with proper quoting
-                # nextval() expects a text argument containing the properly-quoted identifier
-                # Format: '"schema_name"."sequence_name"' (quotes inside the string literal)
-                seq_literal = sql.Literal(f'"{graph_name}"."{seq_name}"')
-
                 query = sql.SQL(
                     """
                     INSERT INTO {}.{} (id, start_id, end_id, properties)
@@ -969,11 +964,6 @@ class AgeBulkLoadingStrategy:
                 )
                 cursor.execute(query, (label_id, label, first_edge_id))
             else:
-                # Build sequence name for nextval() with proper quoting
-                # nextval() expects a text argument containing the properly-quoted identifier
-                # Format: '"schema_name"."sequence_name"' (quotes inside the string literal)
-                seq_literal = sql.Literal(f'"{graph_name}"."{seq_name}"')
-
                 query = sql.SQL(
                     """
                     INSERT INTO {}.{} (id, start_id, end_id, properties)

@@ -155,6 +155,135 @@ def escape_copy_value(value: str) -> str:
     return result
 
 
+def create_label_indexes(
+    cursor: Any,
+    graph_name: str,
+    label: str,
+    entity_type: EntityType,
+) -> int:
+    """Create indexes for a label using the provided cursor (within transaction).
+
+    This creates the same indexes as AGE client's ensure_indexes_for_label,
+    but uses the provided cursor to stay within the current transaction.
+    This is critical for performance when creating new labels during bulk loading.
+
+    Args:
+        cursor: Database cursor (within transaction)
+        graph_name: Graph name (schema)
+        label: Label name (table)
+        entity_type: EntityType.NODE or EntityType.EDGE
+
+    Returns:
+        Number of indexes created
+
+    Raises:
+        ValueError: If graph_name or label are invalid
+    """
+    # Defense in depth: validate inputs even though callers should pre-validate
+    validate_label_name(graph_name)
+    validate_label_name(label)
+
+    if not isinstance(entity_type, EntityType):
+        raise ValueError(
+            f"Invalid entity_type '{entity_type}': must be EntityType.NODE or EntityType.EDGE"
+        )
+
+    indexes = []
+
+    # BTREE on id column (graphid) - critical for all labels
+    indexes.append(
+        {
+            "name": f"idx_{graph_name}_{label}_id_btree",
+            "sql": sql.SQL(
+                "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE (id)"
+            ).format(
+                sql.Identifier(f"idx_{graph_name}_{label}_id_btree"),
+                sql.Identifier(graph_name),
+                sql.Identifier(label),
+            ),
+        }
+    )
+
+    # GIN on properties column - for property-based queries
+    indexes.append(
+        {
+            "name": f"idx_{graph_name}_{label}_props_gin",
+            "sql": sql.SQL(
+                "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING GIN (properties)"
+            ).format(
+                sql.Identifier(f"idx_{graph_name}_{label}_props_gin"),
+                sql.Identifier(graph_name),
+                sql.Identifier(label),
+            ),
+        }
+    )
+
+    # BTREE on properties.id - for logical ID lookups (CRITICAL for performance)
+    # This uses agtype_access_operator for efficient access to specific property
+    indexes.append(
+        {
+            "name": f"idx_{graph_name}_{label}_prop_id_btree",
+            "sql": sql.SQL(
+                "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE ("
+                "ag_catalog.agtype_access_operator(VARIADIC ARRAY[properties, "
+                "'\"id\"'::ag_catalog.agtype]))"
+            ).format(
+                sql.Identifier(f"idx_{graph_name}_{label}_prop_id_btree"),
+                sql.Identifier(graph_name),
+                sql.Identifier(label),
+            ),
+        }
+    )
+
+    # Edge-specific indexes
+    if entity_type == EntityType.EDGE:
+        # BTREE on start_id - for join performance
+        indexes.append(
+            {
+                "name": f"idx_{graph_name}_{label}_start_id_btree",
+                "sql": sql.SQL(
+                    "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE (start_id)"
+                ).format(
+                    sql.Identifier(f"idx_{graph_name}_{label}_start_id_btree"),
+                    sql.Identifier(graph_name),
+                    sql.Identifier(label),
+                ),
+            }
+        )
+        # BTREE on end_id - for join performance
+        indexes.append(
+            {
+                "name": f"idx_{graph_name}_{label}_end_id_btree",
+                "sql": sql.SQL(
+                    "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE (end_id)"
+                ).format(
+                    sql.Identifier(f"idx_{graph_name}_{label}_end_id_btree"),
+                    sql.Identifier(graph_name),
+                    sql.Identifier(label),
+                ),
+            }
+        )
+
+    created = 0
+    for idx in indexes:
+        # Check if index already exists
+        cursor.execute(
+            """
+            SELECT 1 FROM pg_indexes
+            WHERE schemaname = %s AND indexname = %s
+            """,
+            (graph_name, idx["name"]),
+        )
+        if cursor.fetchone() is not None:
+            continue
+
+        # Create the index
+        cursor.execute(idx["sql"])
+        created += 1
+
+    return created
+
+
 class StagingTableManager:
     """Manages temporary staging tables for bulk COPY operations."""
 
@@ -729,6 +858,9 @@ class AgeBulkLoadingStrategy:
                     self._create_label_with_first_entity(
                         cursor, graph_name, label, first_entity_id, first_props
                     )
+                    # Create indexes immediately for the new label (critical for performance)
+                    # Without these indexes, UPDATE and INSERT queries do full table scans
+                    create_label_indexes(cursor, graph_name, label, EntityType.NODE)
                     # Now get the label info
                     label_info = self._get_label_info(cursor, graph_name, label)
                     if label_info is None:
@@ -895,6 +1027,9 @@ class AgeBulkLoadingStrategy:
                         end_id,
                         first_props,
                     )
+                    # Create indexes immediately for the new label (critical for performance)
+                    # Without these indexes, UPDATE and INSERT queries do full table scans
+                    create_label_indexes(cursor, graph_name, label, EntityType.EDGE)
                     # Now get the label info
                     label_info = self._get_label_info(cursor, graph_name, label)
                     if label_info is None:

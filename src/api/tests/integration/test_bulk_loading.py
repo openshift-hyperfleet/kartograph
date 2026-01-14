@@ -1496,3 +1496,181 @@ class TestBatchPropertyRemoval:
                 f"RETURN p.{prop}"
             )
             assert query_result.rows[0][0] is None, f"Property {prop} should be null"
+
+
+@pytest.mark.integration
+class TestBulkLoadingIndexCreation:
+    """Tests for index creation during bulk loading.
+
+    When new labels are created via bulk loading, indexes should be created
+    immediately to avoid slow full table scans in subsequent UPDATE and INSERT
+    queries within the same batch.
+    """
+
+    def test_node_label_creation_creates_indexes(self, clean_graph: AgeGraphClient):
+        """Creating a new node label via bulk loading should create indexes."""
+        import uuid
+
+        strategy = AgeBulkLoadingStrategy()
+        probe = DefaultMutationProbe()
+
+        # Use unique label to ensure it doesn't exist
+        unique_suffix = uuid.uuid4().hex[:8]
+        unique_label = f"nodeidx{unique_suffix}"
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.CREATE,
+                type=EntityType.NODE,
+                id=f"{unique_label}:{uuid.uuid4().hex[:16]}",
+                label=unique_label,
+                set_properties={
+                    "slug": "test-entity",
+                    "name": "Test Entity",
+                    "data_source_id": "ds-123",
+                    "source_path": "test.md",
+                },
+            ),
+        ]
+
+        result = strategy.apply_batch(
+            client=clean_graph,
+            operations=operations,
+            probe=probe,
+            graph_name=clean_graph.graph_name,
+        )
+
+        assert result.success is True
+
+        # Verify indexes were created for the new label
+        with clean_graph._connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT indexname FROM pg_indexes
+                WHERE schemaname = %s AND tablename = %s
+                """,
+                (clean_graph.graph_name, unique_label),
+            )
+            indexes = [row[0] for row in cursor.fetchall()]
+
+        # Should have: id_btree, props_gin, prop_id_btree (3 node indexes)
+        assert len(indexes) >= 3, (
+            f"Expected at least 3 indexes, got {len(indexes)}: {indexes}"
+        )
+        assert any("id_btree" in idx for idx in indexes), (
+            f"Missing BTREE id index. Found: {indexes}"
+        )
+        assert any("props_gin" in idx for idx in indexes), (
+            f"Missing GIN properties index. Found: {indexes}"
+        )
+        assert any("prop_id_btree" in idx for idx in indexes), (
+            f"Missing BTREE properties.id index. Found: {indexes}"
+        )
+
+    def test_edge_label_creation_creates_indexes(self, clean_graph: AgeGraphClient):
+        """Creating a new edge label via bulk loading should create indexes."""
+        import uuid
+
+        strategy = AgeBulkLoadingStrategy()
+        probe = DefaultMutationProbe()
+
+        # Use unique labels to ensure they don't exist
+        unique_suffix = uuid.uuid4().hex[:8]
+        node_label = f"nodee{unique_suffix}"
+        edge_label = f"edgeidx{unique_suffix}"
+
+        # Generate valid IDs (label:16_hex_chars format)
+        source_id = f"{node_label}:{uuid.uuid4().hex[:16]}"
+        target_id = f"{node_label}:{uuid.uuid4().hex[:16]}"
+
+        # First create two nodes
+        node_operations = [
+            MutationOperation(
+                op=MutationOperationType.CREATE,
+                type=EntityType.NODE,
+                id=source_id,
+                label=node_label,
+                set_properties={
+                    "slug": "source-node",
+                    "name": "Source Node",
+                    "data_source_id": "ds-123",
+                    "source_path": "test.md",
+                },
+            ),
+            MutationOperation(
+                op=MutationOperationType.CREATE,
+                type=EntityType.NODE,
+                id=target_id,
+                label=node_label,
+                set_properties={
+                    "slug": "target-node",
+                    "name": "Target Node",
+                    "data_source_id": "ds-123",
+                    "source_path": "test.md",
+                },
+            ),
+        ]
+
+        result = strategy.apply_batch(
+            client=clean_graph,
+            operations=node_operations,
+            probe=probe,
+            graph_name=clean_graph.graph_name,
+        )
+        assert result.success is True
+
+        # Now create an edge between them
+        edge_operations = [
+            MutationOperation(
+                op=MutationOperationType.CREATE,
+                type=EntityType.EDGE,
+                id=f"{edge_label}:{uuid.uuid4().hex[:16]}",
+                label=edge_label,
+                start_id=source_id,
+                end_id=target_id,
+                set_properties={
+                    "data_source_id": "ds-123",
+                    "source_path": "test.md",
+                },
+            ),
+        ]
+
+        result = strategy.apply_batch(
+            client=clean_graph,
+            operations=edge_operations,
+            probe=probe,
+            graph_name=clean_graph.graph_name,
+        )
+
+        assert result.success is True
+
+        # Verify indexes were created for the new edge label
+        with clean_graph._connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT indexname FROM pg_indexes
+                WHERE schemaname = %s AND tablename = %s
+                """,
+                (clean_graph.graph_name, edge_label),
+            )
+            indexes = [row[0] for row in cursor.fetchall()]
+
+        # Should have: id_btree, props_gin, prop_id_btree, start_id_btree, end_id_btree (5 edge indexes)
+        assert len(indexes) >= 5, (
+            f"Expected at least 5 indexes, got {len(indexes)}: {indexes}"
+        )
+        assert any("id_btree" in idx for idx in indexes), (
+            f"Missing BTREE id index. Found: {indexes}"
+        )
+        assert any("props_gin" in idx for idx in indexes), (
+            f"Missing GIN properties index. Found: {indexes}"
+        )
+        assert any("prop_id_btree" in idx for idx in indexes), (
+            f"Missing BTREE properties.id index. Found: {indexes}"
+        )
+        assert any("start_id_btree" in idx for idx in indexes), (
+            f"Missing BTREE start_id index. Found: {indexes}"
+        )
+        assert any("end_id_btree" in idx for idx in indexes), (
+            f"Missing BTREE end_id index. Found: {indexes}"
+        )

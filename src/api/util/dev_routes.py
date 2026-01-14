@@ -681,9 +681,12 @@ def _parse_agtype_edge(agtype_str: str) -> dict | None:
 
 
 def _fetch_graph_data(pool: ConnectionPool, graph_name: str) -> dict:
-    """Fetch all nodes and edges from the graph using raw SQL.
+    """Fetch all nodes and edges from the graph using direct SQL.
 
-    Uses direct SQL queries for maximum performance with large graphs.
+    Uses direct SQL queries on AGE label tables instead of Cypher for
+    maximum performance with large graphs. Cypher MATCH scans everything
+    through the AGE layer which is slow for large datasets.
+
     Returns data in format expected by the Cosmograph viewer.
     """
     logger.info(f"Fetching graph data for graph: {graph_name}")
@@ -691,42 +694,105 @@ def _fetch_graph_data(pool: ConnectionPool, graph_name: str) -> dict:
     conn = pool.get_connection()
     try:
         with conn.cursor() as cur:
-            # Ensure AGE extension is loaded for this connection
-            cur.execute("LOAD 'age';")
-            cur.execute("SET search_path = ag_catalog, '$user', public;")
+            # Get all vertex and edge labels in this graph
+            cur.execute(
+                """
+                SELECT name, kind FROM ag_catalog.ag_label
+                WHERE graph = (SELECT graphid FROM ag_catalog.ag_graph WHERE name = %s)
+                AND name NOT LIKE '_ag_label%%'
+                """,
+                (graph_name,),
+            )
+            labels = [(row[0], row[1]) for row in cur.fetchall()]
 
-            # Fetch nodes - use ag_catalog.agtype_out for text conversion
-            cur.execute(f"""
-                SELECT ag_catalog.agtype_out(node)
-                FROM cypher('{graph_name}', $$ MATCH (n) RETURN n $$) AS (node agtype);
-            """)
+            vertex_labels = [name for name, kind in labels if kind == "v"]
+            edge_labels = [name for name, kind in labels if kind == "e"]
+
+            logger.info(
+                f"Found {len(vertex_labels)} vertex labels, {len(edge_labels)} edge labels"
+            )
+
+            # Fetch all nodes from all vertex label tables using UNION ALL
             nodes = []
-            for row in cur.fetchall():
-                node_data = _parse_agtype_vertex(row[0])
-                if node_data:
-                    nodes.append(node_data)
+            if vertex_labels:
+                # Build UNION ALL query for all vertex labels
+                union_parts = []
+                for label in vertex_labels:
+                    # Each label table has: id (graphid), properties (agtype)
+                    # Quote identifiers to preserve case (AGE uses PascalCase labels)
+                    union_parts.append(f'''
+                        SELECT
+                            id::text AS age_id,
+                            '{label}' AS label,
+                            ag_catalog.agtype_out(properties) AS props
+                        FROM "{graph_name}"."{label}"
+                    ''')
+
+                union_query = " UNION ALL ".join(union_parts)
+                cur.execute(union_query)
+
+                for row in cur.fetchall():
+                    age_id, label, props_str = row
+                    try:
+                        props = json.loads(props_str) if props_str else {}
+                        domain_id = props.get("id", "")
+                        props_copy = {k: v for k, v in props.items() if k != "id"}
+                        nodes.append(
+                            {
+                                "id": age_id,
+                                "domainId": domain_id,
+                                "label": props.get("name")
+                                or props.get("slug")
+                                or domain_id
+                                or label,
+                                "type": label,
+                                **props_copy,
+                            }
+                        )
+                    except json.JSONDecodeError:
+                        continue
 
             logger.info(f"Fetched {len(nodes)} nodes")
 
-            # Fetch edges with source/target IDs
-            cur.execute(f"""
-                SELECT ag_catalog.agtype_out(source_id),
-                       ag_catalog.agtype_out(target_id),
-                       ag_catalog.agtype_out(edge)
-                FROM cypher('{graph_name}', $$
-                    MATCH (s)-[r]->(t)
-                    RETURN id(s), id(t), r
-                $$) AS (source_id agtype, target_id agtype, edge agtype);
-            """)
+            # Fetch all edges from all edge label tables using UNION ALL
             edges = []
-            for row in cur.fetchall():
-                source_id = str(row[0]).strip('"')
-                target_id = str(row[1]).strip('"')
-                edge_data = _parse_agtype_edge(row[2])
-                if edge_data:
-                    edge_data["source"] = source_id
-                    edge_data["target"] = target_id
-                    edges.append(edge_data)
+            if edge_labels:
+                # Build UNION ALL query for all edge labels
+                union_parts = []
+                for label in edge_labels:
+                    # Each edge table has: id, start_id, end_id, properties
+                    # Quote identifiers to preserve case (AGE uses PascalCase labels)
+                    union_parts.append(f'''
+                        SELECT
+                            id::text AS age_id,
+                            start_id::text AS source,
+                            end_id::text AS target,
+                            '{label}' AS label,
+                            ag_catalog.agtype_out(properties) AS props
+                        FROM "{graph_name}"."{label}"
+                    ''')
+
+                union_query = " UNION ALL ".join(union_parts)
+                cur.execute(union_query)
+
+                for row in cur.fetchall():
+                    age_id, source, target, label, props_str = row
+                    try:
+                        props = json.loads(props_str) if props_str else {}
+                        domain_id = props.get("id", "")
+                        props_copy = {k: v for k, v in props.items() if k != "id"}
+                        edges.append(
+                            {
+                                "id": age_id,
+                                "domainId": domain_id,
+                                "source": source,
+                                "target": target,
+                                "type": label,
+                                **props_copy,
+                            }
+                        )
+                    except json.JSONDecodeError:
+                        continue
 
             logger.info(f"Fetched {len(edges)} edges")
 

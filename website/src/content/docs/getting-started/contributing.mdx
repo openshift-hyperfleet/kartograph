@@ -1,0 +1,47 @@
+---
+title: Contributing
+description: Developing Kartograph
+---
+
+import { Steps, Code, Aside } from '@astrojs/starlight/components';
+
+## Prerequisites
+
+- Python 3.12 or higher
+- UV package manager
+- Docker (for Apache AGE database)
+
+## Installation
+
+<Steps>
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/openshift-hyperfleet/kartograph.git
+   cd kartograph
+   ```
+
+1. **Install Git Hooks**
+
+   `pre-commit` and `pre-push` hooks are configured to enforce
+   coding standards and validate code with tests. The first time
+   you commit, `pre-commit` will install required packages automatically.
+   This may take some time, but will only happen once.
+   
+   ```bash
+   uv run pre-commit install -t pre-commit -t pre-push
+   ```
+
+1. **Configure environment**
+   
+   Default Kartograph configuration files can be found in
+   `/env`. 
+
+1. **Run Kartograph**
+
+   Kartograph can quickly be run in development mode using `docker compose`:
+   ```bash
+   make dev && make logs
+   ```
+   This will first start the database and application services, with
+   auto-reload enabled.
+</Steps>

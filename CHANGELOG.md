@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.17.0...v0.17.1) (2026-01-14)
+
+
+### Documentation
+
+* refine documentation ([#109](https://github.com/openshift-hyperfleet/kartograph/issues/109)) ([0a614cc](https://github.com/openshift-hyperfleet/kartograph/commit/0a614cc04e93606147ed1a83add5f260508ccdff))
+
 ## [0.17.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.16.0...v0.17.0) (2026-01-14)
 
 

@@ -34,8 +34,6 @@ async def mcp_client_with_schema():
         label="person",
         entity_type=EntityType.NODE,
         description="A person entity",
-        example_file_path="people/alice.md",
-        example_in_file_path="name: Alice Smith",
         required_properties={"name"},
         optional_properties={"email", "role"},
     )
@@ -46,8 +44,6 @@ async def mcp_client_with_schema():
         label="project",
         entity_type=EntityType.NODE,
         description="A software project",
-        example_file_path="projects/kartograph.md",
-        example_in_file_path="name: Kartograph",
         required_properties={"name"},
         optional_properties={"description", "url"},
     )
@@ -58,8 +54,6 @@ async def mcp_client_with_schema():
         label="knows",
         entity_type=EntityType.EDGE,
         description="Professional relationship",
-        example_file_path="people/alice.md",
-        example_in_file_path="colleagues: [@bob](bob.md)",
         required_properties={"since"},
         optional_properties=set(),
     )
@@ -113,8 +107,6 @@ async def test_ontology_resource_includes_complete_type_information(
 
     assert person_def["entity_type"] == "node"
     assert person_def["description"] == "A person entity"
-    assert person_def["example_file_path"] == "people/alice.md"
-    assert person_def["example_in_file_path"] == "name: Alice Smith"
     assert "name" in person_def["required_properties"]
     assert "email" in person_def["optional_properties"]
 

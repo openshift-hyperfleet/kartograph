@@ -35,8 +35,6 @@ class TestCreateDefineValidationInBatch:
             type=EntityType.NODE,
             label="person",
             description="A person",
-            example_file_path="test.md",
-            example_in_file_path="test",
             required_properties={"name"},  # User only specifies "name"
         )
 
@@ -79,8 +77,6 @@ class TestCreateDefineValidationInBatch:
             type=EntityType.NODE,
             label="person",
             description="A person",
-            example_file_path="test.md",
-            example_in_file_path="test",
             required_properties={"name"},
         )
 
@@ -120,8 +116,6 @@ class TestCreateDefineValidationInBatch:
             type=EntityType.EDGE,
             label="knows",
             description="Knows relationship",
-            example_file_path="test.md",
-            example_in_file_path="test",
             required_properties={"since"},
         )
 

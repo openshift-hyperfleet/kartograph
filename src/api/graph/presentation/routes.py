@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
+from starlette.concurrency import run_in_threadpool
 
 from graph.ports.protocols import NodeNeighborsResult
 from graph.application.services import (
@@ -49,11 +50,8 @@ async def apply_mutations(
     {"op": "CREATE", "type": "node", "id": "person:1a2b3c4d5e6f7890", "label": "person", "set_properties": {"slug": "alice-smith", "name": "Alice Smith", "data_source_id": "ds-123", "source_path": "people/alice.md"}}
     {"op": "CREATE", "type": "node", "id": "person:abcdef0123456789", "label": "person", "set_properties": {"slug": "bob-jones", "name": "Bob Jones", "data_source_id": "ds-123", "source_path": "people/bob.md"}}
     {"op": "CREATE", "type": "edge", "id": "knows:9f8e7d6c5b4a3210", "label": "knows", "start_id": "person:1a2b3c4d5e6f7890", "end_id": "person:abcdef0123456789", "set_properties": {"since": 2020, "data_source_id": "ds-123", "source_path": "people/alice.md"}}
-    {"op": "DEFINE","type": "node","label": "person","description": "A person entity representing an individual contributor, maintainer, or team member. Extracted from MAINTAINERS.md, git commit authors, @-mentions in pull requests, and people/ directory markdown files.","example_file_path": "people/alice-smith.md","example_in_file_path": "name: Alice Smith email: alice@example.com github: asmith role: Senior Engineer # Alice Smith Alice is a senior engineer focusing on backend systems.","required_properties": ["name"]}
-    {"op": "DEFINE","type": "edge","label": "knows","description": "Represents a professional relationship or acquaintance between two people, typically colleagues or collaborators. Extracted from co-authorship on pull requests, shared repository maintainership, or explicit mentions in people profiles.","example_file_path": "people/alice-smith.md","example_in_file_path": "## Colleagues - [@bob-jones](../people/bob-jones.md) - worked together since 2020 - [@charlie-wilson](../people/charlie-wilson.md) - collaborated on Project X","required_properties": ["since"]}
-    {"op": "CREATE","type": "node","id": "person:1a2b3c4d5e6f7890","label": "person","set_properties": {"slug": "alice-smith","name": "Alice Smith","data_source_id": "ds-123","source_path": "people/alice.md"}}
-    {"op": "CREATE","type": "node","id": "person:abcdef0123456789","label": "person","set_properties": {"slug": "bob-jones","name": "Bob Jones","data_source_id": "ds-123","source_path": "people/bob.md"}}
-    {"op": "CREATE","type": "edge","id": "knows:9f8e7d6c5b4a3210","label": "knows","start_id": "person:1a2b3c4d5e6f7890","end_id": "person:abcdef0123456789","set_properties": {"since": "2020","data_source_id": "ds-123","source_path": "people/alice.md"}}
+    {"op": "DEFINE","type": "node","label": "person","description": "A person entity representing an individual contributor, maintainer, or team member. Extracted from MAINTAINERS.md, git commit authors, @-mentions in pull requests, and people/ directory markdown files.","required_properties": ["name"]}
+    {"op": "DEFINE","type": "edge","label": "knows","description": "Represents a professional relationship or acquaintance between two people, typically colleagues or collaborators. Extracted from co-authorship on pull requests, shared repository maintainership, or explicit mentions in people profiles.","required_properties": ["since"]}
     ```
 
 
@@ -67,7 +65,10 @@ async def apply_mutations(
         HTTPException: 500 if mutation application fails.
     """
 
-    result = service.apply_mutations_from_jsonl(jsonl_content=jsonl_content)
+    # Run sync database operations in thread pool to avoid blocking event loop
+    result = await run_in_threadpool(
+        service.apply_mutations_from_jsonl, jsonl_content=jsonl_content
+    )
 
     if not result.success:
         # Check if it's a validation error vs execution error
@@ -120,7 +121,7 @@ async def find_by_slug(
             "nodes": [...]
         }
     """
-    nodes = service.search_by_slug(slug, node_type=node_type)
+    nodes = await run_in_threadpool(service.search_by_slug, slug, node_type=node_type)
     return {"nodes": [n.model_dump() for n in nodes]}
 
 
@@ -140,7 +141,7 @@ async def get_neighbors(
             "edges": [...]
         }
     """
-    response = service.get_neighbors(node_id)
+    response = await run_in_threadpool(service.get_neighbors, node_id)
 
     return response
 
@@ -160,7 +161,9 @@ async def get_node_labels_endpoint(
     Returns:
         SchemaLabelsResponse with labels and count
     """
-    labels = service.get_node_labels(search=search, has_property=has_property)
+    labels = await run_in_threadpool(
+        service.get_node_labels, search=search, has_property=has_property
+    )
     return SchemaLabelsResponse(labels=labels, count=len(labels))
 
 
@@ -177,7 +180,7 @@ async def get_edge_labels_endpoint(
     Returns:
         SchemaLabelsResponse with labels and count
     """
-    labels = service.get_edge_labels(search=search)
+    labels = await run_in_threadpool(service.get_edge_labels, search=search)
     return SchemaLabelsResponse(labels=labels, count=len(labels))
 
 
@@ -197,7 +200,7 @@ async def get_node_schema_endpoint(
     Raises:
         HTTPException: 404 if label not found
     """
-    schema = service.get_node_schema(label)
+    schema = await run_in_threadpool(service.get_node_schema, label)
 
     if schema is None:
         raise HTTPException(
@@ -224,7 +227,7 @@ async def get_edge_schema_endpoint(
     Raises:
         HTTPException: 404 if label not found
     """
-    schema = service.get_edge_schema(label)
+    schema = await run_in_threadpool(service.get_edge_schema, label)
 
     if schema is None:
         raise HTTPException(

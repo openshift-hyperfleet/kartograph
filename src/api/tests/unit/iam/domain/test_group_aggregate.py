@@ -7,7 +7,7 @@ then implement the Group aggregate to make these tests pass.
 import pytest
 
 from iam.domain.aggregates import Group
-from iam.domain.value_objects import GroupId, Role, UserId
+from iam.domain.value_objects import GroupId, Role, TenantId, UserId
 
 
 class TestGroupCreation:
@@ -16,13 +16,16 @@ class TestGroupCreation:
     def test_creates_with_required_fields(self):
         """Test that Group can be created with required fields."""
         group_id = GroupId.generate()
+        tenant_id = TenantId.generate()
 
         group = Group(
             id=group_id,
+            tenant_id=tenant_id,
             name="Engineering",
         )
 
         assert group.id == group_id
+        assert group.tenant_id == tenant_id
         assert group.name == "Engineering"
         assert group.members == []
 
@@ -30,6 +33,15 @@ class TestGroupCreation:
         """Test that Group requires an id."""
         with pytest.raises(TypeError):
             Group(
+                tenant_id=TenantId.generate(),
+                name="Engineering",
+            )
+
+    def test_requires_tenant_id(self):
+        """Test that Group requires a tenant_id."""
+        with pytest.raises(TypeError):
+            Group(
+                id=GroupId.generate(),
                 name="Engineering",
             )
 
@@ -38,7 +50,37 @@ class TestGroupCreation:
         with pytest.raises(TypeError):
             Group(
                 id=GroupId.generate(),
+                tenant_id=TenantId.generate(),
             )
+
+
+class TestGroupFactory:
+    """Tests for Group.create() factory method."""
+
+    def test_factory_creates_group_with_generated_id(self):
+        """Factory should generate an ID for the group."""
+        tenant_id = TenantId.generate()
+
+        group = Group.create(name="Engineering", tenant_id=tenant_id)
+
+        assert group.id is not None
+        assert group.tenant_id == tenant_id
+        assert group.name == "Engineering"
+        assert group.members == []
+
+    def test_factory_records_group_created_event(self):
+        """Factory should record a GroupCreated event."""
+        from iam.domain.events import GroupCreated
+
+        tenant_id = TenantId.generate()
+
+        group = Group.create(name="Engineering", tenant_id=tenant_id)
+        events = group.collect_events()
+
+        assert len(events) == 1
+        assert isinstance(events[0], GroupCreated)
+        assert events[0].group_id == group.id.value
+        assert events[0].tenant_id == tenant_id.value
 
 
 class TestAddMember:
@@ -48,6 +90,7 @@ class TestAddMember:
         """Test that member can be added with a role."""
         group = Group(
             id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
             name="Engineering",
         )
         user_id = UserId.generate()
@@ -62,6 +105,7 @@ class TestAddMember:
         """Test that admin can be added."""
         group = Group(
             id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
             name="Engineering",
         )
         admin_id = UserId.generate()
@@ -74,6 +118,7 @@ class TestAddMember:
         """Test that multiple members can be added."""
         group = Group(
             id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
             name="Engineering",
         )
         alice = UserId.generate()
@@ -88,6 +133,7 @@ class TestAddMember:
         """Test that same user cannot be added twice."""
         group = Group(
             id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
             name="Engineering",
         )
         user_id = UserId.generate()
@@ -105,6 +151,7 @@ class TestHasMember:
         """Test that has_member returns True for existing member."""
         group = Group(
             id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
             name="Engineering",
         )
         user_id = UserId.generate()
@@ -116,6 +163,7 @@ class TestHasMember:
         """Test that has_member returns False for non-member."""
         group = Group(
             id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
             name="Engineering",
         )
         user_id = UserId.generate()
@@ -130,6 +178,7 @@ class TestGetMemberRole:
         """Test that get_member_role returns correct role."""
         group = Group(
             id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
             name="Engineering",
         )
         user_id = UserId.generate()
@@ -143,6 +192,7 @@ class TestGetMemberRole:
         """Test that get_member_role returns None for non-member."""
         group = Group(
             id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
             name="Engineering",
         )
         user_id = UserId.generate()
@@ -159,20 +209,25 @@ class TestRemoveMember:
         """Test that member can be removed."""
         group = Group(
             id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
             name="Engineering",
         )
+        admin_id = UserId.generate()
         user_id = UserId.generate()
+        # Add an admin first so we can remove the regular member
+        group.add_member(admin_id, Role.ADMIN)
         group.add_member(user_id, Role.MEMBER)
 
         group.remove_member(user_id)
 
-        assert len(group.members) == 0
+        assert len(group.members) == 1
         assert not group.has_member(user_id)
 
     def test_raises_when_removing_non_member(self):
         """Test that removing non-member raises error."""
         group = Group(
             id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
             name="Engineering",
         )
         user_id = UserId.generate()
@@ -184,6 +239,7 @@ class TestRemoveMember:
         """Test that last admin cannot be removed."""
         group = Group(
             id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
             name="Engineering",
         )
         admin_id = UserId.generate()
@@ -196,6 +252,7 @@ class TestRemoveMember:
         """Test that admin can be removed if other admins exist."""
         group = Group(
             id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
             name="Engineering",
         )
         admin1 = UserId.generate()
@@ -216,6 +273,7 @@ class TestUpdateMemberRole:
         """Test that member role can be updated."""
         group = Group(
             id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
             name="Engineering",
         )
         user_id = UserId.generate()
@@ -229,6 +287,7 @@ class TestUpdateMemberRole:
         """Test that updating non-member raises error."""
         group = Group(
             id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
             name="Engineering",
         )
         user_id = UserId.generate()
@@ -240,6 +299,7 @@ class TestUpdateMemberRole:
         """Test that last admin cannot be demoted."""
         group = Group(
             id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
             name="Engineering",
         )
         admin_id = UserId.generate()
@@ -252,6 +312,7 @@ class TestUpdateMemberRole:
         """Test that admin can be demoted if other admins exist."""
         group = Group(
             id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
             name="Engineering",
         )
         admin1 = UserId.generate()
@@ -262,3 +323,188 @@ class TestUpdateMemberRole:
         group.update_member_role(admin1, Role.MEMBER)
 
         assert group.get_member_role(admin1) == Role.MEMBER
+
+
+class TestEventCollection:
+    """Tests for Group event collection mechanism.
+
+    The aggregate should record domain events during mutations that can be
+    collected and processed by the repository for the outbox pattern.
+    """
+
+    def test_collect_events_returns_empty_list_initially(self):
+        """Test that a directly constructed group has no pending events."""
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+
+        events = group.collect_events()
+
+        assert events == []
+
+    def test_add_member_records_member_added_event(self):
+        """Test that add_member records a MemberAdded event."""
+        from iam.domain.events import MemberAdded
+
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+        user_id = UserId.generate()
+
+        group.add_member(user_id, Role.MEMBER)
+        events = group.collect_events()
+
+        assert len(events) == 1
+        assert isinstance(events[0], MemberAdded)
+        assert events[0].group_id == group.id.value
+        assert events[0].user_id == user_id.value
+        assert events[0].role == Role.MEMBER
+
+    def test_remove_member_records_member_removed_event(self):
+        """Test that remove_member records a MemberRemoved event."""
+        from iam.domain.events import MemberRemoved
+
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+        admin_id = UserId.generate()
+        user_id = UserId.generate()
+        group.add_member(admin_id, Role.ADMIN)
+        group.add_member(user_id, Role.MEMBER)
+        group.collect_events()  # Clear creation events
+
+        group.remove_member(user_id)
+        events = group.collect_events()
+
+        assert len(events) == 1
+        assert isinstance(events[0], MemberRemoved)
+        assert events[0].group_id == group.id.value
+        assert events[0].user_id == user_id.value
+        assert events[0].role == Role.MEMBER
+
+    def test_update_member_role_records_member_role_changed_event(self):
+        """Test that update_member_role records a MemberRoleChanged event."""
+        from iam.domain.events import MemberRoleChanged
+
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+        admin_id = UserId.generate()
+        user_id = UserId.generate()
+        group.add_member(admin_id, Role.ADMIN)
+        group.add_member(user_id, Role.MEMBER)
+        group.collect_events()  # Clear creation events
+
+        group.update_member_role(user_id, Role.ADMIN)
+        events = group.collect_events()
+
+        assert len(events) == 1
+        assert isinstance(events[0], MemberRoleChanged)
+        assert events[0].group_id == group.id.value
+        assert events[0].user_id == user_id.value
+        assert events[0].old_role == Role.MEMBER
+        assert events[0].new_role == Role.ADMIN
+
+    def test_collect_events_clears_pending_events(self):
+        """Test that collect_events clears the pending events list."""
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+        user_id = UserId.generate()
+        group.add_member(user_id, Role.MEMBER)
+
+        # First collection should have events
+        events1 = group.collect_events()
+        assert len(events1) == 1
+
+        # Second collection should be empty
+        events2 = group.collect_events()
+        assert events2 == []
+
+    def test_multiple_operations_record_multiple_events(self):
+        """Test that multiple operations record multiple events."""
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+        user1 = UserId.generate()
+        user2 = UserId.generate()
+        user3 = UserId.generate()
+
+        group.add_member(user1, Role.ADMIN)
+        group.add_member(user2, Role.MEMBER)
+        group.add_member(user3, Role.MEMBER)
+
+        events = group.collect_events()
+
+        assert len(events) == 3
+
+
+class TestMarkForDeletion:
+    """Tests for Group.mark_for_deletion() method."""
+
+    def test_records_group_deleted_event(self):
+        """Test that mark_for_deletion records a GroupDeleted event."""
+        from iam.domain.events import GroupDeleted
+
+        tenant_id = TenantId.generate()
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=tenant_id,
+            name="Engineering",
+        )
+
+        group.mark_for_deletion()
+        events = group.collect_events()
+
+        assert len(events) == 1
+        assert isinstance(events[0], GroupDeleted)
+        assert events[0].group_id == group.id.value
+        assert events[0].tenant_id == tenant_id.value
+
+    def test_group_deleted_event_includes_member_snapshot(self):
+        """Test that GroupDeleted includes all current members."""
+        from iam.domain.events import GroupDeleted, MemberSnapshot
+
+        tenant_id = TenantId.generate()
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=tenant_id,
+            name="Engineering",
+        )
+        admin_id = UserId.generate()
+        member_id = UserId.generate()
+        group.add_member(admin_id, Role.ADMIN)
+        group.add_member(member_id, Role.MEMBER)
+        group.collect_events()  # Clear add events
+
+        group.mark_for_deletion()
+        events = group.collect_events()
+
+        assert len(events) == 1
+        event = events[0]
+        assert isinstance(event, GroupDeleted)
+        assert len(event.members) == 2
+
+        # Verify member snapshots
+        member_ids = {m.user_id for m in event.members}
+        assert admin_id.value in member_ids
+        assert member_id.value in member_ids
+
+        for snapshot in event.members:
+            assert isinstance(snapshot, MemberSnapshot)
+            if snapshot.user_id == admin_id.value:
+                assert snapshot.role == Role.ADMIN
+            else:
+                assert snapshot.role == Role.MEMBER

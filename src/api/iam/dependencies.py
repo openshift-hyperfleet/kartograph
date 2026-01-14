@@ -22,6 +22,7 @@ from iam.infrastructure.group_repository import GroupRepository
 from iam.infrastructure.user_repository import UserRepository
 from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.database.dependencies import get_write_session
+from infrastructure.outbox.repository import OutboxRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 
 
@@ -43,6 +44,23 @@ def get_group_service_probe() -> GroupServiceProbe:
     return DefaultGroupServiceProbe()
 
 
+def get_outbox_repository(
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+) -> OutboxRepository:
+    """Get OutboxRepository instance.
+
+    The repository accepts pre-serialized payloads, making it context-agnostic.
+    Serialization is handled by the bounded context's repository.
+
+    Args:
+        session: Async database session (shared with calling repository)
+
+    Returns:
+        OutboxRepository instance
+    """
+    return OutboxRepository(session=session)
+
+
 def get_user_repository(
     session: Annotated[AsyncSession, Depends(get_write_session)],
 ) -> UserRepository:
@@ -60,17 +78,19 @@ def get_user_repository(
 def get_group_repository(
     session: Annotated[AsyncSession, Depends(get_write_session)],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+    outbox: Annotated[OutboxRepository, Depends(get_outbox_repository)],
 ) -> GroupRepository:
     """Get GroupRepository instance.
 
     Args:
         session: Async database session
         authz: Authorization provider (SpiceDB client)
+        outbox: Outbox repository for transactional outbox pattern
 
     Returns:
-        GroupRepository instance
+        GroupRepository instance with outbox pattern enabled
     """
-    return GroupRepository(session=session, authz=authz)
+    return GroupRepository(session=session, authz=authz, outbox=outbox)
 
 
 def get_user_service(

@@ -8,8 +8,9 @@ import { Steps, Code, Aside } from '@astrojs/starlight/components';
 ## Prerequisites
 
 - Python 3.12 or higher
-- UV package manager
-- Docker (for Apache AGE database)
+- [UV package manager](https://github.com/astral-sh/uv)
+- Docker
+- OpenSSL (for generating TLS certificates for local SpiceDB usage)
 
 ## Installation
 
@@ -32,7 +33,7 @@ import { Steps, Code, Aside } from '@astrojs/starlight/components';
    make run
    ```
    This will first start a Postgres instance with ApacheAGE installed and
-   then start the Kartograph API.
+   then build and run the Kartograph API.
 </Steps>
 
 ## What's Next?

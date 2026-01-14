@@ -13,21 +13,24 @@ from infrastructure.database.models import Base, TimestampMixin
 class GroupModel(Base, TimestampMixin):
     """ORM model for groups table (metadata only).
 
-    Stores group metadata in PostgreSQL. Workspace relationships and
-    membership are managed through SpiceDB, not as database columns.
+    Stores group metadata in PostgreSQL. Membership relationships are
+    managed through SpiceDB, not as database columns.
 
     Note: Group names are NOT globally unique - per-tenant uniqueness
-    is enforced via SpiceDB relationships.
+    is enforced at the application level.
     """
 
     __tablename__ = "groups"
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(26), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
 
     def __repr__(self) -> str:
         """Return string representation."""
-        return f"<GroupModel(id={self.id}, name={self.name})>"
+        return (
+            f"<GroupModel(id={self.id}, tenant_id={self.tenant_id}, name={self.name})>"
+        )
 
 
 class UserModel(Base, TimestampMixin):

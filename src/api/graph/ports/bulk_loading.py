@@ -1,0 +1,52 @@
+"""Bulk loading strategy protocols for the Graph bounded context.
+
+These protocols enable database-specific bulk loading optimizations while
+maintaining a common interface for the MutationApplier.
+
+The strategy pattern allows different graph databases to use their optimal
+bulk loading approaches:
+- Apache AGE: PostgreSQL COPY to staging tables + Cypher MERGE
+- Neo4j (future): Large UNWIND batches (10K-50K) with CALL IN TRANSACTIONS
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from graph.domain.value_objects import MutationOperation, MutationResult
+    from graph.ports.observability import MutationProbe
+    from graph.ports.protocols import GraphClientProtocol
+
+
+class BulkLoadingStrategy(Protocol):
+    """Protocol for database-specific bulk loading strategies.
+
+    Implementations should optimize for their target database's strengths.
+    For example, Apache AGE benefits from PostgreSQL's COPY protocol,
+    while Neo4j handles UNWIND natively at high throughput.
+    """
+
+    def apply_batch(
+        self,
+        client: GraphClientProtocol,
+        operations: list[MutationOperation],
+        probe: MutationProbe,
+        graph_name: str,
+    ) -> MutationResult:
+        """Apply a batch of mutations using database-optimized bulk loading.
+
+        IMPORTANT: Operations are PRE-SORTED by MutationApplier to respect
+        referential integrity (DELETEs before CREATEs, edges before nodes for
+        DELETE, nodes before edges for CREATE). Strategies should NOT re-sort.
+
+        Args:
+            client: Graph database client for executing queries
+            operations: List of mutation operations (PRE-SORTED for referential integrity)
+            probe: Domain probe for observability
+            graph_name: Name of the graph being operated on
+
+        Returns:
+            MutationResult with success status and operation count
+        """
+        ...

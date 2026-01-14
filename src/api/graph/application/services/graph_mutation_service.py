@@ -311,8 +311,6 @@ class GraphMutationService:
                 label=type_def.label,
                 entity_type=type_def.entity_type,
                 description=type_def.description,
-                example_file_path=type_def.example_file_path,
-                example_in_file_path=type_def.example_in_file_path,
                 required_properties=type_def.required_properties,
                 optional_properties=existing_optional | extra_props,
             )

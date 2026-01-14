@@ -127,8 +127,6 @@ class TestTypeDefinition:
             label="person",
             entity_type=EntityType.NODE,
             description="A person entity",
-            example_file_path="people/alice.md",
-            example_in_file_path="# Alice Smith",
             required_properties={"slug", "name"},
             optional_properties={"email", "github"},
         )
@@ -143,8 +141,6 @@ class TestTypeDefinition:
             label="test",
             entity_type=EntityType.NODE,
             description="Test",
-            example_file_path="test.md",
-            example_in_file_path="test",
             required_properties=set(),
         )
         with pytest.raises(ValidationError):
@@ -163,8 +159,6 @@ class TestMutationOperation:
             type=EntityType.NODE,
             label="person",
             description="A person entity",
-            example_file_path="people/alice.md",
-            example_in_file_path="# Alice",
             required_properties={"slug", "name"},
             optional_properties={"email"},
         )
@@ -176,8 +170,6 @@ class TestMutationOperation:
             op=MutationOperationType.DEFINE,
             type=EntityType.NODE,
             description="Test",
-            example_file_path="test.md",
-            example_in_file_path="test",
             required_properties=set(),
         )
         with pytest.raises(ValueError, match="DEFINE requires 'label'"):
@@ -189,8 +181,6 @@ class TestMutationOperation:
             op=MutationOperationType.DEFINE,
             type=EntityType.NODE,
             label="test",
-            example_file_path="test.md",
-            example_in_file_path="test",
             required_properties=set(),
         )
         with pytest.raises(ValueError, match="DEFINE requires"):
@@ -203,8 +193,6 @@ class TestMutationOperation:
             type=EntityType.NODE,
             label="test",
             description="Test",
-            example_file_path="test.md",
-            example_in_file_path="test",
             required_properties=set(),
             set_properties={"foo": "bar"},
         )
@@ -218,8 +206,6 @@ class TestMutationOperation:
             type=EntityType.NODE,
             label="person",
             description="A person",
-            example_file_path="people/alice.md",
-            example_in_file_path="# Alice",
             required_properties={"slug"},
             optional_properties={"email"},
         )

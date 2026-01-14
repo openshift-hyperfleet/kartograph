@@ -760,11 +760,16 @@ class AgeBulkLoadingStrategy:
 
             # Insert new nodes (skip first entity if we created it via Cypher)
             if first_entity_id is not None:
+                # Build sequence name for nextval() with proper quoting
+                # nextval() expects a text argument containing the properly-quoted identifier
+                # Format: '"schema_name"."sequence_name"' (quotes inside the string literal)
+                seq_literal = sql.Literal(f'"{graph_name}"."{seq_name}"')
+
                 query = sql.SQL(
                     """
                     INSERT INTO {}.{} (id, properties)
                     SELECT
-                        ag_catalog._graphid(%s, nextval({seq})),
+                        ag_catalog._graphid(%s, nextval({})),
                         (s.properties::text)::ag_catalog.agtype
                     FROM {} AS s
                     WHERE s.label = %s
@@ -779,18 +784,23 @@ class AgeBulkLoadingStrategy:
                 ).format(
                     sql.Identifier(graph_name),
                     sql.Identifier(label),
+                    seq_literal,
                     sql.Identifier(table_name),
                     sql.Identifier(graph_name),
                     sql.Identifier(label),
-                    seq=sql.Literal(f"{graph_name}.{seq_name}"),
                 )
                 cursor.execute(query, (label_id, label, first_entity_id))
             else:
+                # Build sequence name for nextval() with proper quoting
+                # nextval() expects a text argument containing the properly-quoted identifier
+                # Format: '"schema_name"."sequence_name"' (quotes inside the string literal)
+                seq_literal = sql.Literal(f'"{graph_name}"."{seq_name}"')
+
                 query = sql.SQL(
                     """
                     INSERT INTO {}.{} (id, properties)
                     SELECT
-                        ag_catalog._graphid(%s, nextval({seq})),
+                        ag_catalog._graphid(%s, nextval({})),
                         (s.properties::text)::ag_catalog.agtype
                     FROM {} AS s
                     WHERE s.label = %s
@@ -804,10 +814,10 @@ class AgeBulkLoadingStrategy:
                 ).format(
                     sql.Identifier(graph_name),
                     sql.Identifier(label),
+                    seq_literal,
                     sql.Identifier(table_name),
                     sql.Identifier(graph_name),
                     sql.Identifier(label),
-                    seq=sql.Literal(f"{graph_name}.{seq_name}"),
                 )
                 cursor.execute(query, (label_id, label))
             inserted = cursor.rowcount
@@ -924,11 +934,16 @@ class AgeBulkLoadingStrategy:
             # Insert new edges using pre-resolved graphids (skip first if created via Cypher)
             # This is much faster than joining on every INSERT
             if first_edge_id is not None:
+                # Build sequence name for nextval() with proper quoting
+                # nextval() expects a text argument containing the properly-quoted identifier
+                # Format: '"schema_name"."sequence_name"' (quotes inside the string literal)
+                seq_literal = sql.Literal(f'"{graph_name}"."{seq_name}"')
+
                 query = sql.SQL(
                     """
                     INSERT INTO {}.{} (id, start_id, end_id, properties)
                     SELECT
-                        ag_catalog._graphid(%s, nextval({seq})),
+                        ag_catalog._graphid(%s, nextval({})),
                         s.start_graphid,
                         s.end_graphid,
                         (s.properties::text)::ag_catalog.agtype
@@ -947,18 +962,23 @@ class AgeBulkLoadingStrategy:
                 ).format(
                     sql.Identifier(graph_name),
                     sql.Identifier(label),
+                    seq_literal,
                     sql.Identifier(table_name),
                     sql.Identifier(graph_name),
                     sql.Identifier(label),
-                    seq=sql.Literal(f"{graph_name}.{seq_name}"),
                 )
                 cursor.execute(query, (label_id, label, first_edge_id))
             else:
+                # Build sequence name for nextval() with proper quoting
+                # nextval() expects a text argument containing the properly-quoted identifier
+                # Format: '"schema_name"."sequence_name"' (quotes inside the string literal)
+                seq_literal = sql.Literal(f'"{graph_name}"."{seq_name}"')
+
                 query = sql.SQL(
                     """
                     INSERT INTO {}.{} (id, start_id, end_id, properties)
                     SELECT
-                        ag_catalog._graphid(%s, nextval({seq})),
+                        ag_catalog._graphid(%s, nextval({})),
                         s.start_graphid,
                         s.end_graphid,
                         (s.properties::text)::ag_catalog.agtype
@@ -976,10 +996,10 @@ class AgeBulkLoadingStrategy:
                 ).format(
                     sql.Identifier(graph_name),
                     sql.Identifier(label),
+                    seq_literal,
                     sql.Identifier(table_name),
                     sql.Identifier(graph_name),
                     sql.Identifier(label),
-                    seq=sql.Literal(f"{graph_name}.{seq_name}"),
                 )
                 cursor.execute(query, (label_id, label))
             inserted = cursor.rowcount

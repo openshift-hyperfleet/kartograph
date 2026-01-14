@@ -219,16 +219,17 @@ def create_label_indexes(
     )
 
     # BTREE on properties.id - for logical ID lookups (CRITICAL for performance)
-    # This uses agtype_access_operator for efficient access to specific property
+    # IMPORTANT: Must use agtype_object_field_text_agtype to match the function
+    # used in UPDATE/INSERT WHERE clauses, otherwise PostgreSQL won't use the index
     indexes.append(
         {
-            "name": f"idx_{graph_name}_{label}_prop_id_btree",
+            "name": f"idx_{graph_name}_{label}_prop_id_text_btree",
             "sql": sql.SQL(
                 "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE ("
-                "ag_catalog.agtype_access_operator(VARIADIC ARRAY[properties, "
-                "'\"id\"'::ag_catalog.agtype]))"
+                "ag_catalog.agtype_object_field_text_agtype(properties, "
+                "'\"id\"'::ag_catalog.agtype))"
             ).format(
-                sql.Identifier(f"idx_{graph_name}_{label}_prop_id_btree"),
+                sql.Identifier(f"idx_{graph_name}_{label}_prop_id_text_btree"),
                 sql.Identifier(graph_name),
                 sql.Identifier(label),
             ),

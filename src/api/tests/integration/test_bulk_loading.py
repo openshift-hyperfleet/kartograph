@@ -1563,7 +1563,7 @@ class TestBulkLoadingIndexCreation:
         assert any("props_gin" in idx for idx in indexes), (
             f"Missing GIN properties index. Found: {indexes}"
         )
-        assert any("prop_id_btree" in idx for idx in indexes), (
+        assert any("prop_id_text_btree" in idx for idx in indexes), (
             f"Missing BTREE properties.id index. Found: {indexes}"
         )
 
@@ -1665,7 +1665,7 @@ class TestBulkLoadingIndexCreation:
         assert any("props_gin" in idx for idx in indexes), (
             f"Missing GIN properties index. Found: {indexes}"
         )
-        assert any("prop_id_btree" in idx for idx in indexes), (
+        assert any("prop_id_text_btree" in idx for idx in indexes), (
             f"Missing BTREE properties.id index. Found: {indexes}"
         )
         assert any("start_id_btree" in idx for idx in indexes), (

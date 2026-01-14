@@ -573,3 +573,179 @@ class TestPostgresNotifyEventSourceConformsToProtocol:
         )
 
         assert event_source._channel == "my_custom_channel"
+
+
+class TestPostgresNotifyEventSourceProbeIntegration:
+    """Tests for observability probe integration."""
+
+    @pytest.mark.asyncio
+    async def test_start_calls_probe_event_source_started(self):
+        """Test that start() calls probe.event_source_started()."""
+        from infrastructure.outbox.event_sources.postgres_notify import (
+            PostgresNotifyEventSource,
+        )
+        from shared_kernel.outbox.observability import EventSourceProbe
+
+        mock_probe = MagicMock(spec=EventSourceProbe)
+
+        event_source = PostgresNotifyEventSource(
+            db_url="postgresql://test:test@localhost/test",
+            channel="outbox_events",
+            probe=mock_probe,
+        )
+
+        with patch(
+            "infrastructure.outbox.event_sources.postgres_notify.NotificationListener"
+        ) as mock_listener_class:
+            mock_listener = AsyncMock()
+            mock_listener_class.return_value = mock_listener
+            mock_listener.run = AsyncMock()
+
+            await event_source.start(AsyncMock())
+
+            mock_probe.event_source_started.assert_called_once_with("outbox_events")
+
+    @pytest.mark.asyncio
+    async def test_stop_calls_probe_event_source_stopped(self):
+        """Test that stop() calls probe.event_source_stopped()."""
+        from infrastructure.outbox.event_sources.postgres_notify import (
+            PostgresNotifyEventSource,
+        )
+        from shared_kernel.outbox.observability import EventSourceProbe
+
+        mock_probe = MagicMock(spec=EventSourceProbe)
+
+        event_source = PostgresNotifyEventSource(
+            db_url="postgresql://test:test@localhost/test",
+            probe=mock_probe,
+        )
+
+        await event_source.stop()
+
+        mock_probe.event_source_stopped.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_valid_notification_calls_probe_notification_received(self):
+        """Test that valid notification calls probe.notification_received()."""
+        from infrastructure.outbox.event_sources.postgres_notify import (
+            PostgresNotifyEventSource,
+        )
+        from shared_kernel.outbox.observability import EventSourceProbe
+
+        mock_probe = MagicMock(spec=EventSourceProbe)
+        entry_id = uuid4()
+
+        event_source = PostgresNotifyEventSource(
+            db_url="postgresql://test:test@localhost/test",
+            probe=mock_probe,
+        )
+
+        with patch(
+            "infrastructure.outbox.event_sources.postgres_notify.NotificationListener"
+        ) as mock_listener_class:
+            mock_listener = AsyncMock()
+            mock_listener_class.return_value = mock_listener
+
+            async def capture_run(handlers, **kwargs):
+                notification = MagicMock()
+                notification.payload = str(entry_id)
+                await handlers["outbox_events"](notification)
+
+            mock_listener.run = capture_run
+
+            await event_source.start(AsyncMock())
+
+            mock_probe.notification_received.assert_called_once_with(entry_id)
+
+    @pytest.mark.asyncio
+    async def test_invalid_notification_calls_probe_invalid_notification_ignored(self):
+        """Test that invalid notification calls probe.invalid_notification_ignored()."""
+        from infrastructure.outbox.event_sources.postgres_notify import (
+            PostgresNotifyEventSource,
+        )
+        from shared_kernel.outbox.observability import EventSourceProbe
+
+        mock_probe = MagicMock(spec=EventSourceProbe)
+
+        event_source = PostgresNotifyEventSource(
+            db_url="postgresql://test:test@localhost/test",
+            probe=mock_probe,
+        )
+
+        with patch(
+            "infrastructure.outbox.event_sources.postgres_notify.NotificationListener"
+        ) as mock_listener_class:
+            mock_listener = AsyncMock()
+            mock_listener_class.return_value = mock_listener
+
+            async def capture_run(handlers, **kwargs):
+                notification = MagicMock()
+                notification.payload = "not-a-valid-uuid"
+                await handlers["outbox_events"](notification)
+
+            mock_listener.run = capture_run
+
+            await event_source.start(AsyncMock())
+
+            mock_probe.invalid_notification_ignored.assert_called_once_with(
+                "not-a-valid-uuid", "Invalid UUID format"
+            )
+
+    @pytest.mark.asyncio
+    async def test_listener_exception_calls_probe_listener_error(self):
+        """Test that listener exception calls probe.listener_error()."""
+        from infrastructure.outbox.event_sources.postgres_notify import (
+            PostgresNotifyEventSource,
+        )
+        from shared_kernel.outbox.observability import EventSourceProbe
+
+        mock_probe = MagicMock(spec=EventSourceProbe)
+
+        event_source = PostgresNotifyEventSource(
+            db_url="postgresql://test:test@localhost/test",
+            probe=mock_probe,
+        )
+
+        with patch(
+            "infrastructure.outbox.event_sources.postgres_notify.NotificationListener"
+        ) as mock_listener_class:
+            mock_listener = AsyncMock()
+            mock_listener_class.return_value = mock_listener
+
+            async def raise_error(*args, **kwargs):
+                raise ConnectionError("Connection refused")
+
+            mock_listener.run = raise_error
+
+            await event_source.start(AsyncMock())
+
+            mock_probe.listener_error.assert_called_once_with("Connection refused")
+
+    def test_default_probe_is_used_when_none_provided(self):
+        """Test that DefaultEventSourceProbe is used when no probe is provided."""
+        from infrastructure.outbox.event_sources.postgres_notify import (
+            PostgresNotifyEventSource,
+        )
+        from shared_kernel.outbox.observability import DefaultEventSourceProbe
+
+        event_source = PostgresNotifyEventSource(
+            db_url="postgresql://test:test@localhost/test",
+        )
+
+        assert isinstance(event_source._probe, DefaultEventSourceProbe)
+
+    def test_custom_probe_is_used_when_provided(self):
+        """Test that custom probe is used when provided."""
+        from infrastructure.outbox.event_sources.postgres_notify import (
+            PostgresNotifyEventSource,
+        )
+        from shared_kernel.outbox.observability import EventSourceProbe
+
+        mock_probe = MagicMock(spec=EventSourceProbe)
+
+        event_source = PostgresNotifyEventSource(
+            db_url="postgresql://test:test@localhost/test",
+            probe=mock_probe,
+        )
+
+        assert event_source._probe is mock_probe

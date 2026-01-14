@@ -8,7 +8,6 @@ asyncpg-listen for reliable connection handling and automatic reconnection.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from asyncpg_listen import (
@@ -19,10 +18,11 @@ from asyncpg_listen import (
     connect_func,
 )
 
+from shared_kernel.outbox.observability import (
+    DefaultEventSourceProbe,
+    EventSourceProbe,
+)
 from shared_kernel.outbox.ports import OutboxEventSource
-
-if TYPE_CHECKING:
-    pass
 
 
 class PostgresNotifyEventSource(OutboxEventSource):
@@ -35,15 +35,22 @@ class PostgresNotifyEventSource(OutboxEventSource):
     This class implements the OutboxEventSource protocol from shared_kernel.
     """
 
-    def __init__(self, db_url: str, channel: str = "outbox_events") -> None:
+    def __init__(
+        self,
+        db_url: str,
+        channel: str = "outbox_events",
+        probe: EventSourceProbe | None = None,
+    ) -> None:
         """Initialize the NOTIFY event source.
 
         Args:
             db_url: PostgreSQL connection URL
             channel: NOTIFY channel name (default: "outbox_events")
+            probe: Optional observability probe (default: DefaultEventSourceProbe)
         """
         self._db_url = db_url
         self._channel = channel
+        self._probe = probe or DefaultEventSourceProbe()
         self._on_event: Callable[[UUID], Awaitable[None]] | None = None
         self._running = False
         self._listener: NotificationListener | None = None
@@ -76,24 +83,28 @@ class PostgresNotifyEventSource(OutboxEventSource):
             if notification.payload:
                 try:
                     entry_id = UUID(notification.payload)
+                    self._probe.notification_received(entry_id)
                     if self._on_event is not None:
                         await self._on_event(entry_id)
                 except (ValueError, TypeError):
                     # Invalid UUID payload, ignore gracefully
                     # These events will be picked up by the polling fallback
-                    pass
+                    self._probe.invalid_notification_ignored(
+                        notification.payload, "Invalid UUID format"
+                    )
 
         try:
             self._listener = NotificationListener(connect_func(self._db_url))
+            self._probe.event_source_started(self._channel)
 
             # Run the listener - this blocks until cancelled
             await self._listener.run(
                 {self._channel: handle_notification},
                 policy=ListenPolicy.ALL,
             )
-        except Exception:
+        except Exception as e:
             # Listen loop failed, caller should handle appropriately
-            pass
+            self._probe.listener_error(str(e))
 
     async def stop(self) -> None:
         """Stop listening and clean up resources.
@@ -102,3 +113,4 @@ class PostgresNotifyEventSource(OutboxEventSource):
         This method is safe to call even if start() was never called.
         """
         self._running = False
+        self._probe.event_source_stopped()

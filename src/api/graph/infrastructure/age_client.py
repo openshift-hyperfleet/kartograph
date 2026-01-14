@@ -6,15 +6,15 @@ using psycopg2 with Apache AGE extension and AGType parsing.
 
 from __future__ import annotations
 
-import secrets
-import string
 import typing
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Iterator
 
 import age  # type: ignore
 import psycopg2
+from psycopg2 import sql
 
+from graph.infrastructure.cypher_utils import generate_cypher_nonce
 from graph.infrastructure.exceptions import InsecureCypherQueryError
 from graph.infrastructure.observability import (
     DefaultGraphClientProbe,
@@ -40,6 +40,7 @@ class AgeGraphClient(GraphClientProtocol):
     - Low-level Cypher query execution
     - Transaction management
     - Connection verification
+    - Automatic index creation for label id properties
 
     Example:
         settings = DatabaseSettings()
@@ -71,6 +72,8 @@ class AgeGraphClient(GraphClientProtocol):
         self._connected = False
         self._current_connection: PsycopgConnection | None = None
         self._probe = probe or DefaultGraphClientProbe()
+        # Track labels that have been indexed in this session
+        self._indexed_labels: set[str] = set()
 
     @property
     def graph_name(self) -> str:
@@ -87,6 +90,18 @@ class AgeGraphClient(GraphClientProtocol):
         if self._current_connection is None:
             raise ValueError("No active connection. Call connect() first.")
         return self._current_connection
+
+    @property
+    def raw_connection(self):
+        """Get raw database connection for bulk operations like COPY.
+
+        Warning: Use with caution. Direct connection access bypasses
+        normal query execution paths and security wrappers.
+
+        Returns:
+            The underlying psycopg2 connection object.
+        """
+        return self._connection
 
     def connect(self) -> None:
         """Establish connection to the graph database."""
@@ -123,6 +138,267 @@ class AgeGraphClient(GraphClientProtocol):
                 self._connection.commit()
                 self._probe.graph_created(self._graph_name)
 
+    def ensure_label_index(self, label: str) -> bool:
+        """Ensure a GIN index exists on properties for a label.
+
+        Apache AGE stores graph data in PostgreSQL tables with properties
+        stored as agtype (not JSONB). Without indexes, MATCH operations
+        do full table scans which is extremely slow for large graphs.
+
+        This creates a GIN index on the properties column for fast lookups
+        on any property including 'id'. GIN indexes are the recommended
+        approach for AGE agtype properties.
+
+        Args:
+            label: The label name (e.g., 'Person', 'documentationmodule')
+
+        Returns:
+            True if index was created, False if it already existed
+
+        Note:
+            Labels are case-sensitive in AGE. The internal table name
+            uses the exact label casing from the first CREATE.
+
+        References:
+            - https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/generative-ai-age-performance
+            - https://github.com/apache/age/issues/920
+        """
+        if not self.is_connected():
+            raise DatabaseConnectionError("Not connected to database")
+
+        # Skip if already indexed this session
+        if label in self._indexed_labels:
+            return False
+
+        # Sanitize label name for SQL identifier (prevent SQL injection)
+        # AGE labels can only contain alphanumeric and underscore
+        if not label.replace("_", "").isalnum():
+            raise ValueError(f"Invalid label name: {label}")
+
+        # Index name format: idx_{graph}_{label}_props_gin
+        index_name = f"idx_{self._graph_name}_{label}_props_gin"
+
+        with self._connection.cursor() as cursor:
+            # Check if index already exists
+            cursor.execute(
+                """
+                SELECT 1 FROM pg_indexes
+                WHERE schemaname = %s AND indexname = %s
+                """,
+                (self._graph_name, index_name),
+            )
+            if cursor.fetchone() is not None:
+                self._indexed_labels.add(label)
+                return False
+
+            # Check if the label table exists
+            cursor.execute(
+                """
+                SELECT 1 FROM ag_catalog.ag_label
+                WHERE graph = (SELECT graphid FROM ag_catalog.ag_graph WHERE name = %s)
+                AND name = %s
+                """,
+                (self._graph_name, label),
+            )
+            if cursor.fetchone() is None:
+                # Label doesn't exist yet, will be created on first use
+                return False
+
+            # Create GIN index on properties column
+            # GIN indexes work with agtype and support efficient key-value lookups
+            # Note: We use format() here because index/table names can't be parameterized
+            cursor.execute(
+                f'CREATE INDEX IF NOT EXISTS "{index_name}" '
+                f'ON "{self._graph_name}"."{label}" USING GIN (properties)'
+            )
+            self._connection.commit()
+
+            self._indexed_labels.add(label)
+            self._probe.query_executed(query=f"CREATE INDEX {index_name}", row_count=0)
+            return True
+
+    def ensure_labels_indexed(self, labels: set[str]) -> int:
+        """Ensure indexes exist for multiple labels.
+
+        Args:
+            labels: Set of label names to index
+
+        Returns:
+            Number of new indexes created
+        """
+        created = 0
+        for label in labels:
+            if self.ensure_label_index(label):
+                created += 1
+        return created
+
+    def ensure_label_indexes(self, label: str, kind: str = "v") -> int:
+        """Ensure all recommended indexes exist for a label.
+
+        Creates comprehensive indexes following Microsoft Azure best practices:
+        - BTREE on id column (graphid) for fast vertex/edge lookups
+        - GIN on properties column for property-based queries
+        - BTREE on properties.id for logical ID lookups via agtype_access_operator
+        - For edges: BTREE on start_id and end_id for join performance
+
+        Args:
+            label: The label name (e.g., 'person', 'knows')
+            kind: 'v' for vertex labels, 'e' for edge labels
+
+        Returns:
+            Number of new indexes created
+
+        Raises:
+            DatabaseConnectionError: If not connected to database
+            ValueError: If label name is invalid
+
+        References:
+            - https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/generative-ai-age-performance
+            - https://github.com/apache/age/issues/2176
+        """
+        if not self.is_connected():
+            raise DatabaseConnectionError("Not connected to database")
+
+        # Validate label name (prevent SQL injection)
+        if not label.replace("_", "").isalnum():
+            raise ValueError(f"Invalid label name: {label}")
+
+        with self._connection.cursor() as cursor:
+            # Check if the label table exists
+            cursor.execute(
+                """
+                SELECT 1 FROM ag_catalog.ag_label
+                WHERE graph = (SELECT graphid FROM ag_catalog.ag_graph WHERE name = %s)
+                AND name = %s
+                """,
+                (self._graph_name, label),
+            )
+            if cursor.fetchone() is None:
+                # Label doesn't exist yet
+                return 0
+
+            # Define indexes to create
+            indexes = []
+
+            # BTREE on id column (graphid) - critical for all labels
+            indexes.append(
+                {
+                    "name": f"idx_{self._graph_name}_{label}_id_btree",
+                    "sql": f'CREATE INDEX IF NOT EXISTS "idx_{self._graph_name}_{label}_id_btree" '
+                    f'ON "{self._graph_name}"."{label}" USING BTREE (id)',
+                }
+            )
+
+            # GIN on properties column - for property-based queries
+            indexes.append(
+                {
+                    "name": f"idx_{self._graph_name}_{label}_props_gin",
+                    "sql": f'CREATE INDEX IF NOT EXISTS "idx_{self._graph_name}_{label}_props_gin" '
+                    f'ON "{self._graph_name}"."{label}" USING GIN (properties)',
+                }
+            )
+
+            # BTREE on properties.id - for logical ID lookups
+            # Uses agtype_access_operator for efficient access to specific property
+            indexes.append(
+                {
+                    "name": f"idx_{self._graph_name}_{label}_prop_id_btree",
+                    "sql": f'CREATE INDEX IF NOT EXISTS "idx_{self._graph_name}_{label}_prop_id_btree" '
+                    f'ON "{self._graph_name}"."{label}" USING BTREE ('
+                    f"agtype_access_operator(VARIADIC ARRAY[properties, '\"id\"'::agtype]))",
+                }
+            )
+
+            # Edge-specific indexes
+            if kind == "e":
+                # BTREE on start_id - for join performance
+                indexes.append(
+                    {
+                        "name": f"idx_{self._graph_name}_{label}_start_id_btree",
+                        "sql": f'CREATE INDEX IF NOT EXISTS "idx_{self._graph_name}_{label}_start_id_btree" '
+                        f'ON "{self._graph_name}"."{label}" USING BTREE (start_id)',
+                    }
+                )
+                # BTREE on end_id - for join performance
+                indexes.append(
+                    {
+                        "name": f"idx_{self._graph_name}_{label}_end_id_btree",
+                        "sql": f'CREATE INDEX IF NOT EXISTS "idx_{self._graph_name}_{label}_end_id_btree" '
+                        f'ON "{self._graph_name}"."{label}" USING BTREE (end_id)',
+                    }
+                )
+
+            created = 0
+            for idx in indexes:
+                # Check if index already exists
+                cursor.execute(
+                    """
+                    SELECT 1 FROM pg_indexes
+                    WHERE schemaname = %s AND indexname = %s
+                    """,
+                    (self._graph_name, idx["name"]),
+                )
+                if cursor.fetchone() is not None:
+                    continue
+
+                # Create the index
+                cursor.execute(idx["sql"])
+                created += 1
+                self._probe.query_executed(
+                    query=f"CREATE INDEX {idx['name']}", row_count=0
+                )
+
+            if created > 0:
+                self._connection.commit()
+
+            # Track that this label has been fully indexed
+            self._indexed_labels.add(label)
+
+            return created
+
+    def ensure_all_labels_indexed(self) -> int:
+        """Ensure indexes exist for ALL labels in the graph.
+
+        Creates comprehensive indexes for both vertex and edge labels.
+        This is critical for performance - without indexes, MATCH operations
+        do full table scans which is extremely slow for large graphs.
+
+        For vertex labels:
+        - BTREE on id (graphid column)
+        - GIN on properties
+        - BTREE on properties.id (logical ID)
+
+        For edge labels:
+        - BTREE on id (graphid column)
+        - BTREE on start_id and end_id (for joins)
+        - GIN on properties
+        - BTREE on properties.id (logical ID)
+
+        Returns:
+            Number of new indexes created
+        """
+        if not self.is_connected():
+            raise DatabaseConnectionError("Not connected to database")
+
+        with self._connection.cursor() as cursor:
+            # Get all labels in this graph with their kind (vertex or edge)
+            cursor.execute(
+                """
+                SELECT name, kind FROM ag_catalog.ag_label
+                WHERE graph = (SELECT graphid FROM ag_catalog.ag_graph WHERE name = %s)
+                AND name NOT LIKE '_ag_label%%'
+                """,
+                (self._graph_name,),
+            )
+            labels = [(row[0], row[1]) for row in cursor.fetchall()]
+
+        total_created = 0
+        for label_name, kind in labels:
+            created = self.ensure_label_indexes(label_name, kind=kind)
+            total_created += created
+
+        return total_created
+
     def disconnect(self) -> None:
         """Close the database connection and return it to the pool."""
         if (
@@ -151,19 +427,12 @@ class AgeGraphClient(GraphClientProtocol):
             self._probe.connection_verification_failed(e)
             return False
 
-    def _generate_nonce(self) -> str:
-        """
-        Generate a random 64 character string for use as a nonce
-        when generating a unique tag for quoting cypher queries in Apache AGE.
-        """
-        return "".join(secrets.choice(string.ascii_letters) for _ in range(64))
-
     def build_secure_cypher_sql(
         self,
         graph_name: str,
         query: str,
         nonce_generator: typing.Optional[typing.Callable[[], str]] = None,
-    ) -> str:
+    ) -> sql.Composable:
         """Build the SQL statement for executing a Cypher query via AGE.
 
         AGE requires Cypher queries to be wrapped in:
@@ -177,9 +446,12 @@ class AgeGraphClient(GraphClientProtocol):
 
         Note that there is a hard-coded return type of (result agtype), which means
         the query _must_ be written such that it returns a single object (which may contain multiple items.)
+
+        Returns:
+            A psycopg2.sql.Composable object that safely handles identifier escaping
         """
 
-        nonce_generator = nonce_generator if nonce_generator else self._generate_nonce
+        nonce_generator = nonce_generator if nonce_generator else generate_cypher_nonce
 
         nonce = nonce_generator()
 
@@ -192,11 +464,15 @@ class AgeGraphClient(GraphClientProtocol):
         # between the two $'s.
         tag = f"${nonce}$"
 
-        return f"""\
-SELECT * FROM cypher('{graph_name}', {tag} {query} {tag}) AS (result agtype)\
-"""
+        # Use sql.Literal to safely escape graph_name for SQL injection protection
+        return sql.SQL("SELECT * FROM cypher({}, {} {} {}) AS (result agtype)").format(
+            sql.Literal(graph_name),
+            sql.SQL(tag),
+            sql.SQL(query),
+            sql.SQL(tag),
+        )
 
-    def _build_cypher_sql(self, query: str) -> str:
+    def _build_cypher_sql(self, query: str) -> sql.Composable:
         return self.build_secure_cypher_sql(graph_name=self.graph_name, query=query)
 
     def execute_cypher(
@@ -311,7 +587,7 @@ class _AgeTransaction:
         connection: PsycopgConnection,
         graph_name: str,
         probe: GraphClientProbe,
-        sql_builder: typing.Callable[[str], str],
+        sql_builder: typing.Callable[[str], sql.Composable],
     ):
         self._connection = connection
         self._graph_name = graph_name

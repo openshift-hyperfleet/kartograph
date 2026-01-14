@@ -29,8 +29,6 @@ class TestGraphMutationServiceApplyMutations:
             label="person",
             entity_type=EntityType.NODE,
             description="A person",
-            example_file_path="people/alice.md",
-            example_in_file_path="alice",
             required_properties={"slug", "name"},
         )
 
@@ -85,8 +83,6 @@ class TestGraphMutationServiceApplyMutations:
                 type=EntityType.NODE,
                 label="person",
                 description="A person in the organization",
-                example_file_path="people/alice.md",
-                example_in_file_path="alice",
                 required_properties={"slug", "name"},
                 optional_properties={"email"},
             ),
@@ -120,8 +116,6 @@ class TestGraphMutationServiceApplyMutations:
             label="person",
             entity_type=EntityType.NODE,
             description="A person",
-            example_file_path="people/alice.md",
-            example_in_file_path="alice",
             required_properties={"slug", "name"},
         )
         mock_probe = Mock()
@@ -265,8 +259,6 @@ class TestGraphMutationServiceApplyMutations:
                 type=EntityType.NODE,
                 label="person",
                 description="A person",
-                example_file_path="people/alice.md",
-                example_in_file_path="alice",
                 required_properties={"slug", "name"},
             ),
             MutationOperation(
@@ -311,8 +303,6 @@ class TestGraphMutationServiceApplyMutations:
             label="person",
             entity_type=EntityType.NODE,
             description="A person",
-            example_file_path="people/alice.md",
-            example_in_file_path="alice",
             required_properties={"slug", "name"},
         )
 
@@ -355,8 +345,6 @@ class TestGraphMutationServiceApplyMutations:
             label="person",
             entity_type=EntityType.NODE,
             description="A person",
-            example_file_path="people/alice.md",
-            example_in_file_path="alice",
             required_properties={"slug", "name", "email"},  # email is required
         )
 
@@ -406,8 +394,6 @@ class TestGraphMutationServiceApplyMutations:
             label="person",
             entity_type=EntityType.NODE,
             description="A person",
-            example_file_path="people/alice.md",
-            example_in_file_path="alice",
             required_properties={"slug", "name"},
         )
 
@@ -456,8 +442,6 @@ class TestGraphMutationServiceApplyFromJSONL:
             label="person",
             entity_type=EntityType.NODE,
             description="A person",
-            example_file_path="people/alice.md",
-            example_in_file_path="alice",
             required_properties={"slug", "name"},
         )
 
@@ -518,8 +502,6 @@ class TestGraphMutationServiceApplyFromJSONL:
             label="person",
             entity_type=EntityType.NODE,
             description="A person",
-            example_file_path="people/alice.md",
-            example_in_file_path="alice",
             required_properties={"slug", "name"},
         )
 

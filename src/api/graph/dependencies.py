@@ -21,6 +21,7 @@ from graph.application.services import (
     GraphQueryService,
     GraphSchemaService,
 )
+from graph.infrastructure.age_bulk_loading import AgeBulkLoadingStrategy
 from graph.infrastructure.age_client import AgeGraphClient
 from graph.infrastructure.graph_repository import GraphExtractionReadOnlyRepository
 from graph.infrastructure.mutation_applier import MutationApplier
@@ -104,12 +105,15 @@ def get_mutation_applier(
     """Get MutationApplier instance.
 
     Args:
-        client: Request-scoped graph client
+        client: Request-scoped graph client (implements both GraphClientProtocol
+            and GraphIndexingProtocol)
 
     Returns:
-        MutationApplier instance
+        MutationApplier instance with AGE bulk loading strategy
     """
-    return MutationApplier(client=client)
+    # AgeGraphClient implements both GraphClientProtocol and GraphIndexingProtocol
+    strategy = AgeBulkLoadingStrategy(indexing_client=client)
+    return MutationApplier(client=client, bulk_loading_strategy=strategy)
 
 
 @lru_cache

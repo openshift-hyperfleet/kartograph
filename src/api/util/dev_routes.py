@@ -207,7 +207,7 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
   </div>
 
   <script type="module">
-    import { Cosmograph, prepareCosmographData } from 'https://esm.sh/@cosmograph/cosmograph@2.0.1';
+    import { Cosmograph, prepareCosmographData } from 'https://esm.sh/@cosmograph/cosmograph@2.0.1?bundle-deps';
     
     const container = document.getElementById('container');
     const loading = document.getElementById('loading');

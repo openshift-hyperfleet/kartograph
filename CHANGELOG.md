@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.16.0...v0.17.0) (2026-01-14)
+
+
+### Features
+
+* **outbox:** implement transactional outbox pattern for SpiceDB consistency ([#106](https://github.com/openshift-hyperfleet/kartograph/issues/106)) ([98024df](https://github.com/openshift-hyperfleet/kartograph/commit/98024df027971e37f73a1846bef75af55bb9f11c))
+
 ## [0.16.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.15.0...v0.16.0) (2026-01-08)
 
 

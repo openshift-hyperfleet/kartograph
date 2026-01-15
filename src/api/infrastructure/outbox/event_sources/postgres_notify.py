@@ -7,6 +7,7 @@ asyncpg-listen for reliable connection handling and automatic reconnection.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from uuid import UUID
 
@@ -54,6 +55,7 @@ class PostgresNotifyEventSource(OutboxEventSource):
         self._on_event: Callable[[UUID], Awaitable[None]] | None = None
         self._running = False
         self._listener: NotificationListener | None = None
+        self._listener_task: asyncio.Task[None] | None = None
 
     async def start(self, on_event: Callable[[UUID], Awaitable[None]]) -> None:
         """Start listening for NOTIFY events.
@@ -98,19 +100,29 @@ class PostgresNotifyEventSource(OutboxEventSource):
             self._probe.event_source_started(self._channel)
 
             # Run the listener - this blocks until cancelled
-            await self._listener.run(
-                {self._channel: handle_notification},
-                policy=ListenPolicy.ALL,
+            self._listener_task = asyncio.create_task(
+                self._listener.run(
+                    {self._channel: handle_notification},
+                    policy=ListenPolicy.ALL,
+                )
             )
+            await self._listener_task
+        except asyncio.CancelledError:
+            # Task was cancelled via stop(), this is expected
+            pass
         except Exception as e:
             # Listen loop failed, caller should handle appropriately
             self._probe.listener_error(str(e))
 
     async def stop(self) -> None:
-        """Stop listening and clean up resources.
-
-        Sets _running to False to signal the listener to stop.
-        This method is safe to call even if start() was never called.
-        """
+        """Stop the event source and clean up resources."""
         self._running = False
+
+        if self._listener_task and not self._listener_task.done():
+            self._listener_task.cancel()
+            try:
+                await self._listener_task
+            except asyncio.CancelledError:
+                pass
+
         self._probe.event_source_stopped()

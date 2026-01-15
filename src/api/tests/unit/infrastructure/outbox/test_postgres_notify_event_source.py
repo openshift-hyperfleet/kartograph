@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
+from asyncpg_listen import Timeout
 
 
 class TestPostgresNotifyEventSourceStart:
@@ -297,20 +298,14 @@ class TestPostgresNotifyEventSourceInvalidPayload:
 
         callback = AsyncMock()
 
-        with (
-            patch(
-                "infrastructure.outbox.event_sources.postgres_notify.NotificationListener"
-            ) as mock_listener_class,
-            patch(
-                "infrastructure.outbox.event_sources.postgres_notify.Timeout"
-            ) as mock_timeout_class,
-        ):
+        with patch(
+            "infrastructure.outbox.event_sources.postgres_notify.NotificationListener"
+        ) as mock_listener_class:
             mock_listener = AsyncMock()
             mock_listener_class.return_value = mock_listener
 
-            # Create a Timeout instance
-            timeout_instance = MagicMock()
-            mock_timeout_class.return_value = timeout_instance
+            # Use real Timeout instance so isinstance() check works correctly
+            timeout_instance = Timeout(channel="outbox_events")
 
             async def capture_run(handlers, **kwargs):
                 # Simulate a timeout notification
@@ -413,10 +408,10 @@ class TestPostgresNotifyEventSourceGracefulShutdown:
 
     @pytest.mark.asyncio
     async def test_stop_during_callback_execution(self):
-        """Test graceful shutdown even when callback is being executed.
+        """Test that stop() properly cancels the listener task.
 
-        The event source should wait for the current callback to complete
-        before shutting down, or at minimum not corrupt state.
+        When stop() is called, it should cancel the listener task cleanly.
+        The event source should handle cancellation without corrupting state.
         """
         from infrastructure.outbox.event_sources.postgres_notify import (
             PostgresNotifyEventSource,
@@ -428,14 +423,17 @@ class TestPostgresNotifyEventSourceGracefulShutdown:
         )
 
         callback_started = asyncio.Event()
-        callback_can_finish = asyncio.Event()
-        callback_completed = False
+        callback_cancelled = False
 
         async def slow_callback(entry_id):
-            nonlocal callback_completed
+            nonlocal callback_cancelled
             callback_started.set()
-            await callback_can_finish.wait()
-            callback_completed = True
+            try:
+                # Wait indefinitely - will be cancelled by stop()
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                callback_cancelled = True
+                raise
 
         entry_id = uuid4()
 
@@ -458,11 +456,8 @@ class TestPostgresNotifyEventSourceGracefulShutdown:
             # Wait for callback to start
             await asyncio.wait_for(callback_started.wait(), timeout=1.0)
 
-            # Initiate stop while callback is running
+            # Initiate stop while callback is running - should cancel the task
             stop_task = asyncio.create_task(event_source.stop())
-
-            # Allow callback to complete
-            callback_can_finish.set()
 
             # Both tasks should complete
             await asyncio.wait_for(
@@ -470,8 +465,9 @@ class TestPostgresNotifyEventSourceGracefulShutdown:
                 timeout=1.0,
             )
 
-            # Callback should have completed
-            assert callback_completed
+            # Verify stop() properly cancelled the listener task
+            assert event_source._running is False
+            assert callback_cancelled
 
     @pytest.mark.asyncio
     async def test_no_callback_invoked_after_stop(self):

@@ -164,3 +164,66 @@ class DefaultOutboxWorkerProbe:
             event_types=sorted(event_types),
             event_count=len(event_types),
         )
+
+
+class EventSourceProbe(Protocol):
+    """Protocol for event source observability.
+
+    Implementations can log, emit metrics, or send traces for event source
+    lifecycle and notification handling.
+    """
+
+    def event_source_started(self, channel: str) -> None:
+        """Called when the event source starts listening."""
+        ...
+
+    def event_source_stopped(self) -> None:
+        """Called when the event source stops."""
+        ...
+
+    def notification_received(self, entry_id: UUID) -> None:
+        """Called when a valid notification is received."""
+        ...
+
+    def invalid_notification_ignored(self, payload: str, reason: str) -> None:
+        """Called when an invalid notification is ignored."""
+        ...
+
+    def listener_error(self, error: str) -> None:
+        """Called when an error occurs in the listener."""
+        ...
+
+
+class DefaultEventSourceProbe:
+    """Default implementation using structlog.
+
+    Logs all event source events with appropriate log levels.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the probe with a logger."""
+        self._log = logger.bind(component="event_source")
+
+    def event_source_started(self, channel: str) -> None:
+        """Log event source start."""
+        self._log.info("event_source_started", channel=channel)
+
+    def event_source_stopped(self) -> None:
+        """Log event source stop."""
+        self._log.info("event_source_stopped")
+
+    def notification_received(self, entry_id: UUID) -> None:
+        """Log notification received."""
+        self._log.debug("notification_received", entry_id=str(entry_id))
+
+    def invalid_notification_ignored(self, payload: str, reason: str) -> None:
+        """Log invalid notification ignored."""
+        self._log.warning(
+            "invalid_notification_ignored",
+            payload=payload,
+            reason=reason,
+        )
+
+    def listener_error(self, error: str) -> None:
+        """Log listener error."""
+        self._log.error("event_source_listener_error", error=error)

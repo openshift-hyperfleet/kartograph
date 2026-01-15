@@ -26,9 +26,15 @@ from infrastructure.settings import (
 from infrastructure.version import __version__
 from iam.infrastructure.outbox import IAMEventTranslator
 from infrastructure.outbox.composite import CompositeTranslator
+from infrastructure.outbox.event_sources.postgres_notify import (
+    PostgresNotifyEventSource,
+)
 from infrastructure.outbox.worker import OutboxWorker
 from shared_kernel.authorization.spicedb.client import SpiceDBClient
-from shared_kernel.outbox.observability import DefaultOutboxWorkerProbe
+from shared_kernel.outbox.observability import (
+    DefaultEventSourceProbe,
+    DefaultOutboxWorkerProbe,
+)
 from query.presentation.mcp import query_mcp_app
 
 # Configure structlog before any loggers are created
@@ -87,12 +93,19 @@ async def kartograph_lifespan(app: FastAPI):
         translator.register(IAMEventTranslator(), context_name="iam")
         # Future: translator.register(ManagementEventTranslator(), context_name="management")
 
+        # Create event source for real-time NOTIFY processing
+        event_source = PostgresNotifyEventSource(
+            db_url=db_url,
+            channel="outbox_events",
+            probe=DefaultEventSourceProbe(),
+        )
+
         worker = OutboxWorker(
             session_factory=app.state.write_sessionmaker,
             authz=authz,
             translator=translator,
             probe=probe,
-            db_url=db_url,
+            event_source=event_source,
             poll_interval_seconds=outbox_settings.poll_interval_seconds,
             batch_size=outbox_settings.batch_size,
             max_retries=outbox_settings.max_retries,

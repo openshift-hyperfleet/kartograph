@@ -99,6 +99,7 @@ class OutboxWorker:
             event_source_task = asyncio.create_task(
                 self._event_source.start(self._process_single)
             )
+            event_source_task.add_done_callback(self._on_event_source_done)
             self._tasks.append(event_source_task)
 
     async def stop(self) -> None:
@@ -123,6 +124,23 @@ class OutboxWorker:
 
         self._tasks.clear()
         self._probe.worker_stopped()
+
+    def _on_event_source_done(self, task: asyncio.Task[None]) -> None:
+        """Handle completion of event source task.
+
+        Logs failures but does not stop the worker - polling continues as fallback.
+
+        Args:
+            task: The completed event source task
+        """
+        # Ignore canceled tasks (expected during shutdown)
+        if task.cancelled():
+            return
+
+        # Check for exceptions
+        exc = task.exception()
+        if exc:
+            self._probe.poll_loop_error(f"Event source failed: {exc}")
 
     async def _poll_loop(self) -> None:
         """Fallback polling for missed events.

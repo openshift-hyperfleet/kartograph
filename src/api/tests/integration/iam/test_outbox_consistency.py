@@ -505,6 +505,8 @@ class TestOutboxWorkerNotifyProcessing:
             poll_interval_seconds=999,
         )
 
+        group = None  # Initialize before try block
+
         # Start worker
         await worker.start()
 
@@ -543,26 +545,32 @@ class TestOutboxWorkerNotifyProcessing:
             )
             assert has_relationship is True, "SpiceDB relationship should exist"
 
-            # Clean up SpiceDB
-            await spicedb_client.delete_relationship(
-                resource=group_resource,
-                relation=RelationType.TENANT,
-                subject=tenant_resource,
-            )
-
         finally:
-            # Stop worker
+            # Stop worker (always execute)
             await worker.stop()
 
-            # Clean up database
-            await async_session.execute(
-                text("DELETE FROM outbox WHERE aggregate_id = :id"),
-                {"id": group.id.value},
-            )
-            await async_session.execute(
-                text("DELETE FROM groups WHERE id = :id"),
-                {"id": group.id.value},
-            )
+            # Clean up database entries (only if group was created)
+            if group is not None:
+                # Clean up SpiceDB
+                group_resource = format_resource(ResourceType.GROUP, group.id.value)
+                tenant_resource = format_resource(
+                    ResourceType.TENANT, group.tenant_id.value
+                )
+                await spicedb_client.delete_relationship(
+                    resource=group_resource,
+                    relation=RelationType.TENANT,
+                    subject=tenant_resource,
+                )
+
+                await async_session.execute(
+                    text("DELETE FROM outbox WHERE aggregate_id = :id"),
+                    {"id": group.id.value},
+                )
+                await async_session.execute(
+                    text("DELETE FROM groups WHERE id = :id"),
+                    {"id": group.id.value},
+                )
+
             await async_session.commit()
 
 

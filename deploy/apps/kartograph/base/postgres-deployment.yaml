@@ -21,6 +21,11 @@ spec:
       containers:
         - name: postgres
           image: apache/age:release_PG17_1.6.0
+          securityContext:
+            runAsUser: 999
+            runAsGroup: 999
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
           imagePullPolicy: IfNotPresent
           args:
             - postgres

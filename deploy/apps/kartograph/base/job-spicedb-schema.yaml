@@ -1,0 +1,72 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kartograph-spicedb-schema
+  labels:
+    app.kubernetes.io/component: spicedb-schema
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: spicedb-schema
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        # Wait for SpiceDB to be running (after migration)
+        - name: wait-for-spicedb-migrate
+          image: groundnuty/k8s-wait-for:v7.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - "job"
+            - "kartograph-spicedb-migrate"
+        # Wait for SpiceDB deployment to be ready
+        - name: wait-for-spicedb
+          image: authzed/zed:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for SpiceDB to be ready..."
+              until zed schema read > /dev/null 2>&1; do
+                sleep 2
+              done
+              echo "SpiceDB is ready!"
+          env:
+            - name: ZED_ENDPOINT
+              value: kartograph-spicedb:50051
+            - name: ZED_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: kartograph-spicedb-credentials
+                  key: preshared-key
+            - name: ZED_INSECURE
+              value: "true"
+      containers:
+        - name: schema
+          image: authzed/zed:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - zed
+            - schema
+            - write
+            - /schema/schema.zed
+          env:
+            - name: ZED_ENDPOINT
+              value: kartograph-spicedb:50051
+            - name: ZED_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: kartograph-spicedb-credentials
+                  key: preshared-key
+            - name: ZED_INSECURE
+              value: "true"
+          volumeMounts:
+            - name: schema
+              mountPath: /schema
+              readOnly: true
+      volumes:
+        - name: schema
+          configMap:
+            name: kartograph-spicedb-schema

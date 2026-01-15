@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kartograph-config
+data:
+  # Database
+  KARTOGRAPH_DB_HOST: kartograph-postgres
+  KARTOGRAPH_DB_PORT: "5432"
+  KARTOGRAPH_DB_DATABASE: kartograph
+  KARTOGRAPH_DB_USERNAME: kartograph
+  KARTOGRAPH_DB_GRAPH_NAME: kartograph_graph
+  # SpiceDB
+  SPICEDB_ENDPOINT: kartograph-spicedb:50051
+  SPICEDB_USE_TLS: "false"
+  # Outbox worker
+  KARTOGRAPH_OUTBOX_ENABLED: "true"
+  KARTOGRAPH_OUTBOX_POLL_INTERVAL_SECONDS: "30"
+  KARTOGRAPH_OUTBOX_BATCH_SIZE: "100"

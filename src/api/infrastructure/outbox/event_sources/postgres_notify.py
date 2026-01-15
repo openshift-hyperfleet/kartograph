@@ -81,6 +81,13 @@ class PostgresNotifyEventSource(OutboxEventSource):
             if isinstance(notification, Timeout):
                 return
 
+            # Skip empty payloads
+            if not notification.payload:
+                self._probe.invalid_notification_ignored(
+                    payload="", reason="Empty payload received"
+                )
+                return
+
             # Process the notification payload
             if notification.payload:
                 try:

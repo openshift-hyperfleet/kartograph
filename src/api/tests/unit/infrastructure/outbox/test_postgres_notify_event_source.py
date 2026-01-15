@@ -1,11 +1,8 @@
-"""Unit tests for PostgresNotifyEventSource (TDD - tests first).
+"""Unit tests for PostgresNotifyEventSource.
 
 These tests use mocked dependencies to test the PostgreSQL NOTIFY event
 source without requiring a real database connection. The event source
 listens for PostgreSQL NOTIFY events and invokes callbacks with entry UUIDs.
-
-Following TDD, these tests are written BEFORE the implementation exists.
-They should fail (red phase) until the implementation is complete.
 """
 
 import asyncio

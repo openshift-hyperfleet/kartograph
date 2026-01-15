@@ -1,7 +1,11 @@
 """Outbox worker for processing events and writing to SpiceDB.
 
 The worker runs as a background task within the FastAPI application,
-listening for PostgreSQL NOTIFY events and processing outbox entries.
+processing outbox entries through a pluggable event source architecture.
+
+Event sources (e.g., PostgreSQL NOTIFY, message queues) can be injected
+to provide real-time notification of new entries. A polling fallback
+always runs to ensure reliability.
 """
 
 from __future__ import annotations
@@ -22,13 +26,15 @@ from shared_kernel.outbox.value_objects import OutboxEntry
 if TYPE_CHECKING:
     from shared_kernel.authorization.protocols import AuthorizationProvider
     from shared_kernel.outbox.observability import OutboxWorkerProbe
+    from shared_kernel.outbox.ports import OutboxEventSource
 
 
 class OutboxWorker:
     """Background worker that processes outbox entries and applies to SpiceDB.
 
-    The worker uses two strategies:
-    1. LISTEN/NOTIFY: Real-time processing when new entries are added
+    The worker uses a pluggable event source architecture:
+    1. Event Source: Optional real-time processing via OutboxEventSource protocol
+       (e.g., PostgreSQL NOTIFY, message queues)
     2. Polling: Fallback every N seconds to catch any missed events
 
     This ensures both low latency and reliability.
@@ -36,6 +42,7 @@ class OutboxWorker:
     The worker uses a plugin architecture for event translation:
     - Translators are injected and handle converting events to SpiceDB operations
     - This keeps the worker generic and bounded-context agnostic
+    - Event sources are optional and can be swapped for different notification mechanisms
     """
 
     def __init__(
@@ -44,7 +51,7 @@ class OutboxWorker:
         authz: AuthorizationProvider,
         translator: EventTranslator,
         probe: OutboxWorkerProbe,
-        db_url: str,
+        event_source: OutboxEventSource | None = None,
         poll_interval_seconds: int = 30,
         batch_size: int = 100,
         max_retries: int = 5,
@@ -56,7 +63,9 @@ class OutboxWorker:
             authz: Authorization provider for SpiceDB operations
             translator: Translator for domain events to SpiceDB operations
             probe: Observability probe for logging/metrics
-            db_url: PostgreSQL connection URL for LISTEN
+            event_source: Optional event source for real-time notifications
+                         (e.g., PostgresNotifyEventSource). If not provided,
+                         the worker runs in polling-only mode.
             poll_interval_seconds: How often to poll for missed events
             batch_size: Maximum entries to process per batch
             max_retries: Maximum retry attempts before moving to DLQ
@@ -65,18 +74,18 @@ class OutboxWorker:
         self._authz = authz
         self._translator = translator
         self._probe = probe
-        self._db_url = db_url
+        self._event_source = event_source
         self._poll_interval = poll_interval_seconds
         self._batch_size = batch_size
         self._max_retries = max_retries
         self._running = False
-        self._tasks: list[asyncio.Task] = []
+        self._tasks: list[asyncio.Task[None]] = []
 
     async def start(self) -> None:
         """Start the worker processing loops.
 
-        Starts both the LISTEN loop (for real-time processing) and
-        the poll loop (for catching missed events).
+        Starts the poll loop (always runs as fallback) and optionally
+        the event source (for real-time processing) if one was provided.
         """
         self._running = True
         self._probe.worker_started()
@@ -85,21 +94,25 @@ class OutboxWorker:
         poll_task = asyncio.create_task(self._poll_loop())
         self._tasks.append(poll_task)
 
-        # Start listen loop (for real-time processing)
-        # Note: Listen loop is optional and may fail if DB doesn't support it
-        try:
-            listen_task = asyncio.create_task(self._listen_loop())
-            self._tasks.append(listen_task)
-        except Exception:
-            # Listen loop is optional, poll loop is the fallback
-            pass
+        # Start event source (if provided)
+        if self._event_source:
+            event_source_task = asyncio.create_task(
+                self._event_source.start(self._process_single)
+            )
+            event_source_task.add_done_callback(self._on_event_source_done)
+            self._tasks.append(event_source_task)
 
     async def stop(self) -> None:
         """Gracefully stop the worker.
 
         Signals all loops to stop and waits for them to complete.
+        Stops the event source first, then cancels all tasks.
         """
         self._running = False
+
+        # Stop event source first (if provided)
+        if self._event_source:
+            await self._event_source.stop()
 
         # Cancel all tasks
         for task in self._tasks:
@@ -112,56 +125,22 @@ class OutboxWorker:
         self._tasks.clear()
         self._probe.worker_stopped()
 
-    async def _listen_loop(self) -> None:
-        """Listen for PostgreSQL NOTIFY and process immediately.
+    def _on_event_source_done(self, task: asyncio.Task[None]) -> None:
+        """Handle completion of event source task.
 
-        Uses asyncpg-listen for reliable connection handling.
+        Logs failures but does not stop the worker - polling continues as fallback.
+
+        Args:
+            task: The completed event source task
         """
-        from asyncpg_listen import (
-            ListenPolicy,
-            NotificationListener,
-            NotificationOrTimeout,
-            Timeout,
-            connect_func,
-        )
+        # Ignore canceled tasks (expected during shutdown)
+        if task.cancelled():
+            return
 
-        self._probe.listen_loop_started()
-
-        async def handle_notification(
-            notification: NotificationOrTimeout,
-        ) -> None:
-            """Handler for outbox_events notifications."""
-            if not self._running:
-                return
-
-            # Skip timeouts
-            if isinstance(notification, Timeout):
-                return
-
-            # Process the notification payload
-            if notification.payload:
-                try:
-                    entry_id = UUID(notification.payload)
-                    await self._process_single(entry_id)
-                except (ValueError, Exception):
-                    # Invalid UUID or processing error, will be picked up by poll
-                    pass
-
-        try:
-            listener = NotificationListener(connect_func(self._db_url))
-
-            # Run the listener - this blocks until cancelled
-            await listener.run(
-                {"outbox_events": handle_notification},
-                policy=ListenPolicy.ALL,
-                notification_timeout=self._poll_interval,
-            )
-
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            # Listen loop failed, poll loop will handle entries
-            pass
+        # Check for exceptions
+        exc = task.exception()
+        if exc:
+            self._probe.poll_loop_error(f"Event source failed: {exc}")
 
     async def _poll_loop(self) -> None:
         """Fallback polling for missed events.

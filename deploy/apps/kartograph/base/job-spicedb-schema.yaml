@@ -57,7 +57,7 @@ spec:
               valueFrom:
                 configMapKeyRef:
                   name: kartograph-config
-                  key: SPICEDB_USE_TLS
+                  key: SPICEDB_INSECURE
       containers:
         - name: schema
           image: authzed/zed:latest
@@ -85,7 +85,7 @@ spec:
               valueFrom:
                 configMapKeyRef:
                   name: kartograph-config
-                  key: SPICEDB_USE_TLS
+                  key: SPICEDB_INSECURE
           volumeMounts:
             - name: schema
               mountPath: /schema

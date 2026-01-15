@@ -17,6 +17,12 @@ spec:
         - name: wait-for-spicedb-migrate
           image: groundnuty/k8s-wait-for:v7.0
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false
           args:
             - "job"
             - "kartograph-spicedb-migrate"
@@ -24,6 +30,12 @@ spec:
         - name: wait-for-spicedb
           image: authzed/zed:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false
           command:
             - sh
             - -c
@@ -47,6 +59,12 @@ spec:
         - name: schema
           image: authzed/zed:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false
           command:
             - zed
             - schema

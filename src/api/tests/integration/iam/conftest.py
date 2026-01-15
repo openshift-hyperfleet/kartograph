@@ -41,6 +41,16 @@ def iam_db_settings() -> DatabaseSettings:
     )
 
 
+@pytest.fixture
+def db_settings(iam_db_settings: DatabaseSettings) -> DatabaseSettings:
+    """Provide database settings for integration tests.
+
+    This is an alias for iam_db_settings with a simpler name for tests
+    that need to construct database URLs.
+    """
+    return iam_db_settings
+
+
 @pytest_asyncio.fixture
 async def async_session(
     iam_db_settings: DatabaseSettings,
@@ -142,7 +152,6 @@ def user_repository(async_session: AsyncSession) -> UserRepository:
 async def process_outbox(
     session_factory: async_sessionmaker[AsyncSession],
     spicedb_client: AuthorizationProvider,
-    iam_db_settings: DatabaseSettings,
 ) -> Callable[[], Coroutine[Any, Any, None]]:
     """Provide a function to process all pending outbox entries.
 
@@ -151,19 +160,12 @@ async def process_outbox(
     """
     translator = IAMEventTranslator()
     probe = DefaultOutboxWorkerProbe()
-    db_url = (
-        f"postgresql://{iam_db_settings.username}:"
-        f"{iam_db_settings.password.get_secret_value()}@"
-        f"{iam_db_settings.host}:{iam_db_settings.port}/"
-        f"{iam_db_settings.database}"
-    )
 
     worker = OutboxWorker(
         session_factory=session_factory,
         authz=spicedb_client,
         translator=translator,
         probe=probe,
-        db_url=db_url,
     )
 
     async def _process() -> None:

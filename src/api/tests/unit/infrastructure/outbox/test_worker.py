@@ -66,7 +66,7 @@ class TestOutboxWorkerProcessBatch:
             authz=mock_authz,
             translator=mock_translator,
             probe=mock_probe,
-            db_url="postgresql://test",
+            event_source=None,  # Polling-only mode for tests
         )
 
         # Act
@@ -122,7 +122,7 @@ class TestOutboxWorkerProcessBatch:
             authz=mock_authz,
             translator=mock_translator,
             probe=mock_probe,
-            db_url="postgresql://test",
+            event_source=None,  # Polling-only mode for tests
         )
 
         await worker._process_entries([entry], mock_session)
@@ -173,7 +173,7 @@ class TestOutboxWorkerProcessBatch:
             authz=mock_authz,
             translator=mock_translator,
             probe=mock_probe,
-            db_url="postgresql://test",
+            event_source=None,  # Polling-only mode for tests
         )
 
         await worker._process_entries([entry], mock_session)
@@ -194,7 +194,7 @@ class TestOutboxWorkerLifecycle:
             authz=AsyncMock(),
             translator=mock_translator,
             probe=MagicMock(),
-            db_url="postgresql://test",
+            event_source=None,  # Polling-only mode for tests
         )
 
         assert worker._running is False
@@ -212,7 +212,7 @@ class TestOutboxWorkerLifecycle:
             authz=AsyncMock(),
             translator=mock_translator,
             probe=MagicMock(),
-            db_url="postgresql://test",
+            event_source=None,  # Polling-only mode for tests
         )
 
         worker._running = True
@@ -264,7 +264,7 @@ class TestOutboxWorkerProbeIntegration:
             authz=mock_authz,
             translator=mock_translator,
             probe=mock_probe,
-            db_url="postgresql://test",
+            event_source=None,  # Polling-only mode for tests
         )
 
         await worker._process_entries([entry], mock_session)
@@ -312,7 +312,7 @@ class TestOutboxWorkerProbeIntegration:
             authz=mock_authz,
             translator=mock_translator,
             probe=mock_probe,
-            db_url="postgresql://test",
+            event_source=None,  # Polling-only mode for tests
         )
 
         await worker._process_entries([entry], mock_session)

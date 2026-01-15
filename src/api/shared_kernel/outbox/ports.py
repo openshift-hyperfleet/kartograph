@@ -7,6 +7,7 @@ event translators and serializers without shared_kernel knowing about them.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from uuid import UUID
@@ -161,5 +162,39 @@ class EventSerializer(Protocol):
 
         Raises:
             ValueError: If the event type is not supported
+        """
+        ...
+
+
+@runtime_checkable
+class OutboxEventSource(Protocol):
+    """Event source for outbox entries.
+
+    Implementations provide different mechanisms for being notified of new
+    outbox entries (PostgreSQL NOTIFY, polling, message queue, etc.).
+
+    The event source operates in a push model: when started, it monitors
+    for new outbox entries and invokes the provided callback for each one.
+    """
+
+    async def start(self, on_event: Callable[[UUID], Awaitable[None]]) -> None:
+        """Start the event source and begin monitoring for events.
+
+        The event source should invoke the callback when new outbox entries
+        are created, passing the entry UUID. The callback is async and should
+        be awaited.
+
+        This method should not return until stop() is called or an error occurs.
+
+        Args:
+            on_event: Async callback to invoke when an event occurs, passing entry UUID
+        """
+        ...
+
+    async def stop(self) -> None:
+        """Stop the event source and clean up resources.
+
+        This should gracefully shut down the monitoring mechanism and
+        release any held resources (connections, file handles, etc.).
         """
         ...

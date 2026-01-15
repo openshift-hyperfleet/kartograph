@@ -54,7 +54,10 @@ spec:
                   name: kartograph-spicedb-credentials
                   key: preshared-key
             - name: ZED_INSECURE
-              value: "true"
+              valueFrom:
+                configMapKeyRef:
+                  name: kartograph-config
+                  key: SPICEDB_USE_TLS
       containers:
         - name: schema
           image: authzed/zed:latest
@@ -79,7 +82,10 @@ spec:
                   name: kartograph-spicedb-credentials
                   key: preshared-key
             - name: ZED_INSECURE
-              value: "true"
+              valueFrom:
+                configMapKeyRef:
+                  name: kartograph-config
+                  key: SPICEDB_USE_TLS
           volumeMounts:
             - name: schema
               mountPath: /schema

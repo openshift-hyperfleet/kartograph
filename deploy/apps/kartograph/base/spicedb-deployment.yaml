@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kartograph-spicedb
+  labels:
+    app.kubernetes.io/component: authorization
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: authorization
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: authorization
+    spec:
+      initContainers:
+        # Wait for SpiceDB migration job to complete
+        - name: wait-for-spicedb-migrate
+          image: groundnuty/k8s-wait-for:v7.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          args:
+            - "job"
+            - "kartograph-spicedb-migrate"
+      containers:
+        - name: spicedb
+          image: authzed/spicedb:v1.48.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          args:
+            - serve
+            - --http-enabled=true
+          ports:
+            - containerPort: 50051
+              name: grpc
+            - containerPort: 8080
+              name: http
+          env:
+            - name: SPICEDB_DATASTORE_ENGINE
+              value: postgres
+            - name: SPICEDB_DATASTORE_CONN_URI
+              valueFrom:
+                secretKeyRef:
+                  name: kartograph-spicedb-credentials
+                  key: datastore-uri
+            - name: SPICEDB_GRPC_PRESHARED_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kartograph-spicedb-credentials
+                  key: preshared-key
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

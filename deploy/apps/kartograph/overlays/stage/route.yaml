@@ -1,0 +1,19 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: kartograph-api
+  annotations:
+    haproxy.router.openshift.io/timeout: 60s
+spec:
+  # TODO: Update with actual cluster hostname
+  host: kartograph-stage.apps.example.com
+  to:
+    kind: Service
+    name: kartograph-api
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

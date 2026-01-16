@@ -81,3 +81,20 @@ bounded contexts (also referred to as _domains_, see [Martin Fowler on DDD](http
     that provides a tool and several resources that enable agents to execute [openCypher](https://opencypher.org/) queries.
 
     To learn more, see the [MCP Sever Guide](../../guides/mcp-server).
+
+## Typical User Journey
+
+The following contrived user story helps to illustrate the intended user journey.
+
+Let's assume that Alice and Bob are members of a team named Catalyst that wants to build a knowledge graph
+from three of their Github repos.
+
+1. Bob opens the [Kartograph UI](#kartograph-ui) and creates a new team called "Catalyst", and adds Alice as an administrator.
+1. Alice also logs in and creates a new graph called "Catalyst-Repos".
+1. Alice then connects the team's Github repos as data sources for the "Catalyst-Repos" graph. She specifies that she wants 
+   Kartograph to sync the latest data from their repos every 24 hours.
+1. Since this is a new graph, Kartograph immediately initiates an extraction job. It fetches the data from the git repos, and
+   the extraction agent begins extracting entities and relationships.
+1. The initial extraction completes and the data is ingested into the graph by the graph domain. 
+1. At this point, Alice and Bob see that their graph is ready. They copy the command to register the Kartograph MCP server 
+   with Claude Code, which gives the agent access to connected context built from their team's three git repos.

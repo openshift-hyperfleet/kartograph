@@ -243,7 +243,6 @@ class TestOutboxWorkerProcessing:
             authz=spicedb_client,
             translator=translator,
             probe=DefaultOutboxWorkerProbe(),
-            db_url="",  # Not used for direct processing
         )
 
         # Manually trigger batch processing
@@ -321,7 +320,6 @@ class TestOutboxWorkerProcessing:
             authz=spicedb_client,
             translator=translator,
             probe=DefaultOutboxWorkerProbe(),
-            db_url="",
         )
         await worker._process_batch()
 
@@ -447,6 +445,133 @@ class TestAtomicityGuarantees:
         outbox_result = await async_session.execute(outbox_stmt)
         outbox_entry = outbox_result.scalar_one_or_none()
         assert outbox_entry is None
+
+
+class TestOutboxWorkerNotifyProcessing:
+    """Tests for verifying NOTIFY-based processing (not polling)."""
+
+    @pytest.mark.asyncio
+    async def test_worker_processes_via_notify_not_polling(
+        self,
+        async_session: AsyncSession,
+        session_factory,
+        spicedb_client: AuthorizationProvider,
+        db_settings,
+    ):
+        """Worker should process via NOTIFY immediately, not waiting for poll."""
+        import asyncio
+
+        from infrastructure.outbox.event_sources.postgres_notify import (
+            PostgresNotifyEventSource,
+        )
+        from shared_kernel.outbox.observability import (
+            DefaultEventSourceProbe,
+            DefaultOutboxWorkerProbe,
+        )
+
+        # Setup
+        outbox_repo = OutboxRepository(async_session)
+        group_repo = GroupRepository(
+            session=async_session,
+            authz=spicedb_client,
+            outbox=outbox_repo,
+        )
+
+        # Build composite translator
+        translator = CompositeTranslator()
+        translator.register(IAMEventTranslator())
+
+        # Create event source with REAL database URL
+        db_url = (
+            f"postgresql://{db_settings.username}:"
+            f"{db_settings.password.get_secret_value()}@"
+            f"{db_settings.host}:{db_settings.port}/"
+            f"{db_settings.database}"
+        )
+        event_source = PostgresNotifyEventSource(
+            db_url=db_url,
+            channel="outbox_events",
+            probe=DefaultEventSourceProbe(),
+        )
+
+        # Create worker with event source
+        # Set poll_interval very high to ensure NOTIFY is used, not polling
+        worker = OutboxWorker(
+            session_factory=session_factory,
+            authz=spicedb_client,
+            translator=translator,
+            probe=DefaultOutboxWorkerProbe(),
+            event_source=event_source,
+            poll_interval_seconds=999,
+        )
+
+        group = None  # Initialize before try block
+
+        # Start worker
+        await worker.start()
+
+        try:
+            # Create a group (this triggers INSERT -> NOTIFY)
+            tenant_id = TenantId.generate()
+            group = Group.create(name="NOTIFY Test Group", tenant_id=tenant_id)
+
+            async with async_session.begin():
+                await group_repo.save(group)
+
+            # Give NOTIFY time to propagate and process (should be very fast)
+            await asyncio.sleep(0.5)  # 500ms should be plenty
+
+            # Verify the entry was processed
+            stmt = select(OutboxModel).where(
+                OutboxModel.aggregate_id == group.id.value,
+                OutboxModel.event_type == "GroupCreated",
+            )
+            result = await async_session.execute(stmt)
+            outbox_entry = result.scalar_one_or_none()
+
+            assert outbox_entry is not None, "Outbox entry should exist"
+            assert outbox_entry.processed_at is not None, (
+                "Entry should be processed via NOTIFY"
+            )
+
+            # Verify SpiceDB relationship exists
+            group_resource = format_resource(ResourceType.GROUP, group.id.value)
+            tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
+
+            has_relationship = await spicedb_client.check_permission(
+                resource=group_resource,
+                permission=RelationType.TENANT,
+                subject=tenant_resource,
+            )
+            assert has_relationship is True, "SpiceDB relationship should exist"
+
+        finally:
+            # Stop worker (always execute)
+            await worker.stop()
+
+            # Clean up database entries (only if group was created)
+            if group is not None:
+                # Clean up SpiceDB
+                group_resource = format_resource(ResourceType.GROUP, group.id.value)
+                tenant_resource = format_resource(
+                    ResourceType.TENANT, group.tenant_id.value
+                )
+                await spicedb_client.delete_relationship(
+                    resource=group_resource,
+                    relation=RelationType.TENANT,
+                    subject=tenant_resource,
+                )
+
+                await async_session.execute(
+                    text("DELETE FROM outbox WHERE aggregate_id = :id"),
+                    {"id": group.id.value},
+                )
+                await async_session.execute(
+                    text("DELETE FROM groups WHERE id = :id"),
+                    {"id": group.id.value},
+                )
+
+            await async_session.commit()
 
 
 class TestUnprocessedEventsRetry:

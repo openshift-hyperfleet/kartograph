@@ -6,6 +6,7 @@ These tests verify the probe protocol and default implementation.
 from uuid import uuid4
 
 from shared_kernel.outbox.observability import (
+    DefaultEventSourceProbe,
     DefaultOutboxWorkerProbe,
 )
 
@@ -86,3 +87,78 @@ class TestOutboxWorkerProbeProtocol:
         probe.poll_loop_error("Connection error")
         probe.event_translated(uuid4(), "GroupCreated", 2)
         probe.translator_registered("iam", frozenset({"GroupCreated"}))
+
+
+class TestEventSourceProbeProtocol:
+    """Tests for EventSourceProbe protocol methods."""
+
+    def test_default_probe_has_event_source_started(self):
+        """DefaultEventSourceProbe should have event_source_started method."""
+        probe = DefaultEventSourceProbe()
+        assert hasattr(probe, "event_source_started")
+        assert callable(probe.event_source_started)
+
+    def test_event_source_started_accepts_channel(self):
+        """event_source_started should accept a channel name."""
+        probe = DefaultEventSourceProbe()
+        # Should not raise
+        probe.event_source_started("outbox_events")
+
+    def test_default_probe_has_event_source_stopped(self):
+        """DefaultEventSourceProbe should have event_source_stopped method."""
+        probe = DefaultEventSourceProbe()
+        assert hasattr(probe, "event_source_stopped")
+        assert callable(probe.event_source_stopped)
+
+    def test_event_source_stopped_no_args(self):
+        """event_source_stopped should require no arguments."""
+        probe = DefaultEventSourceProbe()
+        # Should not raise
+        probe.event_source_stopped()
+
+    def test_default_probe_has_notification_received(self):
+        """DefaultEventSourceProbe should have notification_received method."""
+        probe = DefaultEventSourceProbe()
+        assert hasattr(probe, "notification_received")
+        assert callable(probe.notification_received)
+
+    def test_notification_received_accepts_entry_id(self):
+        """notification_received should accept an entry UUID."""
+        probe = DefaultEventSourceProbe()
+        # Should not raise
+        probe.notification_received(uuid4())
+
+    def test_default_probe_has_invalid_notification_ignored(self):
+        """DefaultEventSourceProbe should have invalid_notification_ignored method."""
+        probe = DefaultEventSourceProbe()
+        assert hasattr(probe, "invalid_notification_ignored")
+        assert callable(probe.invalid_notification_ignored)
+
+    def test_invalid_notification_ignored_accepts_parameters(self):
+        """invalid_notification_ignored should accept payload and reason."""
+        probe = DefaultEventSourceProbe()
+        # Should not raise
+        probe.invalid_notification_ignored("not-a-uuid", "Invalid UUID format")
+
+    def test_default_probe_has_listener_error(self):
+        """DefaultEventSourceProbe should have listener_error method."""
+        probe = DefaultEventSourceProbe()
+        assert hasattr(probe, "listener_error")
+        assert callable(probe.listener_error)
+
+    def test_listener_error_accepts_error_string(self):
+        """listener_error should accept an error message."""
+        probe = DefaultEventSourceProbe()
+        # Should not raise
+        probe.listener_error("Connection refused")
+
+    def test_default_probe_implements_all_protocol_methods(self):
+        """DefaultEventSourceProbe should implement all protocol methods."""
+        probe = DefaultEventSourceProbe()
+
+        # All these methods should exist and be callable
+        probe.event_source_started("outbox_events")
+        probe.event_source_stopped()
+        probe.notification_received(uuid4())
+        probe.invalid_notification_ignored("bad-payload", "Invalid format")
+        probe.listener_error("Connection error")

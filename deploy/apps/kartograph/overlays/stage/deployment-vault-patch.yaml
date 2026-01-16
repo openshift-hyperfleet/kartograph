@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kartograph-api
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: api
+  template:
+    spec:
+      containers:
+        - name: api
+          volumeMounts:
+            - name: vault-db-secrets
+              mountPath: /mnt/secrets-store/db
+              readOnly: true
+            - name: vault-spicedb-secrets
+              mountPath: /mnt/secrets-store/spicedb
+              readOnly: true
+      volumes:
+        - name: vault-db-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: kartograph-db-vault
+        - name: vault-spicedb-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: kartograph-spicedb-vault

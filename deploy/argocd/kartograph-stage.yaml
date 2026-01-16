@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kartograph-stage
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/openshift-hypershift/kartograph.git
+    targetRevision: main
+    path: deploy/apps/kartograph/overlays/stage
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kartograph-stage
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

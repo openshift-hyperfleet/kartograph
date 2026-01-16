@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.2...v1.1.3) (2026-01-16)
+
+
+### Bug Fixes
+
+* **ci:** update repoURL for kartograph-stage deployment ([#121](https://github.com/openshift-hyperfleet/kartograph/issues/121)) ([9494315](https://github.com/openshift-hyperfleet/kartograph/commit/94943152b6d4b6cbb4d5342134e82ba0f6fae577))
+
 ## [1.1.2](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.1...v1.1.2) (2026-01-16)
 
 

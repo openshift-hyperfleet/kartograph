@@ -72,7 +72,9 @@ QueryResultRow: TypeAlias = (
     NodeResult
     | EdgeResult
     | ScalarResult
-    | dict[str, NodeDict | EdgeDict | str | int | float | bool | None]  # Map returns
+    | dict[
+        str, NodeDict | EdgeDict | str | int | float | bool | list | None
+    ]  # Map returns
 )
 
 

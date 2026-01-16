@@ -21,7 +21,6 @@ from typing import Any
 from psycopg2 import sql
 
 from graph.domain.value_objects import EntityType, MutationOperation, MutationResult
-from graph.infrastructure.cypher_utils import generate_cypher_nonce
 from graph.ports.observability import MutationProbe
 from graph.ports.protocols import GraphClientProtocol, GraphIndexingProtocol
 
@@ -76,59 +75,6 @@ def compute_stable_hash(key: str) -> int:
     return int(hash_hex, 16) & 0x7FFFFFFFFFFFFFFF
 
 
-def dict_to_cypher_map(properties: dict) -> str:
-    """Convert a Python dict to Cypher map literal format.
-
-    AGE Cypher requires property maps with unquoted keys (Cypher-style),
-    not JSON-style with double-quoted keys.
-
-    Cypher format: {key1: "value1", key2: 123}
-    JSON format:   {"key1": "value1", "key2": 123}
-
-    Args:
-        properties: Python dict to convert
-
-    Returns:
-        Cypher map literal string
-    """
-
-    def format_value(v):
-        """Format a value for Cypher."""
-        if v is None:
-            return "null"
-        elif isinstance(v, bool):
-            return "true" if v else "false"
-        elif isinstance(v, (int, float)):
-            return str(v)
-        elif isinstance(v, str):
-            # Escape special characters and wrap in double quotes
-            escaped = json.dumps(v)  # This handles escaping properly
-            return escaped
-        elif isinstance(v, dict):
-            # Nested map
-            return dict_to_cypher_map(v)
-        elif isinstance(v, list):
-            # List/array
-            items = [format_value(item) for item in v]
-            return "[" + ", ".join(items) + "]"
-        else:
-            # Fallback to JSON
-            return json.dumps(v)
-
-    pairs = []
-    for key, value in properties.items():
-        # Keys are unquoted in Cypher (unless they have special chars)
-        # For safety, validate keys only contain alphanumeric + underscore
-        if not key.replace("_", "").isalnum():
-            # Escape interior backticks by doubling them (Cypher escape mechanism)
-            escaped_key = key.replace("`", "``")
-            # Wrap in backticks for special keys
-            key = f"`{escaped_key}`"
-        pairs.append(f"{key}: {format_value(value)}")
-
-    return "{" + ", ".join(pairs) + "}"
-
-
 def escape_copy_value(value: str) -> str:
     """Escape special characters for PostgreSQL COPY format.
 
@@ -153,6 +99,136 @@ def escape_copy_value(value: str) -> str:
     result = result.replace("\n", "\\n")
     result = result.replace("\r", "\\r")
     return result
+
+
+def create_label_indexes(
+    cursor: Any,
+    graph_name: str,
+    label: str,
+    entity_type: EntityType,
+) -> int:
+    """Create indexes for a label using the provided cursor (within transaction).
+
+    This creates the same indexes as AGE client's ensure_indexes_for_label,
+    but uses the provided cursor to stay within the current transaction.
+    This is critical for performance when creating new labels during bulk loading.
+
+    Args:
+        cursor: Database cursor (within transaction)
+        graph_name: Graph name (schema)
+        label: Label name (table)
+        entity_type: EntityType.NODE or EntityType.EDGE
+
+    Returns:
+        Number of indexes created
+
+    Raises:
+        ValueError: If graph_name or label are invalid
+    """
+    # Defense in depth: validate inputs even though callers should pre-validate
+    validate_label_name(graph_name)
+    validate_label_name(label)
+
+    if not isinstance(entity_type, EntityType):
+        raise ValueError(
+            f"Invalid entity_type '{entity_type}': must be EntityType.NODE or EntityType.EDGE"
+        )
+
+    indexes = []
+
+    # BTREE on id column (graphid) - critical for all labels
+    indexes.append(
+        {
+            "name": f"idx_{graph_name}_{label}_id_btree",
+            "sql": sql.SQL(
+                "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE (id)"
+            ).format(
+                sql.Identifier(f"idx_{graph_name}_{label}_id_btree"),
+                sql.Identifier(graph_name),
+                sql.Identifier(label),
+            ),
+        }
+    )
+
+    # GIN on properties column - for property-based queries
+    indexes.append(
+        {
+            "name": f"idx_{graph_name}_{label}_props_gin",
+            "sql": sql.SQL(
+                "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING GIN (properties)"
+            ).format(
+                sql.Identifier(f"idx_{graph_name}_{label}_props_gin"),
+                sql.Identifier(graph_name),
+                sql.Identifier(label),
+            ),
+        }
+    )
+
+    # BTREE on properties.id - for logical ID lookups (CRITICAL for performance)
+    # IMPORTANT: Must use agtype_object_field_text_agtype to match the function
+    # used in UPDATE/INSERT WHERE clauses, otherwise PostgreSQL won't use the index
+    indexes.append(
+        {
+            "name": f"idx_{graph_name}_{label}_prop_id_text_btree",
+            "sql": sql.SQL(
+                "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE ("
+                "ag_catalog.agtype_object_field_text_agtype(properties, "
+                "'\"id\"'::ag_catalog.agtype))"
+            ).format(
+                sql.Identifier(f"idx_{graph_name}_{label}_prop_id_text_btree"),
+                sql.Identifier(graph_name),
+                sql.Identifier(label),
+            ),
+        }
+    )
+
+    # Edge-specific indexes
+    if entity_type == EntityType.EDGE:
+        # BTREE on start_id - for join performance
+        indexes.append(
+            {
+                "name": f"idx_{graph_name}_{label}_start_id_btree",
+                "sql": sql.SQL(
+                    "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE (start_id)"
+                ).format(
+                    sql.Identifier(f"idx_{graph_name}_{label}_start_id_btree"),
+                    sql.Identifier(graph_name),
+                    sql.Identifier(label),
+                ),
+            }
+        )
+        # BTREE on end_id - for join performance
+        indexes.append(
+            {
+                "name": f"idx_{graph_name}_{label}_end_id_btree",
+                "sql": sql.SQL(
+                    "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE (end_id)"
+                ).format(
+                    sql.Identifier(f"idx_{graph_name}_{label}_end_id_btree"),
+                    sql.Identifier(graph_name),
+                    sql.Identifier(label),
+                ),
+            }
+        )
+
+    created = 0
+    for idx in indexes:
+        # Check if index already exists
+        cursor.execute(
+            """
+            SELECT 1 FROM pg_indexes
+            WHERE schemaname = %s AND indexname = %s
+            """,
+            (graph_name, idx["name"]),
+        )
+        if cursor.fetchone() is not None:
+            continue
+
+        # Create the index
+        cursor.execute(idx["sql"])
+        created += 1
+
+    return created
 
 
 class StagingTableManager:
@@ -579,104 +655,6 @@ class AgeBulkLoadingStrategy:
             return None
         return (row[0], row[1])
 
-    def _create_label_with_first_entity(
-        self, cursor: Any, graph_name: str, label: str, entity_id: str, properties: dict
-    ) -> None:
-        """Create a new node label by inserting the first entity via Cypher.
-
-        This uses Cypher (via cursor) to create the first entity, which causes
-        AGE to automatically create the label table, sequence, and metadata.
-        Executes within the current transaction context.
-
-        Args:
-            cursor: Database cursor (within transaction)
-            graph_name: Graph name
-            label: Label to create
-            entity_id: ID of first entity
-            properties: Properties for first entity
-        """
-        # Validate graph_name to prevent injection in Cypher wrapper
-        validate_label_name(graph_name)
-        # Label is already validated by caller
-
-        # Build Cypher CREATE statement with Cypher-style property map
-        # AGE Cypher requires unquoted keys, not JSON-style double-quoted keys
-        props_str = dict_to_cypher_map(properties)
-        cypher = f"CREATE (n:{label} {props_str})"
-
-        # Generate unique nonce to prevent $$ injection attacks
-        nonce = generate_cypher_nonce()
-        if nonce in cypher:
-            # Extremely unlikely (64 random chars), but check anyway
-            raise ValueError("Generated nonce appears in Cypher query")
-        tag = f"${nonce}$"
-
-        # Wrap in AGE's cypher() function and execute via cursor
-        # This stays in the transaction unlike client.execute_cypher()
-        # Use sql.Literal for the graph name since cypher() expects a string literal
-        query = sql.SQL("SELECT * FROM cypher({}, {} {} {}) AS (result agtype)").format(
-            sql.Literal(graph_name), sql.SQL(tag), sql.SQL(cypher), sql.SQL(tag)
-        )
-        cursor.execute(query)
-
-    def _create_edge_label_with_first_entity(
-        self,
-        cursor: Any,
-        graph_name: str,
-        label: str,
-        edge_id: str,
-        start_id: str,
-        end_id: str,
-        properties: dict,
-    ) -> None:
-        """Create a new edge label by inserting the first edge via Cypher.
-
-        This uses Cypher (via cursor) to create the first edge, which causes
-        AGE to automatically create the edge label table, sequence, and metadata.
-        Executes within the current transaction context.
-
-        Args:
-            cursor: Database cursor (within transaction)
-            graph_name: Graph name
-            label: Edge label to create
-            edge_id: ID of first edge
-            start_id: Start node ID
-            end_id: End node ID
-            properties: Properties for first edge
-        """
-        # Validate graph_name to prevent injection in Cypher wrapper
-        validate_label_name(graph_name)
-        # Label is already validated by caller
-
-        # Build Cypher CREATE statement with Cypher-style property map
-        # AGE Cypher requires unquoted keys, not JSON-style double-quoted keys
-        props_str = dict_to_cypher_map(properties)
-
-        # Escape IDs for Cypher string literals
-        # IMPORTANT: Must escape backslashes FIRST, then single quotes
-        # Otherwise "foo\'" becomes "foo\'" which Cypher interprets as escaped quote
-        escaped_start_id = start_id.replace("\\", "\\\\").replace("'", "\\'")
-        escaped_end_id = end_id.replace("\\", "\\\\").replace("'", "\\'")
-
-        cypher = f"""
-        MATCH (src {{id: '{escaped_start_id}'}}), (tgt {{id: '{escaped_end_id}'}})
-        CREATE (src)-[r:{label} {props_str}]->(tgt)
-        """
-
-        # Generate unique nonce to prevent $$ injection attacks
-        nonce = generate_cypher_nonce()
-        if nonce in cypher:
-            # Extremely unlikely (64 random chars), but check anyway
-            raise ValueError("Generated nonce appears in Cypher query")
-        tag = f"${nonce}$"
-
-        # Wrap in AGE's cypher() function and execute via cursor
-        # Use sql.Literal for the graph name since cypher() expects a string literal
-        query = sql.SQL("SELECT * FROM cypher({}, {} {} {}) AS (result agtype)").format(
-            sql.Literal(graph_name), sql.SQL(tag), sql.SQL(cypher), sql.SQL(tag)
-        )
-        cursor.execute(query)
-
     def _execute_node_creates(
         self,
         cursor: Any,
@@ -711,60 +689,37 @@ class AgeBulkLoadingStrategy:
 
             # Check if label exists, create if needed
             label_info = self._get_label_info(cursor, graph_name, label)
-            first_entity_id = None  # Track if we created via Cypher
-            if label_info is None:
-                # Label doesn't exist - create it by inserting first entity via Cypher
-                query = sql.SQL(
-                    """
-                    SELECT id, properties
-                    FROM {}
-                    WHERE label = %s
-                    LIMIT 1
-                    """
-                ).format(sql.Identifier(table_name))
-                cursor.execute(query, (label,))
-                first_row = cursor.fetchone()
-                if first_row:
-                    first_entity_id, first_props = first_row
-                    self._create_label_with_first_entity(
-                        cursor, graph_name, label, first_entity_id, first_props
-                    )
-                    # Now get the label info
-                    label_info = self._get_label_info(cursor, graph_name, label)
-                    if label_info is None:
-                        raise ValueError(f"Failed to create label '{label}'")
+            is_new_label = label_info is None
+
+            if is_new_label:
+                # Label doesn't exist - create it using AGE's create_vlabel function
+                # This is faster than using Cypher CREATE which has parsing overhead
+                cursor.execute(
+                    "SELECT ag_catalog.create_vlabel(%s, %s)",
+                    (graph_name, label),
+                )
+                # Create indexes immediately for the new label (critical for performance)
+                # Without these indexes, UPDATE and INSERT queries do full table scans
+                create_label_indexes(cursor, graph_name, label, EntityType.NODE)
+                # Now get the label info
+                label_info = self._get_label_info(cursor, graph_name, label)
+                if label_info is None:
+                    raise ValueError(f"Failed to create label '{label}'")
 
             if label_info is None:
                 raise ValueError(f"Label '{label}' not found in graph '{graph_name}'")
 
             label_id, seq_name = label_info
 
-            # Update existing nodes
-            query = sql.SQL(
-                """
-                UPDATE {}.{} AS t
-                SET properties = (s.properties::text)::ag_catalog.agtype
-                FROM {} AS s
-                WHERE s.label = %s
-                AND ag_catalog.agtype_object_field_text_agtype(
-                    t.properties, '"id"'::ag_catalog.agtype
-                ) = s.id
-                """
-            ).format(
-                sql.Identifier(graph_name),
-                sql.Identifier(label),
-                sql.Identifier(table_name),
-            )
-            cursor.execute(query, (label,))
-            updated = cursor.rowcount
-
             # Build sequence name for nextval() with proper quoting
             # nextval() expects a text argument containing the properly-quoted identifier
             # Format: '"schema_name"."sequence_name"' (quotes inside the string literal)
             seq_literal = sql.Literal(f'"{graph_name}"."{seq_name}"')
 
-            # Insert new nodes (skip first entity if we created it via Cypher)
-            if first_entity_id is not None:
+            if is_new_label:
+                # For new labels, the table is empty - no need for UPDATE or NOT EXISTS
+                # This is a significant performance optimization
+                updated = 0
                 query = sql.SQL(
                     """
                     INSERT INTO {}.{} (id, properties)
@@ -773,24 +728,36 @@ class AgeBulkLoadingStrategy:
                         (s.properties::text)::ag_catalog.agtype
                     FROM {} AS s
                     WHERE s.label = %s
-                    AND s.id != %s
-                    AND NOT EXISTS (
-                        SELECT 1 FROM {}.{} AS t
-                        WHERE ag_catalog.agtype_object_field_text_agtype(
-                            t.properties, '"id"'::ag_catalog.agtype
-                        ) = s.id
-                    )
                     """
                 ).format(
                     sql.Identifier(graph_name),
                     sql.Identifier(label),
                     seq_literal,
                     sql.Identifier(table_name),
+                )
+                cursor.execute(query, (label_id, label))
+                inserted = cursor.rowcount
+            else:
+                # For existing labels, we need UPDATE for idempotency and
+                # NOT EXISTS to avoid duplicate inserts
+                query = sql.SQL(
+                    """
+                    UPDATE {}.{} AS t
+                    SET properties = (s.properties::text)::ag_catalog.agtype
+                    FROM {} AS s
+                    WHERE s.label = %s
+                    AND ag_catalog.agtype_object_field_text_agtype(
+                        t.properties, '"id"'::ag_catalog.agtype
+                    ) = s.id
+                    """
+                ).format(
                     sql.Identifier(graph_name),
                     sql.Identifier(label),
+                    sql.Identifier(table_name),
                 )
-                cursor.execute(query, (label_id, label, first_entity_id))
-            else:
+                cursor.execute(query, (label,))
+                updated = cursor.rowcount
+
                 query = sql.SQL(
                     """
                     INSERT INTO {}.{} (id, properties)
@@ -815,17 +782,14 @@ class AgeBulkLoadingStrategy:
                     sql.Identifier(label),
                 )
                 cursor.execute(query, (label_id, label))
-            inserted = cursor.rowcount
-
-            # Account for first entity created via Cypher (not in inserted count)
-            cypher_created = 1 if first_entity_id is not None else 0
+                inserted = cursor.rowcount
 
             batch_duration = (time.perf_counter() - batch_start) * 1000
             probe.batch_applied(
                 operation="CREATE",
                 entity_type="node",
                 label=label,
-                count=updated + inserted + cypher_created,
+                count=updated + inserted,
                 duration_ms=batch_duration,
             )
             batches += 1
@@ -871,34 +835,23 @@ class AgeBulkLoadingStrategy:
 
             # Check if label exists, create if needed
             label_info = self._get_label_info(cursor, graph_name, label)
-            first_edge_id = None  # Track if we created via Cypher
-            if label_info is None:
-                # Label doesn't exist - create it by inserting first edge via Cypher
-                query = sql.SQL(
-                    """
-                    SELECT id, start_id, end_id, properties
-                    FROM {}
-                    WHERE label = %s
-                    LIMIT 1
-                    """
-                ).format(sql.Identifier(table_name))
-                cursor.execute(query, (label,))
-                first_row = cursor.fetchone()
-                if first_row:
-                    first_edge_id, start_id, end_id, first_props = first_row
-                    self._create_edge_label_with_first_entity(
-                        cursor,
-                        graph_name,
-                        label,
-                        first_edge_id,
-                        start_id,
-                        end_id,
-                        first_props,
-                    )
-                    # Now get the label info
-                    label_info = self._get_label_info(cursor, graph_name, label)
-                    if label_info is None:
-                        raise ValueError(f"Failed to create edge label '{label}'")
+            is_new_label = label_info is None
+
+            if is_new_label:
+                # Label doesn't exist - create it using AGE's create_elabel function
+                # This is much faster than using Cypher MATCH+CREATE which requires
+                # scanning all nodes to find the start/end nodes by their id property
+                cursor.execute(
+                    "SELECT ag_catalog.create_elabel(%s, %s)",
+                    (graph_name, label),
+                )
+                # Create indexes immediately for the new label (critical for performance)
+                # Without these indexes, UPDATE and INSERT queries do full table scans
+                create_label_indexes(cursor, graph_name, label, EntityType.EDGE)
+                # Now get the label info
+                label_info = self._get_label_info(cursor, graph_name, label)
+                if label_info is None:
+                    raise ValueError(f"Failed to create edge label '{label}'")
 
             if label_info is None:
                 raise ValueError(
@@ -907,33 +860,15 @@ class AgeBulkLoadingStrategy:
 
             label_id, seq_name = label_info
 
-            # Update existing edges
-            query = sql.SQL(
-                """
-                UPDATE {}.{} AS t
-                SET properties = (s.properties::text)::ag_catalog.agtype
-                FROM {} AS s
-                WHERE s.label = %s
-                AND ag_catalog.agtype_object_field_text_agtype(
-                    t.properties, '"id"'::ag_catalog.agtype
-                ) = s.id
-                """
-            ).format(
-                sql.Identifier(graph_name),
-                sql.Identifier(label),
-                sql.Identifier(table_name),
-            )
-            cursor.execute(query, (label,))
-            updated = cursor.rowcount
-
             # Build sequence name for nextval() with proper quoting
             # nextval() expects a text argument containing the properly-quoted identifier
             # Format: '"schema_name"."sequence_name"' (quotes inside the string literal)
             seq_literal = sql.Literal(f'"{graph_name}"."{seq_name}"')
 
-            # Insert new edges using pre-resolved graphids (skip first if created via Cypher)
-            # This is much faster than joining on every INSERT
-            if first_edge_id is not None:
+            if is_new_label:
+                # For new labels, the table is empty - no need for UPDATE or NOT EXISTS
+                # This is a significant performance optimization
+                updated = 0
                 query = sql.SQL(
                     """
                     INSERT INTO {}.{} (id, start_id, end_id, properties)
@@ -944,26 +879,38 @@ class AgeBulkLoadingStrategy:
                         (s.properties::text)::ag_catalog.agtype
                     FROM {} AS s
                     WHERE s.label = %s
-                    AND s.id != %s
                     AND s.start_graphid IS NOT NULL
                     AND s.end_graphid IS NOT NULL
-                    AND NOT EXISTS (
-                        SELECT 1 FROM {}.{} AS e
-                        WHERE ag_catalog.agtype_object_field_text_agtype(
-                            e.properties, '"id"'::ag_catalog.agtype
-                        ) = s.id
-                    )
                     """
                 ).format(
                     sql.Identifier(graph_name),
                     sql.Identifier(label),
                     seq_literal,
                     sql.Identifier(table_name),
+                )
+                cursor.execute(query, (label_id, label))
+                inserted = cursor.rowcount
+            else:
+                # For existing labels, we need UPDATE for idempotency and
+                # NOT EXISTS to avoid duplicate inserts
+                query = sql.SQL(
+                    """
+                    UPDATE {}.{} AS t
+                    SET properties = (s.properties::text)::ag_catalog.agtype
+                    FROM {} AS s
+                    WHERE s.label = %s
+                    AND ag_catalog.agtype_object_field_text_agtype(
+                        t.properties, '"id"'::ag_catalog.agtype
+                    ) = s.id
+                    """
+                ).format(
                     sql.Identifier(graph_name),
                     sql.Identifier(label),
+                    sql.Identifier(table_name),
                 )
-                cursor.execute(query, (label_id, label, first_edge_id))
-            else:
+                cursor.execute(query, (label,))
+                updated = cursor.rowcount
+
                 query = sql.SQL(
                     """
                     INSERT INTO {}.{} (id, start_id, end_id, properties)
@@ -992,17 +939,14 @@ class AgeBulkLoadingStrategy:
                     sql.Identifier(label),
                 )
                 cursor.execute(query, (label_id, label))
-            inserted = cursor.rowcount
-
-            # Account for first edge created via Cypher (not in inserted count)
-            cypher_created = 1 if first_edge_id is not None else 0
+                inserted = cursor.rowcount
 
             batch_duration = (time.perf_counter() - batch_start) * 1000
             probe.batch_applied(
                 operation="CREATE",
                 entity_type="edge",
                 label=label,
-                count=updated + inserted + cypher_created,
+                count=updated + inserted,
                 duration_ms=batch_duration,
             )
             batches += 1

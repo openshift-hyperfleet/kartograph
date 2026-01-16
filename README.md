@@ -31,4 +31,4 @@ to learn more.
 
 ## Contributing
 
-Please see [CONTRIBUTING.md](./CONTRIBUTING.md)
+Please see [CONTRIBUTING.md](./CONTRIBUTING.md) and [the documentation](https://openshift-hyperfleet.github.io/kartograph/getting-started/contributing/)

@@ -147,33 +147,6 @@ class DefaultGraphClientProbe:
         )
 
 
-class MutationProbe(Protocol):
-    """Domain probe for mutation operation observability.
-
-    This probe captures domain-significant events related to graph
-    mutation operations (CREATE, UPDATE, DELETE, DEFINE).
-    """
-
-    def mutation_applied(
-        self,
-        operation: str,
-        entity_type: str,
-        entity_id: str | None,
-    ) -> None:
-        """Record that a mutation was successfully applied.
-
-        Args:
-            operation: The operation type (DEFINE, CREATE, UPDATE, DELETE)
-            entity_type: The entity type (node or edge)
-            entity_id: The entity ID (None for DEFINE operations)
-        """
-        ...
-
-    def with_context(self, context: ObservationContext) -> MutationProbe:
-        """Create a new probe with observation context bound."""
-        ...
-
-
 class DefaultMutationProbe:
     """Default implementation of MutationProbe using structlog."""
 
@@ -207,5 +180,70 @@ class DefaultMutationProbe:
             operation=operation,
             entity_type=entity_type,
             entity_id=entity_id,
+            **self._get_context_kwargs(),
+        )
+
+    def batch_applied(
+        self,
+        operation: str,
+        entity_type: str,
+        label: str | None,
+        count: int,
+        duration_ms: float,
+    ) -> None:
+        """Record that a batch of mutations was successfully applied."""
+        self._logger.info(
+            "mutation_batch_applied",
+            operation=operation,
+            entity_type=entity_type,
+            label=label,
+            count=count,
+            duration_ms=round(duration_ms, 2),
+            **self._get_context_kwargs(),
+        )
+
+    def apply_batch_completed(
+        self,
+        total_operations: int,
+        total_batches: int,
+        duration_ms: float,
+        success: bool,
+    ) -> None:
+        """Record completion of the entire apply_batch operation."""
+        self._logger.info(
+            "mutation_apply_batch_completed",
+            total_operations=total_operations,
+            total_batches=total_batches,
+            duration_ms=round(duration_ms, 2),
+            success=success,
+            **self._get_context_kwargs(),
+        )
+
+    def duplicate_ids_detected(
+        self,
+        duplicate_ids: list[str],
+        entity_type: str,
+    ) -> None:
+        """Record that duplicate IDs were detected in a batch."""
+        self._logger.warning(
+            "mutation_duplicate_ids_detected",
+            duplicate_ids=duplicate_ids,
+            entity_type=entity_type,
+            count=len(duplicate_ids),
+            **self._get_context_kwargs(),
+        )
+
+    def orphaned_edges_detected(
+        self,
+        orphaned_edge_ids: list[str],
+        missing_node_ids: list[str],
+    ) -> None:
+        """Record that edges were detected with missing source or target nodes."""
+        self._logger.error(
+            "mutation_orphaned_edges_detected",
+            orphaned_edge_ids=orphaned_edge_ids,
+            missing_node_ids=missing_node_ids,
+            orphaned_edge_count=len(orphaned_edge_ids),
+            missing_node_count=len(missing_node_ids),
             **self._get_context_kwargs(),
         )

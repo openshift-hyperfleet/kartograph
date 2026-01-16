@@ -8,7 +8,7 @@ with membership data coordinated across both systems.
 import pytest
 
 from iam.domain.aggregates import Group
-from iam.domain.value_objects import GroupId, Role, TenantId, UserId
+from iam.domain.value_objects import Role, TenantId, UserId
 from iam.infrastructure.group_repository import GroupRepository
 from iam.ports.exceptions import DuplicateGroupNameError
 
@@ -23,14 +23,11 @@ class TestGroupRoundTrip:
         self, group_repository: GroupRepository, async_session, clean_iam_data
     ):
         """Should save group to PostgreSQL and retrieve it."""
-        group = Group(
-            id=GroupId.generate(),
-            name="Engineering",
-        )
         tenant_id = TenantId.generate()
+        group = Group.create(name="Engineering", tenant_id=tenant_id)
 
         async with async_session.begin():
-            await group_repository.save(group, tenant_id)
+            await group_repository.save(group)
 
         # Retrieve the group
         retrieved = await group_repository.get_by_id(group.id)
@@ -38,22 +35,27 @@ class TestGroupRoundTrip:
         assert retrieved is not None
         assert retrieved.id.value == group.id.value
         assert retrieved.name == group.name
+        assert retrieved.tenant_id.value == tenant_id.value
 
     @pytest.mark.asyncio
     async def test_saves_and_retrieves_group_with_members(
-        self, group_repository: GroupRepository, async_session, clean_iam_data
+        self,
+        group_repository: GroupRepository,
+        async_session,
+        clean_iam_data,
+        process_outbox,
     ):
         """Should save group with members to PostgreSQL and SpiceDB, then retrieve."""
-        group = Group(
-            id=GroupId.generate(),
-            name="Engineering",
-        )
+        tenant_id = TenantId.generate()
+        group = Group.create(name="Engineering", tenant_id=tenant_id)
         user_id = UserId.generate()
         group.add_member(user_id, Role.ADMIN)
-        tenant_id = TenantId.generate()
 
         async with async_session.begin():
-            await group_repository.save(group, tenant_id)
+            await group_repository.save(group)
+
+        # Process outbox to sync members to SpiceDB
+        await process_outbox()
 
         # Retrieve the group
         retrieved = await group_repository.get_by_id(group.id)
@@ -72,17 +74,18 @@ class TestGroupUpdates:
         self, group_repository: GroupRepository, async_session, clean_iam_data
     ):
         """Should update group name in PostgreSQL."""
-        group = Group(id=GroupId.generate(), name="Engineering")
         tenant_id = TenantId.generate()
+        group = Group.create(name="Engineering", tenant_id=tenant_id)
 
         # Save initial group
         async with async_session.begin():
-            await group_repository.save(group, tenant_id)
+            await group_repository.save(group)
 
         # Update name
         group.name = "Engineering Team"
+        group.collect_events()  # Clear events before next save
         async with async_session.begin():
-            await group_repository.save(group, tenant_id)
+            await group_repository.save(group)
 
         # Verify update
         retrieved = await group_repository.get_by_id(group.id)
@@ -91,23 +94,30 @@ class TestGroupUpdates:
 
     @pytest.mark.asyncio
     async def test_adds_member_to_existing_group(
-        self, group_repository: GroupRepository, async_session, clean_iam_data
+        self,
+        group_repository: GroupRepository,
+        async_session,
+        clean_iam_data,
+        process_outbox,
     ):
         """Should add member and sync to SpiceDB."""
-        group = Group(id=GroupId.generate(), name="Engineering")
+        tenant_id = TenantId.generate()
+        group = Group.create(name="Engineering", tenant_id=tenant_id)
         admin_id = UserId.generate()
         group.add_member(admin_id, Role.ADMIN)
-        tenant_id = TenantId.generate()
 
         # Save initial group
         async with async_session.begin():
-            await group_repository.save(group, tenant_id)
+            await group_repository.save(group)
 
         # Add another member
         member_id = UserId.generate()
         group.add_member(member_id, Role.MEMBER)
         async with async_session.begin():
-            await group_repository.save(group, tenant_id)
+            await group_repository.save(group)
+
+        # Process outbox to sync members to SpiceDB
+        await process_outbox()
 
         # Verify member added
         retrieved = await group_repository.get_by_id(group.id)
@@ -116,24 +126,31 @@ class TestGroupUpdates:
 
     @pytest.mark.asyncio
     async def test_removes_member_from_group(
-        self, group_repository: GroupRepository, async_session, clean_iam_data
+        self,
+        group_repository: GroupRepository,
+        async_session,
+        clean_iam_data,
+        process_outbox,
     ):
         """Should remove member and delete from SpiceDB."""
-        group = Group(id=GroupId.generate(), name="Engineering")
+        tenant_id = TenantId.generate()
+        group = Group.create(name="Engineering", tenant_id=tenant_id)
         admin1 = UserId.generate()
         admin2 = UserId.generate()
         group.add_member(admin1, Role.ADMIN)
         group.add_member(admin2, Role.ADMIN)
-        tenant_id = TenantId.generate()
 
         # Save initial group
         async with async_session.begin():
-            await group_repository.save(group, tenant_id)
+            await group_repository.save(group)
 
         # Remove one admin
         group.remove_member(admin2)
         async with async_session.begin():
-            await group_repository.save(group, tenant_id)
+            await group_repository.save(group)
+
+        # Process outbox to sync deletions to SpiceDB
+        await process_outbox()
 
         # Verify member removed
         retrieved = await group_repository.get_by_id(group.id)
@@ -143,24 +160,31 @@ class TestGroupUpdates:
 
     @pytest.mark.asyncio
     async def test_updates_member_role(
-        self, group_repository: GroupRepository, async_session, clean_iam_data
+        self,
+        group_repository: GroupRepository,
+        async_session,
+        clean_iam_data,
+        process_outbox,
     ):
         """Should update member role in SpiceDB."""
-        group = Group(id=GroupId.generate(), name="Engineering")
+        tenant_id = TenantId.generate()
+        group = Group.create(name="Engineering", tenant_id=tenant_id)
         admin_id = UserId.generate()
         member_id = UserId.generate()
         group.add_member(admin_id, Role.ADMIN)
         group.add_member(member_id, Role.MEMBER)
-        tenant_id = TenantId.generate()
 
         # Save initial group
         async with async_session.begin():
-            await group_repository.save(group, tenant_id)
+            await group_repository.save(group)
 
         # Promote member to admin
         group.update_member_role(member_id, Role.ADMIN)
         async with async_session.begin():
-            await group_repository.save(group, tenant_id)
+            await group_repository.save(group)
+
+        # Process outbox to sync role change to SpiceDB
+        await process_outbox()
 
         # Verify role updated
         retrieved = await group_repository.get_by_id(group.id)
@@ -177,28 +201,40 @@ class TestGroupDeletion:
 
     @pytest.mark.asyncio
     async def test_deletes_group_and_members(
-        self, group_repository: GroupRepository, async_session, clean_iam_data
+        self,
+        group_repository: GroupRepository,
+        async_session,
+        clean_iam_data,
+        process_outbox,
     ):
         """Should delete group from PostgreSQL and members from SpiceDB."""
-        group = Group(id=GroupId.generate(), name="Engineering")
+        tenant_id = TenantId.generate()
+        group = Group.create(name="Engineering", tenant_id=tenant_id)
         user_id = UserId.generate()
         group.add_member(user_id, Role.ADMIN)
-        tenant_id = TenantId.generate()
 
         # Save group
         async with async_session.begin():
-            await group_repository.save(group, tenant_id)
+            await group_repository.save(group)
 
-        # Verify it exists
-        retrieved = await group_repository.get_by_id(group.id)
-        assert retrieved is not None
-        await async_session.commit()  # Commit the autobegin transaction
+        # Process outbox to sync to SpiceDB
+        await process_outbox()
 
-        # Delete group
+        # Verify it exists with members, then delete in same transaction
+        # (avoids SQLAlchemy autobegin conflict)
         async with async_session.begin():
-            result = await group_repository.delete(group.id, tenant_id)
+            retrieved = await group_repository.get_by_id(group.id)
+            assert retrieved is not None
+            assert len(retrieved.members) == 1
+
+            # Mark for deletion and delete
+            retrieved.mark_for_deletion()
+            result = await group_repository.delete(retrieved)
 
         assert result is True
+
+        # Process outbox to delete from SpiceDB
+        await process_outbox()
 
         # Verify it's gone
         deleted = await group_repository.get_by_id(group.id)
@@ -214,18 +250,18 @@ class TestGroupUniqueness:
     ):
         """Should raise DuplicateGroupNameError for same name in tenant."""
         tenant_id = TenantId.generate()
-        group1 = Group(id=GroupId.generate(), name="Engineering")
+        group1 = Group.create(name="Engineering", tenant_id=tenant_id)
 
         # Save first group
         async with async_session.begin():
-            await group_repository.save(group1, tenant_id)
+            await group_repository.save(group1)
 
         # Try to save another group with same name in same tenant
-        group2 = Group(id=GroupId.generate(), name="Engineering")
+        group2 = Group.create(name="Engineering", tenant_id=tenant_id)
 
         with pytest.raises(DuplicateGroupNameError):
             async with async_session.begin():
-                await group_repository.save(group2, tenant_id)
+                await group_repository.save(group2)
 
     @pytest.mark.asyncio
     async def test_same_name_in_different_tenants_allowed(
@@ -235,13 +271,13 @@ class TestGroupUniqueness:
         tenant1 = TenantId.generate()
         tenant2 = TenantId.generate()
 
-        group1 = Group(id=GroupId.generate(), name="Engineering")
-        group2 = Group(id=GroupId.generate(), name="Engineering")
+        group1 = Group.create(name="Engineering", tenant_id=tenant1)
+        group2 = Group.create(name="Engineering", tenant_id=tenant2)
 
         # Save to different tenants - should succeed
         async with async_session.begin():
-            await group_repository.save(group1, tenant1)
-            await group_repository.save(group2, tenant2)
+            await group_repository.save(group1)
+            await group_repository.save(group2)
 
         # Both should exist
         assert await group_repository.get_by_id(group1.id) is not None
@@ -256,11 +292,11 @@ class TestGetByName:
         self, group_repository: GroupRepository, async_session, clean_iam_data
     ):
         """Should retrieve group by name within tenant."""
-        group = Group(id=GroupId.generate(), name="Engineering")
         tenant_id = TenantId.generate()
+        group = Group.create(name="Engineering", tenant_id=tenant_id)
 
         async with async_session.begin():
-            await group_repository.save(group, tenant_id)
+            await group_repository.save(group)
 
         # Retrieve by name
         retrieved = await group_repository.get_by_name("Engineering", tenant_id)
@@ -282,14 +318,14 @@ class TestListByTenant:
         tenant2 = TenantId.generate()
 
         # Create groups in different tenants
-        group1 = Group(id=GroupId.generate(), name="Engineering-T1")
-        group2 = Group(id=GroupId.generate(), name="Design-T1")
-        group3 = Group(id=GroupId.generate(), name="Engineering-T2")
+        group1 = Group.create(name="Engineering-T1", tenant_id=tenant1)
+        group2 = Group.create(name="Design-T1", tenant_id=tenant1)
+        group3 = Group.create(name="Engineering-T2", tenant_id=tenant2)
 
         async with async_session.begin():
-            await group_repository.save(group1, tenant1)
-            await group_repository.save(group2, tenant1)
-            await group_repository.save(group3, tenant2)
+            await group_repository.save(group1)
+            await group_repository.save(group2)
+            await group_repository.save(group3)
 
         # List groups in tenant1
         tenant1_groups = await group_repository.list_by_tenant(tenant1)
@@ -313,16 +349,23 @@ class TestListByTenant:
 
     @pytest.mark.asyncio
     async def test_hydrates_members_for_listed_groups(
-        self, group_repository: GroupRepository, async_session, clean_iam_data
+        self,
+        group_repository: GroupRepository,
+        async_session,
+        clean_iam_data,
+        process_outbox,
     ):
         """Should hydrate members for all groups in list."""
         tenant_id = TenantId.generate()
-        group = Group(id=GroupId.generate(), name="Engineering")
+        group = Group.create(name="Engineering", tenant_id=tenant_id)
         user_id = UserId.generate()
         group.add_member(user_id, Role.ADMIN)
 
         async with async_session.begin():
-            await group_repository.save(group, tenant_id)
+            await group_repository.save(group)
+
+        # Process outbox to sync members to SpiceDB
+        await process_outbox()
 
         groups = await group_repository.list_by_tenant(tenant_id)
 

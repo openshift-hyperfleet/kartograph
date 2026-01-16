@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from util import dev_routes
 
 from graph.dependencies import get_age_graph_client
 from graph.infrastructure.age_client import AgeGraphClient
@@ -16,8 +17,24 @@ from infrastructure.database.dependencies import (
 )
 from infrastructure.dependencies import get_age_connection_pool
 from infrastructure.logging import configure_logging
-from infrastructure.settings import get_cors_settings
+from infrastructure.settings import (
+    get_cors_settings,
+    get_database_settings,
+    get_outbox_worker_settings,
+    get_spicedb_settings,
+)
 from infrastructure.version import __version__
+from iam.infrastructure.outbox import IAMEventTranslator
+from infrastructure.outbox.composite import CompositeTranslator
+from infrastructure.outbox.event_sources.postgres_notify import (
+    PostgresNotifyEventSource,
+)
+from infrastructure.outbox.worker import OutboxWorker
+from shared_kernel.authorization.spicedb.client import SpiceDBClient
+from shared_kernel.outbox.observability import (
+    DefaultEventSourceProbe,
+    DefaultOutboxWorkerProbe,
+)
 from query.presentation.mcp import query_mcp_app
 
 # Configure structlog before any loggers are created
@@ -32,6 +49,7 @@ async def kartograph_lifespan(app: FastAPI):
     - Database engine lifecycle (created on startup, disposed on shutdown)
     - MCP server lifespan
     - AGE connection pool lifecycle
+    - Outbox worker lifecycle
 
     Engines are created here (within the running event loop) to ensure
     proper async context for database connections.
@@ -46,6 +64,55 @@ async def kartograph_lifespan(app: FastAPI):
     # Startup: initialize database engines
     init_database_engines(app)
 
+    # Startup: start outbox worker if enabled
+    outbox_settings = get_outbox_worker_settings()
+    if outbox_settings.enabled and hasattr(app.state, "write_sessionmaker"):
+        db_settings = get_database_settings()
+        spicedb_settings = get_spicedb_settings()
+
+        # Build database URL for LISTEN
+        db_url = (
+            f"postgresql://{db_settings.username}:"
+            f"{db_settings.password.get_secret_value()}@"
+            f"{db_settings.host}:{db_settings.port}/{db_settings.database}"
+        )
+
+        # Create SpiceDB client
+        authz = SpiceDBClient(
+            endpoint=spicedb_settings.endpoint,
+            preshared_key=spicedb_settings.preshared_key.get_secret_value(),
+            use_tls=spicedb_settings.use_tls,
+            cert_path=spicedb_settings.cert_path,
+        )
+
+        # Create observability probe
+        probe = DefaultOutboxWorkerProbe()
+
+        # Build composite translator with registered bounded context translators
+        translator = CompositeTranslator(probe=probe)
+        translator.register(IAMEventTranslator(), context_name="iam")
+        # Future: translator.register(ManagementEventTranslator(), context_name="management")
+
+        # Create event source for real-time NOTIFY processing
+        event_source = PostgresNotifyEventSource(
+            db_url=db_url,
+            channel="outbox_events",
+            probe=DefaultEventSourceProbe(),
+        )
+
+        worker = OutboxWorker(
+            session_factory=app.state.write_sessionmaker,
+            authz=authz,
+            translator=translator,
+            probe=probe,
+            event_source=event_source,
+            poll_interval_seconds=outbox_settings.poll_interval_seconds,
+            batch_size=outbox_settings.batch_size,
+            max_retries=outbox_settings.max_retries,
+        )
+        await worker.start()
+        app.state.outbox_worker = worker
+
     # MCP lifespan - skip if already initialized (e.g., in tests with multiple lifespans)
     if not app.state._mcp_initialized:
         async with query_mcp_app.lifespan(app):
@@ -54,6 +121,10 @@ async def kartograph_lifespan(app: FastAPI):
     else:
         # MCP already initialized in previous lifespan cycle
         yield
+
+    # Shutdown: stop outbox worker
+    if hasattr(app.state, "outbox_worker"):
+        await app.state.outbox_worker.stop()
 
     # Shutdown: close database engines
     await close_database_engines(app)
@@ -92,6 +163,9 @@ app.include_router(graph_routes.router)
 
 # Include IAM bounded context routes
 app.include_router(iam_routes.router)
+
+# Include dev utility routes (easy to remove for production)
+app.include_router(dev_routes.router)
 
 
 @app.get("/health")

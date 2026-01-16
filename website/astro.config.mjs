@@ -52,6 +52,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Introduction', slug: '' },
 						{ label: 'Quick Start', slug: 'getting-started/quickstart' },
+						{ label: 'Contributing', slug: 'getting-started/contributing' },
 					],
 				},
 				{
@@ -65,6 +66,7 @@ export default defineConfig({
 							label: 'MCP Server',
 							slug: 'guides/mcp-server',
 						},
+
 					],
 				},
 				{

@@ -1,5 +1,65 @@
 # Changelog
 
+## [1.1.4](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.3...v1.1.4) (2026-01-16)
+
+
+### Bug Fixes
+
+* **ci:** add staging namespace for management with argocd ([#124](https://github.com/openshift-hyperfleet/kartograph/issues/124)) ([f95ab1b](https://github.com/openshift-hyperfleet/kartograph/commit/f95ab1be3e7494c53027333a548d605f17cef45d))
+
+## [1.1.3](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.2...v1.1.3) (2026-01-16)
+
+
+### Bug Fixes
+
+* **ci:** update repoURL for kartograph-stage deployment ([#121](https://github.com/openshift-hyperfleet/kartograph/issues/121)) ([9494315](https://github.com/openshift-hyperfleet/kartograph/commit/94943152b6d4b6cbb4d5342134e82ba0f6fae577))
+
+## [1.1.2](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.1...v1.1.2) (2026-01-16)
+
+
+### Bug Fixes
+
+* Update contributing section in README ([#119](https://github.com/openshift-hyperfleet/kartograph/issues/119)) ([60878c8](https://github.com/openshift-hyperfleet/kartograph/commit/60878c8d852b346c8b13cd92013e4147d77c353d))
+
+## [1.1.1](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.0...v1.1.1) (2026-01-16)
+
+
+### Bug Fixes
+
+* **deps:** update dependency fastmcp to v2.14.3 ([#107](https://github.com/openshift-hyperfleet/kartograph/issues/107)) ([691fafe](https://github.com/openshift-hyperfleet/kartograph/commit/691fafe7665c2e63ccf8380df5342b19df8a1dcf))
+
+## [1.1.0](https://github.com/openshift-hyperfleet/kartograph/compare/v1.0.0...v1.1.0) (2026-01-16)
+
+
+### Features
+
+* **build:** add initial k8s manifests ([#113](https://github.com/openshift-hyperfleet/kartograph/issues/113)) ([022cf65](https://github.com/openshift-hyperfleet/kartograph/commit/022cf6553b90bd4d8a3d09107eaebe7403b0e479))
+
+## [1.0.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.17.1...v1.0.0) (2026-01-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* **api.infrastructure:** OutboxWorker.__init__ signature changed - db_url replaced with event_source parameter.
+
+### Code Refactoring
+
+* **api.infrastructure:** refactor outbox worker to use pluggable event source ([#111](https://github.com/openshift-hyperfleet/kartograph/issues/111)) ([de6cdbc](https://github.com/openshift-hyperfleet/kartograph/commit/de6cdbc6817fa036427e667f73b705fff5c673d6))
+
+## [0.17.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.17.0...v0.17.1) (2026-01-14)
+
+
+### Documentation
+
+* refine documentation ([#109](https://github.com/openshift-hyperfleet/kartograph/issues/109)) ([0a614cc](https://github.com/openshift-hyperfleet/kartograph/commit/0a614cc04e93606147ed1a83add5f260508ccdff))
+
+## [0.17.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.16.0...v0.17.0) (2026-01-14)
+
+
+### Features
+
+* **outbox:** implement transactional outbox pattern for SpiceDB consistency ([#106](https://github.com/openshift-hyperfleet/kartograph/issues/106)) ([98024df](https://github.com/openshift-hyperfleet/kartograph/commit/98024df027971e37f73a1846bef75af55bb9f11c))
+
 ## [0.16.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.15.0...v0.16.0) (2026-01-08)
 
 

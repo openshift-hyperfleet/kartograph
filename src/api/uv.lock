@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version == '3.13.*'",
@@ -124,6 +124,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ba/7a/15e37d45e7f7c94facc1e9148c0e455e8f33c08f0b8a0b1deb2c5171771b/asyncpg-0.31.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:8df714dba348efcc162d2adf02d213e5fab1bd9f557e1305633e851a61814a7a", size = 3429426, upload-time = "2025-11-24T23:26:41.032Z" },
     { url = "https://files.pythonhosted.org/packages/13/d5/71437c5f6ae5f307828710efbe62163974e71237d5d46ebd2869ea052d10/asyncpg-0.31.0-cp314-cp314t-win32.whl", hash = "sha256:1b41f1afb1033f2b44f3234993b15096ddc9cd71b21a42dbd87fc6a57b43d65d", size = 614495, upload-time = "2025-11-24T23:26:42.659Z" },
     { url = "https://files.pythonhosted.org/packages/3c/d7/8fb3044eaef08a310acfe23dae9a8e2e07d305edc29a53497e52bc76eca7/asyncpg-0.31.0-cp314-cp314t-win_amd64.whl", hash = "sha256:bd4107bb7cdd0e9e65fae66a62afd3a249663b844fa34d479f6d5b3bef9c04c3", size = 706062, upload-time = "2025-11-24T23:26:44.086Z" },
+]
+
+[[package]]
+name = "asyncpg-listen"
+version = "0.0.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "asyncpg" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/31/d7/0491b438a8d97128e52441d5dc09c4a975b662da8e05da53974146fce939/asyncpg-listen-0.0.9.tar.gz", hash = "sha256:f94c4752f7ca1077eaaad0fa2c08fcef4990eaae81a61c423683a722ca3f3a33", size = 7980, upload-time = "2025-07-16T11:03:29.069Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/21/5fe6b94db1f34d84590c7e997d76d11d11af87c6f4048dfd6f4c97325e4f/asyncpg_listen-0.0.9-py3-none-any.whl", hash = "sha256:44a4fe25a589de71bb8822aa3db6dde6e32d7f95c8e6b674be037473ca1f2775", size = 5882, upload-time = "2025-07-16T11:03:28.299Z" },
 ]
 
 [[package]]
@@ -699,7 +711,7 @@ wheels = [
 
 [[package]]
 name = "fastmcp"
-version = "2.14.2"
+version = "2.14.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "authlib" },
@@ -719,9 +731,9 @@ dependencies = [
     { name = "uvicorn" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d1/1e/e3528227688c248283f6d86869b1e900563ffc223eff00f4f923d2750365/fastmcp-2.14.2.tar.gz", hash = "sha256:bd23d1b808b6f446444f10114dac468b11bfb9153ed78628f5619763d0cf573e", size = 8272966, upload-time = "2025-12-31T15:26:13.433Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/72/b5/7c4744dc41390ed2c17fd462ef2d42f4448a1ec53dda8fe3a01ff2872313/fastmcp-2.14.3.tar.gz", hash = "sha256:abc9113d5fcf79dfb4c060a1e1c55fccb0d4bce4a2e3eab15ca352341eec8dd6", size = 8279206, upload-time = "2026-01-12T20:00:40.789Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0d/67/8456d39484fcb7afd0defed21918e773ed59a98b39e5b633328527c88367/fastmcp-2.14.2-py3-none-any.whl", hash = "sha256:e33cd622e1ebd5110af6a981804525b6cd41072e3c7d68268ed69ef3be651aca", size = 413279, upload-time = "2025-12-31T15:26:11.178Z" },
+    { url = "https://files.pythonhosted.org/packages/fc/dc/f7dd14213bf511690dccaa5094d436947c253b418c86c86211d1c76e6e44/fastmcp-2.14.3-py3-none-any.whl", hash = "sha256:103c6b4c6e97a9acc251c81d303f110fe4f2bdba31353df515d66272bf1b9414", size = 416220, upload-time = "2026-01-12T20:00:42.543Z" },
 ]
 
 [[package]]
@@ -1087,6 +1099,7 @@ dependencies = [
     { name = "alembic" },
     { name = "apache-age-python" },
     { name = "asyncpg" },
+    { name = "asyncpg-listen" },
     { name = "authzed" },
     { name = "cyclopts" },
     { name = "fastapi", extra = ["standard"] },
@@ -1109,6 +1122,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "pytest-env" },
     { name = "pytest-mock" },
+    { name = "rich" },
     { name = "ruff" },
     { name = "types-psycopg2" },
 ]
@@ -1118,10 +1132,11 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.17.2" },
     { name = "apache-age-python", specifier = ">=0.0.7" },
     { name = "asyncpg", specifier = ">=0.31.0" },
+    { name = "asyncpg-listen", specifier = ">=0.0.9" },
     { name = "authzed", specifier = ">=1.24.0" },
     { name = "cyclopts", specifier = "==5.0.0a1" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.123.9" },
-    { name = "fastmcp", specifier = "==2.14.2" },
+    { name = "fastmcp", specifier = "==2.14.3" },
     { name = "psycopg2", specifier = ">=2.9.11" },
     { name = "pydantic-settings", specifier = ">=2.12.0" },
     { name = "python-ulid", specifier = ">=3.1.0" },
@@ -1140,6 +1155,7 @@ dev = [
     { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "pytest-env", specifier = ">=1.2.0" },
     { name = "pytest-mock", specifier = ">=3.15.1" },
+    { name = "rich", specifier = ">=14.2.0" },
     { name = "ruff", specifier = ">=0.14.8" },
     { name = "types-psycopg2", specifier = ">=2.9.21.20251012" },
 ]
@@ -1787,7 +1803,7 @@ wheels = [
 
 [[package]]
 name = "pydocket"
-version = "0.16.3"
+version = "0.16.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cloudpickle" },
@@ -1803,9 +1819,9 @@ dependencies = [
     { name = "typer" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e0/c5/61dcfce4d50b66a3f09743294d37fab598b81bb0975054b7f732da9243ec/pydocket-0.16.3.tar.gz", hash = "sha256:78e9da576de09e9f3f410d2471ef1c679b7741ddd21b586c97a13872b69bd265", size = 297080, upload-time = "2025-12-23T23:37:33.32Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/72/00/26befe5f58df7cd1aeda4a8d10bc7d1908ffd86b80fd995e57a2a7b3f7bd/pydocket-0.16.6.tar.gz", hash = "sha256:b96c96ad7692827214ed4ff25fcf941ec38371314db5dcc1ae792b3e9d3a0294", size = 299054, upload-time = "2026-01-09T22:09:15.405Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2c/94/93b7f5981aa04f922e0d9ce7326a4587866ec7e39f7c180ffcf408e66ee8/pydocket-0.16.3-py3-none-any.whl", hash = "sha256:e2b50925356e7cd535286255195458ac7bba15f25293356651b36d223db5dd7c", size = 67087, upload-time = "2025-12-23T23:37:31.829Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/3f/7483e5a6dc6326b6e0c640619b5c5bd1d6e3c20e54d58f5fb86267cef00e/pydocket-0.16.6-py3-none-any.whl", hash = "sha256:683d21e2e846aa5106274e7d59210331b242d7fb0dce5b08d3b82065663ed183", size = 67697, upload-time = "2026-01-09T22:09:13.436Z" },
 ]
 
 [[package]]

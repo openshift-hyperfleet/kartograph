@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.4](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.3...v1.1.4) (2026-01-16)
+
+
+### Bug Fixes
+
+* **ci:** add staging namespace for management with argocd ([#124](https://github.com/openshift-hyperfleet/kartograph/issues/124)) ([f95ab1b](https://github.com/openshift-hyperfleet/kartograph/commit/f95ab1be3e7494c53027333a548d605f17cef45d))
+
 ## [1.1.3](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.2...v1.1.3) (2026-01-16)
 
 

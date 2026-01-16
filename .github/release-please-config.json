@@ -8,12 +8,7 @@
       "include-component-in-tag": false,
       "extra-files": [
         "src/api/pyproject.toml",
-        "website/package.json",
-        {
-          "type": "yaml",
-          "path": "deploy/apps/kartograph/overlays/stage/kustomization.yaml",
-          "jsonpath": "$.images[0].newTag"
-        }
+        "website/package.json"
       ]
     }
   }

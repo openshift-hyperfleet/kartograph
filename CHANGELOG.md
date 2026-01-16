@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.6](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.5...v1.1.6) (2026-01-16)
+
+
+### Bug Fixes
+
+* **ci:** always build on main ([#128](https://github.com/openshift-hyperfleet/kartograph/issues/128)) ([fbfc492](https://github.com/openshift-hyperfleet/kartograph/commit/fbfc4929a86a6f0c2cd4c0b6f0215798f7a11501))
+
 ## [1.1.5](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.4...v1.1.5) (2026-01-16)
 
 

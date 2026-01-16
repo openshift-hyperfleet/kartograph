@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/openshift-hyperfleet/kartograph/compare/v1.0.0...v1.1.0) (2026-01-16)
+
+
+### Features
+
+* **build:** add initial k8s manifests ([#113](https://github.com/openshift-hyperfleet/kartograph/issues/113)) ([022cf65](https://github.com/openshift-hyperfleet/kartograph/commit/022cf6553b90bd4d8a3d09107eaebe7403b0e479))
+
 ## [1.0.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.17.1...v1.0.0) (2026-01-15)
 
 

@@ -11,4 +11,4 @@ patches:
   - path: deployment-vault-patch.yaml
 images:
   - name: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-api
-    newTag: 1.1.0 # Updated by Konflux component-nudge after each tag build
+    newTag: 1.1.1

@@ -15,4 +15,4 @@ patches:
 
 images:
   - name: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-api
-    newTag: latest  # Updated by CI pipeline
+    newTag: "1.0.0" # Managed by release-please

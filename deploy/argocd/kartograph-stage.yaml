@@ -4,9 +4,9 @@ metadata:
   name: kartograph-stage
   namespace: argocd
 spec:
-  project: default
+  project: tenants-hcm-ai-catalyst
   source:
-    repoURL: https://github.com/openshift-hypershift/kartograph.git
+    repoURL: https://github.com/openshift-hyperfleet/kartograph.git
     targetRevision: main
     path: deploy/apps/kartograph/overlays/stage
   destination:

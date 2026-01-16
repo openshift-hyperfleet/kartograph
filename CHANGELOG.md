@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.5](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.4...v1.1.5) (2026-01-16)
+
+
+### Documentation
+
+* add architecture overview and typical user journey ([#126](https://github.com/openshift-hyperfleet/kartograph/issues/126)) ([9a0dd6d](https://github.com/openshift-hyperfleet/kartograph/commit/9a0dd6da88ad16d42bddb802a0f86ee5de40bc7a))
+
 ## [1.1.4](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.3...v1.1.4) (2026-01-16)
 
 

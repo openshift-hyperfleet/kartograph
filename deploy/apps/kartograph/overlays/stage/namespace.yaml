@@ -4,4 +4,4 @@ kind: Namespace
 metadata:
   name: kartograph-stage
   labels:
-    argocd.argoproj.io/managed-by: argocd-tenant-hcm-ai-catalyst
+    argocd.argoproj.io/managed-by: kartograph-tenant

@@ -22,7 +22,7 @@ of Kartograph. Badges are used to describe the state of each component:
 - <Badge text="Complete" variant="success" /> The item is usable and fully functional
 :::
 
-Kartograph's can be described at a high level with the following components:
+Kartograph can be described at a high level with the following components:
 
 ### Kartograph UI <Badge text="Not Started" variant="danger" />
 
@@ -87,11 +87,11 @@ bounded contexts (also referred to as _domains_, see [Martin Fowler on DDD](http
 The following contrived user story helps to illustrate the intended user journey.
 
 Let's assume that Alice and Bob are members of a team named Catalyst that wants to build a knowledge graph
-from three of their Github repos.
+from three of their GitHub repos.
 
 1. Bob opens the [Kartograph UI](#kartograph-ui) and creates a new team called "Catalyst", and adds Alice as an administrator.
 1. Alice also logs in and creates a new graph called "Catalyst-Repos".
-1. Alice then connects the team's Github repos as data sources for the "Catalyst-Repos" graph. She specifies that she wants 
+1. Alice then connects the team's GitHub repos as data sources for the "Catalyst-Repos" graph. She specifies that she wants 
    Kartograph to sync the latest data from their repos every 24 hours.
 1. Since this is a new graph, Kartograph immediately initiates an extraction job. It fetches the data from the git repos, and
    the extraction agent begins extracting entities and relationships.

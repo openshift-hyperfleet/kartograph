@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.6](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.5...v1.1.6) (2026-01-16)
+
+
+### Bug Fixes
+
+* **ci:** always build on main ([#128](https://github.com/openshift-hyperfleet/kartograph/issues/128)) ([fbfc492](https://github.com/openshift-hyperfleet/kartograph/commit/fbfc4929a86a6f0c2cd4c0b6f0215798f7a11501))
+
+## [1.1.5](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.4...v1.1.5) (2026-01-16)
+
+
+### Documentation
+
+* add architecture overview and typical user journey ([#126](https://github.com/openshift-hyperfleet/kartograph/issues/126)) ([9a0dd6d](https://github.com/openshift-hyperfleet/kartograph/commit/9a0dd6da88ad16d42bddb802a0f86ee5de40bc7a))
+
 ## [1.1.4](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.3...v1.1.4) (2026-01-16)
 
 

@@ -1,0 +1,9 @@
+{
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "extends": [
+        "github>konflux-ci/mintmaker-presets:cve-automerge-all*",
+        "github>konflux-ci/mintmaker-presets:group-python-requirements",
+        "github>konflux-ci/mintmaker-presets:approveMajorUpdates",
+        "github>konflux-ci/mintmaker-presets:automergeAll"
+    ]
+}

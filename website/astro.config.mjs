@@ -49,33 +49,22 @@ export default defineConfig({
 			sidebar: [
 				{
 					label: 'Getting Started',
-					items: [
-						{ label: 'Introduction', slug: '' },
-						{ label: 'Quick Start', slug: 'getting-started/quickstart' },
-					],
+					autogenerate: { directory: 'getting-started' }
+
 				},
 				{
 					label: 'Guides',
-					items: [
-						{
-							label: 'Extraction → Graph Mutations',
-							slug: 'guides/extraction-mutations',
-						},
-					],
+					autogenerate: { directory: 'guides' }
+
 				},
 				{
 					label: 'Reference',
-					items: [
-						{ label: 'Mutation Operation Schema', slug: 'reference/mutation-schema' },
-						{ label: 'Secure Enclave ID Design', slug: 'reference/secure-enclave' },
-					],
+					autogenerate: { directory: 'reference' }
+
 				},
 				{
 					label: 'Architecture',
-					items: [
-						{ label: 'Bounded Contexts', slug: 'architecture/bounded-contexts' },
-						{ label: 'DDD Patterns', slug: 'architecture/ddd-patterns' },
-					],
+					autogenerate: { directory: 'architecture' }
 				},
 			],
 			customCss: [

@@ -7,8 +7,9 @@
 # To use this config:
 #   1. Copy this file to your repo root as .pre-commit-config.yaml
 #   2. Run: pre-commit install
-#   3. Run: pre-commit install --hook-type pre-push  (for AGENTS.md validation)
-#   4. Run: pre-commit run --all-files (to test)
+#   3. Run: pre-commit install --hook-type pre-push  (for AGENTS.md validation and tests)
+#   4. Run: pre-commit install --hook-type commit-msg  (for conventional commits)
+#   5. Run: pre-commit run --all-files (to test)
 #
 # See: https://pre-commit.com/
 
@@ -38,7 +39,7 @@ repos:
 
   # Python code quality hooks
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.9
+    rev: v0.14.13
     hooks:
       # Run the linter with auto-fix
       - id: ruff
@@ -62,12 +63,18 @@ repos:
           - "structlog"
         files: ^src/api/
 
-  # Run pytest on pre-push
+  # Auto-export system properties on value object changes
   - repo: local
     hooks:
+      - id: docs-export
+        name: Export system properties documentation
+        entry: bash -c 'make docs-export && git add website/src/data/system-properties.json'
+        language: system
+        pass_filenames: false
+        files: ^(src/api/graph/domain/value_objects\.py|scripts/export-system-properties\.py)$
       - id: pytest
         name: pytest
-        entry: bash -c 'cd src/api && uv run pytest tests/unit -v'
+        entry: bash -c 'cd src/api && uv run pytest tests -v'
         language: system
         pass_filenames: false
         stages: [pre-push]

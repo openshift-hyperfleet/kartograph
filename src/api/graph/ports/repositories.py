@@ -11,7 +11,6 @@ from typing import Protocol, runtime_checkable
 
 from graph.ports.protocols import NodeNeighborsResult
 from graph.domain.value_objects import (
-    EdgeRecord,
     MutationOperation,
     MutationResult,
     NodeRecord,
@@ -33,20 +32,6 @@ class IGraphReadOnlyRepository(Protocol):
     """
 
     # --- Fast Path Methods ---
-
-    def find_nodes_by_path(
-        self,
-        path: str,
-    ) -> tuple[list[NodeRecord], list[EdgeRecord]]:
-        """Find nodes and their edges by source file path.
-
-        Args:
-            path: The source file path (e.g., "people/alice.md")
-
-        Returns:
-            Tuple of (nodes, edges) associated with the path.
-        """
-        ...
 
     def find_nodes_by_slug(
         self,

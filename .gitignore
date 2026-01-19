@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+agent-notes/
+
 # C extensions
 *.so
 kartograph-ddd-draft.md
@@ -151,3 +153,7 @@ Thumbs.db
 website/node_modules/
 website/dist/
 website/.astro/
+certs/
+
+# Demo web interface (not for production)
+demo-web/

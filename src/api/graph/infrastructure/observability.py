@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 import structlog
 
 if TYPE_CHECKING:
-    from infrastructure.observability.context import ObservationContext
+    from shared_kernel.observability_context import ObservationContext
 
 
 class GraphClientProbe(Protocol):
@@ -147,33 +147,6 @@ class DefaultGraphClientProbe:
         )
 
 
-class MutationProbe(Protocol):
-    """Domain probe for mutation operation observability.
-
-    This probe captures domain-significant events related to graph
-    mutation operations (CREATE, UPDATE, DELETE, DEFINE).
-    """
-
-    def mutation_applied(
-        self,
-        operation: str,
-        entity_type: str,
-        entity_id: str | None,
-    ) -> None:
-        """Record that a mutation was successfully applied.
-
-        Args:
-            operation: The operation type (DEFINE, CREATE, UPDATE, DELETE)
-            entity_type: The entity type (node or edge)
-            entity_id: The entity ID (None for DEFINE operations)
-        """
-        ...
-
-    def with_context(self, context: ObservationContext) -> MutationProbe:
-        """Create a new probe with observation context bound."""
-        ...
-
-
 class DefaultMutationProbe:
     """Default implementation of MutationProbe using structlog."""
 
@@ -208,4 +181,197 @@ class DefaultMutationProbe:
             entity_type=entity_type,
             entity_id=entity_id,
             **self._get_context_kwargs(),
+        )
+
+    def batch_applied(
+        self,
+        operation: str,
+        entity_type: str,
+        label: str | None,
+        count: int,
+        duration_ms: float,
+    ) -> None:
+        """Record that a batch of mutations was successfully applied."""
+        self._logger.info(
+            "mutation_batch_applied",
+            operation=operation,
+            entity_type=entity_type,
+            label=label,
+            count=count,
+            duration_ms=round(duration_ms, 2),
+            **self._get_context_kwargs(),
+        )
+
+    def apply_batch_completed(
+        self,
+        total_operations: int,
+        total_batches: int,
+        duration_ms: float,
+        success: bool,
+    ) -> None:
+        """Record completion of the entire apply_batch operation."""
+        self._logger.info(
+            "mutation_apply_batch_completed",
+            total_operations=total_operations,
+            total_batches=total_batches,
+            duration_ms=round(duration_ms, 2),
+            success=success,
+            **self._get_context_kwargs(),
+        )
+
+    def duplicate_ids_detected(
+        self,
+        duplicate_ids: list[str],
+        entity_type: str,
+    ) -> None:
+        """Record that duplicate IDs were detected in a batch."""
+        self._logger.warning(
+            "mutation_duplicate_ids_detected",
+            duplicate_ids=duplicate_ids,
+            entity_type=entity_type,
+            count=len(duplicate_ids),
+            **self._get_context_kwargs(),
+        )
+
+    def orphaned_edges_detected(
+        self,
+        orphaned_edge_ids: list[str],
+        missing_node_ids: list[str],
+    ) -> None:
+        """Record that edges were detected with missing source or target nodes."""
+        self._logger.error(
+            "mutation_orphaned_edges_detected",
+            orphaned_edge_ids=orphaned_edge_ids,
+            missing_node_ids=missing_node_ids,
+            orphaned_edge_count=len(orphaned_edge_ids),
+            missing_node_count=len(missing_node_ids),
+            **self._get_context_kwargs(),
+        )
+
+
+class DefaultAgeBulkLoadingProbe:
+    """Default implementation of AgeBulkLoadingProbe using structlog.
+
+    Uses debug-level logging for infrastructure events since these are
+    primarily useful for performance analysis and troubleshooting.
+    """
+
+    def __init__(
+        self,
+        logger: structlog.stdlib.BoundLogger | None = None,
+    ):
+        self._logger = logger or structlog.get_logger()
+
+    def staging_table_created(
+        self,
+        table_name: str,
+        entity_type: str,
+    ) -> None:
+        """Record that a staging table was created."""
+        self._logger.debug(
+            "age_staging_table_created",
+            table_name=table_name,
+            entity_type=entity_type,
+        )
+
+    def staging_data_copied(
+        self,
+        table_name: str,
+        entity_type: str,
+        row_count: int,
+        duration_ms: float,
+    ) -> None:
+        """Record that data was COPYed to a staging table."""
+        self._logger.debug(
+            "age_staging_data_copied",
+            table_name=table_name,
+            entity_type=entity_type,
+            row_count=row_count,
+            duration_ms=round(duration_ms, 2),
+        )
+
+    def staging_index_created(
+        self,
+        table_name: str,
+        index_type: str,
+        duration_ms: float,
+    ) -> None:
+        """Record that an index was created on a staging table."""
+        self._logger.debug(
+            "age_staging_index_created",
+            table_name=table_name,
+            index_type=index_type,
+            duration_ms=round(duration_ms, 2),
+        )
+
+    def graphids_resolved(
+        self,
+        edge_count: int,
+        resolved_count: int,
+        duration_ms: float,
+    ) -> None:
+        """Record that edge graphids were resolved."""
+        self._logger.debug(
+            "age_graphids_resolved",
+            edge_count=edge_count,
+            resolved_count=resolved_count,
+            duration_ms=round(duration_ms, 2),
+        )
+
+    def labels_pre_created(
+        self,
+        entity_type: str,
+        label_count: int,
+        new_label_count: int,
+        duration_ms: float,
+    ) -> None:
+        """Record that labels were pre-created in batch."""
+        self._logger.debug(
+            "age_labels_pre_created",
+            entity_type=entity_type,
+            label_count=label_count,
+            new_label_count=new_label_count,
+            duration_ms=round(duration_ms, 2),
+        )
+
+    def indexes_pre_created(
+        self,
+        entity_type: str,
+        label_count: int,
+        index_count: int,
+        duration_ms: float,
+    ) -> None:
+        """Record that indexes were pre-created for new labels."""
+        self._logger.debug(
+            "age_indexes_pre_created",
+            entity_type=entity_type,
+            label_count=label_count,
+            index_count=index_count,
+            duration_ms=round(duration_ms, 2),
+        )
+
+    def graphid_lookup_table_created(
+        self,
+        row_count: int,
+        duration_ms: float,
+    ) -> None:
+        """Record that a graphid lookup table was created for edge resolution."""
+        self._logger.debug(
+            "age_graphid_lookup_table_created",
+            row_count=row_count,
+            duration_ms=round(duration_ms, 2),
+        )
+
+    def validation_completed(
+        self,
+        validation_type: str,
+        entity_type: str,
+        duration_ms: float,
+    ) -> None:
+        """Record that a validation step completed."""
+        self._logger.debug(
+            "age_validation_completed",
+            validation_type=validation_type,
+            entity_type=entity_type,
+            duration_ms=round(duration_ms, 2),
         )

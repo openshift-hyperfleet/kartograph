@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kartograph-config
+data:
+  # Stage-specific overrides (merged with base)
+  # TODO: Update with actual cluster hostname
+  KARTOGRAPH_CORS_ORIGINS: "https://kartograph-stage.apps.example.com"

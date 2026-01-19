@@ -6,15 +6,15 @@ using psycopg2 with Apache AGE extension and AGType parsing.
 
 from __future__ import annotations
 
-import secrets
-import string
 import typing
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Iterator
 
 import age  # type: ignore
 import psycopg2
+from psycopg2 import sql
 
+from graph.infrastructure.cypher_utils import generate_cypher_nonce
 from graph.infrastructure.exceptions import InsecureCypherQueryError
 from graph.infrastructure.observability import (
     DefaultGraphClientProbe,
@@ -40,6 +40,7 @@ class AgeGraphClient(GraphClientProtocol):
     - Low-level Cypher query execution
     - Transaction management
     - Connection verification
+    - Automatic index creation for label id properties
 
     Example:
         settings = DatabaseSettings()
@@ -55,12 +56,21 @@ class AgeGraphClient(GraphClientProtocol):
     def __init__(
         self,
         settings: DatabaseSettings,
+        connection_factory: ConnectionFactory | None = None,
         probe: GraphClientProbe | None = None,
     ):
+        """Initialize the AGE graph client.
+
+        Args:
+            settings: Database connection settings
+            connection_factory: Optional connection factory (required for pooled mode)
+            probe: Optional observability probe
+        """
         self._settings = settings
-        self._connection_factory = ConnectionFactory(settings)
+        self._connection_factory = connection_factory
         self._graph_name = settings.graph_name
         self._connected = False
+        self._current_connection: PsycopgConnection | None = None
         self._probe = probe or DefaultGraphClientProbe()
 
     @property
@@ -75,19 +85,34 @@ class AgeGraphClient(GraphClientProtocol):
     @property
     def _connection(self):
         """Get the underlying psycopg2 connection."""
-        if self._connection_factory._connection is None:
-            raise ValueError(
-                "Unexpected Nonetype for self._connection_factory._connection"
-            )
-        return self._connection_factory._connection
+        if self._current_connection is None:
+            raise ValueError("No active connection. Call connect() first.")
+        return self._current_connection
+
+    @property
+    def raw_connection(self):
+        """Get raw database connection for bulk operations like COPY.
+
+        Warning: Use with caution. Direct connection access bypasses
+        normal query execution paths and security wrappers.
+
+        Returns:
+            The underlying psycopg2 connection object.
+        """
+        return self._connection
 
     def connect(self) -> None:
         """Establish connection to the graph database."""
+        if self._connection_factory is None:
+            raise ValueError(
+                "ConnectionFactory required. Pass connection_factory parameter to __init__."
+            )
+
         try:
-            self._connection_factory.get_connection()
+            self._current_connection = self._connection_factory.get_connection()
             self._ensure_graph_exists()
             # Register AGType parser for automatic conversion of Vertex, Edge, Path objects
-            age.setUpAge(self._connection, self._graph_name)
+            age.setUpAge(self._current_connection, self._graph_name)
             self._connected = True
             self._probe.connected_to_graph(self._graph_name)
         except Exception as e:
@@ -112,8 +137,13 @@ class AgeGraphClient(GraphClientProtocol):
                 self._probe.graph_created(self._graph_name)
 
     def disconnect(self) -> None:
-        """Close the database connection."""
-        self._connection_factory.close_connection()
+        """Close the database connection and return it to the pool."""
+        if (
+            self._current_connection is not None
+            and self._connection_factory is not None
+        ):
+            self._connection_factory.return_connection(self._current_connection)
+            self._current_connection = None
         self._connected = False
 
     def verify_connection(self) -> bool:
@@ -134,19 +164,12 @@ class AgeGraphClient(GraphClientProtocol):
             self._probe.connection_verification_failed(e)
             return False
 
-    def _generate_nonce(self) -> str:
-        """
-        Generate a random 64 character string for use as a nonce
-        when generating a unique tag for quoting cypher queries in Apache AGE.
-        """
-        return "".join(secrets.choice(string.ascii_letters) for _ in range(64))
-
     def build_secure_cypher_sql(
         self,
         graph_name: str,
         query: str,
         nonce_generator: typing.Optional[typing.Callable[[], str]] = None,
-    ) -> str:
+    ) -> sql.Composable:
         """Build the SQL statement for executing a Cypher query via AGE.
 
         AGE requires Cypher queries to be wrapped in:
@@ -160,9 +183,12 @@ class AgeGraphClient(GraphClientProtocol):
 
         Note that there is a hard-coded return type of (result agtype), which means
         the query _must_ be written such that it returns a single object (which may contain multiple items.)
+
+        Returns:
+            A psycopg2.sql.Composable object that safely handles identifier escaping
         """
 
-        nonce_generator = nonce_generator if nonce_generator else self._generate_nonce
+        nonce_generator = nonce_generator if nonce_generator else generate_cypher_nonce
 
         nonce = nonce_generator()
 
@@ -175,11 +201,15 @@ class AgeGraphClient(GraphClientProtocol):
         # between the two $'s.
         tag = f"${nonce}$"
 
-        return f"""\
-SELECT * FROM cypher('{graph_name}', {tag} {query} {tag}) AS (result agtype)\
-"""
+        # Use sql.Literal to safely escape graph_name for SQL injection protection
+        return sql.SQL("SELECT * FROM cypher({}, {} {} {}) AS (result agtype)").format(
+            sql.Literal(graph_name),
+            sql.SQL(tag),
+            sql.SQL(query),
+            sql.SQL(tag),
+        )
 
-    def _build_cypher_sql(self, query: str) -> str:
+    def _build_cypher_sql(self, query: str) -> sql.Composable:
         return self.build_secure_cypher_sql(graph_name=self.graph_name, query=query)
 
     def execute_cypher(
@@ -294,7 +324,7 @@ class _AgeTransaction:
         connection: PsycopgConnection,
         graph_name: str,
         probe: GraphClientProbe,
-        sql_builder: typing.Callable[[str], str],
+        sql_builder: typing.Callable[[str], sql.Composable],
     ):
         self._connection = connection
         self._graph_name = graph_name

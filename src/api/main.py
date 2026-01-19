@@ -1,113 +1,188 @@
-from functools import lru_cache
+"""Main FastAPI application entry point."""
+
+from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from util import dev_routes
 
-from graph.application.services import GraphMutationService, GraphQueryService
+from graph.dependencies import get_age_graph_client
 from graph.infrastructure.age_client import AgeGraphClient
-from graph.infrastructure.graph_repository import GraphExtractionReadOnlyRepository
-from graph.infrastructure.mutation_applier import MutationApplier
-from graph.infrastructure.type_definition_repository import (
-    InMemoryTypeDefinitionRepository,
-)
-from graph.ports.repositories import ITypeDefinitionRepository
 from graph.presentation import routes as graph_routes
-from infrastructure.settings import get_database_settings
+from iam.presentation import routes as iam_routes
+from infrastructure.database.dependencies import (
+    close_database_engines,
+    init_database_engines,
+)
+from infrastructure.dependencies import get_age_connection_pool
+from infrastructure.logging import configure_logging
+from infrastructure.settings import (
+    get_cors_settings,
+    get_database_settings,
+    get_outbox_worker_settings,
+    get_spicedb_settings,
+)
 from infrastructure.version import __version__
+from iam.infrastructure.outbox import IAMEventTranslator
+from infrastructure.outbox.composite import CompositeTranslator
+from infrastructure.outbox.event_sources.postgres_notify import (
+    PostgresNotifyEventSource,
+)
+from infrastructure.outbox.worker import OutboxWorker
+from shared_kernel.authorization.spicedb.client import SpiceDBClient
+from shared_kernel.outbox.observability import (
+    DefaultEventSourceProbe,
+    DefaultOutboxWorkerProbe,
+)
 from query.presentation.mcp import query_mcp_app
+
+# Configure structlog before any loggers are created
+configure_logging()
+
+
+@asynccontextmanager
+async def kartograph_lifespan(app: FastAPI):
+    """Application lifespan context.
+
+    Manages:
+    - Database engine lifecycle (created on startup, disposed on shutdown)
+    - MCP server lifespan
+    - AGE connection pool lifecycle
+    - Outbox worker lifecycle
+
+    Engines are created here (within the running event loop) to ensure
+    proper async context for database connections.
+
+    State is tracked per-app instance (app.state._mcp_initialized) to maintain
+    test isolation when multiple app instances are created.
+    """
+    # Initialize MCP state tracking on this app instance
+    if not hasattr(app.state, "_mcp_initialized"):
+        app.state._mcp_initialized = False
+
+    # Startup: initialize database engines
+    init_database_engines(app)
+
+    # Startup: start outbox worker if enabled
+    outbox_settings = get_outbox_worker_settings()
+    if outbox_settings.enabled and hasattr(app.state, "write_sessionmaker"):
+        db_settings = get_database_settings()
+        spicedb_settings = get_spicedb_settings()
+
+        # Build database URL for LISTEN
+        db_url = (
+            f"postgresql://{db_settings.username}:"
+            f"{db_settings.password.get_secret_value()}@"
+            f"{db_settings.host}:{db_settings.port}/{db_settings.database}"
+        )
+
+        # Create SpiceDB client
+        authz = SpiceDBClient(
+            endpoint=spicedb_settings.endpoint,
+            preshared_key=spicedb_settings.preshared_key.get_secret_value(),
+            use_tls=spicedb_settings.use_tls,
+            cert_path=spicedb_settings.cert_path,
+        )
+
+        # Create observability probe
+        probe = DefaultOutboxWorkerProbe()
+
+        # Build composite translator with registered bounded context translators
+        translator = CompositeTranslator(probe=probe)
+        translator.register(IAMEventTranslator(), context_name="iam")
+        # Future: translator.register(ManagementEventTranslator(), context_name="management")
+
+        # Create event source for real-time NOTIFY processing
+        event_source = PostgresNotifyEventSource(
+            db_url=db_url,
+            channel="outbox_events",
+            probe=DefaultEventSourceProbe(),
+        )
+
+        worker = OutboxWorker(
+            session_factory=app.state.write_sessionmaker,
+            authz=authz,
+            translator=translator,
+            probe=probe,
+            event_source=event_source,
+            poll_interval_seconds=outbox_settings.poll_interval_seconds,
+            batch_size=outbox_settings.batch_size,
+            max_retries=outbox_settings.max_retries,
+        )
+        await worker.start()
+        app.state.outbox_worker = worker
+
+    # MCP lifespan - skip if already initialized (e.g., in tests with multiple lifespans)
+    if not app.state._mcp_initialized:
+        async with query_mcp_app.lifespan(app):
+            app.state._mcp_initialized = True
+            yield
+    else:
+        # MCP already initialized in previous lifespan cycle
+        yield
+
+    # Shutdown: stop outbox worker
+    if hasattr(app.state, "outbox_worker"):
+        await app.state.outbox_worker.stop()
+
+    # Shutdown: close database engines
+    await close_database_engines(app)
+
+    # Shutdown: close AGE connection pool
+    try:
+        pool = get_age_connection_pool()
+        pool.close_all()
+    except Exception:
+        # Pool may not be initialized, ignore
+        pass
+
 
 app = FastAPI(
     title="Kartograph API",
     description="Enterprise-Ready Bi-Temporal Knowledge Graphs as a Service",
     version=__version__,
-    lifespan=query_mcp_app.lifespan,
+    lifespan=kartograph_lifespan,
 )
+# Configure CORS if origins are specified
+cors_settings = get_cors_settings()
+
+if cors_settings.is_enabled:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_settings.origins,
+        allow_credentials=cors_settings.allow_credentials,
+        allow_methods=cors_settings.allow_methods,
+        allow_headers=cors_settings.allow_headers,
+    )
 
 app.mount(path="/query", app=query_mcp_app)
-
-
-@lru_cache
-def get_graph_client() -> AgeGraphClient:
-    """Get a cached AgeGraphClient instance."""
-    settings = get_database_settings()
-    client = AgeGraphClient(settings)
-    return client
-
-
-def get_graph_query_service(
-    client: Annotated[AgeGraphClient, Depends(get_graph_client)],
-    data_source_id: str = Query(...),
-) -> GraphQueryService:
-    """Get a GraphQueryService instance."""
-    if not client.is_connected():
-        client.connect()
-
-    repository = GraphExtractionReadOnlyRepository(
-        client=client,
-        data_source_id=data_source_id,
-    )
-    return GraphQueryService(repository=repository)
-
-
-@lru_cache
-def get_mutation_applier(
-    client: Annotated[AgeGraphClient, Depends(get_graph_client)],
-) -> MutationApplier:
-    """Get a cached MutationApplier instance."""
-    if not client.is_connected():
-        client.connect()
-
-    return MutationApplier(client=client)
-
-
-@lru_cache
-def get_type_definition_repository() -> ITypeDefinitionRepository:
-    """Get a cached TypeDefinitionRepository instance.
-
-    Uses InMemoryTypeDefinitionRepository as MVP implementation.
-    This will be replaced with a persistent repository in future iterations.
-    """
-    return InMemoryTypeDefinitionRepository()
-
-
-def get_graph_mutation_service(
-    applier: Annotated[MutationApplier, Depends(get_mutation_applier)],
-    type_def_repo: Annotated[
-        ITypeDefinitionRepository, Depends(get_type_definition_repository)
-    ],
-) -> GraphMutationService:
-    """Get a GraphMutationService instance."""
-    return GraphMutationService(
-        mutation_applier=applier,
-        type_definition_repository=type_def_repo,
-    )
-
 
 # Include Graph bounded context routes
 app.include_router(graph_routes.router)
 
-# Override Graph route dependency injection
-app.dependency_overrides[graph_routes.get_query_service] = get_graph_query_service
-app.dependency_overrides[graph_routes.get_mutation_service] = get_graph_mutation_service
+# Include IAM bounded context routes
+app.include_router(iam_routes.router)
+
+# Include dev utility routes (easy to remove for production)
+app.include_router(dev_routes.router)
 
 
 @app.get("/health")
 def health():
+    """Basic health check endpoint."""
     return {"status": "ok"}
 
 
 @app.get("/health/db")
 def health_db(
-    client: Annotated[AgeGraphClient, Depends(get_graph_client)],
+    client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
 ) -> dict:
     """Check database connection health.
 
     Returns the connection status and graph name.
     """
     try:
-        if not client.is_connected():
-            client.connect()
-
         is_healthy = client.verify_connection()
 
         return {
@@ -125,18 +200,32 @@ def health_db(
 
 @app.get("/util/nodes")
 def get_nodes(
-    service: Annotated[GraphQueryService, Depends(get_graph_query_service)],
+    client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
 ) -> dict:
     """Query all nodes in the graph.
 
-    Returns nodes in domain NodeRecord format via the application service.
+    Utility endpoint for development and testing.
     """
     try:
-        # Use exploration query through the service
-        results = service.execute_exploration_query("MATCH (n) RETURN n")
+        from age.models import Vertex as AgeVertex
 
-        # Convert to serializable format
-        nodes = [r.get("node", r) for r in results if r]
+        # Execute simple query
+        result = client.execute_cypher("MATCH (n) RETURN n")
+
+        # Convert Vertex objects to serializable dicts
+        nodes = []
+        for row in result.rows:
+            if len(row) > 0 and isinstance(row[0], AgeVertex):
+                vertex = row[0]
+                nodes.append(
+                    {
+                        "id": str(vertex.id),
+                        "label": vertex.label,
+                        "properties": dict(vertex.properties)
+                        if vertex.properties
+                        else {},
+                    }
+                )
 
         return {
             "nodes": nodes,
@@ -151,7 +240,7 @@ def get_nodes(
 
 @app.delete("/util/nodes")
 def delete_nodes(
-    client: Annotated[AgeGraphClient, Depends(get_graph_client)],
+    client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
 ) -> dict:
     """Delete all nodes in the graph.
 
@@ -159,9 +248,6 @@ def delete_nodes(
         Dictionary with count of deleted nodes
     """
     try:
-        if not client.is_connected():
-            client.connect()
-
         # First count the nodes
         count_query = "MATCH (n) RETURN count(n)"
         count_result = client.execute_cypher(count_query)
@@ -181,7 +267,7 @@ def delete_nodes(
 
 @app.delete("/util/edges")
 def delete_edges(
-    client: Annotated[AgeGraphClient, Depends(get_graph_client)],
+    client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
 ) -> dict:
     """Delete all edges in the graph.
 
@@ -189,9 +275,6 @@ def delete_edges(
         Dictionary with count of deleted edges
     """
     try:
-        if not client.is_connected():
-            client.connect()
-
         # First count the edges
         count_query = "MATCH ()-[r]-() RETURN count(r)"
         count_result = client.execute_cypher(count_query)

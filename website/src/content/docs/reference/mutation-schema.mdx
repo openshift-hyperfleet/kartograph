@@ -1,0 +1,164 @@
+---
+title: Mutation Operation Schema
+description: JSON Schema reference for mutation operations
+---
+
+{/*
+  System properties are auto-generated from src/api/graph/domain/value_objects.py
+  Run: make docs-export (or cd src/api && uv run python ../../scripts/export-system-properties.py)
+  CI validates this file stays in sync via tests/unit/docs/test_system_properties_export.py
+*/}
+import systemProps from '../../../data/system-properties.json';
+
+export const CommonProperties = () => (
+  <ul>
+    {systemProps.common.properties.map((prop) => (
+      <li key={prop}>
+        <code>{prop}</code> - {systemProps.common.property_descriptions[prop] || 'System-managed property'}
+      </li>
+    ))}
+  </ul>
+);
+
+export const NodeSpecificPropertiesWithDesc = () => {
+  const props = systemProps.node_specific;
+  if (props.properties.length === 0) {
+    return <p><em>None - nodes only require common properties</em></p>;
+  }
+  return (
+    <ul>
+      {props.properties.map((prop) => (
+        <li key={prop}>
+          <code>{prop}</code> - {props.property_descriptions[prop] || 'System-managed property'}
+        </li>
+      ))}
+    </ul>
+  );
+};
+
+export const EdgeSpecificPropertiesWithDesc = () => {
+  const props = systemProps.edge_specific;
+  if (props.properties.length === 0) {
+    return <p><em>None - edges only require common properties</em></p>;
+  }
+  return (
+    <ul>
+      {props.properties.map((prop) => (
+        <li key={prop}>
+          <code>{prop}</code> - {props.property_descriptions[prop] || 'System-managed property'}
+        </li>
+      ))}
+    </ul>
+  );
+};
+
+## Overview
+
+All mutation operations follow a strict JSON schema. This ensures consistency and enables validation at both the Extraction and Graph boundaries.
+
+## Schema Location
+
+The complete JSON Schema can be visualized [using the Atlassian JSON Schema Viewer](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fopenshift-hyperfleet%2Fkartograph%2Frefs%2Fheads%2Fmain%2Fwebsite%2Fsrc%2Fcontent%2Fdocs%2Freference%2Fmutation-operation-schema.json).
+
+## Operation Types
+
+### DEFINE
+
+```json
+{
+  "op": "DEFINE",
+  "type": "node" | "edge",
+  "label": "string",
+  "description": "string",
+  "required_properties": ["array", "of", "strings"]
+}
+```
+
+:::note
+`required_properties` is a set of properties required when `CREATE`ing a node/edge
+of the given `label`. These properties are required _in addition to_ the [system properties](#system-properties)
+listed below.
+:::
+
+### CREATE
+
+```json
+{
+  "op": "CREATE",
+  "type": "node" | "edge",
+  "id": "string",
+  "label": "string",
+  "set_properties": {
+    "data_source_id": "required",
+    "source_path": "required",
+    "slug": "required" // Only required for `CREATE node` operations
+    ...
+  }
+}
+```
+
+For edges, add:
+```json
+{
+  "start_id": "string",
+  "end_id": "string"
+}
+```
+
+### UPDATE
+
+```json
+{
+  "op": "UPDATE",
+  "type": "node" | "edge",
+  "id": "string",
+  "set_properties": {},
+  "remove_properties": []
+}
+```
+
+### DELETE
+
+```json
+{
+  "op": "DELETE",
+  "type": "node" | "edge",
+  "id": "string"
+}
+```
+
+## System Properties
+
+System properties are automatically managed by Kartograph and must be included in all `CREATE` operations.
+
+### Common Properties (All Entities)
+
+<CommonProperties />
+
+### Node-Specific Properties
+
+All `CREATE node` operations must include the common properties **plus** these additional properties:
+
+<NodeSpecificPropertiesWithDesc />
+
+### Edge-Specific Properties
+
+All `CREATE edge` operations must include the common properties **plus** these additional properties:
+
+<EdgeSpecificPropertiesWithDesc />
+
+:::tip[Auto-Generated]
+These property lists are automatically generated from the source code
+([`value_objects.py`](https://github.com/openshift-hyperfleet/kartograph/blob/main/src/api/graph/domain/value_objects.py))
+and stay in sync with the actual API requirements.
+:::
+
+## Validation
+
+You can live-edit JSON objects with schema validation using
+the [Atlassian JSON Schema Viewer](https://json-schema.app/view/%23?url=https%3A%2F%2Fraw.githubusercontent.com%2Fopenshift-hyperfleet%2Fkartograph%2Frefs%2Fheads%2Fmain%2Fwebsite%2Fsrc%2Fcontent%2Fdocs%2Freference%2Fmutation-operation-schema.json).
+
+## Next Steps
+
+- See [Extraction → Graph Mutations](../../guides/extraction-mutations/) for examples
+- Read about [Secure Enclave IDs](../secure-enclave/)

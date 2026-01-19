@@ -1,5 +1,213 @@
 # Changelog
 
+## [1.1.7](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.6...v1.1.7) (2026-01-19)
+
+
+### Documentation
+
+* document bulk loading ([#137](https://github.com/openshift-hyperfleet/kartograph/issues/137)) ([b3c2c23](https://github.com/openshift-hyperfleet/kartograph/commit/b3c2c23bbc1b79119b5e419fae94a7bdbf325ca1))
+
+## [1.1.6](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.5...v1.1.6) (2026-01-16)
+
+
+### Bug Fixes
+
+* **ci:** always build on main ([#128](https://github.com/openshift-hyperfleet/kartograph/issues/128)) ([fbfc492](https://github.com/openshift-hyperfleet/kartograph/commit/fbfc4929a86a6f0c2cd4c0b6f0215798f7a11501))
+
+## [1.1.5](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.4...v1.1.5) (2026-01-16)
+
+
+### Documentation
+
+* add architecture overview and typical user journey ([#126](https://github.com/openshift-hyperfleet/kartograph/issues/126)) ([9a0dd6d](https://github.com/openshift-hyperfleet/kartograph/commit/9a0dd6da88ad16d42bddb802a0f86ee5de40bc7a))
+
+## [1.1.4](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.3...v1.1.4) (2026-01-16)
+
+
+### Bug Fixes
+
+* **ci:** add staging namespace for management with argocd ([#124](https://github.com/openshift-hyperfleet/kartograph/issues/124)) ([f95ab1b](https://github.com/openshift-hyperfleet/kartograph/commit/f95ab1be3e7494c53027333a548d605f17cef45d))
+
+## [1.1.3](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.2...v1.1.3) (2026-01-16)
+
+
+### Bug Fixes
+
+* **ci:** update repoURL for kartograph-stage deployment ([#121](https://github.com/openshift-hyperfleet/kartograph/issues/121)) ([9494315](https://github.com/openshift-hyperfleet/kartograph/commit/94943152b6d4b6cbb4d5342134e82ba0f6fae577))
+
+## [1.1.2](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.1...v1.1.2) (2026-01-16)
+
+
+### Bug Fixes
+
+* Update contributing section in README ([#119](https://github.com/openshift-hyperfleet/kartograph/issues/119)) ([60878c8](https://github.com/openshift-hyperfleet/kartograph/commit/60878c8d852b346c8b13cd92013e4147d77c353d))
+
+## [1.1.1](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.0...v1.1.1) (2026-01-16)
+
+
+### Bug Fixes
+
+* **deps:** update dependency fastmcp to v2.14.3 ([#107](https://github.com/openshift-hyperfleet/kartograph/issues/107)) ([691fafe](https://github.com/openshift-hyperfleet/kartograph/commit/691fafe7665c2e63ccf8380df5342b19df8a1dcf))
+
+## [1.1.0](https://github.com/openshift-hyperfleet/kartograph/compare/v1.0.0...v1.1.0) (2026-01-16)
+
+
+### Features
+
+* **build:** add initial k8s manifests ([#113](https://github.com/openshift-hyperfleet/kartograph/issues/113)) ([022cf65](https://github.com/openshift-hyperfleet/kartograph/commit/022cf6553b90bd4d8a3d09107eaebe7403b0e479))
+
+## [1.0.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.17.1...v1.0.0) (2026-01-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* **api.infrastructure:** OutboxWorker.__init__ signature changed - db_url replaced with event_source parameter.
+
+### Code Refactoring
+
+* **api.infrastructure:** refactor outbox worker to use pluggable event source ([#111](https://github.com/openshift-hyperfleet/kartograph/issues/111)) ([de6cdbc](https://github.com/openshift-hyperfleet/kartograph/commit/de6cdbc6817fa036427e667f73b705fff5c673d6))
+
+## [0.17.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.17.0...v0.17.1) (2026-01-14)
+
+
+### Documentation
+
+* refine documentation ([#109](https://github.com/openshift-hyperfleet/kartograph/issues/109)) ([0a614cc](https://github.com/openshift-hyperfleet/kartograph/commit/0a614cc04e93606147ed1a83add5f260508ccdff))
+
+## [0.17.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.16.0...v0.17.0) (2026-01-14)
+
+
+### Features
+
+* **outbox:** implement transactional outbox pattern for SpiceDB consistency ([#106](https://github.com/openshift-hyperfleet/kartograph/issues/106)) ([98024df](https://github.com/openshift-hyperfleet/kartograph/commit/98024df027971e37f73a1846bef75af55bb9f11c))
+
+## [0.16.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.15.0...v0.16.0) (2026-01-08)
+
+
+### Features
+
+* **iam:** add IAM FastAPI endpoints with integration tests ([#103](https://github.com/openshift-hyperfleet/kartograph/issues/103)) ([ffadff4](https://github.com/openshift-hyperfleet/kartograph/commit/ffadff466dc6a9b3608d3bc137baf33265b8a603))
+
+## [0.15.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.14.0...v0.15.0) (2026-01-06)
+
+
+### Features
+
+* **iam:** implement application service layer ([#99](https://github.com/openshift-hyperfleet/kartograph/issues/99)) ([a3d4b7b](https://github.com/openshift-hyperfleet/kartograph/commit/a3d4b7b5c0c74d3a8097d89b3ed6277353fef257))
+
+## [0.14.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.13.2...v0.14.0) (2026-01-06)
+
+
+### Features
+
+* **iam:** implement repository layer ([#95](https://github.com/openshift-hyperfleet/kartograph/issues/95)) ([49a89d8](https://github.com/openshift-hyperfleet/kartograph/commit/49a89d82ac131e45a473e3d244eaeebc014a7236))
+
+## [0.13.2](https://github.com/openshift-hyperfleet/kartograph/compare/v0.13.1...v0.13.2) (2026-01-05)
+
+
+### Bug Fixes
+
+* **api.shared_kernel:** use async SpiceDB client ([#92](https://github.com/openshift-hyperfleet/kartograph/issues/92)) ([bac441e](https://github.com/openshift-hyperfleet/kartograph/commit/bac441ebee51da1a218589c3044917a7e5e4aee8))
+
+## [0.13.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.13.0...v0.13.1) (2026-01-05)
+
+
+### Bug Fixes
+
+* **deps:** update dependency fastmcp to v2.14.2 ([#90](https://github.com/openshift-hyperfleet/kartograph/issues/90)) ([5317dd8](https://github.com/openshift-hyperfleet/kartograph/commit/5317dd8875eec132fc9a1615e8b2194d420d4b2c))
+
+## [0.13.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.12.0...v0.13.0) (2025-12-23)
+
+
+### Features
+
+* **iam:** IAM domain models and business logic ([#86](https://github.com/openshift-hyperfleet/kartograph/issues/86)) ([0adb133](https://github.com/openshift-hyperfleet/kartograph/commit/0adb133efbb075bf5a150f294d29c2e363b69d47))
+
+## [0.12.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.11.0...v0.12.0) (2025-12-23)
+
+
+### Features
+
+* **api:** database foundation with SQLAlchemy and Alembic ([#84](https://github.com/openshift-hyperfleet/kartograph/issues/84)) ([9327b82](https://github.com/openshift-hyperfleet/kartograph/commit/9327b82eab2fd98b6cec2c90af708b428fe3b56a))
+
+## [0.11.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.10.1...v0.11.0) (2025-12-23)
+
+
+### Features
+
+* **api:** authorization abstractions and SpiceDB client ([#85](https://github.com/openshift-hyperfleet/kartograph/issues/85)) ([8fc16b5](https://github.com/openshift-hyperfleet/kartograph/commit/8fc16b5346f68f14fd1f0c2676345eb455f13d66))
+
+## [0.10.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.10.0...v0.10.1) (2025-12-22)
+
+
+### Documentation
+
+* add readme banner ([#82](https://github.com/openshift-hyperfleet/kartograph/issues/82)) ([ccaa5f3](https://github.com/openshift-hyperfleet/kartograph/commit/ccaa5f3bdb91a3b4ae0ef05321570e6ba6eecf96))
+
+## [0.10.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.9.2...v0.10.0) (2025-12-22)
+
+
+### Features
+
+* **graph:** enable schema learning for UPDATE operations ([#79](https://github.com/openshift-hyperfleet/kartograph/issues/79)) ([8fdbdc5](https://github.com/openshift-hyperfleet/kartograph/commit/8fdbdc536a64a33d5c40b1b661b1d4d83a521a38))
+* **shared-kernel:** add edge ID generation with tenant_id support ([#78](https://github.com/openshift-hyperfleet/kartograph/issues/78)) ([3135935](https://github.com/openshift-hyperfleet/kartograph/commit/31359355269ef4759f54eff30a5133eae97702d6))
+
+## [0.9.2](https://github.com/openshift-hyperfleet/kartograph/compare/v0.9.1...v0.9.2) (2025-12-22)
+
+
+### Bug Fixes
+
+* **graph:** support edge DELETE and UPDATE operations ([#77](https://github.com/openshift-hyperfleet/kartograph/issues/77)) ([28a5a24](https://github.com/openshift-hyperfleet/kartograph/commit/28a5a24752e50351981606068f1757edcb915e95))
+
+## [0.9.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.9.0...v0.9.1) (2025-12-19)
+
+
+### Documentation
+
+* **website:** add MCP server guide and fix all internal links ([#69](https://github.com/openshift-hyperfleet/kartograph/issues/69)) ([354d40a](https://github.com/openshift-hyperfleet/kartograph/commit/354d40a161241e3c7a17a9e9ea330215936231db))
+
+## [0.9.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.8.0...v0.9.0) (2025-12-19)
+
+
+### Features
+
+* **api.query:** add schema discovery MCP resources ([#67](https://github.com/openshift-hyperfleet/kartograph/issues/67)) ([cf90067](https://github.com/openshift-hyperfleet/kartograph/commit/cf90067c03f0d300cc9012914ffff16dd4dc478c))
+
+## [0.8.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.7.0...v0.8.0) (2025-12-19)
+
+
+### Features
+
+* **api:** add shared kernel with EntityIdGenerator for cross-context ID consistency ([#65](https://github.com/openshift-hyperfleet/kartograph/issues/65)) ([6f039cd](https://github.com/openshift-hyperfleet/kartograph/commit/6f039cd85163fbbb4e1b356f0969c333c483c946))
+
+## [0.7.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.6.0...v0.7.0) (2025-12-18)
+
+
+### Features
+
+* **api.graph:** add ontology endpoints ([#61](https://github.com/openshift-hyperfleet/kartograph/issues/61)) ([72e0eb4](https://github.com/openshift-hyperfleet/kartograph/commit/72e0eb42e56690221a00f8297f16a3d879532689))
+
+## [0.6.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.5.0...v0.6.0) (2025-12-17)
+
+
+### Features
+
+* add ThreadedConnectionPool for thread-safe database access ([#59](https://github.com/openshift-hyperfleet/kartograph/issues/59)) ([7c55483](https://github.com/openshift-hyperfleet/kartograph/commit/7c554834debf3a46a1333d52bdec3edb0cd750cd))
+
+## [0.5.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.4.1...v0.5.0) (2025-12-17)
+
+
+### Features
+
+* add MCP Cypher query tool (tracer bullet) ([#57](https://github.com/openshift-hyperfleet/kartograph/issues/57)) ([04556ad](https://github.com/openshift-hyperfleet/kartograph/commit/04556adc9790dc4a0bf507d5946dd835cd44ce93))
+
+## [0.4.1](https://github.com/openshift-hyperfleet/kartograph/compare/v0.4.0...v0.4.1) (2025-12-16)
+
+
+### Bug Fixes
+
+* **deps:** update astro monorepo ([#53](https://github.com/openshift-hyperfleet/kartograph/issues/53)) ([651e2ed](https://github.com/openshift-hyperfleet/kartograph/commit/651e2ed232395ef4b78e36545fd462f113dc404a))
+
 ## [0.4.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.3.1...v0.4.0) (2025-12-16)
 
 

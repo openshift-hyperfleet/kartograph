@@ -4,10 +4,43 @@ These tests use mocks to test the client logic without requiring a database.
 """
 
 import pytest
+from psycopg2 import sql
 
 from graph.infrastructure.age_client import AgeGraphClient
+from graph.infrastructure.cypher_utils import generate_cypher_nonce
 from graph.infrastructure.exceptions import InsecureCypherQueryError
 from infrastructure.database.exceptions import DatabaseConnectionError
+
+
+def composable_to_string(composed: sql.Composable) -> str:
+    """Convert a sql.Composable to a string for testing purposes.
+
+    This handles sql.Composed, sql.SQL, sql.Literal, and sql.Identifier objects
+    without requiring a real database connection. Uses public psycopg2 attributes.
+
+    Args:
+        composed: A psycopg2 sql.Composable object
+
+    Returns:
+        A string representation of the composed SQL
+    """
+    if isinstance(composed, sql.Composed):
+        return "".join(composable_to_string(part) for part in composed.seq)
+    elif isinstance(composed, sql.SQL):
+        # Use public .string attribute
+        return composed.string
+    elif isinstance(composed, sql.Literal):
+        # Use public .wrapped attribute
+        val = composed.wrapped
+        if isinstance(val, str):
+            return repr(val)  # Returns 'value' with quotes
+        return str(val)
+    elif isinstance(composed, sql.Identifier):
+        # Use public .strings attribute (tuple of identifier parts)
+        parts = composed.strings
+        return '"' + ".".join(parts) + '"'
+    else:
+        return str(composed)
 
 
 class TestAgeGraphClientInit:
@@ -51,20 +84,24 @@ class TestCypherSqlWrapping:
         """Should wrap Cypher query in AGE SQL format."""
         client = AgeGraphClient(mock_db_settings)
 
-        sql = client._build_cypher_sql("MATCH (n) RETURN n")
+        sql_obj = client._build_cypher_sql("MATCH (n) RETURN n")
+        # Convert sql.Composable to string for assertions
+        sql_str = composable_to_string(sql_obj)
 
-        assert "cypher(" in sql
-        assert "MATCH (n) RETURN n" in sql
-        assert "agtype" in sql
+        assert "cypher(" in sql_str
+        assert "MATCH (n) RETURN n" in sql_str
+        assert "agtype" in sql_str
 
     def test_build_cypher_sql_includes_graph_name_placeholder(self, mock_db_settings):
         """SQL should include placeholder for graph name parameter."""
         client = AgeGraphClient(mock_db_settings)
 
-        sql = client._build_cypher_sql("CREATE (n:Node)")
+        sql_obj = client._build_cypher_sql("CREATE (n:Node)")
+        # Convert sql.Composable to string for assertions
+        sql_str = composable_to_string(sql_obj)
 
-        # Should use parameter placeholder for graph name
-        assert "%s" in sql or "?" in sql or client.graph_name in sql
+        # The graph name should be embedded in the SQL (as a literal)
+        assert client.graph_name in sql_str
 
 
 class TestNonceGeneration:
@@ -72,22 +109,19 @@ class TestNonceGeneration:
 
     def test_generate_nonce_returns_64_characters(self, mock_db_settings):
         """Nonce should be exactly 64 characters long."""
-        client = AgeGraphClient(mock_db_settings)
-        nonce = client._generate_nonce()
+        nonce = generate_cypher_nonce()
 
         assert len(nonce) == 64
 
     def test_generate_nonce_contains_only_letters(self, mock_db_settings):
         """Nonce should contain only ASCII letters."""
-        client = AgeGraphClient(mock_db_settings)
-        nonce = client._generate_nonce()
+        nonce = generate_cypher_nonce()
 
         assert nonce.isalpha()
 
     def test_generate_nonce_is_unique(self, mock_db_settings):
         """Each call should generate a different nonce."""
-        client = AgeGraphClient(mock_db_settings)
-        nonces = [client._generate_nonce() for _ in range(100)]
+        nonces = [generate_cypher_nonce() for _ in range(100)]
 
         # All nonces should be unique
         assert len(set(nonces)) == 100
@@ -99,28 +133,32 @@ class TestSecureCypherSql:
     def test_build_secure_cypher_sql_wraps_query(self, mock_db_settings):
         """Should wrap Cypher query in AGE SQL format."""
         client = AgeGraphClient(mock_db_settings)
-        sql = client.build_secure_cypher_sql(
+        sql_obj = client.build_secure_cypher_sql(
             graph_name="test_graph",
             query="MATCH (n) RETURN n",
         )
+        # Convert sql.Composable to string for assertions
+        sql_str = composable_to_string(sql_obj)
 
-        assert "cypher(" in sql
-        assert "MATCH (n) RETURN n" in sql
-        assert "agtype" in sql
-        assert "test_graph" in sql
+        assert "cypher(" in sql_str
+        assert "MATCH (n) RETURN n" in sql_str
+        assert "agtype" in sql_str
+        assert "test_graph" in sql_str
 
     def test_build_secure_cypher_sql_uses_unique_tag(self, mock_db_settings):
         """Should use a unique tag instead of $$."""
         client = AgeGraphClient(mock_db_settings)
-        sql = client.build_secure_cypher_sql(
+        sql_obj = client.build_secure_cypher_sql(
             graph_name="test_graph",
             query="MATCH (n) RETURN n",
         )
+        # Convert sql.Composable to string for assertions
+        sql_str = composable_to_string(sql_obj)
 
         # Should not use bare $$ tags
-        assert "$$" not in sql
+        assert "$$" not in sql_str
         # Should have $ characters for the tag
-        assert "$" in sql
+        assert "$" in sql_str
 
     def test_build_secure_cypher_sql_with_custom_nonce_generator(
         self, mock_db_settings
@@ -129,13 +167,15 @@ class TestSecureCypherSql:
         client = AgeGraphClient(mock_db_settings)
         custom_nonce = "customnonce123"
 
-        sql = client.build_secure_cypher_sql(
+        sql_obj = client.build_secure_cypher_sql(
             graph_name="test_graph",
             query="MATCH (n) RETURN n",
             nonce_generator=lambda: custom_nonce,
         )
+        # Convert sql.Composable to string for assertions
+        sql_str = composable_to_string(sql_obj)
 
-        assert f"${custom_nonce}$" in sql
+        assert f"${custom_nonce}$" in sql_str
 
     def test_build_secure_cypher_sql_raises_on_nonce_in_query(self, mock_db_settings):
         """Should raise InsecureCypherQueryError if nonce appears in query."""
@@ -157,21 +197,24 @@ class TestSecureCypherSql:
         self, mock_db_settings
     ):
         """Each query should get a unique tag."""
-        client = AgeGraphClient(mock_db_settings)
-        sql1 = client.build_secure_cypher_sql(
-            graph_name="test_graph",
-            query="MATCH (n) RETURN n",
-        )
-        sql2 = client.build_secure_cypher_sql(
-            graph_name="test_graph",
-            query="MATCH (n) RETURN n",
-        )
-
-        # Extract the tag from each SQL (between first $ and next $)
         import re
 
-        tags1 = re.findall(r"\$([a-zA-Z]+)\$", sql1)
-        tags2 = re.findall(r"\$([a-zA-Z]+)\$", sql2)
+        client = AgeGraphClient(mock_db_settings)
+        sql_obj1 = client.build_secure_cypher_sql(
+            graph_name="test_graph",
+            query="MATCH (n) RETURN n",
+        )
+        sql_obj2 = client.build_secure_cypher_sql(
+            graph_name="test_graph",
+            query="MATCH (n) RETURN n",
+        )
+        # Convert sql.Composable to string for assertions
+        sql_str1 = composable_to_string(sql_obj1)
+        sql_str2 = composable_to_string(sql_obj2)
+
+        # Extract the tag from each SQL (between first $ and next $)
+        tags1 = re.findall(r"\$([a-zA-Z]+)\$", sql_str1)
+        tags2 = re.findall(r"\$([a-zA-Z]+)\$", sql_str2)
 
         assert len(tags1) >= 1
         assert len(tags2) >= 1
@@ -185,9 +228,11 @@ class TestSecureCypherSql:
         client = AgeGraphClient(mock_db_settings)
         query_with_special = "MATCH (n) WHERE n.name = 'O\\'Brien' RETURN n"
 
-        sql = client.build_secure_cypher_sql(
+        sql_obj = client.build_secure_cypher_sql(
             graph_name="test_graph",
             query=query_with_special,
         )
+        # Convert sql.Composable to string for assertions
+        sql_str = composable_to_string(sql_obj)
 
-        assert query_with_special in sql
+        assert query_with_special in sql_str

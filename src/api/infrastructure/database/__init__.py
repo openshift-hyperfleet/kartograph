@@ -1,5 +1,6 @@
 """Database infrastructure - shared connection primitives."""
 
+from infrastructure.database.engines import build_async_url
 from infrastructure.database.exceptions import (
     DatabaseConnectionError,
     DatabaseError,
@@ -8,6 +9,7 @@ from infrastructure.database.exceptions import (
 )
 
 __all__ = [
+    "build_async_url",
     "DatabaseConnectionError",
     "DatabaseError",
     "GraphQueryError",

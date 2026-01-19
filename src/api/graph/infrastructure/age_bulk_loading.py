@@ -21,8 +21,10 @@ from typing import Any
 from psycopg2 import sql
 
 from graph.domain.value_objects import EntityType, MutationOperation, MutationResult
+from graph.infrastructure.observability import DefaultAgeBulkLoadingProbe
+from graph.ports.age_bulk_loading_probe import AgeBulkLoadingProbe
 from graph.ports.observability import MutationProbe
-from graph.ports.protocols import GraphClientProtocol, GraphIndexingProtocol
+from graph.ports.protocols import GraphClientProtocol, TransactionalIndexingProtocol
 
 
 # Label name validation regex: only alphanumeric, underscore, must start with letter or underscore
@@ -101,134 +103,184 @@ def escape_copy_value(value: str) -> str:
     return result
 
 
-def create_label_indexes(
-    cursor: Any,
-    graph_name: str,
-    label: str,
-    entity_type: EntityType,
-) -> int:
-    """Create indexes for a label using the provided cursor (within transaction).
+class AgeIndexingStrategy:
+    """Apache AGE implementation of TransactionalIndexingProtocol.
 
-    This creates the same indexes as AGE client's ensure_indexes_for_label,
-    but uses the provided cursor to stay within the current transaction.
-    This is critical for performance when creating new labels during bulk loading.
+    Creates PostgreSQL indexes optimized for AGE graph operations:
+    - BTREE on id column (graphid) for fast vertex/edge lookups
+    - GIN on properties column for property-based Cypher queries
+    - BTREE on properties.id for logical ID lookups via direct SQL
+    - For edges: BTREE on start_id and end_id for join performance
 
-    Args:
-        cursor: Database cursor (within transaction)
-        graph_name: Graph name (schema)
-        label: Label name (table)
-        entity_type: EntityType.NODE or EntityType.EDGE
+    All indexes are created within the caller's transaction for atomicity.
 
-    Returns:
-        Number of indexes created
-
-    Raises:
-        ValueError: If graph_name or label are invalid
+    References:
+        - https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/generative-ai-age-performance
+        - https://github.com/apache/age/issues/2176
     """
-    # Defense in depth: validate inputs even though callers should pre-validate
-    validate_label_name(graph_name)
-    validate_label_name(label)
 
-    if not isinstance(entity_type, EntityType):
-        raise ValueError(
-            f"Invalid entity_type '{entity_type}': must be EntityType.NODE or EntityType.EDGE"
-        )
+    def create_label_indexes(
+        self,
+        cursor: Any,
+        graph_name: str,
+        label: str,
+        entity_type: EntityType,
+    ) -> int:
+        """Create indexes for a label using the provided cursor (within transaction).
 
-    indexes = []
+        Args:
+            cursor: Database cursor (within transaction)
+            graph_name: Graph name (schema)
+            label: Label name (table)
+            entity_type: EntityType.NODE or EntityType.EDGE
 
-    # BTREE on id column (graphid) - critical for all labels
-    indexes.append(
-        {
-            "name": f"idx_{graph_name}_{label}_id_btree",
-            "sql": sql.SQL(
-                "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE (id)"
-            ).format(
-                sql.Identifier(f"idx_{graph_name}_{label}_id_btree"),
-                sql.Identifier(graph_name),
-                sql.Identifier(label),
-            ),
-        }
-    )
+        Returns:
+            Number of indexes created
 
-    # GIN on properties column - for property-based queries
-    indexes.append(
-        {
-            "name": f"idx_{graph_name}_{label}_props_gin",
-            "sql": sql.SQL(
-                "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING GIN (properties)"
-            ).format(
-                sql.Identifier(f"idx_{graph_name}_{label}_props_gin"),
-                sql.Identifier(graph_name),
-                sql.Identifier(label),
-            ),
-        }
-    )
+        Raises:
+            ValueError: If graph_name, label, or entity_type are invalid
+        """
+        # Defense in depth: validate inputs even though callers should pre-validate
+        validate_label_name(graph_name)
+        validate_label_name(label)
 
-    # BTREE on properties.id - for logical ID lookups (CRITICAL for performance)
-    # IMPORTANT: Must use agtype_object_field_text_agtype to match the function
-    # used in UPDATE/INSERT WHERE clauses, otherwise PostgreSQL won't use the index
-    indexes.append(
-        {
-            "name": f"idx_{graph_name}_{label}_prop_id_text_btree",
-            "sql": sql.SQL(
-                "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE ("
-                "ag_catalog.agtype_object_field_text_agtype(properties, "
-                "'\"id\"'::ag_catalog.agtype))"
-            ).format(
-                sql.Identifier(f"idx_{graph_name}_{label}_prop_id_text_btree"),
-                sql.Identifier(graph_name),
-                sql.Identifier(label),
-            ),
-        }
-    )
+        if not isinstance(entity_type, EntityType):
+            raise ValueError(
+                f"Invalid entity_type '{entity_type}': must be EntityType.NODE or EntityType.EDGE"
+            )
 
-    # Edge-specific indexes
-    if entity_type == EntityType.EDGE:
-        # BTREE on start_id - for join performance
+        indexes = self._build_index_definitions(graph_name, label, entity_type)
+        return self._create_missing_indexes(cursor, graph_name, indexes)
+
+    def _build_index_definitions(
+        self,
+        graph_name: str,
+        label: str,
+        entity_type: EntityType,
+    ) -> list[dict[str, Any]]:
+        """Build the list of index definitions for a label.
+
+        Args:
+            graph_name: Graph name (schema)
+            label: Label name (table)
+            entity_type: EntityType.NODE or EntityType.EDGE
+
+        Returns:
+            List of index definitions with 'name' and 'sql' keys
+        """
+        indexes = []
+
+        # BTREE on id column (graphid) - critical for all labels
         indexes.append(
             {
-                "name": f"idx_{graph_name}_{label}_start_id_btree",
+                "name": f"idx_{graph_name}_{label}_id_btree",
                 "sql": sql.SQL(
-                    "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE (start_id)"
+                    "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE (id)"
                 ).format(
-                    sql.Identifier(f"idx_{graph_name}_{label}_start_id_btree"),
-                    sql.Identifier(graph_name),
-                    sql.Identifier(label),
-                ),
-            }
-        )
-        # BTREE on end_id - for join performance
-        indexes.append(
-            {
-                "name": f"idx_{graph_name}_{label}_end_id_btree",
-                "sql": sql.SQL(
-                    "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE (end_id)"
-                ).format(
-                    sql.Identifier(f"idx_{graph_name}_{label}_end_id_btree"),
+                    sql.Identifier(f"idx_{graph_name}_{label}_id_btree"),
                     sql.Identifier(graph_name),
                     sql.Identifier(label),
                 ),
             }
         )
 
-    created = 0
-    for idx in indexes:
-        # Check if index already exists
-        cursor.execute(
-            """
-            SELECT 1 FROM pg_indexes
-            WHERE schemaname = %s AND indexname = %s
-            """,
-            (graph_name, idx["name"]),
+        # GIN on properties column - for property-based queries
+        indexes.append(
+            {
+                "name": f"idx_{graph_name}_{label}_props_gin",
+                "sql": sql.SQL(
+                    "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING GIN (properties)"
+                ).format(
+                    sql.Identifier(f"idx_{graph_name}_{label}_props_gin"),
+                    sql.Identifier(graph_name),
+                    sql.Identifier(label),
+                ),
+            }
         )
-        if cursor.fetchone() is not None:
-            continue
 
-        # Create the index
-        cursor.execute(idx["sql"])
-        created += 1
+        # BTREE on properties.id - for logical ID lookups (CRITICAL for performance)
+        # IMPORTANT: Must use agtype_object_field_text_agtype to match the function
+        # used in UPDATE/INSERT WHERE clauses, otherwise PostgreSQL won't use the index
+        indexes.append(
+            {
+                "name": f"idx_{graph_name}_{label}_prop_id_text_btree",
+                "sql": sql.SQL(
+                    "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE ("
+                    "ag_catalog.agtype_object_field_text_agtype(properties, "
+                    "'\"id\"'::ag_catalog.agtype))"
+                ).format(
+                    sql.Identifier(f"idx_{graph_name}_{label}_prop_id_text_btree"),
+                    sql.Identifier(graph_name),
+                    sql.Identifier(label),
+                ),
+            }
+        )
 
-    return created
+        # Edge-specific indexes
+        if entity_type == EntityType.EDGE:
+            # BTREE on start_id - for join performance
+            indexes.append(
+                {
+                    "name": f"idx_{graph_name}_{label}_start_id_btree",
+                    "sql": sql.SQL(
+                        "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE (start_id)"
+                    ).format(
+                        sql.Identifier(f"idx_{graph_name}_{label}_start_id_btree"),
+                        sql.Identifier(graph_name),
+                        sql.Identifier(label),
+                    ),
+                }
+            )
+            # BTREE on end_id - for join performance
+            indexes.append(
+                {
+                    "name": f"idx_{graph_name}_{label}_end_id_btree",
+                    "sql": sql.SQL(
+                        "CREATE INDEX IF NOT EXISTS {} ON {}.{} USING BTREE (end_id)"
+                    ).format(
+                        sql.Identifier(f"idx_{graph_name}_{label}_end_id_btree"),
+                        sql.Identifier(graph_name),
+                        sql.Identifier(label),
+                    ),
+                }
+            )
+
+        return indexes
+
+    def _create_missing_indexes(
+        self,
+        cursor: Any,
+        graph_name: str,
+        indexes: list[dict[str, Any]],
+    ) -> int:
+        """Create indexes that don't already exist.
+
+        Args:
+            cursor: Database cursor (within transaction)
+            graph_name: Graph name (schema) for checking existing indexes
+            indexes: List of index definitions with 'name' and 'sql' keys
+
+        Returns:
+            Number of indexes created
+        """
+        created = 0
+        for idx in indexes:
+            # Check if index already exists
+            cursor.execute(
+                """
+                SELECT 1 FROM pg_indexes
+                WHERE schemaname = %s AND indexname = %s
+                """,
+                (graph_name, idx["name"]),
+            )
+            if cursor.fetchone() is not None:
+                continue
+
+            # Create the index
+            cursor.execute(idx["sql"])
+            created += 1
+
+        return created
 
 
 class StagingTableManager:
@@ -367,43 +419,141 @@ class StagingTableManager:
         cursor.execute(query)
         return [row[0] for row in cursor.fetchall()]
 
-    def resolve_edge_graphids(
-        self, cursor: Any, table_name: str, graph_name: str
-    ) -> None:
-        """Resolve start_id and end_id to graphids in two separate batch operations.
+    def create_label_index(self, cursor: Any, table_name: str) -> None:
+        """Create an index on the label column for faster WHERE label = X queries.
 
-        This updates the staging table's start_graphid and end_graphid columns
-        by looking up the actual graphids from _ag_label_vertex. Using two
-        separate UPDATEs avoids a cartesian product when joining on both
-        start and end IDs simultaneously.
+        This is a critical performance optimization. Without this index, every
+        INSERT/UPDATE that filters by label does a full sequential scan of the
+        entire staging table. With many labels, this means scanning the table
+        N times where N = number of labels.
 
-        Edges with unresolvable node IDs will have NULL graphids and be
-        detected by check_for_orphaned_edges.
+        Args:
+            cursor: Database cursor
+            table_name: Staging table name
         """
-        # Resolve start_graphid separately to avoid cartesian join
-        query = sql.SQL(
-            """
-            UPDATE {} AS s
-            SET start_graphid = v.id
-            FROM {}._ag_label_vertex AS v
-            WHERE ag_catalog.agtype_object_field_text_agtype(
-                      v.properties, '"id"'::ag_catalog.agtype
-                  ) = s.start_id
-            """
-        ).format(sql.Identifier(table_name), sql.Identifier(graph_name))
+        index_name = f"{table_name}_label_idx"
+        query = sql.SQL("CREATE INDEX {} ON {} (label)").format(
+            sql.Identifier(index_name),
+            sql.Identifier(table_name),
+        )
         cursor.execute(query)
 
-        # Resolve end_graphid separately to avoid cartesian join
+    def create_edge_resolution_indexes(self, cursor: Any, table_name: str) -> None:
+        """Create indexes on start_id and end_id for faster graphid resolution.
+
+        During edge creation, we need to resolve logical node IDs (start_id, end_id)
+        to graphids by joining against _ag_label_vertex. Without indexes on the
+        staging table, these UPDATE...FROM...WHERE joins are very slow.
+
+        Args:
+            cursor: Database cursor
+            table_name: Edge staging table name
+        """
+        # Index on start_id for the first resolution query
+        query = sql.SQL("CREATE INDEX {} ON {} (start_id)").format(
+            sql.Identifier(f"{table_name}_start_id_idx"),
+            sql.Identifier(table_name),
+        )
+        cursor.execute(query)
+
+        # Index on end_id for the second resolution query
+        query = sql.SQL("CREATE INDEX {} ON {} (end_id)").format(
+            sql.Identifier(f"{table_name}_end_id_idx"),
+            sql.Identifier(table_name),
+        )
+        cursor.execute(query)
+
+    def create_graphid_lookup_table(
+        self, cursor: Any, graph_name: str, session_id: str
+    ) -> tuple[str, int]:
+        """Create a temporary lookup table for fast graphid resolution.
+
+        Instead of joining against _ag_label_vertex (which scans all inherited
+        label tables), we build a flat temp table with just (logical_id, graphid).
+        This avoids the overhead of table inheritance during edge resolution.
+
+        Args:
+            cursor: Database cursor
+            graph_name: Graph name (schema)
+            session_id: Unique session identifier for table naming
+
+        Returns:
+            Tuple of (table_name, row_count)
+        """
+        lookup_table = f"_graphid_lookup_{session_id}"
+
+        # Create temp table with logical_id -> graphid mapping from all nodes
+        # Using SELECT INTO for a single-pass operation
+        query = sql.SQL(
+            """
+            CREATE TEMP TABLE {} AS
+            SELECT
+                ag_catalog.agtype_object_field_text_agtype(
+                    properties, '"id"'::ag_catalog.agtype
+                ) AS logical_id,
+                id AS graphid
+            FROM {}._ag_label_vertex
+            """
+        ).format(sql.Identifier(lookup_table), sql.Identifier(graph_name))
+        cursor.execute(query)
+
+        # Get row count
+        cursor.execute(
+            sql.SQL("SELECT COUNT(*) FROM {}").format(sql.Identifier(lookup_table))
+        )
+        row_count = cursor.fetchone()[0]
+
+        # Create index on logical_id for fast lookups
+        query = sql.SQL("CREATE INDEX {} ON {} (logical_id)").format(
+            sql.Identifier(f"{lookup_table}_logical_id_idx"),
+            sql.Identifier(lookup_table),
+        )
+        cursor.execute(query)
+
+        return lookup_table, row_count
+
+    def resolve_edge_graphids(
+        self,
+        cursor: Any,
+        table_name: str,
+        lookup_table: str,
+    ) -> None:
+        """Resolve start_id and end_id to graphids using a lookup table.
+
+        This updates the staging table's start_graphid and end_graphid columns
+        by joining against a pre-built lookup table (instead of _ag_label_vertex).
+        Using two separate UPDATEs avoids a cartesian product when joining on
+        both start and end IDs simultaneously.
+
+        Args:
+            cursor: Database cursor
+            table_name: Edge staging table name
+            lookup_table: Graphid lookup table name (from create_graphid_lookup_table)
+
+        Note:
+            Edges with unresolvable node IDs will have NULL graphids and be
+            detected by check_for_orphaned_edges.
+        """
+        # Resolve start_graphid using lookup table
         query = sql.SQL(
             """
             UPDATE {} AS s
-            SET end_graphid = v.id
-            FROM {}._ag_label_vertex AS v
-            WHERE ag_catalog.agtype_object_field_text_agtype(
-                      v.properties, '"id"'::ag_catalog.agtype
-                  ) = s.end_id
+            SET start_graphid = lk.graphid
+            FROM {} AS lk
+            WHERE lk.logical_id = s.start_id
             """
-        ).format(sql.Identifier(table_name), sql.Identifier(graph_name))
+        ).format(sql.Identifier(table_name), sql.Identifier(lookup_table))
+        cursor.execute(query)
+
+        # Resolve end_graphid using lookup table
+        query = sql.SQL(
+            """
+            UPDATE {} AS s
+            SET end_graphid = lk.graphid
+            FROM {} AS lk
+            WHERE lk.logical_id = s.end_id
+            """
+        ).format(sql.Identifier(table_name), sql.Identifier(lookup_table))
         cursor.execute(query)
 
     def check_for_orphaned_edges(
@@ -503,11 +653,13 @@ class AgeBulkLoadingStrategy:
 
     def __init__(
         self,
-        indexing_client: GraphIndexingProtocol | None = None,
+        indexing_strategy: TransactionalIndexingProtocol | None = None,
         batch_size: int | None = None,
+        bulk_loading_probe: AgeBulkLoadingProbe | None = None,
     ):
-        self._indexing_client = indexing_client
+        self._indexing_strategy = indexing_strategy or AgeIndexingStrategy()
         self._batch_size = batch_size or self.DEFAULT_BATCH_SIZE
+        self._bulk_probe = bulk_loading_probe or DefaultAgeBulkLoadingProbe()
 
     def apply_batch(
         self,
@@ -544,11 +696,7 @@ class AgeBulkLoadingStrategy:
             ]
             update_ops = [op for op in operations if op.op == "UPDATE"]
 
-            # Phase 1: Ensure indexes exist
-            if self._indexing_client is not None:
-                self._indexing_client.ensure_all_labels_indexed()
-
-            # Phase 2: Execute all operations in a single transaction
+            # Execute all operations in a single transaction
             conn = client.raw_connection
             total_batches = 0
 
@@ -655,6 +803,77 @@ class AgeBulkLoadingStrategy:
             return None
         return (row[0], row[1])
 
+    def _get_existing_labels(self, cursor: Any, graph_name: str) -> set[str]:
+        """Get all existing label names in the graph.
+
+        Returns:
+            Set of label names that already exist
+        """
+        cursor.execute(
+            """
+            SELECT l.name
+            FROM ag_catalog.ag_label l
+            JOIN ag_catalog.ag_graph g ON l.graph = g.graphid
+            WHERE g.name = %s
+            AND l.name NOT LIKE '_ag_label%%'
+            """,
+            (graph_name,),
+        )
+        return {row[0] for row in cursor.fetchall()}
+
+    def _pre_create_labels_and_indexes(
+        self,
+        cursor: Any,
+        graph_name: str,
+        labels: list[str],
+        entity_type: EntityType,
+    ) -> set[str]:
+        """Pre-create all new labels and their indexes in batch.
+
+        This is a performance optimization that reduces round trips by:
+        1. Checking which labels already exist in one query
+        2. Creating all new labels in sequence
+        3. Creating all indexes for new labels in sequence
+
+        This separates label/index creation from the INSERT/UPDATE loop,
+        reducing per-label overhead during the actual data insertion.
+
+        Args:
+            cursor: Database cursor
+            graph_name: Graph name
+            labels: List of labels to ensure exist
+            entity_type: EntityType.NODE or EntityType.EDGE
+
+        Returns:
+            Set of labels that were newly created (vs already existing)
+        """
+        # Get all existing labels in one query
+        existing_labels = self._get_existing_labels(cursor, graph_name)
+
+        # Determine which labels need to be created
+        new_labels = set(labels) - existing_labels
+
+        # Create all new labels
+        for label in new_labels:
+            if entity_type == EntityType.NODE:
+                cursor.execute(
+                    "SELECT ag_catalog.create_vlabel(%s, %s)",
+                    (graph_name, label),
+                )
+            else:
+                cursor.execute(
+                    "SELECT ag_catalog.create_elabel(%s, %s)",
+                    (graph_name, label),
+                )
+
+        # Create all indexes for new labels
+        for label in new_labels:
+            self._indexing_strategy.create_label_indexes(
+                cursor, graph_name, label, entity_type
+            )
+
+        return new_labels
+
     def _execute_node_creates(
         self,
         cursor: Any,
@@ -674,37 +893,54 @@ class AgeBulkLoadingStrategy:
 
         # Create staging table and COPY data
         table_name = staging_manager.create_node_staging_table(cursor, session_id)
-        staging_manager.copy_nodes_to_staging(
+        self._bulk_probe.staging_table_created(table_name, "node")
+
+        copy_start = time.perf_counter()
+        row_count = staging_manager.copy_nodes_to_staging(
             cursor, table_name, operations, graph_name
         )
+        copy_duration = (time.perf_counter() - copy_start) * 1000
+        self._bulk_probe.staging_data_copied(
+            table_name, "node", row_count, copy_duration
+        )
+
+        # Create index on staging table's label column for faster WHERE queries
+        # This is critical: without it, every INSERT/UPDATE scans the entire staging table
+        index_start = time.perf_counter()
+        staging_manager.create_label_index(cursor, table_name)
+        index_duration = (time.perf_counter() - index_start) * 1000
+        self._bulk_probe.staging_index_created(table_name, "label", index_duration)
 
         # Check for duplicates and fail fast
+        validation_start = time.perf_counter()
         staging_manager.check_for_duplicate_ids(cursor, table_name, "node", probe)
+        self._bulk_probe.validation_completed(
+            "duplicate_ids", "node", (time.perf_counter() - validation_start) * 1000
+        )
 
-        # Process each label
+        # Get distinct labels and pre-create all new labels/indexes in batch
+        validation_start = time.perf_counter()
         labels = staging_manager.fetch_distinct_labels(cursor, table_name)
+        self._bulk_probe.validation_completed(
+            "distinct_labels", "node", (time.perf_counter() - validation_start) * 1000
+        )
 
+        labels_start = time.perf_counter()
+        new_labels = self._pre_create_labels_and_indexes(
+            cursor, graph_name, labels, EntityType.NODE
+        )
+        labels_duration = (time.perf_counter() - labels_start) * 1000
+        self._bulk_probe.labels_pre_created(
+            "node", len(labels), len(new_labels), labels_duration
+        )
+
+        # Process each label (now just INSERT/UPDATE, no label/index creation)
         for label in labels:
             batch_start = time.perf_counter()
+            is_new_label = label in new_labels
 
-            # Check if label exists, create if needed
+            # Get label info (should always exist now)
             label_info = self._get_label_info(cursor, graph_name, label)
-            is_new_label = label_info is None
-
-            if is_new_label:
-                # Label doesn't exist - create it using AGE's create_vlabel function
-                # This is faster than using Cypher CREATE which has parsing overhead
-                cursor.execute(
-                    "SELECT ag_catalog.create_vlabel(%s, %s)",
-                    (graph_name, label),
-                )
-                # Create indexes immediately for the new label (critical for performance)
-                # Without these indexes, UPDATE and INSERT queries do full table scans
-                create_label_indexes(cursor, graph_name, label, EntityType.NODE)
-                # Now get the label info
-                label_info = self._get_label_info(cursor, graph_name, label)
-                if label_info is None:
-                    raise ValueError(f"Failed to create label '{label}'")
 
             if label_info is None:
                 raise ValueError(f"Label '{label}' not found in graph '{graph_name}'")
@@ -815,43 +1051,94 @@ class AgeBulkLoadingStrategy:
 
         # Create staging table and COPY data
         table_name = staging_manager.create_edge_staging_table(cursor, session_id)
-        staging_manager.copy_edges_to_staging(
+        self._bulk_probe.staging_table_created(table_name, "edge")
+
+        copy_start = time.perf_counter()
+        row_count = staging_manager.copy_edges_to_staging(
             cursor, table_name, operations, graph_name
         )
+        copy_duration = (time.perf_counter() - copy_start) * 1000
+        self._bulk_probe.staging_data_copied(
+            table_name, "edge", row_count, copy_duration
+        )
 
-        # Pre-resolve graphids in batch operations (major performance win)
-        staging_manager.resolve_edge_graphids(cursor, table_name, graph_name)
+        # Create indexes on staging table for faster queries
+        # - label index: for WHERE label = X in INSERT/UPDATE
+        # - start_id/end_id indexes: for graphid resolution joins
+        index_start = time.perf_counter()
+        staging_manager.create_label_index(cursor, table_name)
+        label_index_duration = (time.perf_counter() - index_start) * 1000
+        self._bulk_probe.staging_index_created(
+            table_name, "label", label_index_duration
+        )
+
+        index_start = time.perf_counter()
+        staging_manager.create_edge_resolution_indexes(cursor, table_name)
+        resolution_index_duration = (time.perf_counter() - index_start) * 1000
+        self._bulk_probe.staging_index_created(
+            table_name, "start_id/end_id", resolution_index_duration
+        )
+
+        # Build a flat lookup table for graphid resolution
+        # This is much faster than querying _ag_label_vertex (which scans all inherited tables)
+        lookup_start = time.perf_counter()
+        lookup_table, lookup_row_count = staging_manager.create_graphid_lookup_table(
+            cursor, graph_name, session_id
+        )
+        lookup_duration = (time.perf_counter() - lookup_start) * 1000
+        self._bulk_probe.graphid_lookup_table_created(lookup_row_count, lookup_duration)
+
+        # Resolve graphids using the lookup table
+        resolve_start = time.perf_counter()
+        staging_manager.resolve_edge_graphids(cursor, table_name, lookup_table)
+        resolve_duration = (time.perf_counter() - resolve_start) * 1000
+
+        # Count resolved edges for the probe
+        cursor.execute(
+            sql.SQL("SELECT COUNT(*) FROM {} WHERE start_graphid IS NOT NULL").format(
+                sql.Identifier(table_name)
+            )
+        )
+        resolved_count = cursor.fetchone()[0]
+        self._bulk_probe.graphids_resolved(row_count, resolved_count, resolve_duration)
 
         # Check for orphaned edges (referencing non-existent nodes) and fail fast
+        validation_start = time.perf_counter()
         staging_manager.check_for_orphaned_edges(cursor, table_name, probe)
+        self._bulk_probe.validation_completed(
+            "orphaned_edges", "edge", (time.perf_counter() - validation_start) * 1000
+        )
 
         # Check for duplicates and fail fast
+        validation_start = time.perf_counter()
         staging_manager.check_for_duplicate_ids(cursor, table_name, "edge", probe)
+        self._bulk_probe.validation_completed(
+            "duplicate_ids", "edge", (time.perf_counter() - validation_start) * 1000
+        )
 
+        # Get distinct labels and pre-create all new labels/indexes in batch
+        validation_start = time.perf_counter()
         labels = staging_manager.fetch_distinct_labels(cursor, table_name)
+        self._bulk_probe.validation_completed(
+            "distinct_labels", "edge", (time.perf_counter() - validation_start) * 1000
+        )
 
+        labels_start = time.perf_counter()
+        new_labels = self._pre_create_labels_and_indexes(
+            cursor, graph_name, labels, EntityType.EDGE
+        )
+        labels_duration = (time.perf_counter() - labels_start) * 1000
+        self._bulk_probe.labels_pre_created(
+            "edge", len(labels), len(new_labels), labels_duration
+        )
+
+        # Process each label (now just INSERT/UPDATE, no label/index creation)
         for label in labels:
             batch_start = time.perf_counter()
+            is_new_label = label in new_labels
 
-            # Check if label exists, create if needed
+            # Get label info (should always exist now)
             label_info = self._get_label_info(cursor, graph_name, label)
-            is_new_label = label_info is None
-
-            if is_new_label:
-                # Label doesn't exist - create it using AGE's create_elabel function
-                # This is much faster than using Cypher MATCH+CREATE which requires
-                # scanning all nodes to find the start/end nodes by their id property
-                cursor.execute(
-                    "SELECT ag_catalog.create_elabel(%s, %s)",
-                    (graph_name, label),
-                )
-                # Create indexes immediately for the new label (critical for performance)
-                # Without these indexes, UPDATE and INSERT queries do full table scans
-                create_label_indexes(cursor, graph_name, label, EntityType.EDGE)
-                # Now get the label info
-                label_info = self._get_label_info(cursor, graph_name, label)
-                if label_info is None:
-                    raise ValueError(f"Failed to create edge label '{label}'")
 
             if label_info is None:
                 raise ValueError(

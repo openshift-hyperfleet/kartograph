@@ -220,7 +220,7 @@ class StagingTableManager:
         # Using SELECT INTO for a single-pass operation
         query = sql.SQL(
             """
-            CREATE TEMP TABLE {} AS
+            CREATE TEMP TABLE {} ON COMMIT DROP AS
             SELECT
                 ag_catalog.agtype_object_field_text_agtype(
                     properties, '"id"'::ag_catalog.agtype

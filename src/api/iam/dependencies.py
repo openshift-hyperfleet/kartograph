@@ -11,14 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.application.observability import (
     DefaultGroupServiceProbe,
+    DefaultTenantServiceProbe,
     DefaultUserServiceProbe,
     GroupServiceProbe,
+    TenantServiceProbe,
     UserServiceProbe,
 )
-from iam.application.services import GroupService, UserService
+from iam.application.services import GroupService, TenantService, UserService
 from iam.application.value_objects import CurrentUser
 from iam.domain.value_objects import TenantId, UserId
 from iam.infrastructure.group_repository import GroupRepository
+from iam.infrastructure.tenant_repository import TenantRepository
 from iam.infrastructure.user_repository import UserRepository
 from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.database.dependencies import get_write_session
@@ -42,6 +45,15 @@ def get_group_service_probe() -> GroupServiceProbe:
         DefaultGroupServiceProbe instance for observability
     """
     return DefaultGroupServiceProbe()
+
+
+def get_tenant_service_probe() -> TenantServiceProbe:
+    """Get TenantServiceProbe instance.
+
+    Returns:
+        DefaultTenantServiceProbe instance for observability
+    """
+    return DefaultTenantServiceProbe()
 
 
 def get_outbox_repository(
@@ -93,6 +105,22 @@ def get_group_repository(
     return GroupRepository(session=session, authz=authz, outbox=outbox)
 
 
+def get_tenant_repository(
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    outbox: Annotated[OutboxRepository, Depends(get_outbox_repository)],
+) -> TenantRepository:
+    """Get TenantRepository instance.
+
+    Args:
+        session: Async database session
+        outbox: Outbox repository for transactional outbox pattern
+
+    Returns:
+        TenantRepository instance with outbox pattern enabled
+    """
+    return TenantRepository(session=session, outbox=outbox)
+
+
 def get_user_service(
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     session: Annotated[AsyncSession, Depends(get_write_session)],
@@ -133,6 +161,30 @@ def get_group_service(
         group_repository=group_repo,
         authz=authz,
         probe=group_service_probe,
+    )
+
+
+def get_tenant_service(
+    tenant_repo: Annotated[TenantRepository, Depends(get_tenant_repository)],
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    tenant_service_probe: Annotated[
+        TenantServiceProbe, Depends(get_tenant_service_probe)
+    ],
+) -> TenantService:
+    """Get TenantService instance.
+
+    Args:
+        tenant_repo: Tenant repository (shares session via FastAPI dependency caching)
+        session: Database session for transaction management
+        tenant_service_probe: Tenant service probe for observability
+
+    Returns:
+        TenantService instance
+    """
+    return TenantService(
+        tenant_repository=tenant_repo,
+        session=session,
+        probe=tenant_service_probe,
     )
 
 

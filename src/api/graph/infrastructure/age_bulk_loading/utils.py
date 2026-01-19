@@ -81,4 +81,5 @@ def escape_copy_value(value: str) -> str:
     result = result.replace("\t", "\\t")
     result = result.replace("\n", "\\n")
     result = result.replace("\r", "\\r")
+    result = result.replace("\x00", "")
     return result

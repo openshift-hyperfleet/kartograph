@@ -21,6 +21,8 @@ from typing import Any
 from psycopg2 import sql
 
 from graph.domain.value_objects import EntityType, MutationOperation, MutationResult
+from graph.infrastructure.observability import DefaultAgeBulkLoadingProbe
+from graph.ports.age_bulk_loading_probe import AgeBulkLoadingProbe
 from graph.ports.observability import MutationProbe
 from graph.ports.protocols import GraphClientProtocol, TransactionalIndexingProtocol
 
@@ -436,6 +438,31 @@ class StagingTableManager:
         )
         cursor.execute(query)
 
+    def create_edge_resolution_indexes(self, cursor: Any, table_name: str) -> None:
+        """Create indexes on start_id and end_id for faster graphid resolution.
+
+        During edge creation, we need to resolve logical node IDs (start_id, end_id)
+        to graphids by joining against _ag_label_vertex. Without indexes on the
+        staging table, these UPDATE...FROM...WHERE joins are very slow.
+
+        Args:
+            cursor: Database cursor
+            table_name: Edge staging table name
+        """
+        # Index on start_id for the first resolution query
+        query = sql.SQL("CREATE INDEX {} ON {} (start_id)").format(
+            sql.Identifier(f"{table_name}_start_id_idx"),
+            sql.Identifier(table_name),
+        )
+        cursor.execute(query)
+
+        # Index on end_id for the second resolution query
+        query = sql.SQL("CREATE INDEX {} ON {} (end_id)").format(
+            sql.Identifier(f"{table_name}_end_id_idx"),
+            sql.Identifier(table_name),
+        )
+        cursor.execute(query)
+
     def resolve_edge_graphids(
         self, cursor: Any, table_name: str, graph_name: str
     ) -> None:
@@ -574,9 +601,11 @@ class AgeBulkLoadingStrategy:
         self,
         indexing_strategy: TransactionalIndexingProtocol | None = None,
         batch_size: int | None = None,
+        bulk_loading_probe: AgeBulkLoadingProbe | None = None,
     ):
         self._indexing_strategy = indexing_strategy or AgeIndexingStrategy()
         self._batch_size = batch_size or self.DEFAULT_BATCH_SIZE
+        self._bulk_probe = bulk_loading_probe or DefaultAgeBulkLoadingProbe()
 
     def apply_batch(
         self,
@@ -810,21 +839,36 @@ class AgeBulkLoadingStrategy:
 
         # Create staging table and COPY data
         table_name = staging_manager.create_node_staging_table(cursor, session_id)
-        staging_manager.copy_nodes_to_staging(
+        self._bulk_probe.staging_table_created(table_name, "node")
+
+        copy_start = time.perf_counter()
+        row_count = staging_manager.copy_nodes_to_staging(
             cursor, table_name, operations, graph_name
+        )
+        copy_duration = (time.perf_counter() - copy_start) * 1000
+        self._bulk_probe.staging_data_copied(
+            table_name, "node", row_count, copy_duration
         )
 
         # Create index on staging table's label column for faster WHERE queries
         # This is critical: without it, every INSERT/UPDATE scans the entire staging table
+        index_start = time.perf_counter()
         staging_manager.create_label_index(cursor, table_name)
+        index_duration = (time.perf_counter() - index_start) * 1000
+        self._bulk_probe.staging_index_created(table_name, "label", index_duration)
 
         # Check for duplicates and fail fast
         staging_manager.check_for_duplicate_ids(cursor, table_name, "node", probe)
 
         # Get distinct labels and pre-create all new labels/indexes in batch
         labels = staging_manager.fetch_distinct_labels(cursor, table_name)
+        labels_start = time.perf_counter()
         new_labels = self._pre_create_labels_and_indexes(
             cursor, graph_name, labels, EntityType.NODE
+        )
+        labels_duration = (time.perf_counter() - labels_start) * 1000
+        self._bulk_probe.labels_pre_created(
+            "node", len(labels), len(new_labels), labels_duration
         )
 
         # Process each label (now just INSERT/UPDATE, no label/index creation)
@@ -944,16 +988,47 @@ class AgeBulkLoadingStrategy:
 
         # Create staging table and COPY data
         table_name = staging_manager.create_edge_staging_table(cursor, session_id)
-        staging_manager.copy_edges_to_staging(
+        self._bulk_probe.staging_table_created(table_name, "edge")
+
+        copy_start = time.perf_counter()
+        row_count = staging_manager.copy_edges_to_staging(
             cursor, table_name, operations, graph_name
         )
+        copy_duration = (time.perf_counter() - copy_start) * 1000
+        self._bulk_probe.staging_data_copied(
+            table_name, "edge", row_count, copy_duration
+        )
 
-        # Create index on staging table's label column for faster WHERE queries
-        # This is critical: without it, every INSERT/UPDATE scans the entire staging table
+        # Create indexes on staging table for faster queries
+        # - label index: for WHERE label = X in INSERT/UPDATE
+        # - start_id/end_id indexes: for graphid resolution joins
+        index_start = time.perf_counter()
         staging_manager.create_label_index(cursor, table_name)
+        label_index_duration = (time.perf_counter() - index_start) * 1000
+        self._bulk_probe.staging_index_created(
+            table_name, "label", label_index_duration
+        )
+
+        index_start = time.perf_counter()
+        staging_manager.create_edge_resolution_indexes(cursor, table_name)
+        resolution_index_duration = (time.perf_counter() - index_start) * 1000
+        self._bulk_probe.staging_index_created(
+            table_name, "start_id/end_id", resolution_index_duration
+        )
 
         # Pre-resolve graphids in batch operations (major performance win)
+        resolve_start = time.perf_counter()
         staging_manager.resolve_edge_graphids(cursor, table_name, graph_name)
+        resolve_duration = (time.perf_counter() - resolve_start) * 1000
+
+        # Count resolved edges for the probe
+        cursor.execute(
+            sql.SQL("SELECT COUNT(*) FROM {} WHERE start_graphid IS NOT NULL").format(
+                sql.Identifier(table_name)
+            )
+        )
+        resolved_count = cursor.fetchone()[0]
+        self._bulk_probe.graphids_resolved(row_count, resolved_count, resolve_duration)
 
         # Check for orphaned edges (referencing non-existent nodes) and fail fast
         staging_manager.check_for_orphaned_edges(cursor, table_name, probe)
@@ -963,8 +1038,13 @@ class AgeBulkLoadingStrategy:
 
         # Get distinct labels and pre-create all new labels/indexes in batch
         labels = staging_manager.fetch_distinct_labels(cursor, table_name)
+        labels_start = time.perf_counter()
         new_labels = self._pre_create_labels_and_indexes(
             cursor, graph_name, labels, EntityType.EDGE
+        )
+        labels_duration = (time.perf_counter() - labels_start) * 1000
+        self._bulk_probe.labels_pre_created(
+            "edge", len(labels), len(new_labels), labels_duration
         )
 
         # Process each label (now just INSERT/UPDATE, no label/index creation)

@@ -912,10 +912,19 @@ class AgeBulkLoadingStrategy:
         self._bulk_probe.staging_index_created(table_name, "label", index_duration)
 
         # Check for duplicates and fail fast
+        validation_start = time.perf_counter()
         staging_manager.check_for_duplicate_ids(cursor, table_name, "node", probe)
+        self._bulk_probe.validation_completed(
+            "duplicate_ids", "node", (time.perf_counter() - validation_start) * 1000
+        )
 
         # Get distinct labels and pre-create all new labels/indexes in batch
+        validation_start = time.perf_counter()
         labels = staging_manager.fetch_distinct_labels(cursor, table_name)
+        self._bulk_probe.validation_completed(
+            "distinct_labels", "node", (time.perf_counter() - validation_start) * 1000
+        )
+
         labels_start = time.perf_counter()
         new_labels = self._pre_create_labels_and_indexes(
             cursor, graph_name, labels, EntityType.NODE
@@ -1094,13 +1103,26 @@ class AgeBulkLoadingStrategy:
         self._bulk_probe.graphids_resolved(row_count, resolved_count, resolve_duration)
 
         # Check for orphaned edges (referencing non-existent nodes) and fail fast
+        validation_start = time.perf_counter()
         staging_manager.check_for_orphaned_edges(cursor, table_name, probe)
+        self._bulk_probe.validation_completed(
+            "orphaned_edges", "edge", (time.perf_counter() - validation_start) * 1000
+        )
 
         # Check for duplicates and fail fast
+        validation_start = time.perf_counter()
         staging_manager.check_for_duplicate_ids(cursor, table_name, "edge", probe)
+        self._bulk_probe.validation_completed(
+            "duplicate_ids", "edge", (time.perf_counter() - validation_start) * 1000
+        )
 
         # Get distinct labels and pre-create all new labels/indexes in batch
+        validation_start = time.perf_counter()
         labels = staging_manager.fetch_distinct_labels(cursor, table_name)
+        self._bulk_probe.validation_completed(
+            "distinct_labels", "edge", (time.perf_counter() - validation_start) * 1000
+        )
+
         labels_start = time.perf_counter()
         new_labels = self._pre_create_labels_and_indexes(
             cursor, graph_name, labels, EntityType.EDGE

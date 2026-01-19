@@ -361,3 +361,17 @@ class DefaultAgeBulkLoadingProbe:
             row_count=row_count,
             duration_ms=round(duration_ms, 2),
         )
+
+    def validation_completed(
+        self,
+        validation_type: str,
+        entity_type: str,
+        duration_ms: float,
+    ) -> None:
+        """Record that a validation step completed."""
+        self._logger.debug(
+            "age_validation_completed",
+            validation_type=validation_type,
+            entity_type=entity_type,
+            duration_ms=round(duration_ms, 2),
+        )

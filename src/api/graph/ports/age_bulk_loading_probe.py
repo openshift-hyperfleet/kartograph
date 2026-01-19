@@ -129,3 +129,18 @@ class AgeBulkLoadingProbe(Protocol):
             duration_ms: Time taken to create and index the lookup table
         """
         ...
+
+    def validation_completed(
+        self,
+        validation_type: str,
+        entity_type: str,
+        duration_ms: float,
+    ) -> None:
+        """Record that a validation step completed.
+
+        Args:
+            validation_type: Type of validation ("orphaned_edges", "duplicate_ids", "distinct_labels")
+            entity_type: "node" or "edge"
+            duration_ms: Time taken for validation
+        """
+        ...

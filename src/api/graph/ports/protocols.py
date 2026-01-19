@@ -8,11 +8,14 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Iterator, Protocol, Sequence, Union
+from typing import TYPE_CHECKING, Any, Iterator, Protocol, Sequence, Union
 
 from age.models import Edge, Path, Vertex  # type: ignore
 
-from graph.domain.value_objects import EdgeRecord, NodeRecord
+from graph.domain.value_objects import EdgeRecord, EntityType, NodeRecord
+
+if TYPE_CHECKING:
+    from psycopg2.extensions import cursor as PsycopgCursor
 
 
 @dataclass(frozen=True)
@@ -163,75 +166,51 @@ class GraphClientProtocol(
         ...
 
 
-class GraphIndexingProtocol(Protocol):
-    """Protocol for graph database index management.
+class TransactionalIndexingProtocol(Protocol):
+    """Protocol for creating indexes within a database transaction.
 
-    This protocol is separate from GraphClientProtocol because index
-    management is database-specific. Apache AGE uses PostgreSQL indexes
-    (BTREE, GIN), while other graph databases (Neo4j, Neptune) have
-    different indexing mechanisms.
+    This protocol enables database-specific index creation strategies.
+    Implementations provide the appropriate indexing mechanism for their
+    database backend:
+    - Apache AGE: BTREE/GIN indexes on PostgreSQL tables
+    - Neo4j: CREATE INDEX in Cypher
+    - Neptune: OpenSearch indexes
 
-    Implementations should create indexes appropriate for their database
-    to optimize query performance.
+    Indexes are created transactionally when new labels are created,
+    ensuring atomicity with the label creation itself.
     """
 
-    @property
-    def graph_name(self) -> str:
-        """The name of the graph being operated on."""
-        ...
+    def create_label_indexes(
+        self,
+        cursor: "PsycopgCursor",
+        graph_name: str,
+        label: str,
+        entity_type: EntityType,
+    ) -> int:
+        """Create indexes for a newly created label within the current transaction.
 
-    def ensure_label_index(self, label: str) -> bool:
-        """Ensure a basic index exists on properties for a label.
+        This method is called immediately after a new label (vertex or edge type)
+        is created during bulk loading operations. Creating indexes within the
+        same transaction ensures atomicity.
 
-        Legacy method - prefer ensure_label_indexes for comprehensive indexing.
+        For nodes, implementations should create indexes optimized for:
+        - Fast lookups by internal ID (graphid)
+        - Property-based queries
+        - Logical ID lookups (properties.id)
 
-        Args:
-            label: The label name
-
-        Returns:
-            True if index was created, False if it already existed
-        """
-        ...
-
-    def ensure_labels_indexed(self, labels: set[str]) -> int:
-        """Ensure basic indexes exist for multiple labels.
-
-        Legacy method - prefer ensure_label_indexes for comprehensive indexing.
+        For edges, implementations should additionally create indexes for:
+        - Start/end node traversal (start_id, end_id)
 
         Args:
-            labels: Set of label names to index
+            cursor: Database cursor within an active transaction
+            graph_name: The graph/schema name
+            label: The label name (must be pre-validated)
+            entity_type: EntityType.NODE or EntityType.EDGE
 
         Returns:
-            Number of new indexes created
-        """
-        ...
+            Number of indexes created
 
-    def ensure_label_indexes(self, label: str, kind: str = "v") -> int:
-        """Ensure all recommended indexes exist for a label.
-
-        Creates comprehensive indexes following database-specific best practices.
-
-        For Apache AGE (PostgreSQL):
-        - BTREE on id column (graphid) for fast vertex/edge lookups
-        - GIN on properties column for property-based queries
-        - BTREE on properties.id for logical ID lookups
-        - For edges: BTREE on start_id and end_id for join performance
-
-        Args:
-            label: The label name (e.g., 'person', 'knows')
-            kind: 'v' for vertex labels, 'e' for edge labels
-
-        Returns:
-            Number of new indexes created
-        """
-        ...
-
-    def ensure_all_labels_indexed(self) -> int:
-        """Ensure indexes exist for ALL labels in the graph.
-
-        Creates comprehensive indexes for both vertex and edge labels.
-
-        Returns:
-            Number of new indexes created
+        Raises:
+            ValueError: If entity_type is invalid
         """
         ...

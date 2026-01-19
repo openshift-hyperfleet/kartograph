@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from iam.infrastructure.group_repository import GroupRepository
 from iam.infrastructure.outbox import IAMEventTranslator
+from iam.infrastructure.tenant_repository import TenantRepository
 from iam.infrastructure.user_repository import UserRepository
 from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.database.engines import create_write_engine
@@ -108,6 +109,7 @@ async def clean_iam_data(
         await async_session.execute(text("DELETE FROM outbox"))
         await async_session.execute(text("DELETE FROM groups"))
         await async_session.execute(text("DELETE FROM users"))
+        await async_session.execute(text("DELETE FROM tenants"))
         await async_session.commit()
     except Exception:
         # Tables might not exist if migrations haven't been run
@@ -124,6 +126,7 @@ async def clean_iam_data(
         await async_session.execute(text("DELETE FROM outbox"))
         await async_session.execute(text("DELETE FROM groups"))
         await async_session.execute(text("DELETE FROM users"))
+        await async_session.execute(text("DELETE FROM tenants"))
         await async_session.commit()
     except Exception:
         await async_session.rollback()
@@ -146,6 +149,16 @@ def group_repository(
 def user_repository(async_session: AsyncSession) -> UserRepository:
     """Provide a UserRepository for integration tests."""
     return UserRepository(session=async_session)
+
+
+@pytest.fixture
+def tenant_repository(async_session: AsyncSession) -> TenantRepository:
+    """Provide a TenantRepository for integration tests."""
+    outbox = OutboxRepository(session=async_session)
+    return TenantRepository(
+        session=async_session,
+        outbox=outbox,
+    )
 
 
 @pytest_asyncio.fixture

@@ -1,5 +1,54 @@
 # Changelog
 
+## [1.1.6](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.5...v1.1.6) (2026-01-16)
+
+
+### Bug Fixes
+
+* **ci:** always build on main ([#128](https://github.com/openshift-hyperfleet/kartograph/issues/128)) ([fbfc492](https://github.com/openshift-hyperfleet/kartograph/commit/fbfc4929a86a6f0c2cd4c0b6f0215798f7a11501))
+
+## [1.1.5](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.4...v1.1.5) (2026-01-16)
+
+
+### Documentation
+
+* add architecture overview and typical user journey ([#126](https://github.com/openshift-hyperfleet/kartograph/issues/126)) ([9a0dd6d](https://github.com/openshift-hyperfleet/kartograph/commit/9a0dd6da88ad16d42bddb802a0f86ee5de40bc7a))
+
+## [1.1.4](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.3...v1.1.4) (2026-01-16)
+
+
+### Bug Fixes
+
+* **ci:** add staging namespace for management with argocd ([#124](https://github.com/openshift-hyperfleet/kartograph/issues/124)) ([f95ab1b](https://github.com/openshift-hyperfleet/kartograph/commit/f95ab1be3e7494c53027333a548d605f17cef45d))
+
+## [1.1.3](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.2...v1.1.3) (2026-01-16)
+
+
+### Bug Fixes
+
+* **ci:** update repoURL for kartograph-stage deployment ([#121](https://github.com/openshift-hyperfleet/kartograph/issues/121)) ([9494315](https://github.com/openshift-hyperfleet/kartograph/commit/94943152b6d4b6cbb4d5342134e82ba0f6fae577))
+
+## [1.1.2](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.1...v1.1.2) (2026-01-16)
+
+
+### Bug Fixes
+
+* Update contributing section in README ([#119](https://github.com/openshift-hyperfleet/kartograph/issues/119)) ([60878c8](https://github.com/openshift-hyperfleet/kartograph/commit/60878c8d852b346c8b13cd92013e4147d77c353d))
+
+## [1.1.1](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.0...v1.1.1) (2026-01-16)
+
+
+### Bug Fixes
+
+* **deps:** update dependency fastmcp to v2.14.3 ([#107](https://github.com/openshift-hyperfleet/kartograph/issues/107)) ([691fafe](https://github.com/openshift-hyperfleet/kartograph/commit/691fafe7665c2e63ccf8380df5342b19df8a1dcf))
+
+## [1.1.0](https://github.com/openshift-hyperfleet/kartograph/compare/v1.0.0...v1.1.0) (2026-01-16)
+
+
+### Features
+
+* **build:** add initial k8s manifests ([#113](https://github.com/openshift-hyperfleet/kartograph/issues/113)) ([022cf65](https://github.com/openshift-hyperfleet/kartograph/commit/022cf6553b90bd4d8a3d09107eaebe7403b0e479))
+
 ## [1.0.0](https://github.com/openshift-hyperfleet/kartograph/compare/v0.17.1...v1.0.0) (2026-01-15)
 
 

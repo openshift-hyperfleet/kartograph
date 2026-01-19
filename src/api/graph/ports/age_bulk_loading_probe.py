@@ -116,3 +116,16 @@ class AgeBulkLoadingProbe(Protocol):
             duration_ms: Time taken to create indexes
         """
         ...
+
+    def graphid_lookup_table_created(
+        self,
+        row_count: int,
+        duration_ms: float,
+    ) -> None:
+        """Record that a graphid lookup table was created for edge resolution.
+
+        Args:
+            row_count: Number of nodes in the lookup table
+            duration_ms: Time taken to create and index the lookup table
+        """
+        ...

@@ -349,3 +349,15 @@ class DefaultAgeBulkLoadingProbe:
             index_count=index_count,
             duration_ms=round(duration_ms, 2),
         )
+
+    def graphid_lookup_table_created(
+        self,
+        row_count: int,
+        duration_ms: float,
+    ) -> None:
+        """Record that a graphid lookup table was created for edge resolution."""
+        self._logger.debug(
+            "age_graphid_lookup_table_created",
+            row_count=row_count,
+            duration_ms=round(duration_ms, 2),
+        )

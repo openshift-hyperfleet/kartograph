@@ -463,43 +463,97 @@ class StagingTableManager:
         )
         cursor.execute(query)
 
-    def resolve_edge_graphids(
-        self, cursor: Any, table_name: str, graph_name: str
-    ) -> None:
-        """Resolve start_id and end_id to graphids in two separate batch operations.
+    def create_graphid_lookup_table(
+        self, cursor: Any, graph_name: str, session_id: str
+    ) -> tuple[str, int]:
+        """Create a temporary lookup table for fast graphid resolution.
 
-        This updates the staging table's start_graphid and end_graphid columns
-        by looking up the actual graphids from _ag_label_vertex. Using two
-        separate UPDATEs avoids a cartesian product when joining on both
-        start and end IDs simultaneously.
+        Instead of joining against _ag_label_vertex (which scans all inherited
+        label tables), we build a flat temp table with just (logical_id, graphid).
+        This avoids the overhead of table inheritance during edge resolution.
 
-        Edges with unresolvable node IDs will have NULL graphids and be
-        detected by check_for_orphaned_edges.
+        Args:
+            cursor: Database cursor
+            graph_name: Graph name (schema)
+            session_id: Unique session identifier for table naming
+
+        Returns:
+            Tuple of (table_name, row_count)
         """
-        # Resolve start_graphid separately to avoid cartesian join
+        lookup_table = f"_graphid_lookup_{session_id}"
+
+        # Create temp table with logical_id -> graphid mapping from all nodes
+        # Using SELECT INTO for a single-pass operation
         query = sql.SQL(
             """
-            UPDATE {} AS s
-            SET start_graphid = v.id
-            FROM {}._ag_label_vertex AS v
-            WHERE ag_catalog.agtype_object_field_text_agtype(
-                      v.properties, '"id"'::ag_catalog.agtype
-                  ) = s.start_id
+            CREATE TEMP TABLE {} AS
+            SELECT
+                ag_catalog.agtype_object_field_text_agtype(
+                    properties, '"id"'::ag_catalog.agtype
+                ) AS logical_id,
+                id AS graphid
+            FROM {}._ag_label_vertex
             """
-        ).format(sql.Identifier(table_name), sql.Identifier(graph_name))
+        ).format(sql.Identifier(lookup_table), sql.Identifier(graph_name))
         cursor.execute(query)
 
-        # Resolve end_graphid separately to avoid cartesian join
+        # Get row count
+        cursor.execute(
+            sql.SQL("SELECT COUNT(*) FROM {}").format(sql.Identifier(lookup_table))
+        )
+        row_count = cursor.fetchone()[0]
+
+        # Create index on logical_id for fast lookups
+        query = sql.SQL("CREATE INDEX {} ON {} (logical_id)").format(
+            sql.Identifier(f"{lookup_table}_logical_id_idx"),
+            sql.Identifier(lookup_table),
+        )
+        cursor.execute(query)
+
+        return lookup_table, row_count
+
+    def resolve_edge_graphids(
+        self,
+        cursor: Any,
+        table_name: str,
+        lookup_table: str,
+    ) -> None:
+        """Resolve start_id and end_id to graphids using a lookup table.
+
+        This updates the staging table's start_graphid and end_graphid columns
+        by joining against a pre-built lookup table (instead of _ag_label_vertex).
+        Using two separate UPDATEs avoids a cartesian product when joining on
+        both start and end IDs simultaneously.
+
+        Args:
+            cursor: Database cursor
+            table_name: Edge staging table name
+            lookup_table: Graphid lookup table name (from create_graphid_lookup_table)
+
+        Note:
+            Edges with unresolvable node IDs will have NULL graphids and be
+            detected by check_for_orphaned_edges.
+        """
+        # Resolve start_graphid using lookup table
         query = sql.SQL(
             """
             UPDATE {} AS s
-            SET end_graphid = v.id
-            FROM {}._ag_label_vertex AS v
-            WHERE ag_catalog.agtype_object_field_text_agtype(
-                      v.properties, '"id"'::ag_catalog.agtype
-                  ) = s.end_id
+            SET start_graphid = lk.graphid
+            FROM {} AS lk
+            WHERE lk.logical_id = s.start_id
             """
-        ).format(sql.Identifier(table_name), sql.Identifier(graph_name))
+        ).format(sql.Identifier(table_name), sql.Identifier(lookup_table))
+        cursor.execute(query)
+
+        # Resolve end_graphid using lookup table
+        query = sql.SQL(
+            """
+            UPDATE {} AS s
+            SET end_graphid = lk.graphid
+            FROM {} AS lk
+            WHERE lk.logical_id = s.end_id
+            """
+        ).format(sql.Identifier(table_name), sql.Identifier(lookup_table))
         cursor.execute(query)
 
     def check_for_orphaned_edges(
@@ -1016,9 +1070,18 @@ class AgeBulkLoadingStrategy:
             table_name, "start_id/end_id", resolution_index_duration
         )
 
-        # Pre-resolve graphids in batch operations (major performance win)
+        # Build a flat lookup table for graphid resolution
+        # This is much faster than querying _ag_label_vertex (which scans all inherited tables)
+        lookup_start = time.perf_counter()
+        lookup_table, lookup_row_count = staging_manager.create_graphid_lookup_table(
+            cursor, graph_name, session_id
+        )
+        lookup_duration = (time.perf_counter() - lookup_start) * 1000
+        self._bulk_probe.graphid_lookup_table_created(lookup_row_count, lookup_duration)
+
+        # Resolve graphids using the lookup table
         resolve_start = time.perf_counter()
-        staging_manager.resolve_edge_graphids(cursor, table_name, graph_name)
+        staging_manager.resolve_edge_graphids(cursor, table_name, lookup_table)
         resolve_duration = (time.perf_counter() - resolve_start) * 1000
 
         # Count resolved edges for the probe

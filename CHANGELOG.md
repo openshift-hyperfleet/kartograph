@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.7](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.6...v1.1.7) (2026-01-19)
+
+
+### Documentation
+
+* document bulk loading ([#137](https://github.com/openshift-hyperfleet/kartograph/issues/137)) ([b3c2c23](https://github.com/openshift-hyperfleet/kartograph/commit/b3c2c23bbc1b79119b5e419fae94a7bdbf325ca1))
+
 ## [1.1.6](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.5...v1.1.6) (2026-01-16)
 
 

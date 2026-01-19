@@ -6,9 +6,11 @@ the IAM context.
 """
 
 from iam.application.services.group_service import GroupService
+from iam.application.services.tenant_service import TenantService
 from iam.application.services.user_service import UserService
 
 __all__ = [
     "UserService",
     "GroupService",
+    "TenantService",
 ]

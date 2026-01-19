@@ -247,3 +247,131 @@ class DefaultMutationProbe:
             missing_node_count=len(missing_node_ids),
             **self._get_context_kwargs(),
         )
+
+
+class DefaultAgeBulkLoadingProbe:
+    """Default implementation of AgeBulkLoadingProbe using structlog.
+
+    Uses debug-level logging for infrastructure events since these are
+    primarily useful for performance analysis and troubleshooting.
+    """
+
+    def __init__(
+        self,
+        logger: structlog.stdlib.BoundLogger | None = None,
+    ):
+        self._logger = logger or structlog.get_logger()
+
+    def staging_table_created(
+        self,
+        table_name: str,
+        entity_type: str,
+    ) -> None:
+        """Record that a staging table was created."""
+        self._logger.debug(
+            "age_staging_table_created",
+            table_name=table_name,
+            entity_type=entity_type,
+        )
+
+    def staging_data_copied(
+        self,
+        table_name: str,
+        entity_type: str,
+        row_count: int,
+        duration_ms: float,
+    ) -> None:
+        """Record that data was COPYed to a staging table."""
+        self._logger.debug(
+            "age_staging_data_copied",
+            table_name=table_name,
+            entity_type=entity_type,
+            row_count=row_count,
+            duration_ms=round(duration_ms, 2),
+        )
+
+    def staging_index_created(
+        self,
+        table_name: str,
+        index_type: str,
+        duration_ms: float,
+    ) -> None:
+        """Record that an index was created on a staging table."""
+        self._logger.debug(
+            "age_staging_index_created",
+            table_name=table_name,
+            index_type=index_type,
+            duration_ms=round(duration_ms, 2),
+        )
+
+    def graphids_resolved(
+        self,
+        edge_count: int,
+        resolved_count: int,
+        duration_ms: float,
+    ) -> None:
+        """Record that edge graphids were resolved."""
+        self._logger.debug(
+            "age_graphids_resolved",
+            edge_count=edge_count,
+            resolved_count=resolved_count,
+            duration_ms=round(duration_ms, 2),
+        )
+
+    def labels_pre_created(
+        self,
+        entity_type: str,
+        label_count: int,
+        new_label_count: int,
+        duration_ms: float,
+    ) -> None:
+        """Record that labels were pre-created in batch."""
+        self._logger.debug(
+            "age_labels_pre_created",
+            entity_type=entity_type,
+            label_count=label_count,
+            new_label_count=new_label_count,
+            duration_ms=round(duration_ms, 2),
+        )
+
+    def indexes_pre_created(
+        self,
+        entity_type: str,
+        label_count: int,
+        index_count: int,
+        duration_ms: float,
+    ) -> None:
+        """Record that indexes were pre-created for new labels."""
+        self._logger.debug(
+            "age_indexes_pre_created",
+            entity_type=entity_type,
+            label_count=label_count,
+            index_count=index_count,
+            duration_ms=round(duration_ms, 2),
+        )
+
+    def graphid_lookup_table_created(
+        self,
+        row_count: int,
+        duration_ms: float,
+    ) -> None:
+        """Record that a graphid lookup table was created for edge resolution."""
+        self._logger.debug(
+            "age_graphid_lookup_table_created",
+            row_count=row_count,
+            duration_ms=round(duration_ms, 2),
+        )
+
+    def validation_completed(
+        self,
+        validation_type: str,
+        entity_type: str,
+        duration_ms: float,
+    ) -> None:
+        """Record that a validation step completed."""
+        self._logger.debug(
+            "age_validation_completed",
+            validation_type=validation_type,
+            entity_type=entity_type,
+            duration_ms=round(duration_ms, 2),
+        )

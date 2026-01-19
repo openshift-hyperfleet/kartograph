@@ -105,14 +105,13 @@ def get_mutation_applier(
     """Get MutationApplier instance.
 
     Args:
-        client: Request-scoped graph client (implements both GraphClientProtocol
-            and GraphIndexingProtocol)
+        client: Request-scoped graph client
 
     Returns:
         MutationApplier instance with AGE bulk loading strategy
     """
-    # AgeGraphClient implements both GraphClientProtocol and GraphIndexingProtocol
-    strategy = AgeBulkLoadingStrategy(indexing_client=client)
+    # AgeBulkLoadingStrategy creates its own AgeIndexingStrategy by default
+    strategy = AgeBulkLoadingStrategy()
     return MutationApplier(client=client, bulk_loading_strategy=strategy)
 
 

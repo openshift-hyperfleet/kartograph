@@ -15,3 +15,14 @@ class DuplicateGroupNameError(Exception):
     """
 
     pass
+
+
+class DuplicateTenantNameError(Exception):
+    """Raised when attempting to create a tenant with a name that already exists.
+
+    This exception indicates that the business rule of globally unique tenant
+    names has been violated. The application layer should handle this and
+    provide appropriate feedback to the user.
+    """
+
+    pass

@@ -1,7 +1,7 @@
 """Domain probe for IAM repository operations.
 
 Following Domain-Oriented Observability patterns, this probe captures
-domain-significant events related to group and user repository operations.
+domain-significant events related to group, user, and tenant repository operations.
 """
 
 from __future__ import annotations
@@ -202,5 +202,98 @@ class DefaultUserRepositoryProbe:
         self._logger.debug(
             "username_not_found",
             username=username,
+            **self._get_context_kwargs(),
+        )
+
+
+class TenantRepositoryProbe(Protocol):
+    """Domain probe for tenant repository operations.
+
+    Records domain events during tenant persistence operations.
+    """
+
+    def tenant_saved(self, tenant_id: str) -> None:
+        """Record that a tenant was successfully saved."""
+        ...
+
+    def tenant_retrieved(self, tenant_id: str) -> None:
+        """Record that a tenant was retrieved."""
+        ...
+
+    def tenant_deleted(self, tenant_id: str) -> None:
+        """Record that a tenant was deleted."""
+        ...
+
+    def tenants_listed(self, count: int) -> None:
+        """Record that tenants were listed."""
+        ...
+
+    def duplicate_tenant_name(self, name: str) -> None:
+        """Record that a duplicate tenant name was detected."""
+        ...
+
+    def with_context(self, context: ObservationContext) -> TenantRepositoryProbe:
+        """Create a new probe with observation context bound."""
+        ...
+
+
+class DefaultTenantRepositoryProbe:
+    """Default implementation of TenantRepositoryProbe using structlog."""
+
+    def __init__(
+        self,
+        logger: structlog.stdlib.BoundLogger | None = None,
+        context: ObservationContext | None = None,
+    ):
+        self._logger = logger or structlog.get_logger()
+        self._context = context
+
+    def _get_context_kwargs(self) -> dict[str, Any]:
+        """Get context metadata as kwargs for logging."""
+        if self._context is None:
+            return {}
+        return self._context.as_dict()
+
+    def with_context(self, context: ObservationContext) -> DefaultTenantRepositoryProbe:
+        """Create a new probe with observation context bound."""
+        return DefaultTenantRepositoryProbe(logger=self._logger, context=context)
+
+    def tenant_saved(self, tenant_id: str) -> None:
+        """Record that a tenant was successfully saved."""
+        self._logger.info(
+            "tenant_saved",
+            tenant_id=tenant_id,
+            **self._get_context_kwargs(),
+        )
+
+    def tenant_retrieved(self, tenant_id: str) -> None:
+        """Record that a tenant was retrieved."""
+        self._logger.debug(
+            "tenant_retrieved",
+            tenant_id=tenant_id,
+            **self._get_context_kwargs(),
+        )
+
+    def tenant_deleted(self, tenant_id: str) -> None:
+        """Record that a tenant was deleted."""
+        self._logger.info(
+            "tenant_deleted",
+            tenant_id=tenant_id,
+            **self._get_context_kwargs(),
+        )
+
+    def tenants_listed(self, count: int) -> None:
+        """Record that tenants were listed."""
+        self._logger.debug(
+            "tenants_listed",
+            count=count,
+            **self._get_context_kwargs(),
+        )
+
+    def duplicate_tenant_name(self, name: str) -> None:
+        """Record that a duplicate tenant name was detected."""
+        self._logger.warning(
+            "duplicate_tenant_name",
+            name=name,
             **self._get_context_kwargs(),
         )

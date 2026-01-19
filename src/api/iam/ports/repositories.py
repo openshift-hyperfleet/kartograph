@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from iam.domain.aggregates import Group, User
+from iam.domain.aggregates import Group, Tenant, User
 from iam.domain.value_objects import GroupId, TenantId, UserId
 
 
@@ -125,5 +125,73 @@ class IUserRepository(Protocol):
 
         Returns:
             The User aggregate, or None if not found
+        """
+        ...
+
+
+@runtime_checkable
+class ITenantRepository(Protocol):
+    """Repository for Tenant aggregate persistence.
+
+    Simple repository for tenant metadata. Tenants represent organizations
+    and are the top-level isolation boundary in the system.
+    """
+
+    async def save(self, tenant: Tenant) -> None:
+        """Persist a tenant aggregate.
+
+        Creates a new tenant or updates an existing one. Persists tenant
+        metadata to PostgreSQL and domain events to the outbox.
+
+        Args:
+            tenant: The Tenant aggregate to persist
+
+        Raises:
+            DuplicateTenantNameError: If tenant name already exists
+        """
+        ...
+
+    async def get_by_id(self, tenant_id: TenantId) -> Tenant | None:
+        """Retrieve a tenant by its ID.
+
+        Args:
+            tenant_id: The unique identifier of the tenant
+
+        Returns:
+            The Tenant aggregate, or None if not found
+        """
+        ...
+
+    async def get_by_name(self, name: str) -> Tenant | None:
+        """Retrieve a tenant by name.
+
+        Args:
+            name: The tenant name
+
+        Returns:
+            The Tenant aggregate, or None if not found
+        """
+        ...
+
+    async def list_all(self) -> list[Tenant]:
+        """List all tenants in the system.
+
+        Returns:
+            List of all Tenant aggregates
+        """
+        ...
+
+    async def delete(self, tenant: Tenant) -> bool:
+        """Delete a tenant.
+
+        The tenant should have mark_for_deletion() called before this method
+        to record the TenantDeleted event. The outbox worker will handle any
+        necessary cleanup in SpiceDB.
+
+        Args:
+            tenant: The Tenant aggregate to delete (with deletion event recorded)
+
+        Returns:
+            True if deleted, False if not found
         """
         ...

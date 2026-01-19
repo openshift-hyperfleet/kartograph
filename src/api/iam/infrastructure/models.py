@@ -48,3 +48,22 @@ class UserModel(Base, TimestampMixin):
     def __repr__(self) -> str:
         """Return string representation."""
         return f"<UserModel(id={self.id}, username={self.username})>"
+
+
+class TenantModel(Base, TimestampMixin):
+    """ORM model for tenants table.
+
+    Stores tenant metadata in PostgreSQL. Tenants represent organizations
+    and are the top-level isolation boundary in the system.
+
+    Note: Tenant names are globally unique across the entire system.
+    """
+
+    __tablename__ = "tenants"
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+
+    def __repr__(self) -> str:
+        """Return string representation."""
+        return f"<TenantModel(id={self.id}, name={self.name})>"

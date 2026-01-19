@@ -157,3 +157,4 @@ certs/
 
 # Demo web interface (not for production)
 demo-web/
+test.sh

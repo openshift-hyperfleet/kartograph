@@ -417,6 +417,25 @@ class StagingTableManager:
         cursor.execute(query)
         return [row[0] for row in cursor.fetchall()]
 
+    def create_label_index(self, cursor: Any, table_name: str) -> None:
+        """Create an index on the label column for faster WHERE label = X queries.
+
+        This is a critical performance optimization. Without this index, every
+        INSERT/UPDATE that filters by label does a full sequential scan of the
+        entire staging table. With many labels, this means scanning the table
+        N times where N = number of labels.
+
+        Args:
+            cursor: Database cursor
+            table_name: Staging table name
+        """
+        index_name = f"{table_name}_label_idx"
+        query = sql.SQL("CREATE INDEX {} ON {} (label)").format(
+            sql.Identifier(index_name),
+            sql.Identifier(table_name),
+        )
+        cursor.execute(query)
+
     def resolve_edge_graphids(
         self, cursor: Any, table_name: str, graph_name: str
     ) -> None:
@@ -701,6 +720,77 @@ class AgeBulkLoadingStrategy:
             return None
         return (row[0], row[1])
 
+    def _get_existing_labels(self, cursor: Any, graph_name: str) -> set[str]:
+        """Get all existing label names in the graph.
+
+        Returns:
+            Set of label names that already exist
+        """
+        cursor.execute(
+            """
+            SELECT l.name
+            FROM ag_catalog.ag_label l
+            JOIN ag_catalog.ag_graph g ON l.graph = g.graphid
+            WHERE g.name = %s
+            AND l.name NOT LIKE '_ag_label%%'
+            """,
+            (graph_name,),
+        )
+        return {row[0] for row in cursor.fetchall()}
+
+    def _pre_create_labels_and_indexes(
+        self,
+        cursor: Any,
+        graph_name: str,
+        labels: list[str],
+        entity_type: EntityType,
+    ) -> set[str]:
+        """Pre-create all new labels and their indexes in batch.
+
+        This is a performance optimization that reduces round trips by:
+        1. Checking which labels already exist in one query
+        2. Creating all new labels in sequence
+        3. Creating all indexes for new labels in sequence
+
+        This separates label/index creation from the INSERT/UPDATE loop,
+        reducing per-label overhead during the actual data insertion.
+
+        Args:
+            cursor: Database cursor
+            graph_name: Graph name
+            labels: List of labels to ensure exist
+            entity_type: EntityType.NODE or EntityType.EDGE
+
+        Returns:
+            Set of labels that were newly created (vs already existing)
+        """
+        # Get all existing labels in one query
+        existing_labels = self._get_existing_labels(cursor, graph_name)
+
+        # Determine which labels need to be created
+        new_labels = set(labels) - existing_labels
+
+        # Create all new labels
+        for label in new_labels:
+            if entity_type == EntityType.NODE:
+                cursor.execute(
+                    "SELECT ag_catalog.create_vlabel(%s, %s)",
+                    (graph_name, label),
+                )
+            else:
+                cursor.execute(
+                    "SELECT ag_catalog.create_elabel(%s, %s)",
+                    (graph_name, label),
+                )
+
+        # Create all indexes for new labels
+        for label in new_labels:
+            self._indexing_strategy.create_label_indexes(
+                cursor, graph_name, label, entity_type
+            )
+
+        return new_labels
+
     def _execute_node_creates(
         self,
         cursor: Any,
@@ -724,35 +814,26 @@ class AgeBulkLoadingStrategy:
             cursor, table_name, operations, graph_name
         )
 
+        # Create index on staging table's label column for faster WHERE queries
+        # This is critical: without it, every INSERT/UPDATE scans the entire staging table
+        staging_manager.create_label_index(cursor, table_name)
+
         # Check for duplicates and fail fast
         staging_manager.check_for_duplicate_ids(cursor, table_name, "node", probe)
 
-        # Process each label
+        # Get distinct labels and pre-create all new labels/indexes in batch
         labels = staging_manager.fetch_distinct_labels(cursor, table_name)
+        new_labels = self._pre_create_labels_and_indexes(
+            cursor, graph_name, labels, EntityType.NODE
+        )
 
+        # Process each label (now just INSERT/UPDATE, no label/index creation)
         for label in labels:
             batch_start = time.perf_counter()
+            is_new_label = label in new_labels
 
-            # Check if label exists, create if needed
+            # Get label info (should always exist now)
             label_info = self._get_label_info(cursor, graph_name, label)
-            is_new_label = label_info is None
-
-            if is_new_label:
-                # Label doesn't exist - create it using AGE's create_vlabel function
-                # This is faster than using Cypher CREATE which has parsing overhead
-                cursor.execute(
-                    "SELECT ag_catalog.create_vlabel(%s, %s)",
-                    (graph_name, label),
-                )
-                # Create indexes immediately for the new label (critical for performance)
-                # Without these indexes, UPDATE and INSERT queries do full table scans
-                self._indexing_strategy.create_label_indexes(
-                    cursor, graph_name, label, EntityType.NODE
-                )
-                # Now get the label info
-                label_info = self._get_label_info(cursor, graph_name, label)
-                if label_info is None:
-                    raise ValueError(f"Failed to create label '{label}'")
 
             if label_info is None:
                 raise ValueError(f"Label '{label}' not found in graph '{graph_name}'")
@@ -867,6 +948,10 @@ class AgeBulkLoadingStrategy:
             cursor, table_name, operations, graph_name
         )
 
+        # Create index on staging table's label column for faster WHERE queries
+        # This is critical: without it, every INSERT/UPDATE scans the entire staging table
+        staging_manager.create_label_index(cursor, table_name)
+
         # Pre-resolve graphids in batch operations (major performance win)
         staging_manager.resolve_edge_graphids(cursor, table_name, graph_name)
 
@@ -876,32 +961,19 @@ class AgeBulkLoadingStrategy:
         # Check for duplicates and fail fast
         staging_manager.check_for_duplicate_ids(cursor, table_name, "edge", probe)
 
+        # Get distinct labels and pre-create all new labels/indexes in batch
         labels = staging_manager.fetch_distinct_labels(cursor, table_name)
+        new_labels = self._pre_create_labels_and_indexes(
+            cursor, graph_name, labels, EntityType.EDGE
+        )
 
+        # Process each label (now just INSERT/UPDATE, no label/index creation)
         for label in labels:
             batch_start = time.perf_counter()
+            is_new_label = label in new_labels
 
-            # Check if label exists, create if needed
+            # Get label info (should always exist now)
             label_info = self._get_label_info(cursor, graph_name, label)
-            is_new_label = label_info is None
-
-            if is_new_label:
-                # Label doesn't exist - create it using AGE's create_elabel function
-                # This is much faster than using Cypher MATCH+CREATE which requires
-                # scanning all nodes to find the start/end nodes by their id property
-                cursor.execute(
-                    "SELECT ag_catalog.create_elabel(%s, %s)",
-                    (graph_name, label),
-                )
-                # Create indexes immediately for the new label (critical for performance)
-                # Without these indexes, UPDATE and INSERT queries do full table scans
-                self._indexing_strategy.create_label_indexes(
-                    cursor, graph_name, label, EntityType.EDGE
-                )
-                # Now get the label info
-                label_info = self._get_label_info(cursor, graph_name, label)
-                if label_info is None:
-                    raise ValueError(f"Failed to create edge label '{label}'")
 
             if label_info is None:
                 raise ValueError(

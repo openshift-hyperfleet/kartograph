@@ -122,19 +122,43 @@ def clean_graph(graph_client: AgeGraphClient):
 # Keycloak / OIDC Authentication Fixtures
 # =============================================================================
 
+# Set OIDC defaults for tests (can be overridden by env vars)
+os.environ.setdefault(
+    "KARTOGRAPH_OIDC_ISSUER_URL", "http://localhost:8080/realms/kartograph"
+)
+os.environ.setdefault("KARTOGRAPH_OIDC_CLIENT_ID", "kartograph-api")
+os.environ.setdefault("KARTOGRAPH_OIDC_CLIENT_SECRET", "kartograph-api-secret")
+
+
+@pytest.fixture(scope="session")
+def oidc_settings():
+    """OIDC settings for integration tests.
+
+    Uses OIDCSettings from infrastructure, which reads from environment.
+    Default issuer is localhost:8080 for host-based testing.
+
+    For containerized tests, set KARTOGRAPH_OIDC_ISSUER_URL to use
+    Docker service names (e.g., http://keycloak:8080/realms/kartograph).
+    """
+    from infrastructure.settings import get_oidc_settings
+
+    # Clear the lru_cache to pick up test env vars
+    get_oidc_settings.cache_clear()
+    return get_oidc_settings()
+
 
 @pytest.fixture
-def keycloak_token_url() -> str:
-    """Keycloak token endpoint URL."""
-    return "http://localhost:8080/realms/kartograph/protocol/openid-connect/token"
+def keycloak_token_url(oidc_settings) -> str:
+    """Keycloak token endpoint URL derived from OIDC settings."""
+    return f"{oidc_settings.issuer_url}/protocol/openid-connect/token"
 
 
 @pytest.fixture
-def oidc_client_credentials() -> dict[str, str]:
-    """OIDC client credentials for tests."""
+def oidc_client_credentials(oidc_settings) -> dict[str, str]:
+    """OIDC client credentials from settings."""
     return {
-        "client_id": "kartograph-api",
-        "client_secret": "kartograph-api-secret",
+        "client_id": oidc_settings.client_id,
+        "client_secret": oidc_settings.client_secret.get_secret_value(),
     }
 
 

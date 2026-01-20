@@ -145,9 +145,12 @@ class DefaultOutboxWorkerProbe:
     def event_translated(
         self, entry_id: UUID, event_type: str, operation_count: int
     ) -> None:
-        """Log event translation with operation count."""
-        log_level = "debug" if operation_count > 0 else "warning"
-        getattr(self._log, log_level)(
+        """Log event translation with operation count.
+
+        Zero operations is valid for audit-only events (e.g., TenantCreated,
+        TenantDeleted) that don't require side effects like SpiceDB writes.
+        """
+        self._log.debug(
             "outbox_event_translated",
             entry_id=str(entry_id),
             event_type=event_type,

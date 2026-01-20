@@ -7,6 +7,10 @@ from iam.application.observability.group_service_probe import (
     DefaultGroupServiceProbe,
     GroupServiceProbe,
 )
+from iam.application.observability.tenant_service_probe import (
+    DefaultTenantServiceProbe,
+    TenantServiceProbe,
+)
 from iam.application.observability.user_service_probe import (
     DefaultUserServiceProbe,
     UserServiceProbe,
@@ -17,4 +21,6 @@ __all__ = [
     "DefaultGroupServiceProbe",
     "UserServiceProbe",
     "DefaultUserServiceProbe",
+    "TenantServiceProbe",
+    "DefaultTenantServiceProbe",
 ]

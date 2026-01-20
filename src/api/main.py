@@ -64,6 +64,60 @@ async def kartograph_lifespan(app: FastAPI):
     # Startup: initialize database engines
     init_database_engines(app)
 
+    # Startup: ensure default tenant exists (single-tenant mode)
+    if hasattr(app.state, "write_sessionmaker"):
+        from iam.dependencies import set_default_tenant_id
+        from iam.domain.aggregates import Tenant
+        from iam.infrastructure.tenant_repository import TenantRepository
+        from infrastructure.observability.startup_probe import DefaultStartupProbe
+        from infrastructure.outbox.repository import OutboxRepository
+        from infrastructure.settings import get_iam_settings
+
+        iam_settings = get_iam_settings()
+        startup_probe = DefaultStartupProbe()
+
+        async with app.state.write_sessionmaker() as session:
+            async with session.begin():
+                from iam.ports.exceptions import DuplicateTenantNameError
+
+                outbox = OutboxRepository(session=session)
+                tenant_repo = TenantRepository(session=session, outbox=outbox)
+
+                # Check if default tenant exists
+                tenant = await tenant_repo.get_by_name(iam_settings.default_tenant_name)
+                if not tenant:
+                    # Handle race condition during concurrent startups
+                    try:
+                        tenant = Tenant.create(name=iam_settings.default_tenant_name)
+                        await tenant_repo.save(tenant)
+                        startup_probe.default_tenant_bootstrapped(
+                            tenant_id=tenant.id.value,
+                            name=tenant.name,
+                        )
+                    except DuplicateTenantNameError:
+                        # Another instance created it concurrently, re-query
+                        tenant = await tenant_repo.get_by_name(
+                            iam_settings.default_tenant_name
+                        )
+                        if tenant:
+                            startup_probe.default_tenant_already_exists(
+                                tenant_id=tenant.id.value,
+                                name=tenant.name,
+                            )
+                        else:
+                            # Should never happen, but handle gracefully
+                            raise RuntimeError(
+                                "Failed to create or retrieve default tenant"
+                            )
+                else:
+                    startup_probe.default_tenant_already_exists(
+                        tenant_id=tenant.id.value,
+                        name=tenant.name,
+                    )
+
+                # Cache default tenant ID for single-tenant mode
+                set_default_tenant_id(tenant.id)
+
     # Startup: start outbox worker if enabled
     outbox_settings = get_outbox_worker_settings()
     if outbox_settings.enabled and hasattr(app.state, "write_sessionmaker"):

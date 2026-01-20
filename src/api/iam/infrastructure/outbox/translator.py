@@ -64,6 +64,10 @@ class IAMEventTranslator:
                 return self._translate_member_removed(payload)
             case "MemberRoleChanged":
                 return self._translate_member_role_changed(payload)
+            case "TenantCreated":
+                return self._translate_tenant_created(payload)
+            case "TenantDeleted":
+                return self._translate_tenant_deleted(payload)
             case _:
                 raise ValueError(f"Unsupported event type: {event_type}")
 
@@ -173,3 +177,27 @@ class IAMEventTranslator:
                 subject_id=payload["user_id"],
             ),
         ]
+
+    def _translate_tenant_created(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate TenantCreated.
+
+        For the walking skeleton, tenants don't automatically get SpiceDB
+        relationships on creation. The SpiceDB tenant definition exists,
+        but relationships (like admin assignments) will be set separately.
+        """
+        return []
+
+    def _translate_tenant_deleted(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate TenantDeleted.
+
+        For the walking skeleton, tenant deletion doesn't require SpiceDB
+        cleanup. Any cascade rules or related resource cleanup should be
+        handled by database constraints or separate processes.
+        """
+        return []

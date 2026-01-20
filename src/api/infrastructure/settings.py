@@ -261,3 +261,32 @@ def get_outbox_worker_settings() -> OutboxWorkerSettings:
     Uses lru_cache to ensure settings are only loaded once.
     """
     return OutboxWorkerSettings()
+
+
+class IAMSettings(BaseSettings):
+    """IAM (Identity and Access Management) settings.
+
+    Environment variables:
+        KARTOGRAPH_IAM_DEFAULT_TENANT_NAME: Default tenant name for single-tenant mode (default: default)
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="KARTOGRAPH_IAM_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    default_tenant_name: str = Field(
+        default="default",
+        description="Default tenant name for single-tenant mode",
+    )
+
+
+@lru_cache
+def get_iam_settings() -> IAMSettings:
+    """Get cached IAM settings.
+
+    Uses lru_cache to ensure settings are only loaded once.
+    """
+    return IAMSettings()

@@ -11,19 +11,51 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.application.observability import (
     DefaultGroupServiceProbe,
+    DefaultTenantServiceProbe,
     DefaultUserServiceProbe,
     GroupServiceProbe,
+    TenantServiceProbe,
     UserServiceProbe,
 )
-from iam.application.services import GroupService, UserService
+from iam.application.services import GroupService, TenantService, UserService
 from iam.application.value_objects import CurrentUser
 from iam.domain.value_objects import TenantId, UserId
 from iam.infrastructure.group_repository import GroupRepository
+from iam.infrastructure.tenant_repository import TenantRepository
 from iam.infrastructure.user_repository import UserRepository
 from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.database.dependencies import get_write_session
 from infrastructure.outbox.repository import OutboxRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
+
+# Module-level cache for default tenant ID (populated at startup)
+_default_tenant_id: TenantId | None = None
+
+
+def set_default_tenant_id(tenant_id: TenantId) -> None:
+    """Set the default tenant ID (called during app startup).
+
+    Args:
+        tenant_id: The default tenant ID to cache
+    """
+    global _default_tenant_id
+    _default_tenant_id = tenant_id
+
+
+def get_default_tenant_id() -> TenantId:
+    """Get the cached default tenant ID.
+
+    Returns:
+        The default tenant ID
+
+    Raises:
+        RuntimeError: If default tenant hasn't been initialized
+    """
+    if _default_tenant_id is None:
+        raise RuntimeError(
+            "Default tenant not initialized. Ensure app startup completed successfully."
+        )
+    return _default_tenant_id
 
 
 def get_user_service_probe() -> UserServiceProbe:
@@ -42,6 +74,15 @@ def get_group_service_probe() -> GroupServiceProbe:
         DefaultGroupServiceProbe instance for observability
     """
     return DefaultGroupServiceProbe()
+
+
+def get_tenant_service_probe() -> TenantServiceProbe:
+    """Get TenantServiceProbe instance.
+
+    Returns:
+        DefaultTenantServiceProbe instance for observability
+    """
+    return DefaultTenantServiceProbe()
 
 
 def get_outbox_repository(
@@ -93,6 +134,22 @@ def get_group_repository(
     return GroupRepository(session=session, authz=authz, outbox=outbox)
 
 
+def get_tenant_repository(
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    outbox: Annotated[OutboxRepository, Depends(get_outbox_repository)],
+) -> TenantRepository:
+    """Get TenantRepository instance.
+
+    Args:
+        session: Async database session
+        outbox: Outbox repository for transactional outbox pattern
+
+    Returns:
+        TenantRepository instance with outbox pattern enabled
+    """
+    return TenantRepository(session=session, outbox=outbox)
+
+
 def get_user_service(
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     session: Annotated[AsyncSession, Depends(get_write_session)],
@@ -136,11 +193,38 @@ def get_group_service(
     )
 
 
+def get_tenant_service(
+    tenant_repo: Annotated[TenantRepository, Depends(get_tenant_repository)],
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    tenant_service_probe: Annotated[
+        TenantServiceProbe, Depends(get_tenant_service_probe)
+    ],
+) -> TenantService:
+    """Get TenantService instance.
+
+    Args:
+        tenant_repo: Tenant repository (shares session via FastAPI dependency caching)
+        session: Database session for transaction management
+        tenant_service_probe: Tenant service probe for observability
+
+    Returns:
+        TenantService instance
+    """
+    return TenantService(
+        tenant_repository=tenant_repo,
+        session=session,
+        probe=tenant_service_probe,
+    )
+
+
 async def get_current_user(
     user_service: Annotated[UserService, Depends(get_user_service)],
     x_user_id: str = Header(..., description="User ID from SSO (stub)"),
     x_username: str = Header(..., description="Username from SSO (stub)"),
-    x_tenant_id: str = Header(..., description="Tenant ID from SSO (stub)"),
+    x_tenant_id: str | None = Header(
+        default=None,
+        description="Tenant ID from SSO (optional, uses default if not provided)",
+    ),
 ) -> CurrentUser:
     """Extract current user from headers (stub for SSO integration).
 
@@ -155,26 +239,41 @@ async def get_current_user(
     without a full SSO/JWT integration, and ensure the user exists in the
     application database.
 
+    Single-tenant mode: If X-Tenant-Id is not provided, uses the default
+    tenant created at startup. This simplifies development and testing.
+
     Args:
         user_service: The user service (manages its own transaction)
         x_user_id: User ID header (any format from SSO)
         x_username: Username header
-        x_tenant_id: Tenant ID header (ULID format)
+        x_tenant_id: Tenant ID header (ULID format, optional)
 
     Returns:
         CurrentUser with user ID (from SSO), username, and validated tenant ID
 
     Raises:
         HTTPException: 400 if tenant ID is invalid ULID format
+        HTTPException: 500 if default tenant not initialized
     """
-    # Validate tenant ID first (before user provisioning to avoid orphaned users)
-    try:
-        tenant_id = TenantId.from_string(x_tenant_id)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid tenant ID format: {e}",
-        ) from e
+    # Get tenant ID (use default if not provided)
+    if x_tenant_id is None:
+        # Single-tenant mode: use default tenant created at startup
+        try:
+            tenant_id = get_default_tenant_id()
+        except RuntimeError as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=str(e),
+            ) from e
+    else:
+        # Multi-tenant mode: validate provided tenant ID
+        try:
+            tenant_id = TenantId.from_string(x_tenant_id)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid tenant ID format: {e}",
+            ) from e
 
     # User IDs come from external SSO - accept any string format
     user_id = UserId(value=x_user_id)

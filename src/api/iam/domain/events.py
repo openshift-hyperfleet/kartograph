@@ -130,7 +130,49 @@ class MemberRoleChanged:
     occurred_at: datetime
 
 
+@dataclass(frozen=True)
+class TenantCreated:
+    """Event raised when a new tenant is created.
+
+    This event captures the fact that a tenant has been created.
+    For the walking skeleton, no SpiceDB relationships are automatically
+    created (those will be set when assigning tenant admins).
+
+    Attributes:
+        tenant_id: The ULID of the created tenant
+        name: The name of the tenant
+        occurred_at: When the event occurred (UTC)
+    """
+
+    tenant_id: str
+    name: str
+    occurred_at: datetime
+
+
+@dataclass(frozen=True)
+class TenantDeleted:
+    """Event raised when a tenant is deleted.
+
+    This event captures the fact that a tenant has been deleted.
+    Any cleanup of related resources (groups, etc.) should be handled
+    by cascade rules or separate processes.
+
+    Attributes:
+        tenant_id: The ULID of the deleted tenant
+        occurred_at: When the event occurred (UTC)
+    """
+
+    tenant_id: str
+    occurred_at: datetime
+
+
 # Type alias for all domain events in the IAM context
 DomainEvent = (
-    GroupCreated | GroupDeleted | MemberAdded | MemberRemoved | MemberRoleChanged
+    GroupCreated
+    | GroupDeleted
+    | MemberAdded
+    | MemberRemoved
+    | MemberRoleChanged
+    | TenantCreated
+    | TenantDeleted
 )

@@ -20,6 +20,7 @@ from infrastructure.logging import configure_logging
 from infrastructure.settings import (
     get_cors_settings,
     get_database_settings,
+    get_oidc_settings,
     get_outbox_worker_settings,
     get_spicedb_settings,
 )
@@ -220,6 +221,18 @@ app.include_router(iam_routes.router)
 
 # Include dev utility routes (easy to remove for production)
 app.include_router(dev_routes.router)
+
+# Conditionally include auth routes when OIDC is enabled
+try:
+    oidc_settings = get_oidc_settings()
+    if oidc_settings.auth_routes_enabled:
+        from auth.presentation import routes as auth_routes
+
+        app.include_router(auth_routes.router)
+except Exception:
+    # OIDC settings may fail if client_secret is not configured
+    # In that case, auth routes are simply not registered
+    pass
 
 
 @app.get("/health")

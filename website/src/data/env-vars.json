@@ -1,0 +1,247 @@
+{
+  "DatabaseSettings": {
+    "class_name": "DatabaseSettings",
+    "prefix": "KARTOGRAPH_DB_",
+    "doc": "Database connection settings.\n\n    Environment variables:\n        KARTOGRAPH_DB_HOST: Database host (default: localhost)\n        KARTOGRAPH_DB_PORT: Database port (default: 5432)\n        KARTOGRAPH_DB_DATABASE: Database name (default: kartograph)\n        KARTOGRAPH_DB_USERNAME: Database user (default: kartograph)\n        KARTOGRAPH_DB_PASSWORD: Database password (required in production)\n        KARTOGRAPH_DB_GRAPH_NAME: AGE graph name (default: kartograph_graph) TODO: Single graph only for tracer bullet\n        KARTOGRAPH_DB_POOL_MIN_CONNECTIONS: Minimum connections in pool (default: 2)\n        KARTOGRAPH_DB_POOL_MAX_CONNECTIONS: Maximum connections in pool (default: 10)\n    ",
+    "properties": [
+      {
+        "env_var": "KARTOGRAPH_DB_HOST",
+        "type": "str",
+        "default": "localhost",
+        "required": false,
+        "description": "Database host"
+      },
+      {
+        "env_var": "KARTOGRAPH_DB_PORT",
+        "type": "int",
+        "default": "5432",
+        "required": false,
+        "description": "Database port"
+      },
+      {
+        "env_var": "KARTOGRAPH_DB_DATABASE",
+        "type": "str",
+        "default": "kartograph",
+        "required": false,
+        "description": "Database name"
+      },
+      {
+        "env_var": "KARTOGRAPH_DB_USERNAME",
+        "type": "str",
+        "default": "kartograph",
+        "required": false,
+        "description": "Database username"
+      },
+      {
+        "env_var": "KARTOGRAPH_DB_PASSWORD",
+        "type": "Secret",
+        "default": null,
+        "required": true,
+        "description": "Database password"
+      },
+      {
+        "env_var": "KARTOGRAPH_DB_GRAPH_NAME",
+        "type": "str",
+        "default": "kartograph_graph",
+        "required": false,
+        "description": "Name of the AGE graph"
+      },
+      {
+        "env_var": "KARTOGRAPH_DB_POOL_MIN_CONNECTIONS",
+        "type": "int",
+        "default": "2",
+        "required": false,
+        "description": "Minimum connections in pool"
+      },
+      {
+        "env_var": "KARTOGRAPH_DB_POOL_MAX_CONNECTIONS",
+        "type": "int",
+        "default": "10",
+        "required": false,
+        "description": "Maximum connections in pool"
+      }
+    ]
+  },
+  "OIDCSettings": {
+    "class_name": "OIDCSettings",
+    "prefix": "KARTOGRAPH_OIDC_",
+    "doc": "OIDC (OpenID Connect) SSO settings.\n\n    Environment variables:\n        KARTOGRAPH_OIDC_ISSUER_URL: OIDC issuer URL (default: http://localhost:8080/realms/kartograph)\n        KARTOGRAPH_OIDC_CLIENT_ID: OIDC client ID for the API (default: kartograph-api)\n        KARTOGRAPH_OIDC_CLIENT_SECRET: OIDC client secret (required)\n        KARTOGRAPH_OIDC_SWAGGER_CLIENT_ID: OIDC client ID for Swagger UI (default: kartograph-swagger)\n        KARTOGRAPH_OIDC_AUTH_ROUTES_ENABLED: Enable auth routes (default: true)\n        KARTOGRAPH_OIDC_USER_ID_CLAIM: Claim to use for user ID (default: sub)\n        KARTOGRAPH_OIDC_USERNAME_CLAIM: Claim to use for username (default: preferred_username)\n        KARTOGRAPH_OIDC_AUDIENCE: Expected audience claim (default: None, uses client_id)\n    ",
+    "properties": [
+      {
+        "env_var": "KARTOGRAPH_OIDC_ISSUER_URL",
+        "type": "str",
+        "default": "http://localhost:8080/realms/kartograph",
+        "required": false,
+        "description": "OIDC issuer URL (e.g., Keycloak realm URL)"
+      },
+      {
+        "env_var": "KARTOGRAPH_OIDC_CLIENT_ID",
+        "type": "str",
+        "default": "kartograph-api",
+        "required": false,
+        "description": "OIDC client ID for the API"
+      },
+      {
+        "env_var": "KARTOGRAPH_OIDC_CLIENT_SECRET",
+        "type": "Secret",
+        "default": null,
+        "required": true,
+        "description": "OIDC client secret (required)"
+      },
+      {
+        "env_var": "KARTOGRAPH_OIDC_SWAGGER_CLIENT_ID",
+        "type": "str",
+        "default": "kartograph-swagger",
+        "required": false,
+        "description": "OIDC client ID for Swagger UI (public client)"
+      },
+      {
+        "env_var": "KARTOGRAPH_OIDC_AUTH_ROUTES_ENABLED",
+        "type": "bool",
+        "default": "True",
+        "required": false,
+        "description": "Enable auth routes for login/callback/logout"
+      },
+      {
+        "env_var": "KARTOGRAPH_OIDC_USER_ID_CLAIM",
+        "type": "str",
+        "default": "sub",
+        "required": false,
+        "description": "JWT claim to use for user ID"
+      },
+      {
+        "env_var": "KARTOGRAPH_OIDC_USERNAME_CLAIM",
+        "type": "str",
+        "default": "preferred_username",
+        "required": false,
+        "description": "JWT claim to use for username"
+      },
+      {
+        "env_var": "KARTOGRAPH_OIDC_AUDIENCE",
+        "type": "str | None",
+        "default": null,
+        "required": true,
+        "description": "Expected audience claim (defaults to client_id if None)"
+      }
+    ]
+  },
+  "SpiceDBSettings": {
+    "class_name": "SpiceDBSettings",
+    "prefix": "SPICEDB_",
+    "doc": "SpiceDB authorization service settings.\n\n    Environment variables:\n        SPICEDB_ENDPOINT: gRPC endpoint (default: localhost:50051)\n        SPICEDB_PRESHARED_KEY: Pre-shared authentication key (required)\n        SPICEDB_USE_TLS: Use TLS for connection (default: true for production)\n        SPICEDB_CERT_PATH: Path to custom TLS root certificate (for self-signed certs)\n    ",
+    "properties": [
+      {
+        "env_var": "SPICEDB_ENDPOINT",
+        "type": "str",
+        "default": "localhost:50051",
+        "required": false,
+        "description": "SpiceDB gRPC endpoint"
+      },
+      {
+        "env_var": "SPICEDB_PRESHARED_KEY",
+        "type": "Secret",
+        "default": "********",
+        "required": false,
+        "description": "Pre-shared key for authentication"
+      },
+      {
+        "env_var": "SPICEDB_USE_TLS",
+        "type": "bool",
+        "default": "True",
+        "required": false,
+        "description": "Use TLS for connection (true for production, false for local dev)"
+      },
+      {
+        "env_var": "SPICEDB_CERT_PATH",
+        "type": "str | None",
+        "default": null,
+        "required": true,
+        "description": "Path to custom TLS root certificate (for self-signed certs)"
+      }
+    ]
+  },
+  "CORSSettings": {
+    "class_name": "CORSSettings",
+    "prefix": "KARTOGRAPH_CORS_",
+    "doc": "CORS (Cross-Origin Resource Sharing) settings.\n\n    Environment variables:\n        KARTOGRAPH_CORS_ORIGINS: Comma-separated list of allowed origins\n            (default: empty, which disables CORS)\n        KARTOGRAPH_CORS_ALLOW_CREDENTIALS: Allow credentials (default: true)\n        KARTOGRAPH_CORS_ALLOW_METHODS: Comma-separated list of allowed methods\n            (default: GET,POST,PUT,DELETE,OPTIONS,PATCH)\n        KARTOGRAPH_CORS_ALLOW_HEADERS: Comma-separated list of allowed headers\n            (default: *)\n    ",
+    "properties": [
+      {
+        "env_var": "KARTOGRAPH_CORS_ORIGINS",
+        "type": "list",
+        "default": null,
+        "required": true,
+        "description": "List of allowed origins for CORS"
+      },
+      {
+        "env_var": "KARTOGRAPH_CORS_ALLOW_CREDENTIALS",
+        "type": "bool",
+        "default": "True",
+        "required": false,
+        "description": "Allow credentials in CORS requests"
+      },
+      {
+        "env_var": "KARTOGRAPH_CORS_ALLOW_METHODS",
+        "type": "list",
+        "default": null,
+        "required": true,
+        "description": "Allowed HTTP methods for CORS"
+      },
+      {
+        "env_var": "KARTOGRAPH_CORS_ALLOW_HEADERS",
+        "type": "list",
+        "default": null,
+        "required": true,
+        "description": "Allowed headers for CORS"
+      }
+    ]
+  },
+  "IAMSettings": {
+    "class_name": "IAMSettings",
+    "prefix": "KARTOGRAPH_IAM_",
+    "doc": "IAM (Identity and Access Management) settings.\n\n    Environment variables:\n        KARTOGRAPH_IAM_DEFAULT_TENANT_NAME: Default tenant name for single-tenant mode (default: default)\n    ",
+    "properties": [
+      {
+        "env_var": "KARTOGRAPH_IAM_DEFAULT_TENANT_NAME",
+        "type": "str",
+        "default": "default",
+        "required": false,
+        "description": "Default tenant name for single-tenant mode"
+      }
+    ]
+  },
+  "OutboxWorkerSettings": {
+    "class_name": "OutboxWorkerSettings",
+    "prefix": "KARTOGRAPH_OUTBOX_",
+    "doc": "Outbox worker settings.\n\n    Environment variables:\n        KARTOGRAPH_OUTBOX_ENABLED: Enable the outbox worker (default: true)\n        KARTOGRAPH_OUTBOX_POLL_INTERVAL_SECONDS: Poll interval in seconds (default: 30)\n        KARTOGRAPH_OUTBOX_BATCH_SIZE: Maximum entries per batch (default: 100)\n    ",
+    "properties": [
+      {
+        "env_var": "KARTOGRAPH_OUTBOX_ENABLED",
+        "type": "bool",
+        "default": "True",
+        "required": false,
+        "description": "Enable the outbox worker"
+      },
+      {
+        "env_var": "KARTOGRAPH_OUTBOX_POLL_INTERVAL_SECONDS",
+        "type": "int",
+        "default": "30",
+        "required": false,
+        "description": "How often to poll for unprocessed entries"
+      },
+      {
+        "env_var": "KARTOGRAPH_OUTBOX_BATCH_SIZE",
+        "type": "int",
+        "default": "100",
+        "required": false,
+        "description": "Maximum entries to process per batch"
+      },
+      {
+        "env_var": "KARTOGRAPH_OUTBOX_MAX_RETRIES",
+        "type": "int",
+        "default": "5",
+        "required": false,
+        "description": "Maximum retry attempts before moving to DLQ"
+      }
+    ]
+  }
+}

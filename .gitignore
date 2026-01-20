@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 
 agent-notes/
+agent-memory/
 
 # C extensions
 *.so

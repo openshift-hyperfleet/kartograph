@@ -1,6 +1,9 @@
-"""Integration test fixtures for database tests.
+"""Integration test fixtures for database and authentication tests.
 
-These fixtures require a running PostgreSQL instance with AGE extension.
+These fixtures require running services:
+- PostgreSQL instance with AGE extension
+- Keycloak for authentication tests
+
 Use docker-compose for testing.
 
 IMPORTANT: Environment variables must be set at the top of this file,
@@ -13,6 +16,7 @@ import os
 # Step 2: Now safe to import other modules
 from collections.abc import Generator
 
+import httpx
 import pytest
 from pydantic import SecretStr
 
@@ -38,6 +42,10 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "integration: mark test as integration test (requires database)",
+    )
+    config.addinivalue_line(
+        "markers",
+        "keycloak: mark test as requiring Keycloak authentication server",
     )
 
 
@@ -108,3 +116,73 @@ def clean_graph(graph_client: AgeGraphClient):
         graph_client.execute_cypher("MATCH (n) DETACH DELETE n")
     except Exception:
         pass
+
+
+# =============================================================================
+# Keycloak / OIDC Authentication Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def keycloak_token_url() -> str:
+    """Keycloak token endpoint URL."""
+    return "http://localhost:8080/realms/kartograph/protocol/openid-connect/token"
+
+
+@pytest.fixture
+def oidc_client_credentials() -> dict[str, str]:
+    """OIDC client credentials for tests."""
+    return {
+        "client_id": "kartograph-api",
+        "client_secret": "kartograph-api-secret",
+    }
+
+
+@pytest.fixture
+def get_test_token(keycloak_token_url: str, oidc_client_credentials: dict[str, str]):
+    """Factory fixture to get access tokens for test users.
+
+    Uses OAuth2 password grant (deprecated but acceptable for integration tests).
+    Requires Keycloak to be running.
+
+    Usage:
+        def test_something(get_test_token):
+            token = get_test_token("alice", "password")
+            headers = {"Authorization": f"Bearer {token}"}
+    """
+
+    def _get_token(username: str, password: str) -> str:
+        with httpx.Client() as client:
+            response = client.post(
+                keycloak_token_url,
+                data={
+                    "grant_type": "password",
+                    "client_id": oidc_client_credentials["client_id"],
+                    "client_secret": oidc_client_credentials["client_secret"],
+                    "username": username,
+                    "password": password,
+                    "scope": "openid profile email",
+                },
+            )
+            response.raise_for_status()
+            return response.json()["access_token"]
+
+    return _get_token
+
+
+@pytest.fixture
+def alice_token(get_test_token) -> str:
+    """Get access token for alice user."""
+    return get_test_token("alice", "password")
+
+
+@pytest.fixture
+def bob_token(get_test_token) -> str:
+    """Get access token for bob user."""
+    return get_test_token("bob", "password")
+
+
+@pytest.fixture
+def auth_headers(alice_token: str) -> dict[str, str]:
+    """Default auth headers using alice's token."""
+    return {"Authorization": f"Bearer {alice_token}"}

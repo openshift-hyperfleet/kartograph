@@ -6,10 +6,13 @@ IAM-specific components (repositories, services).
 
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.application.observability import (
+    AuthenticationProbe,
+    DefaultAuthenticationProbe,
     DefaultGroupServiceProbe,
     DefaultTenantServiceProbe,
     DefaultUserServiceProbe,
@@ -26,7 +29,13 @@ from iam.infrastructure.user_repository import UserRepository
 from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.database.dependencies import get_write_session
 from infrastructure.outbox.repository import OutboxRepository
+from infrastructure.settings import get_oidc_settings
+from shared_kernel.auth import InvalidTokenError, JWTValidator
+from shared_kernel.auth.observability import DefaultJWTValidatorProbe
 from shared_kernel.authorization.protocols import AuthorizationProvider
+
+# Create HTTPBearer security scheme (auto_error=False for custom error handling)
+oauth2_scheme = HTTPBearer(auto_error=False)
 
 # Module-level cache for default tenant ID (populated at startup)
 _default_tenant_id: TenantId | None = None
@@ -217,68 +226,80 @@ def get_tenant_service(
     )
 
 
-async def get_current_user(
-    user_service: Annotated[UserService, Depends(get_user_service)],
-    x_user_id: str = Header(..., description="User ID from SSO (stub)"),
-    x_username: str = Header(..., description="Username from SSO (stub)"),
-    x_tenant_id: str | None = Header(
-        default=None,
-        description="Tenant ID from SSO (optional, uses default if not provided)",
-    ),
-) -> CurrentUser:
-    """Extract current user from headers (stub for SSO integration).
-
-    This is a simplified authentication mechanism for the walking skeleton.
-    In production, this will:
-    - Decode and validate JWT from Authorization header
-    - Extract user_id, username, tenant_id from JWT claims
-    - Validate JWT signature with Red Hat SSO public key
-    - Handle authentication errors properly
-
-    For now, we accept user info from custom headers to enable testing
-    without a full SSO/JWT integration, and ensure the user exists in the
-    application database.
-
-    Single-tenant mode: If X-Tenant-Id is not provided, uses the default
-    tenant created at startup. This simplifies development and testing.
-
-    Args:
-        user_service: The user service (manages its own transaction)
-        x_user_id: User ID header (any format from SSO)
-        x_username: Username header
-        x_tenant_id: Tenant ID header (ULID format, optional)
+def get_jwt_validator() -> JWTValidator:
+    """Get configured JWT validator.
 
     Returns:
-        CurrentUser with user ID (from SSO), username, and validated tenant ID
+        JWTValidator instance configured from OIDC settings.
+    """
+    settings = get_oidc_settings()
+    probe = DefaultJWTValidatorProbe()
+    return JWTValidator(
+        issuer_url=settings.issuer_url,
+        audience=settings.effective_audience,
+        probe=probe,
+        user_id_claim=settings.user_id_claim,
+        username_claim=settings.username_claim,
+    )
+
+
+def get_authentication_probe() -> AuthenticationProbe:
+    """Get AuthenticationProbe instance.
+
+    Returns:
+        DefaultAuthenticationProbe instance for observability
+    """
+    return DefaultAuthenticationProbe()
+
+
+async def get_current_user(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(oauth2_scheme)],
+    validator: Annotated[JWTValidator, Depends(get_jwt_validator)],
+    user_service: Annotated[UserService, Depends(get_user_service)],
+    auth_probe: Annotated[AuthenticationProbe, Depends(get_authentication_probe)],
+) -> CurrentUser:
+    """Get current user from JWT Bearer token.
+
+    Validates the JWT and provisions user if needed (JIT).
+
+    Args:
+        credentials: HTTP Bearer credentials from Authorization header
+        validator: JWT validator for token validation
+        user_service: The user service for JIT provisioning
+        auth_probe: Authentication probe for observability
+
+    Returns:
+        CurrentUser with user_id, username, and tenant_id
 
     Raises:
-        HTTPException: 400 if tenant ID is invalid ULID format
-        HTTPException: 500 if default tenant not initialized
+        HTTPException 401: If token missing, invalid, or expired
     """
-    # Get tenant ID (use default if not provided)
-    if x_tenant_id is None:
-        # Single-tenant mode: use default tenant created at startup
-        try:
-            tenant_id = get_default_tenant_id()
-        except RuntimeError as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=str(e),
-            ) from e
-    else:
-        # Multi-tenant mode: validate provided tenant ID
-        try:
-            tenant_id = TenantId.from_string(x_tenant_id)
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid tenant ID format: {e}",
-            ) from e
+    if credentials is None:
+        auth_probe.authentication_failed(reason="Missing authorization header")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    # User IDs come from external SSO - accept any string format
-    user_id = UserId(value=x_user_id)
+    try:
+        claims = await validator.validate_token(credentials.credentials)
+    except InvalidTokenError as e:
+        auth_probe.authentication_failed(reason=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from e
 
-    # Ensure the user exists in the system (service manages transaction)
-    await user_service.ensure_user(user_id=user_id, username=x_username)
+    # Map claims to user
+    user_id = UserId(value=claims.sub)
+    username = claims.preferred_username or claims.sub
+    tenant_id = get_default_tenant_id()
 
-    return CurrentUser(user_id=user_id, username=x_username, tenant_id=tenant_id)
+    # JIT user provisioning
+    await user_service.ensure_user(user_id=user_id, username=username)
+
+    auth_probe.user_authenticated(user_id=claims.sub, username=username)
+
+    return CurrentUser(user_id=user_id, username=username, tenant_id=tenant_id)

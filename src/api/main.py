@@ -78,18 +78,37 @@ async def kartograph_lifespan(app: FastAPI):
 
         async with app.state.write_sessionmaker() as session:
             async with session.begin():
+                from iam.ports.exceptions import DuplicateTenantNameError
+
                 outbox = OutboxRepository(session=session)
                 tenant_repo = TenantRepository(session=session, outbox=outbox)
 
                 # Check if default tenant exists
                 tenant = await tenant_repo.get_by_name(iam_settings.default_tenant_name)
                 if not tenant:
-                    tenant = Tenant.create(name=iam_settings.default_tenant_name)
-                    await tenant_repo.save(tenant)
-                    startup_probe.default_tenant_bootstrapped(
-                        tenant_id=tenant.id.value,
-                        name=tenant.name,
-                    )
+                    # Handle race condition during concurrent startups
+                    try:
+                        tenant = Tenant.create(name=iam_settings.default_tenant_name)
+                        await tenant_repo.save(tenant)
+                        startup_probe.default_tenant_bootstrapped(
+                            tenant_id=tenant.id.value,
+                            name=tenant.name,
+                        )
+                    except DuplicateTenantNameError:
+                        # Another instance created it concurrently, re-query
+                        tenant = await tenant_repo.get_by_name(
+                            iam_settings.default_tenant_name
+                        )
+                        if tenant:
+                            startup_probe.default_tenant_already_exists(
+                                tenant_id=tenant.id.value,
+                                name=tenant.name,
+                            )
+                        else:
+                            # Should never happen, but handle gracefully
+                            raise RuntimeError(
+                                "Failed to create or retrieve default tenant"
+                            )
                 else:
                     startup_probe.default_tenant_already_exists(
                         tenant_id=tenant.id.value,

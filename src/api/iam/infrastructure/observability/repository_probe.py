@@ -220,6 +220,10 @@ class TenantRepositoryProbe(Protocol):
         """Record that a tenant was retrieved."""
         ...
 
+    def tenant_not_found(self, tenant_id: str) -> None:
+        """Record that a tenant was not found."""
+        ...
+
     def tenant_deleted(self, tenant_id: str) -> None:
         """Record that a tenant was deleted."""
         ...
@@ -270,6 +274,14 @@ class DefaultTenantRepositoryProbe:
         """Record that a tenant was retrieved."""
         self._logger.debug(
             "tenant_retrieved",
+            tenant_id=tenant_id,
+            **self._get_context_kwargs(),
+        )
+
+    def tenant_not_found(self, tenant_id: str) -> None:
+        """Record that a tenant was not found."""
+        self._logger.debug(
+            "tenant_not_found",
             tenant_id=tenant_id,
             **self._get_context_kwargs(),
         )

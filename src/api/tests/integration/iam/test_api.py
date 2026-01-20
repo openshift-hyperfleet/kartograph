@@ -4,14 +4,16 @@ Tests the full vertical slice: API → Service → Repository → PostgreSQL + S
 """
 
 import asyncio
+import time
 
 import pytest
 import pytest_asyncio
 from asgi_lifespan import LifespanManager
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
 from iam.domain.value_objects import GroupId, Role, TenantId, UserId
 from main import app
+from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
     ResourceType,
@@ -22,7 +24,7 @@ pytestmark = pytest.mark.integration
 
 
 async def wait_for_permission(
-    authz,
+    authz: AuthorizationProvider,
     resource: str,
     permission: str,
     subject: str,
@@ -46,8 +48,6 @@ async def wait_for_permission(
     Returns:
         True if permission became available, False if timeout exceeded
     """
-    import time
-
     start = time.monotonic()
     while time.monotonic() - start < timeout:
         if await authz.check_permission(resource, permission, subject):

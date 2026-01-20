@@ -62,6 +62,7 @@ class TenantService:
                 return tenant
 
             except DuplicateTenantNameError:
+                self._probe.duplicate_tenant_name(name=name)
                 raise
 
     async def get_tenant(self, tenant_id: TenantId) -> Tenant | None:

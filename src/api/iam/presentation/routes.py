@@ -11,7 +11,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from iam.application.services import GroupService, TenantService
 from iam.application.value_objects import CurrentUser
-from iam.dependencies import get_current_user, get_group_service, get_tenant_service
+from iam.dependencies import (
+    get_current_user,
+    get_default_tenant_id,
+    get_group_service,
+    get_tenant_service,
+)
 from iam.domain.value_objects import GroupId, TenantId
 from iam.ports.exceptions import DuplicateGroupNameError, DuplicateTenantNameError
 from iam.presentation.models import (
@@ -330,6 +335,21 @@ async def delete_tenant(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid tenant ID format: {e}",
         ) from e
+
+    # Prevent deletion of default tenant
+    default_tenant_id = get_default_tenant_id()
+    if tenant_id_obj.value == default_tenant_id.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete the default tenant",
+        )
+
+    # Prevent deletion of current user's tenant
+    if tenant_id_obj.value == current_user.tenant_id.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete your own tenant",
+        )
 
     try:
         deleted = await service.delete_tenant(tenant_id_obj)

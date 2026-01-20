@@ -140,6 +140,7 @@ class TenantRepository(ITenantRepository):
         model = result.scalar_one_or_none()
 
         if model is None:
+            self._probe.tenant_not_found(tenant_id.value)
             return None
 
         # Reconstitute tenant aggregate

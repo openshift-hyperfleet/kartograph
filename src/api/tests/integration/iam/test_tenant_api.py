@@ -80,8 +80,8 @@ class TestCreateTenant:
         assert "already exists" in response.json()["detail"]
 
     @pytest.mark.asyncio
-    async def test_returns_400_for_empty_name(self, async_client, clean_iam_data):
-        """Should return 400 for empty tenant name."""
+    async def test_returns_422_for_empty_name(self, async_client, clean_iam_data):
+        """Should return 422 for empty tenant name."""
         user_id = UserId.generate()
         tenant_id = TenantId.generate()
 

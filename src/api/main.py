@@ -222,17 +222,29 @@ app.include_router(iam_routes.router)
 # Include dev utility routes (easy to remove for production)
 app.include_router(dev_routes.router)
 
-# Conditionally include auth routes when OIDC is enabled
-try:
-    oidc_settings = get_oidc_settings()
-    if oidc_settings.auth_routes_enabled:
-        from auth.presentation import routes as auth_routes
 
-        app.include_router(auth_routes.router)
-except Exception:
-    # OIDC settings may fail if client_secret is not configured
-    # In that case, auth routes are simply not registered
-    pass
+# Conditionally include auth routes when OIDC is enabled
+def _register_auth_routes() -> None:
+    """Register auth routes if OIDC is configured and enabled."""
+    from infrastructure.observability.startup_probe import DefaultStartupProbe
+
+    startup_probe = DefaultStartupProbe()
+
+    try:
+        oidc_settings = get_oidc_settings()
+        if oidc_settings.auth_routes_enabled:
+            from auth.presentation import routes as auth_routes
+
+            app.include_router(auth_routes.router)
+            startup_probe.oidc_routes_registered()
+        else:
+            startup_probe.oidc_routes_disabled()
+    except Exception as e:
+        # OIDC settings may fail if client_secret is not configured
+        startup_probe.oidc_configuration_failed(error=str(e))
+
+
+_register_auth_routes()
 
 
 @app.get("/health")

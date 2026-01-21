@@ -25,18 +25,6 @@ class StartupProbe(Protocol):
         """Record that the default tenant already existed."""
         ...
 
-    def oidc_routes_registered(self) -> None:
-        """Record that OIDC auth routes were successfully registered."""
-        ...
-
-    def oidc_routes_disabled(self) -> None:
-        """Record that OIDC auth routes are disabled by configuration."""
-        ...
-
-    def oidc_configuration_failed(self, error: str) -> None:
-        """Record that OIDC configuration failed (e.g., missing client_secret)."""
-        ...
-
     def with_context(self, context: ObservationContext) -> StartupProbe:
         """Create a new probe with observation context bound."""
         ...
@@ -78,27 +66,5 @@ class DefaultStartupProbe:
             "default_tenant_already_exists",
             tenant_id=tenant_id,
             name=name,
-            **self._get_context_kwargs(),
-        )
-
-    def oidc_routes_registered(self) -> None:
-        """Record that OIDC auth routes were successfully registered."""
-        self._logger.info(
-            "oidc_routes_registered",
-            **self._get_context_kwargs(),
-        )
-
-    def oidc_routes_disabled(self) -> None:
-        """Record that OIDC auth routes are disabled by configuration."""
-        self._logger.info(
-            "oidc_routes_disabled",
-            **self._get_context_kwargs(),
-        )
-
-    def oidc_configuration_failed(self, error: str) -> None:
-        """Record that OIDC configuration failed (e.g., missing client_secret)."""
-        self._logger.warning(
-            "oidc_configuration_failed",
-            error=error,
             **self._get_context_kwargs(),
         )

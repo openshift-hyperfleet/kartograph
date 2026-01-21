@@ -27,7 +27,6 @@ def mock_oidc_settings() -> MagicMock:
     settings.client_id = TEST_CLIENT_ID
     settings.client_secret = SecretStr(TEST_CLIENT_SECRET)
     settings.swagger_client_id = TEST_SWAGGER_CLIENT_ID
-    settings.auth_routes_enabled = True
     return settings
 
 

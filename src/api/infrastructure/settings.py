@@ -304,7 +304,6 @@ class OIDCSettings(BaseSettings):
         KARTOGRAPH_OIDC_CLIENT_ID: OIDC client ID for the API (default: kartograph-api)
         KARTOGRAPH_OIDC_CLIENT_SECRET: OIDC client secret (required)
         KARTOGRAPH_OIDC_SWAGGER_CLIENT_ID: OIDC client ID for Swagger UI (default: kartograph-swagger)
-        KARTOGRAPH_OIDC_AUTH_ROUTES_ENABLED: Enable auth routes (default: true)
         KARTOGRAPH_OIDC_USER_ID_CLAIM: Claim to use for user ID (default: sub)
         KARTOGRAPH_OIDC_USERNAME_CLAIM: Claim to use for username (default: preferred_username)
         KARTOGRAPH_OIDC_AUDIENCE: Expected audience claim (default: None, uses client_id)
@@ -331,10 +330,6 @@ class OIDCSettings(BaseSettings):
     swagger_client_id: str = Field(
         default="kartograph-swagger",
         description="OIDC client ID for Swagger UI (public client)",
-    )
-    auth_routes_enabled: bool = Field(
-        default=True,
-        description="Enable auth routes for login/callback/logout",
     )
     user_id_claim: str = Field(
         default="sub",

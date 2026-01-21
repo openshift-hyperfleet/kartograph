@@ -72,7 +72,7 @@
   "OIDCSettings": {
     "class_name": "OIDCSettings",
     "prefix": "KARTOGRAPH_OIDC_",
-    "doc": "OIDC (OpenID Connect) SSO settings.\n\n    Environment variables:\n        KARTOGRAPH_OIDC_ISSUER_URL: OIDC issuer URL (default: http://localhost:8080/realms/kartograph)\n        KARTOGRAPH_OIDC_CLIENT_ID: OIDC client ID for the API (default: kartograph-api)\n        KARTOGRAPH_OIDC_CLIENT_SECRET: OIDC client secret (required)\n        KARTOGRAPH_OIDC_SWAGGER_CLIENT_ID: OIDC client ID for Swagger UI (default: kartograph-swagger)\n        KARTOGRAPH_OIDC_AUTH_ROUTES_ENABLED: Enable auth routes (default: true)\n        KARTOGRAPH_OIDC_USER_ID_CLAIM: Claim to use for user ID (default: sub)\n        KARTOGRAPH_OIDC_USERNAME_CLAIM: Claim to use for username (default: preferred_username)\n        KARTOGRAPH_OIDC_AUDIENCE: Expected audience claim (default: None, uses client_id)\n    ",
+    "doc": "OIDC (OpenID Connect) SSO settings.\n\n    Environment variables:\n        KARTOGRAPH_OIDC_ISSUER_URL: OIDC issuer URL (default: http://localhost:8080/realms/kartograph)\n        KARTOGRAPH_OIDC_CLIENT_ID: OIDC client ID for the API (default: kartograph-api)\n        KARTOGRAPH_OIDC_CLIENT_SECRET: OIDC client secret (required)\n        KARTOGRAPH_OIDC_SWAGGER_CLIENT_ID: OIDC client ID for Swagger UI (default: kartograph-swagger)\n        KARTOGRAPH_OIDC_USER_ID_CLAIM: Claim to use for user ID (default: sub)\n        KARTOGRAPH_OIDC_USERNAME_CLAIM: Claim to use for username (default: preferred_username)\n        KARTOGRAPH_OIDC_AUDIENCE: Expected audience claim (default: None, uses client_id)\n    ",
     "properties": [
       {
         "env_var": "KARTOGRAPH_OIDC_ISSUER_URL",
@@ -101,13 +101,6 @@
         "default": "kartograph-swagger",
         "required": false,
         "description": "OIDC client ID for Swagger UI (public client)"
-      },
-      {
-        "env_var": "KARTOGRAPH_OIDC_AUTH_ROUTES_ENABLED",
-        "type": "bool",
-        "default": "True",
-        "required": false,
-        "description": "Enable auth routes for login/callback/logout"
       },
       {
         "env_var": "KARTOGRAPH_OIDC_USER_ID_CLAIM",

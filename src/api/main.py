@@ -223,33 +223,20 @@ app.include_router(iam_routes.router)
 app.include_router(dev_routes.router)
 
 
-# Conditionally include auth routes when OIDC is enabled
-def _register_auth_routes() -> None:
-    """Register auth routes if OIDC is configured and enabled."""
+# Log OIDC configuration at startup
+def _log_oidc_config() -> None:
+    """Log OIDC configuration if available."""
     from auth.observability import DefaultOIDCConfigProbe
-    from infrastructure.observability.startup_probe import DefaultStartupProbe
-
-    startup_probe = DefaultStartupProbe()
 
     try:
         oidc_settings = get_oidc_settings()
-
-        # Log OIDC configuration (non-sensitive details only)
         DefaultOIDCConfigProbe.log_settings(oidc_settings)
-
-        if oidc_settings.auth_routes_enabled:
-            from auth.presentation import routes as auth_routes
-
-            app.include_router(auth_routes.router)
-            startup_probe.oidc_routes_registered()
-        else:
-            startup_probe.oidc_routes_disabled()
-    except Exception as e:
+    except Exception:
         # OIDC settings may fail if client_secret is not configured
-        startup_probe.oidc_configuration_failed(error=str(e))
+        pass
 
 
-_register_auth_routes()
+_log_oidc_config()
 
 
 def configure_swagger_oauth2(app: FastAPI) -> None:

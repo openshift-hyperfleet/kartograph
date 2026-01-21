@@ -60,7 +60,6 @@ class TestOIDCSettings:
         assert settings.issuer_url == "http://localhost:8080/realms/kartograph"
         assert settings.client_id == "kartograph-api"
         assert settings.swagger_client_id == "kartograph-swagger"
-        assert settings.auth_routes_enabled is True
         assert settings.user_id_claim == "sub"
         assert settings.username_claim == "preferred_username"
 
@@ -108,7 +107,6 @@ class TestOIDCSettings:
         monkeypatch.setenv("KARTOGRAPH_OIDC_CLIENT_ID", "prod-client")
         monkeypatch.setenv("KARTOGRAPH_OIDC_CLIENT_SECRET", "prod-secret")
         monkeypatch.setenv("KARTOGRAPH_OIDC_SWAGGER_CLIENT_ID", "prod-swagger")
-        monkeypatch.setenv("KARTOGRAPH_OIDC_AUTH_ROUTES_ENABLED", "false")
         monkeypatch.setenv("KARTOGRAPH_OIDC_USER_ID_CLAIM", "oid")
         monkeypatch.setenv("KARTOGRAPH_OIDC_USERNAME_CLAIM", "email")
         monkeypatch.setenv("KARTOGRAPH_OIDC_AUDIENCE", "api://kartograph")
@@ -119,7 +117,6 @@ class TestOIDCSettings:
         assert settings.client_id == "prod-client"
         assert settings.client_secret.get_secret_value() == "prod-secret"
         assert settings.swagger_client_id == "prod-swagger"
-        assert settings.auth_routes_enabled is False
         assert settings.user_id_claim == "oid"
         assert settings.username_claim == "email"
         assert settings.audience == "api://kartograph"

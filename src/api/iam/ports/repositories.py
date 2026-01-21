@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from iam.domain.aggregates import Group, Tenant, User
-from iam.domain.value_objects import GroupId, TenantId, UserId
+from iam.domain.aggregates import APIKey, Group, Tenant, User
+from iam.domain.value_objects import APIKeyId, GroupId, TenantId, UserId
 
 
 @runtime_checkable
@@ -190,6 +190,86 @@ class ITenantRepository(Protocol):
 
         Args:
             tenant: The Tenant aggregate to delete (with deletion event recorded)
+
+        Returns:
+            True if deleted, False if not found
+        """
+        ...
+
+
+@runtime_checkable
+class IAPIKeyRepository(Protocol):
+    """Repository for APIKey aggregate persistence.
+
+    Simple repository for API key metadata and authentication lookup.
+    API keys provide programmatic access as an alternative to OIDC tokens.
+    """
+
+    async def save(self, api_key: APIKey) -> None:
+        """Persist an API key aggregate.
+
+        Creates a new API key or updates an existing one. Persists API key
+        metadata to PostgreSQL and domain events to the outbox.
+
+        Args:
+            api_key: The APIKey aggregate to persist
+
+        Raises:
+            DuplicateAPIKeyNameError: If key name already exists for user in tenant
+        """
+        ...
+
+    async def get_by_id(
+        self, api_key_id: APIKeyId, user_id: UserId, tenant_id: TenantId
+    ) -> APIKey | None:
+        """Retrieve an API key by its ID with user/tenant scoping.
+
+        Security note: Requires user_id and tenant_id to prevent cross-user access.
+
+        Args:
+            api_key_id: The unique identifier of the API key
+            user_id: The user who owns the key (for access control)
+            tenant_id: The tenant the key belongs to (for access control)
+
+        Returns:
+            The APIKey aggregate, or None if not found or access denied
+        """
+        ...
+
+    async def get_by_key_hash(self, key_hash: str) -> APIKey | None:
+        """Retrieve an API key by its hash for authentication.
+
+        This method is used during authentication to look up the key
+        from the hashed secret provided in the request.
+
+        Args:
+            key_hash: The hash of the API key secret
+
+        Returns:
+            The APIKey aggregate, or None if not found
+        """
+        ...
+
+    async def list_by_user(self, user_id: UserId, tenant_id: TenantId) -> list[APIKey]:
+        """List all API keys for a user in a tenant.
+
+        Args:
+            user_id: The user to list keys for
+            tenant_id: The tenant to scope the list to
+
+        Returns:
+            List of APIKey aggregates belonging to the user
+        """
+        ...
+
+    async def delete(self, api_key: APIKey) -> bool:
+        """Delete an API key.
+
+        The API key should have revoke() called before deletion to record
+        the APIKeyRevoked event for the outbox.
+
+        Args:
+            api_key: The APIKey aggregate to delete (with revoke event recorded)
 
         Returns:
             True if deleted, False if not found

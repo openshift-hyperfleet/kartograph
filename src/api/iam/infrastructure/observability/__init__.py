@@ -3,6 +3,10 @@
 Probes for repository operations following Domain-Oriented Observability patterns.
 """
 
+from iam.infrastructure.observability.api_key_repository_probe import (
+    APIKeyRepositoryProbe,
+    DefaultAPIKeyRepositoryProbe,
+)
 from iam.infrastructure.observability.repository_probe import (
     DefaultGroupRepositoryProbe,
     DefaultTenantRepositoryProbe,
@@ -13,6 +17,8 @@ from iam.infrastructure.observability.repository_probe import (
 )
 
 __all__ = [
+    "APIKeyRepositoryProbe",
+    "DefaultAPIKeyRepositoryProbe",
     "GroupRepositoryProbe",
     "DefaultGroupRepositoryProbe",
     "UserRepositoryProbe",

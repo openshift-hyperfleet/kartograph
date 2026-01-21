@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 from jose import JWTError, jwt
+from jose.exceptions import ExpiredSignatureError, JWTClaimsError
 
 if TYPE_CHECKING:
     from shared_kernel.auth.observability import JWTValidatorProbe
@@ -100,8 +101,8 @@ class JWTValidator:
         # Validate the token
         try:
             claims = jwt.decode(
-                token,
-                jwks,
+                token=token,
+                key=jwks,
                 algorithms=["RS256"],
                 audience=self._audience,
                 issuer=self._issuer_url,
@@ -113,10 +114,10 @@ class JWTValidator:
                     "verify_iat": True,
                 },
             )
-        except jwt.ExpiredSignatureError as e:
+        except ExpiredSignatureError as e:
             self._probe.token_validation_failed(reason="Token expired")
             raise InvalidTokenError("Token has expired") from e
-        except jwt.JWTClaimsError as e:
+        except JWTClaimsError as e:
             error_msg = str(e).lower()
             if "audience" in error_msg:
                 self._probe.token_validation_failed(reason="Invalid audience")
@@ -142,7 +143,7 @@ class JWTValidator:
             )
             raise InvalidTokenError(f"Missing required claim: {self._user_id_claim}")
 
-        # Extract username claim (optional)
+        # Extract username claim
         username = claims.get(self._username_claim)
 
         self._probe.token_validated(user_id=str(user_id))

@@ -127,7 +127,7 @@ jobs:
           fi
           # Verify realm was imported
           echo "Checking Keycloak logs for realm import..."
-          if ! docker logs keycloak 2>&1 | grep -qi "imported.*kartograph\|kartograph.*realm"; then
+          if ! docker logs keycloak 2>&1 | grep -qi "realm.*kartograph.*imported\|kartograph.*imported"; then
             echo "ERROR: Realm import not confirmed in Keycloak logs"
             docker logs keycloak 2>&1 | tail -50
             exit 1

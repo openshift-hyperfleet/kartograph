@@ -226,12 +226,17 @@ app.include_router(dev_routes.router)
 # Conditionally include auth routes when OIDC is enabled
 def _register_auth_routes() -> None:
     """Register auth routes if OIDC is configured and enabled."""
+    from auth.observability import DefaultOIDCConfigProbe
     from infrastructure.observability.startup_probe import DefaultStartupProbe
 
     startup_probe = DefaultStartupProbe()
 
     try:
         oidc_settings = get_oidc_settings()
+
+        # Log OIDC configuration (non-sensitive details only)
+        DefaultOIDCConfigProbe.log_settings(oidc_settings)
+
         if oidc_settings.auth_routes_enabled:
             from auth.presentation import routes as auth_routes
 

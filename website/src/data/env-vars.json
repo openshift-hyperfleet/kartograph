@@ -119,8 +119,8 @@
       {
         "env_var": "KARTOGRAPH_OIDC_AUDIENCE",
         "type": "str | None",
-        "default": null,
-        "required": true,
+        "default": "None",
+        "required": false,
         "description": "Expected audience claim (defaults to client_id if None)"
       }
     ]
@@ -154,8 +154,8 @@
       {
         "env_var": "SPICEDB_CERT_PATH",
         "type": "str | None",
-        "default": null,
-        "required": true,
+        "default": "None",
+        "required": false,
         "description": "Path to custom TLS root certificate (for self-signed certs)"
       }
     ]
@@ -168,8 +168,8 @@
       {
         "env_var": "KARTOGRAPH_CORS_ORIGINS",
         "type": "list",
-        "default": null,
-        "required": true,
+        "default": "None",
+        "required": false,
         "description": "List of allowed origins for CORS"
       },
       {
@@ -182,15 +182,15 @@
       {
         "env_var": "KARTOGRAPH_CORS_ALLOW_METHODS",
         "type": "list",
-        "default": null,
-        "required": true,
+        "default": "None",
+        "required": false,
         "description": "Allowed HTTP methods for CORS"
       },
       {
         "env_var": "KARTOGRAPH_CORS_ALLOW_HEADERS",
         "type": "list",
-        "default": null,
-        "required": true,
+        "default": "None",
+        "required": false,
         "description": "Allowed headers for CORS"
       }
     ]

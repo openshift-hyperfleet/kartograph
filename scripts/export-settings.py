@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from typing import Type
 from pydantic import SecretStr
+from pydantic_core import PydanticUndefined
 from pydantic_settings import BaseSettings
 
 root_path = Path(__file__).parent.parent
@@ -28,15 +29,12 @@ def get_model_metadata(settings_class: Type[BaseSettings]):
         default = field.get_default()
 
         # 1. Logic for determining "Required"
-        # A field is effectively required if:
-        # - It has no default (PydanticUndefined)
-        # - OR it's a Secret that is currently an empty string (common Pydantic pattern)
-        is_required = (
-            default is None
-            or "PydanticUndefined" in str(default)
-            or (
-                isinstance(default, SecretStr) and str(default.get_secret_value()) == ""
-            )
+        # A field is required if:
+        # - It has no default (PydanticUndefined sentinel)
+        # - OR it's a Secret with an empty string value (common Pydantic pattern)
+        # Note: explicit None defaults are NOT required
+        is_required = default is PydanticUndefined or (
+            isinstance(default, SecretStr) and default.get_secret_value() == ""
         )
 
         # 2. Logic for displaying the default

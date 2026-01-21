@@ -3,7 +3,7 @@
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from util import dev_routes
 
@@ -226,7 +226,7 @@ app.include_router(dev_routes.router)
 # Log OIDC configuration at startup
 def _log_oidc_config() -> None:
     """Log OIDC configuration if available."""
-    from auth.observability import DefaultOIDCConfigProbe
+    from iam.application.observability import DefaultOIDCConfigProbe
 
     try:
         oidc_settings = get_oidc_settings()
@@ -299,97 +299,3 @@ def health_db(
             "connected": False,
             "error": str(e),
         }
-
-
-@app.get("/util/nodes")
-def get_nodes(
-    client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
-) -> dict:
-    """Query all nodes in the graph.
-
-    Utility endpoint for development and testing.
-    """
-    try:
-        from age.models import Vertex as AgeVertex
-
-        # Execute simple query
-        result = client.execute_cypher("MATCH (n) RETURN n")
-
-        # Convert Vertex objects to serializable dicts
-        nodes = []
-        for row in result.rows:
-            if len(row) > 0 and isinstance(row[0], AgeVertex):
-                vertex = row[0]
-                nodes.append(
-                    {
-                        "id": str(vertex.id),
-                        "label": vertex.label,
-                        "properties": dict(vertex.properties)
-                        if vertex.properties
-                        else {},
-                    }
-                )
-
-        return {
-            "nodes": nodes,
-            "count": len(nodes),
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to query nodes: {e}",
-        ) from e
-
-
-@app.delete("/util/nodes")
-def delete_nodes(
-    client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
-) -> dict:
-    """Delete all nodes in the graph.
-
-    Returns:
-        Dictionary with count of deleted nodes
-    """
-    try:
-        # First count the nodes
-        count_query = "MATCH (n) RETURN count(n)"
-        count_result = client.execute_cypher(count_query)
-        deleted_count = int(count_result.rows[0][0]) if count_result.rows else 0
-
-        # Delete all nodes
-        delete_query = "MATCH (n) DETACH DELETE n"
-        client.execute_cypher(delete_query)
-
-        return {"deleted": deleted_count}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete nodes: {e}",
-        ) from e
-
-
-@app.delete("/util/edges")
-def delete_edges(
-    client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
-) -> dict:
-    """Delete all edges in the graph.
-
-    Returns:
-        Dictionary with count of deleted edges
-    """
-    try:
-        # First count the edges
-        count_query = "MATCH ()-[r]-() RETURN count(r)"
-        count_result = client.execute_cypher(count_query)
-        deleted_count = int(count_result.rows[0][0]) if count_result.rows else 0
-
-        # Delete all edges
-        delete_query = "MATCH ()-[r]-() DELETE r"
-        client.execute_cypher(delete_query)
-
-        return {"deleted": deleted_count}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete edges: {e}",
-        ) from e

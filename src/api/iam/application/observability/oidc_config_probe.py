@@ -1,7 +1,10 @@
-"""Domain-oriented observability for auth configuration.
+"""Protocol for OIDC configuration observability.
 
-Follows the Domain Oriented Observability pattern from Martin Fowler.
+Defines the interface for domain probes that capture OIDC configuration events
+at application startup.
 """
+
+from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 

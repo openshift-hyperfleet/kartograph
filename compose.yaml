@@ -5,6 +5,7 @@ services:
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: localhost
     ports:
       - "8080:8080"
     networks:
@@ -143,6 +144,8 @@ services:
     volumes:
       - ./certs:/certs:ro
     tty: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - FORCE_COLOR=1
       - GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/certs/spicedb-cert.pem

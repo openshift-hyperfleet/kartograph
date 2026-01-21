@@ -26,7 +26,11 @@ from iam.presentation.models import (
     TenantResponse,
 )
 
-router = APIRouter(prefix="/iam", tags=["iam"])
+router = APIRouter(
+    prefix="/iam",
+    tags=["iam"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.post("/groups", status_code=status.HTTP_201_CREATED)

@@ -11,6 +11,8 @@ from graph.domain.value_objects import (
     MutationResult,
     NodeRecord,
 )
+from iam.application.value_objects import CurrentUser
+from iam.domain.value_objects import TenantId, UserId
 
 
 @pytest.fixture
@@ -26,12 +28,23 @@ def mock_mutation_service():
 
 
 @pytest.fixture
-def test_client(mock_query_service, mock_mutation_service):
+def mock_current_user():
+    """Mock CurrentUser for authentication."""
+    return CurrentUser(
+        user_id=UserId(value="test-user-123"),
+        username="testuser",
+        tenant_id=TenantId.generate(),
+    )
+
+
+@pytest.fixture
+def test_client(mock_query_service, mock_mutation_service, mock_current_user):
     """Create TestClient with mocked dependencies."""
     from fastapi import FastAPI
 
     from graph import dependencies
     from graph.presentation import routes
+    from iam.dependencies import get_current_user
 
     app = FastAPI()
 
@@ -42,6 +55,7 @@ def test_client(mock_query_service, mock_mutation_service):
     app.dependency_overrides[dependencies.get_graph_mutation_service] = (
         lambda: mock_mutation_service
     )
+    app.dependency_overrides[get_current_user] = lambda: mock_current_user
 
     app.include_router(routes.router)
 

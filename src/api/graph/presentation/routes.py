@@ -10,6 +10,8 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
+from iam.dependencies import get_current_user
+
 from graph.ports.protocols import NodeNeighborsResult
 from graph.application.services import (
     GraphMutationService,
@@ -27,7 +29,11 @@ from graph.domain.value_objects import (
     TypeDefinition,
 )
 
-router = APIRouter(prefix="/graph", tags=["graph"])
+router = APIRouter(
+    prefix="/graph",
+    tags=["graph"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.post("/mutations", status_code=status.HTTP_200_OK)

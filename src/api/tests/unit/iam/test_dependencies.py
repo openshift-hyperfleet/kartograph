@@ -186,6 +186,10 @@ class TestGetCurrentUser:
         assert exc_info.value.detail == "Token has expired"
         assert exc_info.value.headers == {"WWW-Authenticate": "Bearer"}
 
+        mock_auth_probe.authentication_failed.assert_called_once_with(
+            reason="Token has expired"
+        )
+
     @pytest.mark.asyncio
     async def test_extracts_user_id_from_sub_claim(
         self,

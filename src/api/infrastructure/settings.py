@@ -55,6 +55,10 @@ class DatabaseSettings(BaseSettings):
         ge=1,
         le=100,
     )
+    ssl_mode: str = Field(
+        default="prefer",
+        description="SSL mode for asyncpg connections (disable, prefer, require)",
+    )
 
     @model_validator(mode="after")
     def validate_pool_settings(self) -> "DatabaseSettings":

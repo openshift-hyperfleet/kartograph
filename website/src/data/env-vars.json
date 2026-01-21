@@ -59,6 +59,13 @@
         "default": "10",
         "required": false,
         "description": "Maximum connections in pool"
+      },
+      {
+        "env_var": "KARTOGRAPH_DB_SSL_MODE",
+        "type": "str",
+        "default": "prefer",
+        "required": false,
+        "description": "SSL mode for asyncpg connections (disable, prefer, require)"
       }
     ]
   },

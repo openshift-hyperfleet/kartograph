@@ -64,8 +64,11 @@ class TestOIDCSettings:
         assert settings.user_id_claim == "sub"
         assert settings.username_claim == "preferred_username"
 
-    def test_client_secret_is_required(self):
+    def test_client_secret_is_required(self, monkeypatch):
         """Should raise ValidationError when client_secret is missing."""
+        # Ensure no env var is set (integration tests may set this)
+        monkeypatch.delenv("KARTOGRAPH_OIDC_CLIENT_SECRET", raising=False)
+
         with pytest.raises(ValidationError) as exc_info:
             OIDCSettings()
 

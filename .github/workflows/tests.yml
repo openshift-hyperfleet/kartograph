@@ -142,7 +142,7 @@ jobs:
           KARTOGRAPH_DB_USERNAME: kartograph
           KARTOGRAPH_DB_PASSWORD: kartograph_dev_password
           KARTOGRAPH_DB_GRAPH_NAME: test_graph
-          KARTOGRAPH_DB_SSL_MODE: disable
+          KARTOGRAPH_DB_SSL_MODE: prefer
           SPICEDB_ENDPOINT: localhost:50051
           SPICEDB_PRESHARED_KEY: test_key
           SPICEDB_USE_TLS: "false"

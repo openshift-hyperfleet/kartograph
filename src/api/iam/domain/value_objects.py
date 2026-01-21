@@ -100,6 +100,16 @@ class TenantId(BaseId):
     pass
 
 
+@dataclass(frozen=True)
+class APIKeyId(BaseId):
+    """Identifier for an API Key.
+
+    Uses ULID for sortability and distribution-friendly generation.
+    """
+
+    pass
+
+
 class Role(StrEnum):
     """Roles for group membership.
 

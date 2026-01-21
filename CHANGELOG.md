@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/openshift-hyperfleet/kartograph/compare/v1.2.0...v2.0.0) (2026-01-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* add OIDC authentication support ([#141](https://github.com/openshift-hyperfleet/kartograph/issues/141))
+
+### Features
+
+* add OIDC authentication support ([#141](https://github.com/openshift-hyperfleet/kartograph/issues/141)) ([a34d349](https://github.com/openshift-hyperfleet/kartograph/commit/a34d3492f160a54a73e67287e2af74f6f369176a))
+
 ## [1.2.0](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.7...v1.2.0) (2026-01-20)
 
 

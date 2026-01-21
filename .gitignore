@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 
 agent-notes/
+agent-memory/
 
 # C extensions
 *.so
@@ -51,6 +52,7 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+test.sh
 
 # Translations
 *.mo

@@ -20,6 +20,7 @@ from infrastructure.logging import configure_logging
 from infrastructure.settings import (
     get_cors_settings,
     get_database_settings,
+    get_oidc_settings,
     get_outbox_worker_settings,
     get_spicedb_settings,
 )
@@ -220,6 +221,54 @@ app.include_router(iam_routes.router)
 
 # Include dev utility routes (easy to remove for production)
 app.include_router(dev_routes.router)
+
+
+# Log OIDC configuration at startup
+def _log_oidc_config() -> None:
+    """Log OIDC configuration if available."""
+    from auth.observability import DefaultOIDCConfigProbe
+
+    try:
+        oidc_settings = get_oidc_settings()
+        DefaultOIDCConfigProbe.log_settings(oidc_settings)
+    except Exception:
+        # OIDC settings may fail if client_secret is not configured
+        pass
+
+
+_log_oidc_config()
+
+
+def configure_swagger_oauth2(app: FastAPI) -> None:
+    """Configure Swagger UI OAuth2 with PKCE.
+
+    Sets up the Swagger UI to authenticate via OAuth2/OIDC using the
+    Authorization Code flow with PKCE. This uses the public swagger client,
+    not the confidential API client.
+
+    The security scheme itself is registered automatically by
+    OAuth2AuthorizationCodeBearer in iam/dependencies.py. This function
+    only configures the Swagger UI initialization parameters.
+
+    If OIDC settings are not configured (e.g., missing client_secret),
+    this function silently returns without configuring Swagger OAuth2.
+    """
+    try:
+        oidc_settings = get_oidc_settings()
+    except Exception:
+        # OIDC not configured, skip Swagger OAuth2
+        return
+
+    # Configure Swagger UI init parameters for PKCE flow
+    app.swagger_ui_init_oauth = {
+        "clientId": oidc_settings.swagger_client_id,
+        "usePkceWithAuthorizationCodeGrant": True,
+        "scopes": "openid profile email",
+    }
+
+
+# Configure Swagger OAuth2 if OIDC is available
+configure_swagger_oauth2(app)
 
 
 @app.get("/health")

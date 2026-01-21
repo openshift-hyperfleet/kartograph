@@ -34,7 +34,7 @@ def test_build_async_url(mock_db_settings):
     url = build_async_url(mock_db_settings)
 
     assert url == (
-        "postgresql+asyncpg://test_user:test_password@localhost:5432/test_db"
+        "postgresql+asyncpg://test_user:test_password@localhost:5432/test_db?ssl=prefer"
     )
 
 

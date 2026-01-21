@@ -38,11 +38,13 @@ class UserModel(Base, TimestampMixin):
 
     Stores user metadata in PostgreSQL. Users are provisioned from SSO
     and this table only stores minimal metadata for lookup and reference.
+
+    Note: id is VARCHAR(255) to accommodate external SSO IDs (UUIDs, Auth0, etc.)
     """
 
     __tablename__ = "users"
 
-    id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
     username: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
 
     def __repr__(self) -> str:

@@ -5,9 +5,13 @@ for development. Production deployments should set all values explicitly.
 """
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Valid SSL modes for asyncpg connections
+SslMode = Literal["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]
 
 
 class DatabaseSettings(BaseSettings):
@@ -54,6 +58,10 @@ class DatabaseSettings(BaseSettings):
         description="Maximum connections in pool",
         ge=1,
         le=100,
+    )
+    ssl_mode: SslMode = Field(
+        default="prefer",
+        description="SSL mode for asyncpg connections (disable, allow, prefer, require, verify-ca, verify-full)",
     )
 
     @model_validator(mode="after")
@@ -136,7 +144,7 @@ class SpiceDBSettings(BaseSettings):
         default="localhost:50051", description="SpiceDB gRPC endpoint"
     )
     preshared_key: SecretStr = Field(
-        default=SecretStr("changeme"),
+        default=SecretStr(""),
         description="Pre-shared key for authentication",
     )
     use_tls: bool = Field(
@@ -290,3 +298,67 @@ def get_iam_settings() -> IAMSettings:
     Uses lru_cache to ensure settings are only loaded once.
     """
     return IAMSettings()
+
+
+class OIDCSettings(BaseSettings):
+    """OIDC (OpenID Connect) SSO settings.
+
+    Environment variables:
+        KARTOGRAPH_OIDC_ISSUER_URL: OIDC issuer URL (default: http://localhost:8080/realms/kartograph)
+        KARTOGRAPH_OIDC_CLIENT_ID: OIDC client ID for the API (default: kartograph-api)
+        KARTOGRAPH_OIDC_CLIENT_SECRET: OIDC client secret (required)
+        KARTOGRAPH_OIDC_SWAGGER_CLIENT_ID: OIDC client ID for Swagger UI (default: kartograph-swagger)
+        KARTOGRAPH_OIDC_USER_ID_CLAIM: Claim to use for user ID (default: sub)
+        KARTOGRAPH_OIDC_USERNAME_CLAIM: Claim to use for username (default: preferred_username)
+        KARTOGRAPH_OIDC_AUDIENCE: Expected audience claim (default: None, uses client_id)
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="KARTOGRAPH_OIDC_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    issuer_url: str = Field(
+        default="http://localhost:8080/realms/kartograph",
+        description="OIDC issuer URL (e.g., Keycloak realm URL)",
+    )
+    client_id: str = Field(
+        default="kartograph-api",
+        description="OIDC client ID for the API",
+    )
+    client_secret: SecretStr = Field(
+        default=SecretStr(""),
+        description="OIDC client secret",
+    )
+    swagger_client_id: str = Field(
+        default="kartograph-swagger",
+        description="OIDC client ID for Swagger UI (public client)",
+    )
+    user_id_claim: str = Field(
+        default="sub",
+        description="JWT claim to use for user ID",
+    )
+    username_claim: str = Field(
+        default="preferred_username",
+        description="JWT claim to use for username",
+    )
+    audience: str | None = Field(
+        default=None,
+        description="Expected audience claim (defaults to client_id if None)",
+    )
+
+    @property
+    def effective_audience(self) -> str:
+        """Get the effective audience, defaulting to client_id if not set."""
+        return self.audience if self.audience is not None else self.client_id
+
+
+@lru_cache
+def get_oidc_settings() -> OIDCSettings:
+    """Get cached OIDC settings.
+
+    Uses lru_cache to ensure settings are only loaded once.
+    """
+    return OIDCSettings()

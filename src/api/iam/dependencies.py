@@ -4,6 +4,7 @@ Composes infrastructure resources (database sessions, authorization) with
 IAM-specific components (repositories, services).
 """
 
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -263,8 +264,12 @@ def get_tenant_service(
     )
 
 
+@lru_cache
 def get_jwt_validator() -> JWTValidator:
-    """Get configured JWT validator.
+    """Get cached JWT validator.
+
+    Uses lru_cache to ensure a single JWTValidator instance is reused across
+    requests, enabling reuse of the instance-level JWKS cache.
 
     Returns:
         JWTValidator instance configured from OIDC settings.

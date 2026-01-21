@@ -43,7 +43,7 @@ jobs:
             -e KEYCLOAK_ADMIN_PASSWORD=admin \
             -v ${{ github.workspace }}/keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro \
             quay.io/keycloak/keycloak:26.0.5 \
-            start-dev --import-realm
+            start-dev --import-realm --health-enabled=true
 
       - name: Start SpiceDB
         uses: authzed/action-spicedb@v1
@@ -110,7 +110,7 @@ jobs:
         run: |
           echo "Waiting for Keycloak to be ready..."
           for i in {1..60}; do
-            if curl -sf http://localhost:8080/health/ready > /dev/null 2>&1; then
+            if curl -sf http://localhost:9000/health > /dev/null 2>&1; then
               echo "Keycloak is ready!"
               break
             fi

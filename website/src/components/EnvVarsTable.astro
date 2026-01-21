@@ -13,13 +13,16 @@ interface EnvVar {
 
 function formatDefault(value: string | boolean | string[] | null): string {
   if (value === null || value === undefined) {
-    return '""';
+    return '—';
   }
   if (Array.isArray(value)) {
     return value.length === 0 ? '[]' : value.join(', ');
   }
   if (typeof value === 'boolean') {
     return String(value);
+  }
+  if (value === '') {
+    return '""';
   }
   return value;
 }

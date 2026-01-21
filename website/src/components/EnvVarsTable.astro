@@ -3,11 +3,29 @@
 import envData from '../data/env-vars.json';
 import { Badge } from '@astrojs/starlight/components';
 
+interface EnvVar {
+  env_var: string;
+  type: string;
+  default: string | null;
+  required: boolean;
+  description: string;
+}
+
+interface SettingsGroup {
+  class_name: string;
+  prefix: string;
+  doc: string;
+  properties: EnvVar[];
+}
+
+type EnvData = Record<string, SettingsGroup>;
+
 interface Props {
   group: string;
 }
-const { group } = Astro.props;
-const settings = envData[group];
+
+const { group } = Astro.props as Props;
+const settings = (envData as EnvData)[group];
 ---
 
 <div class="env-vars-wrapper not-prose">
@@ -21,7 +39,7 @@ const settings = envData[group];
       </tr>
     </thead>
     <tbody>
-      {settings.properties.map((prop) => (
+      {settings.properties.map((prop: EnvVar) => (
         <tr>
           <td class="col-var">
             <span class="var-name">{prop.env_var}</span>

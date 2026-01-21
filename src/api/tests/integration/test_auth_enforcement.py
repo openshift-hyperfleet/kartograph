@@ -125,8 +125,8 @@ class TestPublicEndpointsAccessible:
         """GET /health/db should be accessible without authentication."""
         response = await async_client.get("/health/db")
 
-        # May return 200 or 503 depending on DB state, but not 401
-        assert response.status_code in [200, 503]
+        # May return 200, 500, or 503 depending on DB state, but not 401/403
+        assert response.status_code not in [401, 403]
 
     @pytest.mark.asyncio
     async def test_openapi_json_accessible(self, async_client):

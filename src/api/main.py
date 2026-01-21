@@ -184,10 +184,12 @@ async def kartograph_lifespan(app: FastAPI):
     # Shutdown: close database engines
     await close_database_engines(app)
 
-    # Shutdown: close AGE connection pool
+    # Shutdown: close AGE connection pool and clear cache for next startup
     try:
         pool = get_age_connection_pool()
         pool.close_all()
+        # Clear lru_cache so next startup creates a fresh pool
+        get_age_connection_pool.cache_clear()
     except Exception:
         # Pool may not be initialized, ignore
         pass

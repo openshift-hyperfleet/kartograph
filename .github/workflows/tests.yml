@@ -39,6 +39,7 @@ jobs:
         run: |
           docker run -d --name keycloak \
             -p 8080:8080 \
+            -p 9000:9000 \
             -e KEYCLOAK_ADMIN=admin \
             -e KEYCLOAK_ADMIN_PASSWORD=admin \
             -v ${{ github.workspace }}/keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro \
@@ -109,17 +110,29 @@ jobs:
       - name: Wait for Keycloak to be ready
         run: |
           echo "Waiting for Keycloak to be ready..."
+          keycloak_ready=false
           for i in {1..60}; do
-            if curl -sf http://localhost:9000/health > /dev/null 2>&1; then
+            if curl -sf http://localhost:8080/health/ready > /dev/null 2>&1; then
               echo "Keycloak is ready!"
+              keycloak_ready=true
               break
             fi
             echo "Waiting... ($i/60)"
             sleep 2
           done
+          if [ "$keycloak_ready" = false ]; then
+            echo "ERROR: Keycloak did not become ready within timeout"
+            docker logs keycloak 2>&1 | tail -50
+            exit 1
+          fi
           # Verify realm was imported
           echo "Checking Keycloak logs for realm import..."
-          docker logs keycloak 2>&1 | grep -i "kartograph" || true
+          if ! docker logs keycloak 2>&1 | grep -qi "imported.*kartograph\|kartograph.*realm"; then
+            echo "ERROR: Realm import not confirmed in Keycloak logs"
+            docker logs keycloak 2>&1 | tail -50
+            exit 1
+          fi
+          echo "Realm 'kartograph' import confirmed"
 
       - name: Run ruff (linter)
         working-directory: src/api

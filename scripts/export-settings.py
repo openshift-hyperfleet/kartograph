@@ -38,10 +38,25 @@ def get_model_metadata(settings_class: Type[BaseSettings]):
         )
 
         # 2. Logic for displaying the default
+        # Handle default_factory - call it to get the actual default value
+        if default is None and field.default_factory is not None:
+            try:
+                default = field.default_factory()
+            except Exception:
+                pass  # Keep None if factory fails
+
         if isinstance(default, SecretStr):
             display_default = "********" if not is_required else None
         elif is_required:
             display_default = None
+        elif default is None:
+            display_default = None
+        elif isinstance(default, (list, dict)):
+            # Serialize collections as JSON-compatible values
+            display_default = default
+        elif isinstance(default, bool):
+            # Keep booleans as booleans (not strings)
+            display_default = default
         else:
             display_default = str(default)
 

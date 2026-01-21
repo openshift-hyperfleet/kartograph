@@ -119,7 +119,7 @@
       {
         "env_var": "KARTOGRAPH_OIDC_AUDIENCE",
         "type": "str | None",
-        "default": "None",
+        "default": null,
         "required": false,
         "description": "Expected audience claim (defaults to client_id if None)"
       }
@@ -147,14 +147,14 @@
       {
         "env_var": "SPICEDB_USE_TLS",
         "type": "bool",
-        "default": "True",
+        "default": true,
         "required": false,
         "description": "Use TLS for connection (true for production, false for local dev)"
       },
       {
         "env_var": "SPICEDB_CERT_PATH",
         "type": "str | None",
-        "default": "None",
+        "default": null,
         "required": false,
         "description": "Path to custom TLS root certificate (for self-signed certs)"
       }
@@ -168,28 +168,37 @@
       {
         "env_var": "KARTOGRAPH_CORS_ORIGINS",
         "type": "list",
-        "default": "None",
+        "default": [],
         "required": false,
         "description": "List of allowed origins for CORS"
       },
       {
         "env_var": "KARTOGRAPH_CORS_ALLOW_CREDENTIALS",
         "type": "bool",
-        "default": "True",
+        "default": true,
         "required": false,
         "description": "Allow credentials in CORS requests"
       },
       {
         "env_var": "KARTOGRAPH_CORS_ALLOW_METHODS",
         "type": "list",
-        "default": "None",
+        "default": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE",
+          "OPTIONS",
+          "PATCH"
+        ],
         "required": false,
         "description": "Allowed HTTP methods for CORS"
       },
       {
         "env_var": "KARTOGRAPH_CORS_ALLOW_HEADERS",
         "type": "list",
-        "default": "None",
+        "default": [
+          "*"
+        ],
         "required": false,
         "description": "Allowed headers for CORS"
       }
@@ -217,7 +226,7 @@
       {
         "env_var": "KARTOGRAPH_OUTBOX_ENABLED",
         "type": "bool",
-        "default": "True",
+        "default": true,
         "required": false,
         "description": "Enable the outbox worker"
       },

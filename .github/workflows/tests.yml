@@ -112,7 +112,7 @@ jobs:
           echo "Waiting for Keycloak to be ready..."
           keycloak_ready=false
           for i in {1..60}; do
-            if curl -sf http://localhost:8080/health/ready > /dev/null 2>&1; then
+            if curl -sf http://localhost:9000/health/ready > /dev/null 2>&1; then
               echo "Keycloak is ready!"
               keycloak_ready=true
               break

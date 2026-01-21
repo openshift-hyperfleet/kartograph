@@ -1,13 +1,14 @@
 services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.0.5
-    command: start-dev --import-realm
+    command: start-dev --import-realm --health-enabled=true
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
       KC_HOSTNAME: localhost
     ports:
       - "8080:8080"
+      - "9000:9000"
     networks:
       - kartograph
     volumes:

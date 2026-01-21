@@ -5,7 +5,6 @@ from typing import Type
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings
 
-# Adjust paths to match your project structure
 root_path = Path(__file__).parent.parent
 sys.path.insert(0, str(root_path / "src" / "api"))
 

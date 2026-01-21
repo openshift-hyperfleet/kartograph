@@ -93,7 +93,7 @@
         "type": "Secret",
         "default": null,
         "required": true,
-        "description": "OIDC client secret (required)"
+        "description": "OIDC client secret"
       },
       {
         "env_var": "KARTOGRAPH_OIDC_SWAGGER_CLIENT_ID",

@@ -329,7 +329,8 @@ class OIDCSettings(BaseSettings):
         description="OIDC client ID for the API",
     )
     client_secret: SecretStr = Field(
-        description="OIDC client secret (required)",
+        default=SecretStr(""),
+        description="OIDC client secret",
     )
     swagger_client_id: str = Field(
         default="kartograph-swagger",
@@ -359,6 +360,5 @@ def get_oidc_settings() -> OIDCSettings:
     """Get cached OIDC settings.
 
     Uses lru_cache to ensure settings are only loaded once.
-    Note: client_secret is required and must be set via environment variable.
     """
-    return OIDCSettings()  # type: ignore[call-arg]
+    return OIDCSettings()

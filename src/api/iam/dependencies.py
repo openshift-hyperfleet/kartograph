@@ -36,28 +36,13 @@ from shared_kernel.auth.observability import DefaultJWTValidatorProbe
 from shared_kernel.authorization.protocols import AuthorizationProvider
 
 
-def _get_oidc_issuer_url() -> str:
-    """Get OIDC issuer URL from environment or use default.
-
-    This is used to configure the OAuth2 security scheme at module load time,
-    before full OIDC settings validation occurs. The default matches
-    OIDCSettings.issuer_url for consistency.
-    """
-    import os
-
-    return os.getenv(
-        "KARTOGRAPH_OIDC_ISSUER_URL",
-        "http://localhost:8080/realms/kartograph",
-    )
-
-
 def _create_oauth2_scheme() -> OAuth2AuthorizationCodeBearer:
     """Create OAuth2 security scheme for Swagger UI integration.
 
     Uses the OIDC issuer URL to configure authorization code flow endpoints.
     This enables Swagger UI's Authorize button to work with Keycloak.
     """
-    issuer = _get_oidc_issuer_url()
+    issuer = get_oidc_settings().issuer_url
 
     return OAuth2AuthorizationCodeBearer(
         authorizationUrl=f"{issuer}/protocol/openid-connect/auth",

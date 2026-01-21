@@ -35,6 +35,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Start Keycloak
+        run: |
+          docker run -d --name keycloak \
+            -p 8080:8080 \
+            -e KEYCLOAK_ADMIN=admin \
+            -e KEYCLOAK_ADMIN_PASSWORD=admin \
+            -v ${{ github.workspace }}/keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro \
+            quay.io/keycloak/keycloak:26.0.5 \
+            start-dev --import-realm
+
       - name: Start SpiceDB
         uses: authzed/action-spicedb@v1
         with:
@@ -96,6 +106,21 @@ jobs:
               --token=test_key \
               --insecure
 
+      - name: Wait for Keycloak to be ready
+        run: |
+          echo "Waiting for Keycloak to be ready..."
+          for i in {1..60}; do
+            if curl -sf http://localhost:8080/health/ready > /dev/null 2>&1; then
+              echo "Keycloak is ready!"
+              break
+            fi
+            echo "Waiting... ($i/60)"
+            sleep 2
+          done
+          # Verify realm was imported
+          echo "Checking Keycloak logs for realm import..."
+          docker logs keycloak 2>&1 | grep -i "kartograph" || true
+
       - name: Run ruff (linter)
         working-directory: src/api
         run: uv run ruff check .
@@ -117,7 +142,11 @@ jobs:
           KARTOGRAPH_DB_USERNAME: kartograph
           KARTOGRAPH_DB_PASSWORD: kartograph_dev_password
           KARTOGRAPH_DB_GRAPH_NAME: test_graph
+          KARTOGRAPH_DB_SSL_MODE: disable
           SPICEDB_ENDPOINT: localhost:50051
           SPICEDB_PRESHARED_KEY: test_key
           SPICEDB_USE_TLS: "false"
+          KARTOGRAPH_OIDC_ISSUER_URL: http://localhost:8080/realms/kartograph
+          KARTOGRAPH_OIDC_CLIENT_ID: kartograph-api
+          KARTOGRAPH_OIDC_CLIENT_SECRET: kartograph-api-secret
         run: uv run pytest -v

@@ -144,7 +144,7 @@ class SpiceDBSettings(BaseSettings):
         default="localhost:50051", description="SpiceDB gRPC endpoint"
     )
     preshared_key: SecretStr = Field(
-        default=SecretStr("changeme"),
+        default=SecretStr(""),
         description="Pre-shared key for authentication",
     )
     use_tls: bool = Field(

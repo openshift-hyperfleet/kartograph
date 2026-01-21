@@ -140,8 +140,8 @@
       {
         "env_var": "SPICEDB_PRESHARED_KEY",
         "type": "Secret",
-        "default": "********",
-        "required": false,
+        "default": null,
+        "required": true,
         "description": "Pre-shared key for authentication"
       },
       {

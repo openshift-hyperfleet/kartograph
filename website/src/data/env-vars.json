@@ -62,10 +62,10 @@
       },
       {
         "env_var": "KARTOGRAPH_DB_SSL_MODE",
-        "type": "str",
+        "type": "Literal",
         "default": "prefer",
         "required": false,
-        "description": "SSL mode for asyncpg connections (disable, prefer, require)"
+        "description": "SSL mode for asyncpg connections (disable, allow, prefer, require, verify-ca, verify-full)"
       }
     ]
   },

@@ -5,9 +5,13 @@ for development. Production deployments should set all values explicitly.
 """
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Valid SSL modes for asyncpg connections
+SslMode = Literal["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]
 
 
 class DatabaseSettings(BaseSettings):
@@ -55,9 +59,9 @@ class DatabaseSettings(BaseSettings):
         ge=1,
         le=100,
     )
-    ssl_mode: str = Field(
+    ssl_mode: SslMode = Field(
         default="prefer",
-        description="SSL mode for asyncpg connections (disable, prefer, require)",
+        description="SSL mode for asyncpg connections (disable, allow, prefer, require, verify-ca, verify-full)",
     )
 
     @model_validator(mode="after")

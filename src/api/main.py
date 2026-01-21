@@ -5,7 +5,6 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.utils import get_openapi
 from util import dev_routes
 
 from graph.dependencies import get_age_graph_client
@@ -255,6 +254,10 @@ def configure_swagger_oauth2(app: FastAPI) -> None:
     Authorization Code flow with PKCE. This uses the public swagger client,
     not the confidential API client.
 
+    The security scheme itself is registered automatically by
+    OAuth2AuthorizationCodeBearer in iam/dependencies.py. This function
+    only configures the Swagger UI initialization parameters.
+
     If OIDC settings are not configured (e.g., missing client_secret),
     this function silently returns without configuring Swagger OAuth2.
     """
@@ -264,55 +267,12 @@ def configure_swagger_oauth2(app: FastAPI) -> None:
         # OIDC not configured, skip Swagger OAuth2
         return
 
-    # Build authorization and token URLs from issuer
-    auth_url = f"{oidc_settings.issuer_url}/protocol/openid-connect/auth"
-    token_url = f"{oidc_settings.issuer_url}/protocol/openid-connect/token"
-
-    # Configure Swagger UI init parameters
+    # Configure Swagger UI init parameters for PKCE flow
     app.swagger_ui_init_oauth = {
         "clientId": oidc_settings.swagger_client_id,
         "usePkceWithAuthorizationCodeGrant": True,
         "scopes": "openid profile email",
     }
-
-    # Custom OpenAPI schema with OAuth2 security
-    def custom_openapi():
-        if app.openapi_schema:
-            return app.openapi_schema
-
-        openapi_schema = get_openapi(
-            title=app.title,
-            version=app.version,
-            description=app.description,
-            routes=app.routes,
-        )
-
-        # Add OAuth2 security scheme
-        openapi_schema["components"] = openapi_schema.get("components", {})
-        openapi_schema["components"]["securitySchemes"] = {
-            "OAuth2": {
-                "type": "oauth2",
-                "flows": {
-                    "authorizationCode": {
-                        "authorizationUrl": auth_url,
-                        "tokenUrl": token_url,
-                        "scopes": {
-                            "openid": "OpenID Connect",
-                            "profile": "User profile",
-                            "email": "User email",
-                        },
-                    }
-                },
-            }
-        }
-
-        # Apply security globally
-        openapi_schema["security"] = [{"OAuth2": ["openid", "profile", "email"]}]
-
-        app.openapi_schema = openapi_schema
-        return app.openapi_schema
-
-    app.openapi = custom_openapi  # type: ignore[method-assign]
 
 
 # Configure Swagger OAuth2 if OIDC is available

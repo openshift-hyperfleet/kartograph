@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
-from fastapi.security import HTTPAuthorizationCredentials
 
 from iam.application.observability import AuthenticationProbe
 from iam.application.value_objects import CurrentUser
@@ -51,9 +50,9 @@ def default_tenant_id() -> TenantId:
 
 
 @pytest.fixture
-def valid_credentials() -> HTTPAuthorizationCredentials:
-    """Create valid HTTP Bearer credentials."""
-    return HTTPAuthorizationCredentials(scheme="Bearer", credentials="valid.jwt.token")
+def valid_token() -> str:
+    """Create valid Bearer token string."""
+    return "valid.jwt.token"
 
 
 @pytest.fixture
@@ -81,14 +80,14 @@ class TestGetCurrentUser:
         mock_user_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
-        valid_credentials: HTTPAuthorizationCredentials,
+        valid_token: str,
         valid_token_claims: TokenClaims,
     ) -> None:
         """Test successful authentication with a valid JWT token."""
         mock_jwt_validator.validate_token = AsyncMock(return_value=valid_token_claims)
 
         result = await get_current_user(
-            credentials=valid_credentials,
+            token=valid_token,
             validator=mock_jwt_validator,
             user_service=mock_user_service,
             auth_probe=mock_auth_probe,
@@ -117,7 +116,7 @@ class TestGetCurrentUser:
         """Test 401 response when Authorization header is missing."""
         with pytest.raises(HTTPException) as exc_info:
             await get_current_user(
-                credentials=None,
+                token=None,
                 validator=mock_jwt_validator,
                 user_service=mock_user_service,
                 auth_probe=mock_auth_probe,
@@ -138,7 +137,7 @@ class TestGetCurrentUser:
         mock_user_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
-        valid_credentials: HTTPAuthorizationCredentials,
+        valid_token: str,
     ) -> None:
         """Test 401 response when token validation fails."""
         mock_jwt_validator.validate_token = AsyncMock(
@@ -147,7 +146,7 @@ class TestGetCurrentUser:
 
         with pytest.raises(HTTPException) as exc_info:
             await get_current_user(
-                credentials=valid_credentials,
+                token=valid_token,
                 validator=mock_jwt_validator,
                 user_service=mock_user_service,
                 auth_probe=mock_auth_probe,
@@ -168,7 +167,7 @@ class TestGetCurrentUser:
         mock_user_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
-        valid_credentials: HTTPAuthorizationCredentials,
+        valid_token: str,
     ) -> None:
         """Test 401 response when token has expired."""
         mock_jwt_validator.validate_token = AsyncMock(
@@ -177,7 +176,7 @@ class TestGetCurrentUser:
 
         with pytest.raises(HTTPException) as exc_info:
             await get_current_user(
-                credentials=valid_credentials,
+                token=valid_token,
                 validator=mock_jwt_validator,
                 user_service=mock_user_service,
                 auth_probe=mock_auth_probe,
@@ -194,7 +193,7 @@ class TestGetCurrentUser:
         mock_user_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
-        valid_credentials: HTTPAuthorizationCredentials,
+        valid_token: str,
     ) -> None:
         """Test that user_id is correctly extracted from 'sub' claim."""
         claims = TokenClaims(
@@ -205,7 +204,7 @@ class TestGetCurrentUser:
         mock_jwt_validator.validate_token = AsyncMock(return_value=claims)
 
         result = await get_current_user(
-            credentials=valid_credentials,
+            token=valid_token,
             validator=mock_jwt_validator,
             user_service=mock_user_service,
             auth_probe=mock_auth_probe,
@@ -220,7 +219,7 @@ class TestGetCurrentUser:
         mock_user_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
-        valid_credentials: HTTPAuthorizationCredentials,
+        valid_token: str,
     ) -> None:
         """Test that username is extracted from 'preferred_username' claim."""
         claims = TokenClaims(
@@ -231,7 +230,7 @@ class TestGetCurrentUser:
         mock_jwt_validator.validate_token = AsyncMock(return_value=claims)
 
         result = await get_current_user(
-            credentials=valid_credentials,
+            token=valid_token,
             validator=mock_jwt_validator,
             user_service=mock_user_service,
             auth_probe=mock_auth_probe,
@@ -246,7 +245,7 @@ class TestGetCurrentUser:
         mock_user_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
-        valid_credentials: HTTPAuthorizationCredentials,
+        valid_token: str,
     ) -> None:
         """Test that username falls back to 'sub' when preferred_username is missing."""
         claims = TokenClaims(
@@ -257,7 +256,7 @@ class TestGetCurrentUser:
         mock_jwt_validator.validate_token = AsyncMock(return_value=claims)
 
         result = await get_current_user(
-            credentials=valid_credentials,
+            token=valid_token,
             validator=mock_jwt_validator,
             user_service=mock_user_service,
             auth_probe=mock_auth_probe,
@@ -272,14 +271,14 @@ class TestGetCurrentUser:
         mock_user_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
-        valid_credentials: HTTPAuthorizationCredentials,
+        valid_token: str,
         valid_token_claims: TokenClaims,
     ) -> None:
         """Test that JIT user provisioning is called with correct parameters."""
         mock_jwt_validator.validate_token = AsyncMock(return_value=valid_token_claims)
 
         await get_current_user(
-            credentials=valid_credentials,
+            token=valid_token,
             validator=mock_jwt_validator,
             user_service=mock_user_service,
             auth_probe=mock_auth_probe,
@@ -297,14 +296,14 @@ class TestGetCurrentUser:
         mock_user_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
-        valid_credentials: HTTPAuthorizationCredentials,
+        valid_token: str,
         valid_token_claims: TokenClaims,
     ) -> None:
         """Test that default tenant is used in single-tenant mode."""
         mock_jwt_validator.validate_token = AsyncMock(return_value=valid_token_claims)
 
         result = await get_current_user(
-            credentials=valid_credentials,
+            token=valid_token,
             validator=mock_jwt_validator,
             user_service=mock_user_service,
             auth_probe=mock_auth_probe,
@@ -320,7 +319,7 @@ class TestGetCurrentUser:
         mock_user_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
-        valid_credentials: HTTPAuthorizationCredentials,
+        valid_token: str,
     ) -> None:
         """Test that non-ULID user IDs from external IdP are accepted."""
         claims = TokenClaims(
@@ -331,7 +330,7 @@ class TestGetCurrentUser:
         mock_jwt_validator.validate_token = AsyncMock(return_value=claims)
 
         result = await get_current_user(
-            credentials=valid_credentials,
+            token=valid_token,
             validator=mock_jwt_validator,
             user_service=mock_user_service,
             auth_probe=mock_auth_probe,

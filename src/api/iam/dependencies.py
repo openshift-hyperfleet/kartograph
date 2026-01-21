@@ -7,7 +7,7 @@ IAM-specific components (repositories, services).
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import OAuth2AuthorizationCodeBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.application.observability import (
@@ -34,8 +34,45 @@ from shared_kernel.auth import InvalidTokenError, JWTValidator
 from shared_kernel.auth.observability import DefaultJWTValidatorProbe
 from shared_kernel.authorization.protocols import AuthorizationProvider
 
-# Create HTTPBearer security scheme (auto_error=False for custom error handling)
-oauth2_scheme = HTTPBearer(auto_error=False)
+
+def _get_oidc_issuer_url() -> str:
+    """Get OIDC issuer URL from environment or use default.
+
+    This is used to configure the OAuth2 security scheme at module load time,
+    before full OIDC settings validation occurs. The default matches
+    OIDCSettings.issuer_url for consistency.
+    """
+    import os
+
+    return os.getenv(
+        "KARTOGRAPH_OIDC_ISSUER_URL",
+        "http://localhost:8080/realms/kartograph",
+    )
+
+
+def _create_oauth2_scheme() -> OAuth2AuthorizationCodeBearer:
+    """Create OAuth2 security scheme for Swagger UI integration.
+
+    Uses the OIDC issuer URL to configure authorization code flow endpoints.
+    This enables Swagger UI's Authorize button to work with Keycloak.
+    """
+    issuer = _get_oidc_issuer_url()
+
+    return OAuth2AuthorizationCodeBearer(
+        authorizationUrl=f"{issuer}/protocol/openid-connect/auth",
+        tokenUrl=f"{issuer}/protocol/openid-connect/token",
+        refreshUrl=f"{issuer}/protocol/openid-connect/token",
+        scopes={
+            "openid": "OpenID Connect",
+            "profile": "User profile",
+            "email": "User email",
+        },
+        auto_error=False,
+    )
+
+
+# Create OAuth2 security scheme for Swagger UI integration
+oauth2_scheme = _create_oauth2_scheme()
 
 # Module-level cache for default tenant ID (populated at startup)
 _default_tenant_id: TenantId | None = None
@@ -253,7 +290,7 @@ def get_authentication_probe() -> AuthenticationProbe:
 
 
 async def get_current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(oauth2_scheme)],
+    token: Annotated[str | None, Depends(oauth2_scheme)],
     validator: Annotated[JWTValidator, Depends(get_jwt_validator)],
     user_service: Annotated[UserService, Depends(get_user_service)],
     auth_probe: Annotated[AuthenticationProbe, Depends(get_authentication_probe)],
@@ -263,7 +300,7 @@ async def get_current_user(
     Validates the JWT and provisions user if needed (JIT).
 
     Args:
-        credentials: HTTP Bearer credentials from Authorization header
+        token: Bearer token from Authorization header (via OAuth2AuthorizationCodeBearer)
         validator: JWT validator for token validation
         user_service: The user service for JIT provisioning
         auth_probe: Authentication probe for observability
@@ -274,7 +311,7 @@ async def get_current_user(
     Raises:
         HTTPException 401: If token missing, invalid, or expired
     """
-    if credentials is None:
+    if token is None:
         auth_probe.authentication_failed(reason="Missing authorization header")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -283,7 +320,7 @@ async def get_current_user(
         )
 
     try:
-        claims = await validator.validate_token(credentials.credentials)
+        claims = await validator.validate_token(token)
     except InvalidTokenError as e:
         auth_probe.authentication_failed(reason=str(e))
         raise HTTPException(

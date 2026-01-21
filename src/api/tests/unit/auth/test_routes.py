@@ -77,7 +77,6 @@ def test_app_with_routes(mock_oidc_settings: MagicMock, mock_probe: MagicMock):
     # Override dependencies
     app.dependency_overrides[routes.get_oidc_settings_dep] = lambda: mock_oidc_settings
     app.dependency_overrides[routes.get_auth_probe_dep] = lambda: mock_probe
-    app.dependency_overrides[routes.get_base_url_dep] = lambda: "http://localhost:8000"
 
     app.include_router(routes.router)
 

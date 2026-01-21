@@ -12,7 +12,7 @@ import hashlib
 import secrets
 import urllib.parse
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 
 from auth.observability import AuthFlowProbe, DefaultAuthFlowProbe
@@ -51,22 +51,12 @@ def get_auth_probe_dep() -> AuthFlowProbe:
     return DefaultAuthFlowProbe()
 
 
-def get_base_url_dep() -> str:
-    """Dependency for base URL.
-
-    In production, this should be configured via environment variable.
-    For the walking skeleton, we use a sensible default.
-    """
-    # TODO: Make this configurable via settings
-    return "http://localhost:8000"
-
-
 @router.get("/login")
 async def login(
+    request: Request,
     redirect_uri: str = Query(default="/docs"),
     settings: OIDCSettings = Depends(get_oidc_settings_dep),
     probe: AuthFlowProbe = Depends(get_auth_probe_dep),
-    base_url: str = Depends(get_base_url_dep),
 ) -> RedirectResponse:
     """Initiate OIDC login flow.
 
@@ -113,7 +103,7 @@ async def login(
         ) from e
 
     # Build authorization URL with query parameters
-    callback_uri = f"{base_url}/auth/callback"
+    callback_uri = str(request.url_for("callback"))
     params = {
         "client_id": settings.client_id,
         "response_type": "code",
@@ -130,11 +120,11 @@ async def login(
 
 @router.get("/callback")
 async def callback(
+    request: Request,
     code: str = Query(...),
     state: str = Query(...),
     settings: OIDCSettings = Depends(get_oidc_settings_dep),
     probe: AuthFlowProbe = Depends(get_auth_probe_dep),
-    base_url: str = Depends(get_base_url_dep),
 ) -> RedirectResponse:
     """Handle OIDC callback.
 
@@ -168,7 +158,7 @@ async def callback(
             token_endpoint = discovery["token_endpoint"]
 
             # Exchange code for tokens
-            callback_uri = f"{base_url}/auth/callback"
+            callback_uri = str(request.url_for("callback"))
             token_response = await client.post(
                 token_endpoint,
                 data={

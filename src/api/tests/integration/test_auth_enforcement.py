@@ -175,3 +175,40 @@ class TestInvalidTokenReturns401:
 
         # FastAPI's OAuth2 scheme returns 401 for non-Bearer auth
         assert response.status_code == 401
+
+
+class TestAuthenticatedAccessSucceeds:
+    """Verify valid Keycloak tokens grant access to protected endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_iam_tenants_list_with_valid_token(self, async_client, auth_headers):
+        """GET /iam/tenants should succeed with valid token."""
+        response = await async_client.get("/iam/tenants", headers=auth_headers)
+
+        assert response.status_code == 200
+        # Returns list of tenants directly
+        assert isinstance(response.json(), list)
+
+    @pytest.mark.asyncio
+    async def test_graph_schema_nodes_with_valid_token(
+        self, async_client, auth_headers
+    ):
+        """GET /graph/schema/nodes should succeed with valid token."""
+        response = await async_client.get("/graph/schema/nodes", headers=auth_headers)
+
+        assert response.status_code == 200
+        # Returns {"count": N, "labels": [...]}
+        assert "labels" in response.json()
+
+    @pytest.mark.asyncio
+    async def test_graph_nodes_by_slug_with_valid_token(
+        self, async_client, auth_headers
+    ):
+        """GET /graph/nodes/by-slug should succeed with valid token."""
+        response = await async_client.get(
+            "/graph/nodes/by-slug?slug=nonexistent", headers=auth_headers
+        )
+
+        # Returns 200 with empty results for non-existent slug
+        assert response.status_code == 200
+        assert "nodes" in response.json()

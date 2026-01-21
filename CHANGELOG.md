@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/openshift-hyperfleet/kartograph/compare/v2.0.0...v2.1.0) (2026-01-21)
+
+
+### Features
+
+* enforce authentication on protected endpoints ([#144](https://github.com/openshift-hyperfleet/kartograph/issues/144)) ([2ef51b6](https://github.com/openshift-hyperfleet/kartograph/commit/2ef51b63ddecdea77077f0f226d52e9564519427))
+
 ## [2.0.0](https://github.com/openshift-hyperfleet/kartograph/compare/v1.2.0...v2.0.0) (2026-01-21)
 
 

@@ -6,9 +6,22 @@ import { Badge } from '@astrojs/starlight/components';
 interface EnvVar {
   env_var: string;
   type: string;
-  default: string | null;
+  default: string | boolean | string[] | null;
   required: boolean;
   description: string;
+}
+
+function formatDefault(value: string | boolean | string[] | null): string {
+  if (value === null || value === undefined) {
+    return '""';
+  }
+  if (Array.isArray(value)) {
+    return value.length === 0 ? '[]' : value.join(', ');
+  }
+  if (typeof value === 'boolean') {
+    return String(value);
+  }
+  return value;
 }
 
 interface SettingsGroup {
@@ -58,7 +71,7 @@ const settings = (envData as EnvData)[group];
             {prop.required ? (
               <span class="dash">—</span>
             ) : (
-              <code>{prop.default || '""'}</code>
+              <code>{formatDefault(prop.default)}</code>
             )}
           </td>
           <td class="col-desc">{prop.description}</td>

@@ -128,6 +128,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("KARTOGRAPH_OIDC_CLIENT_ID", "kartograph-api")
 os.environ.setdefault("KARTOGRAPH_OIDC_CLIENT_SECRET", "kartograph-api-secret")
+os.environ.setdefault("SPICEDB_PRESHARED_KEY", "changeme")
 
 
 @pytest.fixture(scope="session")

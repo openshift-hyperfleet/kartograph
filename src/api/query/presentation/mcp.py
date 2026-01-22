@@ -214,70 +214,69 @@ def get_entity_overview(
 
 @mcp.tool
 def find_instances_by_slug(
-    entity_type: str,
     search_terms: List[str],
+    entity_types: List[str],
     service: MCPQueryService = Depends(get_mcp_query_service),  # type: ignore[arg-type]
 ) -> Dict[str, Any]:
-    """Search for instances of an entity type by slug using substring matching.
+    """Search for instances of entity types by slug using substring matching.
 
     Each term in search_terms must appear as a substring in the slug (any order).
 
     Args:
-        entity_type: The entity type to search (e.g., "DocumentationModule")
         search_terms: List of substrings that must all appear in the slug
             (e.g., ["etcd", "backup"] or ["upgrade", "node", "drain"])
+        entity_types: List of entity types to search (e.g., ["DocumentationModule", "KCSArticle"])
 
     Returns:
         Top 15 matching instances with slugs.
 
     Examples:
-        find_instances_by_slug("DocumentationModule", ["etcd", "backup"])
-        find_instances_by_slug("Alert", ["upgrade", "node", "drain"])
-        find_instances_by_slug("KCSArticle", ["pdb", "update"])
+        find_instances_by_slug(["etcd", "backup"], ["DocumentationModule"])
+        find_instances_by_slug(["upgrade", "node", "drain"], ["Alert", "SOPAlertRunbook"])
+        find_instances_by_slug(["pdb", "update"], ["KCSArticle"])
 
     Important:
         Always call get_entity_overview first to see slug naming patterns
         before constructing search terms.
     """
-    # First, get candidate slugs
-    slug_query = f"""
-    MATCH (n:{entity_type})
-    RETURN COALESCE(n.slug, n.name, n.title, toString(id(n))) as slug
-    """
-    slug_result = service.execute_cypher_query(slug_query, max_rows=10000)
-
-    if isinstance(slug_result, QueryError):
-        return {"success": False, "error": slug_result.message}
-
-    if not slug_result.rows:
-        return {
-            "success": True,
-            "matches": [],
-            "message": f"No instances found for entity type '{entity_type}'",
-        }
-
-    # Extract slugs
-    all_slugs = [row.get("slug", "") for row in slug_result.rows if row.get("slug")]
-
     # Normalize search terms to lowercase
     normalized_terms = [term.lower() for term in search_terms]
-    matches: List[Dict[str, Any]] = []
+    all_matches: List[Dict[str, Any]] = []
+    total_candidates = 0
 
-    # Each term must be contained in the slug
-    for slug in all_slugs:
-        slug_lower = slug.lower()
-        if all(term in slug_lower for term in normalized_terms):
-            matches.append({"slug": slug})
+    for entity_type in entity_types:
+        # Get candidate slugs for this entity type
+        slug_query = f"""
+        MATCH (n:{entity_type})
+        RETURN COALESCE(n.slug, n.name, n.title, toString(id(n)))
+        """
+        slug_result = service.execute_cypher_query(slug_query, max_rows=10000)
+
+        if isinstance(slug_result, QueryError):
+            continue  # Skip this entity type on error
+
+        if not slug_result.rows:
+            continue
+
+        # Extract slugs - results come back under "value" key
+        slugs = [row.get("value", "") for row in slug_result.rows if row.get("value")]
+        total_candidates += len(slugs)
+
+        # Each term must be contained in the slug
+        for slug in slugs:
+            slug_lower = slug.lower()
+            if all(term in slug_lower for term in normalized_terms):
+                all_matches.append({"entity_type": entity_type, "slug": slug})
 
     # Sort alphabetically for consistent results
-    matches.sort(key=lambda x: x["slug"])
+    all_matches.sort(key=lambda x: (x["entity_type"], x["slug"]))
 
     return {
         "success": True,
-        "entity_type": entity_type,
+        "entity_types": entity_types,
         "search_terms": search_terms,
-        "matches": matches[:15],
-        "total_candidates": len(all_slugs),
+        "matches": all_matches[:15],
+        "total_candidates": total_candidates,
     }
 
 

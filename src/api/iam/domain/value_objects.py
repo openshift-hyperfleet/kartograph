@@ -74,10 +74,22 @@ class GroupId(BaseId):
 class UserId(BaseId):
     """Identifier for a User aggregate.
 
-    Uses ULID for sortability and distribution-friendly generation.
+    Doesn't require ULID because user ids are managed externally
+    by an identity provider.
     """
 
-    pass
+    @classmethod
+    def from_string(cls: type[T], value: str) -> T:
+        """Create ID from string value.
+
+        Args:
+            value: string
+
+        Returns:
+            ID instance
+        """
+
+        return cls(value=value)
 
 
 @dataclass(frozen=True)

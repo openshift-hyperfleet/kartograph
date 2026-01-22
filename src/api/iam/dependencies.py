@@ -335,10 +335,14 @@ def get_authentication_probe() -> AuthenticationProbe:
 async def get_current_user(
     token: Annotated[str | None, Depends(oauth2_scheme)],
     x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
-    validator: Annotated[JWTValidator, Depends(get_jwt_validator)] = None,
-    user_service: Annotated[UserService, Depends(get_user_service)] = None,
-    api_key_service: Annotated[APIKeyService, Depends(get_api_key_service)] = None,
-    auth_probe: Annotated[AuthenticationProbe, Depends(get_authentication_probe)] = None,
+    validator: Annotated[JWTValidator | None, Depends(get_jwt_validator)] = None,
+    user_service: Annotated[UserService | None, Depends(get_user_service)] = None,
+    api_key_service: Annotated[
+        APIKeyService | None, Depends(get_api_key_service)
+    ] = None,
+    auth_probe: Annotated[
+        AuthenticationProbe | None, Depends(get_authentication_probe)
+    ] = None,
 ) -> CurrentUser:
     """Authenticate via JWT Bearer token or X-API-Key header.
 
@@ -361,6 +365,13 @@ async def get_current_user(
     """
     # WWW-Authenticate header for 401 responses showing supported auth methods
     www_authenticate = "Bearer, API-Key"
+
+    # These are dependency injected and should never be None.
+    # The Optional types are needed for FastAPI dependency injection with defaults.
+    assert validator is not None
+    assert user_service is not None
+    assert api_key_service is not None
+    assert auth_probe is not None
 
     # Try JWT first (existing flow)
     if token is not None:
@@ -401,11 +412,11 @@ async def get_current_user(
         # API key is valid - user already exists (they created the key)
         auth_probe.api_key_authentication_succeeded(
             api_key_id=api_key.id.value,
-            user_id=api_key.user_id.value,
+            user_id=api_key.created_by_user_id.value,
         )
 
         return CurrentUser(
-            user_id=api_key.user_id,
+            user_id=api_key.created_by_user_id,
             username=f"api-key:{api_key.name}",
             tenant_id=api_key.tenant_id,
         )

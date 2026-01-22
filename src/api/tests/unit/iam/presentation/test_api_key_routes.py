@@ -45,7 +45,7 @@ def sample_api_key(mock_current_user: CurrentUser) -> APIKey:
     """Create a sample APIKey aggregate for testing."""
     return APIKey(
         id=APIKeyId.generate(),
-        user_id=mock_current_user.user_id,
+        created_by_user_id=mock_current_user.user_id,
         tenant_id=mock_current_user.tenant_id,
         name="my-api-key",
         key_hash="$2b$12$hashedvalue",
@@ -202,7 +202,7 @@ class TestCreateAPIKeyRoute:
 
         # Verify the service was called with the expires_in_days parameter
         mock_api_key_service.create_api_key.assert_called_once_with(
-            user_id=mock_current_user.user_id,
+            created_by_user_id=mock_current_user.user_id,
             tenant_id=mock_current_user.tenant_id,
             name="my-api-key",
             expires_in_days=30,

@@ -59,10 +59,10 @@ def repository(mock_session, mock_probe, mock_outbox, mock_serializer):
 @pytest.fixture
 def sample_api_key():
     """Create a sample APIKey aggregate for testing."""
-    user_id = UserId.generate()
+    created_by_user_id = UserId.generate()
     tenant_id = TenantId.generate()
     return APIKey.create(
-        user_id=user_id,
+        created_by_user_id=created_by_user_id,
         tenant_id=tenant_id,
         name="Test API Key",
         key_hash="hashed_secret_value",
@@ -114,7 +114,7 @@ class TestAPIKeyRepositorySave:
         # Create existing model
         existing_model = APIKeyModel(
             id=sample_api_key.id.value,
-            user_id=sample_api_key.user_id.value,
+            created_by_user_id=sample_api_key.created_by_user_id.value,
             tenant_id=sample_api_key.tenant_id.value,
             name="Old Name",
             key_hash=sample_api_key.key_hash,
@@ -170,7 +170,7 @@ class TestAPIKeyRepositorySave:
         different_id = APIKeyId.generate()
         existing_model = APIKeyModel(
             id=different_id.value,
-            user_id=sample_api_key.user_id.value,
+            created_by_user_id=sample_api_key.created_by_user_id.value,
             tenant_id=sample_api_key.tenant_id.value,
             name=sample_api_key.name,
             key_hash="different_hash",
@@ -196,12 +196,12 @@ class TestAPIKeyRepositoryGet:
     async def test_gets_by_id(self, repository, mock_session, mock_probe):
         """Should return API key when found by ID."""
         api_key_id = APIKeyId.generate()
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
 
         model = APIKeyModel(
             id=api_key_id.value,
-            user_id=user_id.value,
+            created_by_user_id=created_by_user_id.value,
             tenant_id=tenant_id.value,
             name="Test Key",
             key_hash="hash123",
@@ -218,7 +218,7 @@ class TestAPIKeyRepositoryGet:
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        result = await repository.get_by_id(api_key_id, user_id, tenant_id)
+        result = await repository.get_by_id(api_key_id, created_by_user_id, tenant_id)
 
         assert result is not None
         assert result.id.value == api_key_id.value
@@ -229,13 +229,13 @@ class TestAPIKeyRepositoryGet:
     async def test_gets_by_key_hash(self, repository, mock_session, mock_probe):
         """Should return API key when found by key hash."""
         api_key_id = APIKeyId.generate()
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
         key_hash = "unique_hash_value"
 
         model = APIKeyModel(
             id=api_key_id.value,
-            user_id=user_id.value,
+            created_by_user_id=created_by_user_id.value,
             tenant_id=tenant_id.value,
             name="Test Key",
             key_hash=key_hash,
@@ -263,14 +263,14 @@ class TestAPIKeyRepositoryGet:
     ):
         """Should return None when API key doesn't exist."""
         api_key_id = APIKeyId.generate()
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
         mock_session.execute.return_value = mock_result
 
-        result = await repository.get_by_id(api_key_id, user_id, tenant_id)
+        result = await repository.get_by_id(api_key_id, created_by_user_id, tenant_id)
 
         assert result is None
         mock_probe.api_key_not_found.assert_called_once_with(api_key_id.value)
@@ -296,12 +296,12 @@ class TestAPIKeyRepositoryList:
     @pytest.mark.asyncio
     async def test_lists_by_user_and_tenant(self, repository, mock_session, mock_probe):
         """Should list all API keys for a user in a tenant."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
 
         model1 = APIKeyModel(
             id=APIKeyId.generate().value,
-            user_id=user_id.value,
+            created_by_user_id=created_by_user_id.value,
             tenant_id=tenant_id.value,
             name="Key 1",
             key_hash="hash1",
@@ -315,7 +315,7 @@ class TestAPIKeyRepositoryList:
 
         model2 = APIKeyModel(
             id=APIKeyId.generate().value,
-            user_id=user_id.value,
+            created_by_user_id=created_by_user_id.value,
             tenant_id=tenant_id.value,
             name="Key 2",
             key_hash="hash2",
@@ -331,29 +331,33 @@ class TestAPIKeyRepositoryList:
         mock_result.scalars.return_value.all.return_value = [model1, model2]
         mock_session.execute.return_value = mock_result
 
-        result = await repository.list_by_user(user_id, tenant_id)
+        result = await repository.list_by_user(created_by_user_id, tenant_id)
 
         assert len(result) == 2
         assert result[0].name == "Key 1"
         assert result[1].name == "Key 2"
-        mock_probe.api_key_list_retrieved.assert_called_once_with(user_id.value, 2)
+        mock_probe.api_key_list_retrieved.assert_called_once_with(
+            created_by_user_id.value, 2
+        )
 
     @pytest.mark.asyncio
     async def test_returns_empty_list_for_no_keys(
         self, repository, mock_session, mock_probe
     ):
         """Should return empty list when user has no API keys."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
 
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
         mock_session.execute.return_value = mock_result
 
-        result = await repository.list_by_user(user_id, tenant_id)
+        result = await repository.list_by_user(created_by_user_id, tenant_id)
 
         assert result == []
-        mock_probe.api_key_list_retrieved.assert_called_once_with(user_id.value, 0)
+        mock_probe.api_key_list_retrieved.assert_called_once_with(
+            created_by_user_id.value, 0
+        )
 
 
 class TestAPIKeyRepositoryDelete:
@@ -365,12 +369,12 @@ class TestAPIKeyRepositoryDelete:
     ):
         """Should delete API key from PostgreSQL."""
         api_key_id = APIKeyId.generate()
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
 
         api_key = APIKey(
             id=api_key_id,
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="Test Key",
             key_hash="hash123",
@@ -385,7 +389,7 @@ class TestAPIKeyRepositoryDelete:
 
         model = APIKeyModel(
             id=api_key_id.value,
-            user_id=user_id.value,
+            created_by_user_id=created_by_user_id.value,
             tenant_id=tenant_id.value,
             name="Test Key",
             key_hash="hash123",
@@ -411,12 +415,12 @@ class TestAPIKeyRepositoryDelete:
     ):
         """Should return False when API key doesn't exist."""
         api_key_id = APIKeyId.generate()
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
 
         api_key = APIKey(
             id=api_key_id,
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="Test Key",
             key_hash="hash123",
@@ -442,12 +446,12 @@ class TestAPIKeyRepositoryDelete:
     ):
         """Should append APIKeyRevoked event to outbox when deleting."""
         api_key_id = APIKeyId.generate()
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
 
         api_key = APIKey(
             id=api_key_id,
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="Test Key",
             key_hash="hash123",
@@ -462,7 +466,7 @@ class TestAPIKeyRepositoryDelete:
 
         model = APIKeyModel(
             id=api_key_id.value,
-            user_id=user_id.value,
+            created_by_user_id=created_by_user_id.value,
             tenant_id=tenant_id.value,
             name="Test Key",
             key_hash="hash123",
@@ -499,10 +503,10 @@ class TestSerializerInjection:
             serializer=mock_serializer,
         )
 
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
         api_key = APIKey.create(
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="Test Key",
             key_hash="hash123",

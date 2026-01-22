@@ -1,8 +1,8 @@
 """PostgreSQL implementation of IAPIKeyRepository.
 
 This repository handles persistence of API keys to PostgreSQL.
-Unlike the Group repository, API keys don't require SpiceDB integration
-since they are tied directly to users via user_id.
+The created_by_user_id field stores who created the key (audit trail),
+while authorization (owner relationship) is managed by SpiceDB.
 
 Write operations use the transactional outbox pattern - domain events are
 collected from the aggregate and appended to the outbox table, rather than
@@ -78,15 +78,17 @@ class APIKeyRepository(IAPIKeyRepository):
         """
         # Check for duplicate name (different ID, same user/tenant/name)
         existing = await self._get_by_name(
-            api_key.name, api_key.user_id, api_key.tenant_id
+            api_key.name, api_key.created_by_user_id, api_key.tenant_id
         )
         if existing and existing.id != api_key.id.value:
             self._probe.duplicate_api_key_name(
-                api_key.name, api_key.user_id.value, api_key.tenant_id.value
+                api_key.name,
+                api_key.created_by_user_id.value,
+                api_key.tenant_id.value,
             )
             raise DuplicateAPIKeyNameError(
                 f"API key '{api_key.name}' already exists for user "
-                f"{api_key.user_id.value} in tenant {api_key.tenant_id.value}"
+                f"{api_key.created_by_user_id.value} in tenant {api_key.tenant_id.value}"
             )
 
         # Check if API key already exists (upsert pattern)
@@ -104,7 +106,7 @@ class APIKeyRepository(IAPIKeyRepository):
             # Create new
             model = APIKeyModel(
                 id=api_key.id.value,
-                user_id=api_key.user_id.value,
+                created_by_user_id=api_key.created_by_user_id.value,
                 tenant_id=api_key.tenant_id.value,
                 name=api_key.name,
                 key_hash=api_key.key_hash,
@@ -130,7 +132,7 @@ class APIKeyRepository(IAPIKeyRepository):
                 aggregate_id=api_key.id.value,
             )
 
-        self._probe.api_key_saved(api_key.id.value, api_key.user_id.value)
+        self._probe.api_key_saved(api_key.id.value, api_key.created_by_user_id.value)
 
     async def get_by_id(
         self, api_key_id: APIKeyId, user_id: UserId, tenant_id: TenantId
@@ -139,7 +141,7 @@ class APIKeyRepository(IAPIKeyRepository):
 
         Args:
             api_key_id: The unique identifier of the API key
-            user_id: The user who owns the key (for access control)
+            user_id: The user who created the key (for access control)
             tenant_id: The tenant the key belongs to (for access control)
 
         Returns:
@@ -148,7 +150,7 @@ class APIKeyRepository(IAPIKeyRepository):
         stmt = select(APIKeyModel).where(
             and_(
                 APIKeyModel.id == api_key_id.value,
-                APIKeyModel.user_id == user_id.value,
+                APIKeyModel.created_by_user_id == user_id.value,
                 APIKeyModel.tenant_id == tenant_id.value,
             )
         )
@@ -206,19 +208,21 @@ class APIKeyRepository(IAPIKeyRepository):
         self._probe.api_key_retrieved(model.id)
         return self._to_aggregate(model)
 
-    async def list_by_user(self, user_id: UserId, tenant_id: TenantId) -> list[APIKey]:
-        """List all API keys for a user in a tenant.
+    async def list_by_user(
+        self, created_by_user_id: UserId, tenant_id: TenantId
+    ) -> list[APIKey]:
+        """List all API keys created by a user in a tenant.
 
         Args:
-            user_id: The user to list keys for
+            created_by_user_id: The user who created the keys
             tenant_id: The tenant to scope the list to
 
         Returns:
-            List of APIKey aggregates belonging to the user
+            List of APIKey aggregates created by the user
         """
         stmt = select(APIKeyModel).where(
             and_(
-                APIKeyModel.user_id == user_id.value,
+                APIKeyModel.created_by_user_id == created_by_user_id.value,
                 APIKeyModel.tenant_id == tenant_id.value,
             )
         )
@@ -226,7 +230,51 @@ class APIKeyRepository(IAPIKeyRepository):
         models = result.scalars().all()
 
         api_keys = [self._to_aggregate(model) for model in models]
-        self._probe.api_key_list_retrieved(user_id.value, len(api_keys))
+        self._probe.api_key_list_retrieved(created_by_user_id.value, len(api_keys))
+        return api_keys
+
+    async def list_viewable(
+        self,
+        viewable_ids: list[str],
+        tenant_id: TenantId,
+        created_by_user_id: UserId | None = None,
+    ) -> list[APIKey]:
+        """List API keys filtered by SpiceDB viewable IDs.
+
+        This method enforces SpiceDB authorization by only returning keys
+        whose IDs are in the viewable_ids list. Optionally filters to a
+        specific user's keys.
+
+        Args:
+            viewable_ids: List of API key IDs the caller can view (from SpiceDB)
+            tenant_id: The tenant to scope the list to
+            created_by_user_id: Optional user to filter keys by (who created them)
+
+        Returns:
+            List of APIKey aggregates that are both viewable and match filters
+        """
+        if not viewable_ids:
+            # No viewable keys - return empty list
+            return []
+
+        conditions = [
+            APIKeyModel.id.in_(viewable_ids),
+            APIKeyModel.tenant_id == tenant_id.value,
+        ]
+
+        if created_by_user_id is not None:
+            conditions.append(
+                APIKeyModel.created_by_user_id == created_by_user_id.value
+            )
+
+        stmt = select(APIKeyModel).where(and_(*conditions))
+        result = await self._session.execute(stmt)
+        models = result.scalars().all()
+
+        api_keys = [self._to_aggregate(model) for model in models]
+        self._probe.api_key_list_retrieved(
+            created_by_user_id.value if created_by_user_id else "all", len(api_keys)
+        )
         return api_keys
 
     async def delete(self, api_key: APIKey) -> bool:
@@ -264,13 +312,13 @@ class APIKeyRepository(IAPIKeyRepository):
         return True
 
     async def _get_by_name(
-        self, name: str, user_id: UserId, tenant_id: TenantId
+        self, name: str, created_by_user_id: UserId, tenant_id: TenantId
     ) -> APIKeyModel | None:
         """Internal helper to check for duplicate names.
 
         Args:
             name: The API key name
-            user_id: The user who owns the key
+            created_by_user_id: The user who created the key
             tenant_id: The tenant the key belongs to
 
         Returns:
@@ -279,7 +327,7 @@ class APIKeyRepository(IAPIKeyRepository):
         stmt = select(APIKeyModel).where(
             and_(
                 APIKeyModel.name == name,
-                APIKeyModel.user_id == user_id.value,
+                APIKeyModel.created_by_user_id == created_by_user_id.value,
                 APIKeyModel.tenant_id == tenant_id.value,
             )
         )
@@ -297,7 +345,7 @@ class APIKeyRepository(IAPIKeyRepository):
         """
         return APIKey(
             id=APIKeyId(value=model.id),
-            user_id=UserId(value=model.user_id),
+            created_by_user_id=UserId(value=model.created_by_user_id),
             tenant_id=TenantId(value=model.tenant_id),
             name=model.name,
             key_hash=model.key_hash,

@@ -80,7 +80,8 @@ class APIKeyModel(Base, TimestampMixin):
     sensitive data stored - the plaintext secret is never persisted.
 
     Notes:
-    - user_id is VARCHAR(255) to match users.id (external SSO IDs)
+    - created_by_user_id is VARCHAR(255) to match users.id (external SSO IDs)
+      This is for audit trail only - authorization is handled by SpiceDB.
     - tenant_id is VARCHAR(26) for ULID format
     - key_hash is unique for authentication lookup
     - prefix allows key identification without exposing the full key
@@ -90,7 +91,9 @@ class APIKeyModel(Base, TimestampMixin):
     __tablename__ = "api_keys"
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True)
-    user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    created_by_user_id: Mapped[str] = mapped_column(
+        String(255), nullable=False, index=True
+    )
     tenant_id: Mapped[str] = mapped_column(String(26), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     key_hash: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
@@ -105,13 +108,16 @@ class APIKeyModel(Base, TimestampMixin):
 
     __table_args__ = (
         UniqueConstraint(
-            "tenant_id", "user_id", "name", name="uq_api_keys_tenant_user_name"
+            "tenant_id",
+            "created_by_user_id",
+            "name",
+            name="uq_api_keys_tenant_user_name",
         ),
     )
 
     def __repr__(self) -> str:
         """Return string representation."""
         return (
-            f"<APIKeyModel(id={self.id}, user_id={self.user_id}, "
+            f"<APIKeyModel(id={self.id}, created_by_user_id={self.created_by_user_id}, "
             f"name={self.name}, prefix={self.prefix})>"
         )

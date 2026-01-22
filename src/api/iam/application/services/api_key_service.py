@@ -52,7 +52,7 @@ class APIKeyService:
 
     async def create_api_key(
         self,
-        user_id: UserId,
+        created_by_user_id: UserId,
         tenant_id: TenantId,
         name: str,
         expires_in_days: int | None = None,
@@ -64,7 +64,7 @@ class APIKeyService:
         secret - the secret is only available at creation time.
 
         Args:
-            user_id: The user who will own this key
+            created_by_user_id: The user who is creating this key (audit trail)
             tenant_id: The tenant this key belongs to
             name: A descriptive name for the key
             expires_in_days: Optional number of days until expiration
@@ -88,7 +88,7 @@ class APIKeyService:
 
             # Create aggregate
             api_key = APIKey.create(
-                user_id=user_id,
+                created_by_user_id=created_by_user_id,
                 tenant_id=tenant_id,
                 name=name,
                 key_hash=key_hash,
@@ -102,32 +102,36 @@ class APIKeyService:
 
             self._probe.api_key_created(
                 api_key_id=api_key.id.value,
-                user_id=user_id.value,
+                user_id=created_by_user_id.value,
                 name=name,
             )
             return api_key, plaintext_secret
 
         except Exception as e:
             self._probe.api_key_creation_failed(
-                user_id=user_id.value,
+                user_id=created_by_user_id.value,
                 error=str(e),
             )
             raise
 
-    async def list_api_keys(self, user_id: UserId, tenant_id: TenantId) -> list[APIKey]:
-        """List all API keys for a user in a tenant.
+    async def list_api_keys(
+        self, created_by_user_id: UserId, tenant_id: TenantId
+    ) -> list[APIKey]:
+        """List all API keys created by a user in a tenant.
 
         Args:
-            user_id: The user whose keys to list
+            created_by_user_id: The user who created the keys
             tenant_id: The tenant to scope the list to
 
         Returns:
-            List of APIKey aggregates belonging to the user
+            List of APIKey aggregates created by the user
         """
-        keys = await self._api_key_repository.list_by_user(user_id, tenant_id)
+        keys = await self._api_key_repository.list_by_user(
+            created_by_user_id, tenant_id
+        )
 
         self._probe.api_key_list_retrieved(
-            user_id=user_id.value,
+            user_id=created_by_user_id.value,
             count=len(keys),
         )
         return keys

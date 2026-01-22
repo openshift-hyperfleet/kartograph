@@ -100,13 +100,13 @@ class TestAPIKeyServiceCreate:
         self, api_key_service, mock_api_key_repository
     ):
         """Should create API key with hashed secret stored."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
 
         mock_api_key_repository.save = AsyncMock()
 
         api_key, plaintext_secret = await api_key_service.create_api_key(
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="My CI Key",
         )
@@ -114,7 +114,7 @@ class TestAPIKeyServiceCreate:
         # Verify API key was created
         assert isinstance(api_key, APIKey)
         assert api_key.name == "My CI Key"
-        assert api_key.user_id == user_id
+        assert api_key.created_by_user_id == created_by_user_id
         assert api_key.tenant_id == tenant_id
         # key_hash should be set and different from plaintext
         assert api_key.key_hash is not None
@@ -125,13 +125,13 @@ class TestAPIKeyServiceCreate:
         self, api_key_service, mock_api_key_repository
     ):
         """Should return plaintext secret at creation time."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
 
         mock_api_key_repository.save = AsyncMock()
 
         api_key, plaintext_secret = await api_key_service.create_api_key(
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="My CI Key",
         )
@@ -146,13 +146,13 @@ class TestAPIKeyServiceCreate:
         self, api_key_service, mock_api_key_repository
     ):
         """Generated secret should have karto_ prefix."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
 
         mock_api_key_repository.save = AsyncMock()
 
         api_key, plaintext_secret = await api_key_service.create_api_key(
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="My CI Key",
         )
@@ -164,13 +164,13 @@ class TestAPIKeyServiceCreate:
         self, api_key_service, mock_api_key_repository, mock_probe
     ):
         """Should record api_key_created probe event on success."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
 
         mock_api_key_repository.save = AsyncMock()
 
         api_key, _ = await api_key_service.create_api_key(
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="My CI Key",
         )
@@ -178,7 +178,8 @@ class TestAPIKeyServiceCreate:
         mock_probe.api_key_created.assert_called_once()
         call_args = mock_probe.api_key_created.call_args[1]
         assert call_args["api_key_id"] == api_key.id.value
-        assert call_args["user_id"] == user_id.value
+        # Probe uses user_id for logging purposes
+        assert call_args["user_id"] == created_by_user_id.value
         assert call_args["name"] == "My CI Key"
 
     @pytest.mark.asyncio
@@ -186,7 +187,7 @@ class TestAPIKeyServiceCreate:
         self, api_key_service, mock_api_key_repository, mock_probe
     ):
         """Should raise DuplicateAPIKeyNameError when name exists."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
 
         mock_api_key_repository.save = AsyncMock(
@@ -195,14 +196,15 @@ class TestAPIKeyServiceCreate:
 
         with pytest.raises(DuplicateAPIKeyNameError):
             await api_key_service.create_api_key(
-                user_id=user_id,
+                created_by_user_id=created_by_user_id,
                 tenant_id=tenant_id,
                 name="Duplicate Name",
             )
 
         mock_probe.api_key_creation_failed.assert_called_once()
         call_args = mock_probe.api_key_creation_failed.call_args[1]
-        assert call_args["user_id"] == user_id.value
+        # Probe uses user_id for logging purposes
+        assert call_args["user_id"] == created_by_user_id.value
         assert "already exists" in call_args["error"]
 
     @pytest.mark.asyncio
@@ -210,13 +212,13 @@ class TestAPIKeyServiceCreate:
         self, api_key_service, mock_api_key_repository
     ):
         """Should create API key with expiration date when expires_in_days provided."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
 
         mock_api_key_repository.save = AsyncMock()
 
         api_key, _ = await api_key_service.create_api_key(
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="Expiring Key",
             expires_in_days=30,
@@ -233,13 +235,13 @@ class TestAPIKeyServiceCreate:
         self, api_key_service, mock_api_key_repository
     ):
         """Should store prefix (first 12 chars) from secret."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
 
         mock_api_key_repository.save = AsyncMock()
 
         api_key, plaintext_secret = await api_key_service.create_api_key(
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="My Key",
         )
@@ -255,14 +257,14 @@ class TestAPIKeyServiceList:
         self, api_key_service, mock_api_key_repository, mock_probe
     ):
         """Should list API keys for user in tenant."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
 
         # Create some mock API keys
         mock_keys = [
             APIKey(
                 id=APIKeyId.generate(),
-                user_id=user_id,
+                created_by_user_id=created_by_user_id,
                 tenant_id=tenant_id,
                 name="Key 1",
                 key_hash="hash1",
@@ -271,7 +273,7 @@ class TestAPIKeyServiceList:
             ),
             APIKey(
                 id=APIKeyId.generate(),
-                user_id=user_id,
+                created_by_user_id=created_by_user_id,
                 tenant_id=tenant_id,
                 name="Key 2",
                 key_hash="hash2",
@@ -282,16 +284,19 @@ class TestAPIKeyServiceList:
         mock_api_key_repository.list_by_user = AsyncMock(return_value=mock_keys)
 
         result = await api_key_service.list_api_keys(
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
         )
 
         assert len(result) == 2
         assert result[0].name == "Key 1"
         assert result[1].name == "Key 2"
-        mock_api_key_repository.list_by_user.assert_called_once_with(user_id, tenant_id)
+        mock_api_key_repository.list_by_user.assert_called_once_with(
+            created_by_user_id, tenant_id
+        )
+        # Probe uses user_id for logging purposes
         mock_probe.api_key_list_retrieved.assert_called_once_with(
-            user_id=user_id.value,
+            user_id=created_by_user_id.value,
             count=2,
         )
 
@@ -300,19 +305,20 @@ class TestAPIKeyServiceList:
         self, api_key_service, mock_api_key_repository, mock_probe
     ):
         """Should return empty list when no keys exist."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
 
         mock_api_key_repository.list_by_user = AsyncMock(return_value=[])
 
         result = await api_key_service.list_api_keys(
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
         )
 
         assert result == []
+        # Probe uses user_id for logging purposes
         mock_probe.api_key_list_retrieved.assert_called_once_with(
-            user_id=user_id.value,
+            user_id=created_by_user_id.value,
             count=0,
         )
 
@@ -325,13 +331,13 @@ class TestAPIKeyServiceRevoke:
         self, api_key_service, mock_api_key_repository, mock_probe
     ):
         """Should revoke an existing API key."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
         api_key_id = APIKeyId.generate()
 
         mock_key = APIKey(
             id=api_key_id,
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="My Key",
             key_hash="hash",
@@ -341,9 +347,10 @@ class TestAPIKeyServiceRevoke:
         mock_api_key_repository.get_by_id = AsyncMock(return_value=mock_key)
         mock_api_key_repository.save = AsyncMock()
 
+        # The service uses user_id (the caller performing the revoke)
         await api_key_service.revoke_api_key(
             api_key_id=api_key_id,
-            user_id=user_id,
+            user_id=created_by_user_id,
             tenant_id=tenant_id,
         )
 
@@ -352,9 +359,10 @@ class TestAPIKeyServiceRevoke:
         saved_key = mock_api_key_repository.save.call_args[0][0]
         assert saved_key.is_revoked is True
 
+        # Probe uses user_id for logging purposes
         mock_probe.api_key_revoked.assert_called_once_with(
             api_key_id=api_key_id.value,
-            user_id=user_id.value,
+            user_id=created_by_user_id.value,
         )
 
     @pytest.mark.asyncio
@@ -362,16 +370,17 @@ class TestAPIKeyServiceRevoke:
         self, api_key_service, mock_api_key_repository, mock_probe
     ):
         """Should raise APIKeyNotFoundError when key doesn't exist."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
         api_key_id = APIKeyId.generate()
 
         mock_api_key_repository.get_by_id = AsyncMock(return_value=None)
 
         with pytest.raises(APIKeyNotFoundError):
+            # The service uses user_id (the caller performing the revoke)
             await api_key_service.revoke_api_key(
                 api_key_id=api_key_id,
-                user_id=user_id,
+                user_id=created_by_user_id,
                 tenant_id=tenant_id,
             )
 
@@ -385,13 +394,13 @@ class TestAPIKeyServiceRevoke:
         self, api_key_service, mock_api_key_repository, mock_probe
     ):
         """Should raise APIKeyAlreadyRevokedError when key is already revoked."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
         api_key_id = APIKeyId.generate()
 
         mock_key = APIKey(
             id=api_key_id,
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="My Key",
             key_hash="hash",
@@ -402,9 +411,10 @@ class TestAPIKeyServiceRevoke:
         mock_api_key_repository.get_by_id = AsyncMock(return_value=mock_key)
 
         with pytest.raises(APIKeyAlreadyRevokedError):
+            # The service uses user_id (the caller performing the revoke)
             await api_key_service.revoke_api_key(
                 api_key_id=api_key_id,
-                user_id=user_id,
+                user_id=created_by_user_id,
                 tenant_id=tenant_id,
             )
 
@@ -422,7 +432,7 @@ class TestAPIKeyServiceValidate:
         self, api_key_service, mock_api_key_repository
     ):
         """Should return key when secret is valid."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
         api_key_id = APIKeyId.generate()
 
@@ -434,7 +444,7 @@ class TestAPIKeyServiceValidate:
 
         mock_key = APIKey(
             id=api_key_id,
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="My Key",
             key_hash=key_hash,
@@ -452,7 +462,7 @@ class TestAPIKeyServiceValidate:
     @pytest.mark.asyncio
     async def test_updates_last_used_at(self, api_key_service, mock_api_key_repository):
         """Should update last_used_at when key is validated."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
         api_key_id = APIKeyId.generate()
 
@@ -463,7 +473,7 @@ class TestAPIKeyServiceValidate:
 
         mock_key = APIKey(
             id=api_key_id,
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="My Key",
             key_hash=key_hash,
@@ -487,7 +497,7 @@ class TestAPIKeyServiceValidate:
         self, api_key_service, mock_api_key_repository
     ):
         """Should return None when secret doesn't match hash."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
         api_key_id = APIKeyId.generate()
 
@@ -499,7 +509,7 @@ class TestAPIKeyServiceValidate:
 
         mock_key = APIKey(
             id=api_key_id,
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="My Key",
             key_hash=key_hash,
@@ -517,7 +527,7 @@ class TestAPIKeyServiceValidate:
         self, api_key_service, mock_api_key_repository
     ):
         """Should return None when key is revoked."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
         api_key_id = APIKeyId.generate()
 
@@ -528,7 +538,7 @@ class TestAPIKeyServiceValidate:
 
         mock_key = APIKey(
             id=api_key_id,
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="My Key",
             key_hash=key_hash,
@@ -547,7 +557,7 @@ class TestAPIKeyServiceValidate:
         self, api_key_service, mock_api_key_repository
     ):
         """Should return None when key is expired."""
-        user_id = UserId.generate()
+        created_by_user_id = UserId.generate()
         tenant_id = TenantId.generate()
         api_key_id = APIKeyId.generate()
 
@@ -558,7 +568,7 @@ class TestAPIKeyServiceValidate:
 
         mock_key = APIKey(
             id=api_key_id,
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name="My Key",
             key_hash=key_hash,

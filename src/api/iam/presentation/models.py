@@ -122,6 +122,9 @@ class APIKeyResponse(BaseModel):
     prefix: str = Field(
         ..., description="Key prefix for identification (e.g., karto_abc123)"
     )
+    created_by_user_id: str = Field(
+        ..., description="User ID of the key creator (audit trail)"
+    )
     created_at: datetime = Field(..., description="When the key was created")
     expires_at: datetime | None = Field(
         None, description="When the key expires (null if no expiration)"
@@ -145,6 +148,7 @@ class APIKeyResponse(BaseModel):
             id=api_key.id.value,
             name=api_key.name,
             prefix=api_key.prefix,
+            created_by_user_id=api_key.created_by_user_id.value,
             created_at=api_key.created_at,
             expires_at=api_key.expires_at,
             last_used_at=api_key.last_used_at,

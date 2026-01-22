@@ -411,7 +411,7 @@ async def create_api_key(
     """
     try:
         api_key, plaintext_secret = await service.create_api_key(
-            user_id=current_user.user_id,
+            created_by_user_id=current_user.user_id,
             tenant_id=current_user.tenant_id,
             name=request.name,
             expires_in_days=request.expires_in_days,
@@ -455,7 +455,7 @@ async def list_api_keys(
     """
     try:
         api_keys = await service.list_api_keys(
-            user_id=current_user.user_id,
+            created_by_user_id=current_user.user_id,
             tenant_id=current_user.tenant_id,
         )
         return [APIKeyResponse.from_domain(key) for key in api_keys]

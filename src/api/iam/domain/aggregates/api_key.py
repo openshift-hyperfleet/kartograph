@@ -32,7 +32,7 @@ class APIKey:
     """
 
     id: APIKeyId
-    user_id: UserId
+    created_by_user_id: UserId
     tenant_id: TenantId
     name: str
     key_hash: str
@@ -46,7 +46,7 @@ class APIKey:
     @classmethod
     def create(
         cls,
-        user_id: UserId,
+        created_by_user_id: UserId,
         tenant_id: TenantId,
         name: str,
         key_hash: str,
@@ -59,7 +59,7 @@ class APIKey:
         initializes the aggregate, and records the APIKeyCreated event.
 
         Args:
-            user_id: The user who owns this key
+            created_by_user_id: The user who created this key (for audit trail)
             tenant_id: The tenant this key belongs to
             name: A descriptive name for the key
             key_hash: The hashed secret (never store plaintext)
@@ -71,7 +71,7 @@ class APIKey:
         """
         api_key = cls(
             id=APIKeyId.generate(),
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
             name=name,
             key_hash=key_hash,
@@ -82,7 +82,7 @@ class APIKey:
         api_key._pending_events.append(
             APIKeyCreated(
                 api_key_id=api_key.id.value,
-                user_id=user_id.value,
+                user_id=created_by_user_id.value,
                 tenant_id=tenant_id.value,
                 name=name,
                 prefix=prefix,
@@ -108,7 +108,7 @@ class APIKey:
         self._pending_events.append(
             APIKeyRevoked(
                 api_key_id=self.id.value,
-                user_id=self.user_id.value,
+                user_id=self.created_by_user_id.value,
                 occurred_at=datetime.now(UTC),
             )
         )

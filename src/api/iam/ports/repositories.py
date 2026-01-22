@@ -265,6 +265,28 @@ class IAPIKeyRepository(Protocol):
         """
         ...
 
+    async def list(
+        self,
+        api_key_ids: list[str] | None = None,
+        tenant_id: TenantId | None = None,
+        created_by_user_id: UserId | None = None,
+    ) -> list[APIKey]:
+        """List API keys with optional filters.
+
+        General-purpose list method that supports filtering by IDs, tenant,
+        and creator. Filters are combined with AND logic. The repository
+        doesn't know or care about authorization - it just filters by criteria.
+
+        Args:
+            api_key_ids: Optional list of specific API key IDs to include
+            tenant_id: Optional tenant to scope the list to
+            created_by_user_id: Optional filter for keys created by this user
+
+        Returns:
+            List of APIKey aggregates matching all provided filters
+        """
+        ...
+
     async def delete(self, api_key: APIKey) -> bool:
         """Delete an API key.
 

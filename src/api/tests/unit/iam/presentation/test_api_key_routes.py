@@ -260,7 +260,7 @@ class TestListAPIKeysRoute:
         """Should list all API keys for the current user."""
         # Mock SpiceDB lookup_resources to return the sample key's ID
         mock_authz.lookup_resources.return_value = [sample_api_key.id.value]
-        mock_api_key_service.list_viewable_api_keys.return_value = [sample_api_key]
+        mock_api_key_service.list_api_keys.return_value = [sample_api_key]
 
         response = test_client.get("/iam/api-keys")
 
@@ -279,7 +279,7 @@ class TestListAPIKeysRoute:
         """Should return empty list when user has no API keys."""
         # Mock SpiceDB returning no viewable keys
         mock_authz.lookup_resources.return_value = []
-        mock_api_key_service.list_viewable_api_keys.return_value = []
+        mock_api_key_service.list_api_keys.return_value = []
 
         response = test_client.get("/iam/api-keys")
 
@@ -297,7 +297,7 @@ class TestListAPIKeysRoute:
         """Should never include secret or hash in list response."""
         # Mock SpiceDB lookup_resources to return the sample key's ID
         mock_authz.lookup_resources.return_value = [sample_api_key.id.value]
-        mock_api_key_service.list_viewable_api_keys.return_value = [sample_api_key]
+        mock_api_key_service.list_api_keys.return_value = [sample_api_key]
 
         response = test_client.get("/iam/api-keys")
 

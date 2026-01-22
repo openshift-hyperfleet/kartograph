@@ -208,41 +208,47 @@ class APIKeyRepository(IAPIKeyRepository):
         self._probe.api_key_retrieved(model.id)
         return self._to_aggregate(model)
 
-    async def list_viewable(
+    async def list(
         self,
-        viewable_ids: list[str],
-        tenant_id: TenantId,
+        api_key_ids: list[str] | None = None,
+        tenant_id: TenantId | None = None,
         created_by_user_id: UserId | None = None,
     ) -> list[APIKey]:
-        """List API keys filtered by SpiceDB viewable IDs.
+        """List API keys with optional filters.
 
-        This method enforces SpiceDB authorization by only returning keys
-        whose IDs are in the viewable_ids list. Optionally filters to a
-        specific user's keys.
+        This is a general-purpose list method. Filters are combined with AND logic.
+        The repository doesn't know or care about authorization - it just filters
+        by the provided criteria.
 
         Args:
-            viewable_ids: List of API key IDs the caller can view (from SpiceDB)
-            tenant_id: The tenant to scope the list to
-            created_by_user_id: Optional user to filter keys by (who created them)
+            api_key_ids: Optional list of specific API key IDs to include
+            tenant_id: Optional tenant to scope the list to
+            created_by_user_id: Optional filter for keys created by this user
 
         Returns:
-            List of APIKey aggregates that are both viewable and match filters
+            List of APIKey aggregates matching all provided filters
         """
-        if not viewable_ids:
-            # No viewable keys - return empty list
-            return []
+        conditions = []
 
-        conditions = [
-            APIKeyModel.id.in_(viewable_ids),
-            APIKeyModel.tenant_id == tenant_id.value,
-        ]
+        if api_key_ids is not None:
+            if not api_key_ids:
+                # Empty list means no results
+                return []
+            conditions.append(APIKeyModel.id.in_(api_key_ids))
+
+        if tenant_id is not None:
+            conditions.append(APIKeyModel.tenant_id == tenant_id.value)
 
         if created_by_user_id is not None:
             conditions.append(
                 APIKeyModel.created_by_user_id == created_by_user_id.value
             )
 
-        stmt = select(APIKeyModel).where(and_(*conditions))
+        if conditions:
+            stmt = select(APIKeyModel).where(and_(*conditions))
+        else:
+            stmt = select(APIKeyModel)
+
         result = await self._session.execute(stmt)
         models = result.scalars().all()
 

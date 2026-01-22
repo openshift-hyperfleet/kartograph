@@ -114,28 +114,28 @@ class APIKeyService:
             )
             raise
 
-    async def list_viewable_api_keys(
+    async def list_api_keys(
         self,
-        viewable_ids: list[str],
-        tenant_id: TenantId,
+        api_key_ids: list[str] | None = None,
+        tenant_id: TenantId | None = None,
         created_by_user_id: UserId | None = None,
     ) -> list[APIKey]:
-        """List API keys filtered by SpiceDB viewable IDs.
+        """List API keys with optional filters.
 
-        This method enforces SpiceDB authorization by only returning keys
-        whose IDs are in the viewable_ids list (from SpiceDB lookup_resources).
-        Optionally filters to a specific user's keys.
+        This is a general-purpose list method. The service doesn't know or care
+        about authorization - it just orchestrates filtering. Filters are typically
+        provided by the presentation layer after querying SpiceDB.
 
         Args:
-            viewable_ids: List of API key IDs the caller can view (from SpiceDB)
-            tenant_id: The tenant to scope the list to
+            api_key_ids: Optional list of specific API key IDs to include
+            tenant_id: Optional tenant to scope the list to
             created_by_user_id: Optional filter for keys created by this user
 
         Returns:
-            List of APIKey aggregates that are both viewable and match filters
+            List of APIKey aggregates matching all provided filters
         """
-        keys = await self._api_key_repository.list_viewable(
-            viewable_ids=viewable_ids,
+        keys = await self._api_key_repository.list(
+            api_key_ids=api_key_ids,
             tenant_id=tenant_id,
             created_by_user_id=created_by_user_id,
         )

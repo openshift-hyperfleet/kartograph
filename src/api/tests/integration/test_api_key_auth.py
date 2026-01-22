@@ -4,6 +4,8 @@ Tests the dual authentication flow supporting both JWT Bearer tokens
 and X-API-Key header authentication.
 """
 
+import uuid
+
 import pytest
 import pytest_asyncio
 from asgi_lifespan import LifespanManager
@@ -28,10 +30,12 @@ async def api_key_secret(async_client, auth_headers) -> str:
     """Create an API key and return the plaintext secret.
 
     Uses JWT auth to create the key, then returns the secret for testing.
+    Uses unique name per test run to avoid conflicts.
     """
+    unique_name = f"test-api-key-{uuid.uuid4().hex[:8]}"
     response = await async_client.post(
         "/iam/api-keys",
-        json={"name": "test-api-key-auth"},
+        json={"name": unique_name},
         headers=auth_headers,
     )
     assert response.status_code == 201, f"Failed to create API key: {response.json()}"
@@ -43,11 +47,13 @@ async def revoked_api_key_secret(async_client, auth_headers) -> str:
     """Create an API key, revoke it, and return the secret.
 
     Used to test that revoked keys are rejected.
+    Uses unique name per test run to avoid conflicts.
     """
     # Create the key
+    unique_name = f"test-revoked-key-{uuid.uuid4().hex[:8]}"
     create_response = await async_client.post(
         "/iam/api-keys",
-        json={"name": "test-revoked-key"},
+        json={"name": unique_name},
         headers=auth_headers,
     )
     assert create_response.status_code == 201
@@ -69,9 +75,7 @@ class TestAPIKeyAuthentication:
     """Tests for X-API-Key header authentication."""
 
     @pytest.mark.asyncio
-    async def test_authenticates_with_valid_api_key(
-        self, async_client, api_key_secret
-    ):
+    async def test_authenticates_with_valid_api_key(self, async_client, api_key_secret):
         """X-API-Key header with valid key should authenticate."""
         response = await async_client.get(
             "/iam/tenants",

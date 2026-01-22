@@ -488,8 +488,9 @@ async def list_api_keys(
                 ) from e
 
         # Get keys filtered by SpiceDB permissions
-        api_keys = await service.list_viewable_api_keys(
-            viewable_ids=viewable_key_ids,
+        # The service doesn't know about authorization - it just filters by IDs
+        api_keys = await service.list_api_keys(
+            api_key_ids=viewable_key_ids,
             tenant_id=current_user.tenant_id,
             created_by_user_id=filter_user_id,
         )

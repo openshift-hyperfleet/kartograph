@@ -47,6 +47,9 @@ run:
 	@echo "API Docs: http://localhost:8000/docs/"
 	@echo "----------------------------"
 
+.PHONY: reload
+reload: down run
+
 
 .PHONY: logs
 logs:
@@ -65,3 +68,48 @@ docs-export:
 docs: docs-export
 	@echo "🌐 Starting documentation dev server..."
 	cd website && npm i && npm run dev
+
+.PHONY: graph-clear
+graph-clear:
+	@echo "🗑️  [Graph] Clearing all nodes and edges from graph database..."
+	@curl -X DELETE http://localhost:8000/util/nodes -H "Content-Type: application/json" -s | jq '.'
+	@echo "✓ Graph cleared"
+
+.PHONY: graph-load
+graph-load:
+	@if [ -z "$(FILE)" ]; then \
+		echo "❌ Error: FILE parameter required"; \
+		echo "Usage: make graph-load FILE=path/to/mutations.jsonl"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(FILE)" ]; then \
+		echo "❌ Error: File '$(FILE)' not found"; \
+		exit 1; \
+	fi
+	@echo "📤 [Graph] Loading mutations from $(FILE)..."
+	@curl -X POST http://localhost:8000/graph/mutations \
+		-H "Content-Type: application/jsonlines" \
+		--data-binary @$(FILE) -s | jq '.'
+	@echo "✓ Mutations applied"
+
+.PHONY: graph-stats
+graph-stats:
+	@echo "📊 [Graph] Fetching graph statistics..."
+	@echo ""
+	@echo "=== Node counts by label (top 20) ==="
+	@docker compose exec -T postgres psql -U kartograph -d kartograph -t -c "\
+		LOAD 'age'; \
+		SET search_path = ag_catalog, \"\$$user\", public; \
+		SELECT * FROM cypher('kartograph_graph', \$\$$\$$ \
+			MATCH (n) \
+			RETURN labels(n), count(n) \
+		\$\$$\$$) as (label agtype, node_count agtype) ORDER BY node_count DESC LIMIT 20;"
+	@echo ""
+	@echo "=== Relationship counts by type (top 20) ==="
+	@docker compose exec -T postgres psql -U kartograph -d kartograph -t -c "\
+		LOAD 'age'; \
+		SET search_path = ag_catalog, \"\$$user\", public; \
+		SELECT * FROM cypher('kartograph_graph', \$\$$\$$ \
+			MATCH ()-[r]->() \
+			RETURN type(r), count(r) \
+		\$\$$\$$) as (rel_type agtype, rel_count agtype) ORDER BY rel_count DESC LIMIT 20;"

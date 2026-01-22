@@ -124,10 +124,10 @@ class TestGetCurrentUser:
 
         assert exc_info.value.status_code == 401
         assert exc_info.value.detail == "Not authenticated"
-        assert exc_info.value.headers == {"WWW-Authenticate": "Bearer"}
+        assert exc_info.value.headers == {"WWW-Authenticate": "Bearer, API-Key"}
 
         mock_auth_probe.authentication_failed.assert_called_once_with(
-            reason="Missing authorization header"
+            reason="Missing authorization"
         )
 
     @pytest.mark.asyncio
@@ -154,7 +154,7 @@ class TestGetCurrentUser:
 
         assert exc_info.value.status_code == 401
         assert exc_info.value.detail == "Invalid token signature"
-        assert exc_info.value.headers == {"WWW-Authenticate": "Bearer"}
+        assert exc_info.value.headers == {"WWW-Authenticate": "Bearer, API-Key"}
 
         mock_auth_probe.authentication_failed.assert_called_once_with(
             reason="Invalid token signature"
@@ -184,7 +184,7 @@ class TestGetCurrentUser:
 
         assert exc_info.value.status_code == 401
         assert exc_info.value.detail == "Token has expired"
-        assert exc_info.value.headers == {"WWW-Authenticate": "Bearer"}
+        assert exc_info.value.headers == {"WWW-Authenticate": "Bearer, API-Key"}
 
         mock_auth_probe.authentication_failed.assert_called_once_with(
             reason="Token has expired"

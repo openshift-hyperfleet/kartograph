@@ -31,6 +31,14 @@ def mock_api_key_service() -> AsyncMock:
 
 
 @pytest.fixture
+def mock_authz() -> AsyncMock:
+    """Mock AuthorizationProvider for testing."""
+    from shared_kernel.authorization.protocols import AuthorizationProvider
+
+    return AsyncMock(spec=AuthorizationProvider)
+
+
+@pytest.fixture
 def mock_current_user() -> CurrentUser:
     """Mock CurrentUser for authentication."""
     return CurrentUser(
@@ -59,12 +67,15 @@ def sample_api_key(mock_current_user: CurrentUser) -> APIKey:
 
 @pytest.fixture
 def test_client(
-    mock_api_key_service: AsyncMock, mock_current_user: CurrentUser
+    mock_api_key_service: AsyncMock,
+    mock_authz: AsyncMock,
+    mock_current_user: CurrentUser,
 ) -> TestClient:
     """Create TestClient with mocked dependencies."""
     from iam import dependencies
     from iam.dependencies import get_current_user
     from iam.presentation import routes
+    from infrastructure.authorization_dependencies import get_spicedb_client
 
     app = FastAPI()
 
@@ -73,6 +84,7 @@ def test_client(
         lambda: mock_api_key_service
     )
     app.dependency_overrides[get_current_user] = lambda: mock_current_user
+    app.dependency_overrides[get_spicedb_client] = lambda: mock_authz
 
     app.include_router(routes.router)
 
@@ -242,10 +254,13 @@ class TestListAPIKeysRoute:
         self,
         test_client: TestClient,
         mock_api_key_service: AsyncMock,
+        mock_authz: AsyncMock,
         sample_api_key: APIKey,
     ) -> None:
         """Should list all API keys for the current user."""
-        mock_api_key_service.list_api_keys.return_value = [sample_api_key]
+        # Mock SpiceDB lookup_resources to return the sample key's ID
+        mock_authz.lookup_resources.return_value = [sample_api_key.id.value]
+        mock_api_key_service.list_viewable_api_keys.return_value = [sample_api_key]
 
         response = test_client.get("/iam/api-keys")
 
@@ -259,9 +274,12 @@ class TestListAPIKeysRoute:
         self,
         test_client: TestClient,
         mock_api_key_service: AsyncMock,
+        mock_authz: AsyncMock,
     ) -> None:
         """Should return empty list when user has no API keys."""
-        mock_api_key_service.list_api_keys.return_value = []
+        # Mock SpiceDB returning no viewable keys
+        mock_authz.lookup_resources.return_value = []
+        mock_api_key_service.list_viewable_api_keys.return_value = []
 
         response = test_client.get("/iam/api-keys")
 
@@ -273,10 +291,13 @@ class TestListAPIKeysRoute:
         self,
         test_client: TestClient,
         mock_api_key_service: AsyncMock,
+        mock_authz: AsyncMock,
         sample_api_key: APIKey,
     ) -> None:
         """Should never include secret or hash in list response."""
-        mock_api_key_service.list_api_keys.return_value = [sample_api_key]
+        # Mock SpiceDB lookup_resources to return the sample key's ID
+        mock_authz.lookup_resources.return_value = [sample_api_key.id.value]
+        mock_api_key_service.list_viewable_api_keys.return_value = [sample_api_key]
 
         response = test_client.get("/iam/api-keys")
 

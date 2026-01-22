@@ -19,7 +19,14 @@ from iam.dependencies import (
     get_group_service,
     get_tenant_service,
 )
-from iam.domain.value_objects import APIKeyId, GroupId, TenantId
+from infrastructure.authorization_dependencies import get_spicedb_client
+from iam.domain.value_objects import APIKeyId, GroupId, TenantId, UserId
+from shared_kernel.authorization.protocols import AuthorizationProvider
+from shared_kernel.authorization.types import (
+    Permission,
+    ResourceType,
+    format_subject,
+)
 from iam.ports.exceptions import (
     APIKeyAlreadyRevokedError,
     APIKeyNotFoundError,
@@ -437,8 +444,13 @@ async def create_api_key(
 async def list_api_keys(
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[APIKeyService, Depends(get_api_key_service)],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+    user_id: str | None = None,
 ) -> list[APIKeyResponse]:
-    """List all API keys for the current user.
+    """List API keys the current user can view.
+
+    Uses SpiceDB to determine which API keys are viewable. By default, users
+    see their own keys. Tenant admins can see all keys in their tenant.
 
     The secret is NEVER returned in this response - it is only available
     at creation time.
@@ -446,20 +458,45 @@ async def list_api_keys(
     Args:
         current_user: Current authenticated user with tenant context
         service: API key service for orchestration
+        authz: SpiceDB authorization provider
+        user_id: Optional filter to show only keys created by this user
 
     Returns:
-        List of APIKeyResponse objects (without secrets)
+        List of APIKeyResponse objects (without secrets) that the user can view
 
     Raises:
+        HTTPException: 400 if user_id is invalid
         HTTPException: 500 for unexpected errors
     """
     try:
-        api_keys = await service.list_api_keys(
-            created_by_user_id=current_user.user_id,
+        # Use SpiceDB to find all API keys the current user can view
+        viewable_key_ids = await authz.lookup_resources(
+            resource_type=ResourceType.API_KEY.value,
+            permission=Permission.VIEW.value,
+            subject=format_subject(ResourceType.USER, current_user.user_id.value),
+        )
+
+        # Parse optional user_id filter
+        filter_user_id = None
+        if user_id:
+            try:
+                filter_user_id = UserId.from_string(user_id)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid user ID format: {e}",
+                ) from e
+
+        # Get keys filtered by SpiceDB permissions
+        api_keys = await service.list_viewable_api_keys(
+            viewable_ids=viewable_key_ids,
             tenant_id=current_user.tenant_id,
+            created_by_user_id=filter_user_id,
         )
         return [APIKeyResponse.from_domain(key) for key in api_keys]
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

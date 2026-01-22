@@ -83,11 +83,11 @@ Search for instances by slug using substring matching.
 Each term in the list must appear as a substring in the slug (any order).
 
 ```
-find_instances_by_slug("DocumentationModule", ["etcd", "backup"])
-find_instances_by_slug("Alert", ["upgrade", "node", "drain"])
+find_instances_by_slug(["etcd", "backup"], ["DocumentationModule"])
+find_instances_by_slug(["upgrade", "node", "drain"], ["Alert", "SOPAlertRunbook"])
 ```
 
-**Returns:** Top 15 matching slugs.
+**Returns:** Top 15 matching slugs with entity type.
 
 **Important:** Always call `get_entity_overview` first to see slug naming patterns before searching.
 
@@ -146,8 +146,8 @@ query_graph("MATCH (n:CLITool {slug: 'oc'})-[r]->(target) RETURN {rel: type(r), 
 Entity slugs follow type-specific naming conventions. You must see example slugs first to construct effective search terms.
 
 ```
-❌ Bad:  find_instances_by_slug("Alert", ["UpgradeNodeDrainFailed"])
-✅ Good: get_entity_overview(["Alert"]) → observe slug patterns → find_instances_by_slug("Alert", ["upgrade", "node", "drain"])
+❌ Bad:  find_instances_by_slug(["UpgradeNodeDrainFailed"], ["Alert"])
+✅ Good: get_entity_overview(["Alert"]) → observe slug patterns → find_instances_by_slug(["upgrade", "node", "drain"], ["Alert", "SOPAlertRunbook"])
 ```
 
 ### Rule 2: Ground All Answers in Knowledge Graph Content
@@ -199,8 +199,8 @@ This shows instance counts, sample slugs, and common relationships.
 Use `find_instances_by_slug` to locate relevant nodes:
 
 ```
-find_instances_by_slug("KCSArticle", ["etcd", "quorum"])
-find_instances_by_slug("Operator", ["machine", "config"])
+find_instances_by_slug(["etcd", "quorum"], ["KCSArticle"])
+find_instances_by_slug(["machine", "config"], ["Operator"])
 ```
 
 **Tip:** Use short, distinctive substrings. Break compound words apart (e.g., `["machine", "config"]` not `["machineconfig"]`).

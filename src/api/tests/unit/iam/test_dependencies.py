@@ -42,6 +42,14 @@ def mock_auth_probe() -> MagicMock:
 
 
 @pytest.fixture
+def mock_api_key_service() -> AsyncMock:
+    """Create a mock API key service."""
+    service = AsyncMock()
+    service.validate_and_get_key = AsyncMock(return_value=None)
+    return service
+
+
+@pytest.fixture
 def default_tenant_id() -> TenantId:
     """Set up default tenant for tests."""
     tenant_id = TenantId.generate()
@@ -78,6 +86,7 @@ class TestGetCurrentUser:
         self,
         mock_jwt_validator: MagicMock,
         mock_user_service: AsyncMock,
+        mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
         valid_token: str,
@@ -90,6 +99,7 @@ class TestGetCurrentUser:
             token=valid_token,
             validator=mock_jwt_validator,
             user_service=mock_user_service,
+            api_key_service=mock_api_key_service,
             auth_probe=mock_auth_probe,
         )
 
@@ -110,6 +120,7 @@ class TestGetCurrentUser:
         self,
         mock_jwt_validator: MagicMock,
         mock_user_service: AsyncMock,
+        mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
     ) -> None:
@@ -119,6 +130,7 @@ class TestGetCurrentUser:
                 token=None,
                 validator=mock_jwt_validator,
                 user_service=mock_user_service,
+                api_key_service=mock_api_key_service,
                 auth_probe=mock_auth_probe,
             )
 
@@ -135,6 +147,7 @@ class TestGetCurrentUser:
         self,
         mock_jwt_validator: MagicMock,
         mock_user_service: AsyncMock,
+        mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
         valid_token: str,
@@ -149,6 +162,7 @@ class TestGetCurrentUser:
                 token=valid_token,
                 validator=mock_jwt_validator,
                 user_service=mock_user_service,
+                api_key_service=mock_api_key_service,
                 auth_probe=mock_auth_probe,
             )
 
@@ -165,6 +179,7 @@ class TestGetCurrentUser:
         self,
         mock_jwt_validator: MagicMock,
         mock_user_service: AsyncMock,
+        mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
         valid_token: str,
@@ -179,6 +194,7 @@ class TestGetCurrentUser:
                 token=valid_token,
                 validator=mock_jwt_validator,
                 user_service=mock_user_service,
+                api_key_service=mock_api_key_service,
                 auth_probe=mock_auth_probe,
             )
 
@@ -195,6 +211,7 @@ class TestGetCurrentUser:
         self,
         mock_jwt_validator: MagicMock,
         mock_user_service: AsyncMock,
+        mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
         valid_token: str,
@@ -211,6 +228,7 @@ class TestGetCurrentUser:
             token=valid_token,
             validator=mock_jwt_validator,
             user_service=mock_user_service,
+            api_key_service=mock_api_key_service,
             auth_probe=mock_auth_probe,
         )
 
@@ -221,6 +239,7 @@ class TestGetCurrentUser:
         self,
         mock_jwt_validator: MagicMock,
         mock_user_service: AsyncMock,
+        mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
         valid_token: str,
@@ -237,6 +256,7 @@ class TestGetCurrentUser:
             token=valid_token,
             validator=mock_jwt_validator,
             user_service=mock_user_service,
+            api_key_service=mock_api_key_service,
             auth_probe=mock_auth_probe,
         )
 
@@ -247,6 +267,7 @@ class TestGetCurrentUser:
         self,
         mock_jwt_validator: MagicMock,
         mock_user_service: AsyncMock,
+        mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
         valid_token: str,
@@ -263,6 +284,7 @@ class TestGetCurrentUser:
             token=valid_token,
             validator=mock_jwt_validator,
             user_service=mock_user_service,
+            api_key_service=mock_api_key_service,
             auth_probe=mock_auth_probe,
         )
 
@@ -273,6 +295,7 @@ class TestGetCurrentUser:
         self,
         mock_jwt_validator: MagicMock,
         mock_user_service: AsyncMock,
+        mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
         valid_token: str,
@@ -285,6 +308,7 @@ class TestGetCurrentUser:
             token=valid_token,
             validator=mock_jwt_validator,
             user_service=mock_user_service,
+            api_key_service=mock_api_key_service,
             auth_probe=mock_auth_probe,
         )
 
@@ -298,6 +322,7 @@ class TestGetCurrentUser:
         self,
         mock_jwt_validator: MagicMock,
         mock_user_service: AsyncMock,
+        mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
         valid_token: str,
@@ -310,6 +335,7 @@ class TestGetCurrentUser:
             token=valid_token,
             validator=mock_jwt_validator,
             user_service=mock_user_service,
+            api_key_service=mock_api_key_service,
             auth_probe=mock_auth_probe,
         )
 
@@ -321,6 +347,7 @@ class TestGetCurrentUser:
         self,
         mock_jwt_validator: MagicMock,
         mock_user_service: AsyncMock,
+        mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
         default_tenant_id: TenantId,
         valid_token: str,
@@ -337,6 +364,7 @@ class TestGetCurrentUser:
             token=valid_token,
             validator=mock_jwt_validator,
             user_service=mock_user_service,
+            api_key_service=mock_api_key_service,
             auth_probe=mock_auth_probe,
         )
 

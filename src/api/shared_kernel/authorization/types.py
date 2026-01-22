@@ -62,6 +62,7 @@ class ResourceType(StrEnum):
     GROUP = "group"
     WORKSPACE = "workspace"
     TENANT = "tenant"
+    API_KEY = "api_key"
     # Future: KNOWLEDGE_GRAPH, DATA_SOURCE, etc.
 
 

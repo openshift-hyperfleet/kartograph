@@ -68,6 +68,10 @@ class IAMEventTranslator:
                 return self._translate_tenant_created(payload)
             case "TenantDeleted":
                 return self._translate_tenant_deleted(payload)
+            case "APIKeyCreated":
+                return self._translate_api_key_created(payload)
+            case "APIKeyRevoked":
+                return self._translate_api_key_revoked(payload)
             case _:
                 raise ValueError(f"Unsupported event type: {event_type}")
 
@@ -201,3 +205,50 @@ class IAMEventTranslator:
         handled by database constraints or separate processes.
         """
         return []
+
+    def _translate_api_key_created(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate APIKeyCreated to owner and tenant relationship writes.
+
+        Creates two relationships:
+        - api_key:<id>#owner@user:<user_id> - ownership
+        - api_key:<id>#tenant@tenant:<tenant_id> - tenant scoping
+        """
+        return [
+            WriteRelationship(
+                resource_type=ResourceType.API_KEY,
+                resource_id=payload["api_key_id"],
+                relation=RelationType.OWNER,
+                subject_type=ResourceType.USER,
+                subject_id=payload["user_id"],
+            ),
+            WriteRelationship(
+                resource_type=ResourceType.API_KEY,
+                resource_id=payload["api_key_id"],
+                relation=RelationType.TENANT,
+                subject_type=ResourceType.TENANT,
+                subject_id=payload["tenant_id"],
+            ),
+        ]
+
+    def _translate_api_key_revoked(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate APIKeyRevoked to delete ownership relationship.
+
+        Deletes the owner relationship when an API key is revoked.
+        The tenant relationship could also be deleted, but we keep it
+        for audit trail purposes (tenant admin can still see revoked keys).
+        """
+        return [
+            DeleteRelationship(
+                resource_type=ResourceType.API_KEY,
+                resource_id=payload["api_key_id"],
+                relation=RelationType.OWNER,
+                subject_type=ResourceType.USER,
+                subject_id=payload["user_id"],
+            ),
+        ]

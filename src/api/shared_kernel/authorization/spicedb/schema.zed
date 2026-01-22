@@ -86,6 +86,25 @@ definition tenant {
 }
 
 /**
+ * API Key represents a programmatic access credential.
+ * API keys are owned by users and scoped to tenants.
+ * Tenant admins can view and revoke any API key in their tenant.
+ */
+definition api_key {
+    /** The user who owns this API key */
+    relation owner: user
+
+    /** The tenant this API key belongs to */
+    relation tenant: tenant
+
+    /** Permission to view API key metadata */
+    permission view = owner + tenant->admin
+
+    /** Permission to revoke this API key */
+    permission revoke = owner + tenant->admin
+}
+
+/**
  * Future resource types (not yet implemented):
  *
  * definition knowledge_graph {

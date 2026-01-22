@@ -25,6 +25,8 @@ class TestIAMEventTranslatorSupportedEvents:
         assert "MemberAdded" in supported
         assert "MemberRemoved" in supported
         assert "MemberRoleChanged" in supported
+        assert "APIKeyCreated" in supported
+        assert "APIKeyRevoked" in supported
 
 
 class TestIAMEventTranslatorGroupCreated:
@@ -206,6 +208,67 @@ class TestIAMEventTranslatorMemberRoleChanged:
         write_op = operations[1]
         assert isinstance(write_op, WriteRelationship)
         assert write_op.relation_name == "admin"
+
+
+class TestIAMEventTranslatorAPIKeyCreated:
+    """Tests for APIKeyCreated translation."""
+
+    def test_translates_api_key_created_to_owner_and_tenant_relationships(self):
+        """APIKeyCreated should produce owner and tenant relationship writes."""
+        translator = IAMEventTranslator()
+        payload = {
+            "api_key_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            "user_id": "user-123-abc",
+            "tenant_id": "01ARZCX0P0HZGQP3MZXQQ0NNYY",
+            "name": "test-key",
+            "prefix": "karto_abc123",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("APIKeyCreated", payload)
+
+        assert len(operations) == 2
+
+        # First: owner relationship
+        owner_op = operations[0]
+        assert isinstance(owner_op, WriteRelationship)
+        assert owner_op.resource_type == ResourceType.API_KEY
+        assert owner_op.resource_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
+        assert owner_op.relation == RelationType.OWNER
+        assert owner_op.subject_type == ResourceType.USER
+        assert owner_op.subject_id == "user-123-abc"
+
+        # Second: tenant relationship
+        tenant_op = operations[1]
+        assert isinstance(tenant_op, WriteRelationship)
+        assert tenant_op.resource_type == ResourceType.API_KEY
+        assert tenant_op.relation == RelationType.TENANT
+        assert tenant_op.subject_type == ResourceType.TENANT
+        assert tenant_op.subject_id == "01ARZCX0P0HZGQP3MZXQQ0NNYY"
+
+
+class TestIAMEventTranslatorAPIKeyRevoked:
+    """Tests for APIKeyRevoked translation."""
+
+    def test_translates_api_key_revoked_to_delete_owner_relationship(self):
+        """APIKeyRevoked should delete owner relationship."""
+        translator = IAMEventTranslator()
+        payload = {
+            "api_key_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            "user_id": "user-123-abc",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("APIKeyRevoked", payload)
+
+        assert len(operations) == 1
+        op = operations[0]
+        assert isinstance(op, DeleteRelationship)
+        assert op.resource_type == ResourceType.API_KEY
+        assert op.resource_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
+        assert op.relation == RelationType.OWNER
+        assert op.subject_type == ResourceType.USER
+        assert op.subject_id == "user-123-abc"
 
 
 class TestIAMEventTranslatorErrors:

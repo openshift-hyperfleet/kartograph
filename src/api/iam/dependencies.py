@@ -21,7 +21,13 @@ from iam.application.observability import (
     TenantServiceProbe,
     UserServiceProbe,
 )
+from iam.application.observability.api_key_service_probe import (
+    APIKeyServiceProbe,
+    DefaultAPIKeyServiceProbe,
+)
 from iam.application.services import GroupService, TenantService, UserService
+from iam.application.services.api_key_service import APIKeyService
+from iam.infrastructure.api_key_repository import APIKeyRepository
 from iam.application.value_objects import CurrentUser
 from iam.domain.value_objects import TenantId, UserId
 from iam.infrastructure.group_repository import GroupRepository
@@ -246,6 +252,53 @@ def get_tenant_service(
         tenant_repository=tenant_repo,
         session=session,
         probe=tenant_service_probe,
+    )
+
+
+def get_api_key_service_probe() -> APIKeyServiceProbe:
+    """Get APIKeyServiceProbe instance.
+
+    Returns:
+        DefaultAPIKeyServiceProbe instance for observability
+    """
+    return DefaultAPIKeyServiceProbe()
+
+
+def get_api_key_repository(
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    outbox: Annotated[OutboxRepository, Depends(get_outbox_repository)],
+) -> APIKeyRepository:
+    """Get APIKeyRepository instance.
+
+    Args:
+        session: Async database session
+        outbox: Outbox repository for transactional outbox pattern
+
+    Returns:
+        APIKeyRepository instance with outbox pattern enabled
+    """
+    return APIKeyRepository(session=session, outbox=outbox)
+
+
+def get_api_key_service(
+    api_key_repo: Annotated[APIKeyRepository, Depends(get_api_key_repository)],
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    probe: Annotated[APIKeyServiceProbe, Depends(get_api_key_service_probe)],
+) -> APIKeyService:
+    """Get APIKeyService instance.
+
+    Args:
+        api_key_repo: API key repository (shares session via FastAPI dependency caching)
+        session: Database session for transaction management
+        probe: API key service probe for observability
+
+    Returns:
+        APIKeyService instance
+    """
+    return APIKeyService(
+        session=session,
+        api_key_repository=api_key_repo,
+        probe=probe,
     )
 
 

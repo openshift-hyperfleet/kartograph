@@ -205,8 +205,11 @@ class APIKeyService:
             return None
 
         # Update last_used_at
+        # Note: We don't call begin() here because SQLAlchemy auto-begins
+        # a transaction when we executed the query above. We just commit
+        # the existing transaction after saving.
         api_key.record_usage()
-        async with self._session.begin():
-            await self._api_key_repository.save(api_key)
+        await self._api_key_repository.save(api_key)
+        await self._session.commit()
 
         return api_key

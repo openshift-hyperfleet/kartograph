@@ -25,7 +25,8 @@ def generate_api_key_secret() -> str:
     Returns:
         A URL-safe API key string with karto_ prefix (e.g., karto_abc123...)
     """
-    random_part = secrets.token_urlsafe(32)
+    # replace - with _ for ease of copy/paste. (Most IDEs will separate word selection at a `-`)
+    random_part = secrets.token_urlsafe(32).replace("-", "_")
     return f"{API_KEY_PREFIX}{random_part}"
 
 

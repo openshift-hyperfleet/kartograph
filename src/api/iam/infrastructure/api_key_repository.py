@@ -208,31 +208,6 @@ class APIKeyRepository(IAPIKeyRepository):
         self._probe.api_key_retrieved(model.id)
         return self._to_aggregate(model)
 
-    async def list_by_user(
-        self, created_by_user_id: UserId, tenant_id: TenantId
-    ) -> list[APIKey]:
-        """List all API keys created by a user in a tenant.
-
-        Args:
-            created_by_user_id: The user who created the keys
-            tenant_id: The tenant to scope the list to
-
-        Returns:
-            List of APIKey aggregates created by the user
-        """
-        stmt = select(APIKeyModel).where(
-            and_(
-                APIKeyModel.created_by_user_id == created_by_user_id.value,
-                APIKeyModel.tenant_id == tenant_id.value,
-            )
-        )
-        result = await self._session.execute(stmt)
-        models = result.scalars().all()
-
-        api_keys = [self._to_aggregate(model) for model in models]
-        self._probe.api_key_list_retrieved(created_by_user_id.value, len(api_keys))
-        return api_keys
-
     async def list_viewable(
         self,
         viewable_ids: list[str],

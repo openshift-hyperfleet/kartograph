@@ -114,28 +114,6 @@ class APIKeyService:
             )
             raise
 
-    async def list_api_keys(
-        self, created_by_user_id: UserId, tenant_id: TenantId
-    ) -> list[APIKey]:
-        """List all API keys created by a user in a tenant.
-
-        Args:
-            created_by_user_id: The user who created the keys
-            tenant_id: The tenant to scope the list to
-
-        Returns:
-            List of APIKey aggregates created by the user
-        """
-        keys = await self._api_key_repository.list_by_user(
-            created_by_user_id, tenant_id
-        )
-
-        self._probe.api_key_list_retrieved(
-            user_id=created_by_user_id.value,
-            count=len(keys),
-        )
-        return keys
-
     async def list_viewable_api_keys(
         self,
         viewable_ids: list[str],

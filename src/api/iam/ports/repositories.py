@@ -265,20 +265,6 @@ class IAPIKeyRepository(Protocol):
         """
         ...
 
-    async def list_by_user(
-        self, created_by_user_id: UserId, tenant_id: TenantId
-    ) -> list[APIKey]:
-        """List all API keys created by a user in a tenant.
-
-        Args:
-            created_by_user_id: The user who created the keys
-            tenant_id: The tenant to scope the list to
-
-        Returns:
-            List of APIKey aggregates created by the user
-        """
-        ...
-
     async def delete(self, api_key: APIKey) -> bool:
         """Delete an API key.
 

@@ -237,18 +237,15 @@ class IAMEventTranslator:
         self,
         payload: dict[str, Any],
     ) -> list[SpiceDBOperation]:
-        """Translate APIKeyRevoked to delete ownership relationship.
+        """Translate APIKeyRevoked - no SpiceDB changes needed.
 
-        Deletes the owner relationship when an API key is revoked.
-        The tenant relationship could also be deleted, but we keep it
-        for audit trail purposes (tenant admin can still see revoked keys).
+        We keep all relationships (owner, tenant) when a key is revoked because:
+        - Owners need to see their revoked keys in the list (audit trail)
+        - Tenant admins need to see all revoked keys
+        - The is_revoked flag in PostgreSQL controls authentication
+        - Revoked keys should remain visible with status "revoked"
+
+        If we deleted the owner relationship, users would lose visibility
+        of their own revoked keys, breaking the audit trail.
         """
-        return [
-            DeleteRelationship(
-                resource_type=ResourceType.API_KEY,
-                resource_id=payload["api_key_id"],
-                relation=RelationType.OWNER,
-                subject_type=ResourceType.USER,
-                subject_id=payload["user_id"],
-            ),
-        ]
+        return []

@@ -250,8 +250,12 @@ class TestIAMEventTranslatorAPIKeyCreated:
 class TestIAMEventTranslatorAPIKeyRevoked:
     """Tests for APIKeyRevoked translation."""
 
-    def test_translates_api_key_revoked_to_delete_owner_relationship(self):
-        """APIKeyRevoked should delete owner relationship."""
+    def test_translates_api_key_revoked_keeps_relationships_for_audit(self):
+        """APIKeyRevoked should not delete relationships (audit trail).
+
+        Revoked keys remain visible to owners and tenant admins for audit
+        purposes. The is_revoked flag in PostgreSQL controls authentication.
+        """
         translator = IAMEventTranslator()
         payload = {
             "api_key_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
@@ -261,14 +265,8 @@ class TestIAMEventTranslatorAPIKeyRevoked:
 
         operations = translator.translate("APIKeyRevoked", payload)
 
-        assert len(operations) == 1
-        op = operations[0]
-        assert isinstance(op, DeleteRelationship)
-        assert op.resource_type == ResourceType.API_KEY
-        assert op.resource_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
-        assert op.relation == RelationType.OWNER
-        assert op.subject_type == ResourceType.USER
-        assert op.subject_id == "user-123-abc"
+        # No SpiceDB operations - relationships stay intact
+        assert len(operations) == 0
 
 
 class TestIAMEventTranslatorErrors:

@@ -512,8 +512,8 @@ async def revoke_api_key(
 ) -> None:
     """Revoke an API key.
 
-    A revoked key can no longer be used for authentication.
-    This operation is permanent and cannot be undone.
+    A revoked key can no longer be used for authentication but remains
+    visible in the API key list with is_revoked=true for audit purposes.
 
     Args:
         api_key_id: API Key ID (ULID format)

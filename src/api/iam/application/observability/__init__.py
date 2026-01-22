@@ -3,6 +3,10 @@
 Probes for application service operations following Domain-Oriented Observability patterns.
 """
 
+from iam.application.observability.api_key_service_probe import (
+    APIKeyServiceProbe,
+    DefaultAPIKeyServiceProbe,
+)
 from iam.application.observability.authentication_probe import (
     AuthenticationProbe,
     DefaultAuthenticationProbe,
@@ -25,6 +29,8 @@ from iam.application.observability.user_service_probe import (
 )
 
 __all__ = [
+    "APIKeyServiceProbe",
+    "DefaultAPIKeyServiceProbe",
     "AuthenticationProbe",
     "DefaultAuthenticationProbe",
     "GroupServiceProbe",

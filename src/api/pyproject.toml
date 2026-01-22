@@ -10,6 +10,7 @@ dependencies = [
     "asyncpg>=0.31.0",
     "asyncpg-listen>=0.0.9",
     "authzed>=1.24.0",
+    "bcrypt>=5.0.0",
     "cyclopts==5.0.0a1",
     "fastapi[standard]>=0.123.9",
     "fastmcp==2.14.3",

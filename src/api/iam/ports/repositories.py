@@ -250,6 +250,21 @@ class IAPIKeyRepository(Protocol):
         """
         ...
 
+    async def get_by_prefix(self, prefix: str) -> APIKey | None:
+        """Retrieve an API key by its prefix for authentication.
+
+        The prefix is the first 12 characters of the API key secret.
+        This allows quick lookup before performing the more expensive
+        hash verification.
+
+        Args:
+            prefix: The first 12 characters of the API key secret
+
+        Returns:
+            The APIKey aggregate, or None if not found
+        """
+        ...
+
     async def list_by_user(self, user_id: UserId, tenant_id: TenantId) -> list[APIKey]:
         """List all API keys for a user in a tenant.
 

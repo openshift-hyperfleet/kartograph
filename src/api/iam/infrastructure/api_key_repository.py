@@ -165,26 +165,6 @@ class APIKeyRepository(IAPIKeyRepository):
         self._probe.api_key_retrieved(api_key_id.value)
         return self._to_aggregate(model)
 
-    async def get_by_key_hash(self, key_hash: str) -> APIKey | None:
-        """Retrieve an API key by its hash for authentication.
-
-        Args:
-            key_hash: The hash of the API key secret
-
-        Returns:
-            The APIKey aggregate, or None if not found
-        """
-        stmt = select(APIKeyModel).where(APIKeyModel.key_hash == key_hash)
-        result = await self._session.execute(stmt)
-        model = result.scalar_one_or_none()
-
-        if model is None:
-            self._probe.api_key_not_found_by_hash()
-            return None
-
-        self._probe.api_key_retrieved(model.id)
-        return self._to_aggregate(model)
-
     async def get_by_prefix(self, prefix: str) -> APIKey | None:
         """Retrieve an API key by its prefix for authentication.
 

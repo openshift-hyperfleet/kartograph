@@ -32,13 +32,6 @@ class APIKeyRepositoryProbe(Protocol):
         """Record that an API key was not found by ID."""
         ...
 
-    def api_key_not_found_by_hash(self) -> None:
-        """Record that an API key was not found by hash.
-
-        Note: We don't log the hash for security reasons.
-        """
-        ...
-
     def api_key_not_found_by_prefix(self) -> None:
         """Record that an API key was not found by prefix.
 
@@ -106,16 +99,6 @@ class DefaultAPIKeyRepositoryProbe:
         self._logger.debug(
             "api_key_not_found",
             api_key_id=api_key_id,
-            **self._get_context_kwargs(),
-        )
-
-    def api_key_not_found_by_hash(self) -> None:
-        """Record that an API key was not found by hash.
-
-        Note: We don't log the hash for security reasons.
-        """
-        self._logger.debug(
-            "api_key_not_found_by_hash",
             **self._get_context_kwargs(),
         )
 

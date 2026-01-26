@@ -236,20 +236,6 @@ class IAPIKeyRepository(Protocol):
         """
         ...
 
-    async def get_by_key_hash(self, key_hash: str) -> APIKey | None:
-        """Retrieve an API key by its hash for authentication.
-
-        This method is used during authentication to look up the key
-        from the hashed secret provided in the request.
-
-        Args:
-            key_hash: The hash of the API key secret
-
-        Returns:
-            The APIKey aggregate, or None if not found
-        """
-        ...
-
     async def get_by_prefix(self, prefix: str) -> APIKey | None:
         """Retrieve an API key by its prefix for authentication.
 

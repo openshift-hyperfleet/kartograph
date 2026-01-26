@@ -226,38 +226,6 @@ class TestAPIKeyRepositoryGet:
         mock_probe.api_key_retrieved.assert_called_once_with(api_key_id.value)
 
     @pytest.mark.asyncio
-    async def test_gets_by_key_hash(self, repository, mock_session, mock_probe):
-        """Should return API key when found by key hash."""
-        api_key_id = APIKeyId.generate()
-        created_by_user_id = UserId.generate()
-        tenant_id = TenantId.generate()
-        key_hash = "unique_hash_value"
-
-        model = APIKeyModel(
-            id=api_key_id.value,
-            created_by_user_id=created_by_user_id.value,
-            tenant_id=tenant_id.value,
-            name="Test Key",
-            key_hash=key_hash,
-            prefix="karto_ab",
-            expires_at=datetime.now(UTC) + timedelta(days=30),
-            last_used_at=None,
-            is_revoked=False,
-        )
-        model.created_at = datetime.now(UTC)
-        model.updated_at = datetime.now(UTC)
-
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = model
-        mock_session.execute.return_value = mock_result
-
-        result = await repository.get_by_key_hash(key_hash)
-
-        assert result is not None
-        assert result.key_hash == key_hash
-        mock_probe.api_key_retrieved.assert_called_once_with(api_key_id.value)
-
-    @pytest.mark.asyncio
     async def test_returns_none_for_nonexistent_id(
         self, repository, mock_session, mock_probe
     ):
@@ -274,20 +242,6 @@ class TestAPIKeyRepositoryGet:
 
         assert result is None
         mock_probe.api_key_not_found.assert_called_once_with(api_key_id.value)
-
-    @pytest.mark.asyncio
-    async def test_returns_none_for_nonexistent_hash(
-        self, repository, mock_session, mock_probe
-    ):
-        """Should return None when API key hash doesn't exist."""
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_session.execute.return_value = mock_result
-
-        result = await repository.get_by_key_hash("nonexistent_hash")
-
-        assert result is None
-        mock_probe.api_key_not_found_by_hash.assert_called_once()
 
 
 class TestAPIKeyRepositoryDelete:

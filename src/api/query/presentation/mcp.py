@@ -39,6 +39,7 @@ query_mcp_app = mcp.http_app(path="/mcp")
 # Load agent instructions from file
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 _AGENT_INSTRUCTIONS_PATH = _PROMPTS_DIR / "agent_instructions.md"
+_AGENT_INSTRUCTIONS_QUERY_GRAPH_PATH = _PROMPTS_DIR / "agent_instructions_query_graph.md"
 
 # Regex pattern for GitHub blob URLs
 _GITHUB_BLOB_PATTERN = re.compile(
@@ -1021,6 +1022,38 @@ def get_agent_instructions() -> str:
     except FileNotFoundError:
         return (
             "# Agent Instructions Not Found\n\n"
+            "The agent instructions file could not be loaded. "
+            "Please ensure the instructions file exists at the expected location."
+        )
+
+
+@mcp.resource(
+    uri="instructions://agent/query-graph",
+    name="AgentInstructionsQueryGraph",
+    description="System instructions for AI agents using only the query_graph tool with raw Cypher queries",
+    mime_type="text/markdown",
+    annotations={"readOnlyHint": True, "idempotentHint": True},
+)
+def get_agent_instructions_query_graph() -> str:
+    """Get agent instructions for querying the knowledge graph using only Cypher.
+
+    Returns instructions optimized for agents that will use the query_graph tool
+    exclusively, writing raw Cypher queries against Apache AGE.
+
+    Includes:
+    - Apache AGE-specific Cypher syntax requirements
+    - Common query patterns for discovery and exploration
+    - Best practices for efficient graph traversal
+
+    Returns:
+        Markdown-formatted agent instructions for Cypher-only mode
+    """
+    try:
+        with open(_AGENT_INSTRUCTIONS_QUERY_GRAPH_PATH, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return (
+            "# Agent Instructions (Query Graph) Not Found\n\n"
             "The agent instructions file could not be loaded. "
             "Please ensure the instructions file exists at the expected location."
         )

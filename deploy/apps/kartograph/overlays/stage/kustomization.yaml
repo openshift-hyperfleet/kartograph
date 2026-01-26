@@ -3,7 +3,6 @@ kind: Kustomization
 namespace: kartograph-stage
 resources:
   - ../../base
-  - namespace.yaml
   - route.yaml
   - secret-provider-class.yaml
 patches:

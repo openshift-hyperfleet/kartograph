@@ -31,12 +31,7 @@ mcp = FastMCP(name=settings.app_name)
 FILE_LEVEL_ENTITY_TYPES = frozenset({
     "DocumentationModule",
     "KCSArticle",
-    "SOPAlertRunbook",
-    "SOPOperationalProcedure",
-    "SOPTroubleshootingGuide",
-    "SOPKnowledgeBaseArticle",
-    "SOPScript",
-    "SOPBestPracticeGuide",
+    "SOPFile",
 })
 
 query_mcp_app = mcp.http_app(path="/mcp")
@@ -341,6 +336,147 @@ def get_entity_overview(
 
 
 @mcp.tool
+def find_types_by_slug(
+    search_terms: List[str],
+    service: MCPQueryService = Depends(get_mcp_query_service),  # type: ignore[arg-type]
+) -> Dict[str, Any]:
+    """Search for EntityType labels by substring matching.
+
+    Discovers which EntityTypes exist in the graph by searching their labels.
+    Each term in search_terms must appear as a substring in the label (any order).
+
+    Args:
+        search_terms: List of substrings that must all appear in the label
+            (e.g., ["SOP"] or ["Config", "File"])
+
+    Returns:
+        Matching EntityType labels with instance counts.
+
+    Examples:
+        find_types_by_slug(["SOP"])
+        find_types_by_slug(["Config"])
+        find_types_by_slug(["Kubernetes", "Resource"])
+
+    Use this tool to discover which EntityTypes exist before calling
+    get_entity_overview or searching for instances.
+    """
+    # Get all distinct labels with counts
+    # Apache AGE uses label() for single label, but we need to iterate
+    # We'll query for nodes and aggregate by label
+    query = """
+    MATCH (n)
+    RETURN {label: label(n), count: count(n)}
+    """
+    result = service.execute_cypher_query(query, max_rows=500)
+
+    if isinstance(result, QueryError):
+        return {"success": False, "error": result.message}
+
+    # Normalize search terms to lowercase
+    normalized_terms = [term.lower() for term in search_terms]
+
+    all_types: List[Dict[str, Any]] = []
+    matching_types: List[Dict[str, Any]] = []
+
+    for row in result.rows:
+        label = row.get("label", "")
+        count = row.get("count", 0)
+        if label:
+            type_info = {"label": label, "instance_count": count}
+            all_types.append(type_info)
+
+            # Check if all search terms match
+            label_lower = label.lower()
+            if all(term in label_lower for term in normalized_terms):
+                matching_types.append(type_info)
+
+    # Sort by instance count descending
+    matching_types.sort(key=lambda x: -x["instance_count"])
+
+    return {
+        "success": True,
+        "search_terms": search_terms,
+        "matches": matching_types,
+        "total_types_in_graph": len(all_types),
+    }
+
+
+@mcp.tool
+def find_types_by_content(
+    search_terms: List[str],
+    service: MCPQueryService = Depends(get_mcp_query_service),  # type: ignore[arg-type]
+    schema_service: ISchemaService = Depends(get_schema_service_for_mcp),
+) -> Dict[str, Any]:
+    """Search for EntityType labels by their description or purpose.
+
+    Searches across EntityType labels and their schema descriptions to find
+    types that match the given search terms. More powerful than find_types_by_slug
+    because it searches the semantic meaning, not just the label name.
+
+    Args:
+        search_terms: List of substrings to search for in type descriptions
+            (e.g., ["error", "problem"] or ["kubernetes", "cluster"])
+
+    Returns:
+        Matching EntityType labels with instance counts and descriptions.
+
+    Examples:
+        find_types_by_content(["error", "issue"])
+        find_types_by_content(["configuration", "settings"])
+        find_types_by_content(["documentation", "guide"])
+
+    Use this tool to discover EntityTypes when you're not sure of the exact
+    label name but know what kind of concept you're looking for.
+    """
+    # Get all distinct labels with counts
+    query = """
+    MATCH (n)
+    RETURN {label: label(n), count: count(n)}
+    """
+    result = service.execute_cypher_query(query, max_rows=500)
+
+    if isinstance(result, QueryError):
+        return {"success": False, "error": result.message}
+
+    # Normalize search terms to lowercase
+    normalized_terms = [term.lower() for term in search_terms]
+
+    matching_types: List[Dict[str, Any]] = []
+
+    for row in result.rows:
+        label = row.get("label", "")
+        count = row.get("count", 0)
+        if not label:
+            continue
+
+        # Get schema description for this type
+        schema = schema_service.get_node_schema(label)
+        description = schema.description if schema else ""
+
+        # Build searchable text from label and description
+        searchable_text = f"{label} {description}".lower()
+
+        # Check if all search terms match
+        if all(term in searchable_text for term in normalized_terms):
+            type_info: Dict[str, Any] = {
+                "label": label,
+                "instance_count": count,
+            }
+            if description:
+                type_info["description"] = description
+            matching_types.append(type_info)
+
+    # Sort by instance count descending
+    matching_types.sort(key=lambda x: -x["instance_count"])
+
+    return {
+        "success": True,
+        "search_terms": search_terms,
+        "matches": matching_types,
+    }
+
+
+@mcp.tool
 def find_instances_by_slug(
     search_terms: List[str],
     entity_types: List[str],
@@ -360,7 +496,7 @@ def find_instances_by_slug(
 
     Examples:
         find_instances_by_slug(["etcd", "backup"], ["DocumentationModule"])
-        find_instances_by_slug(["upgrade", "node", "drain"], ["Alert", "SOPAlertRunbook"])
+        find_instances_by_slug(["upgrade", "node", "drain"], ["Alert", "SOPFile"])
         find_instances_by_slug(["pdb", "update"], ["KCSArticle"])
 
     Important:
@@ -432,7 +568,7 @@ def get_neighbors(
 
     Important:
         Neighbors marked with `is_file_level: true` are File-level EntityTypes
-        (DocumentationModule, KCSArticle, SOP* types) that contain full document
+        (DocumentationModule, KCSArticle, SOPFile) that contain full document
         content. You should call `get_instance_details` on these to retrieve
         their complete information, as they often contain critical workarounds
         or procedures not present in the primary document.
@@ -623,9 +759,12 @@ def find_instances_by_content(
             ALL File-level EntityTypes (DocumentationModule, KCSArticle, and all SOP types).
 
     Returns:
-        Top 20 matching nodefontent(["webhook", "pod", "eviction"])
-        find_instances_by_content(["etcd", "quorum"], ["KCSArticle", "SOPAlertRunbook"])
-        find_instances_by_content(["drain", "timeout"], ["DocumentationModule"])
+        Top 20 matching nodes.
+
+    Examples:
+        find_instances_by_content(["webhook", "pod", "eviction"])
+        find_instances_by_content(["etcd", "quorum"], ["DocumentationModule", "KCSArticle", "SOPFile"])
+        find_instances_by_content(["drain", "timeout"], ["DocumentationModule", "KCSArticle", "SOPFile"])
 
     Use this tool when:
         - find_instances_by_slug returns no results (search terms not in slugs)
@@ -728,11 +867,9 @@ def find_instances_by_content(
 
     # Sort by entity type priority, then alphabetically
     type_priority = {
-        "SOPAlertRunbook": 0,
+        "SOPFile": 0,
         "KCSArticle": 1,
-        "SOPTroubleshootingGuide": 2,
-        "SOPOperationalProcedure": 3,
-        "DocumentationModule": 4,
+        "DocumentationModule": 2,
     }
     all_matches.sort(
         key=lambda x: (type_priority.get(x["entity_type"], 99), x["slug"])

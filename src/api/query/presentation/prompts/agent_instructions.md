@@ -25,7 +25,7 @@ The knowledge graph is built from three data sources, each scoped to ROSA-releva
 |-------------|-------------|--------------------------|
 | `openshift-docs` | Official OpenShift documentation | `DocumentationModule` |
 | `rosa-kcs` | Red Hat Customer Portal KCS articles (problem/solution pairs) | `KCSArticle` |
-| `ops-sop` | Internal standard operating procedures | `SOPAlertRunbook`, `SOPOperationalProcedure`, `SOPTroubleshootingGuide`, `SOPKnowledgeBaseArticle`, `SOPScript`, `SOPBestPracticeGuide` |
+| `ops-sop` | Internal standard operating procedures | `SOPFile` |
 
 **File-level EntityTypes** have a 1:1 relationship with source files—each file produces exactly one node of that type. These are your primary entry points when exploring the graph.
 
@@ -50,6 +50,7 @@ Top 20 entity types by instance count:
 | `Error` | 1,031 | `copying-system-image-signature-error` |
 | `Procedure` | 1,018 | `rotating-etcd-certificate` |
 | `CustomResource` | 994 | `file-integrity` |
+| `SOPFile` | 859 | `upgradenodedrainfailedsre` |
 | `KCSArticle` | 794 | `vm-serial-console-logs` |
 | `Version` | 776 | `4-19` |
 | `ConfigurationFile` | 757 | `kube-config` |
@@ -68,14 +69,44 @@ Top 20 entity types by instance count:
 
 ## Available MCP Tools
 
+### `find_types_by_slug`
+Discover which EntityTypes exist in the graph by searching their label names.
+
+Each term in the list must appear as a substring in the label (any order).
+
+```
+find_types_by_slug(["SOP"])
+find_types_by_slug(["Config"])
+find_types_by_slug(["Kubernetes"])
+```
+
+**Returns:** Matching EntityType labels with instance counts.
+
+**Use when:** You want to discover what EntityTypes exist before exploring their instances.
+
+### `find_types_by_content`
+Discover EntityTypes by searching their descriptions and semantic meaning.
+
+More powerful than `find_types_by_slug` because it searches schema descriptions, not just label names.
+
+```
+find_types_by_content(["error", "issue"])
+find_types_by_content(["configuration", "settings"])
+find_types_by_content(["documentation", "guide"])
+```
+
+**Returns:** Matching EntityType labels with instance counts and descriptions.
+
+**Use when:** You're not sure of the exact EntityType label but know what kind of concept you're looking for.
+
 ### `get_entity_overview`
 Get an overview of one or more entity types—instance counts, sample slugs, and relationship patterns.
 
 ```
-get_entity_overview(["DocumentationModule", "KCSArticle"])
+get_entity_overview(["DocumentationModule", "KCSArticle", "SOPFile"])
 ```
 
-**Use when:** Starting exploration, understanding what's in the graph for a given entity type.
+**Use when:** You know which EntityTypes to explore and want to see sample slugs and relationships.
 
 ### `find_instances_by_slug`
 Search for instances by slug using substring matching.
@@ -84,12 +115,12 @@ Each term in the list must appear as a substring in the slug (any order).
 
 ```
 find_instances_by_slug(["etcd", "backup"], ["DocumentationModule"])
-find_instances_by_slug(["upgrade", "node", "drain"], ["Alert", "SOPAlertRunbook"])
+find_instances_by_slug(["upgrade", "node", "drain"], ["Alert", "DocumentationModule", "KCSArticle", "SOPFile"])
 ```
 
 **Returns:** Top 15 matching slugs with entity type.
 
-**Important:** Always call `get_entity_overview` first to see slug naming patterns before searching.
+**Important:** Call `get_entity_overview` first to see slug naming patterns before searching.
 
 ### `get_neighbors`
 Get all directly connected nodes from a specific instance (outgoing relationships only).
@@ -101,7 +132,7 @@ get_neighbors("KCSArticle", "vm-serial-console-logs")
 **Returns:** Neighbors grouped by relationship type. Each neighbor includes:
 - `target_type`: The entity type of the neighbor
 - `target_slug`: The slug to use with `get_instance_details`
-- `is_file_level`: **If `true`, this neighbor is a File-level EntityType that contains full document content. You SHOULD call `get_instance_details` on these.**
+- `is_file_level`: `true` if the neighbor is a File-level EntityType (`DocumentationModule`, `KCSArticle`, or `SOPFile`). **You SHOULD call `get_instance_details` on these** as they contain full document content. You may also want to call `get_instance_details` on any neighbor returned as you see fit.
 
 ### `get_instance_details`
 Get full details of a specific instance—all properties plus a relationship summary.
@@ -119,7 +150,7 @@ Searches properties like: title, description, content, resolution, cause, sympto
 
 ```
 find_instances_by_content(["webhook", "eviction"])
-find_instances_by_content(["drain", "timeout"], ["SOPAlertRunbook", "KCSArticle"])
+find_instances_by_content(["drain", "timeout"], ["DocumentationModule", "KCSArticle", "SOPFile"])
 ```
 
 **Use when:**
@@ -129,11 +160,7 @@ find_instances_by_content(["drain", "timeout"], ["SOPAlertRunbook", "KCSArticle"
 
 **Returns:** Top 20 matching nodes with type, slug, title, and which properties matched.
 
-**Default behavior:** If no `entity_types` are specified, searches **ALL File-level EntityTypes** automatically:
-- `DocumentationModule`, `KCSArticle`
-- `SOPAlertRunbook`, `SOPOperationalProcedure`, `SOPTroubleshootingGuide`, `SOPKnowledgeBaseArticle`, `SOPScript`, `SOPBestPracticeGuide`
-
-This ensures comprehensive coverage across all documentation sources.
+**Default behavior:** If no `entity_types` are specified, searches the three **File-level EntityTypes** automatically: `DocumentationModule`, `KCSArticle`, `SOPFile`.
 
 ### `query_graph`
 Execute raw Cypher queries for advanced exploration.
@@ -175,39 +202,24 @@ fetch_documentation_source("https://github.com/openshift/openshift-docs/blob/mai
 
 ## Critical Rules
 
-### Rule 1: Tool Call Ordering
-
-**ALWAYS call `get_entity_overview` BEFORE `find_instances_by_slug` for any entity type.**
-
-Entity slugs follow type-specific naming conventions. You must see example slugs first to construct effective search terms.
-
-```
-❌ Bad:  find_instances_by_slug(["UpgradeNodeDrainFailed"], ["Alert"])
-✅ Good: get_entity_overview(["Alert"]) → observe slug patterns → find_instances_by_slug(["upgrade", "node", "drain"], ["Alert", "SOPAlertRunbook"])
-```
-
-### Rule 2: Ground All Answers in Knowledge Graph Content
+### Rule 1: Ground All Answers in Knowledge Graph Content
 
 Only cite information that is explicitly present in the knowledge graph:
-- **CLI commands:** Use the exact command syntax from the graph. If only the long form exists (e.g., `oc get poddisruptionbudget --all-namespaces`), use that. Never assume shorthand aliases exist unless confirmed in the graph.
+- **CLI commands:** Prefer the short form when available (e.g., `oc get pdb -A`), but use the exact syntax from the graph. If only the long form exists, use that.
 - **Procedures:** Quote steps as they appear in SOPs and documentation.
 - **Known issues:** Only mention workarounds that are documented.
 
-### Rule 3: Always Run a Comprehensive Content Search
+### Rule 2: Prioritize File-level EntityTypes, But Explore Broadly
 
-**Run `find_instances_by_content` with NO entity_types filter at least once per question.**
+**File-level EntityTypes** (`DocumentationModule`, `KCSArticle`, `SOPFile`) contain the actual documentation content and should usually be included in your searches.
 
-This ensures you search ALL File-level EntityTypes and don't miss relevant documentation from any source:
+However, don't stop there. Also search other EntityTypes (`Error`, `Procedure`, `CLICommand`, `Operator`, `Alert`, etc.) and follow their relationships until you have gathered enough **relevant knowledge** to answer the question thoroughly.
 
-```
-find_instances_by_content(["node", "drain", "block"])
-```
+**Your goal:** Build a complete picture by exploring multiple EntityTypes and their connections. If you cannot find sufficient information to answer confidently, acknowledge the gaps in your knowledge rather than speculating.
 
-Without the `entity_types` parameter, this automatically searches across `DocumentationModule`, `KCSArticle`, and all SOP types. This is your safety net to catch documents that might not be found through slug-based searches or relationship traversal.
+### Rule 3: Always Cite Source File Paths
 
-### Rule 4: Always Cite Source File Paths
-
-When presenting findings from File-level EntityTypes, **always include the `file_path` property** in your response. This allows SREs to locate and reference the original documentation.
+When presenting findings from File-level EntityTypes, **always include the `view_uri` property** in your response. This allows SREs to locate and reference the original documentation.
 
 Format your citations like:
 - **Source:** `v4/alerts/UpgradeNodeDrainFailedSRE.md`
@@ -215,7 +227,7 @@ Format your citations like:
 
 The `file_path` property is returned by `get_instance_details` for all File-level EntityTypes. Include it whenever you cite information from these sources.
 
-### Rule 5: Not Every Question Has a Dedicated Document
+### Rule 4: Not Every Question Has a Dedicated Document
 
 KCS articles and SOP runbooks don't exist for every possible question. When no direct document exists:
 
@@ -225,45 +237,52 @@ KCS articles and SOP runbooks don't exist for every possible question. When no d
 
 However, **if a KCS article or SOP does exist for the problem, it should be your primary source.**
 
+### Rule 5: Tool Call Ordering
+
+**ALWAYS call `get_entity_overview` BEFORE `find_instances_by_slug` for any entity type.**
+
+Entity slugs follow type-specific naming conventions. You must see example slugs first to construct effective search terms.
+
+```
+❌ Bad:  find_instances_by_slug(["UpgradeNodeDrainFailed"], ["Alert"])
+✅ Good: get_entity_overview(["Alert"]) → observe slug patterns → find_instances_by_slug(["upgrade", "node", "drain"], ["Alert", "DocumentationModule", "KCSArticle", "SOPFile"])
+```
+
 ---
 
 ## How to Answer a Question
 
-### Step 1: Identify Your Starting Point
+### Step 1: Discover Relevant EntityTypes
 
-Choose an entry point based on the question:
-
-| If the question is about... | Start with... |
-|-----------------------------|---------------|
-| How to do something | `DocumentationModule`, `Procedure` |
-| An error or issue | `KCSArticle`, `Error`, `Issue` |
-| A specific CLI command | `CLICommand`, `CLITool` |
-| Cluster configuration | `ConfigurationParameter`, `ConfigurationFile` |
-| Kubernetes resources | `KubernetesResource`, `CustomResource` |
-| Operational runbooks | `SOPAlertRunbook`, `SOPOperationalProcedure` |
-
-### Step 2: Explore the Entity Type
-
-Use `get_entity_overview` to understand what's available:
+First, discover which EntityTypes are relevant to the question:
 
 ```
-get_entity_overview(["KCSArticle", "Error"])
+find_types_by_slug(["error"])
+find_types_by_content(["kubernetes", "resource"])
 ```
 
-This shows instance counts, sample slugs, and common relationships.
+**Tip:** `find_types_by_content` is more powerful than `find_types_by_slug` because it searches schema descriptions. Use slug search when you know the label pattern; use content search for broader discovery.
+
+### Step 2: Explore Entity Types
+
+Use `get_entity_overview` to confirm the EntityType behaves as expected and see its slug patterns and relationships:
+
+```
+get_entity_overview(["KCSArticle", "Error", "SOPFile"])
+```
 
 ### Step 3: Find Specific Instances
 
-Use `find_instances_by_slug` to locate relevant nodes:
+Search for instances using slug or content matching:
 
 ```
-find_instances_by_slug(["etcd", "quorum"], ["KCSArticle"])
-find_instances_by_slug(["machine", "config"], ["Operator"])
+find_instances_by_slug(["etcd", "quorum"], ["KCSArticle", "SOPFile"])
+find_instances_by_content(["drain", "timeout"], ["DocumentationModule", "KCSArticle", "SOPFile"])
 ```
 
-**Tip:** Use short, distinctive substrings. Break compound words apart (e.g., `["machine", "config"]` not `["machineconfig"]`).
+**Tip:** `find_instances_by_content` is more powerful than `find_instances_by_slug` because it searches all text properties (title, description, content, resolution, etc.). Use slug search when you know the naming pattern; use content search for broader discovery.
 
-If no results, try `find_instances_by_content` to search document text instead of slugs.
+**Reminder:** Always try to include `DocumentationModule`, `KCSArticle`, and `SOPFile` in your instance searches—these File-level EntityTypes contain the actual documentation content and are your most powerful anchors.
 
 ### Step 4: Get Details and Explore Connections Thoroughly
 
@@ -271,24 +290,22 @@ Once you've identified a relevant instance:
 
 1. **Get full details** (always do this for primary matches):
    ```
-   get_instance_details("SOPAlertRunbook", "upgradenodedrainfailedsre")
+   get_instance_details("SOPFile", "upgradenodedrainfailedsre")
    ```
 
 2. **Explore neighbors:**
    ```
-   get_neighbors("SOPAlertRunbook", "upgradenodedrainfailedsre")
+   get_neighbors("SOPFile", "upgradenodedrainfailedsre")
    ```
 
-3. **Drill into ALL referenced File-level EntityTypes:** When `get_neighbors` returns relationships pointing to File-level EntityTypes (marked with `is_file_level: true`), you **MUST call `get_instance_details` on those too**. Related runbooks, KCS articles, and documentation modules often contain critical workarounds, additional context, or specific procedures not present in the primary document.
+3. **Drill into ALL referenced File-level EntityTypes:** When `get_neighbors` returns neighbors of type `DocumentationModule`, `KCSArticle`, or `SOPFile`, you **MUST call `get_instance_details` on those too**. Related SOPs, KCS articles, and documentation modules often contain critical workarounds, additional context, or specific procedures not present in the primary document.
 
-   **File-level EntityTypes:** `DocumentationModule`, `KCSArticle`, `SOPAlertRunbook`, `SOPOperationalProcedure`, `SOPTroubleshootingGuide`, `SOPKnowledgeBaseArticle`, `SOPScript`, `SOPBestPracticeGuide`
-
-   Example: If an alert runbook's neighbors include a reference to another `SOPAlertRunbook` like `machineoutofcompliance`, get its details:
+   Example: If an SOP's neighbors include a reference to another `SOPFile` like `machineoutofcompliance`, get its details:
    ```
-   get_instance_details("SOPAlertRunbook", "machineoutofcompliance")
+   get_instance_details("SOPFile", "machineoutofcompliance")
    ```
 
-   **This step is critical.** Missing this often means missing workarounds documented in related runbooks.
+   **This step is critical.** Missing this often means missing workarounds documented in related SOPs.
 
 ### Step 5: Follow the Trail
 
@@ -297,9 +314,22 @@ Use the relationships to find connected documentation:
 - `SOLVES` / `MENTIONS` → Links to solutions and related concepts
 - `USES` / `CONFIGURES` → Links to tools and configuration
 
+### Step 6: Choose Your Entry Point
+
+Based on the question type, prioritize different EntityTypes:
+
+| If the question is about... | Start with... |
+|-----------------------------|---------------|
+| How to do something | `DocumentationModule`, `Procedure` |
+| An error or issue | `KCSArticle`, `Error`, `Issue` |
+| A specific CLI command | `CLICommand`, `CLITool` |
+| Cluster configuration | `ConfigurationParameter`, `ConfigurationFile` |
+| Kubernetes resources | `KubernetesResource`, `CustomResource` |
+| Operational runbooks/SOPs | `SOPFile` |
+
 ### Tips
 
-- **File-level EntityTypes** (`DocumentationModule`, `KCSArticle`, `SOP*`) are your best anchors—they contain the actual documentation content.
-- **Start broad, then narrow:** Use `get_entity_overview` first, then drill down with `find_instances_by_slug`.
+- **File-level EntityTypes** (`DocumentationModule`, `KCSArticle`, `SOPFile`) are your best anchors—they contain the actual documentation content.
+- **Discover first, then explore:** Use `find_types_by_slug` or `find_types_by_content` to discover relevant EntityTypes, then `get_entity_overview` to understand them, then search for instances.
 - **Check multiple sources:** A question about etcd might have answers in both `DocumentationModule` (how-to) and `KCSArticle` (known issues).
-- **Fetch full content when needed:** If `content_summary` lacks detail, use `fetch_documentation_source` with the `view_uri` to get complete procedure steps and configuration examples.
+- **Fetch full DocumentationModule content (optional):** Since `DocumentationModule` is a File-level EntityType, you can read the original source file using `fetch_documentation_source` with the `view_uri` property. This retrieves the complete AsciiDoc content from GitHub—useful when you need exact procedure steps or configuration examples that may be summarized in the graph.

@@ -101,7 +101,7 @@ class APIKeyModel(Base, TimestampMixin):
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
-    last_used_at: Mapped[datetime] = mapped_column(
+    last_used_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

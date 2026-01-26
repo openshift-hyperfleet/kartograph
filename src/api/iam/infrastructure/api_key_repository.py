@@ -11,12 +11,11 @@ writing directly to external services.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from sqlalchemy import ColumnElement, and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import BinaryExpression
-
 from iam.domain.aggregates import APIKey
 from iam.domain.value_objects import APIKeyId, TenantId, UserId
 from iam.infrastructure.models import APIKeyModel
@@ -165,29 +164,54 @@ class APIKeyRepository(IAPIKeyRepository):
         self._probe.api_key_retrieved(api_key_id.value)
         return self._to_aggregate(model)
 
-    async def get_by_prefix(self, prefix: str) -> APIKey | None:
-        """Retrieve an API key by its prefix for authentication.
+    async def get_verified_key(
+        self,
+        secret: str,
+        extract_prefix_fn: Callable[[str], str],
+        verify_hash_fn: Callable[[str, str], bool],
+    ) -> APIKey | None:
+        """Retrieve an API key by verifying its secret.
 
-        The prefix is the first 12 characters of the API key secret.
-        This allows quick lookup before performing the more expensive
-        hash verification.
+        Extracts the prefix from the secret, queries for all keys with that
+        prefix, and verifies the hash for each. Handles prefix collisions
+        gracefully by iterating through candidates.
+
+        If a collision is detected (>1 key with same prefix), an ERROR-level
+        probe event is logged so operators can increase the prefix length.
 
         Args:
-            prefix: The first 12 characters of the API key secret
+            secret: The plaintext API key secret to verify
+            extract_prefix_fn: Function to extract prefix from secret
+            verify_hash_fn: Function to verify secret against hash
 
         Returns:
-            The APIKey aggregate, or None if not found
+            The APIKey aggregate if secret verifies, None otherwise
         """
+        # Extract prefix for lookup
+        prefix = extract_prefix_fn(secret)
+
+        # Query for all keys with this prefix
         stmt = select(APIKeyModel).where(APIKeyModel.prefix == prefix)
         result = await self._session.execute(stmt)
-        model = result.scalar_one_or_none()
+        models = result.scalars().all()
 
-        if model is None:
-            self._probe.api_key_not_found_by_prefix()
+        if not models:
+            self._probe.api_key_verification_failed()
             return None
 
-        self._probe.api_key_retrieved(model.id)
-        return self._to_aggregate(model)
+        # Log collision if detected (should be extremely rare)
+        if len(models) > 1:
+            self._probe.api_key_prefix_collision(prefix, len(models))
+
+        # Verify hash for each candidate
+        for model in models:
+            if verify_hash_fn(secret, model.key_hash):
+                self._probe.api_key_retrieved(model.id)
+                return self._to_aggregate(model)
+
+        # No keys verified (wrong secret)
+        self._probe.api_key_verification_failed()
+        return None
 
     async def list(
         self,

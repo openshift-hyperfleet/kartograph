@@ -7,7 +7,7 @@ aggregates. Implementations coordinate PostgreSQL (metadata) and SpiceDB
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Callable, Protocol, runtime_checkable
 
 from iam.domain.aggregates import APIKey, Group, Tenant, User
 from iam.domain.value_objects import APIKeyId, GroupId, TenantId, UserId
@@ -236,18 +236,27 @@ class IAPIKeyRepository(Protocol):
         """
         ...
 
-    async def get_by_prefix(self, prefix: str) -> APIKey | None:
-        """Retrieve an API key by its prefix for authentication.
+    async def get_verified_key(
+        self,
+        secret: str,
+        extract_prefix_fn: Callable[[str], str],
+        verify_hash_fn: Callable[[str, str], bool],
+    ) -> APIKey | None:
+        """Retrieve an API key by verifying its secret.
 
-        The prefix is the first 12 characters of the API key secret.
-        This allows quick lookup before performing the more expensive
-        hash verification.
+        Extracts the prefix from the secret, queries for all keys with that
+        prefix, and verifies the hash for each. Handles prefix collisions
+        gracefully by iterating through candidates.
+
+        If a collision is detected, an ERROR-level probe event is logged.
 
         Args:
-            prefix: The first 12 characters of the API key secret
+            secret: The plaintext API key secret to verify
+            extract_prefix_fn: Function to extract prefix from secret
+            verify_hash_fn: Function to verify secret against hash
 
         Returns:
-            The APIKey aggregate, or None if not found
+            The APIKey aggregate if secret verifies, None otherwise
         """
         ...
 

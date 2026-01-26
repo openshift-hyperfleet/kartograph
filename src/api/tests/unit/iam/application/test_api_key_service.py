@@ -393,7 +393,7 @@ class TestAPIKeyServiceValidate:
             prefix="karto_test_s",
             created_at=datetime.now(UTC),
         )
-        mock_api_key_repository.get_by_prefix = AsyncMock(return_value=mock_key)
+        mock_api_key_repository.get_verified_key = AsyncMock(return_value=mock_key)
         mock_api_key_repository.save = AsyncMock()
 
         result = await api_key_service.validate_and_get_key(secret)
@@ -426,7 +426,7 @@ class TestAPIKeyServiceValidate:
             created_at=datetime.now(UTC),
             last_used_at=None,
         )
-        mock_api_key_repository.get_by_prefix = AsyncMock(return_value=mock_key)
+        mock_api_key_repository.get_verified_key = AsyncMock(return_value=mock_key)
         mock_api_key_repository.save = AsyncMock()
 
         result = await api_key_service.validate_and_get_key(secret)
@@ -436,37 +436,6 @@ class TestAPIKeyServiceValidate:
         mock_api_key_repository.save.assert_called_once()
         saved_key = mock_api_key_repository.save.call_args[0][0]
         assert saved_key.last_used_at is not None
-
-    @pytest.mark.asyncio
-    async def test_returns_none_for_invalid_secret(
-        self, api_key_service: APIKeyService, mock_api_key_repository
-    ):
-        """Should return None when secret doesn't match hash."""
-        created_by_user_id = UserId.generate()
-        tenant_id = TenantId.generate()
-        api_key_id = APIKeyId.generate()
-
-        from iam.application.security import hash_api_key_secret
-
-        correct_secret = "karto_correct_secret"  # gitleaks:allow
-        wrong_secret = "karto_wrong_secret"  # gitleaks:allow
-        key_hash = hash_api_key_secret(correct_secret)
-
-        mock_key = APIKey(
-            id=api_key_id,
-            created_by_user_id=created_by_user_id,
-            expires_at=(datetime.now(UTC) + timedelta(days=1)),
-            tenant_id=tenant_id,
-            name="My Key",
-            key_hash=key_hash,
-            prefix="karto_wrong_",
-            created_at=datetime.now(UTC),
-        )
-        mock_api_key_repository.get_by_prefix = AsyncMock(return_value=mock_key)
-
-        result = await api_key_service.validate_and_get_key(wrong_secret)
-
-        assert result is None
 
     @pytest.mark.asyncio
     async def test_returns_none_for_revoked_key(
@@ -493,7 +462,7 @@ class TestAPIKeyServiceValidate:
             created_at=datetime.now(UTC),
             is_revoked=True,
         )
-        mock_api_key_repository.get_by_prefix = AsyncMock(return_value=mock_key)
+        mock_api_key_repository.get_verified_key = AsyncMock(return_value=mock_key)
 
         result = await api_key_service.validate_and_get_key(secret)
 
@@ -523,7 +492,7 @@ class TestAPIKeyServiceValidate:
             created_at=datetime.now(UTC) - timedelta(days=60),
             expires_at=datetime.now(UTC) - timedelta(days=30),  # Expired 30 days ago
         )
-        mock_api_key_repository.get_by_prefix = AsyncMock(return_value=mock_key)
+        mock_api_key_repository.get_verified_key = AsyncMock(return_value=mock_key)
 
         result = await api_key_service.validate_and_get_key(secret)
 
@@ -534,7 +503,7 @@ class TestAPIKeyServiceValidate:
         self, api_key_service: APIKeyService, mock_api_key_repository
     ):
         """Should return None when no key matches prefix."""
-        mock_api_key_repository.get_by_prefix = AsyncMock(return_value=None)
+        mock_api_key_repository.get_verified_key = AsyncMock(return_value=None)
 
         result = await api_key_service.validate_and_get_key("karto_nonexistent_key")
 

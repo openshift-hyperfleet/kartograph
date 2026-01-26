@@ -191,8 +191,8 @@ class APIKeyService:
     async def validate_and_get_key(self, secret: str) -> APIKey | None:
         """Validate an API key secret and return the key if valid.
 
-        Looks up the key by prefix, verifies the secret hash, checks
-        validity (not revoked, not expired), and updates last_used_at.
+        Delegates prefix extraction and hash verification to the repository,
+        then checks validity (not revoked, not expired) and updates last_used_at.
 
         Args:
             secret: The plaintext API key secret to validate
@@ -200,16 +200,13 @@ class APIKeyService:
         Returns:
             The APIKey aggregate if valid, None otherwise
         """
-        # Extract prefix for quick lookup
-        prefix = extract_prefix(secret)
-
-        # Look up by prefix
-        api_key = await self._api_key_repository.get_by_prefix(prefix)
+        # Repository handles prefix-based lookup; we inject verification functions
+        api_key = await self._api_key_repository.get_verified_key(
+            secret=secret,
+            extract_prefix_fn=extract_prefix,
+            verify_hash_fn=verify_api_key_secret,
+        )
         if api_key is None:
-            return None
-
-        # Verify the secret against the hash
-        if not verify_api_key_secret(secret, api_key.key_hash):
             return None
 
         # Check if key is valid (not revoked, not expired)

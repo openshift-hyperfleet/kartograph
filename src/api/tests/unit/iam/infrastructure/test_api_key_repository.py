@@ -415,7 +415,7 @@ class TestSerializerInjection:
         self, mock_session, mock_outbox, mock_probe
     ):
         """Should create default serializer when not injected."""
-        from iam.infrastructure.outbox import IAMEventSerializer
+        from iam.infrastructure.outbox.serializer import IAMEventSerializer
 
         repository = APIKeyRepository(
             session=mock_session,
@@ -424,3 +424,174 @@ class TestSerializerInjection:
         )
 
         assert isinstance(repository._serializer, IAMEventSerializer)
+
+
+class TestAPIKeyRepositoryGetVerifiedKey:
+    """Tests for get_verified_key method."""
+
+    @pytest.mark.asyncio
+    async def test_returns_key_with_correct_secret(
+        self, repository, mock_session, mock_probe
+    ):
+        """Should return API key when secret verifies correctly."""
+        from iam.application.security import (
+            extract_prefix,
+            hash_api_key_secret,
+            verify_api_key_secret,
+        )
+
+        api_key_id = APIKeyId.generate()
+        created_by_user_id = UserId.generate()
+        tenant_id = TenantId.generate()
+
+        secret = "karto_test_secret_12345"  # gitleaks:allow
+        key_hash = hash_api_key_secret(secret)
+        prefix = extract_prefix(secret)
+
+        model = APIKeyModel(
+            id=api_key_id.value,
+            created_by_user_id=created_by_user_id.value,
+            tenant_id=tenant_id.value,
+            name="Test Key",
+            key_hash=key_hash,
+            prefix=prefix,
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+            last_used_at=None,
+            is_revoked=False,
+        )
+        model.created_at = datetime.now(UTC)
+        model.updated_at = datetime.now(UTC)
+
+        # Mock query returns single model
+        mock_scalars = MagicMock()
+        mock_scalars.scalars.return_value.all.return_value = [model]
+        mock_session.execute.return_value = mock_scalars
+
+        result = await repository.get_verified_key(
+            secret, extract_prefix, verify_api_key_secret
+        )
+
+        assert result is not None
+        assert result.id.value == api_key_id.value
+        mock_probe.api_key_retrieved.assert_called_once_with(api_key_id.value)
+
+    @pytest.mark.asyncio
+    async def test_returns_none_for_wrong_secret(
+        self, repository, mock_session, mock_probe
+    ):
+        """Should return None when secret doesn't match hash."""
+        from iam.application.security import (
+            extract_prefix,
+            hash_api_key_secret,
+            verify_api_key_secret,
+        )
+
+        api_key_id = APIKeyId.generate()
+        created_by_user_id = UserId.generate()
+        tenant_id = TenantId.generate()
+
+        correct_secret = "karto_correct_secret"  # gitleaks:allow
+        wrong_secret = "karto_wrong_secret"  # gitleaks:allow
+        key_hash = hash_api_key_secret(correct_secret)
+        prefix = extract_prefix(wrong_secret)
+
+        model = APIKeyModel(
+            id=api_key_id.value,
+            created_by_user_id=created_by_user_id.value,
+            tenant_id=tenant_id.value,
+            name="Test Key",
+            key_hash=key_hash,
+            prefix=prefix,
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+            last_used_at=None,
+            is_revoked=False,
+        )
+        model.created_at = datetime.now(UTC)
+        model.updated_at = datetime.now(UTC)
+
+        # Mock query returns single model
+        mock_scalars = MagicMock()
+        mock_scalars.scalars.return_value.all.return_value = [model]
+        mock_session.execute.return_value = mock_scalars
+
+        result = await repository.get_verified_key(
+            wrong_secret, extract_prefix, verify_api_key_secret
+        )
+
+        assert result is None
+        mock_probe.api_key_verification_failed.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_prefix_match(
+        self, repository, mock_session, mock_probe
+    ):
+        """Should return None when no keys match the prefix."""
+        # Mock query returns empty list
+        mock_scalars = MagicMock()
+        mock_scalars.scalars.return_value.all.return_value = []
+        mock_session.execute.return_value = mock_scalars
+
+        # Mock functions (won't be called since no matches)
+        extract_fn = MagicMock(return_value="karto_test_s")
+        verify_fn = MagicMock()
+
+        result = await repository.get_verified_key(
+            "karto_test_secret", extract_fn, verify_fn
+        )
+
+        assert result is None
+        mock_probe.api_key_verification_failed.assert_called_once()
+        verify_fn.assert_not_called()  # No candidates to verify
+
+    @pytest.mark.asyncio
+    async def test_logs_error_on_prefix_collision(
+        self, repository, mock_session, mock_probe
+    ):
+        """Should log ERROR when multiple keys share the same prefix."""
+        from iam.application.security import extract_prefix, verify_api_key_secret
+
+        # Create two models with same prefix
+        api_key_id_1 = APIKeyId.generate()
+        api_key_id_2 = APIKeyId.generate()
+        secret_1 = "karto_abc123def456"  # gitleaks:allow
+
+        model_1 = APIKeyModel(
+            id=api_key_id_1.value,
+            created_by_user_id=UserId.generate().value,
+            tenant_id=TenantId.generate().value,
+            name="Key 1",
+            key_hash="hash1",
+            prefix="karto_abc123",  # Same prefix!
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+            last_used_at=None,
+            is_revoked=False,
+        )
+        model_1.created_at = datetime.now(UTC)
+
+        model_2 = APIKeyModel(
+            id=api_key_id_2.value,
+            created_by_user_id=UserId.generate().value,
+            tenant_id=TenantId.generate().value,
+            name="Key 2",
+            key_hash="hash2",
+            prefix="karto_abc123",  # Same prefix!
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+            last_used_at=None,
+            is_revoked=False,
+        )
+        model_2.created_at = datetime.now(UTC)
+
+        # Mock query returns both models (collision!)
+        mock_scalars = MagicMock()
+        mock_scalars.scalars.return_value.all.return_value = [model_1, model_2]
+        mock_session.execute.return_value = mock_scalars
+
+        await repository.get_verified_key(
+            secret_1, extract_prefix, verify_api_key_secret
+        )
+
+        # Should log collision with prefix and count
+        mock_probe.api_key_prefix_collision.assert_called_once()
+        call_args = mock_probe.api_key_prefix_collision.call_args[0]
+        assert call_args[0] == "karto_abc123"  # prefix
+        assert call_args[1] == 2  # collision count

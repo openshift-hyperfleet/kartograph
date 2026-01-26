@@ -32,10 +32,22 @@ class APIKeyRepositoryProbe(Protocol):
         """Record that an API key was not found by ID."""
         ...
 
-    def api_key_not_found_by_prefix(self) -> None:
-        """Record that an API key was not found by prefix.
+    def api_key_verification_failed(self) -> None:
+        """Record that API key secret verification failed.
 
-        Note: We don't log the prefix for security reasons.
+        This covers both cases: no key found with matching prefix,
+        or hash verification failed for all candidates.
+
+        Note: We don't log the secret for security reasons.
+        """
+        ...
+
+    def api_key_prefix_collision(self, prefix: str, count: int) -> None:
+        """Record that multiple API keys share the same prefix.
+
+        Args:
+            prefix: The colliding prefix (first 6 chars logged for diagnostics)
+            count: Number of keys sharing this prefix
         """
         ...
 
@@ -102,13 +114,30 @@ class DefaultAPIKeyRepositoryProbe:
             **self._get_context_kwargs(),
         )
 
-    def api_key_not_found_by_prefix(self) -> None:
-        """Record that an API key was not found by prefix.
+    def api_key_verification_failed(self) -> None:
+        """Record that API key secret verification failed.
 
-        Note: We don't log the prefix for security reasons.
+        This covers both cases: no key found with matching prefix,
+        or hash verification failed for all candidates.
+
+        Note: We don't log the secret for security reasons.
         """
         self._logger.debug(
-            "api_key_not_found_by_prefix",
+            "api_key_verification_failed",
+            **self._get_context_kwargs(),
+        )
+
+    def api_key_prefix_collision(self, prefix: str, count: int) -> None:
+        """Record that multiple API keys share the same prefix.
+
+        Args:
+            prefix: The colliding prefix (first 6 chars logged for diagnostics)
+            count: Number of keys sharing this prefix
+        """
+        self._logger.error(
+            "api_key_prefix_collision",
+            prefix_sample=prefix[:6] + "...",  # Only log first 6 chars
+            collision_count=count,
             **self._get_context_kwargs(),
         )
 

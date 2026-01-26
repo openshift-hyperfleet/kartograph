@@ -9,6 +9,9 @@ import secrets
 import bcrypt
 
 API_KEY_PREFIX = "karto_"
+# Work factor for bcrypt hashing (2^12 iterations)
+# Provides good security/performance balance for API key hashing
+BCRYPT_WORK_FACTOR = 12
 
 
 def generate_api_key_secret() -> str:
@@ -48,8 +51,8 @@ def extract_prefix(secret: str) -> str:
 def hash_api_key_secret(secret: str) -> str:
     """Hash an API key secret using bcrypt.
 
-    Uses bcrypt with automatic salt generation for secure password hashing.
-    The work factor is automatically determined by bcrypt's gensalt().
+    Uses bcrypt with automatic salt generation for secure API key hashing.
+    Work factor of 12 provides good security/performance balance.
 
     Args:
         secret: The plaintext API key secret to hash
@@ -57,7 +60,7 @@ def hash_api_key_secret(secret: str) -> str:
     Returns:
         The bcrypt hash as a string
     """
-    return bcrypt.hashpw(secret.encode(), bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(secret.encode(), bcrypt.gensalt(BCRYPT_WORK_FACTOR)).decode()
 
 
 def verify_api_key_secret(secret: str, key_hash: str) -> bool:

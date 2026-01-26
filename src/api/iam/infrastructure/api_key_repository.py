@@ -203,7 +203,7 @@ class APIKeyRepository(IAPIKeyRepository):
         model = result.scalar_one_or_none()
 
         if model is None:
-            self._probe.api_key_not_found_by_hash()
+            self._probe.api_key_not_found_by_prefix()
             return None
 
         self._probe.api_key_retrieved(model.id)

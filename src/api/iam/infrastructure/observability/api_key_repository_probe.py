@@ -39,6 +39,13 @@ class APIKeyRepositoryProbe(Protocol):
         """
         ...
 
+    def api_key_not_found_by_prefix(self) -> None:
+        """Record that an API key was not found by prefix.
+
+        Note: We don't log the prefix for security reasons.
+        """
+        ...
+
     def api_key_deleted(self, api_key_id: str) -> None:
         """Record that an API key was deleted."""
         ...
@@ -109,6 +116,16 @@ class DefaultAPIKeyRepositoryProbe:
         """
         self._logger.debug(
             "api_key_not_found_by_hash",
+            **self._get_context_kwargs(),
+        )
+
+    def api_key_not_found_by_prefix(self) -> None:
+        """Record that an API key was not found by prefix.
+
+        Note: We don't log the prefix for security reasons.
+        """
+        self._logger.debug(
+            "api_key_not_found_by_prefix",
             **self._get_context_kwargs(),
         )
 

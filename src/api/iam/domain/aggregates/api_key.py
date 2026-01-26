@@ -69,6 +69,7 @@ class APIKey:
         Returns:
             A new APIKey aggregate with APIKeyCreated event recorded
         """
+        now = datetime.now(UTC)
         api_key = cls(
             id=APIKeyId.generate(),
             created_by_user_id=created_by_user_id,
@@ -76,7 +77,7 @@ class APIKey:
             name=name,
             key_hash=key_hash,
             prefix=prefix,
-            created_at=datetime.now(UTC),
+            created_at=now,
             expires_at=expires_at,
         )
         api_key._pending_events.append(
@@ -86,7 +87,7 @@ class APIKey:
                 tenant_id=tenant_id.value,
                 name=name,
                 prefix=prefix,
-                occurred_at=datetime.now(UTC),
+                occurred_at=now,
             )
         )
         return api_key

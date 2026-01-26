@@ -61,7 +61,7 @@ class TestExtractPrefix:
         """Should extract first 12 characters as prefix."""
         from iam.application.security import extract_prefix
 
-        secret = "karto_abc123def456xyz789"
+        secret = "karto_abc123def456xyz789"  # gitleaks:allow
         prefix = extract_prefix(secret)
 
         assert prefix == "karto_abc123"

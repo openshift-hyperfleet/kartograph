@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import ColumnElement, and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import BinaryExpression
 
 from iam.domain.aggregates import APIKey
 from iam.domain.value_objects import APIKeyId, TenantId, UserId
@@ -228,7 +229,7 @@ class APIKeyRepository(IAPIKeyRepository):
         Returns:
             List of APIKey aggregates matching all provided filters
         """
-        conditions: list[ColumnElement[bool]] = []
+        conditions: list[ColumnElement[bool] | BinaryExpression[bool]] = []
 
         if api_key_ids is not None:
             if not api_key_ids:

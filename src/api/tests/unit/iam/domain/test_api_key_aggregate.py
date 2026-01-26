@@ -40,7 +40,7 @@ class TestAPIKeyCreation:
         assert api_key.name == "CI Pipeline Key"
         assert api_key.key_hash == key_hash
         assert api_key.prefix == prefix
-        assert api_key.expires_at is expires_at
+        assert api_key.expires_at == expires_at
         assert api_key.last_used_at is None
 
     def test_factory_generates_ulid(self):

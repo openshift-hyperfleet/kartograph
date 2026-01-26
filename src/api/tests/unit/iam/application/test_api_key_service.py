@@ -380,7 +380,7 @@ class TestAPIKeyServiceValidate:
         # Use real hashing for this test
         from iam.application.security import hash_api_key_secret
 
-        secret = "karto_test_secret_12345"
+        secret = "karto_test_secret_12345"  # gitleaks:allow
         key_hash = hash_api_key_secret(secret)
 
         mock_key = APIKey(
@@ -412,7 +412,7 @@ class TestAPIKeyServiceValidate:
 
         from iam.application.security import hash_api_key_secret
 
-        secret = "karto_test_secret_12345"
+        secret = "karto_test_secret_12345"  # gitleaks:allow
         key_hash = hash_api_key_secret(secret)
 
         mock_key = APIKey(
@@ -448,8 +448,8 @@ class TestAPIKeyServiceValidate:
 
         from iam.application.security import hash_api_key_secret
 
-        correct_secret = "karto_correct_secret"
-        wrong_secret = "karto_wrong_secret"
+        correct_secret = "karto_correct_secret"  # gitleaks:allow
+        wrong_secret = "karto_wrong_secret"  # gitleaks:allow
         key_hash = hash_api_key_secret(correct_secret)
 
         mock_key = APIKey(
@@ -479,7 +479,7 @@ class TestAPIKeyServiceValidate:
 
         from iam.application.security import hash_api_key_secret
 
-        secret = "karto_test_secret_12345"
+        secret = "karto_test_secret_12345"  # gitleaks:allow
         key_hash = hash_api_key_secret(secret)
 
         mock_key = APIKey(
@@ -510,7 +510,7 @@ class TestAPIKeyServiceValidate:
 
         from iam.application.security import hash_api_key_secret
 
-        secret = "karto_test_secret_12345"
+        secret = "karto_test_secret_12345"  # gitleaks:allow
         key_hash = hash_api_key_secret(secret)
 
         mock_key = APIKey(

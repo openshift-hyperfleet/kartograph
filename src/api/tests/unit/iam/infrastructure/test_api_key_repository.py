@@ -175,7 +175,7 @@ class TestAPIKeyRepositorySave:
             name=sample_api_key.name,
             key_hash="different_hash",
             prefix="karto_cd",
-            expires_at=None,
+            expires_at=datetime.now(UTC) + timedelta(days=30),
             last_used_at=None,
             is_revoked=False,
         )
@@ -206,7 +206,7 @@ class TestAPIKeyRepositoryGet:
             name="Test Key",
             key_hash="hash123",
             prefix="karto_ab",
-            expires_at=None,
+            expires_at=datetime.now(UTC) + timedelta(days=30),
             last_used_at=None,
             is_revoked=False,
         )
@@ -240,7 +240,7 @@ class TestAPIKeyRepositoryGet:
             name="Test Key",
             key_hash=key_hash,
             prefix="karto_ab",
-            expires_at=None,
+            expires_at=datetime.now(UTC) + timedelta(days=30),
             last_used_at=None,
             is_revoked=False,
         )
@@ -310,7 +310,7 @@ class TestAPIKeyRepositoryDelete:
             key_hash="hash123",
             prefix="karto_ab",
             created_at=datetime.now(UTC),
-            expires_at=None,
+            expires_at=datetime.now(UTC) + timedelta(days=30),
             last_used_at=None,
             is_revoked=False,
         )
@@ -324,7 +324,7 @@ class TestAPIKeyRepositoryDelete:
             name="Test Key",
             key_hash="hash123",
             prefix="karto_ab",
-            expires_at=None,
+            expires_at=datetime.now(UTC) + timedelta(days=30),
             last_used_at=None,
             is_revoked=True,
         )
@@ -356,7 +356,7 @@ class TestAPIKeyRepositoryDelete:
             key_hash="hash123",
             prefix="karto_ab",
             created_at=datetime.now(UTC),
-            expires_at=None,
+            expires_at=datetime.now(UTC) + timedelta(days=30),
             last_used_at=None,
             is_revoked=False,
         )
@@ -387,7 +387,7 @@ class TestAPIKeyRepositoryDelete:
             key_hash="hash123",
             prefix="karto_ab",
             created_at=datetime.now(UTC),
-            expires_at=None,
+            expires_at=datetime.now(UTC) + timedelta(days=30),
             last_used_at=None,
             is_revoked=False,
         )
@@ -401,7 +401,7 @@ class TestAPIKeyRepositoryDelete:
             name="Test Key",
             key_hash="hash123",
             prefix="karto_ab",
-            expires_at=None,
+            expires_at=datetime.now(UTC) + timedelta(days=30),
             last_used_at=None,
             is_revoked=True,
         )

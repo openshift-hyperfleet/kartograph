@@ -87,9 +87,17 @@ class UserId(BaseId):
 
         Returns:
             ID instance
-        """
 
-        return cls(value=value)
+        Raises:
+            ValueError: If value is empty or whitespace-only
+        """
+        trimmed_value = value.strip()
+        if not trimmed_value:
+            raise ValueError(
+                f"Invalid {cls.__name__}: value cannot be empty or whitespace-only"
+            )
+
+        return cls(value=trimmed_value)
 
 
 @dataclass(frozen=True)

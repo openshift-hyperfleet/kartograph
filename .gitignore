@@ -5,9 +5,9 @@ __pycache__/
 
 agent-notes/
 agent-memory/
-
+ess/
 # ignore ai-generated scratchpad
-src/api/docs 
+src/api/docs
 
 # C extensions
 *.so

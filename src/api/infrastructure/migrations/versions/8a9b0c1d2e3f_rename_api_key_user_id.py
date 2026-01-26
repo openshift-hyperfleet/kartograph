@@ -45,17 +45,19 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Rename created_by_user_id column back to user_id."""
-    # Rename the composite index back
+    # Drop the composite index first
     op.drop_index("ix_api_keys_tenant_id_created_by_user_id", table_name="api_keys")
-    op.create_index(
-        "ix_api_keys_tenant_id_user_id",
-        "api_keys",
-        ["tenant_id", "user_id"],
-    )
 
     # Rename the column back
     op.alter_column(
         "api_keys",
         "created_by_user_id",
         new_column_name="user_id",
+    )
+
+    # Create the index with the old column name
+    op.create_index(
+        "ix_api_keys_tenant_id_user_id",
+        "api_keys",
+        ["tenant_id", "user_id"],
     )

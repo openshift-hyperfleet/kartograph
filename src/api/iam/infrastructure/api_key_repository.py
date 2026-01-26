@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import and_, select
+from sqlalchemy import ColumnElement, and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.domain.aggregates import APIKey
@@ -228,7 +228,7 @@ class APIKeyRepository(IAPIKeyRepository):
         Returns:
             List of APIKey aggregates matching all provided filters
         """
-        conditions = []
+        conditions: list[ColumnElement[bool]] = []
 
         if api_key_ids is not None:
             if not api_key_ids:

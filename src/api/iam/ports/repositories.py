@@ -7,10 +7,10 @@ aggregates. Implementations coordinate PostgreSQL (metadata) and SpiceDB
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Callable, Protocol, runtime_checkable
 
-from iam.domain.aggregates import Group, Tenant, User
-from iam.domain.value_objects import GroupId, TenantId, UserId
+from iam.domain.aggregates import APIKey, Group, Tenant, User
+from iam.domain.value_objects import APIKeyId, GroupId, TenantId, UserId
 
 
 @runtime_checkable
@@ -190,6 +190,106 @@ class ITenantRepository(Protocol):
 
         Args:
             tenant: The Tenant aggregate to delete (with deletion event recorded)
+
+        Returns:
+            True if deleted, False if not found
+        """
+        ...
+
+
+@runtime_checkable
+class IAPIKeyRepository(Protocol):
+    """Repository for APIKey aggregate persistence.
+
+    Simple repository for API key metadata and authentication lookup.
+    API keys provide programmatic access as an alternative to OIDC tokens.
+    """
+
+    async def save(self, api_key: APIKey) -> None:
+        """Persist an API key aggregate.
+
+        Creates a new API key or updates an existing one. Persists API key
+        metadata to PostgreSQL and domain events to the outbox.
+
+        Args:
+            api_key: The APIKey aggregate to persist
+
+        Raises:
+            DuplicateAPIKeyNameError: If key name already exists for user in tenant
+        """
+        ...
+
+    async def get_by_id(
+        self, api_key_id: APIKeyId, user_id: UserId, tenant_id: TenantId
+    ) -> APIKey | None:
+        """Retrieve an API key by its ID with user/tenant scoping.
+
+        Security note: Requires user_id and tenant_id to prevent cross-user access.
+
+        Args:
+            api_key_id: The unique identifier of the API key
+            user_id: The user who owns the key (for access control)
+            tenant_id: The tenant the key belongs to (for access control)
+
+        Returns:
+            The APIKey aggregate, or None if not found or access denied
+        """
+        ...
+
+    async def get_verified_key(
+        self,
+        secret: str,
+        extract_prefix_fn: Callable[[str], str],
+        verify_hash_fn: Callable[[str, str], bool],
+    ) -> APIKey | None:
+        """Retrieve an API key by verifying its secret.
+
+        Extracts the prefix from the secret, queries for all keys with that
+        prefix, and verifies the hash for each. Handles prefix collisions
+        gracefully by iterating through candidates.
+
+        If a collision is detected, an ERROR-level probe event is logged.
+
+        Args:
+            secret: The plaintext API key secret to verify
+            extract_prefix_fn: Function to extract prefix from secret
+            verify_hash_fn: Function to verify secret against hash
+
+        Returns:
+            The APIKey aggregate if secret verifies, None otherwise
+        """
+        ...
+
+    async def list(
+        self,
+        api_key_ids: list[str] | None = None,
+        tenant_id: TenantId | None = None,
+        created_by_user_id: UserId | None = None,
+    ) -> list[APIKey]:
+        """List API keys with optional filters.
+
+        General-purpose list method that supports filtering by IDs, tenant,
+        and creator. Filters are combined with AND logic. The repository
+        doesn't know or care about authorization - it just filters by criteria.
+
+        Args:
+            api_key_ids: Optional list of specific API key IDs to include
+            tenant_id: Optional tenant to scope the list to
+            created_by_user_id: Optional filter for keys created by this user
+
+        Returns:
+            List of APIKey aggregates matching all provided filters
+        """
+        ...
+
+    async def delete(self, api_key: APIKey) -> bool:
+        """Delete an API key.
+
+        The API key should have revoke() called before deletion to record
+        the APIKeyRevoked event for the outbox.
+
+        Args:
+            api_key: The APIKey aggregate to delete (with revoke event recorded)
 
         Returns:
             True if deleted, False if not found

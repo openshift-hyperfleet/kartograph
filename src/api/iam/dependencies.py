@@ -7,7 +7,7 @@ IAM-specific components (repositories, services).
 from functools import lru_cache
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import OAuth2AuthorizationCodeBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +21,13 @@ from iam.application.observability import (
     TenantServiceProbe,
     UserServiceProbe,
 )
+from iam.application.observability.api_key_service_probe import (
+    APIKeyServiceProbe,
+    DefaultAPIKeyServiceProbe,
+)
 from iam.application.services import GroupService, TenantService, UserService
+from iam.application.services.api_key_service import APIKeyService
+from iam.infrastructure.api_key_repository import APIKeyRepository
 from iam.application.value_objects import CurrentUser
 from iam.domain.value_objects import TenantId, UserId
 from iam.infrastructure.group_repository import GroupRepository
@@ -249,6 +255,53 @@ def get_tenant_service(
     )
 
 
+def get_api_key_service_probe() -> APIKeyServiceProbe:
+    """Get APIKeyServiceProbe instance.
+
+    Returns:
+        DefaultAPIKeyServiceProbe instance for observability
+    """
+    return DefaultAPIKeyServiceProbe()
+
+
+def get_api_key_repository(
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    outbox: Annotated[OutboxRepository, Depends(get_outbox_repository)],
+) -> APIKeyRepository:
+    """Get APIKeyRepository instance.
+
+    Args:
+        session: Async database session
+        outbox: Outbox repository for transactional outbox pattern
+
+    Returns:
+        APIKeyRepository instance with outbox pattern enabled
+    """
+    return APIKeyRepository(session=session, outbox=outbox)
+
+
+def get_api_key_service(
+    api_key_repo: Annotated[APIKeyRepository, Depends(get_api_key_repository)],
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    probe: Annotated[APIKeyServiceProbe, Depends(get_api_key_service_probe)],
+) -> APIKeyService:
+    """Get APIKeyService instance.
+
+    Args:
+        api_key_repo: API key repository (shares session via FastAPI dependency caching)
+        session: Database session for transaction management
+        probe: API key service probe for observability
+
+    Returns:
+        APIKeyService instance
+    """
+    return APIKeyService(
+        session=session,
+        api_key_repository=api_key_repo,
+        probe=probe,
+    )
+
+
 @lru_cache
 def get_jwt_validator() -> JWTValidator:
     """Get cached JWT validator.
@@ -280,53 +333,87 @@ def get_authentication_probe() -> AuthenticationProbe:
 
 
 async def get_current_user(
-    token: Annotated[str | None, Depends(oauth2_scheme)],
     validator: Annotated[JWTValidator, Depends(get_jwt_validator)],
     user_service: Annotated[UserService, Depends(get_user_service)],
+    api_key_service: Annotated[APIKeyService, Depends(get_api_key_service)],
     auth_probe: Annotated[AuthenticationProbe, Depends(get_authentication_probe)],
+    token: Annotated[str | None, Depends(oauth2_scheme)] = None,
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
 ) -> CurrentUser:
-    """Get current user from JWT Bearer token.
+    """Authenticate via JWT Bearer token or X-API-Key header.
 
-    Validates the JWT and provisions user if needed (JIT).
+    Tries JWT first (if Authorization: Bearer present), then API Key.
+    Returns CurrentUser on success, raises HTTPException(401) on failure.
 
     Args:
         token: Bearer token from Authorization header (via OAuth2AuthorizationCodeBearer)
+        x_api_key: API key from X-API-Key header
         validator: JWT validator for token validation
         user_service: The user service for JIT provisioning
+        api_key_service: The API key service for validation
         auth_probe: Authentication probe for observability
 
     Returns:
         CurrentUser with user_id, username, and tenant_id
 
     Raises:
-        HTTPException 401: If token missing, invalid, or expired
+        HTTPException 401: If neither auth method succeeds
     """
-    if token is None:
-        auth_probe.authentication_failed(reason="Missing authorization header")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
+    # WWW-Authenticate header for 401 responses showing supported auth methods
+    www_authenticate = "Bearer, API-Key"
+
+    # Try JWT first (existing flow)
+    if token is not None:
+        try:
+            claims = await validator.validate_token(token)
+
+            # Map claims to user
+            user_id = UserId(value=claims.sub)
+            username = claims.preferred_username or claims.sub
+            tenant_id = get_default_tenant_id()
+
+            # JIT user provisioning
+            await user_service.ensure_user(user_id=user_id, username=username)
+
+            auth_probe.user_authenticated(user_id=claims.sub, username=username)
+
+            return CurrentUser(user_id=user_id, username=username, tenant_id=tenant_id)
+
+        except InvalidTokenError as e:
+            auth_probe.authentication_failed(reason=str(e))
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=str(e),
+                headers={"WWW-Authenticate": www_authenticate},
+            ) from e
+
+    # Try API Key
+    if x_api_key is not None:
+        api_key = await api_key_service.validate_and_get_key(x_api_key)
+        if api_key is None:
+            auth_probe.api_key_authentication_failed(reason="invalid_or_expired")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired API key",
+                headers={"WWW-Authenticate": www_authenticate},
+            )
+
+        # API key is valid - user already exists (they created the key)
+        auth_probe.api_key_authentication_succeeded(
+            api_key_id=api_key.id.value,
+            user_id=api_key.created_by_user_id.value,
         )
 
-    try:
-        claims = await validator.validate_token(token)
-    except InvalidTokenError as e:
-        auth_probe.authentication_failed(reason=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e),
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from e
+        return CurrentUser(
+            user_id=api_key.created_by_user_id,
+            username=f"api-key:{api_key.name}",
+            tenant_id=api_key.tenant_id,
+        )
 
-    # Map claims to user
-    user_id = UserId(value=claims.sub)
-    username = claims.preferred_username or claims.sub
-    tenant_id = get_default_tenant_id()
-
-    # JIT user provisioning
-    await user_service.ensure_user(user_id=user_id, username=username)
-
-    auth_probe.user_authenticated(user_id=claims.sub, username=username)
-
-    return CurrentUser(user_id=user_id, username=username, tenant_id=tenant_id)
+    # Neither provided
+    auth_probe.authentication_failed(reason="Missing authorization")
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+        headers={"WWW-Authenticate": www_authenticate},
+    )

@@ -35,7 +35,7 @@ class TestProtectedEndpointsRequireAuth:
         )
 
         assert response.status_code == 401
-        assert response.headers.get("WWW-Authenticate") == "Bearer"
+        assert response.headers.get("WWW-Authenticate") == "Bearer, API-Key"
 
     @pytest.mark.asyncio
     async def test_iam_groups_get_returns_401_without_auth(self, async_client):
@@ -43,7 +43,7 @@ class TestProtectedEndpointsRequireAuth:
         response = await async_client.get("/iam/groups/01JTEST00000000000000000")
 
         assert response.status_code == 401
-        assert response.headers.get("WWW-Authenticate") == "Bearer"
+        assert response.headers.get("WWW-Authenticate") == "Bearer, API-Key"
 
     @pytest.mark.asyncio
     async def test_iam_groups_delete_returns_401_without_auth(self, async_client):
@@ -51,7 +51,7 @@ class TestProtectedEndpointsRequireAuth:
         response = await async_client.delete("/iam/groups/01JTEST00000000000000000")
 
         assert response.status_code == 401
-        assert response.headers.get("WWW-Authenticate") == "Bearer"
+        assert response.headers.get("WWW-Authenticate") == "Bearer, API-Key"
 
     @pytest.mark.asyncio
     async def test_iam_tenants_post_returns_401_without_auth(self, async_client):
@@ -62,7 +62,7 @@ class TestProtectedEndpointsRequireAuth:
         )
 
         assert response.status_code == 401
-        assert response.headers.get("WWW-Authenticate") == "Bearer"
+        assert response.headers.get("WWW-Authenticate") == "Bearer, API-Key"
 
     @pytest.mark.asyncio
     async def test_iam_tenants_get_returns_401_without_auth(self, async_client):
@@ -70,7 +70,7 @@ class TestProtectedEndpointsRequireAuth:
         response = await async_client.get("/iam/tenants/01JTEST00000000000000000")
 
         assert response.status_code == 401
-        assert response.headers.get("WWW-Authenticate") == "Bearer"
+        assert response.headers.get("WWW-Authenticate") == "Bearer, API-Key"
 
     @pytest.mark.asyncio
     async def test_iam_tenants_list_returns_401_without_auth(self, async_client):
@@ -78,7 +78,7 @@ class TestProtectedEndpointsRequireAuth:
         response = await async_client.get("/iam/tenants")
 
         assert response.status_code == 401
-        assert response.headers.get("WWW-Authenticate") == "Bearer"
+        assert response.headers.get("WWW-Authenticate") == "Bearer, API-Key"
 
     @pytest.mark.asyncio
     async def test_graph_mutations_returns_401_without_auth(self, async_client):
@@ -90,7 +90,7 @@ class TestProtectedEndpointsRequireAuth:
         )
 
         assert response.status_code == 401
-        assert response.headers.get("WWW-Authenticate") == "Bearer"
+        assert response.headers.get("WWW-Authenticate") == "Bearer, API-Key"
 
     @pytest.mark.asyncio
     async def test_graph_nodes_by_slug_returns_401_without_auth(self, async_client):
@@ -98,7 +98,7 @@ class TestProtectedEndpointsRequireAuth:
         response = await async_client.get("/graph/nodes/by-slug?slug=test")
 
         assert response.status_code == 401
-        assert response.headers.get("WWW-Authenticate") == "Bearer"
+        assert response.headers.get("WWW-Authenticate") == "Bearer, API-Key"
 
     @pytest.mark.asyncio
     async def test_graph_schema_nodes_returns_401_without_auth(self, async_client):
@@ -106,7 +106,7 @@ class TestProtectedEndpointsRequireAuth:
         response = await async_client.get("/graph/schema/nodes")
 
         assert response.status_code == 401
-        assert response.headers.get("WWW-Authenticate") == "Bearer"
+        assert response.headers.get("WWW-Authenticate") == "Bearer, API-Key"
 
 
 class TestPublicEndpointsAccessible:
@@ -163,7 +163,7 @@ class TestInvalidTokenReturns401:
         )
 
         assert response.status_code == 401
-        assert response.headers.get("WWW-Authenticate") == "Bearer"
+        assert response.headers.get("WWW-Authenticate") == "Bearer, API-Key"
 
     @pytest.mark.asyncio
     async def test_malformed_auth_header_returns_401(self, async_client):

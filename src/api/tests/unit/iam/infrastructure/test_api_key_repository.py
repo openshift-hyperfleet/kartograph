@@ -438,6 +438,7 @@ class TestSerializerInjection:
         api_key = APIKey.create(
             created_by_user_id=created_by_user_id,
             tenant_id=tenant_id,
+            expires_at=(datetime.now(UTC) + timedelta(days=1)),
             name="Test Key",
             key_hash="hash123",
             prefix="karto_ab",

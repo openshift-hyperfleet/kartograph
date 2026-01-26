@@ -24,8 +24,11 @@ class TestAPIKeyCreation:
         key_hash = "hashed_secret_value"
         prefix = "karto_ab"
 
+        expires_at = datetime.now(UTC) + timedelta(days=1)
+
         api_key = APIKey.create(
             created_by_user_id=created_by_user_id,
+            expires_at=expires_at,
             tenant_id=tenant_id,
             name="CI Pipeline Key",
             key_hash=key_hash,
@@ -37,7 +40,7 @@ class TestAPIKeyCreation:
         assert api_key.name == "CI Pipeline Key"
         assert api_key.key_hash == key_hash
         assert api_key.prefix == prefix
-        assert api_key.expires_at is None
+        assert api_key.expires_at is expires_at
         assert api_key.last_used_at is None
 
     def test_factory_generates_ulid(self):
@@ -47,6 +50,7 @@ class TestAPIKeyCreation:
 
         api_key = APIKey.create(
             created_by_user_id=created_by_user_id,
+            expires_at=(datetime.now(UTC) + timedelta(days=1)),
             tenant_id=tenant_id,
             name="Test Key",
             key_hash="hash",
@@ -65,6 +69,7 @@ class TestAPIKeyCreation:
 
         api_key = APIKey.create(
             created_by_user_id=created_by_user_id,
+            expires_at=(datetime.now(UTC) + timedelta(days=1)),
             tenant_id=tenant_id,
             name="Test Key",
             key_hash="hash",
@@ -80,6 +85,7 @@ class TestAPIKeyCreation:
 
         api_key = APIKey.create(
             created_by_user_id=created_by_user_id,
+            expires_at=(datetime.now(UTC) + timedelta(days=1)),
             tenant_id=tenant_id,
             name="Test Key",
             key_hash="hash",
@@ -103,6 +109,7 @@ class TestAPIKeyCreation:
 
         api_key = APIKey.create(
             created_by_user_id=created_by_user_id,
+            expires_at=(datetime.now(UTC) + timedelta(days=1)),
             tenant_id=tenant_id,
             name="Test Key",
             key_hash="hash",
@@ -136,6 +143,7 @@ class TestAPIKeyRevocation:
         """Test that revoke() marks the key as revoked."""
         api_key = APIKey.create(
             created_by_user_id=UserId.generate(),
+            expires_at=(datetime.now(UTC) + timedelta(days=1)),
             tenant_id=TenantId.generate(),
             name="Test Key",
             key_hash="hash",
@@ -153,6 +161,7 @@ class TestAPIKeyRevocation:
         api_key = APIKey.create(
             created_by_user_id=created_by_user_id,
             tenant_id=TenantId.generate(),
+            expires_at=(datetime.now(UTC) + timedelta(days=1)),
             name="Test Key",
             key_hash="hash",
             prefix="karto_ab",
@@ -172,6 +181,7 @@ class TestAPIKeyRevocation:
         """Test that revoking an already-revoked key raises APIKeyAlreadyRevokedError."""
         api_key = APIKey.create(
             created_by_user_id=UserId.generate(),
+            expires_at=(datetime.now(UTC) + timedelta(days=1)),
             tenant_id=TenantId.generate(),
             name="Test Key",
             key_hash="hash",
@@ -191,6 +201,7 @@ class TestAPIKeyValidity:
         api_key = APIKey.create(
             created_by_user_id=UserId.generate(),
             tenant_id=TenantId.generate(),
+            expires_at=(datetime.now(UTC) + timedelta(days=1)),
             name="Test Key",
             key_hash="hash",
             prefix="karto_ab",
@@ -203,6 +214,7 @@ class TestAPIKeyValidity:
         api_key = APIKey.create(
             created_by_user_id=UserId.generate(),
             tenant_id=TenantId.generate(),
+            expires_at=(datetime.now(UTC) + timedelta(days=1)),
             name="Test Key",
             key_hash="hash",
             prefix="karto_ab",
@@ -246,6 +258,7 @@ class TestAPIKeyUsageTracking:
         api_key = APIKey.create(
             created_by_user_id=UserId.generate(),
             tenant_id=TenantId.generate(),
+            expires_at=(datetime.now(UTC) + timedelta(days=1)),
             name="Test Key",
             key_hash="hash",
             prefix="karto_ab",
@@ -268,6 +281,7 @@ class TestAPIKeyEventCollection:
         api_key = APIKey.create(
             created_by_user_id=UserId.generate(),
             tenant_id=TenantId.generate(),
+            expires_at=(datetime.now(UTC) + timedelta(days=1)),
             name="Test Key",
             key_hash="hash",
             prefix="karto_ab",
@@ -286,6 +300,7 @@ class TestAPIKeyEventCollection:
         api_key = APIKey.create(
             created_by_user_id=UserId.generate(),
             tenant_id=TenantId.generate(),
+            expires_at=(datetime.now(UTC) + timedelta(days=1)),
             name="Test Key",
             key_hash="hash",
             prefix="karto_ab",

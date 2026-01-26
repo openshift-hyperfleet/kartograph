@@ -6,7 +6,7 @@ the patterns established in graph/presentation/test_routes.py.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -59,7 +59,7 @@ def sample_api_key(mock_current_user: CurrentUser) -> APIKey:
         key_hash="$2b$12$hashedvalue",
         prefix="karto_abc123",
         created_at=datetime.now(UTC),
-        expires_at=None,
+        expires_at=(datetime.now(UTC) + timedelta(days=1)),
         last_used_at=None,
         is_revoked=False,
     )
@@ -72,21 +72,18 @@ def test_client(
     mock_current_user: CurrentUser,
 ) -> TestClient:
     """Create TestClient with mocked dependencies."""
-    from iam import dependencies
-    from iam.dependencies import get_current_user
-    from iam.presentation import routes
+    from iam.dependencies import get_current_user, get_api_key_service
+    from iam.presentation.routes import router
     from infrastructure.authorization_dependencies import get_spicedb_client
 
     app = FastAPI()
 
     # Override dependencies with mocks
-    app.dependency_overrides[dependencies.get_api_key_service] = (
-        lambda: mock_api_key_service
-    )
+    app.dependency_overrides[get_api_key_service] = lambda: mock_api_key_service
     app.dependency_overrides[get_current_user] = lambda: mock_current_user
     app.dependency_overrides[get_spicedb_client] = lambda: mock_authz
 
-    app.include_router(routes.router)
+    app.include_router(router)
 
     return TestClient(app)
 

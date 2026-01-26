@@ -38,7 +38,7 @@ class APIKey:
     key_hash: str
     prefix: str
     created_at: datetime
-    expires_at: datetime | None = None
+    expires_at: datetime
     last_used_at: datetime | None = None
     is_revoked: bool = False
     _pending_events: list[DomainEvent] = field(default_factory=list, repr=False)
@@ -51,7 +51,7 @@ class APIKey:
         name: str,
         key_hash: str,
         prefix: str,
-        expires_at: datetime | None = None,
+        expires_at: datetime,
     ) -> "APIKey":
         """Factory method for creating a new API key.
 
@@ -64,7 +64,7 @@ class APIKey:
             name: A descriptive name for the key
             key_hash: The hashed secret (never store plaintext)
             prefix: The key prefix for identification (e.g., karto_ab)
-            expires_at: Optional expiration datetime
+            expires_at: Required expiration datetime
 
         Returns:
             A new APIKey aggregate with APIKeyCreated event recorded
@@ -125,7 +125,7 @@ class APIKey:
 
         A key is valid if:
         - It is not revoked
-        - It is not expired (if expires_at is set)
+        - It is not expired
 
         Returns:
             True if the key is valid, False otherwise
@@ -133,7 +133,7 @@ class APIKey:
         if self.is_revoked:
             return False
 
-        if self.expires_at is not None and datetime.now(UTC) >= self.expires_at:
+        if datetime.now(UTC) >= self.expires_at:
             return False
 
         return True

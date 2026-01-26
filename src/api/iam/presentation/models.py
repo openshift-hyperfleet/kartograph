@@ -102,9 +102,9 @@ class CreateAPIKeyRequest(BaseModel):
         min_length=1,
         max_length=255,
     )
-    expires_in_days: int | None = Field(
-        None,
-        description="Number of days until the key expires (1-3650, or null for no expiration)",
+    expires_in_days: int = Field(
+        30,
+        description="Number of days until the key expires (1-3650, defaults to 30 days)",
         ge=1,
         le=3650,
     )
@@ -126,9 +126,7 @@ class APIKeyResponse(BaseModel):
         ..., description="User ID of the key creator (audit trail)"
     )
     created_at: datetime = Field(..., description="When the key was created")
-    expires_at: datetime | None = Field(
-        None, description="When the key expires (null if no expiration)"
-    )
+    expires_at: datetime = Field(description="When the key expires")
     last_used_at: datetime | None = Field(
         None, description="When the key was last used"
     )

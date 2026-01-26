@@ -26,16 +26,20 @@ async def async_client():
 
 
 @pytest_asyncio.fixture
-async def api_key_secret(async_client, auth_headers) -> str:
+async def unique_api_key_name() -> str:
+    return f"test-api-key-{uuid.uuid4().hex[:8]}"
+
+
+@pytest_asyncio.fixture
+async def api_key_secret(async_client, auth_headers, unique_api_key_name: str) -> str:
     """Create an API key and return the plaintext secret.
 
     Uses JWT auth to create the key, then returns the secret for testing.
     Uses unique name per test run to avoid conflicts.
     """
-    unique_name = f"test-api-key-{uuid.uuid4().hex[:8]}"
     response = await async_client.post(
         "/iam/api-keys",
-        json={"name": unique_name},
+        json={"name": unique_api_key_name, "expires_in_days": 1},
         headers=auth_headers,
     )
     assert response.status_code == 201, f"Failed to create API key: {response.json()}"
@@ -43,17 +47,18 @@ async def api_key_secret(async_client, auth_headers) -> str:
 
 
 @pytest_asyncio.fixture
-async def revoked_api_key_secret(async_client, auth_headers) -> str:
+async def revoked_api_key_secret(
+    async_client, auth_headers, unique_api_key_name: str
+) -> str:
     """Create an API key, revoke it, and return the secret.
 
     Used to test that revoked keys are rejected.
     Uses unique name per test run to avoid conflicts.
     """
     # Create the key
-    unique_name = f"test-revoked-key-{uuid.uuid4().hex[:8]}"
     create_response = await async_client.post(
         "/iam/api-keys",
-        json={"name": unique_name},
+        json={"name": unique_api_key_name, "expires_in_days": 1},
         headers=auth_headers,
     )
     assert create_response.status_code == 201
@@ -111,7 +116,7 @@ class TestAPIKeyAuthentication:
 
     @pytest.mark.asyncio
     async def test_updates_last_used_at_on_success(
-        self, async_client, auth_headers, api_key_secret
+        self, async_client, auth_headers, api_key_secret, unique_api_key_name: str
     ):
         """Successful auth should update last_used_at."""
         # First, list keys to get the initial state
@@ -122,7 +127,7 @@ class TestAPIKeyAuthentication:
         assert list_response_before.status_code == 200
         keys_before = list_response_before.json()
         auth_key = next(
-            (k for k in keys_before if k["name"] == "test-api-key-auth"), None
+            (k for k in keys_before if k["name"] == unique_api_key_name), None
         )
         assert auth_key is not None
         initial_last_used = auth_key.get("last_used_at")
@@ -142,7 +147,7 @@ class TestAPIKeyAuthentication:
         assert list_response_after.status_code == 200
         keys_after = list_response_after.json()
         auth_key_after = next(
-            (k for k in keys_after if k["name"] == "test-api-key-auth"), None
+            (k for k in keys_after if k["name"] == unique_api_key_name), None
         )
         assert auth_key_after is not None
         updated_last_used = auth_key_after.get("last_used_at")

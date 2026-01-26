@@ -55,7 +55,7 @@ class APIKeyService:
         created_by_user_id: UserId,
         tenant_id: TenantId,
         name: str,
-        expires_in_days: int | None = None,
+        expires_in_days: int,
     ) -> tuple[APIKey, str]:
         """Create a new API key for a user.
 
@@ -67,7 +67,7 @@ class APIKeyService:
             created_by_user_id: The user who is creating this key (audit trail)
             tenant_id: The tenant this key belongs to
             name: A descriptive name for the key
-            expires_in_days: Optional number of days until expiration
+            expires_in_days: Number of days until expiration
 
         Returns:
             Tuple of (APIKey aggregate, plaintext_secret)
@@ -82,9 +82,7 @@ class APIKeyService:
             prefix = extract_prefix(plaintext_secret)
 
             # Calculate expiration
-            expires_at = None
-            if expires_in_days:
-                expires_at = datetime.now(UTC) + timedelta(days=expires_in_days)
+            expires_at = datetime.now(UTC) + timedelta(days=expires_in_days)
 
             # Create aggregate
             api_key = APIKey.create(

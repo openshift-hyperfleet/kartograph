@@ -98,7 +98,10 @@ Get all directly connected nodes from a specific instance (outgoing relationship
 get_neighbors("KCSArticle", "vm-serial-console-logs")
 ```
 
-**Returns:** Neighbors grouped by relationship type, including relationship properties.
+**Returns:** Neighbors grouped by relationship type. Each neighbor includes:
+- `target_type`: The entity type of the neighbor
+- `target_slug`: The slug to use with `get_instance_details`
+- `is_file_level`: **If `true`, this neighbor is a File-level EntityType that contains full document content. You SHOULD call `get_instance_details` on these.**
 
 ### `get_instance_details`
 Get full details of a specific instance—all properties plus a relationship summary.
@@ -126,6 +129,12 @@ find_instances_by_content(["drain", "timeout"], ["SOPAlertRunbook", "KCSArticle"
 
 **Returns:** Top 20 matching nodes with type, slug, title, and which properties matched.
 
+**Default behavior:** If no `entity_types` are specified, searches **ALL File-level EntityTypes** automatically:
+- `DocumentationModule`, `KCSArticle`
+- `SOPAlertRunbook`, `SOPOperationalProcedure`, `SOPTroubleshootingGuide`, `SOPKnowledgeBaseArticle`, `SOPScript`, `SOPBestPracticeGuide`
+
+This ensures comprehensive coverage across all documentation sources.
+
 ### `query_graph`
 Execute raw Cypher queries for advanced exploration.
 
@@ -134,6 +143,33 @@ query_graph("MATCH (n:CLITool {slug: 'oc'})-[r]->(target) RETURN {rel: type(r), 
 ```
 
 **Note:** Apache AGE requires returning a single column—use map syntax `{key: value}` for multiple values.
+
+### `fetch_documentation_source`
+Fetch the full source content of a `DocumentationModule` from its `view_uri`.
+
+```
+fetch_documentation_source("https://github.com/openshift/openshift-docs/blob/main/modules/abi-c3-resources-services.adoc")
+```
+
+**Use when:**
+- The `content_summary` mentions procedures but lacks specific steps
+- You need exact CLI commands, configuration values, or code blocks
+- The user asks "how exactly do I..." for a topic covered by a `DocumentationModule`
+
+**Returns:**
+- `content`: The full AsciiDoc source (metadata stripped, starts from title)
+- `source_url`: The original `view_uri`
+- `raw_url`: The raw.githubusercontent.com URL used
+
+**Typical workflow:**
+1. Find a relevant `DocumentationModule` via `find_instances_by_slug` or `find_instances_by_content`
+2. Get its details: `get_instance_details("DocumentationModule", "some-module-slug")`
+3. If you need the full content, extract the `view_uri` from properties and fetch it:
+   ```
+   fetch_documentation_source(details["properties"]["view_uri"])
+   ```
+
+**Note:** This tool only works with `DocumentationModule` instances that have GitHub `view_uri` values. It automatically strips AsciiDoc metadata (comments, attributes) and returns content starting from the document title.
 
 ---
 
@@ -157,7 +193,29 @@ Only cite information that is explicitly present in the knowledge graph:
 - **Procedures:** Quote steps as they appear in SOPs and documentation.
 - **Known issues:** Only mention workarounds that are documented.
 
-### Rule 3: Not Every Question Has a Dedicated Document
+### Rule 3: Always Run a Comprehensive Content Search
+
+**Run `find_instances_by_content` with NO entity_types filter at least once per question.**
+
+This ensures you search ALL File-level EntityTypes and don't miss relevant documentation from any source:
+
+```
+find_instances_by_content(["node", "drain", "block"])
+```
+
+Without the `entity_types` parameter, this automatically searches across `DocumentationModule`, `KCSArticle`, and all SOP types. This is your safety net to catch documents that might not be found through slug-based searches or relationship traversal.
+
+### Rule 4: Always Cite Source File Paths
+
+When presenting findings from File-level EntityTypes, **always include the `file_path` property** in your response. This allows SREs to locate and reference the original documentation.
+
+Format your citations like:
+- **Source:** `v4/alerts/UpgradeNodeDrainFailedSRE.md`
+- **See also:** `v4/alerts/hypershift/MachineOutOfCompliance.md`
+
+The `file_path` property is returned by `get_instance_details` for all File-level EntityTypes. Include it whenever you cite information from these sources.
+
+### Rule 5: Not Every Question Has a Dedicated Document
 
 KCS articles and SOP runbooks don't exist for every possible question. When no direct document exists:
 
@@ -207,19 +265,30 @@ find_instances_by_slug(["machine", "config"], ["Operator"])
 
 If no results, try `find_instances_by_content` to search document text instead of slugs.
 
-### Step 4: Get Details and Explore Connections
+### Step 4: Get Details and Explore Connections Thoroughly
 
 Once you've identified a relevant instance:
 
-1. **Get full details:**
+1. **Get full details** (always do this for primary matches):
    ```
-   get_instance_details("KCSArticle", "etcd-quorum-loss-recovery")
+   get_instance_details("SOPAlertRunbook", "upgradenodedrainfailedsre")
    ```
 
 2. **Explore neighbors:**
    ```
-   get_neighbors("KCSArticle", "etcd-quorum-loss-recovery")
+   get_neighbors("SOPAlertRunbook", "upgradenodedrainfailedsre")
    ```
+
+3. **Drill into ALL referenced File-level EntityTypes:** When `get_neighbors` returns relationships pointing to File-level EntityTypes (marked with `is_file_level: true`), you **MUST call `get_instance_details` on those too**. Related runbooks, KCS articles, and documentation modules often contain critical workarounds, additional context, or specific procedures not present in the primary document.
+
+   **File-level EntityTypes:** `DocumentationModule`, `KCSArticle`, `SOPAlertRunbook`, `SOPOperationalProcedure`, `SOPTroubleshootingGuide`, `SOPKnowledgeBaseArticle`, `SOPScript`, `SOPBestPracticeGuide`
+
+   Example: If an alert runbook's neighbors include a reference to another `SOPAlertRunbook` like `machineoutofcompliance`, get its details:
+   ```
+   get_instance_details("SOPAlertRunbook", "machineoutofcompliance")
+   ```
+
+   **This step is critical.** Missing this often means missing workarounds documented in related runbooks.
 
 ### Step 5: Follow the Trail
 
@@ -233,3 +302,4 @@ Use the relationships to find connected documentation:
 - **File-level EntityTypes** (`DocumentationModule`, `KCSArticle`, `SOP*`) are your best anchors—they contain the actual documentation content.
 - **Start broad, then narrow:** Use `get_entity_overview` first, then drill down with `find_instances_by_slug`.
 - **Check multiple sources:** A question about etcd might have answers in both `DocumentationModule` (how-to) and `KCSArticle` (known issues).
+- **Fetch full content when needed:** If `content_summary` lacks detail, use `fetch_documentation_source` with the `view_uri` to get complete procedure steps and configuration examples.

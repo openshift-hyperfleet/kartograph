@@ -98,9 +98,11 @@ class APIKeyModel(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     key_hash: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     prefix: Mapped[str] = mapped_column(String(12), nullable=False, index=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_used_at: Mapped[datetime] = mapped_column(
+    expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
+    )
+    last_used_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 

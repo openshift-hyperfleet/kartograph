@@ -217,15 +217,15 @@ However, don't stop there. Also search other EntityTypes (`Error`, `Procedure`, 
 
 **Your goal:** Build a complete picture by exploring multiple EntityTypes and their connections. If you cannot find sufficient information to answer confidently, acknowledge the gaps in your knowledge rather than speculating.
 
-### Rule 3: Always Cite Source File Paths
+### Rule 3: Always Cite the view_uri
 
-When presenting findings from File-level EntityTypes, **always include the `view_uri` property** in your response. This allows SREs to locate and reference the original documentation.
+When presenting findings from File-level EntityTypes, **always include the `view_uri` property** in your response. This allows SREs to access the original documentation directly.
 
 Format your citations like:
-- **Source:** `v4/alerts/UpgradeNodeDrainFailedSRE.md`
-- **See also:** `v4/alerts/hypershift/MachineOutOfCompliance.md`
+- **Source:** `https://inscope.corp.redhat.com/docs/.../RequestServingNodesNeedUpscale`
+- **See also:** `https://access.redhat.com/solutions/7052408`
 
-The `file_path` property is returned by `get_instance_details` for all File-level EntityTypes. Include it whenever you cite information from these sources.
+The `view_uri` property is returned by `get_instance_details` for all File-level EntityTypes. Include it whenever you cite information from these sources.
 
 ### Rule 4: Not Every Question Has a Dedicated Document
 
@@ -247,6 +247,14 @@ Entity slugs follow type-specific naming conventions. You must see example slugs
 ❌ Bad:  find_instances_by_slug(["UpgradeNodeDrainFailed"], ["Alert"])
 ✅ Good: get_entity_overview(["Alert"]) → observe slug patterns → find_instances_by_slug(["upgrade", "node", "drain"], ["Alert", "DocumentationModule", "KCSArticle", "SOPFile"])
 ```
+
+### Rule 6: Search Efficiently
+
+`find_instances_by_content` performs an **AND match** across all search terms—every term must appear somewhere in the node's text properties. Understand this behavior to search effectively:
+
+- **Fewer terms = more results.** Each additional term narrows the match. Use 2-4 terms.
+- **Stop after 2-3 failed searches.** If variations of the same query return zero results, the content isn't indexed. Acknowledge the gap and provide the `view_uri` so the user can consult the source directly.
+- **Don't speculate.** If you can't find it in the graph, don't make it up.
 
 ---
 

@@ -3,11 +3,14 @@ kind: Job
 metadata:
   name: kartograph-db-init
   annotations:
-    argocd.argoproj.io/sync-options: Replace=true
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
   labels:
     app.kubernetes.io/component: database-init
 spec:
   backoffLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: database-init
   template:
     metadata:
       labels:

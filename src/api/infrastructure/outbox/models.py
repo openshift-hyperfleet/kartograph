@@ -66,11 +66,6 @@ class OutboxModel(Base):
         nullable=True,
     )
 
-    @property
-    def is_failed(self) -> bool:
-        """Check if this entry has been moved to the DLQ."""
-        return self.failed_at is not None
-
     def to_value_object(self) -> OutboxEntry:
         """Convert this ORM model to an OutboxEntry value object.
 

@@ -74,11 +74,6 @@ class DatabaseSettings(BaseSettings):
             )
         return self
 
-    @property
-    def connection_string(self) -> str:
-        """Generate a connection string (without password for logging)."""
-        return f"postgresql://{self.username}@{self.host}:{self.port}/{self.database}"
-
 
 class CORSSettings(BaseSettings):
     """CORS (Cross-Origin Resource Sharing) settings.

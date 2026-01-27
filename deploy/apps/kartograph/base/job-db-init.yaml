@@ -2,6 +2,8 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: kartograph-db-init
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true
   labels:
     app.kubernetes.io/component: database-init
 spec:

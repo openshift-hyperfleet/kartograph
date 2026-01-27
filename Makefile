@@ -57,9 +57,9 @@ docs-export:
 .PHONY: docs-export
 docs-export:
 	@echo "📝 Exporting system properties to JSON..."
-	cd src/api && uv run python ../../scripts/export-system-properties.py
+	cd src/api && uv run python ../../scripts/export_system_properties.py
 	@echo "⚙️ Exporting environment variables to JSON..."
-	cd src/api && uv run python ../../scripts/export-settings.py
+	cd src/api && uv run python ../../scripts/export_settings.py
 	
 .PHONY: docs
 docs: docs-export

@@ -1,0 +1,88 @@
+---
+title: Loading Development Data
+description: Learn how to directly load JSONL data into Kartograph during development
+---
+
+import { Steps, Code, Aside } from '@astrojs/starlight/components';
+
+
+During development, it is common to clear and re-populate the graph database. Since this
+flow is not trivial (it requires obtaining authorization tokens), Kartograph provides
+a script that can be used to quickly load a JSONL data file into the graph.
+
+## Prerequisites
+
+- Ensure that you have followed the [contributing installation guide](../../getting-started/contributing#installation). This process requires that you have an instance of Kartograph running.
+- JSONL data. The example in the [extraction guide](../extraction-mutations#jsonl-output-format) can be used for quick testing.
+
+## Loading Data
+
+
+
+<Steps>
+1. **Prepare Your Environment**
+   Set your working directory to the root of the `kartograph` repository, and 
+   take note of the absolute filepath to your JSONL data.
+
+   For this guide, we will assume the data is at `/tmp/my-data.jsonl`.
+
+1. **(Optional) Wipe Database**
+
+   If desired, the entire persistent state of Kartograph, including
+   graph, application, and authorization data, can be wiped by:
+   
+   ```bash
+   docker compose down -v # -v removes volumes, which persist data
+   ```
+
+1. **Invoke the Load Script**
+
+   Run `scripts/load_jsonl.py`, passing the absolute path of your JSONL
+   data as an argument.
+   
+   ```bash
+   uv run scripts/load_jsonl.py /tmp/my-data.jsonl
+   ```
+
+1. **Authenticate**
+   
+   If this is the first time the script has been run on your computer, you will
+   be interactively prompted to authenticate. 
+
+   The development configuration of Kartograph defines two test accounts:
+   | Username | Password |
+   | -------- | -------- |
+   | `alice`    | `password` |
+   | `bob`      | `password` |
+
+   Pick one of them to authenticate with.
+
+   The token retrieved from Keycloak during this process will be cached at `~/.kartograph/token.json`
+
+1. **Verify Data**
+
+   After authenticating, the data should automatically be loaded into the graph with output similar to:
+
+   ```bash
+   $ uv run scripts/load_jsonl.py /tmp/my-data.jsonl
+
+    Kartograph JSONL Loader
+    API: http://localhost:8000
+    Keycloak: http://localhost:8080/realms/kartograph
+
+    Authentication Required
+    Username: alice
+    Password: ********
+    ⠋ Authenticating with Keycloak...
+    ✓ Token cached to /home/user/.kartograph/token.json
+
+    Posting my-data.jsonl (78,624 bytes) to http://localhost:8000/graph/mutations
+    ⠼ Uploading...
+
+    Success! Status: 200
+    {"success":true,"operations_applied":258,"errors":[]}
+    ```
+
+   As a quick verification step, you can visit the development graph viewer:
+   http://localhost:8000/util/graph-viewer.
+</Steps>

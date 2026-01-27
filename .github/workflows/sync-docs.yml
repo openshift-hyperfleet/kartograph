@@ -36,7 +36,7 @@ jobs:
       - name: Export system properties
         run: |
           cd src/api
-          uv run python ../../scripts/export-system-properties.py
+          uv run python ../../scripts/export_system_properties.py
 
       - name: Check for changes
         id: check_changes

@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.0.0...v3.1.0) (2026-01-27)
+
+
+### Features
+
+* data loading script ([#152](https://github.com/openshift-hyperfleet/kartograph/issues/152)) ([f5256b6](https://github.com/openshift-hyperfleet/kartograph/commit/f5256b6a4c02103fa902416b033691b5398e2c78))
+
 ## [3.0.0](https://github.com/openshift-hyperfleet/kartograph/compare/v2.1.0...v3.0.0) (2026-01-26)
 
 

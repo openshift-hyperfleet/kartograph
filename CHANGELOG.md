@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.0](https://github.com/openshift-hyperfleet/kartograph/compare/v2.1.0...v3.0.0) (2026-01-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **api.iam:** basic API key support ([#148](https://github.com/openshift-hyperfleet/kartograph/issues/148))
+
+### Features
+
+* **api.iam:** basic API key support ([#148](https://github.com/openshift-hyperfleet/kartograph/issues/148)) ([7f90502](https://github.com/openshift-hyperfleet/kartograph/commit/7f9050267268fbaa3c4f821773ce2b756e085560))
+
 ## [2.1.0](https://github.com/openshift-hyperfleet/kartograph/compare/v2.0.0...v2.1.0) (2026-01-21)
 
 

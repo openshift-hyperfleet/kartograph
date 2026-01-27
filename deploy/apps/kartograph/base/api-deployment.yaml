@@ -18,14 +18,14 @@ spec:
       initContainers:
         # Wait for database migrations to complete
         - name: wait-for-db-migrate
-          image: groundnuty/k8s-wait-for:v7.0
+          image: groundnuty/k8s-wait-for:no-root-v2.0
           imagePullPolicy: IfNotPresent
           args:
             - "job"
             - "kartograph-db-migrate"
         # Wait for SpiceDB schema to be loaded
         - name: wait-for-spicedb-schema
-          image: groundnuty/k8s-wait-for:v7.0
+          image: groundnuty/k8s-wait-for:no-root-v2.0
           imagePullPolicy: IfNotPresent
           args:
             - "job"

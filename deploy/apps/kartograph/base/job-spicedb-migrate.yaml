@@ -15,7 +15,7 @@ spec:
       initContainers:
         # Wait for db-init job to complete (spicedb database must exist)
         - name: wait-for-db-init
-          image: groundnuty/k8s-wait-for:v7.0
+          image: groundnuty/k8s-wait-for:no-root-v2.0
           imagePullPolicy: IfNotPresent
           args:
             - "job"

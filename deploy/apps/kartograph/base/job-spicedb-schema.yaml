@@ -15,7 +15,7 @@ spec:
       initContainers:
         # Wait for SpiceDB to be running (after migration)
         - name: wait-for-spicedb-migrate
-          image: groundnuty/k8s-wait-for:v7.0
+          image: groundnuty/k8s-wait-for:no-root-v2.0
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false

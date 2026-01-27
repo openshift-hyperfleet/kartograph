@@ -8,9 +8,6 @@ metadata:
     app.kubernetes.io/component: database-init
 spec:
   backoffLimit: 5
-  selector:
-    matchLabels:
-      app.kubernetes.io/component: database-init
   template:
     metadata:
       labels:

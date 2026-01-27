@@ -8,6 +8,9 @@ metadata:
     app.kubernetes.io/component: spicedb-migrate
 spec:
   backoffLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: spicedb-migrate
   template:
     metadata:
       labels:

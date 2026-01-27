@@ -8,6 +8,9 @@ metadata:
     app.kubernetes.io/component: database-migrate
 spec:
   backoffLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: database-migrate
   template:
     metadata:
       labels:

@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.0...v3.1.1) (2026-01-27)
+
+
+### Bug Fixes
+
+* **build:** update stage uid/gids ([#154](https://github.com/openshift-hyperfleet/kartograph/issues/154)) ([3ad3f24](https://github.com/openshift-hyperfleet/kartograph/commit/3ad3f245e81b6e3aa029d42d7f026501882004f0))
+
 ## [3.1.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.0.0...v3.1.0) (2026-01-27)
 
 

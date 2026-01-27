@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.1.4](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.3...v3.1.4) (2026-01-27)
+
+
+### Bug Fixes
+
+* **build:** add argocd job replace annotation ([#163](https://github.com/openshift-hyperfleet/kartograph/issues/163)) ([0c13298](https://github.com/openshift-hyperfleet/kartograph/commit/0c13298262f35db7703cb39306877ee23c167ed5))
+* **build:** replace wait for in jobs and rbac account labels ([#166](https://github.com/openshift-hyperfleet/kartograph/issues/166)) ([96d8f4a](https://github.com/openshift-hyperfleet/kartograph/commit/96d8f4aa73529b19d7d2a84cf30e9e66ee88be87))
+
+
+### Documentation
+
+* add Star History section to README ([#165](https://github.com/openshift-hyperfleet/kartograph/issues/165)) ([5a3b372](https://github.com/openshift-hyperfleet/kartograph/commit/5a3b3723590139648d054214a92d1f6eb9d6be1c))
+
 ## [3.1.3](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.2...v3.1.3) (2026-01-27)
 
 

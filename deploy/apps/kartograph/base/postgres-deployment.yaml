@@ -16,16 +16,18 @@ spec:
       labels:
         app.kubernetes.io/component: database
     spec:
-      securityContext:
-        fsGroup: 1001379999 # postgres group
+      securityContext: {}
       containers:
         - name: postgres
           image: apache/age:release_PG17_1.6.0
           securityContext:
-            runAsUser: 1001379999
-            runAsGroup: 1001379999
             runAsNonRoot: true
             allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
           imagePullPolicy: IfNotPresent
           args:
             - postgres

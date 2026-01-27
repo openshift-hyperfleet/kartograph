@@ -5,8 +5,7 @@ metadata:
   annotations:
     haproxy.router.openshift.io/timeout: 60s
 spec:
-  # TODO: Update with actual cluster hostname
-  host: kartograph-stage.apps.example.com
+  host: kartograph-stage.devshift.net
   to:
     kind: Service
     name: kartograph-api

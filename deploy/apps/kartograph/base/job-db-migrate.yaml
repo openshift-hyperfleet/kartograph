@@ -17,11 +17,24 @@ spec:
       initContainers:
         # Wait for db-init job to complete
         - name: wait-for-db-init
-          image: ghcr.io/groundnuty/k8s-wait-for:no-root-v2.0
+          image: bitnami/kubectl:latest
           imagePullPolicy: IfNotPresent
-          args:
-            - "job"
-            - "kartograph-db-init"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for db-init job to complete..."
+              kubectl wait --for=condition=complete --timeout=300s job/kartograph-db-init
+              echo "DB init complete!"
       containers:
         - name: migrate
           image: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-api:latest

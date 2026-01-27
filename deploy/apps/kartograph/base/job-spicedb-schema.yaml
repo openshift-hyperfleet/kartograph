@@ -15,19 +15,26 @@ spec:
     spec:
       restartPolicy: OnFailure
       initContainers:
-        # Wait for SpiceDB to be running (after migration)
+        # Wait for SpiceDB migration job to complete
         - name: wait-for-spicedb-migrate
-          image: ghcr.io/groundnuty/k8s-wait-for:no-root-v2.0
+          image: bitnami/kubectl:latest
           imagePullPolicy: IfNotPresent
           securityContext:
+            runAsNonRoot: true
             allowPrivilegeEscalation: false
             capabilities:
               drop:
                 - ALL
-            readOnlyRootFilesystem: false
-          args:
-            - "job"
-            - "kartograph-spicedb-migrate"
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for spicedb-migrate job to complete..."
+              kubectl wait --for=condition=complete --timeout=300s job/kartograph-spicedb-migrate
+              echo "Migration complete!"
         # Wait for SpiceDB deployment to be ready
         - name: wait-for-spicedb
           image: authzed/zed:latest

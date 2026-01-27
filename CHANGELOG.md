@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.2](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.1...v3.1.2) (2026-01-27)
+
+
+### Bug Fixes
+
+* **deploy:** fix spicedb and postgres sec contexts ([#156](https://github.com/openshift-hyperfleet/kartograph/issues/156)) ([d177ce0](https://github.com/openshift-hyperfleet/kartograph/commit/d177ce0ae3a1089a571932e169837e368f37bf54))
+
 ## [3.1.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.0...v3.1.1) (2026-01-27)
 
 

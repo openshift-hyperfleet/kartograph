@@ -18,7 +18,7 @@ spec:
       initContainers:
         # Wait for SpiceDB migration job to complete
         - name: wait-for-spicedb-migrate
-          image: bitnami/kubectl:sha256:b349e60a6ae2969af84a778c0b976b050a0cc77f4fb6a4ad44307cd0a06e9d8f
+          image: bitnami/kubectl@sha256:b349e60a6ae2969af84a778c0b976b050a0cc77f4fb6a4ad44307cd0a06e9d8f
           imagePullPolicy: IfNotPresent
           securityContext:
             runAsNonRoot: true

@@ -164,7 +164,7 @@ class AgeGraphClient(GraphClientProtocol):
             self._probe.connection_verification_failed(e)
             return False
 
-    def build_secure_cypher_sql(
+    def _build_secure_cypher_sql(
         self,
         graph_name: str,
         query: str,
@@ -210,7 +210,7 @@ class AgeGraphClient(GraphClientProtocol):
         )
 
     def _build_cypher_sql(self, query: str) -> sql.Composable:
-        return self.build_secure_cypher_sql(graph_name=self.graph_name, query=query)
+        return self._build_secure_cypher_sql(graph_name=self.graph_name, query=query)
 
     def execute_cypher(
         self,

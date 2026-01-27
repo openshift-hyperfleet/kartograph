@@ -44,18 +44,6 @@ class ConnectionFactory:
         self._pool = pool
         self._probe = probe or DefaultConnectionProbe()
 
-    def _setup_age(self, conn: PsycopgConnection) -> None:
-        """Set up AGE extension on the connection.
-
-        Loads the AGE extension and sets the search path.
-        """
-        with conn.cursor() as cursor:
-            # Load AGE extension
-            cursor.execute("LOAD 'age';")
-            # Set search path to include ag_catalog
-            cursor.execute('SET search_path = ag_catalog, "$user", public;')
-        conn.commit()
-
     def get_connection(self) -> PsycopgConnection:
         """Get a connection from the pool.
 

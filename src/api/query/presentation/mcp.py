@@ -1,6 +1,6 @@
 """MCP server for the Querying bounded context."""
 
-from typing import Any, Dict
+from typing import Any
 
 from fastmcp import FastMCP
 from fastmcp.dependencies import Depends
@@ -50,7 +50,7 @@ def query_graph(
     timeout_seconds: int = 30,
     max_rows: int = 1000,
     service: MCPQueryService = Depends(get_mcp_query_service),  # type: ignore[arg-type]
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Execute a Cypher query against the knowledge graph.
 
     This tool allows you to query the Kartograph knowledge graph using

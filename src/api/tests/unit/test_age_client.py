@@ -130,10 +130,10 @@ class TestNonceGeneration:
 class TestSecureCypherSql:
     """Tests for secure Cypher SQL building with unique tags."""
 
-    def test_build_secure_cypher_sql_wraps_query(self, mock_db_settings):
+    def test__build_secure_cypher_sql_wraps_query(self, mock_db_settings):
         """Should wrap Cypher query in AGE SQL format."""
         client = AgeGraphClient(mock_db_settings)
-        sql_obj = client.build_secure_cypher_sql(
+        sql_obj = client._build_secure_cypher_sql(
             graph_name="test_graph",
             query="MATCH (n) RETURN n",
         )
@@ -145,10 +145,10 @@ class TestSecureCypherSql:
         assert "agtype" in sql_str
         assert "test_graph" in sql_str
 
-    def test_build_secure_cypher_sql_uses_unique_tag(self, mock_db_settings):
+    def test__build_secure_cypher_sql_uses_unique_tag(self, mock_db_settings):
         """Should use a unique tag instead of $$."""
         client = AgeGraphClient(mock_db_settings)
-        sql_obj = client.build_secure_cypher_sql(
+        sql_obj = client._build_secure_cypher_sql(
             graph_name="test_graph",
             query="MATCH (n) RETURN n",
         )
@@ -160,14 +160,14 @@ class TestSecureCypherSql:
         # Should have $ characters for the tag
         assert "$" in sql_str
 
-    def test_build_secure_cypher_sql_with_custom_nonce_generator(
+    def test__build_secure_cypher_sql_with_custom_nonce_generator(
         self, mock_db_settings
     ):
         """Should use custom nonce generator when provided."""
         client = AgeGraphClient(mock_db_settings)
         custom_nonce = "customnonce123"
 
-        sql_obj = client.build_secure_cypher_sql(
+        sql_obj = client._build_secure_cypher_sql(
             graph_name="test_graph",
             query="MATCH (n) RETURN n",
             nonce_generator=lambda: custom_nonce,
@@ -177,14 +177,14 @@ class TestSecureCypherSql:
 
         assert f"${custom_nonce}$" in sql_str
 
-    def test_build_secure_cypher_sql_raises_on_nonce_in_query(self, mock_db_settings):
+    def test__build_secure_cypher_sql_raises_on_nonce_in_query(self, mock_db_settings):
         """Should raise InsecureCypherQueryError if nonce appears in query."""
         client = AgeGraphClient(mock_db_settings)
         malicious_nonce = "injected"
         malicious_query = f"MATCH (n) WHERE n.name = '{malicious_nonce}' RETURN n"
 
         with pytest.raises(InsecureCypherQueryError) as exc_info:
-            client.build_secure_cypher_sql(
+            client._build_secure_cypher_sql(
                 graph_name="test_graph",
                 query=malicious_query,
                 nonce_generator=lambda: malicious_nonce,
@@ -193,18 +193,18 @@ class TestSecureCypherSql:
         assert "nonce detected" in str(exc_info.value).lower()
         assert exc_info.value.query == malicious_query
 
-    def test_build_secure_cypher_sql_different_queries_get_different_tags(
+    def test__build_secure_cypher_sql_different_queries_get_different_tags(
         self, mock_db_settings
     ):
         """Each query should get a unique tag."""
         import re
 
         client = AgeGraphClient(mock_db_settings)
-        sql_obj1 = client.build_secure_cypher_sql(
+        sql_obj1 = client._build_secure_cypher_sql(
             graph_name="test_graph",
             query="MATCH (n) RETURN n",
         )
-        sql_obj2 = client.build_secure_cypher_sql(
+        sql_obj2 = client._build_secure_cypher_sql(
             graph_name="test_graph",
             query="MATCH (n) RETURN n",
         )
@@ -221,14 +221,14 @@ class TestSecureCypherSql:
         # Tags should be different for each call
         assert tags1[0] != tags2[0]
 
-    def test_build_secure_cypher_sql_handles_special_characters_in_query(
+    def test__build_secure_cypher_sql_handles_special_characters_in_query(
         self, mock_db_settings
     ):
         """Should handle queries with special characters."""
         client = AgeGraphClient(mock_db_settings)
         query_with_special = "MATCH (n) WHERE n.name = 'O\\'Brien' RETURN n"
 
-        sql_obj = client.build_secure_cypher_sql(
+        sql_obj = client._build_secure_cypher_sql(
             graph_name="test_graph",
             query=query_with_special,
         )

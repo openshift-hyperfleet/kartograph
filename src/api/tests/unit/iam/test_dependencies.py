@@ -69,12 +69,6 @@ def valid_token_claims() -> TokenClaims:
     return TokenClaims(
         sub="external-user-123",
         preferred_username="testuser",
-        raw_claims={
-            "sub": "external-user-123",
-            "preferred_username": "testuser",
-            "iss": "https://auth.example.com/realms/test",
-            "aud": "kartograph-api",
-        },
     )
 
 
@@ -220,7 +214,6 @@ class TestGetCurrentUser:
         claims = TokenClaims(
             sub="keycloak-user-uuid-12345",
             preferred_username="john.doe",
-            raw_claims={"sub": "keycloak-user-uuid-12345"},
         )
         mock_jwt_validator.validate_token = AsyncMock(return_value=claims)
 
@@ -248,7 +241,6 @@ class TestGetCurrentUser:
         claims = TokenClaims(
             sub="user-123",
             preferred_username="jane.smith",
-            raw_claims={"sub": "user-123", "preferred_username": "jane.smith"},
         )
         mock_jwt_validator.validate_token = AsyncMock(return_value=claims)
 
@@ -276,7 +268,6 @@ class TestGetCurrentUser:
         claims = TokenClaims(
             sub="user-123",
             preferred_username=None,
-            raw_claims={"sub": "user-123"},
         )
         mock_jwt_validator.validate_token = AsyncMock(return_value=claims)
 
@@ -356,7 +347,6 @@ class TestGetCurrentUser:
         claims = TokenClaims(
             sub="auth0|12345678901234567890",
             preferred_username="external-user",
-            raw_claims={"sub": "auth0|12345678901234567890"},
         )
         mock_jwt_validator.validate_token = AsyncMock(return_value=claims)
 

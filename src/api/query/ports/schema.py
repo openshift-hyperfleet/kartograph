@@ -4,20 +4,7 @@ Defines the interface for accessing graph type definitions without
 coupling to the Graph context's implementation.
 """
 
-from typing import Protocol
-
-
-class EntityTypeLike(Protocol):
-    """Protocol for entity type enums.
-
-    Matches the structure of graph.domain.value_objects.EntityType
-    without importing from the Graph context.
-    """
-
-    @property
-    def value(self) -> str:
-        """Get the string value of the entity type."""
-        ...
+from typing import Any, Protocol
 
 
 class TypeDefinitionLike(Protocol):
@@ -32,7 +19,7 @@ class TypeDefinitionLike(Protocol):
     """
 
     label: str
-    entity_type: EntityTypeLike
+    entity_type: Any  # EntityType enum with .value property
     description: str
     required_properties: set[str]
     optional_properties: set[str]

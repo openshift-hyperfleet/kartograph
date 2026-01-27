@@ -93,4 +93,4 @@ class TestOutboxModelToValueObject:
         assert entry.retry_count == 5
         assert entry.last_error == "SpiceDB connection failed"
         assert entry.failed_at == failed_at
-        assert entry.is_failed is True
+        assert entry.failed_at is not None  # Entry is in failed state

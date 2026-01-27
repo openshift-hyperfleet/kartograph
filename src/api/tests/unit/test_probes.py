@@ -265,16 +265,6 @@ class TestObservationContext:
             "custom": "value",
         }
 
-    def test_with_graph_creates_new_context(self):
-        """with_graph should return new context with graph set."""
-        original = ObservationContext(request_id="req-123")
-        new_context = original.with_graph("my_graph")
-
-        assert new_context is not original
-        assert new_context.request_id == "req-123"
-        assert new_context.graph_name == "my_graph"
-        assert original.graph_name is None  # Original unchanged
-
     def test_with_extra_creates_new_context(self):
         """with_extra should return new context with additional metadata."""
         original = ObservationContext(

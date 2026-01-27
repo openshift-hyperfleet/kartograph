@@ -4,6 +4,10 @@ __pycache__/
 *$py.class
 
 agent-notes/
+agent-memory/
+ess/
+# ignore ai-generated scratchpad
+src/api/docs
 
 # C extensions
 *.so
@@ -51,6 +55,7 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+test.sh
 
 # Translations
 *.mo

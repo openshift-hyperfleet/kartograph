@@ -25,6 +25,8 @@ class TestIAMEventTranslatorSupportedEvents:
         assert "MemberAdded" in supported
         assert "MemberRemoved" in supported
         assert "MemberRoleChanged" in supported
+        assert "APIKeyCreated" in supported
+        assert "APIKeyRevoked" in supported
 
 
 class TestIAMEventTranslatorGroupCreated:
@@ -206,6 +208,65 @@ class TestIAMEventTranslatorMemberRoleChanged:
         write_op = operations[1]
         assert isinstance(write_op, WriteRelationship)
         assert write_op.relation_name == "admin"
+
+
+class TestIAMEventTranslatorAPIKeyCreated:
+    """Tests for APIKeyCreated translation."""
+
+    def test_translates_api_key_created_to_owner_and_tenant_relationships(self):
+        """APIKeyCreated should produce owner and tenant relationship writes."""
+        translator = IAMEventTranslator()
+        payload = {
+            "api_key_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            "user_id": "user-123-abc",
+            "tenant_id": "01ARZCX0P0HZGQP3MZXQQ0NNYY",
+            "name": "test-key",
+            "prefix": "karto_abc123",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("APIKeyCreated", payload)
+
+        assert len(operations) == 2
+
+        # First: owner relationship
+        owner_op = operations[0]
+        assert isinstance(owner_op, WriteRelationship)
+        assert owner_op.resource_type == ResourceType.API_KEY
+        assert owner_op.resource_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
+        assert owner_op.relation == RelationType.OWNER
+        assert owner_op.subject_type == ResourceType.USER
+        assert owner_op.subject_id == "user-123-abc"
+
+        # Second: tenant relationship
+        tenant_op = operations[1]
+        assert isinstance(tenant_op, WriteRelationship)
+        assert tenant_op.resource_type == ResourceType.API_KEY
+        assert tenant_op.relation == RelationType.TENANT
+        assert tenant_op.subject_type == ResourceType.TENANT
+        assert tenant_op.subject_id == "01ARZCX0P0HZGQP3MZXQQ0NNYY"
+
+
+class TestIAMEventTranslatorAPIKeyRevoked:
+    """Tests for APIKeyRevoked translation."""
+
+    def test_translates_api_key_revoked_keeps_relationships_for_audit(self):
+        """APIKeyRevoked should not delete relationships (audit trail).
+
+        Revoked keys remain visible to owners and tenant admins for audit
+        purposes. The is_revoked flag in PostgreSQL controls authentication.
+        """
+        translator = IAMEventTranslator()
+        payload = {
+            "api_key_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            "user_id": "user-123-abc",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("APIKeyRevoked", payload)
+
+        # No SpiceDB operations - relationships stay intact
+        assert len(operations) == 0
 
 
 class TestIAMEventTranslatorErrors:

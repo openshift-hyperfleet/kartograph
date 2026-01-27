@@ -104,7 +104,7 @@ def build_async_url(settings: DatabaseSettings) -> str:
 
     Returns:
         Connection URL string in format: postgresql+asyncpg://user:pass@host:port/db
-        with credentials properly percent-encoded
+        with credentials properly percent-encoded and SSL mode query parameter
     """
     url = URL.create(
         drivername="postgresql+asyncpg",
@@ -113,5 +113,6 @@ def build_async_url(settings: DatabaseSettings) -> str:
         host=settings.host,
         port=settings.port,
         database=settings.database,
+        query={"ssl": settings.ssl_mode},
     )
     return url.render_as_string(hide_password=False)

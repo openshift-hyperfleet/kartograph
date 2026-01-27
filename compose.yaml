@@ -1,4 +1,29 @@
 services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.5
+    command: start-dev --import-realm --health-enabled=true
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: localhost
+    ports:
+      - "8080:8080"
+      - "9000:9000"
+    networks:
+      - kartograph
+    volumes:
+      - ./keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e 'GET /health/ready HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3;if [ $? -eq 0 ]; then exit 0; else exit 1; fi",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   spicedb:
     image: authzed/spicedb:v1.48.0
     command: "serve"
@@ -120,6 +145,8 @@ services:
     volumes:
       - ./certs:/certs:ro
     tty: true
+    extra_hosts:
+      - "localhost:host-gateway"
     environment:
       - FORCE_COLOR=1
       - GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/certs/spicedb-cert.pem

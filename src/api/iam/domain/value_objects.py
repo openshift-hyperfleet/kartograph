@@ -74,10 +74,30 @@ class GroupId(BaseId):
 class UserId(BaseId):
     """Identifier for a User aggregate.
 
-    Uses ULID for sortability and distribution-friendly generation.
+    Doesn't require ULID because user ids are managed externally
+    by an identity provider.
     """
 
-    pass
+    @classmethod
+    def from_string(cls: type[T], value: str) -> T:
+        """Create ID from string value.
+
+        Args:
+            value: string
+
+        Returns:
+            ID instance
+
+        Raises:
+            ValueError: If value is empty or whitespace-only
+        """
+        trimmed_value = value.strip()
+        if not trimmed_value:
+            raise ValueError(
+                f"Invalid {cls.__name__}: value cannot be empty or whitespace-only"
+            )
+
+        return cls(value=trimmed_value)
 
 
 @dataclass(frozen=True)
@@ -93,6 +113,16 @@ class WorkspaceId(BaseId):
 @dataclass(frozen=True)
 class TenantId(BaseId):
     """Identifier for a Tenant.
+
+    Uses ULID for sortability and distribution-friendly generation.
+    """
+
+    pass
+
+
+@dataclass(frozen=True)
+class APIKeyId(BaseId):
+    """Identifier for an API Key.
 
     Uses ULID for sortability and distribution-friendly generation.
     """

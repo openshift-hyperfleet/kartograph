@@ -3,7 +3,7 @@
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from util import dev_routes
 
@@ -20,6 +20,7 @@ from infrastructure.logging import configure_logging
 from infrastructure.settings import (
     get_cors_settings,
     get_database_settings,
+    get_oidc_settings,
     get_outbox_worker_settings,
     get_spicedb_settings,
 )
@@ -63,6 +64,60 @@ async def kartograph_lifespan(app: FastAPI):
 
     # Startup: initialize database engines
     init_database_engines(app)
+
+    # Startup: ensure default tenant exists (single-tenant mode)
+    if hasattr(app.state, "write_sessionmaker"):
+        from iam.dependencies import set_default_tenant_id
+        from iam.domain.aggregates import Tenant
+        from iam.infrastructure.tenant_repository import TenantRepository
+        from infrastructure.observability.startup_probe import DefaultStartupProbe
+        from infrastructure.outbox.repository import OutboxRepository
+        from infrastructure.settings import get_iam_settings
+
+        iam_settings = get_iam_settings()
+        startup_probe = DefaultStartupProbe()
+
+        async with app.state.write_sessionmaker() as session:
+            async with session.begin():
+                from iam.ports.exceptions import DuplicateTenantNameError
+
+                outbox = OutboxRepository(session=session)
+                tenant_repo = TenantRepository(session=session, outbox=outbox)
+
+                # Check if default tenant exists
+                tenant = await tenant_repo.get_by_name(iam_settings.default_tenant_name)
+                if not tenant:
+                    # Handle race condition during concurrent startups
+                    try:
+                        tenant = Tenant.create(name=iam_settings.default_tenant_name)
+                        await tenant_repo.save(tenant)
+                        startup_probe.default_tenant_bootstrapped(
+                            tenant_id=tenant.id.value,
+                            name=tenant.name,
+                        )
+                    except DuplicateTenantNameError:
+                        # Another instance created it concurrently, re-query
+                        tenant = await tenant_repo.get_by_name(
+                            iam_settings.default_tenant_name
+                        )
+                        if tenant:
+                            startup_probe.default_tenant_already_exists(
+                                tenant_id=tenant.id.value,
+                                name=tenant.name,
+                            )
+                        else:
+                            # Should never happen, but handle gracefully
+                            raise RuntimeError(
+                                "Failed to create or retrieve default tenant"
+                            )
+                else:
+                    startup_probe.default_tenant_already_exists(
+                        tenant_id=tenant.id.value,
+                        name=tenant.name,
+                    )
+
+                # Cache default tenant ID for single-tenant mode
+                set_default_tenant_id(tenant.id)
 
     # Startup: start outbox worker if enabled
     outbox_settings = get_outbox_worker_settings()
@@ -129,10 +184,12 @@ async def kartograph_lifespan(app: FastAPI):
     # Shutdown: close database engines
     await close_database_engines(app)
 
-    # Shutdown: close AGE connection pool
+    # Shutdown: close AGE connection pool and clear cache for next startup
     try:
         pool = get_age_connection_pool()
         pool.close_all()
+        # Clear lru_cache so next startup creates a fresh pool
+        get_age_connection_pool.cache_clear()
     except Exception:
         # Pool may not be initialized, ignore
         pass
@@ -168,6 +225,54 @@ app.include_router(iam_routes.router)
 app.include_router(dev_routes.router)
 
 
+# Log OIDC configuration at startup
+def _log_oidc_config() -> None:
+    """Log OIDC configuration if available."""
+    from iam.application.observability import DefaultOIDCConfigProbe
+
+    try:
+        oidc_settings = get_oidc_settings()
+        DefaultOIDCConfigProbe.log_settings(oidc_settings)
+    except Exception:
+        # OIDC settings may fail if client_secret is not configured
+        pass
+
+
+_log_oidc_config()
+
+
+def configure_swagger_oauth2(app: FastAPI) -> None:
+    """Configure Swagger UI OAuth2 with PKCE.
+
+    Sets up the Swagger UI to authenticate via OAuth2/OIDC using the
+    Authorization Code flow with PKCE. This uses the public swagger client,
+    not the confidential API client.
+
+    The security scheme itself is registered automatically by
+    OAuth2AuthorizationCodeBearer in iam/dependencies.py. This function
+    only configures the Swagger UI initialization parameters.
+
+    If OIDC settings are not configured (e.g., missing client_secret),
+    this function silently returns without configuring Swagger OAuth2.
+    """
+    try:
+        oidc_settings = get_oidc_settings()
+    except Exception:
+        # OIDC not configured, skip Swagger OAuth2
+        return
+
+    # Configure Swagger UI init parameters for PKCE flow
+    app.swagger_ui_init_oauth = {
+        "clientId": oidc_settings.swagger_client_id,
+        "usePkceWithAuthorizationCodeGrant": True,
+        "scopes": "openid profile email",
+    }
+
+
+# Configure Swagger OAuth2 if OIDC is available
+configure_swagger_oauth2(app)
+
+
 @app.get("/health")
 def health():
     """Basic health check endpoint."""
@@ -196,97 +301,3 @@ def health_db(
             "connected": False,
             "error": str(e),
         }
-
-
-@app.get("/util/nodes")
-def get_nodes(
-    client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
-) -> dict:
-    """Query all nodes in the graph.
-
-    Utility endpoint for development and testing.
-    """
-    try:
-        from age.models import Vertex as AgeVertex
-
-        # Execute simple query
-        result = client.execute_cypher("MATCH (n) RETURN n")
-
-        # Convert Vertex objects to serializable dicts
-        nodes = []
-        for row in result.rows:
-            if len(row) > 0 and isinstance(row[0], AgeVertex):
-                vertex = row[0]
-                nodes.append(
-                    {
-                        "id": str(vertex.id),
-                        "label": vertex.label,
-                        "properties": dict(vertex.properties)
-                        if vertex.properties
-                        else {},
-                    }
-                )
-
-        return {
-            "nodes": nodes,
-            "count": len(nodes),
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to query nodes: {e}",
-        ) from e
-
-
-@app.delete("/util/nodes")
-def delete_nodes(
-    client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
-) -> dict:
-    """Delete all nodes in the graph.
-
-    Returns:
-        Dictionary with count of deleted nodes
-    """
-    try:
-        # First count the nodes
-        count_query = "MATCH (n) RETURN count(n)"
-        count_result = client.execute_cypher(count_query)
-        deleted_count = int(count_result.rows[0][0]) if count_result.rows else 0
-
-        # Delete all nodes
-        delete_query = "MATCH (n) DETACH DELETE n"
-        client.execute_cypher(delete_query)
-
-        return {"deleted": deleted_count}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete nodes: {e}",
-        ) from e
-
-
-@app.delete("/util/edges")
-def delete_edges(
-    client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
-) -> dict:
-    """Delete all edges in the graph.
-
-    Returns:
-        Dictionary with count of deleted edges
-    """
-    try:
-        # First count the edges
-        count_query = "MATCH ()-[r]-() RETURN count(r)"
-        count_result = client.execute_cypher(count_query)
-        deleted_count = int(count_result.rows[0][0]) if count_result.rows else 0
-
-        # Delete all edges
-        delete_query = "MATCH ()-[r]-() DELETE r"
-        client.execute_cypher(delete_query)
-
-        return {"deleted": deleted_count}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete edges: {e}",
-        ) from e

@@ -1,8 +1,4 @@
-"""Domain aggregates for IAM context.
-
-Aggregates are the core business objects containing state and business logic.
-They enforce invariants and business rules without depending on infrastructure.
-"""
+"""Group aggregate for IAM context."""
 
 from __future__ import annotations
 
@@ -18,7 +14,13 @@ from iam.domain.events import (
     MemberRoleChanged,
     MemberSnapshot,
 )
-from iam.domain.value_objects import GroupId, GroupMember, Role, TenantId, UserId
+from iam.domain.value_objects import (
+    GroupId,
+    GroupMember,
+    Role,
+    TenantId,
+    UserId,
+)
 
 if TYPE_CHECKING:
     from iam.domain.events import DomainEvent
@@ -230,32 +232,3 @@ class Group:
         events = self._pending_events.copy()
         self._pending_events.clear()
         return events
-
-
-@dataclass(frozen=True)
-class User:
-    """User aggregate representing a person in the system.
-
-    Users are provisioned from SSO (Red Hat SSO) and represent individuals
-    who can be members of groups and access resources.
-
-    For the walking skeleton, User is minimal (just id and username).
-    Future enhancements will add email, clearance_level, etc.
-    """
-
-    id: UserId
-    username: str
-
-    def __str__(self) -> str:
-        """Return string representation."""
-        return f"User({self.username})"
-
-    def __eq__(self, other: object) -> bool:
-        """Users are equal if they have the same ID (identity-based equality)."""
-        if not isinstance(other, User):
-            return False
-        return self.id == other.id
-
-    def __hash__(self) -> int:
-        """Hash based on ID for use in sets and dicts."""
-        return hash(self.id)

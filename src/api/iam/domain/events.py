@@ -130,7 +130,91 @@ class MemberRoleChanged:
     occurred_at: datetime
 
 
+@dataclass(frozen=True)
+class TenantCreated:
+    """Event raised when a new tenant is created.
+
+    This event captures the fact that a tenant has been created.
+    For the walking skeleton, no SpiceDB relationships are automatically
+    created (those will be set when assigning tenant admins).
+
+    Attributes:
+        tenant_id: The ULID of the created tenant
+        name: The name of the tenant
+        occurred_at: When the event occurred (UTC)
+    """
+
+    tenant_id: str
+    name: str
+    occurred_at: datetime
+
+
+@dataclass(frozen=True)
+class TenantDeleted:
+    """Event raised when a tenant is deleted.
+
+    This event captures the fact that a tenant has been deleted.
+    Any cleanup of related resources (groups, etc.) should be handled
+    by cascade rules or separate processes.
+
+    Attributes:
+        tenant_id: The ULID of the deleted tenant
+        occurred_at: When the event occurred (UTC)
+    """
+
+    tenant_id: str
+    occurred_at: datetime
+
+
+@dataclass(frozen=True)
+class APIKeyCreated:
+    """Event raised when a new API key is created.
+
+    This event captures the creation of an API key for programmatic access.
+
+    Attributes:
+        api_key_id: The ULID of the created API key
+        user_id: The ULID of the user who owns the key
+        tenant_id: The ULID of the tenant the key belongs to
+        name: The name/description of the key
+        prefix: The key prefix for identification (e.g., karto_ab)
+        occurred_at: When the event occurred (UTC)
+    """
+
+    api_key_id: str
+    user_id: str
+    tenant_id: str
+    name: str
+    prefix: str
+    occurred_at: datetime
+
+
+@dataclass(frozen=True)
+class APIKeyRevoked:
+    """Event raised when an API key is revoked.
+
+    This event captures the revocation of an API key, making it unusable.
+
+    Attributes:
+        api_key_id: The ULID of the revoked API key
+        user_id: The ULID of the user who owned the key
+        occurred_at: When the event occurred (UTC)
+    """
+
+    api_key_id: str
+    user_id: str
+    occurred_at: datetime
+
+
 # Type alias for all domain events in the IAM context
 DomainEvent = (
-    GroupCreated | GroupDeleted | MemberAdded | MemberRemoved | MemberRoleChanged
+    GroupCreated
+    | GroupDeleted
+    | MemberAdded
+    | MemberRemoved
+    | MemberRoleChanged
+    | TenantCreated
+    | TenantDeleted
+    | APIKeyCreated
+    | APIKeyRevoked
 )

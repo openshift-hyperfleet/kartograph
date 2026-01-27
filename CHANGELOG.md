@@ -1,5 +1,41 @@
 # Changelog
 
+## [3.0.0](https://github.com/openshift-hyperfleet/kartograph/compare/v2.1.0...v3.0.0) (2026-01-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **api.iam:** basic API key support ([#148](https://github.com/openshift-hyperfleet/kartograph/issues/148))
+
+### Features
+
+* **api.iam:** basic API key support ([#148](https://github.com/openshift-hyperfleet/kartograph/issues/148)) ([7f90502](https://github.com/openshift-hyperfleet/kartograph/commit/7f9050267268fbaa3c4f821773ce2b756e085560))
+
+## [2.1.0](https://github.com/openshift-hyperfleet/kartograph/compare/v2.0.0...v2.1.0) (2026-01-21)
+
+
+### Features
+
+* enforce authentication on protected endpoints ([#144](https://github.com/openshift-hyperfleet/kartograph/issues/144)) ([2ef51b6](https://github.com/openshift-hyperfleet/kartograph/commit/2ef51b63ddecdea77077f0f226d52e9564519427))
+
+## [2.0.0](https://github.com/openshift-hyperfleet/kartograph/compare/v1.2.0...v2.0.0) (2026-01-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* add OIDC authentication support ([#141](https://github.com/openshift-hyperfleet/kartograph/issues/141))
+
+### Features
+
+* add OIDC authentication support ([#141](https://github.com/openshift-hyperfleet/kartograph/issues/141)) ([a34d349](https://github.com/openshift-hyperfleet/kartograph/commit/a34d3492f160a54a73e67287e2af74f6f369176a))
+
+## [1.2.0](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.7...v1.2.0) (2026-01-20)
+
+
+### Features
+
+* **api.iam:** add tenant aggregate object ([#139](https://github.com/openshift-hyperfleet/kartograph/issues/139)) ([cf23207](https://github.com/openshift-hyperfleet/kartograph/commit/cf232076a40b8c2e34219ab43270e4ddde562622))
+
 ## [1.1.7](https://github.com/openshift-hyperfleet/kartograph/compare/v1.1.6...v1.1.7) (2026-01-19)
 
 

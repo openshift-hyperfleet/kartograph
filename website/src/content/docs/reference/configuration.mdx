@@ -1,0 +1,50 @@
+---
+title: Configuration
+description: Configuring Kartograph
+---
+
+import EnvVarsTable from '../../../components/EnvVarsTable.astro';
+import { Aside } from '@astrojs/starlight/components';
+
+All Kartograph settings are managed via environment variables. The application validates these settings at startup using Pydantic.
+
+<Aside type="tip">
+  For local development, the docker compose config will automatically
+  load Kartograph API configuration environment variables from `env/api.env`.
+</Aside>
+
+## Database
+Configuration for the PostgreSQL database and Apache AGE graph extension.
+
+<EnvVarsTable group="DatabaseSettings" />
+
+## Authentication (OIDC)
+Settings for connecting to an OpenID Connect provider like Keycloak or Auth0.
+
+<EnvVarsTable group="OIDCSettings" />
+
+## CORS
+Cross-Origin Resource Sharing settings for the API.
+
+<EnvVarsTable group="CORSSettings" />
+
+## IAM & Tenants
+Identity and Multi-tenancy configuration.
+
+<EnvVarsTable group="IAMSettings" />
+
+## Outbox Worker
+Settings for the background worker that processes the transactional outbox.
+
+<EnvVarsTable group="OutboxWorkerSettings" />
+
+
+## SpiceDB
+Settings for the SpiceDB authorization service (gRPC).
+
+<Aside type="tip">
+  For local development, the docker compose config will automatically
+  load SpiceDB config environment variables from `env/spicedb.env`.
+</Aside>
+
+<EnvVarsTable group="SpiceDBSettings" />

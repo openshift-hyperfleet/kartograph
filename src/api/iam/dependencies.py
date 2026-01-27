@@ -4,26 +4,96 @@ Composes infrastructure resources (database sessions, authorization) with
 IAM-specific components (repositories, services).
 """
 
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
+from fastapi.security import OAuth2AuthorizationCodeBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.application.observability import (
+    AuthenticationProbe,
+    DefaultAuthenticationProbe,
     DefaultGroupServiceProbe,
+    DefaultTenantServiceProbe,
     DefaultUserServiceProbe,
     GroupServiceProbe,
+    TenantServiceProbe,
     UserServiceProbe,
 )
-from iam.application.services import GroupService, UserService
+from iam.application.observability.api_key_service_probe import (
+    APIKeyServiceProbe,
+    DefaultAPIKeyServiceProbe,
+)
+from iam.application.services import GroupService, TenantService, UserService
+from iam.application.services.api_key_service import APIKeyService
+from iam.infrastructure.api_key_repository import APIKeyRepository
 from iam.application.value_objects import CurrentUser
 from iam.domain.value_objects import TenantId, UserId
 from iam.infrastructure.group_repository import GroupRepository
+from iam.infrastructure.tenant_repository import TenantRepository
 from iam.infrastructure.user_repository import UserRepository
 from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.database.dependencies import get_write_session
 from infrastructure.outbox.repository import OutboxRepository
+from infrastructure.settings import get_oidc_settings
+from shared_kernel.auth import InvalidTokenError, JWTValidator
+from shared_kernel.auth.observability import DefaultJWTValidatorProbe
 from shared_kernel.authorization.protocols import AuthorizationProvider
+
+
+def _create_oauth2_scheme() -> OAuth2AuthorizationCodeBearer:
+    """Create OAuth2 security scheme for Swagger UI integration.
+
+    Uses the OIDC issuer URL to configure authorization code flow endpoints.
+    This enables Swagger UI's Authorize button to work with Keycloak.
+    """
+    issuer = get_oidc_settings().issuer_url
+
+    return OAuth2AuthorizationCodeBearer(
+        authorizationUrl=f"{issuer}/protocol/openid-connect/auth",
+        tokenUrl=f"{issuer}/protocol/openid-connect/token",
+        refreshUrl=f"{issuer}/protocol/openid-connect/token",
+        scopes={
+            "openid": "OpenID Connect",
+            "profile": "User profile",
+            "email": "User email",
+        },
+        auto_error=False,
+    )
+
+
+# Create OAuth2 security scheme for Swagger UI integration
+oauth2_scheme = _create_oauth2_scheme()
+
+# Module-level cache for default tenant ID (populated at startup)
+_default_tenant_id: TenantId | None = None
+
+
+def set_default_tenant_id(tenant_id: TenantId) -> None:
+    """Set the default tenant ID (called during app startup).
+
+    Args:
+        tenant_id: The default tenant ID to cache
+    """
+    global _default_tenant_id
+    _default_tenant_id = tenant_id
+
+
+def get_default_tenant_id() -> TenantId:
+    """Get the cached default tenant ID.
+
+    Returns:
+        The default tenant ID
+
+    Raises:
+        RuntimeError: If default tenant hasn't been initialized
+    """
+    if _default_tenant_id is None:
+        raise RuntimeError(
+            "Default tenant not initialized. Ensure app startup completed successfully."
+        )
+    return _default_tenant_id
 
 
 def get_user_service_probe() -> UserServiceProbe:
@@ -42,6 +112,15 @@ def get_group_service_probe() -> GroupServiceProbe:
         DefaultGroupServiceProbe instance for observability
     """
     return DefaultGroupServiceProbe()
+
+
+def get_tenant_service_probe() -> TenantServiceProbe:
+    """Get TenantServiceProbe instance.
+
+    Returns:
+        DefaultTenantServiceProbe instance for observability
+    """
+    return DefaultTenantServiceProbe()
 
 
 def get_outbox_repository(
@@ -93,6 +172,22 @@ def get_group_repository(
     return GroupRepository(session=session, authz=authz, outbox=outbox)
 
 
+def get_tenant_repository(
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    outbox: Annotated[OutboxRepository, Depends(get_outbox_repository)],
+) -> TenantRepository:
+    """Get TenantRepository instance.
+
+    Args:
+        session: Async database session
+        outbox: Outbox repository for transactional outbox pattern
+
+    Returns:
+        TenantRepository instance with outbox pattern enabled
+    """
+    return TenantRepository(session=session, outbox=outbox)
+
+
 def get_user_service(
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     session: Annotated[AsyncSession, Depends(get_write_session)],
@@ -136,50 +231,189 @@ def get_group_service(
     )
 
 
-async def get_current_user(
-    user_service: Annotated[UserService, Depends(get_user_service)],
-    x_user_id: str = Header(..., description="User ID from SSO (stub)"),
-    x_username: str = Header(..., description="Username from SSO (stub)"),
-    x_tenant_id: str = Header(..., description="Tenant ID from SSO (stub)"),
-) -> CurrentUser:
-    """Extract current user from headers (stub for SSO integration).
-
-    This is a simplified authentication mechanism for the walking skeleton.
-    In production, this will:
-    - Decode and validate JWT from Authorization header
-    - Extract user_id, username, tenant_id from JWT claims
-    - Validate JWT signature with Red Hat SSO public key
-    - Handle authentication errors properly
-
-    For now, we accept user info from custom headers to enable testing
-    without a full SSO/JWT integration, and ensure the user exists in the
-    application database.
+def get_tenant_service(
+    tenant_repo: Annotated[TenantRepository, Depends(get_tenant_repository)],
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    tenant_service_probe: Annotated[
+        TenantServiceProbe, Depends(get_tenant_service_probe)
+    ],
+) -> TenantService:
+    """Get TenantService instance.
 
     Args:
-        user_service: The user service (manages its own transaction)
-        x_user_id: User ID header (any format from SSO)
-        x_username: Username header
-        x_tenant_id: Tenant ID header (ULID format)
+        tenant_repo: Tenant repository (shares session via FastAPI dependency caching)
+        session: Database session for transaction management
+        tenant_service_probe: Tenant service probe for observability
 
     Returns:
-        CurrentUser with user ID (from SSO), username, and validated tenant ID
+        TenantService instance
+    """
+    return TenantService(
+        tenant_repository=tenant_repo,
+        session=session,
+        probe=tenant_service_probe,
+    )
+
+
+def get_api_key_service_probe() -> APIKeyServiceProbe:
+    """Get APIKeyServiceProbe instance.
+
+    Returns:
+        DefaultAPIKeyServiceProbe instance for observability
+    """
+    return DefaultAPIKeyServiceProbe()
+
+
+def get_api_key_repository(
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    outbox: Annotated[OutboxRepository, Depends(get_outbox_repository)],
+) -> APIKeyRepository:
+    """Get APIKeyRepository instance.
+
+    Args:
+        session: Async database session
+        outbox: Outbox repository for transactional outbox pattern
+
+    Returns:
+        APIKeyRepository instance with outbox pattern enabled
+    """
+    return APIKeyRepository(session=session, outbox=outbox)
+
+
+def get_api_key_service(
+    api_key_repo: Annotated[APIKeyRepository, Depends(get_api_key_repository)],
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    probe: Annotated[APIKeyServiceProbe, Depends(get_api_key_service_probe)],
+) -> APIKeyService:
+    """Get APIKeyService instance.
+
+    Args:
+        api_key_repo: API key repository (shares session via FastAPI dependency caching)
+        session: Database session for transaction management
+        probe: API key service probe for observability
+
+    Returns:
+        APIKeyService instance
+    """
+    return APIKeyService(
+        session=session,
+        api_key_repository=api_key_repo,
+        probe=probe,
+    )
+
+
+@lru_cache
+def get_jwt_validator() -> JWTValidator:
+    """Get cached JWT validator.
+
+    Uses lru_cache to ensure a single JWTValidator instance is reused across
+    requests, enabling reuse of the instance-level JWKS cache.
+
+    Returns:
+        JWTValidator instance configured from OIDC settings.
+    """
+    settings = get_oidc_settings()
+    probe = DefaultJWTValidatorProbe()
+    return JWTValidator(
+        issuer_url=settings.issuer_url,
+        audience=settings.effective_audience,
+        probe=probe,
+        user_id_claim=settings.user_id_claim,
+        username_claim=settings.username_claim,
+    )
+
+
+def get_authentication_probe() -> AuthenticationProbe:
+    """Get AuthenticationProbe instance.
+
+    Returns:
+        DefaultAuthenticationProbe instance for observability
+    """
+    return DefaultAuthenticationProbe()
+
+
+async def get_current_user(
+    validator: Annotated[JWTValidator, Depends(get_jwt_validator)],
+    user_service: Annotated[UserService, Depends(get_user_service)],
+    api_key_service: Annotated[APIKeyService, Depends(get_api_key_service)],
+    auth_probe: Annotated[AuthenticationProbe, Depends(get_authentication_probe)],
+    token: Annotated[str | None, Depends(oauth2_scheme)] = None,
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+) -> CurrentUser:
+    """Authenticate via JWT Bearer token or X-API-Key header.
+
+    Tries JWT first (if Authorization: Bearer present), then API Key.
+    Returns CurrentUser on success, raises HTTPException(401) on failure.
+
+    Args:
+        token: Bearer token from Authorization header (via OAuth2AuthorizationCodeBearer)
+        x_api_key: API key from X-API-Key header
+        validator: JWT validator for token validation
+        user_service: The user service for JIT provisioning
+        api_key_service: The API key service for validation
+        auth_probe: Authentication probe for observability
+
+    Returns:
+        CurrentUser with user_id, username, and tenant_id
 
     Raises:
-        HTTPException: 400 if tenant ID is invalid ULID format
+        HTTPException 401: If neither auth method succeeds
     """
-    # Validate tenant ID first (before user provisioning to avoid orphaned users)
-    try:
-        tenant_id = TenantId.from_string(x_tenant_id)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid tenant ID format: {e}",
-        ) from e
+    # WWW-Authenticate header for 401 responses showing supported auth methods
+    www_authenticate = "Bearer, API-Key"
 
-    # User IDs come from external SSO - accept any string format
-    user_id = UserId(value=x_user_id)
+    # Try JWT first (existing flow)
+    if token is not None:
+        try:
+            claims = await validator.validate_token(token)
 
-    # Ensure the user exists in the system (service manages transaction)
-    await user_service.ensure_user(user_id=user_id, username=x_username)
+            # Map claims to user
+            user_id = UserId(value=claims.sub)
+            username = claims.preferred_username or claims.sub
+            tenant_id = get_default_tenant_id()
 
-    return CurrentUser(user_id=user_id, username=x_username, tenant_id=tenant_id)
+            # JIT user provisioning
+            await user_service.ensure_user(user_id=user_id, username=username)
+
+            auth_probe.user_authenticated(user_id=claims.sub, username=username)
+
+            return CurrentUser(user_id=user_id, username=username, tenant_id=tenant_id)
+
+        except InvalidTokenError as e:
+            auth_probe.authentication_failed(reason=str(e))
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=str(e),
+                headers={"WWW-Authenticate": www_authenticate},
+            ) from e
+
+    # Try API Key
+    if x_api_key is not None:
+        api_key = await api_key_service.validate_and_get_key(x_api_key)
+        if api_key is None:
+            auth_probe.api_key_authentication_failed(reason="invalid_or_expired")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired API key",
+                headers={"WWW-Authenticate": www_authenticate},
+            )
+
+        # API key is valid - user already exists (they created the key)
+        auth_probe.api_key_authentication_succeeded(
+            api_key_id=api_key.id.value,
+            user_id=api_key.created_by_user_id.value,
+        )
+
+        return CurrentUser(
+            user_id=api_key.created_by_user_id,
+            username=f"api-key:{api_key.name}",
+            tenant_id=api_key.tenant_id,
+        )
+
+    # Neither provided
+    auth_probe.authentication_failed(reason="Missing authorization")
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+        headers={"WWW-Authenticate": www_authenticate},
+    )

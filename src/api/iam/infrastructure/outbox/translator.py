@@ -64,6 +64,14 @@ class IAMEventTranslator:
                 return self._translate_member_removed(payload)
             case "MemberRoleChanged":
                 return self._translate_member_role_changed(payload)
+            case "TenantCreated":
+                return self._translate_tenant_created(payload)
+            case "TenantDeleted":
+                return self._translate_tenant_deleted(payload)
+            case "APIKeyCreated":
+                return self._translate_api_key_created(payload)
+            case "APIKeyRevoked":
+                return self._translate_api_key_revoked(payload)
             case _:
                 raise ValueError(f"Unsupported event type: {event_type}")
 
@@ -173,3 +181,71 @@ class IAMEventTranslator:
                 subject_id=payload["user_id"],
             ),
         ]
+
+    def _translate_tenant_created(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate TenantCreated.
+
+        For the walking skeleton, tenants don't automatically get SpiceDB
+        relationships on creation. The SpiceDB tenant definition exists,
+        but relationships (like admin assignments) will be set separately.
+        """
+        return []
+
+    def _translate_tenant_deleted(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate TenantDeleted.
+
+        For the walking skeleton, tenant deletion doesn't require SpiceDB
+        cleanup. Any cascade rules or related resource cleanup should be
+        handled by database constraints or separate processes.
+        """
+        return []
+
+    def _translate_api_key_created(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate APIKeyCreated to owner and tenant relationship writes.
+
+        Creates two relationships:
+        - api_key:<id>#owner@user:<user_id> - ownership
+        - api_key:<id>#tenant@tenant:<tenant_id> - tenant scoping
+        """
+        return [
+            WriteRelationship(
+                resource_type=ResourceType.API_KEY,
+                resource_id=payload["api_key_id"],
+                relation=RelationType.OWNER,
+                subject_type=ResourceType.USER,
+                subject_id=payload["user_id"],
+            ),
+            WriteRelationship(
+                resource_type=ResourceType.API_KEY,
+                resource_id=payload["api_key_id"],
+                relation=RelationType.TENANT,
+                subject_type=ResourceType.TENANT,
+                subject_id=payload["tenant_id"],
+            ),
+        ]
+
+    def _translate_api_key_revoked(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate APIKeyRevoked - no SpiceDB changes needed.
+
+        We keep all relationships (owner, tenant) when a key is revoked because:
+        - Owners need to see their revoked keys in the list (audit trail)
+        - Tenant admins need to see all revoked keys
+        - The is_revoked flag in PostgreSQL controls authentication
+        - Revoked keys should remain visible with status "revoked"
+
+        If we deleted the owner relationship, users would lose visibility
+        of their own revoked keys, breaking the audit trail.
+        """
+        return []

@@ -2,6 +2,8 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: kartograph-spicedb-migrate
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true
   labels:
     app.kubernetes.io/component: spicedb-migrate
 spec:

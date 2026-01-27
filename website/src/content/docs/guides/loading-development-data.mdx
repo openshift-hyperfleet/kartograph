@@ -26,6 +26,15 @@ a script that can be used to quickly load a JSONL data file into the graph.
 
    For this guide, we will assume the data is at `/tmp/my-data.jsonl`.
 
+1. **(Optional) Wipe Database**
+
+   If desired, the entire persistent state of Kartograph, including
+   graph, application, and authorization data, can be wiped by:
+   
+   ```bash
+   docker compose down -v # -v removes volumes, which persist data
+   ```
+
 1. **Invoke the Load Script**
 
    Run `scripts/load_json.py`, passing the absolute path of your JSONL

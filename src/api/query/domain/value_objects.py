@@ -45,37 +45,14 @@ class EdgeDict(TypedDict):
     properties: dict[str, str | int | float | bool | None]
 
 
-class NodeResult(TypedDict):
-    """Query result containing a single node."""
-
-    node: NodeDict
-
-
-class EdgeResult(TypedDict):
-    """Query result containing a single edge."""
-
-    edge: EdgeDict
-
-
-class ScalarResult(TypedDict):
-    """Query result containing a scalar value."""
-
-    value: str | int | float | bool | None
-
-
 # Query result row can be one of:
-# - NodeResult: {"node": NodeDict} for single node returns
-# - EdgeResult: {"edge": EdgeDict} for single edge returns
-# - ScalarResult: {"value": scalar} for scalar returns
-# - dict with custom keys: {custom_key: NodeDict | EdgeDict | scalar} for map returns
-QueryResultRow: TypeAlias = (
-    NodeResult
-    | EdgeResult
-    | ScalarResult
-    | dict[
-        str, NodeDict | EdgeDict | str | int | float | bool | list | None
-    ]  # Map returns
-)
+# - {"node": NodeDict} for single node returns
+# - {"edge": EdgeDict} for single edge returns
+# - {"value": scalar} for scalar returns
+# - {custom_key: NodeDict | EdgeDict | scalar} for map returns
+QueryResultRow: TypeAlias = dict[
+    str, NodeDict | EdgeDict | str | int | float | bool | list | None
+]
 
 
 class CypherQueryResult(BaseModel):

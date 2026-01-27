@@ -1,0 +1,50 @@
+---
+# Shared ServiceAccount for components with init containers that wait for jobs
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kartograph-init-waiter
+  labels:
+    app.kubernetes.io/name: kartograph
+---
+# Role allowing read access to jobs for kubectl wait
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kartograph-job-reader
+  labels:
+    app.kubernetes.io/name: kartograph
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch"]
+---
+# Bind init-waiter SA to job-reader role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kartograph-init-waiter-job-reader
+  labels:
+    app.kubernetes.io/name: kartograph
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kartograph-job-reader
+subjects:
+  - kind: ServiceAccount
+    name: kartograph-init-waiter
+---
+# Bind kartograph-api SA to job-reader role (for its init containers)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kartograph-api-job-reader
+  labels:
+    app.kubernetes.io/name: kartograph
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kartograph-job-reader
+subjects:
+  - kind: ServiceAccount
+    name: kartograph-api

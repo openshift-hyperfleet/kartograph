@@ -18,18 +18,44 @@ spec:
       initContainers:
         # Wait for database migrations to complete
         - name: wait-for-db-migrate
-          image: ghcr.io/groundnuty/k8s-wait-for:no-root-v2.0
+          image: bitnami/kubectl:b349e60a6ae2969af84a778c0b976b050a0cc77f4fb6a4ad44307cd0a06e9d8f
           imagePullPolicy: IfNotPresent
-          args:
-            - "job"
-            - "kartograph-db-migrate"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for db-migrate job to complete..."
+              kubectl wait --for=condition=complete --timeout=300s job/kartograph-db-migrate
+              echo "Database migration complete!"
         # Wait for SpiceDB schema to be loaded
         - name: wait-for-spicedb-schema
-          image: ghcr.io/groundnuty/k8s-wait-for:no-root-v2.0
+          image: bitnami/kubectl:b349e60a6ae2969af84a778c0b976b050a0cc77f4fb6a4ad44307cd0a06e9d8f
           imagePullPolicy: IfNotPresent
-          args:
-            - "job"
-            - "kartograph-spicedb-schema"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for spicedb-schema job to complete..."
+              kubectl wait --for=condition=complete --timeout=300s job/kartograph-spicedb-schema
+              echo "SpiceDB schema loaded!"
       containers:
         - name: api
           image: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-api:latest

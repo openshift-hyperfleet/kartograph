@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.3](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.2...v3.1.3) (2026-01-27)
+
+
+### Bug Fixes
+
+* **deploy:** fix k8s wait for image ([#158](https://github.com/openshift-hyperfleet/kartograph/issues/158)) ([6f6e79f](https://github.com/openshift-hyperfleet/kartograph/commit/6f6e79fc441dade6ed990659623df5200393d396))
+
 ## [3.1.2](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.1...v3.1.2) (2026-01-27)
 
 

@@ -15,15 +15,6 @@ if TYPE_CHECKING:
 class GraphServiceProbe(Protocol):
     """Domain probe for graph service operations."""
 
-    def nodes_queried(
-        self,
-        path: str,
-        node_count: int,
-        edge_count: int,
-    ) -> None:
-        """Record that nodes were queried by path."""
-        ...
-
     def slug_searched(
         self,
         slug: str,

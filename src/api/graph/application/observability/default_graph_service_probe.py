@@ -35,20 +35,6 @@ class DefaultGraphServiceProbe(GraphServiceProbe):
     def with_context(self, context: ObservationContext) -> DefaultGraphServiceProbe:
         return DefaultGraphServiceProbe(logger=self._logger, context=context)
 
-    def nodes_queried(
-        self,
-        path: str,
-        node_count: int,
-        edge_count: int,
-    ) -> None:
-        self._logger.info(
-            "graph_nodes_queried",
-            path=path,
-            node_count=node_count,
-            edge_count=edge_count,
-            **self._get_context_kwargs(),
-        )
-
     def slug_searched(
         self,
         slug: str,

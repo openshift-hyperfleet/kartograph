@@ -75,6 +75,7 @@ repos:
       - id: pytest
         name: pytest
         entry: bash -c 'cd src/api && uv run pytest tests -v'
+        files: ^src/.*\.py$
         language: system
         pass_filenames: false
         stages: [pre-push]

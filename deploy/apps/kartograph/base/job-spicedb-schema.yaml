@@ -8,9 +8,6 @@ metadata:
     app.kubernetes.io/component: spicedb-schema
 spec:
   backoffLimit: 5
-  selector:
-    matchLabels:
-      app.kubernetes.io/component: spicedb-schema
   template:
     metadata:
       labels:

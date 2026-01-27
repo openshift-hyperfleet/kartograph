@@ -45,21 +45,3 @@ class OutboxEntry:
     retry_count: int = 0
     last_error: str | None = None
     failed_at: datetime | None = None
-
-    @property
-    def is_processed(self) -> bool:
-        """Check if this entry has been processed.
-
-        Returns:
-            True if processed_at is set, False otherwise
-        """
-        return self.processed_at is not None
-
-    @property
-    def is_failed(self) -> bool:
-        """Check if this entry has been moved to the DLQ.
-
-        Returns:
-            True if failed_at is set, False otherwise
-        """
-        return self.failed_at is not None

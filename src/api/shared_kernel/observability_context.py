@@ -62,16 +62,6 @@ class ObservationContext:
         result.update(self.extra)
         return result
 
-    def with_graph(self, graph_name: str) -> ObservationContext:
-        """Create a new context with the graph name set."""
-        return ObservationContext(
-            request_id=self.request_id,
-            user_id=self.user_id,
-            tenant_id=self.tenant_id,
-            graph_name=graph_name,
-            extra=self.extra,
-        )
-
     def with_extra(self, **kwargs: Any) -> ObservationContext:
         """Create a new context with additional metadata."""
         new_extra = {**self.extra, **kwargs}

@@ -24,7 +24,6 @@ class TokenClaims:
 
     sub: str
     preferred_username: str | None
-    raw_claims: dict[str, Any]
 
 
 class InvalidTokenError(Exception):
@@ -151,7 +150,6 @@ class JWTValidator:
         return TokenClaims(
             sub=str(user_id),
             preferred_username=str(username) if username is not None else None,
-            raw_claims=claims,
         )
 
     async def _get_jwks(self) -> dict[str, Any]:
@@ -242,12 +240,3 @@ class JWTValidator:
                 raise
             self._probe.jwks_fetch_failed(error=str(e))
             raise InvalidTokenError(f"Unexpected error fetching JWKS: {e}") from e
-
-    def clear_cache(self) -> None:
-        """Clear the JWKS cache.
-
-        Useful for testing or forcing a refresh of keys.
-        """
-        self._jwks = None
-        self._jwks_fetched_at = None
-        self._jwks_uri = None

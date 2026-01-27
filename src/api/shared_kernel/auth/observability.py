@@ -103,31 +103,3 @@ class DefaultJWTValidatorProbe:
             error=error,
             **self._get_context_kwargs(),
         )
-
-
-class NullJWTValidatorProbe:
-    """Null implementation of JWTValidatorProbe for testing."""
-
-    def token_validated(self, user_id: str) -> None:
-        """No-op."""
-        pass
-
-    def token_validation_failed(self, reason: str) -> None:
-        """No-op."""
-        pass
-
-    def jwks_fetched(self, key_count: int) -> None:
-        """No-op."""
-        pass
-
-    def jwks_cache_hit(self) -> None:
-        """No-op."""
-        pass
-
-    def jwks_fetch_failed(self, error: str) -> None:
-        """No-op."""
-        pass
-
-    def with_context(self, context: ObservationContext) -> NullJWTValidatorProbe:
-        """Return self since null probe has no context."""
-        return self

@@ -24,24 +24,6 @@ class TestDefaultGraphServiceProbe:
         assert probe._logger is mock_logger
 
 
-class TestNodesQueried:
-    """Tests for nodes_queried method."""
-
-    def test_logs_with_correct_parameters(self):
-        """nodes_queried should log with path and counts."""
-        mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
-        probe = DefaultGraphServiceProbe(logger=mock_logger)
-
-        probe.nodes_queried(path="test/path.md", node_count=5, edge_count=3)
-
-        mock_logger.info.assert_called_once_with(
-            "graph_nodes_queried",
-            path="test/path.md",
-            node_count=5,
-            edge_count=3,
-        )
-
-
 class TestSlugSearched:
     """Tests for slug_searched method."""
 
@@ -127,13 +109,15 @@ class TestWithContext:
         context = ObservationContext(request_id="req-456", graph_name="my_graph")
 
         probe_with_context = probe.with_context(context)
-        probe_with_context.nodes_queried(path="test.md", node_count=1, edge_count=0)
+        probe_with_context.slug_searched(
+            slug="test", node_type="Person", result_count=1
+        )
 
         mock_logger.info.assert_called_once_with(
-            "graph_nodes_queried",
-            path="test.md",
-            node_count=1,
-            edge_count=0,
+            "graph_slug_searched",
+            slug="test",
+            node_type="Person",
+            result_count=1,
             request_id="req-456",
             graph_name="my_graph",
         )

@@ -168,5 +168,5 @@ class TestOutboxEntry:
             created_at=datetime.now(UTC),
         )
 
-        assert unprocessed_entry.is_processed is False
-        assert processed_entry.is_processed is True
+        assert unprocessed_entry.processed_at is None
+        assert processed_entry.processed_at is not None

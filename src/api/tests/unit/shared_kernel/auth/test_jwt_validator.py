@@ -114,18 +114,15 @@ class TestTokenClaims:
         claims = TokenClaims(
             sub="user-123",
             preferred_username="testuser",
-            raw_claims={"sub": "user-123", "name": "Test User"},
         )
         assert claims.sub == "user-123"
         assert claims.preferred_username == "testuser"
-        assert claims.raw_claims == {"sub": "user-123", "name": "Test User"}
 
     def test_token_claims_with_none_username(self) -> None:
         """TokenClaims accepts None for preferred_username."""
         claims = TokenClaims(
             sub="user-123",
             preferred_username=None,
-            raw_claims={"sub": "user-123"},
         )
         assert claims.preferred_username is None
 
@@ -206,7 +203,6 @@ class TestJWTValidator:
 
         assert claims.sub == "user-123"
         assert claims.preferred_username == "testuser"
-        assert claims.raw_claims["sub"] == "user-123"
         mock_probe.token_validated.assert_called_once_with(user_id="user-123")
 
     @pytest.mark.asyncio

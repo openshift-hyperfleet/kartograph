@@ -73,9 +73,9 @@ def export_system_properties():
             ),
         },
         "_metadata": {
-            "generated_by": "scripts/export-system-properties.py",
+            "generated_by": "scripts/export_system_properties.py",
             "source": "src/api/graph/domain/value_objects.py",
-            "description": "Auto-generated system property definitions. DO NOT EDIT manually. Run 'python scripts/export-system-properties.py' to regenerate.",
+            "description": "Auto-generated system property definitions. DO NOT EDIT manually. Run 'uv run scripts/export_system_properties.py' to regenerate.",
         },
     }
 

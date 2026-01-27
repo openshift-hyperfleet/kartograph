@@ -39,7 +39,7 @@ class TestSystemPropertiesExport:
         """The exported JSON file must exist for docs to work."""
         assert exported_json_path.exists(), (
             f"System properties JSON not found at {exported_json_path}. "
-            "Run 'cd src/api && uv run python ../../scripts/export-system-properties.py' to generate it."
+            "Run 'cd src/api && uv run python ../../scripts/export_system_properties.py' to generate it."
         )
 
     def test_exported_common_properties_match_code(self, exported_json_path):

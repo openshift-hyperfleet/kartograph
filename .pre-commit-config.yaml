@@ -71,7 +71,7 @@ repos:
         entry: bash -c 'make docs-export && git add website/src/data/system-properties.json'
         language: system
         pass_filenames: false
-        files: ^(src/api/graph/domain/value_objects\.py|src/api/infrastructure/settings\.py|scripts/export-system-properties\.py|scripts/export-settings\.py)$
+        files: ^(src/api/graph/domain/value_objects\.py|src/api/infrastructure/settings\.py|scripts/export_system_properties\.py|scripts/export_settings\.py)$
       - id: pytest
         name: pytest
         entry: bash -c 'cd src/api && uv run pytest tests -v'

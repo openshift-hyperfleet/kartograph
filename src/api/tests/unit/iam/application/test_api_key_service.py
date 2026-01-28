@@ -10,6 +10,7 @@ import uuid
 import pytest
 
 from iam.application.services.api_key_service import APIKeyService
+from iam.application.value_objects import CurrentUser
 from iam.domain.aggregates import APIKey
 from iam.domain.value_objects import APIKeyId, TenantId, UserId
 from iam.ports.exceptions import (
@@ -18,6 +19,7 @@ from iam.ports.exceptions import (
     DuplicateAPIKeyNameError,
 )
 from iam.ports.repositories import IAPIKeyRepository
+from shared_kernel.authorization.protocols import AuthorizationProvider
 
 
 @pytest.fixture
@@ -39,6 +41,12 @@ def mock_api_key_repository():
 
 
 @pytest.fixture
+def mock_authz():
+    """Create mock authorization provider."""
+    return create_autospec(AuthorizationProvider, instance=True)
+
+
+@pytest.fixture
 def mock_probe():
     """Create mock API key service probe."""
     from iam.application.observability.api_key_service_probe import APIKeyServiceProbe
@@ -52,13 +60,14 @@ async def unique_api_key_name() -> str:
 
 
 @pytest.fixture
-def api_key_service(mock_session, mock_api_key_repository, mock_probe):
+def api_key_service(mock_session, mock_api_key_repository, mock_authz, mock_probe):
     """Create APIKeyService with mock dependencies."""
     from iam.application.services.api_key_service import APIKeyService
 
     return APIKeyService(
         session=mock_session,
         api_key_repository=mock_api_key_repository,
+        authz=mock_authz,
         probe=mock_probe,
     )
 
@@ -66,28 +75,41 @@ def api_key_service(mock_session, mock_api_key_repository, mock_probe):
 class TestAPIKeyServiceInit:
     """Tests for APIKeyService initialization."""
 
-    def test_stores_session(self, mock_session, mock_api_key_repository):
+    def test_stores_session(self, mock_session, mock_api_key_repository, mock_authz):
         """Service should store session reference."""
         from iam.application.services.api_key_service import APIKeyService
 
         service = APIKeyService(
             session=mock_session,
             api_key_repository=mock_api_key_repository,
+            authz=mock_authz,
         )
         assert service._session is mock_session
 
-    def test_stores_repository(self, mock_session, mock_api_key_repository):
+    def test_stores_repository(self, mock_session, mock_api_key_repository, mock_authz):
         """Service should store repository reference."""
         from iam.application.services.api_key_service import APIKeyService
 
         service = APIKeyService(
             session=mock_session,
             api_key_repository=mock_api_key_repository,
+            authz=mock_authz,
         )
         assert service._api_key_repository is mock_api_key_repository
 
+    def test_stores_authz(self, mock_session, mock_api_key_repository, mock_authz):
+        """Service should store authorization provider reference."""
+        from iam.application.services.api_key_service import APIKeyService
+
+        service = APIKeyService(
+            session=mock_session,
+            api_key_repository=mock_api_key_repository,
+            authz=mock_authz,
+        )
+        assert service._authz is mock_authz
+
     def test_uses_default_probe_when_not_provided(
-        self, mock_session, mock_api_key_repository
+        self, mock_session, mock_api_key_repository, mock_authz
     ):
         """Service should create default probe when not provided."""
         from iam.application.services.api_key_service import APIKeyService
@@ -95,6 +117,7 @@ class TestAPIKeyServiceInit:
         service = APIKeyService(
             session=mock_session,
             api_key_repository=mock_api_key_repository,
+            authz=mock_authz,
         )
         assert service._probe is not None
 
@@ -508,3 +531,205 @@ class TestAPIKeyServiceValidate:
         result = await api_key_service.validate_and_get_key("karto_nonexistent_key")
 
         assert result is None
+
+
+class TestAPIKeyServiceList:
+    """Tests for list_api_keys method."""
+
+    @pytest.mark.asyncio
+    async def test_lists_api_keys_using_authz(
+        self,
+        api_key_service: APIKeyService,
+        mock_api_key_repository,
+        mock_authz,
+        mock_probe,
+    ):
+        """Should use SpiceDB to lookup viewable keys and filter by tenant."""
+        current_user = CurrentUser(
+            user_id=UserId.generate(),
+            username="testuser",
+            tenant_id=TenantId.generate(),
+        )
+
+        # Mock SpiceDB returns list of viewable key IDs
+        api_key_id_1 = APIKeyId.generate()
+        api_key_id_2 = APIKeyId.generate()
+        mock_authz.lookup_resources = AsyncMock(
+            return_value=[api_key_id_1.value, api_key_id_2.value]
+        )
+
+        # Mock repository returns the keys
+        api_key_1 = APIKey(
+            id=api_key_id_1,
+            created_by_user_id=current_user.user_id,
+            tenant_id=current_user.tenant_id,
+            name="Key 1",
+            key_hash="hash1",
+            prefix="karto_ab",
+            created_at=datetime.now(UTC),
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+        )
+        api_key_2 = APIKey(
+            id=api_key_id_2,
+            created_by_user_id=current_user.user_id,
+            tenant_id=current_user.tenant_id,
+            name="Key 2",
+            key_hash="hash2",
+            prefix="karto_cd",
+            created_at=datetime.now(UTC),
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+        )
+        mock_api_key_repository.list = AsyncMock(return_value=[api_key_1, api_key_2])
+
+        result = await api_key_service.list_api_keys(
+            tenant_id=current_user.tenant_id,
+            current_user=current_user,
+        )
+
+        assert len(result) == 2
+        assert result[0].id == api_key_id_1
+        assert result[1].id == api_key_id_2
+
+        # Verify SpiceDB lookup was called correctly
+        mock_authz.lookup_resources.assert_called_once()
+        call_kwargs = mock_authz.lookup_resources.call_args.kwargs
+        assert call_kwargs["resource_type"] == "api_key"
+        assert call_kwargs["permission"] == "view"
+        assert current_user.user_id.value in call_kwargs["subject"]
+
+        # Verify repository was called with correct filters
+        mock_api_key_repository.list.assert_called_once()
+        repo_call_kwargs = mock_api_key_repository.list.call_args.kwargs
+        assert repo_call_kwargs["tenant_id"] == current_user.tenant_id
+        assert repo_call_kwargs["created_by_user_id"] == current_user.user_id
+        assert len(repo_call_kwargs["api_key_ids"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_filters_by_created_by_user_id(
+        self,
+        api_key_service: APIKeyService,
+        mock_api_key_repository,
+        mock_authz,
+    ):
+        """Should filter by created_by_user_id when provided."""
+        current_user = CurrentUser(
+            user_id=UserId.generate(),
+            username="testuser",
+            tenant_id=TenantId.generate(),
+        )
+        filter_user_id = UserId.generate()
+
+        mock_authz.lookup_resources = AsyncMock(return_value=[])
+        mock_api_key_repository.list = AsyncMock(return_value=[])
+
+        await api_key_service.list_api_keys(
+            tenant_id=current_user.tenant_id,
+            current_user=current_user,
+            created_by_user_id=filter_user_id,
+        )
+
+        # Verify repository was called with the filter user ID
+        mock_api_key_repository.list.assert_called_once()
+        repo_call_kwargs = mock_api_key_repository.list.call_args.kwargs
+        assert repo_call_kwargs["created_by_user_id"] == filter_user_id
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_when_no_viewable_keys(
+        self,
+        api_key_service: APIKeyService,
+        mock_api_key_repository,
+        mock_authz,
+        mock_probe,
+    ):
+        """Should return empty list when SpiceDB returns no viewable keys."""
+        current_user = CurrentUser(
+            user_id=UserId.generate(),
+            username="testuser",
+            tenant_id=TenantId.generate(),
+        )
+
+        # Mock SpiceDB returns empty list
+        mock_authz.lookup_resources = AsyncMock(return_value=[])
+        mock_api_key_repository.list = AsyncMock(return_value=[])
+
+        result = await api_key_service.list_api_keys(
+            tenant_id=current_user.tenant_id,
+            current_user=current_user,
+        )
+
+        assert result == []
+        mock_probe.api_key_list_retrieved.assert_called_once_with(
+            user_id=current_user.user_id.value,
+            count=0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_records_probe_event_on_success(
+        self,
+        api_key_service: APIKeyService,
+        mock_api_key_repository,
+        mock_authz,
+        mock_probe,
+    ):
+        """Should record api_key_list_retrieved probe event on success."""
+        current_user = CurrentUser(
+            user_id=UserId.generate(),
+            username="testuser",
+            tenant_id=TenantId.generate(),
+        )
+
+        api_key_id = APIKeyId.generate()
+        mock_authz.lookup_resources = AsyncMock(return_value=[api_key_id.value])
+
+        api_key = APIKey(
+            id=api_key_id,
+            created_by_user_id=current_user.user_id,
+            tenant_id=current_user.tenant_id,
+            name="Test Key",
+            key_hash="hash",
+            prefix="karto_ab",
+            created_at=datetime.now(UTC),
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+        )
+        mock_api_key_repository.list = AsyncMock(return_value=[api_key])
+
+        await api_key_service.list_api_keys(
+            tenant_id=current_user.tenant_id,
+            current_user=current_user,
+        )
+
+        mock_probe.api_key_list_retrieved.assert_called_once_with(
+            user_id=current_user.user_id.value,
+            count=1,
+        )
+
+    @pytest.mark.asyncio
+    async def test_records_failure_probe_on_exception(
+        self,
+        api_key_service: APIKeyService,
+        mock_api_key_repository,
+        mock_authz,
+        mock_probe,
+    ):
+        """Should record api_key_list_retrieval_failed probe event on exception."""
+        current_user = CurrentUser(
+            user_id=UserId.generate(),
+            username="testuser",
+            tenant_id=TenantId.generate(),
+        )
+
+        # Mock authz raises an exception
+        mock_authz.lookup_resources = AsyncMock(
+            side_effect=Exception("SpiceDB connection failed")
+        )
+
+        with pytest.raises(Exception, match="SpiceDB connection failed"):
+            await api_key_service.list_api_keys(
+                tenant_id=current_user.tenant_id,
+                current_user=current_user,
+            )
+
+        mock_probe.api_key_list_retrieval_failed.assert_called_once()
+        call_kwargs = mock_probe.api_key_list_retrieval_failed.call_args.kwargs
+        assert call_kwargs["user_id"] == current_user.user_id.value
+        assert "SpiceDB connection failed" in call_kwargs["reason"]

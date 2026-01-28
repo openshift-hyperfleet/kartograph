@@ -64,8 +64,8 @@ async def create_group(
 
     Args:
         request: Group creation request (just name)
-        current_user: Current authenticated user with tenant context
-        service: Group service for orchestration
+        current_user: Current authenticated user
+        service: Group service, tenant scoped
 
     Returns:
         GroupResponse with created group details
@@ -78,7 +78,6 @@ async def create_group(
         group = await service.create_group(
             name=request.name,
             creator_id=current_user.user_id,
-            tenant_id=current_user.tenant_id,
         )
         return GroupResponse.from_domain(group)
 
@@ -131,7 +130,7 @@ async def get_group(
         ) from e
 
     try:
-        group = await service.get_group(group_id_obj, current_user.tenant_id)
+        group = await service.get_group(group_id=group_id_obj)
         if group is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -156,12 +155,10 @@ async def delete_group(
 ) -> None:
     """Delete a group.
 
-    Tenant ID comes from authenticated user context (JWT claims in production).
-
     Args:
         group_id: Group ID (ULID format)
-        current_user: Current authenticated user with tenant context
-        service: Group service
+        current_user: Current authenticated user
+        service: Group service, tenant scoped
 
     Returns:
         None (204 No Content on success)
@@ -181,7 +178,7 @@ async def delete_group(
 
     try:
         deleted = await service.delete_group(
-            group_id_obj, current_user.tenant_id, current_user.user_id
+            group_id=group_id_obj, user_id=current_user.user_id
         )
         if not deleted:
             raise HTTPException(

@@ -192,6 +192,7 @@ def get_user_service(
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     session: Annotated[AsyncSession, Depends(get_write_session)],
     probe: Annotated[UserServiceProbe, Depends(get_user_service_probe)],
+    tenant_id: Annotated[TenantId, Depends(get_default_tenant_id)],
 ) -> UserService:
     """Get UserService instance.
 
@@ -199,11 +200,19 @@ def get_user_service(
         user_repo: User repository (shares session via FastAPI dependency caching)
         session: Database session for transaction management
         probe: User service probe for observability
+        tenant_id: The tenant ID to which the user service will be scoped.
+            For now, it's hard-coded to the default tenant. In the future,
+            this would/could come from an X-Tenant-ID header.
 
     Returns:
         UserService instance
     """
-    return UserService(user_repository=user_repo, probe=probe, session=session)
+    return UserService(
+        user_repository=user_repo,
+        probe=probe,
+        session=session,
+        scope_to_tenant=tenant_id,
+    )
 
 
 def get_group_service(
@@ -211,6 +220,7 @@ def get_group_service(
     session: Annotated[AsyncSession, Depends(get_write_session)],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
     group_service_probe: Annotated[GroupServiceProbe, Depends(get_group_service_probe)],
+    tenant_id: Annotated[TenantId, Depends(get_default_tenant_id)],
 ) -> GroupService:
     """Get GroupService instance.
 
@@ -219,7 +229,9 @@ def get_group_service(
         session: Database session for transaction management
         authz: Authorization provider (SpiceDB client)
         group_service_probe: Group service probe for observability
-
+        tenant_id: The tenant ID to which the user service will be scoped.
+            For now, it's hard-coded to the default tenant. In the future,
+            this would/could come from an X-Tenant-ID header.
     Returns:
         GroupService instance
     """
@@ -227,6 +239,7 @@ def get_group_service(
         session=session,
         group_repository=group_repo,
         authz=authz,
+        scope_to_tenant=tenant_id,
         probe=group_service_probe,
     )
 

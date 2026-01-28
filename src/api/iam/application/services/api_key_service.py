@@ -37,7 +37,6 @@ class APIKeyService:
         self,
         session: AsyncSession,
         api_key_repository: IAPIKeyRepository,
-        scope_to_tenant: TenantId,
         probe: APIKeyServiceProbe | None = None,
     ):
         """Initialize APIKeyService with dependencies.
@@ -51,13 +50,13 @@ class APIKeyService:
         self._session = session
         self._api_key_repository = api_key_repository
         self._probe = probe or DefaultAPIKeyServiceProbe()
-        self._scope_to_tenant = scope_to_tenant
 
     async def create_api_key(
         self,
         created_by_user_id: UserId,
         name: str,
         expires_in_days: int,
+        tenant_id: TenantId,
     ) -> tuple[APIKey, str]:
         """Create a new API key for a user.
 
@@ -88,7 +87,7 @@ class APIKeyService:
             # Create aggregate
             api_key = APIKey.create(
                 created_by_user_id=created_by_user_id,
-                tenant_id=self._scope_to_tenant,
+                tenant_id=tenant_id,
                 name=name,
                 key_hash=key_hash,
                 prefix=prefix,
@@ -115,6 +114,7 @@ class APIKeyService:
 
     async def list_api_keys(
         self,
+        tenant_id: TenantId,
         api_key_ids: list[str] | None = None,
         created_by_user_id: UserId | None = None,
     ) -> list[APIKey]:
@@ -133,7 +133,7 @@ class APIKeyService:
         """
         keys = await self._api_key_repository.list(
             api_key_ids=api_key_ids,
-            tenant_id=self._scope_to_tenant,
+            tenant_id=tenant_id,
             created_by_user_id=created_by_user_id,
         )
 
@@ -147,6 +147,7 @@ class APIKeyService:
         self,
         api_key_id: APIKeyId,
         user_id: UserId,
+        tenant_id: TenantId,
     ) -> None:
         """Revoke an API key.
 
@@ -163,7 +164,7 @@ class APIKeyService:
         try:
             async with self._session.begin():
                 api_key = await self._api_key_repository.get_by_id(
-                    api_key_id, user_id, self._scope_to_tenant
+                    api_key_id, user_id, tenant_id
                 )
 
                 if api_key is None:

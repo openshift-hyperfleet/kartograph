@@ -415,6 +415,7 @@ async def create_api_key(
             created_by_user_id=current_user.user_id,
             name=request.name,
             expires_in_days=request.expires_in_days,
+            tenant_id=current_user.tenant_id,
         )
         return APIKeyCreatedResponse(
             secret=plaintext_secret,
@@ -485,6 +486,7 @@ async def list_api_keys(
         api_keys = await service.list_api_keys(
             api_key_ids=viewable_key_ids,
             created_by_user_id=filter_user_id,
+            tenant_id=current_user.tenant_id,
         )
         return [APIKeyResponse.from_domain(key) for key in api_keys]
 
@@ -534,6 +536,7 @@ async def revoke_api_key(
         await service.revoke_api_key(
             api_key_id=api_key_id_obj,
             user_id=current_user.user_id,
+            tenant_id=current_user.tenant_id,
         )
 
     except APIKeyNotFoundError as e:

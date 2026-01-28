@@ -215,8 +215,8 @@ class APIKeyRepository(IAPIKeyRepository):
 
     async def list(
         self,
-        api_key_ids: list[str] | None = None,
-        tenant_id: TenantId | None = None,
+        tenant_id: TenantId,
+        api_key_ids: list[APIKeyId] | None = None,
         created_by_user_id: UserId | None = None,
     ) -> list[APIKey]:
         """List API keys with optional filters.
@@ -239,7 +239,9 @@ class APIKeyRepository(IAPIKeyRepository):
             if not api_key_ids:
                 # Empty list means no results
                 return []
-            conditions.append(APIKeyModel.id.in_(api_key_ids))
+            # Extract string values from APIKeyId objects
+            id_values = [id_val.value for id_val in api_key_ids]
+            conditions.append(APIKeyModel.id.in_(id_values))
 
         if tenant_id is not None:
             conditions.append(APIKeyModel.tenant_id == tenant_id.value)
@@ -248,7 +250,6 @@ class APIKeyRepository(IAPIKeyRepository):
             conditions.append(
                 APIKeyModel.created_by_user_id == created_by_user_id.value
             )
-
         if conditions:
             stmt = select(APIKeyModel).where(and_(*conditions))
         else:

@@ -6,7 +6,7 @@ Handles user provisioning from SSO with JIT (just-in-time) creation.
 from __future__ import annotations
 
 from iam.domain.aggregates import User
-from iam.domain.value_objects import UserId
+from iam.domain.value_objects import TenantId, UserId
 from iam.application.observability import DefaultUserServiceProbe, UserServiceProbe
 from iam.ports.repositories import IUserRepository
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +22,7 @@ class UserService:
         self,
         user_repository: IUserRepository,
         session: AsyncSession,
+        scope_to_tenant: TenantId,
         probe: UserServiceProbe | None = None,
     ):
         """Initialize UserService with dependencies.
@@ -29,11 +30,13 @@ class UserService:
         Args:
             user_repository: Repository for user persistence
             session: Database session for transaction management
+            scope_to_tenant: A tenant to which this service will be scoped.
             probe: Optional domain probe for observability
         """
         self._user_repository = user_repository
         self._probe = probe or DefaultUserServiceProbe()
         self._session = session
+        self._scope_to_tenant = scope_to_tenant
 
     async def ensure_user(self, user_id: UserId, username: str) -> User:
         """Ensure user exists in database (find-or-create pattern).

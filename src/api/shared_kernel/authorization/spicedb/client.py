@@ -352,6 +352,8 @@ class SpiceDBClient(AuthorizationProvider):
     ) -> bool:
         """Check if a subject has permission on a resource.
 
+        Here, `permission` can also be a relation.
+
         Args:
             resource: Resource identifier (e.g., "group:abc123")
             permission: Permission to check (e.g., "view", "edit")

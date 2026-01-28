@@ -44,7 +44,7 @@ def test_client(mock_query_service, mock_mutation_service, mock_current_user):
 
     from graph import dependencies
     from graph.presentation import routes
-    from iam.dependencies import get_current_user
+    from iam.dependencies.user import get_current_user
 
     app = FastAPI()
 

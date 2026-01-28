@@ -58,6 +58,9 @@ class APIKeyServiceProbe(Protocol):
         """Record that API keys were listed for a user."""
         ...
 
+    def api_key_list_retrieval_failed(self, user_id: str, reason: str) -> None:
+        """Record that API key list operation failed."""
+
     def with_context(self, context: ObservationContext) -> APIKeyServiceProbe:
         """Create a new probe with observation context bound."""
         ...
@@ -148,5 +151,18 @@ class DefaultAPIKeyServiceProbe:
             "api_key_list_retrieved",
             user_id=user_id,
             count=count,
+            **self._get_context_kwargs(),
+        )
+
+    def api_key_list_retrieval_failed(
+        self,
+        user_id: str,
+        reason: str,
+    ) -> None:
+        """Record that API key list operation failed."""
+        self._logger.warning(
+            "api_key_list_retrieval_failed",
+            user_id=user_id,
+            reason=reason,
             **self._get_context_kwargs(),
         )

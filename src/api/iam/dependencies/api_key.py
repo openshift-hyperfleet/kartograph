@@ -3,6 +3,8 @@ from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.authorization_dependencies import get_spicedb_client
+from shared_kernel.authorization.protocols import AuthorizationProvider
 from iam.dependencies.outbox import get_outbox_repository
 from iam.application.observability.api_key_service_probe import (
     APIKeyServiceProbe,
@@ -42,6 +44,7 @@ def get_api_key_repository(
 def get_api_key_service(
     api_key_repo: Annotated[APIKeyRepository, Depends(get_api_key_repository)],
     session: Annotated[AsyncSession, Depends(get_write_session)],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
     probe: Annotated[APIKeyServiceProbe, Depends(get_api_key_service_probe)],
 ) -> APIKeyService:
     """Get APIKeyService instance.
@@ -55,7 +58,5 @@ def get_api_key_service(
         APIKeyService instance
     """
     return APIKeyService(
-        session=session,
-        api_key_repository=api_key_repo,
-        probe=probe,
+        session=session, api_key_repository=api_key_repo, probe=probe, authz=authz
     )

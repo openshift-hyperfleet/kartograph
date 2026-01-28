@@ -10,6 +10,13 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from iam.application.value_objects import CurrentUser
+from shared_kernel.authorization.types import (
+    Permission,
+    ResourceType,
+    format_subject,
+)
+from shared_kernel.authorization.protocols import AuthorizationProvider
 from iam.application.observability.api_key_service_probe import (
     APIKeyServiceProbe,
     DefaultAPIKeyServiceProbe,
@@ -37,6 +44,7 @@ class APIKeyService:
         self,
         session: AsyncSession,
         api_key_repository: IAPIKeyRepository,
+        authz: AuthorizationProvider,
         probe: APIKeyServiceProbe | None = None,
     ):
         """Initialize APIKeyService with dependencies.
@@ -50,6 +58,7 @@ class APIKeyService:
         self._session = session
         self._api_key_repository = api_key_repository
         self._probe = probe or DefaultAPIKeyServiceProbe()
+        self._authz = authz
 
     async def create_api_key(
         self,
@@ -115,33 +124,45 @@ class APIKeyService:
     async def list_api_keys(
         self,
         tenant_id: TenantId,
-        api_key_ids: list[str] | None = None,
+        current_user: CurrentUser,
         created_by_user_id: UserId | None = None,
     ) -> list[APIKey]:
         """List API keys with optional filters.
 
-        This is a general-purpose list method. The service doesn't know or care
-        about authorization - it just orchestrates filtering. Filters are typically
-        provided by the presentation layer after querying SpiceDB.
-
         Args:
-            api_key_ids: Optional list of specific API key IDs to include
             created_by_user_id: Optional filter for keys created by this user
 
         Returns:
             List of APIKey aggregates matching all provided filters
         """
-        keys = await self._api_key_repository.list(
-            api_key_ids=api_key_ids,
-            tenant_id=tenant_id,
-            created_by_user_id=created_by_user_id,
+        # Use SpiceDB to find all API keys the current user can view
+        search_by_user: UserId = (
+            created_by_user_id if created_by_user_id else current_user.user_id
         )
+        try:
+            api_key_ids = await self._authz.lookup_resources(
+                resource_type=ResourceType.API_KEY.value,
+                permission=Permission.VIEW.value,
+                subject=format_subject(ResourceType.USER, current_user.user_id.value),
+            )
 
-        self._probe.api_key_list_retrieved(
-            user_id=created_by_user_id.value if created_by_user_id else "filtered",
-            count=len(keys),
-        )
-        return keys
+            keys = await self._api_key_repository.list(
+                api_key_ids=[APIKeyId(value=key) for key in api_key_ids],
+                tenant_id=tenant_id,
+                created_by_user_id=search_by_user,
+            )
+
+            self._probe.api_key_list_retrieved(
+                user_id=search_by_user.value,
+                count=len(keys),
+            )
+            return keys
+        except Exception as e:
+            self._probe.api_key_list_retrieval_failed(
+                user_id=search_by_user.value,
+                reason=repr(e),
+            )
+            raise
 
     async def revoke_api_key(
         self,

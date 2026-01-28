@@ -16,14 +16,7 @@ from iam.dependencies.tenant import get_default_tenant_id, get_tenant_service
 from iam.application.services import GroupService, TenantService
 from iam.application.services.api_key_service import APIKeyService
 from iam.application.value_objects import CurrentUser
-from infrastructure.authorization_dependencies import get_spicedb_client
 from iam.domain.value_objects import APIKeyId, GroupId, TenantId, UserId
-from shared_kernel.authorization.protocols import AuthorizationProvider
-from shared_kernel.authorization.types import (
-    Permission,
-    ResourceType,
-    format_subject,
-)
 from iam.ports.exceptions import (
     APIKeyAlreadyRevokedError,
     APIKeyNotFoundError,
@@ -328,8 +321,7 @@ async def delete_tenant(
 ) -> None:
     """Delete a tenant.
 
-    For the walking skeleton, this uses header-based auth.
-    In production, this should be restricted to system administrators.
+    TODO: In production, this should be restricted to system administrators.
 
     Args:
         tenant_id: Tenant ID (ULID format)
@@ -354,7 +346,7 @@ async def delete_tenant(
 
     # Prevent deletion of default tenant
     default_tenant_id = get_default_tenant_id()
-    if tenant_id_obj.value == default_tenant_id.value:
+    if tenant_id_obj.value == default_tenant_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot delete the default tenant",
@@ -438,7 +430,6 @@ async def create_api_key(
 async def list_api_keys(
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[APIKeyService, Depends(get_api_key_service)],
-    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
     user_id: str | None = None,
 ) -> list[APIKeyResponse]:
     """List API keys the current user can view.
@@ -463,39 +454,19 @@ async def list_api_keys(
         HTTPException: 500 for unexpected errors
     """
     try:
-        # Use SpiceDB to find all API keys the current user can view
-        viewable_key_ids = await authz.lookup_resources(
-            resource_type=ResourceType.API_KEY.value,
-            permission=Permission.VIEW.value,
-            subject=format_subject(ResourceType.USER, current_user.user_id.value),
-        )
-
-        # Parse optional user_id filter
-        filter_user_id = None
-        if user_id:
-            try:
-                filter_user_id = UserId.from_string(user_id)
-            except ValueError as e:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid user ID format: {e}",
-                ) from e
-
         # Get keys filtered by SpiceDB permissions
         # The service doesn't know about authorization - it just filters by IDs
         api_keys = await service.list_api_keys(
-            api_key_ids=viewable_key_ids,
-            created_by_user_id=filter_user_id,
+            created_by_user_id=UserId(value=user_id) if user_id else None,
             tenant_id=current_user.tenant_id,
+            current_user=current_user,
         )
         return [APIKeyResponse.from_domain(key) for key in api_keys]
 
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list API keys: {e}",
+            detail="Failed to list API keys",
         ) from e
 
 

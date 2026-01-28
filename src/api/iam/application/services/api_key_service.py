@@ -37,6 +37,7 @@ class APIKeyService:
         self,
         session: AsyncSession,
         api_key_repository: IAPIKeyRepository,
+        scope_to_tenant: TenantId,
         probe: APIKeyServiceProbe | None = None,
     ):
         """Initialize APIKeyService with dependencies.
@@ -44,16 +45,17 @@ class APIKeyService:
         Args:
             session: Database session for transaction management
             api_key_repository: Repository for API key persistence
+            scope_to_tenant: A tenant to which this service will be scoped.
             probe: Optional domain probe for observability
         """
         self._session = session
         self._api_key_repository = api_key_repository
         self._probe = probe or DefaultAPIKeyServiceProbe()
+        self._scope_to_tenant = scope_to_tenant
 
     async def create_api_key(
         self,
         created_by_user_id: UserId,
-        tenant_id: TenantId,
         name: str,
         expires_in_days: int,
     ) -> tuple[APIKey, str]:
@@ -65,7 +67,6 @@ class APIKeyService:
 
         Args:
             created_by_user_id: The user who is creating this key (audit trail)
-            tenant_id: The tenant this key belongs to
             name: A descriptive name for the key
             expires_in_days: Number of days until expiration
 
@@ -87,7 +88,7 @@ class APIKeyService:
             # Create aggregate
             api_key = APIKey.create(
                 created_by_user_id=created_by_user_id,
-                tenant_id=tenant_id,
+                tenant_id=self._scope_to_tenant,
                 name=name,
                 key_hash=key_hash,
                 prefix=prefix,
@@ -115,7 +116,6 @@ class APIKeyService:
     async def list_api_keys(
         self,
         api_key_ids: list[str] | None = None,
-        tenant_id: TenantId | None = None,
         created_by_user_id: UserId | None = None,
     ) -> list[APIKey]:
         """List API keys with optional filters.
@@ -126,7 +126,6 @@ class APIKeyService:
 
         Args:
             api_key_ids: Optional list of specific API key IDs to include
-            tenant_id: Optional tenant to scope the list to
             created_by_user_id: Optional filter for keys created by this user
 
         Returns:
@@ -134,7 +133,7 @@ class APIKeyService:
         """
         keys = await self._api_key_repository.list(
             api_key_ids=api_key_ids,
-            tenant_id=tenant_id,
+            tenant_id=self._scope_to_tenant,
             created_by_user_id=created_by_user_id,
         )
 
@@ -148,7 +147,6 @@ class APIKeyService:
         self,
         api_key_id: APIKeyId,
         user_id: UserId,
-        tenant_id: TenantId,
     ) -> None:
         """Revoke an API key.
 
@@ -157,7 +155,6 @@ class APIKeyService:
         Args:
             api_key_id: The ID of the key to revoke
             user_id: The user who owns the key (for access control)
-            tenant_id: The tenant the key belongs to (for access control)
 
         Raises:
             APIKeyNotFoundError: If the key doesn't exist
@@ -166,7 +163,7 @@ class APIKeyService:
         try:
             async with self._session.begin():
                 api_key = await self._api_key_repository.get_by_id(
-                    api_key_id, user_id, tenant_id
+                    api_key_id, user_id, self._scope_to_tenant
                 )
 
                 if api_key is None:

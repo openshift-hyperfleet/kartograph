@@ -124,7 +124,7 @@ async def get_current_user_no_jit(
 
         return CurrentUser(
             user_id=api_key.created_by_user_id,
-            username=f"api-key:{api_key.name}",
+            username=f"api-key:{api_key.id}",
             tenant_id=api_key.tenant_id,
         )
 
@@ -189,7 +189,7 @@ async def get_current_user(
         HTTPException 401: If neither auth method succeeds
     """
     # If the user is authenticated via a bearer token (i.e. actual user identity)
-    if token is None:
+    if token is not None:
         # JIT user provisioning
         await user_service.ensure_user(
             user_id=current_user.user_id, username=current_user.username

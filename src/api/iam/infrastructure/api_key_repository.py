@@ -215,8 +215,8 @@ class APIKeyRepository(IAPIKeyRepository):
 
     async def list(
         self,
+        tenant_id: TenantId,
         api_key_ids: list[APIKeyId] | None = None,
-        tenant_id: TenantId | None = None,
         created_by_user_id: UserId | None = None,
     ) -> list[APIKey]:
         """List API keys with optional filters.
@@ -226,7 +226,7 @@ class APIKeyRepository(IAPIKeyRepository):
         by the provided criteria.
 
         Args:
-            api_key_ids: Optional list of specific API key IDs to include (strings or APIKeyId objects)
+            api_key_ids: Optional list of specific API key IDs to include
             tenant_id: Optional tenant to scope the list to
             created_by_user_id: Optional filter for keys created by this user
 

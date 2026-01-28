@@ -262,8 +262,8 @@ class IAPIKeyRepository(Protocol):
 
     async def list(
         self,
+        tenant_id: TenantId,
         api_key_ids: list[APIKeyId] | None = None,
-        tenant_id: TenantId | None = None,
         created_by_user_id: UserId | None = None,
     ) -> list[APIKey]:
         """List API keys with optional filters.

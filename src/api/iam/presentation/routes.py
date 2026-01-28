@@ -9,16 +9,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from iam.dependencies.api_key import get_api_key_service
+from iam.dependencies.group import get_group_service
+from iam.dependencies.user import get_current_user
+from iam.dependencies.tenant import get_default_tenant_id, get_tenant_service
 from iam.application.services import GroupService, TenantService
 from iam.application.services.api_key_service import APIKeyService
 from iam.application.value_objects import CurrentUser
-from iam.dependencies import (
-    get_api_key_service,
-    get_current_user,
-    get_default_tenant_id,
-    get_group_service,
-    get_tenant_service,
-)
 from infrastructure.authorization_dependencies import get_spicedb_client
 from iam.domain.value_objects import APIKeyId, GroupId, TenantId, UserId
 from shared_kernel.authorization.protocols import AuthorizationProvider

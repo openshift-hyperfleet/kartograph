@@ -17,7 +17,7 @@ from infrastructure.outbox.repository import OutboxRepository
 
 
 #  Module-level cache for default tenant ID (populated at startup)
-_default_tenant_id: TenantId | None = None
+_default_tenant_id: str | None = None
 
 
 def set_default_tenant_id(tenant_id: TenantId) -> None:
@@ -27,10 +27,10 @@ def set_default_tenant_id(tenant_id: TenantId) -> None:
         tenant_id: The default tenant ID to cache
     """
     global _default_tenant_id
-    _default_tenant_id = tenant_id
+    _default_tenant_id = tenant_id.value
 
 
-def get_default_tenant_id() -> TenantId:
+def get_default_tenant_id() -> str:
     """Get the cached default tenant ID.
 
     Returns:

@@ -225,8 +225,8 @@ class TestGetGroup:
 
         assert result == group
         mock_group_repository.get_by_id.assert_called_once_with(group_id)
-        # Tenant check is now done via group.tenant_id, not SpiceDB
-        mock_authz.check_permission.assert_not_called()
+
+        mock_authz.check_permission.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_returns_none_when_group_not_found(
@@ -254,13 +254,14 @@ class TestGetGroup:
         group = Group(id=group_id, tenant_id=other_tenant_id, name="Engineering")
 
         mock_group_repository.get_by_id = AsyncMock(return_value=group)
+        mock_authz.check_permission = AsyncMock(return_value=False)
 
         result = await group_service.get_group(group_id)
 
         # Returns None for security (don't leak group existence)
         assert result is None
-        # Tenant check is done via group.tenant_id comparison
-        mock_authz.check_permission.assert_not_called()
+
+        mock_authz.check_permission.assert_called_once()
 
 
 class TestDeleteGroup:

@@ -14,6 +14,7 @@ from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
+    RelationType,
     ResourceType,
     format_resource,
 )
@@ -114,8 +115,21 @@ class GroupService:
         if group is None:
             return None
 
+        group_resource = format_resource(
+            resource_type=ResourceType.GROUP, resource_id=group_id.value
+        )
+        tenant_resource = format_resource(
+            resource_type=ResourceType.TENANT, resource_id=self._scope_to_tenant.value
+        )
+
+        is_in_tenant = await self._authz.check_permission(
+            resource=group_resource,
+            permission=RelationType.TENANT,
+            subject=tenant_resource,
+        )
+
         # Verify group belongs to the expected tenant
-        if group.tenant_id.value != self._scope_to_tenant.value:
+        if not is_in_tenant:
             # Group exists but doesn't belong to this tenant
             # Return None (act as if not found) for security
             return None

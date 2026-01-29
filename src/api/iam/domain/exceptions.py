@@ -1,0 +1,2 @@
+class CannotRemoveLastAdminError(Exception):
+    pass

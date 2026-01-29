@@ -6,7 +6,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Optional
 
-from iam.domain.events import TenantCreated, TenantDeleted, TenantMemberAdded
+from iam.domain.exceptions import CannotRemoveLastAdminError
+from iam.domain.events import (
+    TenantCreated,
+    TenantDeleted,
+    TenantMemberAdded,
+    TenantMemberRemoved,
+)
 from iam.domain.value_objects import TenantId, TenantRole, UserId
 
 if TYPE_CHECKING:
@@ -60,7 +66,7 @@ class Tenant:
         )
         return tenant
 
-    def add_user(
+    def add_member(
         self, user_id: UserId, role: TenantRole, added_by: Optional[UserId] = None
     ):
         """Add a user as a member to this tenant.
@@ -76,6 +82,27 @@ class Tenant:
                 user_id=user_id,
                 role=role,
                 added_by=added_by,
+                occurred_at=datetime.now(UTC),
+            )
+        )
+
+    def remove_member(self, user_id: UserId, removed_by: UserId, is_last_admin: bool):
+        """Remove a member from a tenant.
+
+        Args:
+            user_id: User being removed
+            removed_by: Admin who removed them
+            is_last_admin: Whether this user is the last admin in the tenant. If True,
+                a CannotRemoveLastAdminError is raised.
+        """
+        if is_last_admin:
+            raise CannotRemoveLastAdminError()
+
+        self._pending_events.append(
+            TenantMemberRemoved(
+                tenant_id=self.id,
+                user_id=user_id,
+                removed_by=removed_by,
                 occurred_at=datetime.now(UTC),
             )
         )

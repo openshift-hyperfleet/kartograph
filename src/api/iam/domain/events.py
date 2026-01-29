@@ -187,6 +187,23 @@ class TenantMemberAdded:
 
 
 @dataclass(frozen=True)
+class TenantMemberRemoved:
+    """Event raised when a user is removed as a member from a tenant.
+
+    Attributes:
+        tenant_id: The ID of the tenant from which the member was removed
+        user_id: The user removed as a member from the tenant
+        removed_by: The ID of the user that initiated this action
+        occurred_at: When this even occurred (UTC)
+    """
+
+    tenant_id: TenantId
+    user_id: UserId
+    occurred_at: datetime
+    removed_by: UserId
+
+
+@dataclass(frozen=True)
 class APIKeyCreated:
     """Event raised when a new API key is created.
 
@@ -236,6 +253,7 @@ DomainEvent = (
     | TenantCreated
     | TenantDeleted
     | TenantMemberAdded
+    | TenantMemberRemoved
     | APIKeyCreated
     | APIKeyRevoked
 )

@@ -127,7 +127,7 @@ class IAMEventSerializer:
             data["occurred_at"] = datetime.fromisoformat(data["occurred_at"])
 
         # Convert members list back to tuple of MemberSnapshot
-        if "members" in data and event_type == "GroupDeleted":
+        if "members" in data and event_type in ("GroupDeleted", "TenantDeleted"):
             data["members"] = tuple(
                 MemberSnapshot(
                     user_id=m["user_id"],

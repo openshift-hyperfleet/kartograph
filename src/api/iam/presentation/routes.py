@@ -466,7 +466,7 @@ async def list_api_keys(
     try:
         # Parse and validate user_id if provided
         filter_user_id = None
-        if user_id:
+        if user_id is not None:
             try:
                 filter_user_id = UserId.from_string(value=user_id)
             except ValueError as e:

@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.domain.aggregates import Group
 from iam.domain.events import GroupCreated, MemberAdded, MemberRemoved
-from iam.domain.value_objects import GroupRole, TenantId, UserId
+from iam.domain.value_objects import GroupRole, UserId
 from iam.infrastructure.group_repository import GroupRepository
 from iam.infrastructure.outbox import IAMEventSerializer, IAMEventTranslator
 from shared_kernel.authorization.protocols import AuthorizationProvider
@@ -42,7 +42,10 @@ class TestOutboxEventCreation:
 
     @pytest.mark.asyncio
     async def test_group_creation_appends_group_created_event(
-        self, async_session: AsyncSession, spicedb_client: AuthorizationProvider
+        self,
+        async_session: AsyncSession,
+        spicedb_client: AuthorizationProvider,
+        test_tenant,
     ):
         """When a group is created, a GroupCreated event should be appended to the outbox."""
         serializer = IAMEventSerializer()
@@ -53,9 +56,8 @@ class TestOutboxEventCreation:
             outbox=outbox_repo,
         )
 
-        tenant_id = TenantId.generate()
         # Use factory method which records GroupCreated event
-        group = Group.create(name="Test Group for Outbox", tenant_id=tenant_id)
+        group = Group.create(name="Test Group for Outbox", tenant_id=test_tenant)
 
         async with async_session.begin():
             await group_repo.save(group)
@@ -77,7 +79,7 @@ class TestOutboxEventCreation:
         event = serializer.deserialize(outbox_entry.event_type, outbox_entry.payload)
         assert isinstance(event, GroupCreated)
         assert event.group_id == group.id.value
-        assert event.tenant_id == tenant_id.value
+        assert event.tenant_id == test_tenant.value
 
         # Clean up
         await async_session.execute(
@@ -92,7 +94,11 @@ class TestOutboxEventCreation:
 
     @pytest.mark.asyncio
     async def test_add_member_appends_member_added_event(
-        self, async_session: AsyncSession, spicedb_client: AuthorizationProvider
+        self,
+        async_session: AsyncSession,
+        spicedb_client: AuthorizationProvider,
+        test_tenant,
+        clean_iam_data,
     ):
         """When a member is added, a MemberAdded event should be appended to the outbox."""
         serializer = IAMEventSerializer()
@@ -103,9 +109,8 @@ class TestOutboxEventCreation:
             outbox=outbox_repo,
         )
 
-        tenant_id = TenantId.generate()
         # Use factory method
-        group = Group.create(name="Test Group Members", tenant_id=tenant_id)
+        group = Group.create(name="Test Group Members", tenant_id=test_tenant)
         user_id = UserId.generate()
 
         # Add member to the group
@@ -145,7 +150,11 @@ class TestOutboxEventCreation:
 
     @pytest.mark.asyncio
     async def test_remove_member_appends_member_removed_event(
-        self, async_session: AsyncSession, spicedb_client: AuthorizationProvider
+        self,
+        async_session: AsyncSession,
+        spicedb_client: AuthorizationProvider,
+        test_tenant,
+        clean_iam_data,
     ):
         """When a member is removed, a MemberRemoved event should be appended."""
         serializer = IAMEventSerializer()
@@ -156,9 +165,8 @@ class TestOutboxEventCreation:
             outbox=outbox_repo,
         )
 
-        tenant_id = TenantId.generate()
         # Use factory method
-        group = Group.create(name="Test Group Remove", tenant_id=tenant_id)
+        group = Group.create(name="Test Group Remove", tenant_id=test_tenant)
         admin1 = UserId.generate()
         admin2 = UserId.generate()
 
@@ -216,6 +224,8 @@ class TestOutboxWorkerProcessing:
         async_session: AsyncSession,
         session_factory,
         spicedb_client: AuthorizationProvider,
+        test_tenant,
+        clean_iam_data,
     ):
         """Worker should process GroupCreated and write tenant relationship to SpiceDB."""
         outbox_repo = OutboxRepository(async_session)
@@ -225,9 +235,8 @@ class TestOutboxWorkerProcessing:
             outbox=outbox_repo,
         )
 
-        tenant_id = TenantId.generate()
         # Use factory method
-        group = Group.create(name="Worker Test Group", tenant_id=tenant_id)
+        group = Group.create(name="Worker Test Group", tenant_id=test_tenant)
 
         # Create the group (will add to outbox)
         async with async_session.begin():
@@ -261,7 +270,7 @@ class TestOutboxWorkerProcessing:
 
         # Verify the relationship exists in SpiceDB
         group_resource = format_resource(ResourceType.GROUP, group.id.value)
-        tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
+        tenant_resource = format_resource(ResourceType.TENANT, test_tenant.value)
 
         has_relationship = await spicedb_client.check_permission(
             resource=group_resource,
@@ -292,6 +301,8 @@ class TestOutboxWorkerProcessing:
         async_session: AsyncSession,
         session_factory,
         spicedb_client: AuthorizationProvider,
+        test_tenant,
+        clean_iam_data,
     ):
         """Worker should process MemberAdded and write member relationship to SpiceDB."""
         outbox_repo = OutboxRepository(async_session)
@@ -301,9 +312,8 @@ class TestOutboxWorkerProcessing:
             outbox=outbox_repo,
         )
 
-        tenant_id = TenantId.generate()
         # Use factory method
-        group = Group.create(name="Member Test Group", tenant_id=tenant_id)
+        group = Group.create(name="Member Test Group", tenant_id=test_tenant)
         user_id = UserId.generate()
         group.add_member(user_id, GroupRole.MEMBER)
 
@@ -335,7 +345,7 @@ class TestOutboxWorkerProcessing:
         assert has_relationship is True
 
         # Clean up
-        tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
+        tenant_resource = format_resource(ResourceType.TENANT, test_tenant.value)
         await spicedb_client.delete_relationship(
             resource=group_resource,
             relation=RelationType.TENANT,
@@ -362,7 +372,11 @@ class TestAtomicityGuarantees:
 
     @pytest.mark.asyncio
     async def test_outbox_entry_created_in_same_transaction_as_group(
-        self, async_session: AsyncSession, spicedb_client: AuthorizationProvider
+        self,
+        async_session: AsyncSession,
+        spicedb_client: AuthorizationProvider,
+        test_tenant,
+        clean_iam_data,
     ):
         """Outbox entry and group should be committed atomically."""
         outbox_repo = OutboxRepository(async_session)
@@ -372,9 +386,8 @@ class TestAtomicityGuarantees:
             outbox=outbox_repo,
         )
 
-        tenant_id = TenantId.generate()
         # Use factory method
-        group = Group.create(name="Atomic Test Group", tenant_id=tenant_id)
+        group = Group.create(name="Atomic Test Group", tenant_id=test_tenant)
 
         # Save within a transaction
         async with async_session.begin():
@@ -409,7 +422,11 @@ class TestAtomicityGuarantees:
 
     @pytest.mark.asyncio
     async def test_rollback_removes_both_group_and_outbox_entry(
-        self, async_session: AsyncSession, spicedb_client: AuthorizationProvider
+        self,
+        async_session: AsyncSession,
+        spicedb_client: AuthorizationProvider,
+        test_tenant,
+        clean_iam_data,
     ):
         """On rollback, neither group nor outbox entry should persist."""
         outbox_repo = OutboxRepository(async_session)
@@ -419,9 +436,8 @@ class TestAtomicityGuarantees:
             outbox=outbox_repo,
         )
 
-        tenant_id = TenantId.generate()
         # Use factory method
-        group = Group.create(name="Rollback Test Group", tenant_id=tenant_id)
+        group = Group.create(name="Rollback Test Group", tenant_id=test_tenant)
 
         try:
             async with async_session.begin():
@@ -457,6 +473,8 @@ class TestOutboxWorkerNotifyProcessing:
         session_factory,
         spicedb_client: AuthorizationProvider,
         db_settings,
+        test_tenant,
+        clean_iam_data,
     ):
         """Worker should process via NOTIFY immediately, not waiting for poll."""
         import asyncio
@@ -512,8 +530,7 @@ class TestOutboxWorkerNotifyProcessing:
 
         try:
             # Create a group (this triggers INSERT -> NOTIFY)
-            tenant_id = TenantId.generate()
-            group = Group.create(name="NOTIFY Test Group", tenant_id=tenant_id)
+            group = Group.create(name="NOTIFY Test Group", tenant_id=test_tenant)
 
             async with async_session.begin():
                 await group_repo.save(group)
@@ -536,7 +553,7 @@ class TestOutboxWorkerNotifyProcessing:
 
             # Verify SpiceDB relationship exists
             group_resource = format_resource(ResourceType.GROUP, group.id.value)
-            tenant_resource = format_resource(ResourceType.TENANT, tenant_id.value)
+            tenant_resource = format_resource(ResourceType.TENANT, test_tenant.value)
 
             has_relationship = await spicedb_client.check_permission(
                 resource=group_resource,
@@ -579,7 +596,11 @@ class TestUnprocessedEventsRetry:
 
     @pytest.mark.asyncio
     async def test_unprocessed_events_stay_in_outbox(
-        self, async_session: AsyncSession, spicedb_client: AuthorizationProvider
+        self,
+        async_session: AsyncSession,
+        spicedb_client: AuthorizationProvider,
+        test_tenant,
+        clean_iam_data,
     ):
         """Events that fail to process should remain unprocessed for retry."""
         outbox_repo = OutboxRepository(async_session)
@@ -589,9 +610,8 @@ class TestUnprocessedEventsRetry:
             outbox=outbox_repo,
         )
 
-        tenant_id = TenantId.generate()
         # Use factory method
-        group = Group.create(name="Retry Test Group", tenant_id=tenant_id)
+        group = Group.create(name="Retry Test Group", tenant_id=test_tenant)
 
         async with async_session.begin():
             await group_repo.save(group)

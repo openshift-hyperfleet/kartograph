@@ -157,21 +157,26 @@ class TestListTenants:
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 3
+        # Should have 4 tenants: 3 created + 1 default tenant
+        assert len(data) == 4
         tenant_names = {t["name"] for t in data}
         assert "Acme Corp" in tenant_names
         assert "Wayne Enterprises" in tenant_names
         assert "Stark Industries" in tenant_names
+        assert "default" in tenant_names
 
     @pytest.mark.asyncio
-    async def test_returns_empty_list_when_no_tenants(
+    async def test_includes_default_tenant(
         self, async_client, clean_iam_data, auth_headers
     ):
-        """Should return empty list when no tenants exist."""
+        """Should include the default tenant created at app startup."""
         response = await async_client.get("/iam/tenants", headers=auth_headers)
 
         assert response.status_code == 200
-        assert response.json() == []
+        data = response.json()
+        # Should have exactly 1 tenant (the default)
+        assert len(data) == 1
+        assert data[0]["name"] == "default"
 
 
 class TestDeleteTenant:

@@ -14,8 +14,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-from iam.domain.value_objects import GroupRole, TenantId, TenantRole, UserId
-
 
 @dataclass(frozen=True)
 class MemberSnapshot:
@@ -30,7 +28,7 @@ class MemberSnapshot:
     """
 
     user_id: str
-    role: GroupRole
+    role: str
 
 
 @dataclass(frozen=True)
@@ -86,7 +84,7 @@ class MemberAdded:
 
     group_id: str
     user_id: str
-    role: GroupRole
+    role: str
     occurred_at: datetime
 
 
@@ -105,7 +103,7 @@ class MemberRemoved:
 
     group_id: str
     user_id: str
-    role: GroupRole
+    role: str
     occurred_at: datetime
 
 
@@ -126,8 +124,8 @@ class MemberRoleChanged:
 
     group_id: str
     user_id: str
-    old_role: GroupRole
-    new_role: GroupRole
+    old_role: str
+    new_role: str
     occurred_at: datetime
 
 
@@ -179,11 +177,11 @@ class TenantMemberAdded:
         occurred_at: When this even occurred (UTC)
     """
 
-    tenant_id: TenantId
-    user_id: UserId
-    role: TenantRole
+    tenant_id: str
+    user_id: str
+    role: str
     occurred_at: datetime
-    added_by: Optional[UserId] = None
+    added_by: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -197,10 +195,10 @@ class TenantMemberRemoved:
         occurred_at: When this even occurred (UTC)
     """
 
-    tenant_id: TenantId
-    user_id: UserId
+    tenant_id: str
+    user_id: str
     occurred_at: datetime
-    removed_by: UserId
+    removed_by: str
 
 
 @dataclass(frozen=True)

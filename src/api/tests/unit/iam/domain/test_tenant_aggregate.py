@@ -108,10 +108,10 @@ class TestAddMember:
         events = tenant.collect_events()
         event = events[0]
 
-        assert event.tenant_id == tenant_id
-        assert event.user_id == user_id
-        assert event.role == TenantRole.ADMIN
-        assert event.added_by == admin_id
+        assert event.tenant_id == tenant_id.value
+        assert event.user_id == user_id.value
+        assert event.role == TenantRole.ADMIN.value
+        assert event.added_by == admin_id.value
         assert isinstance(event.occurred_at, datetime)
 
     def test_add_member_without_added_by_is_system_action(self):
@@ -188,9 +188,9 @@ class TestRemoveMember:
         events = tenant.collect_events()
         event = events[0]
 
-        assert event.tenant_id == tenant_id
-        assert event.user_id == user_id
-        assert event.removed_by == admin_id
+        assert event.tenant_id == tenant_id.value
+        assert event.user_id == user_id.value
+        assert event.removed_by == admin_id.value
         assert isinstance(event.occurred_at, datetime)
 
     def test_remove_member_event_has_utc_timestamp(self):

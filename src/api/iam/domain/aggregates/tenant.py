@@ -78,10 +78,10 @@ class Tenant:
         """
         self._pending_events.append(
             TenantMemberAdded(
-                tenant_id=self.id,
-                user_id=user_id,
-                role=role,
-                added_by=added_by,
+                tenant_id=self.id.value,
+                user_id=user_id.value,
+                role=role.value,
+                added_by=added_by.value if added_by else None,
                 occurred_at=datetime.now(UTC),
             )
         )
@@ -100,9 +100,9 @@ class Tenant:
 
         self._pending_events.append(
             TenantMemberRemoved(
-                tenant_id=self.id,
-                user_id=user_id,
-                removed_by=removed_by,
+                tenant_id=self.id.value,
+                user_id=user_id.value,
+                removed_by=removed_by.value,
                 occurred_at=datetime.now(UTC),
             )
         )

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from iam.application.observability import DefaultTenantServiceProbe, TenantServiceProbe
 from iam.domain.aggregates import Tenant
-from iam.domain.value_objects import TenantId, TenantRole
+from iam.domain.value_objects import TenantId, TenantRole, UserId
 from iam.ports.exceptions import DuplicateTenantNameError
 from iam.ports.repositories import (
     IAPIKeyRepository,
@@ -110,6 +110,107 @@ class TenantService:
 
         self._probe.tenants_listed(count=len(tenants))
         return tenants
+
+    async def add_member(
+        self,
+        tenant_id: TenantId,
+        user_id: UserId,
+        role: TenantRole,
+        added_by: UserId | None = None,
+    ) -> None:
+        """Add a member to a tenant.
+
+        Args:
+            tenant_id: The tenant to add the member to
+            user_id: The user being added
+            role: The role to assign (ADMIN or MEMBER)
+            added_by: The user adding this member (None for system actions)
+
+        Returns:
+            None if successful
+
+        Raises:
+            ValueError: If tenant not found
+        """
+        async with self._session.begin():
+            tenant = await self._tenant_repository.get_by_id(tenant_id)
+
+            if not tenant:
+                self._probe.tenant_not_found(tenant_id=tenant_id.value)
+                return None
+
+            tenant.add_member(user_id=user_id, role=role, added_by=added_by)
+            await self._tenant_repository.save(tenant)
+
+    async def remove_member(
+        self,
+        tenant_id: TenantId,
+        user_id: UserId,
+        removed_by: UserId,
+    ) -> None:
+        """Remove a member from a tenant.
+
+        Args:
+            tenant_id: The tenant to remove the member from
+            user_id: The user being removed
+            removed_by: The user performing the removal
+
+        Returns:
+            None if successful
+
+        Raises:
+            CannotRemoveLastAdminError: If user is the last admin
+            ValueError: If tenant not found
+        """
+        async with self._session.begin():
+            tenant = await self._tenant_repository.get_by_id(tenant_id)
+
+            if not tenant:
+                self._probe.tenant_not_found(tenant_id=tenant_id.value)
+                return None
+
+            # Check if user is the last admin
+            is_last_admin = await self._tenant_repository.is_last_admin(
+                tenant_id, user_id, self._authz
+            )
+
+            tenant.remove_member(
+                user_id=user_id, removed_by=removed_by, is_last_admin=is_last_admin
+            )
+            await self._tenant_repository.save(tenant)
+
+    async def list_members(self, tenant_id: TenantId) -> list[tuple[str, str]] | None:
+        """List all members of a tenant.
+
+        Queries SpiceDB for all users with tenant membership roles.
+
+        Args:
+            tenant_id: The tenant to list members for
+
+        Returns:
+            List of (user_id, role) tuples, or None if tenant not found
+        """
+        # Verify tenant exists
+        tenant = await self._tenant_repository.get_by_id(tenant_id)
+        if not tenant:
+            self._probe.tenant_not_found(tenant_id=tenant_id.value)
+            return None
+
+        # Query SpiceDB for members by role
+        members = [
+            (subject.subject_id, role.value)
+            for role in TenantRole
+            for subject in await self._authz.lookup_subjects(
+                resource=format_resource(
+                    resource_type=ResourceType.TENANT,
+                    resource_id=tenant_id.value,
+                ),
+                relation=role.value,
+                subject_type=ResourceType.USER,
+            )
+        ]
+
+        return members
 
     async def delete_tenant(self, tenant_id: TenantId) -> bool:
         """Delete a tenant and all its child resources.

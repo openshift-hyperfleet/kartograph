@@ -136,9 +136,6 @@ class APIKeyService:
             List of APIKey aggregates matching all provided filters
         """
         # Use SpiceDB to find all API keys the current user can view
-        search_by_user: UserId = (
-            created_by_user_id if created_by_user_id else current_user.user_id
-        )
         try:
             api_key_ids = await self._authz.lookup_resources(
                 resource_type=ResourceType.API_KEY.value,
@@ -149,17 +146,17 @@ class APIKeyService:
             keys = await self._api_key_repository.list(
                 api_key_ids=[APIKeyId(value=key) for key in api_key_ids],
                 tenant_id=tenant_id,
-                created_by_user_id=search_by_user,
+                created_by_user_id=created_by_user_id,
             )
 
             self._probe.api_key_list_retrieved(
-                user_id=search_by_user.value,
+                user_id=repr(created_by_user_id),
                 count=len(keys),
             )
             return keys
         except Exception as e:
             self._probe.api_key_list_retrieval_failed(
-                user_id=search_by_user.value,
+                user_id=repr(created_by_user_id),
                 reason=repr(e),
             )
             raise

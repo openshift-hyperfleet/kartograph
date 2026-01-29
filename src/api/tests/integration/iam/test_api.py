@@ -12,7 +12,7 @@ import pytest_asyncio
 from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
 
-from iam.domain.value_objects import GroupId, Role
+from iam.domain.value_objects import GroupId, GroupRole
 from main import app
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
@@ -90,7 +90,7 @@ class TestCreateGroup:
         assert data["id"] is not None
         assert len(data["members"]) == 1
         # Creator becomes admin member
-        assert data["members"][0]["role"] == Role.ADMIN.value
+        assert data["members"][0]["role"] == GroupRole.ADMIN.value
         # User ID comes from JWT, verify it's a valid ULID format
         assert len(data["members"][0]["user_id"]) > 0
 

@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.domain.aggregates import Group
 from iam.domain.events import GroupCreated, MemberAdded, MemberRemoved
-from iam.domain.value_objects import Role, TenantId, UserId
+from iam.domain.value_objects import GroupRole, TenantId, UserId
 from iam.infrastructure.group_repository import GroupRepository
 from iam.infrastructure.outbox import IAMEventSerializer, IAMEventTranslator
 from shared_kernel.authorization.protocols import AuthorizationProvider
@@ -109,7 +109,7 @@ class TestOutboxEventCreation:
         user_id = UserId.generate()
 
         # Add member to the group
-        group.add_member(user_id, Role.ADMIN)
+        group.add_member(user_id, GroupRole.ADMIN)
 
         async with async_session.begin():
             await group_repo.save(group)
@@ -130,7 +130,7 @@ class TestOutboxEventCreation:
         assert isinstance(event, MemberAdded)
         assert event.group_id == group.id.value
         assert event.user_id == user_id.value
-        assert event.role == Role.ADMIN
+        assert event.role == GroupRole.ADMIN
 
         # Clean up
         await async_session.execute(
@@ -163,8 +163,8 @@ class TestOutboxEventCreation:
         admin2 = UserId.generate()
 
         # Add two admins (need two because we can't remove the last admin)
-        group.add_member(admin1, Role.ADMIN)
-        group.add_member(admin2, Role.ADMIN)
+        group.add_member(admin1, GroupRole.ADMIN)
+        group.add_member(admin2, GroupRole.ADMIN)
 
         async with async_session.begin():
             await group_repo.save(group)
@@ -193,7 +193,7 @@ class TestOutboxEventCreation:
         event = serializer.deserialize(outbox_entry.event_type, outbox_entry.payload)
         assert isinstance(event, MemberRemoved)
         assert event.user_id == admin2.value
-        assert event.role == Role.ADMIN
+        assert event.role == GroupRole.ADMIN
 
         # Clean up
         await async_session.execute(
@@ -305,7 +305,7 @@ class TestOutboxWorkerProcessing:
         # Use factory method
         group = Group.create(name="Member Test Group", tenant_id=tenant_id)
         user_id = UserId.generate()
-        group.add_member(user_id, Role.MEMBER)
+        group.add_member(user_id, GroupRole.MEMBER)
 
         async with async_session.begin():
             await group_repo.save(group)
@@ -329,7 +329,7 @@ class TestOutboxWorkerProcessing:
 
         has_relationship = await spicedb_client.check_permission(
             resource=group_resource,
-            permission=Role.MEMBER.value,
+            permission=GroupRole.MEMBER.value,
             subject=user_subject,
         )
         assert has_relationship is True
@@ -343,7 +343,7 @@ class TestOutboxWorkerProcessing:
         )
         await spicedb_client.delete_relationship(
             resource=group_resource,
-            relation=Role.MEMBER.value,
+            relation=GroupRole.MEMBER.value,
             subject=user_subject,
         )
         await async_session.execute(

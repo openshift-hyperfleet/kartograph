@@ -15,7 +15,7 @@ from iam.domain.events import (
     DomainEvent,
     MemberSnapshot,
 )
-from iam.domain.value_objects import Role
+from iam.domain.value_objects import GroupRole
 
 # Derive supported events from the DomainEvent type alias
 _SUPPORTED_EVENTS: frozenset[str] = frozenset(
@@ -98,7 +98,7 @@ class IAMEventSerializer:
         for key, value in list(data.items()):
             if isinstance(value, datetime):
                 data[key] = value.isoformat()
-            elif isinstance(value, Role):
+            elif isinstance(value, GroupRole):
                 data[key] = value.value
             elif isinstance(value, tuple):
                 # Handle MemberSnapshot tuples in GroupDeleted
@@ -131,18 +131,18 @@ class IAMEventSerializer:
 
         # Convert role fields back to Role enum
         if "role" in data:
-            data["role"] = Role(data["role"])
+            data["role"] = GroupRole(data["role"])
         if "old_role" in data:
-            data["old_role"] = Role(data["old_role"])
+            data["old_role"] = GroupRole(data["old_role"])
         if "new_role" in data:
-            data["new_role"] = Role(data["new_role"])
+            data["new_role"] = GroupRole(data["new_role"])
 
         # Convert members list back to tuple of MemberSnapshot
         if "members" in data and event_type == "GroupDeleted":
             data["members"] = tuple(
                 MemberSnapshot(
                     user_id=m["user_id"],
-                    role=Role(m["role"]),
+                    role=GroupRole(m["role"]),
                 )
                 for m in data["members"]
             )

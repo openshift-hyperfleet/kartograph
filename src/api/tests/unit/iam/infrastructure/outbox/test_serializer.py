@@ -17,7 +17,7 @@ from iam.domain.events import (
     MemberRoleChanged,
     MemberSnapshot,
 )
-from iam.domain.value_objects import Role
+from iam.domain.value_objects import GroupRole
 from iam.infrastructure.outbox import IAMEventSerializer
 
 
@@ -60,8 +60,8 @@ class TestIAMEventSerializerSerialize:
         serializer = IAMEventSerializer()
         occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
         members = (
-            MemberSnapshot(user_id="user1", role=Role.ADMIN),
-            MemberSnapshot(user_id="user2", role=Role.MEMBER),
+            MemberSnapshot(user_id="user1", role=GroupRole.ADMIN),
+            MemberSnapshot(user_id="user2", role=GroupRole.MEMBER),
         )
         event = GroupDeleted(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
@@ -85,7 +85,7 @@ class TestIAMEventSerializerSerialize:
         event = MemberAdded(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-            role=Role.MEMBER,
+            role=GroupRole.MEMBER,
             occurred_at=occurred_at,
         )
 
@@ -102,8 +102,8 @@ class TestIAMEventSerializerSerialize:
         event = MemberRoleChanged(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-            old_role=Role.MEMBER,
-            new_role=Role.ADMIN,
+            old_role=GroupRole.MEMBER,
+            new_role=GroupRole.ADMIN,
             occurred_at=occurred_at,
         )
 
@@ -183,8 +183,8 @@ class TestIAMEventSerializerDeserialize:
         assert len(event.members) == 2
         assert isinstance(event.members, tuple)
         assert isinstance(event.members[0], MemberSnapshot)
-        assert event.members[0].role == Role.ADMIN
-        assert event.members[1].role == Role.MEMBER
+        assert event.members[0].role == GroupRole.ADMIN
+        assert event.members[1].role == GroupRole.MEMBER
 
     def test_deserializes_member_added(self):
         """MemberAdded should reconstruct Role enum."""
@@ -199,7 +199,7 @@ class TestIAMEventSerializerDeserialize:
         event = serializer.deserialize("MemberAdded", payload)
 
         assert isinstance(event, MemberAdded)
-        assert event.role == Role.MEMBER
+        assert event.role == GroupRole.MEMBER
 
     def test_deserializes_member_role_changed(self):
         """MemberRoleChanged should reconstruct both roles."""
@@ -215,8 +215,8 @@ class TestIAMEventSerializerDeserialize:
         event = serializer.deserialize("MemberRoleChanged", payload)
 
         assert isinstance(event, MemberRoleChanged)
-        assert event.old_role == Role.MEMBER
-        assert event.new_role == Role.ADMIN
+        assert event.old_role == GroupRole.MEMBER
+        assert event.new_role == GroupRole.ADMIN
 
     def test_raises_for_unknown_event_type(self):
         """Deserializer should raise for unknown event types."""
@@ -249,8 +249,8 @@ class TestIAMEventSerializerRoundTrip:
         """GroupDeleted should round trip with members."""
         serializer = IAMEventSerializer()
         members = (
-            MemberSnapshot(user_id="user1", role=Role.ADMIN),
-            MemberSnapshot(user_id="user2", role=Role.MEMBER),
+            MemberSnapshot(user_id="user1", role=GroupRole.ADMIN),
+            MemberSnapshot(user_id="user2", role=GroupRole.MEMBER),
         )
         original = GroupDeleted(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
@@ -283,20 +283,20 @@ class TestIAMEventSerializerRoundTrip:
             MemberAdded(
                 group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
                 user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-                role=Role.MEMBER,
+                role=GroupRole.MEMBER,
                 occurred_at=occurred_at,
             ),
             MemberRemoved(
                 group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
                 user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-                role=Role.MEMBER,
+                role=GroupRole.MEMBER,
                 occurred_at=occurred_at,
             ),
             MemberRoleChanged(
                 group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
                 user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-                old_role=Role.MEMBER,
-                new_role=Role.ADMIN,
+                old_role=GroupRole.MEMBER,
+                new_role=GroupRole.ADMIN,
                 occurred_at=occurred_at,
             ),
         ]

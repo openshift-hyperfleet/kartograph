@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.application.observability import DefaultGroupServiceProbe, GroupServiceProbe
 from iam.domain.aggregates import Group
-from iam.domain.value_objects import GroupId, Role, TenantId, UserId
+from iam.domain.value_objects import GroupId, GroupRole, TenantId, UserId
 from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
@@ -74,7 +74,7 @@ class GroupService:
             # Create group using factory method (records GroupCreated event)
             group = Group.create(name=name, tenant_id=self._scope_to_tenant)
             # Add creator as admin (records MemberAdded event)
-            group.add_member(creator_id, Role.ADMIN)
+            group.add_member(creator_id, GroupRole.ADMIN)
 
             async with self._session.begin():
                 # Persist group (writes to PostgreSQL and outbox)

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, create_autospec
 
 from iam.application.services.group_service import GroupService
 from iam.domain.aggregates import Group, User
-from iam.domain.value_objects import GroupId, Role, TenantId, UserId
+from iam.domain.value_objects import GroupId, GroupRole, TenantId, UserId
 from iam.ports.exceptions import DuplicateGroupNameError
 from iam.ports.repositories import IGroupRepository
 
@@ -126,7 +126,7 @@ class TestCreateGroup:
         assert result.name == "Engineering"
         assert len(result.members) == 1
         assert result.members[0].user_id == creator_id
-        assert result.members[0].role == Role.ADMIN
+        assert result.members[0].role == GroupRole.ADMIN
 
     @pytest.mark.asyncio
     async def test_saves_group_to_repository(

@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, get_args
 
 from iam.domain.events import DomainEvent
-from iam.domain.value_objects import Role
+from iam.domain.value_objects import GroupRole
 from shared_kernel.authorization.types import RelationType, ResourceType
 from shared_kernel.outbox.operations import (
     DeleteRelationship,
@@ -110,7 +110,7 @@ class IAMEventTranslator:
 
         # Delete all member relationships from the snapshot
         for member in payload["members"]:
-            role = Role(member["role"])
+            role = GroupRole(member["role"])
             operations.append(
                 DeleteRelationship(
                     resource_type=ResourceType.GROUP,
@@ -128,7 +128,7 @@ class IAMEventTranslator:
         payload: dict[str, Any],
     ) -> list[SpiceDBOperation]:
         """Translate MemberAdded to role relationship write."""
-        role = Role(payload["role"])
+        role = GroupRole(payload["role"])
         return [
             WriteRelationship(
                 resource_type=ResourceType.GROUP,
@@ -144,7 +144,7 @@ class IAMEventTranslator:
         payload: dict[str, Any],
     ) -> list[SpiceDBOperation]:
         """Translate MemberRemoved to role relationship delete."""
-        role = Role(payload["role"])
+        role = GroupRole(payload["role"])
         return [
             DeleteRelationship(
                 resource_type=ResourceType.GROUP,
@@ -160,8 +160,8 @@ class IAMEventTranslator:
         payload: dict[str, Any],
     ) -> list[SpiceDBOperation]:
         """Translate MemberRoleChanged to delete old + write new role."""
-        old_role = Role(payload["old_role"])
-        new_role = Role(payload["new_role"])
+        old_role = GroupRole(payload["old_role"])
+        new_role = GroupRole(payload["new_role"])
 
         return [
             # First delete the old role relationship

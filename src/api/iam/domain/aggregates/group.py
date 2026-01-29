@@ -17,7 +17,7 @@ from iam.domain.events import (
 from iam.domain.value_objects import (
     GroupId,
     GroupMember,
-    Role,
+    GroupRole,
     TenantId,
     UserId,
 )
@@ -78,7 +78,7 @@ class Group:
         )
         return group
 
-    def add_member(self, user_id: UserId, role: Role) -> None:
+    def add_member(self, user_id: UserId, role: GroupRole) -> None:
         """Add a member to the group with a specific role.
 
         Args:
@@ -118,8 +118,8 @@ class Group:
         member_role = self.get_member_role(user_id)
 
         # Check if removing last admin
-        if member_role == Role.ADMIN:
-            admin_count = sum(1 for m in self.members if m.role == Role.ADMIN)
+        if member_role == GroupRole.ADMIN:
+            admin_count = sum(1 for m in self.members if m.role == GroupRole.ADMIN)
             if admin_count == 1:
                 raise ValueError(
                     "Cannot remove the last admin. Promote another member first."
@@ -137,7 +137,7 @@ class Group:
             )
         )
 
-    def update_member_role(self, user_id: UserId, new_role: Role) -> None:
+    def update_member_role(self, user_id: UserId, new_role: GroupRole) -> None:
         """Update a member's role.
 
         Args:
@@ -153,8 +153,8 @@ class Group:
         current_role = self.get_member_role(user_id)
 
         # Check if demoting last admin
-        if current_role == Role.ADMIN and new_role != Role.ADMIN:
-            admin_count = sum(1 for m in self.members if m.role == Role.ADMIN)
+        if current_role == GroupRole.ADMIN and new_role != GroupRole.ADMIN:
+            admin_count = sum(1 for m in self.members if m.role == GroupRole.ADMIN)
             if admin_count == 1:
                 raise ValueError(
                     "Cannot demote the last admin. Promote another member first."
@@ -205,7 +205,7 @@ class Group:
         """
         return any(m.user_id == user_id for m in self.members)
 
-    def get_member_role(self, user_id: UserId) -> Role | None:
+    def get_member_role(self, user_id: UserId) -> GroupRole | None:
         """Get the role of a member.
 
         Args:

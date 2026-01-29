@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 
-from iam.domain.value_objects import Role
+from iam.domain.value_objects import GroupRole
 from infrastructure.outbox.worker import OutboxWorker
 from shared_kernel.authorization.types import RelationType, ResourceType
 from shared_kernel.outbox.operations import DeleteRelationship, WriteRelationship
@@ -111,7 +111,7 @@ class TestOutboxWorkerProcessBatch:
             DeleteRelationship(
                 resource_type=ResourceType.GROUP,
                 resource_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
-                relation=Role.MEMBER,
+                relation=GroupRole.MEMBER,
                 subject_type=ResourceType.USER,
                 subject_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
             )

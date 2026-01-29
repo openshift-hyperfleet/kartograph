@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.domain.aggregates import Group
-from iam.domain.value_objects import GroupId, GroupMember, Role, TenantId, UserId
+from iam.domain.value_objects import GroupId, GroupMember, GroupRole, TenantId, UserId
 from iam.infrastructure.models import GroupModel
 from iam.infrastructure.observability import (
     DefaultGroupRepositoryProbe,
@@ -288,7 +288,7 @@ class GroupRepository(IGroupRepository):
         group_resource = format_resource(ResourceType.GROUP, group_id)
 
         # Lookup all subjects with each role type
-        for role in [Role.ADMIN, Role.MEMBER]:
+        for role in [GroupRole.ADMIN, GroupRole.MEMBER]:
             subjects = await self._authz.lookup_subjects(
                 resource=group_resource,
                 relation=role.value,
@@ -299,7 +299,7 @@ class GroupRepository(IGroupRepository):
                 members.append(
                     GroupMember(
                         user_id=UserId(value=subject_relation.subject_id),
-                        role=Role(subject_relation.relation),
+                        role=GroupRole(subject_relation.relation),
                     )
                 )
 

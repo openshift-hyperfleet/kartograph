@@ -75,12 +75,12 @@ class TestWriteRelationship:
 
     def test_relation_name_property_with_role_string(self):
         """Should handle role strings (from Role enum)."""
-        from iam.domain.value_objects import Role
+        from iam.domain.value_objects import GroupRole
 
         op = WriteRelationship(
             resource_type=ResourceType.GROUP,
             resource_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
-            relation=Role.ADMIN,
+            relation=GroupRole.ADMIN,
             subject_type=ResourceType.USER,
             subject_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
         )

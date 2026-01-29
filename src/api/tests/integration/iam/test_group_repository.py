@@ -8,7 +8,7 @@ with membership data coordinated across both systems.
 import pytest
 
 from iam.domain.aggregates import Group
-from iam.domain.value_objects import Role, TenantId, UserId
+from iam.domain.value_objects import GroupRole, TenantId, UserId
 from iam.infrastructure.group_repository import GroupRepository
 from iam.ports.exceptions import DuplicateGroupNameError
 
@@ -49,7 +49,7 @@ class TestGroupRoundTrip:
         tenant_id = TenantId.generate()
         group = Group.create(name="Engineering", tenant_id=tenant_id)
         user_id = UserId.generate()
-        group.add_member(user_id, Role.ADMIN)
+        group.add_member(user_id, GroupRole.ADMIN)
 
         async with async_session.begin():
             await group_repository.save(group)
@@ -63,7 +63,7 @@ class TestGroupRoundTrip:
         assert retrieved is not None
         assert len(retrieved.members) == 1
         assert retrieved.members[0].user_id.value == user_id.value
-        assert retrieved.members[0].role == Role.ADMIN
+        assert retrieved.members[0].role == GroupRole.ADMIN
 
 
 class TestGroupUpdates:
@@ -104,7 +104,7 @@ class TestGroupUpdates:
         tenant_id = TenantId.generate()
         group = Group.create(name="Engineering", tenant_id=tenant_id)
         admin_id = UserId.generate()
-        group.add_member(admin_id, Role.ADMIN)
+        group.add_member(admin_id, GroupRole.ADMIN)
 
         # Save initial group
         async with async_session.begin():
@@ -112,7 +112,7 @@ class TestGroupUpdates:
 
         # Add another member
         member_id = UserId.generate()
-        group.add_member(member_id, Role.MEMBER)
+        group.add_member(member_id, GroupRole.MEMBER)
         async with async_session.begin():
             await group_repository.save(group)
 
@@ -137,8 +137,8 @@ class TestGroupUpdates:
         group = Group.create(name="Engineering", tenant_id=tenant_id)
         admin1 = UserId.generate()
         admin2 = UserId.generate()
-        group.add_member(admin1, Role.ADMIN)
-        group.add_member(admin2, Role.ADMIN)
+        group.add_member(admin1, GroupRole.ADMIN)
+        group.add_member(admin2, GroupRole.ADMIN)
 
         # Save initial group
         async with async_session.begin():
@@ -171,15 +171,15 @@ class TestGroupUpdates:
         group = Group.create(name="Engineering", tenant_id=tenant_id)
         admin_id = UserId.generate()
         member_id = UserId.generate()
-        group.add_member(admin_id, Role.ADMIN)
-        group.add_member(member_id, Role.MEMBER)
+        group.add_member(admin_id, GroupRole.ADMIN)
+        group.add_member(member_id, GroupRole.MEMBER)
 
         # Save initial group
         async with async_session.begin():
             await group_repository.save(group)
 
         # Promote member to admin
-        group.update_member_role(member_id, Role.ADMIN)
+        group.update_member_role(member_id, GroupRole.ADMIN)
         async with async_session.begin():
             await group_repository.save(group)
 
@@ -193,7 +193,7 @@ class TestGroupUpdates:
         member = next(
             m for m in retrieved.members if m.user_id.value == member_id.value
         )
-        assert member.role == Role.ADMIN
+        assert member.role == GroupRole.ADMIN
 
 
 class TestGroupDeletion:
@@ -211,7 +211,7 @@ class TestGroupDeletion:
         tenant_id = TenantId.generate()
         group = Group.create(name="Engineering", tenant_id=tenant_id)
         user_id = UserId.generate()
-        group.add_member(user_id, Role.ADMIN)
+        group.add_member(user_id, GroupRole.ADMIN)
 
         # Save group
         async with async_session.begin():
@@ -359,7 +359,7 @@ class TestListByTenant:
         tenant_id = TenantId.generate()
         group = Group.create(name="Engineering", tenant_id=tenant_id)
         user_id = UserId.generate()
-        group.add_member(user_id, Role.ADMIN)
+        group.add_member(user_id, GroupRole.ADMIN)
 
         async with async_session.begin():
             await group_repository.save(group)

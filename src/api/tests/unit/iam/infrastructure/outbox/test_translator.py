@@ -6,7 +6,7 @@ SpiceDB relationship operations using type-safe enums.
 
 import pytest
 
-from iam.domain.value_objects import Role
+from iam.domain.value_objects import GroupRole
 from iam.infrastructure.outbox import IAMEventTranslator
 from shared_kernel.authorization.types import RelationType, ResourceType
 from shared_kernel.outbox.operations import DeleteRelationship, WriteRelationship
@@ -138,7 +138,7 @@ class TestIAMEventTranslatorMemberAdded:
         assert isinstance(op, WriteRelationship)
         assert op.resource_type == ResourceType.GROUP
         assert op.resource_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
-        assert op.relation == Role.MEMBER
+        assert op.relation == GroupRole.MEMBER
         assert op.subject_type == ResourceType.USER
         assert op.subject_id == "01ARZCX0P0HZGQP3MZXQQ0NNWW"
 
@@ -154,7 +154,7 @@ class TestIAMEventTranslatorMemberAdded:
 
         operations = translator.translate("MemberAdded", payload)
 
-        assert operations[0].relation == Role.ADMIN
+        assert operations[0].relation == GroupRole.ADMIN
         assert operations[0].relation_name == "admin"
 
 

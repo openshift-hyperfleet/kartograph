@@ -7,7 +7,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, create_autospec
 
 from iam.domain.aggregates import Group
-from iam.domain.value_objects import GroupId, Role, TenantId, UserId
+from iam.domain.value_objects import GroupId, GroupRole, TenantId, UserId
 from iam.infrastructure.group_repository import GroupRepository
 from iam.infrastructure.models import GroupModel
 from iam.ports.exceptions import DuplicateGroupNameError
@@ -148,7 +148,7 @@ class TestSave:
         tenant_id = TenantId.generate()
         # Use factory to generate events
         group = Group.create(name="Engineering", tenant_id=tenant_id)
-        group.add_member(UserId.generate(), Role.ADMIN)
+        group.add_member(UserId.generate(), GroupRole.ADMIN)
 
         # Mock get_by_name to return None
         repository.get_by_name = AsyncMock(return_value=None)
@@ -216,9 +216,11 @@ class TestGetById:
 
         # Mock SpiceDB members - return members only for ADMIN role, empty for others
         async def mock_lookup(resource, relation, subject_type):
-            if relation == Role.ADMIN.value:
+            if relation == GroupRole.ADMIN.value:
                 return [
-                    SubjectRelation(subject_id=user_id.value, relation=Role.ADMIN.value)
+                    SubjectRelation(
+                        subject_id=user_id.value, relation=GroupRole.ADMIN.value
+                    )
                 ]
             return []
 
@@ -232,7 +234,7 @@ class TestGetById:
         assert result.name == "Engineering"
         assert len(result.members) == 1
         assert result.members[0].user_id.value == user_id.value
-        assert result.members[0].role == Role.ADMIN
+        assert result.members[0].role == GroupRole.ADMIN
 
 
 class TestGetByName:
@@ -331,7 +333,7 @@ class TestDelete:
             name="Engineering",
         )
         admin_id = UserId.generate()
-        group.add_member(admin_id, Role.ADMIN)
+        group.add_member(admin_id, GroupRole.ADMIN)
         group.collect_events()  # Clear the add event
         group.mark_for_deletion()
 

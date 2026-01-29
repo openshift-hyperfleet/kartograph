@@ -21,7 +21,7 @@ from iam.domain.events import (
     MemberRoleChanged,
     MemberSnapshot,
 )
-from iam.domain.value_objects import Role
+from iam.domain.value_objects import GroupRole
 
 
 class TestGroupCreated:
@@ -89,8 +89,8 @@ class TestGroupDeleted:
         """Test that GroupDeleted can be created with required fields."""
         occurred_at = datetime.now(UTC)
         members = (
-            MemberSnapshot(user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW", role=Role.ADMIN),
-            MemberSnapshot(user_id="01ARZCX0P0HZGQP3MZXQQ0NNXX", role=Role.MEMBER),
+            MemberSnapshot(user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW", role=GroupRole.ADMIN),
+            MemberSnapshot(user_id="01ARZCX0P0HZGQP3MZXQQ0NNXX", role=GroupRole.MEMBER),
         )
 
         event = GroupDeleted(
@@ -120,9 +120,9 @@ class TestGroupDeleted:
     def test_members_snapshot_captures_all_members(self):
         """Test that members snapshot captures all members with their roles."""
         members = (
-            MemberSnapshot(user_id="admin1", role=Role.ADMIN),
-            MemberSnapshot(user_id="member1", role=Role.MEMBER),
-            MemberSnapshot(user_id="member2", role=Role.MEMBER),
+            MemberSnapshot(user_id="admin1", role=GroupRole.ADMIN),
+            MemberSnapshot(user_id="member1", role=GroupRole.MEMBER),
+            MemberSnapshot(user_id="member2", role=GroupRole.MEMBER),
         )
 
         event = GroupDeleted(
@@ -135,7 +135,7 @@ class TestGroupDeleted:
         assert len(event.members) == 3
         # Verify member snapshot structure
         admin_snapshot = next(m for m in event.members if m.user_id == "admin1")
-        assert admin_snapshot.role == Role.ADMIN
+        assert admin_snapshot.role == GroupRole.ADMIN
 
 
 class TestMemberAdded:
@@ -148,13 +148,13 @@ class TestMemberAdded:
         event = MemberAdded(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-            role=Role.MEMBER,
+            role=GroupRole.MEMBER,
             occurred_at=occurred_at,
         )
 
         assert event.group_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
         assert event.user_id == "01ARZCX0P0HZGQP3MZXQQ0NNWW"
-        assert event.role == Role.MEMBER
+        assert event.role == GroupRole.MEMBER
         assert event.occurred_at == occurred_at
 
     def test_role_is_role_enum(self):
@@ -162,24 +162,24 @@ class TestMemberAdded:
         event = MemberAdded(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-            role=Role.ADMIN,
+            role=GroupRole.ADMIN,
             occurred_at=datetime.now(UTC),
         )
 
-        assert isinstance(event.role, Role)
-        assert event.role == Role.ADMIN
+        assert isinstance(event.role, GroupRole)
+        assert event.role == GroupRole.ADMIN
 
     def test_is_immutable(self):
         """Test that MemberAdded is immutable (frozen dataclass)."""
         event = MemberAdded(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-            role=Role.MEMBER,
+            role=GroupRole.MEMBER,
             occurred_at=datetime.now(UTC),
         )
 
         with pytest.raises(FrozenInstanceError):
-            event.role = Role.ADMIN  # type: ignore[misc]
+            event.role = GroupRole.ADMIN  # type: ignore[misc]
 
 
 class TestMemberRemoved:
@@ -192,13 +192,13 @@ class TestMemberRemoved:
         event = MemberRemoved(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-            role=Role.MEMBER,
+            role=GroupRole.MEMBER,
             occurred_at=occurred_at,
         )
 
         assert event.group_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
         assert event.user_id == "01ARZCX0P0HZGQP3MZXQQ0NNWW"
-        assert event.role == Role.MEMBER
+        assert event.role == GroupRole.MEMBER
         assert event.occurred_at == occurred_at
 
     def test_is_immutable(self):
@@ -206,7 +206,7 @@ class TestMemberRemoved:
         event = MemberRemoved(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-            role=Role.MEMBER,
+            role=GroupRole.MEMBER,
             occurred_at=datetime.now(UTC),
         )
 
@@ -224,15 +224,15 @@ class TestMemberRoleChanged:
         event = MemberRoleChanged(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-            old_role=Role.MEMBER,
-            new_role=Role.ADMIN,
+            old_role=GroupRole.MEMBER,
+            new_role=GroupRole.ADMIN,
             occurred_at=occurred_at,
         )
 
         assert event.group_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
         assert event.user_id == "01ARZCX0P0HZGQP3MZXQQ0NNWW"
-        assert event.old_role == Role.MEMBER
-        assert event.new_role == Role.ADMIN
+        assert event.old_role == GroupRole.MEMBER
+        assert event.new_role == GroupRole.ADMIN
         assert event.occurred_at == occurred_at
 
     def test_roles_are_role_enum(self):
@@ -240,26 +240,26 @@ class TestMemberRoleChanged:
         event = MemberRoleChanged(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-            old_role=Role.MEMBER,
-            new_role=Role.ADMIN,
+            old_role=GroupRole.MEMBER,
+            new_role=GroupRole.ADMIN,
             occurred_at=datetime.now(UTC),
         )
 
-        assert isinstance(event.old_role, Role)
-        assert isinstance(event.new_role, Role)
+        assert isinstance(event.old_role, GroupRole)
+        assert isinstance(event.new_role, GroupRole)
 
     def test_is_immutable(self):
         """Test that MemberRoleChanged is immutable (frozen dataclass)."""
         event = MemberRoleChanged(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-            old_role=Role.MEMBER,
-            new_role=Role.ADMIN,
+            old_role=GroupRole.MEMBER,
+            new_role=GroupRole.ADMIN,
             occurred_at=datetime.now(UTC),
         )
 
         with pytest.raises(FrozenInstanceError):
-            event.new_role = Role.MEMBER  # type: ignore[misc]
+            event.new_role = GroupRole.MEMBER  # type: ignore[misc]
 
     def test_equality_based_on_all_values(self):
         """Test that two events with same values are equal."""
@@ -268,15 +268,15 @@ class TestMemberRoleChanged:
         event1 = MemberRoleChanged(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-            old_role=Role.MEMBER,
-            new_role=Role.ADMIN,
+            old_role=GroupRole.MEMBER,
+            new_role=GroupRole.ADMIN,
             occurred_at=occurred_at,
         )
         event2 = MemberRoleChanged(
             group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-            old_role=Role.MEMBER,
-            new_role=Role.ADMIN,
+            old_role=GroupRole.MEMBER,
+            new_role=GroupRole.ADMIN,
             occurred_at=occurred_at,
         )
 
@@ -303,7 +303,7 @@ class TestEventTypeUnion:
                 tenant_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
                 members=(
                     MemberSnapshot(
-                        user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW", role=Role.ADMIN
+                        user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW", role=GroupRole.ADMIN
                     ),
                 ),
                 occurred_at=occurred_at,
@@ -311,20 +311,20 @@ class TestEventTypeUnion:
             MemberAdded(
                 group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
                 user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-                role=Role.MEMBER,
+                role=GroupRole.MEMBER,
                 occurred_at=occurred_at,
             ),
             MemberRemoved(
                 group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
                 user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-                role=Role.MEMBER,
+                role=GroupRole.MEMBER,
                 occurred_at=occurred_at,
             ),
             MemberRoleChanged(
                 group_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
                 user_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
-                old_role=Role.MEMBER,
-                new_role=Role.ADMIN,
+                old_role=GroupRole.MEMBER,
+                new_role=GroupRole.ADMIN,
                 occurred_at=occurred_at,
             ),
         ]

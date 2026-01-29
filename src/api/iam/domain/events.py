@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from iam.domain.value_objects import Role
+from iam.domain.value_objects import GroupRole
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ class MemberSnapshot:
     """
 
     user_id: str
-    role: Role
+    role: GroupRole
 
 
 @dataclass(frozen=True)
@@ -85,7 +85,7 @@ class MemberAdded:
 
     group_id: str
     user_id: str
-    role: Role
+    role: GroupRole
     occurred_at: datetime
 
 
@@ -104,7 +104,7 @@ class MemberRemoved:
 
     group_id: str
     user_id: str
-    role: Role
+    role: GroupRole
     occurred_at: datetime
 
 
@@ -125,8 +125,8 @@ class MemberRoleChanged:
 
     group_id: str
     user_id: str
-    old_role: Role
-    new_role: Role
+    old_role: GroupRole
+    new_role: GroupRole
     occurred_at: datetime
 
 

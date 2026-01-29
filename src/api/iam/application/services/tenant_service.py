@@ -142,6 +142,13 @@ class TenantService:
             tenant.add_member(user_id=user_id, role=role, added_by=added_by)
             await self._tenant_repository.save(tenant)
 
+            self._probe.tenant_member_added(
+                tenant_id=tenant_id.value,
+                user_id=user_id.value,
+                role=role.value,
+                added_by=added_by.value if added_by else None,
+            )
+
     async def remove_member(
         self,
         tenant_id: TenantId,
@@ -179,6 +186,12 @@ class TenantService:
             )
             await self._tenant_repository.save(tenant)
 
+            self._probe.tenant_member_removed(
+                tenant_id=tenant_id.value,
+                user_id=user_id.value,
+                removed_by=removed_by.value,
+            )
+
     async def list_members(self, tenant_id: TenantId) -> list[tuple[str, str]] | None:
         """List all members of a tenant.
 
@@ -210,6 +223,10 @@ class TenantService:
             )
         ]
 
+        self._probe.tenant_members_listed(
+            tenant_id=tenant_id.value, member_count=len(members)
+        )
+
         return members
 
     async def delete_tenant(self, tenant_id: TenantId) -> bool:
@@ -235,13 +252,22 @@ class TenantService:
             # Step 1: Delete all groups belonging to this tenant
             # This ensures GroupDeleted events are emitted for SpiceDB cleanup
             groups = await self._group_repository.list_by_tenant(tenant_id)
-            for group in groups:
-                group.mark_for_deletion()
-                await self._group_repository.delete(group)
 
             # Step 2: Delete all API keys belonging to this tenant
             # This ensures APIKeyDeleted events are emitted for SpiceDB cleanup
             api_keys = await self._api_key_repository.list(tenant_id=tenant_id)
+
+            # Log cascade deletion scope for operational visibility
+            self._probe.tenant_cascade_deletion_started(
+                tenant_id=tenant_id.value,
+                groups_count=len(groups),
+                api_keys_count=len(api_keys),
+            )
+
+            for group in groups:
+                group.mark_for_deletion()
+                await self._group_repository.delete(group)
+
             for api_key in api_keys:
                 api_key.mark_for_deletion()
                 await self._api_key_repository.delete(api_key)

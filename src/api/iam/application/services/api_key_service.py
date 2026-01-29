@@ -52,7 +52,6 @@ class APIKeyService:
         Args:
             session: Database session for transaction management
             api_key_repository: Repository for API key persistence
-            scope_to_tenant: A tenant to which this service will be scoped.
             probe: Optional domain probe for observability
         """
         self._session = session
@@ -77,7 +76,7 @@ class APIKeyService:
             created_by_user_id: The user who is creating this key (audit trail)
             name: A descriptive name for the key
             expires_in_days: Number of days until expiration
-
+            tenant_id: The tenant in which the API key will be created
         Returns:
             Tuple of (APIKey aggregate, plaintext_secret)
 
@@ -131,6 +130,7 @@ class APIKeyService:
 
         Args:
             created_by_user_id: Optional filter for keys created by this user
+            tenant_id: The tenant in which the list operation will be performed
 
         Returns:
             List of APIKey aggregates matching all provided filters
@@ -177,7 +177,7 @@ class APIKeyService:
         Args:
             api_key_id: The ID of the key to revoke
             user_id: The user who owns the key (for access control)
-
+            tenant_id: The tenant in which the revocation will occur
         Raises:
             APIKeyNotFoundError: If the key doesn't exist
             APIKeyAlreadyRevokedError: If the key is already revoked

@@ -227,7 +227,7 @@ class APIKeyRepository(IAPIKeyRepository):
 
         Args:
             api_key_ids: Optional list of specific API key IDs to include
-            tenant_id: Optional tenant to scope the list to
+            tenant_id: required tenant to scope the list to
             created_by_user_id: Optional filter for keys created by this user
 
         Returns:
@@ -243,8 +243,10 @@ class APIKeyRepository(IAPIKeyRepository):
             id_values = [id_val.value for id_val in api_key_ids]
             conditions.append(APIKeyModel.id.in_(id_values))
 
-        if tenant_id is not None:
-            conditions.append(APIKeyModel.tenant_id == tenant_id.value)
+        if tenant_id is None:
+            raise ValueError("tenant_id is required")
+
+        conditions.append(APIKeyModel.tenant_id == tenant_id.value)
 
         if created_by_user_id is not None:
             conditions.append(

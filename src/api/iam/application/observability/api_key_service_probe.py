@@ -60,6 +60,7 @@ class APIKeyServiceProbe(Protocol):
 
     def api_key_list_retrieval_failed(self, user_id: str, reason: str) -> None:
         """Record that API key list operation failed."""
+        ...
 
     def with_context(self, context: ObservationContext) -> APIKeyServiceProbe:
         """Create a new probe with observation context bound."""

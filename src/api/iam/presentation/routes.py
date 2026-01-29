@@ -426,7 +426,22 @@ async def create_api_key(
         ) from e
 
 
-@router.get("/api-keys")
+@router.get(
+    "/api-keys",
+    status_code=status.HTTP_200_OK,
+    responses={
+        200: {
+            "description": "List of API keys the user can view",
+            "model": list[APIKeyResponse],
+        },
+        400: {
+            "description": "Invalid user_id (cannot be empty or whitespace)",
+        },
+        500: {
+            "description": "Internal server error",
+        },
+    },
+)
 async def list_api_keys(
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[APIKeyService, Depends(get_api_key_service)],
@@ -443,26 +458,33 @@ async def list_api_keys(
     Args:
         current_user: Current authenticated user with tenant context
         service: API key service for orchestration
-        authz: SpiceDB authorization provider
         user_id: Optional filter to show only keys created by this user
 
     Returns:
         List of APIKeyResponse objects (without secrets) that the user can view
-
-    Raises:
-        HTTPException: 400 if user_id is invalid
-        HTTPException: 500 for unexpected errors
     """
     try:
+        # Parse and validate user_id if provided
+        filter_user_id = None
+        if user_id:
+            try:
+                filter_user_id = UserId.from_string(value=user_id)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid user_id format: {e}",
+                ) from e
+
         # Get keys filtered by SpiceDB permissions
-        # The service doesn't know about authorization - it just filters by IDs
         api_keys = await service.list_api_keys(
-            created_by_user_id=UserId(value=user_id) if user_id else None,
+            created_by_user_id=filter_user_id,
             tenant_id=current_user.tenant_id,
             current_user=current_user,
         )
         return [APIKeyResponse.from_domain(key) for key in api_keys]
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

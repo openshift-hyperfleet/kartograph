@@ -12,8 +12,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Optional
 
-from iam.domain.value_objects import GroupRole
+from iam.domain.value_objects import GroupRole, TenantId, TenantRole, UserId
 
 
 @dataclass(frozen=True)
@@ -167,6 +168,25 @@ class TenantDeleted:
 
 
 @dataclass(frozen=True)
+class TenantMemberAdded:
+    """Event raised when a user is added as a member to a tenant.
+
+    Attributes:
+        tenant_id: The ID of the tenant to which the member was added
+        user_id: The user added as a member to the tenant
+        role: The role the user is given within the tenant
+        added_by: The [optional] ID of the user that initiated this action
+        occurred_at: When this even occurred (UTC)
+    """
+
+    tenant_id: TenantId
+    user_id: UserId
+    role: TenantRole
+    occurred_at: datetime
+    added_by: Optional[UserId] = None
+
+
+@dataclass(frozen=True)
 class APIKeyCreated:
     """Event raised when a new API key is created.
 
@@ -215,6 +235,7 @@ DomainEvent = (
     | MemberRoleChanged
     | TenantCreated
     | TenantDeleted
+    | TenantMemberAdded
     | APIKeyCreated
     | APIKeyRevoked
 )

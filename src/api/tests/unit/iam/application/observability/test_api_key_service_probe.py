@@ -188,7 +188,7 @@ class TestAPIKeyListRetrievedLogging:
         mock_logger.info.assert_called_once()
         call_args = mock_logger.info.call_args
         assert call_args[0][0] == "api_key_list_retrieved"
-        assert call_args[1]["user_id"] == "user-456"
+        assert call_args[1]["filter_user_id"] == "user-456"
         assert call_args[1]["count"] == 5
 
 

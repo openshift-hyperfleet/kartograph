@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.1.5](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.4...v3.1.5) (2026-01-27)
+
+
+### Bug Fixes
+
+* **build:** rbac labels ([#167](https://github.com/openshift-hyperfleet/kartograph/issues/167)) ([a91e5f1](https://github.com/openshift-hyperfleet/kartograph/commit/a91e5f10c6ee3505f795401fc126633af2400c7f))
+* **deploy:** add init waiter SA to kustomization ([#171](https://github.com/openshift-hyperfleet/kartograph/issues/171)) ([795dfa0](https://github.com/openshift-hyperfleet/kartograph/commit/795dfa0fae2e91c584a75fe552a179d018524c08))
+* **deploy:** remove selectors from jobs ([#170](https://github.com/openshift-hyperfleet/kartograph/issues/170)) ([72e0312](https://github.com/openshift-hyperfleet/kartograph/commit/72e031254c916d2072d6a1fe6bce42e0ed82ec0e))
+* **deploy:** update sha references ([#172](https://github.com/openshift-hyperfleet/kartograph/issues/172)) ([56f7f52](https://github.com/openshift-hyperfleet/kartograph/commit/56f7f5242897cdf5abcdf949789bf5ca54d2acbc))
+
 ## [3.1.4](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.3...v3.1.4) (2026-01-27)
 
 

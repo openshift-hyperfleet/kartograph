@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
-from iam.dependencies import get_current_user
+from iam.dependencies.user import get_current_user
 
 from graph.ports.protocols import NodeNeighborsResult
 from graph.application.services import (

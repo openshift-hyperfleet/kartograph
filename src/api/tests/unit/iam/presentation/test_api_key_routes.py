@@ -72,7 +72,8 @@ def test_client(
     mock_current_user: CurrentUser,
 ) -> TestClient:
     """Create TestClient with mocked dependencies."""
-    from iam.dependencies import get_current_user, get_api_key_service
+    from iam.dependencies.user import get_current_user
+    from iam.dependencies.api_key import get_api_key_service
     from iam.presentation.routes import router
     from infrastructure.authorization_dependencies import get_spicedb_client
 
@@ -303,6 +304,20 @@ class TestListAPIKeysRoute:
         assert "secret" not in result[0]
         assert "key_hash" not in result[0]
         assert "hash" not in result[0]
+
+    def test_returns_400_for_empty_user_id(
+        self,
+        test_client: TestClient,
+        mock_api_key_service: AsyncMock,
+    ) -> None:
+        """Should return 400 when user_id is empty or whitespace."""
+        response = test_client.get("/iam/api-keys?user_id=%20%20")  # URL-encoded spaces
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid user_id format" in response.json()["detail"]
+
+        # Service should not be called if validation fails
+        mock_api_key_service.list_api_keys.assert_not_called()
 
 
 class TestRevokeAPIKeyRoute:

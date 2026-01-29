@@ -6,8 +6,9 @@ Following TDD - write tests first to define desired behavior.
 import pytest
 from unittest.mock import AsyncMock, MagicMock, create_autospec
 
+from iam.application.services.user_service import UserService
 from iam.domain.aggregates import User
-from iam.domain.value_objects import UserId
+from iam.domain.value_objects import TenantId, UserId
 from iam.ports.repositories import IUserRepository
 
 
@@ -39,40 +40,35 @@ def mock_probe():
 
 
 @pytest.fixture
-def user_service(mock_user_repository, mock_session, mock_probe):
+def tenant_id() -> TenantId:
+    return TenantId(value="default")
+
+
+@pytest.fixture
+def user_service(mock_user_repository, mock_session, mock_probe, tenant_id):
     """Create UserService with mock dependencies."""
-    from iam.application.services.user_service import UserService
 
     return UserService(
         user_repository=mock_user_repository,
         session=mock_session,
         probe=mock_probe,
+        scope_to_tenant=tenant_id,
     )
 
 
 class TestUserServiceInit:
     """Tests for UserService initialization."""
 
-    def test_stores_repository(self, mock_user_repository, mock_session):
+    def test_stores_repository(self, mock_user_repository, user_service: UserService):
         """Service should store repository reference."""
-        from iam.application.services.user_service import UserService
 
-        service = UserService(
-            user_repository=mock_user_repository,
-            session=mock_session,
-        )
+        service = user_service
         assert service._user_repository is mock_user_repository
 
-    def test_uses_default_probe_when_not_provided(
-        self, mock_user_repository, mock_session
-    ):
+    def test_uses_default_probe_when_not_provided(self, user_service: UserService):
         """Service should create default probe when not provided."""
-        from iam.application.services.user_service import UserService
 
-        service = UserService(
-            user_repository=mock_user_repository,
-            session=mock_session,
-        )
+        service = user_service
         assert service._probe is not None
 
 
@@ -81,7 +77,7 @@ class TestEnsureUser:
 
     @pytest.mark.asyncio
     async def test_returns_existing_user(
-        self, user_service, mock_user_repository, mock_probe
+        self, user_service: UserService, mock_user_repository, mock_probe
     ):
         """Should return existing user if found in repository."""
         user_id = UserId.generate()

@@ -9,24 +9,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from iam.dependencies.api_key import get_api_key_service
+from iam.dependencies.group import get_group_service
+from iam.dependencies.user import get_current_user
+from iam.dependencies.tenant import get_default_tenant_id, get_tenant_service
 from iam.application.services import GroupService, TenantService
 from iam.application.services.api_key_service import APIKeyService
 from iam.application.value_objects import CurrentUser
-from iam.dependencies import (
-    get_api_key_service,
-    get_current_user,
-    get_default_tenant_id,
-    get_group_service,
-    get_tenant_service,
-)
-from infrastructure.authorization_dependencies import get_spicedb_client
 from iam.domain.value_objects import APIKeyId, GroupId, TenantId, UserId
-from shared_kernel.authorization.protocols import AuthorizationProvider
-from shared_kernel.authorization.types import (
-    Permission,
-    ResourceType,
-    format_subject,
-)
 from iam.ports.exceptions import (
     APIKeyAlreadyRevokedError,
     APIKeyNotFoundError,
@@ -64,8 +54,8 @@ async def create_group(
 
     Args:
         request: Group creation request (just name)
-        current_user: Current authenticated user with tenant context
-        service: Group service for orchestration
+        current_user: Current authenticated user
+        service: Group service, tenant scoped
 
     Returns:
         GroupResponse with created group details
@@ -78,7 +68,6 @@ async def create_group(
         group = await service.create_group(
             name=request.name,
             creator_id=current_user.user_id,
-            tenant_id=current_user.tenant_id,
         )
         return GroupResponse.from_domain(group)
 
@@ -131,7 +120,7 @@ async def get_group(
         ) from e
 
     try:
-        group = await service.get_group(group_id_obj, current_user.tenant_id)
+        group = await service.get_group(group_id=group_id_obj)
         if group is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -156,12 +145,10 @@ async def delete_group(
 ) -> None:
     """Delete a group.
 
-    Tenant ID comes from authenticated user context (JWT claims in production).
-
     Args:
         group_id: Group ID (ULID format)
-        current_user: Current authenticated user with tenant context
-        service: Group service
+        current_user: Current authenticated user
+        service: Group service, tenant scoped
 
     Returns:
         None (204 No Content on success)
@@ -181,7 +168,7 @@ async def delete_group(
 
     try:
         deleted = await service.delete_group(
-            group_id_obj, current_user.tenant_id, current_user.user_id
+            group_id=group_id_obj, user_id=current_user.user_id
         )
         if not deleted:
             raise HTTPException(
@@ -334,8 +321,7 @@ async def delete_tenant(
 ) -> None:
     """Delete a tenant.
 
-    For the walking skeleton, this uses header-based auth.
-    In production, this should be restricted to system administrators.
+    TODO: In production, this should be restricted to system administrators.
 
     Args:
         tenant_id: Tenant ID (ULID format)
@@ -360,7 +346,7 @@ async def delete_tenant(
 
     # Prevent deletion of default tenant
     default_tenant_id = get_default_tenant_id()
-    if tenant_id_obj.value == default_tenant_id.value:
+    if tenant_id_obj.value == default_tenant_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot delete the default tenant",
@@ -419,9 +405,9 @@ async def create_api_key(
     try:
         api_key, plaintext_secret = await service.create_api_key(
             created_by_user_id=current_user.user_id,
-            tenant_id=current_user.tenant_id,
             name=request.name,
             expires_in_days=request.expires_in_days,
+            tenant_id=current_user.tenant_id,
         )
         return APIKeyCreatedResponse(
             secret=plaintext_secret,
@@ -440,11 +426,25 @@ async def create_api_key(
         ) from e
 
 
-@router.get("/api-keys")
+@router.get(
+    "/api-keys",
+    status_code=status.HTTP_200_OK,
+    responses={
+        200: {
+            "description": "List of API keys the user can view",
+            "model": list[APIKeyResponse],
+        },
+        400: {
+            "description": "Invalid user_id (cannot be empty or whitespace)",
+        },
+        500: {
+            "description": "Internal server error",
+        },
+    },
+)
 async def list_api_keys(
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[APIKeyService, Depends(get_api_key_service)],
-    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
     user_id: str | None = None,
 ) -> list[APIKeyResponse]:
     """List API keys the current user can view.
@@ -458,41 +458,28 @@ async def list_api_keys(
     Args:
         current_user: Current authenticated user with tenant context
         service: API key service for orchestration
-        authz: SpiceDB authorization provider
         user_id: Optional filter to show only keys created by this user
 
     Returns:
         List of APIKeyResponse objects (without secrets) that the user can view
-
-    Raises:
-        HTTPException: 400 if user_id is invalid
-        HTTPException: 500 for unexpected errors
     """
     try:
-        # Use SpiceDB to find all API keys the current user can view
-        viewable_key_ids = await authz.lookup_resources(
-            resource_type=ResourceType.API_KEY.value,
-            permission=Permission.VIEW.value,
-            subject=format_subject(ResourceType.USER, current_user.user_id.value),
-        )
-
-        # Parse optional user_id filter
+        # Parse and validate user_id if provided
         filter_user_id = None
-        if user_id:
+        if user_id is not None:
             try:
-                filter_user_id = UserId.from_string(user_id)
+                filter_user_id = UserId.from_string(value=user_id)
             except ValueError as e:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid user ID format: {e}",
+                    detail=f"Invalid user_id format: {e}",
                 ) from e
 
         # Get keys filtered by SpiceDB permissions
-        # The service doesn't know about authorization - it just filters by IDs
         api_keys = await service.list_api_keys(
-            api_key_ids=viewable_key_ids,
-            tenant_id=current_user.tenant_id,
             created_by_user_id=filter_user_id,
+            tenant_id=current_user.tenant_id,
+            current_user=current_user,
         )
         return [APIKeyResponse.from_domain(key) for key in api_keys]
 
@@ -501,7 +488,7 @@ async def list_api_keys(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list API keys: {e}",
+            detail="Failed to list API keys",
         ) from e
 
 

@@ -5,7 +5,6 @@ metadata:
   annotations:
     haproxy.router.openshift.io/timeout: 60s
 spec:
-  host: kartograph-stage.devshift.net
   to:
     kind: Service
     name: kartograph-api

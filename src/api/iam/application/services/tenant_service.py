@@ -7,9 +7,15 @@ from __future__ import annotations
 
 from iam.application.observability import DefaultTenantServiceProbe, TenantServiceProbe
 from iam.domain.aggregates import Tenant
-from iam.domain.value_objects import TenantId
+from iam.domain.value_objects import TenantId, TenantRole
 from iam.ports.exceptions import DuplicateTenantNameError
-from iam.ports.repositories import ITenantRepository
+from iam.ports.repositories import (
+    IAPIKeyRepository,
+    IGroupRepository,
+    ITenantRepository,
+)
+from shared_kernel.authorization.protocols import AuthorizationProvider
+from shared_kernel.authorization.types import ResourceType, format_resource
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -17,11 +23,16 @@ class TenantService:
     """Application service for tenant management.
 
     Handles tenant CRUD operations with transaction management.
+    For deletion, explicitly cascades to child aggregates (groups, API keys)
+    to ensure proper domain events are emitted for SpiceDB cleanup.
     """
 
     def __init__(
         self,
         tenant_repository: ITenantRepository,
+        group_repository: IGroupRepository,
+        api_key_repository: IAPIKeyRepository,
+        authz: AuthorizationProvider,
         session: AsyncSession,
         probe: TenantServiceProbe | None = None,
     ):
@@ -29,10 +40,16 @@ class TenantService:
 
         Args:
             tenant_repository: Repository for tenant persistence
+            group_repository: Repository for group persistence (for cascade delete)
+            api_key_repository: Repository for API key persistence (for cascade delete)
+            authz: Authorization provider for SpiceDB queries
             session: Database session for transaction management
             probe: Optional domain probe for observability
         """
         self._tenant_repository = tenant_repository
+        self._group_repository = group_repository
+        self._api_key_repository = api_key_repository
+        self._authz = authz
         self._probe = probe or DefaultTenantServiceProbe()
         self._session = session
 
@@ -95,9 +112,11 @@ class TenantService:
         return tenants
 
     async def delete_tenant(self, tenant_id: TenantId) -> bool:
-        """Delete a tenant.
+        """Delete a tenant and all its child resources.
 
-        Manages database transaction for the entire use case.
+        Explicitly deletes all child aggregates (groups, API keys) before
+        deleting the tenant to ensure proper domain events are emitted for
+        SpiceDB cleanup. This prevents orphaned relationships in SpiceDB.
 
         Args:
             tenant_id: The unique identifier of the tenant to delete
@@ -112,7 +131,36 @@ class TenantService:
                 self._probe.tenant_not_found(tenant_id=tenant_id.value)
                 return False
 
-            tenant.mark_for_deletion()
+            # Step 1: Delete all groups belonging to this tenant
+            # This ensures GroupDeleted events are emitted for SpiceDB cleanup
+            groups = await self._group_repository.list_by_tenant(tenant_id)
+            for group in groups:
+                group.mark_for_deletion()
+                await self._group_repository.delete(group)
+
+            # Step 2: Delete all API keys belonging to this tenant
+            # This ensures APIKeyDeleted events are emitted for SpiceDB cleanup
+            api_keys = await self._api_key_repository.list(tenant_id=tenant_id)
+            for api_key in api_keys:
+                api_key.mark_for_deletion()
+                await self._api_key_repository.delete(api_key)
+
+            # Step 3: Query SpiceDB for tenant members to build snapshot
+            members = [
+                (subject.subject_id, role.value)
+                for role in TenantRole
+                for subject in await self._authz.lookup_subjects(
+                    resource=format_resource(
+                        resource_type=ResourceType.TENANT,
+                        resource_id=tenant_id.value,
+                    ),
+                    relation=role.value,
+                    subject_type=ResourceType.USER,
+                )
+            ]
+
+            # Step 4: Delete the tenant
+            tenant.mark_for_deletion(members=members)
             result = await self._tenant_repository.delete(tenant)
 
             if result:

@@ -16,8 +16,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared_kernel.authorization.types import Permission, ResourceType, format_resource
+from shared_kernel.authorization.protocols import AuthorizationProvider
 from iam.domain.aggregates import Tenant
-from iam.domain.value_objects import TenantId
+from iam.domain.value_objects import TenantId, UserId
 from iam.infrastructure.models import TenantModel
 from iam.infrastructure.observability import (
     DefaultTenantRepositoryProbe,
@@ -124,6 +126,25 @@ class TenantRepository(ITenantRepository):
                     f"Tenant '{tenant.name}' already exists"
                 ) from e
             raise
+
+    async def is_last_admin(
+        self, tenant_id: TenantId, user_id: UserId, authz: AuthorizationProvider
+    ) -> bool:
+        """Check if user is the last admin in the tenant.
+
+        Queries SpiceDB to count admins with 'administrate' permission.
+        """
+        # Query SpiceDB for all users with admin permission
+        admins = await authz.lookup_subjects(
+            resource=format_resource(
+                resource_type=ResourceType.TENANT, resource_id=tenant_id.value
+            ),
+            relation=Permission.ADMINISTRATE,
+            subject_type=ResourceType.USER,
+        )
+
+        # If only 1 admin and it's this user, they're the last admin
+        return len(admins) == 1 and user_id.value in admins
 
     async def get_by_id(self, tenant_id: TenantId) -> Tenant | None:
         """Fetch tenant metadata from PostgreSQL.

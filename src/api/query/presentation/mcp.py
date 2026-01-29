@@ -81,7 +81,7 @@ def _extract_asciidoc_content(raw_content: str) -> str:
         return raw_content[2:]
     elif newline_heading_pos != -1:
         # Found heading after newline, skip "\n= " to start at title text
-        return raw_content[newline_heading_pos + 3:]
+        return raw_content[newline_heading_pos + 3 :]
     else:
         # No level-1 heading found, return as-is
         return raw_content

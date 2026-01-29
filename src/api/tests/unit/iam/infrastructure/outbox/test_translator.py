@@ -269,6 +269,45 @@ class TestIAMEventTranslatorAPIKeyRevoked:
         assert len(operations) == 0
 
 
+class TestIAMEventTranslatorAPIKeyDeleted:
+    """Tests for APIKeyDeleted translation."""
+
+    def test_translates_api_key_deleted_removes_all_relationships(self):
+        """APIKeyDeleted should delete owner and tenant relationships.
+
+        Used for cascade deletion when a tenant is deleted. Removes all
+        SpiceDB relationships to prevent orphaned data.
+        """
+        translator = IAMEventTranslator()
+        payload = {
+            "api_key_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            "user_id": "user-123-abc",
+            "tenant_id": "01ARZCX0P0HZGQP3MZXQQ0NNYY",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("APIKeyDeleted", payload)
+
+        assert len(operations) == 2
+
+        # First: delete owner relationship
+        owner_delete = operations[0]
+        assert isinstance(owner_delete, DeleteRelationship)
+        assert owner_delete.resource_type == ResourceType.API_KEY
+        assert owner_delete.resource_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
+        assert owner_delete.relation == RelationType.OWNER
+        assert owner_delete.subject_type == ResourceType.USER
+        assert owner_delete.subject_id == "user-123-abc"
+
+        # Second: delete tenant relationship
+        tenant_delete = operations[1]
+        assert isinstance(tenant_delete, DeleteRelationship)
+        assert tenant_delete.resource_type == ResourceType.API_KEY
+        assert tenant_delete.relation == RelationType.TENANT
+        assert tenant_delete.subject_type == ResourceType.TENANT
+        assert tenant_delete.subject_id == "01ARZCX0P0HZGQP3MZXQQ0NNYY"
+
+
 class TestIAMEventTranslatorErrors:
     """Tests for error handling."""
 
@@ -279,4 +318,4 @@ class TestIAMEventTranslatorErrors:
         with pytest.raises(ValueError) as exc_info:
             translator.translate("UnknownEvent", {})
 
-        assert "Unsupported event type" in str(exc_info.value)
+        assert "Unknown event type" in str(exc_info.value)

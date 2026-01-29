@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.2.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.5...v3.2.0) (2026-01-29)
+
+
+### Features
+
+* **api.iam:** tenant membership foundation ([#176](https://github.com/openshift-hyperfleet/kartograph/issues/176)) ([07a6389](https://github.com/openshift-hyperfleet/kartograph/commit/07a638918d516f40b41fb96179b42f47e3efbcd0))
+
 ## [3.1.5](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.4...v3.1.5) (2026-01-27)
 
 

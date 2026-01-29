@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from iam.domain.aggregates import APIKey
-from iam.domain.events import APIKeyCreated, APIKeyRevoked
+from iam.domain.events import APIKeyCreated, APIKeyDeleted, APIKeyRevoked
 from iam.domain.value_objects import APIKeyId, TenantId, UserId
 from iam.ports.exceptions import APIKeyAlreadyRevokedError
 
@@ -312,3 +312,71 @@ class TestAPIKeyEventCollection:
         assert len(events) == 2
         assert isinstance(events[0], APIKeyCreated)
         assert isinstance(events[1], APIKeyRevoked)
+
+
+class TestAPIKeyDeletion:
+    """Tests for APIKey.mark_for_deletion() method."""
+
+    def test_mark_for_deletion_records_event(self):
+        """Test that mark_for_deletion() records APIKeyDeleted event."""
+        api_key = APIKey.create(
+            created_by_user_id=UserId.generate(),
+            tenant_id=TenantId.generate(),
+            expires_at=(datetime.now(UTC) + timedelta(days=1)),
+            name="Test Key",
+            key_hash="hash",
+            prefix="karto_ab",
+        )
+
+        api_key.mark_for_deletion()
+
+        events = api_key.collect_events()
+        # Should have 2 events: APIKeyCreated + APIKeyDeleted
+        assert len(events) == 2
+        assert isinstance(events[1], APIKeyDeleted)
+
+    def test_mark_for_deletion_event_has_correct_data(self):
+        """Test that APIKeyDeleted event contains all required data."""
+        user_id = UserId.generate()
+        tenant_id = TenantId.generate()
+
+        api_key = APIKey.create(
+            created_by_user_id=user_id,
+            tenant_id=tenant_id,
+            expires_at=(datetime.now(UTC) + timedelta(days=1)),
+            name="Test Key",
+            key_hash="hash",
+            prefix="karto_ab",
+        )
+
+        api_key.mark_for_deletion()
+
+        events = api_key.collect_events()
+        event = events[1]  # APIKeyDeleted is second event
+
+        assert event.api_key_id == api_key.id.value
+        assert event.user_id == user_id.value
+        assert event.tenant_id == tenant_id.value
+        assert isinstance(event.occurred_at, datetime)
+        assert event.occurred_at.tzinfo == UTC
+
+    def test_can_delete_revoked_key(self):
+        """Test that a revoked key can still be deleted."""
+        api_key = APIKey.create(
+            created_by_user_id=UserId.generate(),
+            tenant_id=TenantId.generate(),
+            expires_at=(datetime.now(UTC) + timedelta(days=1)),
+            name="Test Key",
+            key_hash="hash",
+            prefix="karto_ab",
+        )
+
+        api_key.revoke()
+        api_key.mark_for_deletion()
+
+        events = api_key.collect_events()
+        # Should have 3 events: Created + Revoked + Deleted
+        assert len(events) == 3
+        assert isinstance(events[0], APIKeyCreated)
+        assert isinstance(events[1], APIKeyRevoked)
+        assert isinstance(events[2], APIKeyDeleted)

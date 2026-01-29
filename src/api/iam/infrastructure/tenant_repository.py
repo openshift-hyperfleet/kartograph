@@ -144,7 +144,7 @@ class TenantRepository(ITenantRepository):
         )
 
         # If only 1 admin and it's this user, they're the last admin
-        return len(admins) == 1 and user_id.value in admins
+        return len(admins) == 1 and user_id.value in [a.subject_id for a in admins]
 
     async def get_by_id(self, tenant_id: TenantId) -> Tenant | None:
         """Fetch tenant metadata from PostgreSQL.

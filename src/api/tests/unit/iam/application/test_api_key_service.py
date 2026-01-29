@@ -601,8 +601,14 @@ class TestAPIKeyServiceList:
         mock_api_key_repository.list.assert_called_once()
         repo_call_kwargs = mock_api_key_repository.list.call_args.kwargs
         assert repo_call_kwargs["tenant_id"] == current_user.tenant_id
-        assert repo_call_kwargs["created_by_user_id"] == current_user.user_id
+        assert repo_call_kwargs["created_by_user_id"] is None  # No filter specified
         assert len(repo_call_kwargs["api_key_ids"]) == 2
+
+        # Verify probe was called with None for filter_user_id (no filter)
+        mock_probe.api_key_list_retrieved.assert_called_once_with(
+            user_id=None,
+            count=2,
+        )
 
     @pytest.mark.asyncio
     async def test_filters_by_created_by_user_id(
@@ -659,7 +665,7 @@ class TestAPIKeyServiceList:
 
         assert result == []
         mock_probe.api_key_list_retrieved.assert_called_once_with(
-            user_id=current_user.user_id.value,
+            user_id=None,  # No filter specified
             count=0,
         )
 
@@ -699,7 +705,7 @@ class TestAPIKeyServiceList:
         )
 
         mock_probe.api_key_list_retrieved.assert_called_once_with(
-            user_id=current_user.user_id.value,
+            user_id=None,  # No filter specified
             count=1,
         )
 
@@ -731,5 +737,5 @@ class TestAPIKeyServiceList:
 
         mock_probe.api_key_list_retrieval_failed.assert_called_once()
         call_kwargs = mock_probe.api_key_list_retrieval_failed.call_args.kwargs
-        assert call_kwargs["user_id"] == current_user.user_id.value
+        assert call_kwargs["user_id"] is None  # No filter specified
         assert "SpiceDB connection failed" in call_kwargs["reason"]

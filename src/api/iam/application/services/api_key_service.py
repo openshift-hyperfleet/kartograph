@@ -150,13 +150,13 @@ class APIKeyService:
             )
 
             self._probe.api_key_list_retrieved(
-                user_id=repr(created_by_user_id),
+                user_id=created_by_user_id.value if created_by_user_id else None,
                 count=len(keys),
             )
             return keys
         except Exception as e:
             self._probe.api_key_list_retrieval_failed(
-                user_id=repr(created_by_user_id),
+                user_id=created_by_user_id.value if created_by_user_id else None,
                 reason=repr(e),
             )
             raise

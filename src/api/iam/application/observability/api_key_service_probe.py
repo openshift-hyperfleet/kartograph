@@ -52,14 +52,24 @@ class APIKeyServiceProbe(Protocol):
 
     def api_key_list_retrieved(
         self,
-        user_id: str,
+        user_id: str | None,
         count: int,
     ) -> None:
-        """Record that API keys were listed for a user."""
+        """Record that API keys were listed.
+
+        Args:
+            user_id: Optional filter - the user whose keys were listed, or None for all viewable keys
+            count: Number of keys returned
+        """
         ...
 
-    def api_key_list_retrieval_failed(self, user_id: str, reason: str) -> None:
-        """Record that API key list operation failed."""
+    def api_key_list_retrieval_failed(self, user_id: str | None, reason: str) -> None:
+        """Record that API key list operation failed.
+
+        Args:
+            user_id: Optional filter - the user whose keys were being listed, or None for all
+            reason: Error description
+        """
         ...
 
     def with_context(self, context: ObservationContext) -> APIKeyServiceProbe:
@@ -144,26 +154,36 @@ class DefaultAPIKeyServiceProbe:
 
     def api_key_list_retrieved(
         self,
-        user_id: str,
+        user_id: str | None,
         count: int,
     ) -> None:
-        """Record that API keys were listed for a user."""
+        """Record that API keys were listed.
+
+        Args:
+            user_id: Optional filter - the user whose keys were listed, or None for all viewable keys
+            count: Number of keys returned
+        """
         self._logger.info(
             "api_key_list_retrieved",
-            user_id=user_id,
+            filter_user_id=user_id,
             count=count,
             **self._get_context_kwargs(),
         )
 
     def api_key_list_retrieval_failed(
         self,
-        user_id: str,
+        user_id: str | None,
         reason: str,
     ) -> None:
-        """Record that API key list operation failed."""
+        """Record that API key list operation failed.
+
+        Args:
+            user_id: Optional filter - the user whose keys were being listed, or None for all
+            reason: Error description
+        """
         self._logger.warning(
             "api_key_list_retrieval_failed",
-            user_id=user_id,
+            filter_user_id=user_id,
             reason=reason,
             **self._get_context_kwargs(),
         )

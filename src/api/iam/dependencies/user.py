@@ -176,11 +176,8 @@ async def get_current_user(
 
     Args:
         token: Bearer token from Authorization header (via OAuth2AuthorizationCodeBearer)
-        x_api_key: API key from X-API-Key header
-        validator: JWT validator for token validation
         user_service: The user service for JIT provisioning
-        api_key_service: The API key service for validation
-        auth_probe: Authentication probe for observability
+        current_user: The current authenticated user
 
     Returns:
         CurrentUser with user_id, username, and tenant_id

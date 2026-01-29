@@ -140,6 +140,13 @@ class GroupRole(StrEnum):
     MEMBER = "member"
 
 
+class TenantRole(StrEnum):
+    """Roles for tenant membership."""
+
+    ADMIN = "admin"
+    MEMBER = "member"
+
+
 @dataclass(frozen=True)
 class GroupMember:
     """Represents a user's membership in a group with a specific role.
@@ -162,3 +169,11 @@ class GroupMember:
     def has_admin_privileges(self) -> bool:
         """Check if this member has admin privileges."""
         return self.role == GroupRole.ADMIN
+
+
+@dataclass(frozen=True)
+class TenantMember:
+    """Represent's a user's membership in a Tenant with a specific role."""
+
+    user_id: UserId
+    role: TenantRole

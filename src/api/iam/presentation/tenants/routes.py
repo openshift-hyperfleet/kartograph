@@ -194,7 +194,28 @@ async def delete_tenant(
         )
 
 
-@router.post("/{tenant_id}/members", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{tenant_id}/members",
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        201: {
+            "description": "Member successfully added to tenant",
+            "model": TenantMemberResponse,
+        },
+        400: {
+            "description": "Invalid tenant ID or user ID format",
+        },
+        403: {
+            "description": "Insufficient permissions to manage tenant members",
+        },
+        404: {
+            "description": "Tenant not found",
+        },
+        500: {
+            "description": "Internal server error",
+        },
+    },
+)
 async def add_tenant_member(
     tenant_id: str,
     request: AddTenantMemberRequest,
@@ -269,7 +290,30 @@ async def add_tenant_member(
         )
 
 
-@router.delete("/{tenant_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{tenant_id}/members/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        204: {
+            "description": "Member successfully removed from tenant",
+        },
+        400: {
+            "description": "Invalid tenant ID or user ID format",
+        },
+        403: {
+            "description": "Insufficient permissions to manage tenant members",
+        },
+        404: {
+            "description": "Tenant not found",
+        },
+        409: {
+            "description": "Cannot remove the last admin from the tenant",
+        },
+        500: {
+            "description": "Internal server error",
+        },
+    },
+)
 async def remove_tenant_member(
     tenant_id: str,
     user_id: str,
@@ -346,7 +390,28 @@ async def remove_tenant_member(
         )
 
 
-@router.get("/{tenant_id}/members")
+@router.get(
+    "/{tenant_id}/members",
+    status_code=status.HTTP_200_OK,
+    responses={
+        200: {
+            "description": "List of tenant members",
+            "model": list[TenantMemberResponse],
+        },
+        400: {
+            "description": "Invalid tenant ID format",
+        },
+        403: {
+            "description": "Insufficient permissions to view tenant members",
+        },
+        404: {
+            "description": "Tenant not found",
+        },
+        500: {
+            "description": "Internal server error",
+        },
+    },
+)
 async def list_tenant_members(
     tenant_id: str,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],

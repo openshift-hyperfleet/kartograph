@@ -284,7 +284,30 @@ class IAMEventTranslator:
     def _translate_tenant_member_removed(
         self, payload: dict[str, Any]
     ) -> list[SpiceDBOperation]:
-        # Remove all possible relations with a tenant for the given user
+        """Translate TenantMemberRemoved to DeleteRelationship operations.
+
+        Unlike _translate_member_removed which receives a specific role in the
+        payload, TenantMemberRemoved events do not include a role. Therefore,
+        this method deletes all TenantRole relations (member, admin) for the
+        given user from the tenant, ensuring complete removal regardless of
+        which roles the user held.
+
+        Args:
+            payload: Event payload containing tenant_id and user_id
+
+        Returns:
+            List of DeleteRelationship operations for each TenantRole
+
+        Raises:
+            ValueError: If required keys tenant_id or user_id are missing
+        """
+        required_keys = {"tenant_id", "user_id"}
+        missing_keys = required_keys - payload.keys()
+        if missing_keys:
+            raise ValueError(
+                f"_translate_tenant_member_removed missing required keys: {missing_keys}"
+            )
+
         return [
             DeleteRelationship(
                 subject_type=ResourceType.USER,

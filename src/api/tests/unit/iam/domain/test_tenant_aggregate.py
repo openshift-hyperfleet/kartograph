@@ -108,10 +108,10 @@ class TestAddMember:
         events = tenant.collect_events()
         event = events[0]
 
-        assert event.tenant_id == tenant_id
-        assert event.user_id == user_id
-        assert event.role == TenantRole.ADMIN
-        assert event.added_by == admin_id
+        assert event.tenant_id == tenant_id.value
+        assert event.user_id == user_id.value
+        assert event.role == TenantRole.ADMIN.value
+        assert event.added_by == admin_id.value
         assert isinstance(event.occurred_at, datetime)
 
     def test_add_member_without_added_by_is_system_action(self):
@@ -188,9 +188,9 @@ class TestRemoveMember:
         events = tenant.collect_events()
         event = events[0]
 
-        assert event.tenant_id == tenant_id
-        assert event.user_id == user_id
-        assert event.removed_by == admin_id
+        assert event.tenant_id == tenant_id.value
+        assert event.user_id == user_id.value
+        assert event.removed_by == admin_id.value
         assert isinstance(event.occurred_at, datetime)
 
     def test_remove_member_event_has_utc_timestamp(self):
@@ -312,8 +312,9 @@ class TestMarkForDeletion:
         from iam.domain.events import TenantDeleted
 
         tenant = Tenant(id=TenantId.generate(), name="Acme Corp")
+        members = []  # Empty tenant
 
-        tenant.mark_for_deletion()
+        tenant.mark_for_deletion(members=members)
 
         events = tenant.collect_events()
         assert len(events) == 1
@@ -324,12 +325,41 @@ class TestMarkForDeletion:
 
         tenant_id = TenantId.generate()
         tenant = Tenant(id=tenant_id, name="Acme Corp")
+        members = []  # Empty tenant
 
-        tenant.mark_for_deletion()
+        tenant.mark_for_deletion(members=members)
 
         events = tenant.collect_events()
         event = events[0]
 
         assert event.tenant_id == tenant_id.value
         assert isinstance(event.occurred_at, datetime)
+        assert event.occurred_at.tzinfo == UTC
+        assert event.members == ()
+
+    def test_mark_for_deletion_captures_member_snapshot(self):
+        """Test that mark_for_deletion captures snapshot of tenant members."""
+        from iam.domain.events import MemberSnapshot, TenantDeleted
+
+        tenant = Tenant(id=TenantId.generate(), name="Acme Corp")
+        members = [
+            ("user-123", "admin"),
+            ("user-456", "member"),
+            ("user-789", "admin"),
+        ]
+
+        tenant.mark_for_deletion(members=members)
+
+        events = tenant.collect_events()
+        event = events[0]
+
+        assert isinstance(event, TenantDeleted)
+        assert len(event.members) == 3
+        assert all(isinstance(m, MemberSnapshot) for m in event.members)
+        assert event.members[0].user_id == "user-123"
+        assert event.members[0].role == "admin"
+        assert event.members[1].user_id == "user-456"
+        assert event.members[1].role == "member"
+        assert event.members[2].user_id == "user-789"
+        assert event.members[2].role == "admin"
         assert event.occurred_at.tzinfo == UTC

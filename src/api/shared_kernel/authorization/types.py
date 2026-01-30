@@ -91,6 +91,7 @@ class Permission(StrEnum):
     EDIT = "edit"
     DELETE = "delete"
     MANAGE = "manage"
+    ADMINISTRATE = "administrate"
 
 
 def format_resource(resource_type: ResourceType, resource_id: str) -> str:

@@ -54,7 +54,7 @@ class TestTenantDeletion:
             assert retrieved is not None
 
             # Mark for deletion and delete
-            retrieved.mark_for_deletion()
+            retrieved.mark_for_deletion(members=[])  # Empty tenant, no members
             result = await tenant_repository.delete(retrieved)
 
         assert result is True
@@ -136,17 +136,22 @@ class TestListAll:
         # List all tenants
         all_tenants = await tenant_repository.list_all()
 
-        assert len(all_tenants) == 3
+        # Should have 4 tenants: 3 created + 1 default tenant
+        assert len(all_tenants) == 4
         tenant_ids = {t.id.value for t in all_tenants}
         assert tenant1.id.value in tenant_ids
         assert tenant2.id.value in tenant_ids
         assert tenant3.id.value in tenant_ids
 
     @pytest.mark.asyncio
-    async def test_returns_empty_list_when_no_tenants(
+    async def test_includes_default_tenant(
         self, tenant_repository: TenantRepository, clean_iam_data
     ):
-        """Should return empty list when no tenants exist."""
+        """Should include the default tenant created at app startup."""
+        from infrastructure.settings import get_iam_settings
+
         tenants = await tenant_repository.list_all()
 
-        assert tenants == []
+        # Default tenant should exist
+        assert len(tenants) == 1
+        assert tenants[0].name == get_iam_settings().default_tenant_name

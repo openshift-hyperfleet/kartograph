@@ -269,6 +269,172 @@ class TestIAMEventTranslatorAPIKeyRevoked:
         assert len(operations) == 0
 
 
+class TestIAMEventTranslatorAPIKeyDeleted:
+    """Tests for APIKeyDeleted translation."""
+
+    def test_translates_api_key_deleted_removes_all_relationships(self):
+        """APIKeyDeleted should delete owner and tenant relationships.
+
+        Used for cascade deletion when a tenant is deleted. Removes all
+        SpiceDB relationships to prevent orphaned data.
+        """
+        translator = IAMEventTranslator()
+        payload = {
+            "api_key_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            "user_id": "user-123-abc",
+            "tenant_id": "01ARZCX0P0HZGQP3MZXQQ0NNYY",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("APIKeyDeleted", payload)
+
+        assert len(operations) == 2
+
+        # First: delete owner relationship
+        owner_delete = operations[0]
+        assert isinstance(owner_delete, DeleteRelationship)
+        assert owner_delete.resource_type == ResourceType.API_KEY
+        assert owner_delete.resource_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
+        assert owner_delete.relation == RelationType.OWNER
+        assert owner_delete.subject_type == ResourceType.USER
+        assert owner_delete.subject_id == "user-123-abc"
+
+        # Second: delete tenant relationship
+        tenant_delete = operations[1]
+        assert isinstance(tenant_delete, DeleteRelationship)
+        assert tenant_delete.resource_type == ResourceType.API_KEY
+        assert tenant_delete.relation == RelationType.TENANT
+        assert tenant_delete.subject_type == ResourceType.TENANT
+        assert tenant_delete.subject_id == "01ARZCX0P0HZGQP3MZXQQ0NNYY"
+
+
+class TestIAMEventTranslatorTenantMemberAdded:
+    """Tests for TenantMemberAdded translation."""
+
+    def test_translates_tenant_member_added_with_admin_role(self):
+        """TenantMemberAdded with admin role should write admin relation."""
+        translator = IAMEventTranslator()
+        payload = {
+            "tenant_id": "01TENANT123",
+            "user_id": "user-456",
+            "role": "admin",
+            "added_by": "user-admin",
+            "occurred_at": "2026-01-29T12:00:00+00:00",
+        }
+
+        operations = translator.translate("TenantMemberAdded", payload)
+
+        assert len(operations) == 1
+        op = operations[0]
+        assert isinstance(op, WriteRelationship)
+        assert op.resource_type == ResourceType.TENANT
+        assert op.resource_id == "01TENANT123"
+        assert op.relation.value == "admin"
+        assert op.subject_type == ResourceType.USER
+        assert op.subject_id == "user-456"
+
+    def test_translates_tenant_member_added_with_member_role(self):
+        """TenantMemberAdded with member role should write member relation."""
+        translator = IAMEventTranslator()
+        payload = {
+            "tenant_id": "01TENANT123",
+            "user_id": "user-789",
+            "role": "member",
+            "added_by": None,
+            "occurred_at": "2026-01-29T12:00:00+00:00",
+        }
+
+        operations = translator.translate("TenantMemberAdded", payload)
+
+        assert len(operations) == 1
+        op = operations[0]
+        assert op.relation.value == "member"
+
+
+class TestIAMEventTranslatorTenantMemberRemoved:
+    """Tests for TenantMemberRemoved translation."""
+
+    def test_translates_tenant_member_removed_deletes_all_roles(self):
+        """TenantMemberRemoved should delete both member and admin relations.
+
+        Deletes all possible tenant role relations to ensure cleanup
+        regardless of what role the user actually had.
+        """
+        translator = IAMEventTranslator()
+        payload = {
+            "tenant_id": "01TENANT123",
+            "user_id": "user-456",
+            "removed_by": "user-admin",
+            "occurred_at": "2026-01-29T12:00:00+00:00",
+        }
+
+        operations = translator.translate("TenantMemberRemoved", payload)
+
+        # Should delete both admin and member relations
+        assert len(operations) == 2
+
+        # Verify both are delete operations for the tenant
+        for op in operations:
+            assert isinstance(op, DeleteRelationship)
+            assert op.resource_type == ResourceType.TENANT
+            assert op.resource_id == "01TENANT123"
+            assert op.subject_type == ResourceType.USER
+            assert op.subject_id == "user-456"
+
+        # Verify both role relations are deleted
+        relations = {op.relation.value for op in operations}
+        assert relations == {"admin", "member"}
+
+
+class TestIAMEventTranslatorTenantDeleted:
+    """Tests for TenantDeleted translation."""
+
+    def test_translates_tenant_deleted_with_no_members(self):
+        """TenantDeleted with empty members should return no operations."""
+        translator = IAMEventTranslator()
+        payload = {
+            "tenant_id": "01TENANT123",
+            "members": [],
+            "occurred_at": "2026-01-29T12:00:00+00:00",
+        }
+
+        operations = translator.translate("TenantDeleted", payload)
+
+        assert len(operations) == 0
+
+    def test_translates_tenant_deleted_with_members(self):
+        """TenantDeleted should delete all member relationships from snapshot."""
+        translator = IAMEventTranslator()
+        payload = {
+            "tenant_id": "01TENANT123",
+            "members": [
+                {"user_id": "user-admin-1", "role": "admin"},
+                {"user_id": "user-admin-2", "role": "admin"},
+                {"user_id": "user-member-1", "role": "member"},
+            ],
+            "occurred_at": "2026-01-29T12:00:00+00:00",
+        }
+
+        operations = translator.translate("TenantDeleted", payload)
+
+        assert len(operations) == 3
+
+        # Verify all are delete operations
+        for op in operations:
+            assert isinstance(op, DeleteRelationship)
+            assert op.resource_type == ResourceType.TENANT
+            assert op.resource_id == "01TENANT123"
+            assert op.subject_type == ResourceType.USER
+
+        # Verify specific members
+        deleted_members = {(op.subject_id, op.relation.value) for op in operations}
+        assert deleted_members == {
+            ("user-admin-1", "admin"),
+            ("user-admin-2", "admin"),
+            ("user-member-1", "member"),
+        }
+
+
 class TestIAMEventTranslatorErrors:
     """Tests for error handling."""
 
@@ -279,4 +445,4 @@ class TestIAMEventTranslatorErrors:
         with pytest.raises(ValueError) as exc_info:
             translator.translate("UnknownEvent", {})
 
-        assert "Unsupported event type" in str(exc_info.value)
+        assert "Unknown event type" in str(exc_info.value)

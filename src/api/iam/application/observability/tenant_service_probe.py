@@ -41,6 +41,28 @@ class TenantServiceProbe(Protocol):
         """Record that a duplicate tenant name was detected."""
         ...
 
+    def tenant_member_added(
+        self, tenant_id: str, user_id: str, role: str, added_by: str | None
+    ) -> None:
+        """Record that a member was added to a tenant."""
+        ...
+
+    def tenant_member_removed(
+        self, tenant_id: str, user_id: str, removed_by: str
+    ) -> None:
+        """Record that a member was removed from a tenant."""
+        ...
+
+    def tenant_members_listed(self, tenant_id: str, member_count: int) -> None:
+        """Record that tenant members were listed."""
+        ...
+
+    def tenant_cascade_deletion_started(
+        self, tenant_id: str, groups_count: int, api_keys_count: int
+    ) -> None:
+        """Record that cascade deletion is starting for a tenant."""
+        ...
+
     def with_context(self, context: ObservationContext) -> TenantServiceProbe:
         """Create a new probe with observation context bound."""
         ...
@@ -113,5 +135,55 @@ class DefaultTenantServiceProbe:
         self._logger.warning(
             "duplicate_tenant_name",
             name=name,
+            **self._get_context_kwargs(),
+        )
+
+    def tenant_member_added(
+        self, tenant_id: str, user_id: str, role: str, added_by: str | None
+    ) -> None:
+        """Record that a member was added to a tenant."""
+        self._logger.info(
+            "tenant_member_added",
+            tenant_id=tenant_id,
+            user_id=user_id,
+            role=role,
+            added_by=added_by,
+            **self._get_context_kwargs(),
+        )
+
+    def tenant_member_removed(
+        self, tenant_id: str, user_id: str, removed_by: str
+    ) -> None:
+        """Record that a member was removed from a tenant."""
+        self._logger.info(
+            "tenant_member_removed",
+            tenant_id=tenant_id,
+            user_id=user_id,
+            removed_by=removed_by,
+            **self._get_context_kwargs(),
+        )
+
+    def tenant_members_listed(self, tenant_id: str, member_count: int) -> None:
+        """Record that tenant members were listed."""
+        self._logger.debug(
+            "tenant_members_listed",
+            tenant_id=tenant_id,
+            member_count=member_count,
+            **self._get_context_kwargs(),
+        )
+
+    def tenant_cascade_deletion_started(
+        self, tenant_id: str, groups_count: int, api_keys_count: int
+    ) -> None:
+        """Record that cascade deletion is starting for a tenant.
+
+        This provides valuable operational insight into the scope of
+        deletion operations, useful for debugging and monitoring.
+        """
+        self._logger.info(
+            "tenant_cascade_deletion_started",
+            tenant_id=tenant_id,
+            groups_count=groups_count,
+            api_keys_count=api_keys_count,
             **self._get_context_kwargs(),
         )

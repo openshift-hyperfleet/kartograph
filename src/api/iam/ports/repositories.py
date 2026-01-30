@@ -12,6 +12,8 @@ from typing import Callable, Protocol, runtime_checkable
 from iam.domain.aggregates import APIKey, Group, Tenant, User
 from iam.domain.value_objects import APIKeyId, GroupId, TenantId, UserId
 
+from shared_kernel.authorization.protocols import AuthorizationProvider
+
 
 @runtime_checkable
 class IGroupRepository(Protocol):
@@ -193,6 +195,24 @@ class ITenantRepository(Protocol):
 
         Returns:
             True if deleted, False if not found
+        """
+        ...
+
+    async def is_last_admin(
+        self, tenant_id: TenantId, user_id: UserId, authz: "AuthorizationProvider"
+    ) -> bool:
+        """Check if user is the last admin in the tenant.
+
+        Queries to determine if this user is the only one with
+        admin permissions on the tenant.
+
+        Args:
+            tenant_id: The tenant to check
+            user_id: The user to check
+            authz: Authorization provider for admin check
+
+        Returns:
+            True if user is the last admin, False otherwise
         """
         ...
 

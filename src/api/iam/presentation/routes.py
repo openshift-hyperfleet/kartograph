@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from iam.dependencies.api_key import get_api_key_service
 from iam.dependencies.group import get_group_service
 from iam.dependencies.user import get_current_user
-from iam.dependencies.tenant import get_default_tenant_id, get_tenant_service
+from iam.dependencies.tenant import get_tenant_service
 from iam.application.services import GroupService, TenantService
 from iam.application.services.api_key_service import APIKeyService
 from iam.application.value_objects import CurrentUser
@@ -39,6 +39,8 @@ router = APIRouter(
     tags=["iam"],
     dependencies=[Depends(get_current_user)],
 )
+
+# TODO: Proper authorization is needed for all of these routes
 
 
 @router.post("/groups", status_code=status.HTTP_201_CREATED)
@@ -343,21 +345,6 @@ async def delete_tenant(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid tenant ID format: {e}",
         ) from e
-
-    # Prevent deletion of default tenant
-    default_tenant_id = get_default_tenant_id()
-    if tenant_id_obj.value == default_tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot delete the default tenant",
-        )
-
-    # Prevent deletion of current user's tenant
-    if tenant_id_obj.value == current_user.tenant_id.value:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot delete your own tenant",
-        )
 
     try:
         deleted = await service.delete_tenant(tenant_id_obj)

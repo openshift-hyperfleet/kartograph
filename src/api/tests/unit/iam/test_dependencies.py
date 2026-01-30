@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from iam.application.observability.authentication_probe import AuthenticationProbe
 from iam.application.value_objects import CurrentUser
 from iam.dependencies.authentication import JWTValidator
-from iam.dependencies.tenant import set_default_tenant_id
+from iam.walking_skeleton_bootstrap import set_default_tenant_id
 from iam.dependencies.user import get_current_user, get_current_user_no_jit
 from iam.domain.value_objects import TenantId, UserId
 from shared_kernel.auth import InvalidTokenError

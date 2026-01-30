@@ -10,7 +10,7 @@ from util import dev_routes
 from graph.dependencies import get_age_graph_client
 from graph.infrastructure.age_client import AgeGraphClient
 from graph.presentation import routes as graph_routes
-from iam.presentation import routes as iam_routes
+from iam.presentation import router as iam_router
 from infrastructure.database.dependencies import (
     close_database_engines,
     init_database_engines,
@@ -219,7 +219,7 @@ app.mount(path="/query", app=query_mcp_app)
 app.include_router(graph_routes.router)
 
 # Include IAM bounded context routes
-app.include_router(iam_routes.router)
+app.include_router(iam_router)
 
 # Include dev utility routes (easy to remove for production)
 app.include_router(dev_routes.router)

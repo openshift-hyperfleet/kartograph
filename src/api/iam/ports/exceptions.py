@@ -56,3 +56,14 @@ class APIKeyAlreadyRevokedError(Exception):
     """
 
     pass
+
+
+class UnauthorizedError(Exception):
+    """Raised when a user lacks permission to perform an operation.
+
+    This exception indicates that authorization checks have failed.
+    The application layer should handle this and return appropriate
+    HTTP 403 responses without exposing internal details.
+    """
+
+    pass

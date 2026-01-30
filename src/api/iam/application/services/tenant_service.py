@@ -192,6 +192,28 @@ class TenantService:
                 removed_by=removed_by.value,
             )
 
+    async def _list_tenant_members_from_authorization(
+        self, tenant_id: TenantId
+    ) -> list[tuple[str, str]]:
+        """List all users and their roles for a given tenant.
+
+        Returns: list[tuple[user_id, user_role]]
+        """
+        members = [
+            (subject.subject_id, role.value)
+            for role in TenantRole
+            for subject in await self._authz.lookup_subjects(
+                resource=format_resource(
+                    resource_type=ResourceType.TENANT,
+                    resource_id=tenant_id.value,
+                ),
+                relation=role.value,
+                subject_type=ResourceType.USER,
+            )
+        ]
+
+        return members
+
     async def list_members(self, tenant_id: TenantId) -> list[tuple[str, str]] | None:
         """List all members of a tenant.
 
@@ -210,18 +232,9 @@ class TenantService:
             return None
 
         # Query SpiceDB for members by role
-        members = [
-            (subject.subject_id, role.value)
-            for role in TenantRole
-            for subject in await self._authz.lookup_subjects(
-                resource=format_resource(
-                    resource_type=ResourceType.TENANT,
-                    resource_id=tenant_id.value,
-                ),
-                relation=role.value,
-                subject_type=ResourceType.USER,
-            )
-        ]
+        members = await self._list_tenant_members_from_authorization(
+            tenant_id=tenant_id
+        )
 
         self._probe.tenant_members_listed(
             tenant_id=tenant_id.value, member_count=len(members)
@@ -273,18 +286,9 @@ class TenantService:
                 await self._api_key_repository.delete(api_key)
 
             # Step 3: Query SpiceDB for tenant members to build snapshot
-            members = [
-                (subject.subject_id, role.value)
-                for role in TenantRole
-                for subject in await self._authz.lookup_subjects(
-                    resource=format_resource(
-                        resource_type=ResourceType.TENANT,
-                        resource_id=tenant_id.value,
-                    ),
-                    relation=role.value,
-                    subject_type=ResourceType.USER,
-                )
-            ]
+            members = await self._list_tenant_members_from_authorization(
+                tenant_id=tenant_id
+            )
 
             # Step 4: Delete the tenant
             tenant.mark_for_deletion(members=members)

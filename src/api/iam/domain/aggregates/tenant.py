@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Optional
-from iam.domain.events import MemberSnapshot
 
 from iam.domain.exceptions import CannotRemoveLastAdminError
 from iam.domain.events import (
@@ -13,6 +12,7 @@ from iam.domain.events import (
     TenantDeleted,
     TenantMemberAdded,
     TenantMemberRemoved,
+    MemberSnapshot,
 )
 from iam.domain.value_objects import TenantId, TenantRole, UserId
 

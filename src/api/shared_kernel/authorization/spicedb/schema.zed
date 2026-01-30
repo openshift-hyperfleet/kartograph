@@ -77,7 +77,7 @@ definition tenant {
 	/** The mandatory root workspace for this tenant */
 	relation root_workspace: workspace
 
-	/** Members of this workspace */
+	/** Members of this tenant */
 	relation member: user
 
 	/** Permission to view tenant */

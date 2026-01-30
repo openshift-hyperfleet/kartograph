@@ -134,24 +134,25 @@ class TestAddMember:
         assert events[0].role == TenantRole.ADMIN.value
 
     @pytest.mark.asyncio
-    async def test_returns_none_if_tenant_not_found(
+    async def test_raises_error_if_tenant_not_found(
         self, tenant_service, mock_tenant_repo
     ):
-        """Test that add_member returns None if tenant doesn't exist."""
+        """Test that add_member raises ValueError if tenant doesn't exist."""
         tenant_id = TenantId.generate()
         user_id = UserId.from_string("user-123")
         admin_id = UserId.from_string("admin-456")
 
         mock_tenant_repo.get_by_id = AsyncMock(return_value=None)
 
-        result = await tenant_service.add_member(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            role=TenantRole.MEMBER,
-            added_by=admin_id,
-        )
+        with pytest.raises(ValueError) as exc_info:
+            await tenant_service.add_member(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                role=TenantRole.MEMBER,
+                added_by=admin_id,
+            )
 
-        assert result is None
+        assert "not found" in str(exc_info.value)
 
 
 class TestRemoveMember:
@@ -229,23 +230,24 @@ class TestRemoveMember:
             )
 
     @pytest.mark.asyncio
-    async def test_returns_none_if_tenant_not_found(
+    async def test_raises_error_if_tenant_not_found(
         self, tenant_service, mock_tenant_repo
     ):
-        """Test that remove_member returns None if tenant doesn't exist."""
+        """Test that remove_member raises ValueError if tenant doesn't exist."""
         tenant_id = TenantId.generate()
         user_id = UserId.from_string("user-123")
         admin_id = UserId.from_string("admin-456")
 
         mock_tenant_repo.get_by_id = AsyncMock(return_value=None)
 
-        result = await tenant_service.remove_member(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            removed_by=admin_id,
-        )
+        with pytest.raises(ValueError) as exc_info:
+            await tenant_service.remove_member(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                removed_by=admin_id,
+            )
 
-        assert result is None
+        assert "not found" in str(exc_info.value)
 
 
 class TestListMembers:

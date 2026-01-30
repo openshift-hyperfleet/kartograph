@@ -163,20 +163,26 @@ class TestListTenants:
         assert "Acme Corp" in tenant_names
         assert "Wayne Enterprises" in tenant_names
         assert "Stark Industries" in tenant_names
-        assert "default" in tenant_names
+
+        # Verify default tenant is included (from settings, not hardcoded)
+        from infrastructure.settings import get_iam_settings
+
+        assert get_iam_settings().default_tenant_name in tenant_names
 
     @pytest.mark.asyncio
     async def test_includes_default_tenant(
         self, async_client, clean_iam_data, auth_headers
     ):
         """Should include the default tenant created at app startup."""
+        from infrastructure.settings import get_iam_settings
+
         response = await async_client.get("/iam/tenants", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
         # Should have exactly 1 tenant (the default)
         assert len(data) == 1
-        assert data[0]["name"] == "default"
+        assert data[0]["name"] == get_iam_settings().default_tenant_name
 
 
 class TestDeleteTenant:

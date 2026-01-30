@@ -148,8 +148,10 @@ class TestListAll:
         self, tenant_repository: TenantRepository, clean_iam_data
     ):
         """Should include the default tenant created at app startup."""
+        from infrastructure.settings import get_iam_settings
+
         tenants = await tenant_repository.list_all()
 
         # Default tenant should exist
         assert len(tenants) == 1
-        assert tenants[0].name == "default"
+        assert tenants[0].name == get_iam_settings().default_tenant_name

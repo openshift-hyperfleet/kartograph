@@ -126,9 +126,6 @@ class TenantService:
             role: The role to assign (ADMIN or MEMBER)
             added_by: The user adding this member (None for system actions)
 
-        Returns:
-            None if successful
-
         Raises:
             ValueError: If tenant not found
         """
@@ -137,7 +134,7 @@ class TenantService:
 
             if not tenant:
                 self._probe.tenant_not_found(tenant_id=tenant_id.value)
-                return None
+                raise ValueError(f"Tenant {tenant_id.value} not found")
 
             tenant.add_member(user_id=user_id, role=role, added_by=added_by)
             await self._tenant_repository.save(tenant)
@@ -162,9 +159,6 @@ class TenantService:
             user_id: The user being removed
             removed_by: The user performing the removal
 
-        Returns:
-            None if successful
-
         Raises:
             CannotRemoveLastAdminError: If user is the last admin
             ValueError: If tenant not found
@@ -174,7 +168,7 @@ class TenantService:
 
             if not tenant:
                 self._probe.tenant_not_found(tenant_id=tenant_id.value)
-                return None
+                raise ValueError(f"Tenant {tenant_id.value} not found")
 
             # Check if user is the last admin
             is_last_admin = await self._tenant_repository.is_last_admin(

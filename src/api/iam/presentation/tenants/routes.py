@@ -10,9 +10,15 @@ from iam.dependencies.tenant import get_tenant_service
 from iam.dependencies.user import get_current_user
 from iam.application.services import TenantService
 from iam.application.value_objects import CurrentUser
-from iam.domain.value_objects import TenantId
-from iam.ports.exceptions import DuplicateTenantNameError
-from iam.presentation.tenants.models import CreateTenantRequest, TenantResponse
+from iam.domain.exceptions import CannotRemoveLastAdminError
+from iam.domain.value_objects import TenantId, UserId
+from iam.ports.exceptions import DuplicateTenantNameError, UnauthorizedError
+from iam.presentation.tenants.models import (
+    AddTenantMemberRequest,
+    CreateTenantRequest,
+    TenantMemberResponse,
+    TenantResponse,
+)
 
 router = APIRouter(
     prefix="/tenants",
@@ -47,16 +53,16 @@ async def create_tenant(
         tenant = await service.create_tenant(name=request.name)
         return TenantResponse.from_domain(tenant)
 
-    except DuplicateTenantNameError as e:
+    except DuplicateTenantNameError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
-        ) from e
-    except Exception as e:
+            detail="A tenant with this name already exists",
+        )
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create tenant: {e}",
-        ) from e
+            detail="Failed to create tenant",
+        )
 
 
 @router.get("/{tenant_id}")
@@ -102,11 +108,11 @@ async def get_tenant(
 
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get tenant: {e}",
-        ) from e
+            detail="Failed to retrieve tenant",
+        )
 
 
 @router.get("")
@@ -133,11 +139,11 @@ async def list_tenants(
         tenants = await service.list_tenants()
         return [TenantResponse.from_domain(t) for t in tenants]
 
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list tenants: {e}",
-        ) from e
+            detail="Failed to list tenants",
+        )
 
 
 @router.delete("/{tenant_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -181,8 +187,220 @@ async def delete_tenant(
 
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete tenant: {e}",
-        ) from e
+            detail="Failed to delete tenant",
+        )
+
+
+@router.post("/{tenant_id}/members", status_code=status.HTTP_201_CREATED)
+async def add_tenant_member(
+    tenant_id: str,
+    request: AddTenantMemberRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[TenantService, Depends(get_tenant_service)],
+) -> TenantMemberResponse:
+    """Add a member to a tenant.
+
+    Requires the caller to have administrate permission on the tenant.
+
+    Args:
+        tenant_id: Tenant ID (ULID format)
+        request: Add member request with user_id and role
+        current_user: Current authenticated user
+        service: Tenant service for orchestration
+
+    Returns:
+        TenantMemberResponse with the added member details
+
+    Raises:
+        HTTPException: 400 if tenant ID or user ID is invalid
+        HTTPException: 403 if caller is not tenant admin
+        HTTPException: 404 if tenant not found
+        HTTPException: 500 for unexpected errors
+    """
+    # Validate tenant ID format
+    try:
+        tenant_id_obj = TenantId.from_string(tenant_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid tenant ID format",
+        )
+
+    # Validate user ID format
+    try:
+        user_id_obj = UserId.from_string(request.user_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user ID format",
+        )
+
+    try:
+        await service.add_member(
+            tenant_id=tenant_id_obj,
+            user_id=user_id_obj,
+            role=request.to_domain_role(),
+            requesting_user_id=current_user.user_id,
+        )
+        return TenantMemberResponse(
+            user_id=request.user_id,
+            role=request.role.value,
+        )
+
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenant not found",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to add member",
+        )
+
+
+@router.delete("/{tenant_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_tenant_member(
+    tenant_id: str,
+    user_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[TenantService, Depends(get_tenant_service)],
+) -> None:
+    """Remove a member from a tenant.
+
+    Requires the caller to have administrate permission on the tenant.
+    Cannot remove the last admin from a tenant.
+
+    Args:
+        tenant_id: Tenant ID (ULID format)
+        user_id: User ID of the member to remove
+        current_user: Current authenticated user
+        service: Tenant service for orchestration
+
+    Returns:
+        None (204 No Content on success)
+
+    Raises:
+        HTTPException: 400 if tenant ID or user ID is invalid
+        HTTPException: 403 if caller is not tenant admin
+        HTTPException: 404 if tenant not found
+        HTTPException: 409 if trying to remove the last admin
+        HTTPException: 500 for unexpected errors
+    """
+    # Validate tenant ID format
+    try:
+        tenant_id_obj = TenantId.from_string(tenant_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid tenant ID format",
+        )
+
+    # Validate user ID format
+    try:
+        user_id_obj = UserId.from_string(user_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user ID format",
+        )
+
+    try:
+        await service.remove_member(
+            tenant_id=tenant_id_obj,
+            user_id=user_id_obj,
+            requesting_user_id=current_user.user_id,
+        )
+
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+    except CannotRemoveLastAdminError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot remove the last admin from the tenant",
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenant not found",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to remove member",
+        )
+
+
+@router.get("/{tenant_id}/members")
+async def list_tenant_members(
+    tenant_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[TenantService, Depends(get_tenant_service)],
+) -> list[TenantMemberResponse]:
+    """List all members of a tenant.
+
+    Requires the caller to have administrate permission on the tenant.
+
+    Args:
+        tenant_id: Tenant ID (ULID format)
+        current_user: Current authenticated user
+        service: Tenant service for orchestration
+
+    Returns:
+        List of TenantMemberResponse objects
+
+    Raises:
+        HTTPException: 400 if tenant ID is invalid
+        HTTPException: 403 if caller is not tenant admin
+        HTTPException: 404 if tenant not found
+        HTTPException: 500 for unexpected errors
+    """
+    # Validate tenant ID format
+    try:
+        tenant_id_obj = TenantId.from_string(tenant_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid tenant ID format",
+        )
+
+    try:
+        members = await service.list_members(
+            tenant_id=tenant_id_obj, requesting_user_id=current_user.user_id
+        )
+
+        if members is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Tenant not found",
+            )
+
+        return [TenantMemberResponse.from_tuple(m) for m in members]
+
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list members",
+        )

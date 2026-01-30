@@ -8,14 +8,19 @@ from __future__ import annotations
 from iam.application.observability import DefaultTenantServiceProbe, TenantServiceProbe
 from iam.domain.aggregates import Tenant
 from iam.domain.value_objects import TenantId, TenantRole, UserId
-from iam.ports.exceptions import DuplicateTenantNameError
+from iam.ports.exceptions import DuplicateTenantNameError, UnauthorizedError
 from iam.ports.repositories import (
     IAPIKeyRepository,
     IGroupRepository,
     ITenantRepository,
 )
 from shared_kernel.authorization.protocols import AuthorizationProvider
-from shared_kernel.authorization.types import ResourceType, format_resource
+from shared_kernel.authorization.types import (
+    Permission,
+    ResourceType,
+    format_resource,
+    format_subject,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -111,12 +116,32 @@ class TenantService:
         self._probe.tenants_listed(count=len(tenants))
         return tenants
 
+    async def _check_tenant_admin_permission(
+        self, tenant_id: TenantId, requesting_user_id: UserId
+    ) -> bool:
+        """Check if user has administrate permission on tenant.
+
+        Args:
+            tenant_id: Tenant ID to check
+            requesting_user_id: User ID to check
+
+        Returns:
+            True if user has administrate permission, False otherwise
+        """
+        resource = format_resource(ResourceType.TENANT, tenant_id.value)
+        subject = format_subject(ResourceType.USER, requesting_user_id.value)
+        return await self._authz.check_permission(
+            resource=resource,
+            permission=Permission.ADMINISTRATE,
+            subject=subject,
+        )
+
     async def add_member(
         self,
         tenant_id: TenantId,
         user_id: UserId,
         role: TenantRole,
-        added_by: UserId | None = None,
+        requesting_user_id: UserId,
     ) -> None:
         """Add a member to a tenant.
 
@@ -124,51 +149,71 @@ class TenantService:
             tenant_id: The tenant to add the member to
             user_id: The user being added
             role: The role to assign (ADMIN or MEMBER)
-            added_by: The user adding this member (None for system actions)
+            requesting_user_id: The user making this request (for authorization)
 
         Raises:
+            UnauthorizedError: If requesting user lacks administrate permission
             ValueError: If tenant not found
         """
+        # Check authorization - business rule
+        has_permission = await self._check_tenant_admin_permission(
+            tenant_id, requesting_user_id
+        )
+        if not has_permission:
+            raise UnauthorizedError(
+                "User does not have permission to manage tenant members"
+            )
+
         async with self._session.begin():
             tenant = await self._tenant_repository.get_by_id(tenant_id)
 
             if not tenant:
                 self._probe.tenant_not_found(tenant_id=tenant_id.value)
-                raise ValueError(f"Tenant {tenant_id.value} not found")
+                raise ValueError("Tenant not found")
 
-            tenant.add_member(user_id=user_id, role=role, added_by=added_by)
+            tenant.add_member(user_id=user_id, role=role, added_by=requesting_user_id)
             await self._tenant_repository.save(tenant)
 
             self._probe.tenant_member_added(
                 tenant_id=tenant_id.value,
                 user_id=user_id.value,
                 role=role.value,
-                added_by=added_by.value if added_by else None,
+                added_by=requesting_user_id.value,
             )
 
     async def remove_member(
         self,
         tenant_id: TenantId,
         user_id: UserId,
-        removed_by: UserId,
+        requesting_user_id: UserId,
     ) -> None:
         """Remove a member from a tenant.
 
         Args:
             tenant_id: The tenant to remove the member from
             user_id: The user being removed
-            removed_by: The user performing the removal
+            requesting_user_id: The user making this request (for authorization)
 
         Raises:
+            UnauthorizedError: If requesting user lacks administrate permission
             CannotRemoveLastAdminError: If user is the last admin
             ValueError: If tenant not found
         """
+        # Check authorization - business rule
+        has_permission = await self._check_tenant_admin_permission(
+            tenant_id, requesting_user_id
+        )
+        if not has_permission:
+            raise UnauthorizedError(
+                "User does not have permission to manage tenant members"
+            )
+
         async with self._session.begin():
             tenant = await self._tenant_repository.get_by_id(tenant_id)
 
             if not tenant:
                 self._probe.tenant_not_found(tenant_id=tenant_id.value)
-                raise ValueError(f"Tenant {tenant_id.value} not found")
+                raise ValueError("Tenant not found")
 
             # Check if user is the last admin
             is_last_admin = await self._tenant_repository.is_last_admin(
@@ -176,14 +221,16 @@ class TenantService:
             )
 
             tenant.remove_member(
-                user_id=user_id, removed_by=removed_by, is_last_admin=is_last_admin
+                user_id=user_id,
+                removed_by=requesting_user_id,
+                is_last_admin=is_last_admin,
             )
             await self._tenant_repository.save(tenant)
 
             self._probe.tenant_member_removed(
                 tenant_id=tenant_id.value,
                 user_id=user_id.value,
-                removed_by=removed_by.value,
+                removed_by=requesting_user_id.value,
             )
 
     async def _list_tenant_members_from_authorization(
@@ -208,17 +255,32 @@ class TenantService:
 
         return members
 
-    async def list_members(self, tenant_id: TenantId) -> list[tuple[str, str]] | None:
+    async def list_members(
+        self, tenant_id: TenantId, requesting_user_id: UserId
+    ) -> list[tuple[str, str]] | None:
         """List all members of a tenant.
 
         Queries SpiceDB for all users with tenant membership roles.
 
         Args:
             tenant_id: The tenant to list members for
+            requesting_user_id: The user making this request (for authorization)
 
         Returns:
             List of (user_id, role) tuples, or None if tenant not found
+
+        Raises:
+            UnauthorizedError: If requesting user lacks administrate permission
         """
+        # Check authorization - business rule
+        has_permission = await self._check_tenant_admin_permission(
+            tenant_id, requesting_user_id
+        )
+        if not has_permission:
+            raise UnauthorizedError(
+                "User does not have permission to view tenant members"
+            )
+
         # Verify tenant exists
         tenant = await self._tenant_repository.get_by_id(tenant_id)
         if not tenant:

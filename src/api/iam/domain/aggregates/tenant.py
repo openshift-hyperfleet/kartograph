@@ -12,6 +12,7 @@ from iam.domain.events import (
     TenantDeleted,
     TenantMemberAdded,
     TenantMemberRemoved,
+    MemberSnapshot,
 )
 from iam.domain.value_objects import TenantId, TenantRole, UserId
 
@@ -78,10 +79,10 @@ class Tenant:
         """
         self._pending_events.append(
             TenantMemberAdded(
-                tenant_id=self.id,
-                user_id=user_id,
-                role=role,
-                added_by=added_by,
+                tenant_id=self.id.value,
+                user_id=user_id.value,
+                role=role.value,
+                added_by=added_by.value if added_by else None,
                 occurred_at=datetime.now(UTC),
             )
         )
@@ -100,24 +101,31 @@ class Tenant:
 
         self._pending_events.append(
             TenantMemberRemoved(
-                tenant_id=self.id,
-                user_id=user_id,
-                removed_by=removed_by,
+                tenant_id=self.id.value,
+                user_id=user_id.value,
+                removed_by=removed_by.value,
                 occurred_at=datetime.now(UTC),
             )
         )
 
-    def mark_for_deletion(self) -> None:
+    def mark_for_deletion(self, members: list[tuple[str, str]]) -> None:
         """Mark the tenant for deletion and record the TenantDeleted event.
 
-        This captures the deletion event for the outbox pattern.
-        Any cleanup of related resources should be handled by cascade rules
-        or separate processes.
+        This captures a snapshot of all current members so the outbox worker
+        can clean up all SpiceDB relationships without needing external lookups.
+
+        Args:
+            members: List of (user_id, role) tuples for all current tenant members
         """
+        members_snapshot = tuple(
+            MemberSnapshot(user_id=user_id, role=role) for user_id, role in members
+        )
+
         self._pending_events.append(
             TenantDeleted(
                 tenant_id=self.id.value,
                 occurred_at=datetime.now(UTC),
+                members=members_snapshot,
             )
         )
 

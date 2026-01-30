@@ -14,23 +14,22 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-from iam.domain.value_objects import GroupRole, TenantId, TenantRole, UserId
-
 
 @dataclass(frozen=True)
 class MemberSnapshot:
     """Immutable snapshot of a member's state at a point in time.
 
-    Used in GroupDeleted to capture the members that need to have their
+    Used in GroupDeleted and TenantDeleted
+    to capture the members that need to have their
     relationships cleaned up in SpiceDB.
 
     Attributes:
         user_id: The ULID of the user
-        role: The role the user had in the group
+        role: The role the user had in the group/tenant
     """
 
     user_id: str
-    role: GroupRole
+    role: str
 
 
 @dataclass(frozen=True)
@@ -86,7 +85,7 @@ class MemberAdded:
 
     group_id: str
     user_id: str
-    role: GroupRole
+    role: str
     occurred_at: datetime
 
 
@@ -105,7 +104,7 @@ class MemberRemoved:
 
     group_id: str
     user_id: str
-    role: GroupRole
+    role: str
     occurred_at: datetime
 
 
@@ -126,8 +125,8 @@ class MemberRoleChanged:
 
     group_id: str
     user_id: str
-    old_role: GroupRole
-    new_role: GroupRole
+    old_role: str
+    new_role: str
     occurred_at: datetime
 
 
@@ -161,10 +160,12 @@ class TenantDeleted:
     Attributes:
         tenant_id: The ULID of the deleted tenant
         occurred_at: When the event occurred (UTC)
+        members: The members of the tenant that must be cleaned-up
     """
 
     tenant_id: str
     occurred_at: datetime
+    members: tuple[MemberSnapshot, ...]
 
 
 @dataclass(frozen=True)
@@ -179,11 +180,11 @@ class TenantMemberAdded:
         occurred_at: When this even occurred (UTC)
     """
 
-    tenant_id: TenantId
-    user_id: UserId
-    role: TenantRole
+    tenant_id: str
+    user_id: str
+    role: str
     occurred_at: datetime
-    added_by: Optional[UserId] = None
+    added_by: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -197,10 +198,10 @@ class TenantMemberRemoved:
         occurred_at: When this even occurred (UTC)
     """
 
-    tenant_id: TenantId
-    user_id: UserId
+    tenant_id: str
+    user_id: str
     occurred_at: datetime
-    removed_by: UserId
+    removed_by: str
 
 
 @dataclass(frozen=True)
@@ -231,6 +232,7 @@ class APIKeyRevoked:
     """Event raised when an API key is revoked.
 
     This event captures the revocation of an API key, making it unusable.
+    SpiceDB relationships are preserved for audit trail.
 
     Attributes:
         api_key_id: The ULID of the revoked API key
@@ -240,6 +242,27 @@ class APIKeyRevoked:
 
     api_key_id: str
     user_id: str
+    occurred_at: datetime
+
+
+@dataclass(frozen=True)
+class APIKeyDeleted:
+    """Event raised when an API key is permanently deleted.
+
+    This event is used for cascade deletion (e.g., tenant deletion)
+    and triggers cleanup of all SpiceDB relationships. Unlike revocation,
+    this removes the key entirely from the system.
+
+    Attributes:
+        api_key_id: The ULID of the deleted API key
+        user_id: The ULID of the user who owned the key
+        tenant_id: The ULID of the tenant the key belonged to
+        occurred_at: When the event occurred (UTC)
+    """
+
+    api_key_id: str
+    user_id: str
+    tenant_id: str
     occurred_at: datetime
 
 
@@ -256,4 +279,5 @@ DomainEvent = (
     | TenantMemberRemoved
     | APIKeyCreated
     | APIKeyRevoked
+    | APIKeyDeleted
 )

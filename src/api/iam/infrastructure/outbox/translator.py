@@ -3,14 +3,31 @@
 This module provides the translation layer between IAM domain events and
 SpiceDB relationship operations. It uses type-safe enums for all resource
 types and relations to avoid magic strings.
+
+The translator uses a dictionary-based dispatch approach with automatic
+validation to ensure all domain events have corresponding handlers.
 """
 
 from __future__ import annotations
 
-from typing import Any, get_args
+from typing import Any, Callable, get_args
 
-from iam.domain.events import DomainEvent
-from iam.domain.value_objects import GroupRole
+from iam.domain.events import (
+    APIKeyCreated,
+    APIKeyDeleted,
+    APIKeyRevoked,
+    DomainEvent,
+    GroupCreated,
+    GroupDeleted,
+    MemberAdded,
+    MemberRemoved,
+    MemberRoleChanged,
+    TenantCreated,
+    TenantDeleted,
+    TenantMemberAdded,
+    TenantMemberRemoved,
+)
+from iam.domain.value_objects import GroupRole, TenantRole
 from shared_kernel.authorization.types import RelationType, ResourceType
 from shared_kernel.outbox.operations import (
     DeleteRelationship,
@@ -18,23 +35,63 @@ from shared_kernel.outbox.operations import (
     WriteRelationship,
 )
 
-# Derive supported events from the DomainEvent type alias
-_SUPPORTED_EVENTS: frozenset[str] = frozenset(
-    cls.__name__ for cls in get_args(DomainEvent)
-)
+# Build registry mapping event type names to classes
+_EVENT_REGISTRY: dict[str, type] = {cls.__name__: cls for cls in get_args(DomainEvent)}
 
 
 class IAMEventTranslator:
     """Translates IAM domain events to SpiceDB operations.
 
     This translator handles all IAM-specific events defined in the
-    DomainEvent type alias. The supported events are derived automatically
-    from the type definition to avoid duplication.
+    DomainEvent type alias. Handler methods are mapped via a dictionary
+    and validated at initialization to ensure completeness.
     """
+
+    def __init__(self) -> None:
+        """Initialize translator and validate all events have handlers."""
+        # Map event classes to handler methods
+        self._handlers: dict[
+            type, Callable[[dict[str, Any]], list[SpiceDBOperation]]
+        ] = {
+            GroupCreated: self._translate_group_created,
+            GroupDeleted: self._translate_group_deleted,
+            MemberAdded: self._translate_member_added,
+            MemberRemoved: self._translate_member_removed,
+            MemberRoleChanged: self._translate_member_role_changed,
+            TenantCreated: self._translate_tenant_created,
+            TenantDeleted: self._translate_tenant_deleted,
+            TenantMemberAdded: self._translate_tenant_member_added,
+            TenantMemberRemoved: self._translate_tenant_member_removed,
+            APIKeyCreated: self._translate_api_key_created,
+            APIKeyRevoked: self._translate_api_key_revoked,
+            APIKeyDeleted: self._translate_api_key_deleted,
+        }
+
+        # Validate all domain events have handlers
+        self._validate_handlers()
+
+    def _validate_handlers(self) -> None:
+        """Ensure all domain events have handler methods.
+
+        This is primarily a developer convenience - Kartograph
+        will fail to start if a DomainEvent doesn't have a registered handler.
+
+        Raises:
+            ValueError: If any domain events are missing handlers
+        """
+        event_types = set(get_args(DomainEvent))
+        handler_types = set(self._handlers.keys())
+
+        missing = event_types - handler_types
+        if missing:
+            missing_names = [e.__name__ for e in missing]
+            raise ValueError(
+                f"Missing translation handlers for events: {missing_names}"
+            )
 
     def supported_event_types(self) -> frozenset[str]:
         """Return the event type names this translator handles."""
-        return _SUPPORTED_EVENTS
+        return frozenset(cls.__name__ for cls in self._handlers.keys())
 
     def translate(
         self,
@@ -53,27 +110,17 @@ class IAMEventTranslator:
         Raises:
             ValueError: If the event type is not supported
         """
-        match event_type:
-            case "GroupCreated":
-                return self._translate_group_created(payload)
-            case "GroupDeleted":
-                return self._translate_group_deleted(payload)
-            case "MemberAdded":
-                return self._translate_member_added(payload)
-            case "MemberRemoved":
-                return self._translate_member_removed(payload)
-            case "MemberRoleChanged":
-                return self._translate_member_role_changed(payload)
-            case "TenantCreated":
-                return self._translate_tenant_created(payload)
-            case "TenantDeleted":
-                return self._translate_tenant_deleted(payload)
-            case "APIKeyCreated":
-                return self._translate_api_key_created(payload)
-            case "APIKeyRevoked":
-                return self._translate_api_key_revoked(payload)
-            case _:
-                raise ValueError(f"Unsupported event type: {event_type}")
+        # Get event class from registry
+        event_class = _EVENT_REGISTRY.get(event_type)
+        if not event_class:
+            raise ValueError(f"Unknown event type: {event_type}")
+
+        # Look up handler method
+        handler = self._handlers.get(event_class)
+        if not handler:
+            raise ValueError(f"No handler for event: {event_type}")
+
+        return handler(payload)
 
     def _translate_group_created(
         self,
@@ -198,13 +245,79 @@ class IAMEventTranslator:
         self,
         payload: dict[str, Any],
     ) -> list[SpiceDBOperation]:
-        """Translate TenantDeleted.
+        """Translate TenantDeleted to delete all member relationships.
 
-        For the walking skeleton, tenant deletion doesn't require SpiceDB
-        cleanup. Any cascade rules or related resource cleanup should be
-        handled by database constraints or separate processes.
+        Deletes all tenant membership relationships from the member snapshot.
+        Each member may have one or more role relationships (member, admin).
         """
-        return []
+        operations: list[SpiceDBOperation] = []
+
+        # Delete all member relationships from the snapshot
+        for member in payload["members"]:
+            role = TenantRole(member["role"])
+            operations.append(
+                DeleteRelationship(
+                    resource_type=ResourceType.TENANT,
+                    resource_id=payload["tenant_id"],
+                    relation=role,
+                    subject_type=ResourceType.USER,
+                    subject_id=member["user_id"],
+                )
+            )
+
+        return operations
+
+    def _translate_tenant_member_added(
+        self, payload: dict[str, Any]
+    ) -> list[SpiceDBOperation]:
+        role = TenantRole(payload["role"])
+        return [
+            WriteRelationship(
+                subject_type=ResourceType.USER,
+                subject_id=payload["user_id"],
+                relation=role,
+                resource_type=ResourceType.TENANT,
+                resource_id=payload["tenant_id"],
+            )
+        ]
+
+    def _translate_tenant_member_removed(
+        self, payload: dict[str, Any]
+    ) -> list[SpiceDBOperation]:
+        """Translate TenantMemberRemoved to DeleteRelationship operations.
+
+        Unlike _translate_member_removed which receives a specific role in the
+        payload, TenantMemberRemoved events do not include a role. Therefore,
+        this method deletes all TenantRole relations (member, admin) for the
+        given user from the tenant, ensuring complete removal regardless of
+        which roles the user held.
+
+        Args:
+            payload: Event payload containing tenant_id and user_id
+
+        Returns:
+            List of DeleteRelationship operations for each TenantRole
+
+        Raises:
+            ValueError: If required keys tenant_id or user_id are missing
+        """
+        required_keys = {"tenant_id", "user_id"}
+        missing_keys = required_keys - payload.keys()
+        if missing_keys:
+            raise ValueError(
+                f"_translate_tenant_member_removed missing required keys: {missing_keys}"
+            )
+
+        return [
+            DeleteRelationship(
+                subject_type=ResourceType.USER,
+                subject_id=payload["user_id"],
+                relation=role,
+                resource_type=ResourceType.TENANT,
+                resource_id=payload["tenant_id"],
+            )
+            for role in TenantRole
+        ]
 
     def _translate_api_key_created(
         self,
@@ -249,3 +362,33 @@ class IAMEventTranslator:
         of their own revoked keys, breaking the audit trail.
         """
         return []
+
+    def _translate_api_key_deleted(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate APIKeyDeleted to delete all relationships.
+
+        Used for cascade deletion when a tenant is deleted. Removes all
+        SpiceDB relationships to prevent orphaned data.
+
+        Deletes:
+        - api_key:<id>#owner@user:<user_id>
+        - api_key:<id>#tenant@tenant:<tenant_id>
+        """
+        return [
+            DeleteRelationship(
+                resource_type=ResourceType.API_KEY,
+                resource_id=payload["api_key_id"],
+                relation=RelationType.OWNER,
+                subject_type=ResourceType.USER,
+                subject_id=payload["user_id"],
+            ),
+            DeleteRelationship(
+                resource_type=ResourceType.API_KEY,
+                resource_id=payload["api_key_id"],
+                relation=RelationType.TENANT,
+                subject_type=ResourceType.TENANT,
+                subject_id=payload["tenant_id"],
+            ),
+        ]

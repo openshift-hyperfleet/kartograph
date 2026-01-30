@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from iam.domain.events import APIKeyCreated, APIKeyRevoked
+from iam.domain.events import APIKeyCreated, APIKeyDeleted, APIKeyRevoked
 from iam.domain.value_objects import APIKeyId, TenantId, UserId
 
 if TYPE_CHECKING:
@@ -110,6 +110,21 @@ class APIKey:
             APIKeyRevoked(
                 api_key_id=self.id.value,
                 user_id=self.created_by_user_id.value,
+                occurred_at=datetime.now(UTC),
+            )
+        )
+
+    def mark_for_deletion(self) -> None:
+        """Mark the API key for deletion and record the APIKeyDeleted event.
+
+        This is used for cascade deletion (e.g., when a tenant is deleted).
+        Unlike revocation, this triggers cleanup of SpiceDB relationships.
+        """
+        self._pending_events.append(
+            APIKeyDeleted(
+                api_key_id=self.id.value,
+                user_id=self.created_by_user_id.value,
+                tenant_id=self.tenant_id.value,
                 occurred_at=datetime.now(UTC),
             )
         )

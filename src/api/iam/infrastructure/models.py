@@ -6,7 +6,7 @@ They store only metadata - authorization data (membership, roles) is stored in S
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.database.models import Base, TimestampMixin
@@ -20,12 +20,22 @@ class GroupModel(Base, TimestampMixin):
 
     Note: Group names are NOT globally unique - per-tenant uniqueness
     is enforced at the application level.
+
+    Foreign Key Constraint:
+    - tenant_id references tenants.id with CASCADE delete
+    - When a tenant is deleted, all groups are cascade deleted
+    - Group deletion must be handled in service layer to emit events
     """
 
     __tablename__ = "groups"
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(String(26), nullable=False, index=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(26),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
 
     def __repr__(self) -> str:
@@ -86,6 +96,11 @@ class APIKeyModel(Base, TimestampMixin):
     - key_hash is unique for authentication lookup
     - prefix allows key identification without exposing the full key
     - Per-user key names are unique within a tenant
+
+    Foreign Key Constraint:
+    - tenant_id references tenants.id with CASCADE delete
+    - When a tenant is deleted, all API keys are cascade deleted
+    - API key revocation must be handled in service layer to emit events
     """
 
     __tablename__ = "api_keys"
@@ -94,7 +109,12 @@ class APIKeyModel(Base, TimestampMixin):
     created_by_user_id: Mapped[str] = mapped_column(
         String(255), nullable=False, index=True
     )
-    tenant_id: Mapped[str] = mapped_column(String(26), nullable=False, index=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(26),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     key_hash: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     prefix: Mapped[str] = mapped_column(String(12), nullable=False, index=True)

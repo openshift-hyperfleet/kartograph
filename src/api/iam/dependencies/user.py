@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.dependencies.api_key import get_api_key_service
 from iam.dependencies.authentication import oauth2_scheme
-from iam.dependencies.tenant import get_default_tenant_id
+from iam.walking_skeleton_bootstrap import get_default_tenant_id
 from iam.application.observability import (
     AuthenticationProbe,
     DefaultUserServiceProbe,

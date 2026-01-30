@@ -14,6 +14,8 @@ from pydantic import SecretStr
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from iam.domain.aggregates import Tenant
+from iam.domain.value_objects import TenantId
 from iam.infrastructure.group_repository import GroupRepository
 from iam.infrastructure.outbox import IAMEventTranslator
 from iam.infrastructure.tenant_repository import TenantRepository
@@ -22,6 +24,7 @@ from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.database.engines import create_write_engine
 from infrastructure.outbox.repository import OutboxRepository
 from infrastructure.outbox.worker import OutboxWorker
+from infrastructure.settings import get_iam_settings
 from infrastructure.settings import DatabaseSettings
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.outbox.observability import DefaultOutboxWorkerProbe
@@ -100,16 +103,29 @@ async def clean_iam_data(
 
     Note: Requires migrations to be run first. If tables don't exist,
     this fixture will skip cleanup gracefully.
+
+    With FK CASCADE constraints, deleting tenants automatically deletes
+    groups and api_keys. Deletion order matters for referential integrity.
+
+    Preserves the default tenant which is created at app startup and
+    expected to exist for API integration tests.
     """
+    # Get default tenant name from settings
+    default_tenant_name = get_iam_settings().default_tenant_name
+
     # Clean before test
     try:
         # Use DELETE instead of TRUNCATE to avoid deadlocks in parallel tests
-        # TRUNCATE requires AccessExclusiveLock which can cause circular dependencies
-        # when multiple tests cleanup concurrently
+        # DELETE in correct order to respect FK constraints
         await async_session.execute(text("DELETE FROM outbox"))
-        await async_session.execute(text("DELETE FROM groups"))
+        await async_session.execute(text("DELETE FROM api_keys"))  # FK to tenants
+        await async_session.execute(text("DELETE FROM groups"))  # FK to tenants
         await async_session.execute(text("DELETE FROM users"))
-        await async_session.execute(text("DELETE FROM tenants"))
+        # Delete all tenants EXCEPT the default tenant
+        await async_session.execute(
+            text("DELETE FROM tenants WHERE name != :default_name"),
+            {"default_name": default_tenant_name},
+        )
         await async_session.commit()
     except Exception:
         # Tables might not exist if migrations haven't been run
@@ -122,11 +138,16 @@ async def clean_iam_data(
 
     # Clean after test
     try:
-        # Use DELETE instead of TRUNCATE to avoid deadlocks in parallel tests
+        # DELETE in correct order to respect FK constraints
         await async_session.execute(text("DELETE FROM outbox"))
+        await async_session.execute(text("DELETE FROM api_keys"))
         await async_session.execute(text("DELETE FROM groups"))
         await async_session.execute(text("DELETE FROM users"))
-        await async_session.execute(text("DELETE FROM tenants"))
+        # Delete all tenants EXCEPT the default tenant
+        await async_session.execute(
+            text("DELETE FROM tenants WHERE name != :default_name"),
+            {"default_name": default_tenant_name},
+        )
         await async_session.commit()
     except Exception:
         await async_session.rollback()
@@ -159,6 +180,25 @@ def tenant_repository(async_session: AsyncSession) -> TenantRepository:
         session=async_session,
         outbox=outbox,
     )
+
+
+@pytest_asyncio.fixture
+async def test_tenant(
+    tenant_repository: TenantRepository, async_session: AsyncSession, clean_iam_data
+) -> TenantId:
+    """Create a test tenant that persists for the duration of the test.
+
+    This tenant can be used by tests that create groups, API keys, or other
+    resources that require a valid tenant_id due to FK constraints.
+
+    Depends on clean_iam_data to ensure a clean slate before creating the tenant.
+    """
+    tenant = Tenant.create(name="Test Tenant")
+
+    async with async_session.begin():
+        await tenant_repository.save(tenant)
+
+    return tenant.id
 
 
 @pytest_asyncio.fixture

@@ -98,7 +98,7 @@ class Group:
             MemberAdded(
                 group_id=self.id.value,
                 user_id=user_id.value,
-                role=role,
+                role=role.value,
                 occurred_at=datetime.now(UTC),
             )
         )
@@ -117,6 +117,9 @@ class Group:
 
         member_role = self.get_member_role(user_id)
 
+        if member_role is None:
+            raise ValueError("Unexpected None-type `member_role`")
+
         # Check if removing last admin
         if member_role == GroupRole.ADMIN:
             admin_count = sum(1 for m in self.members if m.role == GroupRole.ADMIN)
@@ -132,7 +135,7 @@ class Group:
             MemberRemoved(
                 group_id=self.id.value,
                 user_id=user_id.value,
-                role=member_role,  # type: ignore[arg-type]
+                role=member_role.value,
                 occurred_at=datetime.now(UTC),
             )
         )
@@ -152,6 +155,9 @@ class Group:
 
         current_role = self.get_member_role(user_id)
 
+        if current_role is None:
+            raise ValueError("Unexpected None-type `current_role`")
+
         # Check if demoting last admin
         if current_role == GroupRole.ADMIN and new_role != GroupRole.ADMIN:
             admin_count = sum(1 for m in self.members if m.role == GroupRole.ADMIN)
@@ -170,8 +176,8 @@ class Group:
             MemberRoleChanged(
                 group_id=self.id.value,
                 user_id=user_id.value,
-                old_role=current_role,  # type: ignore[arg-type]
-                new_role=new_role,
+                old_role=current_role.value,
+                new_role=new_role.value,
                 occurred_at=datetime.now(UTC),
             )
         )
@@ -183,7 +189,8 @@ class Group:
         can clean up all SpiceDB relationships without needing external lookups.
         """
         members_snapshot = tuple(
-            MemberSnapshot(user_id=m.user_id.value, role=m.role) for m in self.members
+            MemberSnapshot(user_id=m.user_id.value, role=m.role.value)
+            for m in self.members
         )
         self._pending_events.append(
             GroupDeleted(

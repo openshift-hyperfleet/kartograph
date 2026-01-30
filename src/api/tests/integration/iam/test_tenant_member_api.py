@@ -75,7 +75,7 @@ class TestAddTenantMember:
 
     @pytest.mark.asyncio
     async def test_adds_admin_member_successfully(
-        self, async_client, clean_iam_data, auth_headers, spicedb_client
+        self, async_client, clean_iam_data, auth_headers, spicedb_client, alice_user_id
     ):
         """Should add an admin member to tenant and return 201."""
         # Create tenant first
@@ -87,25 +87,18 @@ class TestAddTenantMember:
         assert create_response.status_code == 201
         tenant_id = create_response.json()["id"]
 
-        # Extract user_id from JWT (alice) - we need to make her an admin first
-        # For this test, we'll use the authorization system directly
-        # Get alice's user_id from auth context
-
-        # First, give alice admin permission on the tenant
+        # Give alice admin permission on the tenant
+        # alice_user_id is the actual Keycloak UUID from JWT 'sub' claim
         resource = format_resource(ResourceType.TENANT, tenant_id)
-        # Get alice's user ID (we need to parse it from the JWT)
-        # For tests, we can use a known test user ID or set it up via SpiceDB
-        # Let's add alice as admin first via SpiceDB directly
-        alice_user_id = "alice"  # Keycloak test user
+        subject = format_resource(ResourceType.USER, alice_user_id)
 
         await spicedb_client.write_relationship(
             resource=resource,
             relation=TenantRole.ADMIN.value,
-            subject=format_resource(ResourceType.USER, alice_user_id),
+            subject=subject,
         )
 
         # Wait for permission to propagate
-        subject = format_resource(ResourceType.USER, alice_user_id)
         permission_ready = await wait_for_permission(
             spicedb_client,
             resource=resource,
@@ -115,7 +108,7 @@ class TestAddTenantMember:
         )
         assert permission_ready, "Timed out waiting for admin permission"
 
-        # Now add bob as admin
+        # Now add a new user as admin
         new_user_id = UserId.generate().value
         response = await async_client.post(
             f"/iam/tenants/{tenant_id}/members",
@@ -130,7 +123,7 @@ class TestAddTenantMember:
 
     @pytest.mark.asyncio
     async def test_adds_regular_member_successfully(
-        self, async_client, clean_iam_data, auth_headers, spicedb_client
+        self, async_client, clean_iam_data, auth_headers, spicedb_client, alice_user_id
     ):
         """Should add a regular member to tenant and return 201."""
         # Create tenant
@@ -143,15 +136,15 @@ class TestAddTenantMember:
 
         # Set up alice as admin via SpiceDB
         resource = format_resource(ResourceType.TENANT, tenant_id)
-        alice_user_id = "alice"
+        subject = format_resource(ResourceType.USER, alice_user_id)
+
         await spicedb_client.write_relationship(
             resource=resource,
             relation=TenantRole.ADMIN.value,
-            subject=format_resource(ResourceType.USER, alice_user_id),
+            subject=subject,
         )
 
         # Wait for permission to propagate
-        subject = format_resource(ResourceType.USER, alice_user_id)
         await wait_for_permission(
             spicedb_client,
             resource=resource,
@@ -229,7 +222,7 @@ class TestRemoveTenantMember:
 
     @pytest.mark.asyncio
     async def test_removes_member_successfully(
-        self, async_client, clean_iam_data, auth_headers, spicedb_client
+        self, async_client, clean_iam_data, auth_headers, spicedb_client, alice_user_id
     ):
         """Should remove member from tenant and return 204."""
         # Create tenant
@@ -242,18 +235,19 @@ class TestRemoveTenantMember:
 
         # Set up alice as admin
         resource = format_resource(ResourceType.TENANT, tenant_id)
-        alice_user_id = "alice"
+        subject = format_resource(ResourceType.USER, alice_user_id)
+
         await spicedb_client.write_relationship(
             resource=resource,
             relation=TenantRole.ADMIN.value,
-            subject=format_resource(ResourceType.USER, alice_user_id),
+            subject=subject,
         )
 
         await wait_for_permission(
             spicedb_client,
             resource=resource,
             permission=Permission.ADMINISTRATE,
-            subject=format_resource(ResourceType.USER, alice_user_id),
+            subject=subject,
             timeout=5.0,
         )
 
@@ -276,7 +270,7 @@ class TestRemoveTenantMember:
 
     @pytest.mark.asyncio
     async def test_returns_409_when_removing_last_admin(
-        self, async_client, clean_iam_data, auth_headers, spicedb_client
+        self, async_client, clean_iam_data, auth_headers, spicedb_client, alice_user_id
     ):
         """Should return 409 if trying to remove the last admin."""
         # Create tenant
@@ -289,18 +283,19 @@ class TestRemoveTenantMember:
 
         # Set up alice as the only admin
         resource = format_resource(ResourceType.TENANT, tenant_id)
-        alice_user_id = "alice"
+        subject = format_resource(ResourceType.USER, alice_user_id)
+
         await spicedb_client.write_relationship(
             resource=resource,
             relation=TenantRole.ADMIN.value,
-            subject=format_resource(ResourceType.USER, alice_user_id),
+            subject=subject,
         )
 
         await wait_for_permission(
             spicedb_client,
             resource=resource,
             permission=Permission.ADMINISTRATE,
-            subject=format_resource(ResourceType.USER, alice_user_id),
+            subject=subject,
             timeout=5.0,
         )
 
@@ -351,7 +346,7 @@ class TestListTenantMembers:
 
     @pytest.mark.asyncio
     async def test_lists_members_successfully(
-        self, async_client, clean_iam_data, auth_headers, spicedb_client
+        self, async_client, clean_iam_data, auth_headers, spicedb_client, alice_user_id
     ):
         """Should list all tenant members."""
         # Create tenant
@@ -364,18 +359,19 @@ class TestListTenantMembers:
 
         # Set up alice as admin
         resource = format_resource(ResourceType.TENANT, tenant_id)
-        alice_user_id = "alice"
+        subject = format_resource(ResourceType.USER, alice_user_id)
+
         await spicedb_client.write_relationship(
             resource=resource,
             relation=TenantRole.ADMIN.value,
-            subject=format_resource(ResourceType.USER, alice_user_id),
+            subject=subject,
         )
 
         await wait_for_permission(
             spicedb_client,
             resource=resource,
             permission=Permission.ADMINISTRATE,
-            subject=format_resource(ResourceType.USER, alice_user_id),
+            subject=subject,
             timeout=5.0,
         )
 

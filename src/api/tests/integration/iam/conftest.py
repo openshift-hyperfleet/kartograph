@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator, Callable, Coroutine
 import os
 from typing import Any
 
+import jwt
 import pytest
 import pytest_asyncio
 from pydantic import SecretStr
@@ -226,3 +227,40 @@ async def process_outbox(
         await worker._process_batch()
 
     return _process
+
+
+@pytest.fixture
+def alice_user_id(alice_token: str) -> str:
+    """Extract the actual user_id (sub claim) from alice's JWT token.
+
+    This fixture decodes the JWT token without verification to extract
+    the 'sub' claim, which contains the Keycloak user UUID. This is the
+    actual user_id that get_current_user will use.
+
+    Use this fixture when setting up SpiceDB relationships for alice
+    instead of hardcoding "alice" (the username).
+
+    Args:
+        alice_token: Alice's JWT access token from Keycloak
+
+    Returns:
+        The user_id (Keycloak UUID) for alice
+    """
+    # Decode without verification (we just need the claims)
+    # In tests, we trust the token came from our test Keycloak
+    decoded = jwt.decode(alice_token, options={"verify_signature": False})
+    return decoded["sub"]
+
+
+@pytest.fixture
+def bob_user_id(bob_token: str) -> str:
+    """Extract the actual user_id (sub claim) from bob's JWT token.
+
+    Args:
+        bob_token: Bob's JWT access token from Keycloak
+
+    Returns:
+        The user_id (Keycloak UUID) for bob
+    """
+    decoded = jwt.decode(bob_token, options={"verify_signature": False})
+    return decoded["sub"]

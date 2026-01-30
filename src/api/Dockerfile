@@ -1,5 +1,5 @@
 # Build stage - using Red Hat UBI9 Python image
-FROM registry.access.redhat.com/ubi9/python-312:9.7-1765181854 AS builder
+FROM registry.access.redhat.com/ubi9/python-312:9.7-1768379251 AS builder
 
 # Install build dependencies for psycopg2 compilation
 USER 0
@@ -37,7 +37,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 
 # Production stage - using Red Hat UBI9 Python image
-FROM registry.access.redhat.com/ubi9/python-312:9.7-1765181854
+FROM registry.access.redhat.com/ubi9/python-312:9.7-1768379251
 # It is important to use the image that matches the builder, as the path to the
 # Python executable must be the same
 

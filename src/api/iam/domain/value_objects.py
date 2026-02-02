@@ -130,11 +130,18 @@ class APIKeyId(BaseId):
     pass
 
 
-class Role(StrEnum):
+class GroupRole(StrEnum):
     """Roles for group membership.
 
     Defines the hierarchy of permissions within a group.
     """
+
+    ADMIN = "admin"
+    MEMBER = "member"
+
+
+class TenantRole(StrEnum):
+    """Roles for tenant membership."""
 
     ADMIN = "admin"
     MEMBER = "member"
@@ -149,16 +156,24 @@ class GroupMember:
     """
 
     user_id: UserId
-    role: Role
+    role: GroupRole
 
     def is_admin(self) -> bool:
         """Check if this member is an admin."""
-        return self.role == Role.ADMIN
+        return self.role == GroupRole.ADMIN
 
     def is_member(self) -> bool:
         """Check if this member is a regular member."""
-        return self.role == Role.MEMBER
+        return self.role == GroupRole.MEMBER
 
     def has_admin_privileges(self) -> bool:
         """Check if this member has admin privileges."""
-        return self.role == Role.ADMIN
+        return self.role == GroupRole.ADMIN
+
+
+@dataclass(frozen=True)
+class TenantMember:
+    """Represent's a user's membership in a Tenant with a specific role."""
+
+    user_id: UserId
+    role: TenantRole

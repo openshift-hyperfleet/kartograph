@@ -10,6 +10,13 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from iam.application.value_objects import CurrentUser
+from shared_kernel.authorization.types import (
+    Permission,
+    ResourceType,
+    format_subject,
+)
+from shared_kernel.authorization.protocols import AuthorizationProvider
 from iam.application.observability.api_key_service_probe import (
     APIKeyServiceProbe,
     DefaultAPIKeyServiceProbe,
@@ -37,6 +44,7 @@ class APIKeyService:
         self,
         session: AsyncSession,
         api_key_repository: IAPIKeyRepository,
+        authz: AuthorizationProvider,
         probe: APIKeyServiceProbe | None = None,
     ):
         """Initialize APIKeyService with dependencies.
@@ -49,13 +57,14 @@ class APIKeyService:
         self._session = session
         self._api_key_repository = api_key_repository
         self._probe = probe or DefaultAPIKeyServiceProbe()
+        self._authz = authz
 
     async def create_api_key(
         self,
         created_by_user_id: UserId,
-        tenant_id: TenantId,
         name: str,
         expires_in_days: int,
+        tenant_id: TenantId,
     ) -> tuple[APIKey, str]:
         """Create a new API key for a user.
 
@@ -65,10 +74,9 @@ class APIKeyService:
 
         Args:
             created_by_user_id: The user who is creating this key (audit trail)
-            tenant_id: The tenant this key belongs to
             name: A descriptive name for the key
             expires_in_days: Number of days until expiration
-
+            tenant_id: The tenant in which the API key will be created
         Returns:
             Tuple of (APIKey aggregate, plaintext_secret)
 
@@ -114,35 +122,44 @@ class APIKeyService:
 
     async def list_api_keys(
         self,
-        api_key_ids: list[str] | None = None,
-        tenant_id: TenantId | None = None,
+        tenant_id: TenantId,
+        current_user: CurrentUser,
         created_by_user_id: UserId | None = None,
     ) -> list[APIKey]:
         """List API keys with optional filters.
 
-        This is a general-purpose list method. The service doesn't know or care
-        about authorization - it just orchestrates filtering. Filters are typically
-        provided by the presentation layer after querying SpiceDB.
-
         Args:
-            api_key_ids: Optional list of specific API key IDs to include
-            tenant_id: Optional tenant to scope the list to
             created_by_user_id: Optional filter for keys created by this user
+            tenant_id: The tenant in which the list operation will be performed
 
         Returns:
             List of APIKey aggregates matching all provided filters
         """
-        keys = await self._api_key_repository.list(
-            api_key_ids=api_key_ids,
-            tenant_id=tenant_id,
-            created_by_user_id=created_by_user_id,
-        )
+        # Use SpiceDB to find all API keys the current user can view
+        try:
+            api_key_ids = await self._authz.lookup_resources(
+                resource_type=ResourceType.API_KEY.value,
+                permission=Permission.VIEW.value,
+                subject=format_subject(ResourceType.USER, current_user.user_id.value),
+            )
 
-        self._probe.api_key_list_retrieved(
-            user_id=created_by_user_id.value if created_by_user_id else "filtered",
-            count=len(keys),
-        )
-        return keys
+            keys = await self._api_key_repository.list(
+                api_key_ids=[APIKeyId(value=key) for key in api_key_ids],
+                tenant_id=tenant_id,
+                created_by_user_id=created_by_user_id,
+            )
+
+            self._probe.api_key_list_retrieved(
+                user_id=created_by_user_id.value if created_by_user_id else None,
+                count=len(keys),
+            )
+            return keys
+        except Exception as e:
+            self._probe.api_key_list_retrieval_failed(
+                user_id=created_by_user_id.value if created_by_user_id else None,
+                reason=repr(e),
+            )
+            raise
 
     async def revoke_api_key(
         self,
@@ -157,8 +174,7 @@ class APIKeyService:
         Args:
             api_key_id: The ID of the key to revoke
             user_id: The user who owns the key (for access control)
-            tenant_id: The tenant the key belongs to (for access control)
-
+            tenant_id: The tenant in which the revocation will occur
         Raises:
             APIKeyNotFoundError: If the key doesn't exist
             APIKeyAlreadyRevokedError: If the key is already revoked

@@ -7,7 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from iam.domain.aggregates import APIKey, Group, Tenant
-from iam.domain.value_objects import Role
+from iam.domain.value_objects import GroupRole
 
 
 class CreateGroupRequest(BaseModel):
@@ -23,7 +23,7 @@ class GroupMemberResponse(BaseModel):
     """Response model for group member."""
 
     user_id: str = Field(..., description="User ID (ULID format)")
-    role: Role = Field(..., description="Member role (admin or member)")
+    role: GroupRole = Field(..., description="Member role (admin or member)")
 
 
 class GroupResponse(BaseModel):

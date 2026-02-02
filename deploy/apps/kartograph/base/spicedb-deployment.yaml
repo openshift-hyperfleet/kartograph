@@ -14,10 +14,11 @@ spec:
       labels:
         app.kubernetes.io/component: authorization
     spec:
+      serviceAccountName: kartograph-init-waiter
       initContainers:
         # Wait for SpiceDB migration job to complete
         - name: wait-for-spicedb-migrate
-          image: groundnuty/k8s-wait-for:v7.0
+          image: bitnami/kubectl@sha256:b349e60a6ae2969af84a778c0b976b050a0cc77f4fb6a4ad44307cd0a06e9d8f
           imagePullPolicy: IfNotPresent
           securityContext:
             runAsNonRoot: true
@@ -28,9 +29,13 @@ spec:
             readOnlyRootFilesystem: true
             seccompProfile:
               type: RuntimeDefault
-          args:
-            - "job"
-            - "kartograph-spicedb-migrate"
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for spicedb-migrate job to complete..."
+              kubectl wait --for=condition=complete --timeout=300s job/kartograph-spicedb-migrate
+              echo "Migration complete!"
       containers:
         - name: spicedb
           image: authzed/spicedb:v1.48.0

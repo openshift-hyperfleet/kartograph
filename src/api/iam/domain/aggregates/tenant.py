@@ -4,10 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
-from iam.domain.events import TenantCreated, TenantDeleted
-from iam.domain.value_objects import TenantId
+from iam.domain.exceptions import CannotRemoveLastAdminError
+from iam.domain.events import (
+    TenantCreated,
+    TenantDeleted,
+    TenantMemberAdded,
+    TenantMemberRemoved,
+    MemberSnapshot,
+)
+from iam.domain.value_objects import TenantId, TenantRole, UserId
 
 if TYPE_CHECKING:
     from iam.domain.events import DomainEvent
@@ -60,17 +67,65 @@ class Tenant:
         )
         return tenant
 
-    def mark_for_deletion(self) -> None:
+    def add_member(
+        self, user_id: UserId, role: TenantRole, added_by: Optional[UserId] = None
+    ):
+        """Add a user as a member to this tenant.
+
+        Args:
+            user_id: User being added
+            role: Their role in the tenant
+            added_by: Admin who added them (None for system/migration)
+        """
+        self._pending_events.append(
+            TenantMemberAdded(
+                tenant_id=self.id.value,
+                user_id=user_id.value,
+                role=role.value,
+                added_by=added_by.value if added_by else None,
+                occurred_at=datetime.now(UTC),
+            )
+        )
+
+    def remove_member(self, user_id: UserId, removed_by: UserId, is_last_admin: bool):
+        """Remove a member from a tenant.
+
+        Args:
+            user_id: User being removed
+            removed_by: Admin who removed them
+            is_last_admin: Whether this user is the last admin in the tenant. If True,
+                a CannotRemoveLastAdminError is raised.
+        """
+        if is_last_admin:
+            raise CannotRemoveLastAdminError()
+
+        self._pending_events.append(
+            TenantMemberRemoved(
+                tenant_id=self.id.value,
+                user_id=user_id.value,
+                removed_by=removed_by.value,
+                occurred_at=datetime.now(UTC),
+            )
+        )
+
+    def mark_for_deletion(self, members: list[tuple[str, str]]) -> None:
         """Mark the tenant for deletion and record the TenantDeleted event.
 
-        This captures the deletion event for the outbox pattern.
-        Any cleanup of related resources should be handled by cascade rules
-        or separate processes.
+        This captures a snapshot of all current members so the outbox worker
+        can clean up all SpiceDB relationships without needing external lookups.
+
+        Args:
+            members: List of (user_id, role) tuples for all current tenant members
         """
+        members_snapshot = tuple(
+            MemberSnapshot(user_id=user_id, role=role) for user_id, role in members
+        )
+
         self._pending_events.append(
             TenantDeleted(
                 tenant_id=self.id.value,
                 occurred_at=datetime.now(UTC),
+                members=members_snapshot,
             )
         )
 

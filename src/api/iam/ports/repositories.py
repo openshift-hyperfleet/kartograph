@@ -12,6 +12,8 @@ from typing import Callable, Protocol, runtime_checkable
 from iam.domain.aggregates import APIKey, Group, Tenant, User
 from iam.domain.value_objects import APIKeyId, GroupId, TenantId, UserId
 
+from shared_kernel.authorization.protocols import AuthorizationProvider
+
 
 @runtime_checkable
 class IGroupRepository(Protocol):
@@ -196,6 +198,24 @@ class ITenantRepository(Protocol):
         """
         ...
 
+    async def is_last_admin(
+        self, tenant_id: TenantId, user_id: UserId, authz: "AuthorizationProvider"
+    ) -> bool:
+        """Check if user is the last admin in the tenant.
+
+        Queries to determine if this user is the only one with
+        admin permissions on the tenant.
+
+        Args:
+            tenant_id: The tenant to check
+            user_id: The user to check
+            authz: Authorization provider for admin check
+
+        Returns:
+            True if user is the last admin, False otherwise
+        """
+        ...
+
 
 @runtime_checkable
 class IAPIKeyRepository(Protocol):
@@ -262,8 +282,8 @@ class IAPIKeyRepository(Protocol):
 
     async def list(
         self,
-        api_key_ids: list[str] | None = None,
-        tenant_id: TenantId | None = None,
+        tenant_id: TenantId,
+        api_key_ids: list[APIKeyId] | None = None,
         created_by_user_id: UserId | None = None,
     ) -> list[APIKey]:
         """List API keys with optional filters.
@@ -274,7 +294,7 @@ class IAPIKeyRepository(Protocol):
 
         Args:
             api_key_ids: Optional list of specific API key IDs to include
-            tenant_id: Optional tenant to scope the list to
+            tenant_id: required tenant to scope the list to
             created_by_user_id: Optional filter for keys created by this user
 
         Returns:

@@ -67,7 +67,7 @@ async def kartograph_lifespan(app: FastAPI):
 
     # Startup: ensure default tenant exists (single-tenant mode)
     if hasattr(app.state, "write_sessionmaker"):
-        from iam.dependencies import set_default_tenant_id
+        from iam.walking_skeleton_bootstrap import set_default_tenant_id
         from iam.domain.aggregates import Tenant
         from iam.infrastructure.tenant_repository import TenantRepository
         from infrastructure.observability.startup_probe import DefaultStartupProbe

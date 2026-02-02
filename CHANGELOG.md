@@ -1,5 +1,56 @@
 # Changelog
 
+## [3.3.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.2.0...v3.3.0) (2026-01-30)
+
+
+### Features
+
+* **api.iam:** persist tenant membership ([#178](https://github.com/openshift-hyperfleet/kartograph/issues/178)) ([37fb14c](https://github.com/openshift-hyperfleet/kartograph/commit/37fb14c8400d419dad4d69461c62d3e0a970f454))
+
+## [3.2.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.5...v3.2.0) (2026-01-29)
+
+
+### Features
+
+* **api.iam:** tenant membership foundation ([#176](https://github.com/openshift-hyperfleet/kartograph/issues/176)) ([07a6389](https://github.com/openshift-hyperfleet/kartograph/commit/07a638918d516f40b41fb96179b42f47e3efbcd0))
+
+## [3.1.5](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.4...v3.1.5) (2026-01-27)
+
+
+### Bug Fixes
+
+* **build:** rbac labels ([#167](https://github.com/openshift-hyperfleet/kartograph/issues/167)) ([a91e5f1](https://github.com/openshift-hyperfleet/kartograph/commit/a91e5f10c6ee3505f795401fc126633af2400c7f))
+* **deploy:** add init waiter SA to kustomization ([#171](https://github.com/openshift-hyperfleet/kartograph/issues/171)) ([795dfa0](https://github.com/openshift-hyperfleet/kartograph/commit/795dfa0fae2e91c584a75fe552a179d018524c08))
+* **deploy:** remove selectors from jobs ([#170](https://github.com/openshift-hyperfleet/kartograph/issues/170)) ([72e0312](https://github.com/openshift-hyperfleet/kartograph/commit/72e031254c916d2072d6a1fe6bce42e0ed82ec0e))
+* **deploy:** update sha references ([#172](https://github.com/openshift-hyperfleet/kartograph/issues/172)) ([56f7f52](https://github.com/openshift-hyperfleet/kartograph/commit/56f7f5242897cdf5abcdf949789bf5ca54d2acbc))
+
+## [3.1.4](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.3...v3.1.4) (2026-01-27)
+
+
+### Bug Fixes
+
+* **build:** add argocd job replace annotation ([#163](https://github.com/openshift-hyperfleet/kartograph/issues/163)) ([0c13298](https://github.com/openshift-hyperfleet/kartograph/commit/0c13298262f35db7703cb39306877ee23c167ed5))
+* **build:** replace wait for in jobs and rbac account labels ([#166](https://github.com/openshift-hyperfleet/kartograph/issues/166)) ([96d8f4a](https://github.com/openshift-hyperfleet/kartograph/commit/96d8f4aa73529b19d7d2a84cf30e9e66ee88be87))
+
+
+### Documentation
+
+* add Star History section to README ([#165](https://github.com/openshift-hyperfleet/kartograph/issues/165)) ([5a3b372](https://github.com/openshift-hyperfleet/kartograph/commit/5a3b3723590139648d054214a92d1f6eb9d6be1c))
+
+## [3.1.3](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.2...v3.1.3) (2026-01-27)
+
+
+### Bug Fixes
+
+* **deploy:** fix k8s wait for image ([#158](https://github.com/openshift-hyperfleet/kartograph/issues/158)) ([6f6e79f](https://github.com/openshift-hyperfleet/kartograph/commit/6f6e79fc441dade6ed990659623df5200393d396))
+
+## [3.1.2](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.1...v3.1.2) (2026-01-27)
+
+
+### Bug Fixes
+
+* **deploy:** fix spicedb and postgres sec contexts ([#156](https://github.com/openshift-hyperfleet/kartograph/issues/156)) ([d177ce0](https://github.com/openshift-hyperfleet/kartograph/commit/d177ce0ae3a1089a571932e169837e368f37bf54))
+
 ## [3.1.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.1.0...v3.1.1) (2026-01-27)
 
 

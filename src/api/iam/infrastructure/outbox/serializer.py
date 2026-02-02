@@ -15,7 +15,6 @@ from iam.domain.events import (
     DomainEvent,
     MemberSnapshot,
 )
-from iam.domain.value_objects import Role
 
 # Derive supported events from the DomainEvent type alias
 _SUPPORTED_EVENTS: frozenset[str] = frozenset(
@@ -38,7 +37,7 @@ class IAMEventSerializer:
         """Return the event type names this serializer handles."""
         return _SUPPORTED_EVENTS
 
-    def serialize(self, event: Any) -> dict[str, Any]:
+    def serialize(self, event: DomainEvent) -> dict[str, Any]:
         """Convert a domain event to a JSON-serializable dictionary.
 
         Args:
@@ -98,8 +97,6 @@ class IAMEventSerializer:
         for key, value in list(data.items()):
             if isinstance(value, datetime):
                 data[key] = value.isoformat()
-            elif isinstance(value, Role):
-                data[key] = value.value
             elif isinstance(value, tuple):
                 # Handle MemberSnapshot tuples in GroupDeleted
                 data[key] = [
@@ -115,7 +112,7 @@ class IAMEventSerializer:
         """Convert a MemberSnapshot to a JSON-serializable dict."""
         return {
             "user_id": snapshot.user_id,
-            "role": snapshot.role.value,
+            "role": snapshot.role,
         }
 
     def _convert_from_json(self, data: dict[str, Any], event_type: str) -> None:
@@ -129,20 +126,12 @@ class IAMEventSerializer:
         if "occurred_at" in data:
             data["occurred_at"] = datetime.fromisoformat(data["occurred_at"])
 
-        # Convert role fields back to Role enum
-        if "role" in data:
-            data["role"] = Role(data["role"])
-        if "old_role" in data:
-            data["old_role"] = Role(data["old_role"])
-        if "new_role" in data:
-            data["new_role"] = Role(data["new_role"])
-
         # Convert members list back to tuple of MemberSnapshot
-        if "members" in data and event_type == "GroupDeleted":
+        if "members" in data and event_type in ("GroupDeleted", "TenantDeleted"):
             data["members"] = tuple(
                 MemberSnapshot(
                     user_id=m["user_id"],
-                    role=Role(m["role"]),
+                    role=m["role"],
                 )
                 for m in data["members"]
             )

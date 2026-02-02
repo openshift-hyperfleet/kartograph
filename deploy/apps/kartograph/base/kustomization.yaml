@@ -13,6 +13,8 @@ resources:
   # Authorization
   - spicedb-deployment.yaml
   - spicedb-service.yaml
+  # RBAC
+  - init-waiter-rbac.yaml
   # Jobs
   - job-db-init.yaml
   - job-spicedb-migrate.yaml

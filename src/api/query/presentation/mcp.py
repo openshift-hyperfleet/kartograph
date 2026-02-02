@@ -1,13 +1,13 @@
 """MCP server for the Querying bounded context."""
 
-import re
 from pathlib import Path
 from typing import Any, Dict
 
-import httpx
 from fastmcp import FastMCP
 from fastmcp.dependencies import Depends
 
+from query.ports.file_repository_models import RemoteFileRepositoryResponse
+from query.infrastructure.github_repository import GithubRepository
 from infrastructure.settings import get_settings
 from query.application.services import MCPQueryService
 from query.dependencies import get_mcp_query_service
@@ -22,69 +22,6 @@ query_mcp_app = mcp.http_app(path="/mcp")
 # Load agent instructions from file
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 _AGENT_INSTRUCTIONS_PATH = _PROMPTS_DIR / "agent_instructions.md"
-
-# Regex pattern for GitHub blob URLs
-_GITHUB_BLOB_PATTERN = re.compile(
-    r"^https://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$"
-)
-
-
-def _transform_github_blob_to_raw_url(blob_url: str) -> str:
-    """Transform a GitHub blob URL to a raw.githubusercontent.com URL.
-
-    Args:
-        blob_url: A GitHub blob URL like:
-            https://github.com/owner/repo/blob/branch/path/to/file.adoc
-
-    Returns:
-        The corresponding raw URL like:
-            https://raw.githubusercontent.com/owner/repo/branch/path/to/file.adoc
-
-    Raises:
-        ValueError: If the URL is not a valid GitHub blob URL.
-    """
-    match = _GITHUB_BLOB_PATTERN.match(blob_url)
-    if not match:
-        raise ValueError(
-            f"Invalid URL format. Expected a GitHub blob URL like "
-            f"'https://github.com/owner/repo/blob/branch/path/file.adoc', "
-            f"got: {blob_url}"
-        )
-
-    owner, repo, branch, path = match.groups()
-    return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
-
-
-def _extract_asciidoc_content(raw_content: str) -> str:
-    """Extract the main content from an AsciiDoc file.
-
-    Strips metadata, comments, and attributes that appear before the first
-    level-1 heading (= Title). Returns content from the title onwards.
-
-    Args:
-        raw_content: The raw AsciiDoc file content.
-
-    Returns:
-        The content starting from the first level-1 heading title,
-        or the original content if no heading is found.
-    """
-    if not raw_content:
-        return raw_content
-
-    # Find the first occurrence of "\n= " (level-1 heading after newline)
-    # or "= " at the very start of the file
-    newline_heading_pos = raw_content.find("\n= ")
-    start_heading_match = raw_content.startswith("= ")
-
-    if start_heading_match:
-        # Heading is at the very start, skip the "= " marker
-        return raw_content[2:]
-    elif newline_heading_pos != -1:
-        # Found heading after newline, skip "\n= " to start at title text
-        return raw_content[newline_heading_pos + 3 :]
-    else:
-        # No level-1 heading found, return as-is
-        return raw_content
 
 
 def _filter_internal_properties(data: Any) -> Any:
@@ -115,56 +52,6 @@ def _filter_internal_properties(data: Any) -> Any:
         return [_filter_internal_properties(item) for item in data]
     else:
         return data
-
-
-def _fetch_documentation_source_impl(
-    documentationmodule_view_uri: str,
-) -> Dict[str, Any]:
-    """Core implementation for fetching documentation source content.
-
-    This is the testable implementation extracted from the MCP tool.
-
-    Args:
-        documentationmodule_view_uri: The view_uri from a DocumentationModule.
-
-    Returns:
-        A dictionary with success status and content or error.
-    """
-    # Transform the GitHub blob URL to raw content URL
-    try:
-        raw_url = _transform_github_blob_to_raw_url(documentationmodule_view_uri)
-    except ValueError as e:
-        return {
-            "success": False,
-            "error": str(e),
-        }
-
-    # Fetch the raw content
-    try:
-        response = httpx.get(raw_url, timeout=30.0, follow_redirects=True)
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to fetch content: {e}",
-        }
-
-    # Check for HTTP errors
-    if response.status_code != 200:
-        return {
-            "success": False,
-            "error": f"HTTP {response.status_code}: Failed to fetch content from {raw_url}",
-        }
-
-    # Extract the main content (strip metadata/comments before title)
-    raw_content = response.text
-    content = _extract_asciidoc_content(raw_content)
-
-    return {
-        "success": True,
-        "content": content,
-        "source_url": documentationmodule_view_uri,
-        "raw_url": raw_url,
-    }
 
 
 @mcp.tool
@@ -254,7 +141,7 @@ def query_graph(
 @mcp.tool
 def fetch_documentation_source(
     documentationmodule_view_uri: str,
-) -> Dict[str, Any]:
+) -> RemoteFileRepositoryResponse:
     """Fetch the full source content of a DocumentationModule from its view_uri.
 
     Use this tool when you need to read the complete documentation content
@@ -273,12 +160,12 @@ def fetch_documentation_source(
             https://github.com/openshift/openshift-docs/blob/main/modules/file.adoc
 
     Returns:
-        A dictionary containing:
-        - success: Boolean indicating if the fetch succeeded
-        - content: The extracted documentation content (on success)
-        - source_url: The original view_uri (on success)
-        - raw_url: The raw.githubusercontent.com URL used (on success)
-        - error: Error message (on failure)
+        class RemoteFileRepositoryResponse(BaseModel):
+            success: bool
+            error: str | None = None
+            content: str | None = None
+            source_url: str | None = None
+            raw_url: str | None = None
 
     Examples:
         # Get full content for a DocumentationModule
@@ -287,7 +174,9 @@ def fetch_documentation_source(
         source = fetch_documentation_source(view_uri)
         print(source["content"])  # Full AsciiDoc content starting from title
     """
-    return _fetch_documentation_source_impl(documentationmodule_view_uri)
+    repository = GithubRepository()
+
+    return repository.get_file(url=documentationmodule_view_uri)
 
 
 @mcp.resource(

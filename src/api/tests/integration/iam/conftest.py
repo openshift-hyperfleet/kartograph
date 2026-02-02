@@ -248,8 +248,8 @@ def alice_user_id(alice_token: str) -> str:
     """
     # Decode without verification (we just need the claims)
     # In tests, we trust the token came from our test Keycloak
-    decoded = jwt.decode(alice_token, options={"verify_signature": False})
-    return decoded["sub"]
+    claims = jwt.get_unverified_claims(alice_token)
+    return claims["sub"]
 
 
 @pytest.fixture
@@ -262,5 +262,5 @@ def bob_user_id(bob_token: str) -> str:
     Returns:
         The user_id (Keycloak UUID) for bob
     """
-    decoded = jwt.decode(bob_token, options={"verify_signature": False})
-    return decoded["sub"]
+    claims = jwt.get_unverified_claims(bob_token)
+    return claims["sub"]

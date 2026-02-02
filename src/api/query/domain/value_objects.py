@@ -32,7 +32,7 @@ class NodeDict(TypedDict):
 
     id: str
     label: str
-    properties: dict[str, str | int | float | bool | None]
+    properties: dict[str, str | int | float | bool | list | None]
 
 
 class EdgeDict(TypedDict):
@@ -42,7 +42,7 @@ class EdgeDict(TypedDict):
     label: str
     start_id: str
     end_id: str
-    properties: dict[str, str | int | float | bool | None]
+    properties: dict[str, str | int | float | bool | list | None]
 
 
 # Query result row can be one of:

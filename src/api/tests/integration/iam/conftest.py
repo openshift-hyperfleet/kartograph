@@ -8,7 +8,7 @@ from collections.abc import AsyncGenerator, Callable, Coroutine
 import os
 from typing import Any
 
-import jwt
+from jose import jwt
 import pytest
 import pytest_asyncio
 from pydantic import SecretStr

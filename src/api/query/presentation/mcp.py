@@ -1,23 +1,17 @@
 """MCP server for the Querying bounded context."""
 
-from typing import Any
+import re
+from pathlib import Path
+from typing import Any, Dict
 
+import httpx
 from fastmcp import FastMCP
 from fastmcp.dependencies import Depends
 
-from infrastructure.mcp_dependencies import get_schema_service_for_mcp
 from infrastructure.settings import get_settings
-from query.application.observability import SchemaResourceProbe
 from query.application.services import MCPQueryService
-from query.dependencies import get_mcp_query_service, get_schema_resource_probe
-from query.domain.value_objects import (
-    OntologyResponse,
-    QueryError,
-    SchemaErrorResponse,
-    SchemaLabelsResponse,
-    TypeDefinitionSchema,
-)
-from query.ports.schema import ISchemaService, TypeDefinitionLike
+from query.dependencies import get_mcp_query_service
+from query.domain.value_objects import QueryError
 
 settings = get_settings()
 
@@ -25,23 +19,152 @@ mcp = FastMCP(name=settings.app_name)
 
 query_mcp_app = mcp.http_app(path="/mcp")
 
+# Load agent instructions from file
+_PROMPTS_DIR = Path(__file__).parent / "prompts"
+_AGENT_INSTRUCTIONS_PATH = _PROMPTS_DIR / "agent_instructions.md"
 
-def _convert_type_definition_to_schema(td: TypeDefinitionLike) -> TypeDefinitionSchema:
-    """Convert a TypeDefinition to TypeDefinitionSchema value object.
+# Regex pattern for GitHub blob URLs
+_GITHUB_BLOB_PATTERN = re.compile(
+    r"^https://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$"
+)
+
+
+def _transform_github_blob_to_raw_url(blob_url: str) -> str:
+    """Transform a GitHub blob URL to a raw.githubusercontent.com URL.
 
     Args:
-        td: TypeDefinition from Graph context (via ISchemaService port)
+        blob_url: A GitHub blob URL like:
+            https://github.com/owner/repo/blob/branch/path/to/file.adoc
 
     Returns:
-        TypeDefinitionSchema domain object
+        The corresponding raw URL like:
+            https://raw.githubusercontent.com/owner/repo/branch/path/to/file.adoc
+
+    Raises:
+        ValueError: If the URL is not a valid GitHub blob URL.
     """
-    return TypeDefinitionSchema(
-        label=td.label,
-        entity_type=td.entity_type.value,
-        description=td.description,
-        required_properties=sorted(list(td.required_properties)),
-        optional_properties=sorted(list(td.optional_properties)),
-    )
+    match = _GITHUB_BLOB_PATTERN.match(blob_url)
+    if not match:
+        raise ValueError(
+            f"Invalid URL format. Expected a GitHub blob URL like "
+            f"'https://github.com/owner/repo/blob/branch/path/file.adoc', "
+            f"got: {blob_url}"
+        )
+
+    owner, repo, branch, path = match.groups()
+    return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
+
+
+def _extract_asciidoc_content(raw_content: str) -> str:
+    """Extract the main content from an AsciiDoc file.
+
+    Strips metadata, comments, and attributes that appear before the first
+    level-1 heading (= Title). Returns content from the title onwards.
+
+    Args:
+        raw_content: The raw AsciiDoc file content.
+
+    Returns:
+        The content starting from the first level-1 heading title,
+        or the original content if no heading is found.
+    """
+    if not raw_content:
+        return raw_content
+
+    # Find the first occurrence of "\n= " (level-1 heading after newline)
+    # or "= " at the very start of the file
+    newline_heading_pos = raw_content.find("\n= ")
+    start_heading_match = raw_content.startswith("= ")
+
+    if start_heading_match:
+        # Heading is at the very start, skip the "= " marker
+        return raw_content[2:]
+    elif newline_heading_pos != -1:
+        # Found heading after newline, skip "\n= " to start at title text
+        return raw_content[newline_heading_pos + 3 :]
+    else:
+        # No level-1 heading found, return as-is
+        return raw_content
+
+
+def _filter_internal_properties(data: Any) -> Any:
+    """Recursively filter internal properties from query results.
+
+    Removes properties that are internal implementation details and should
+    not be exposed to agents/users:
+    - all_content_lower: Lowercase concatenation used only for search indexing
+
+    This filtering happens at the MCP layer to hide Graph bounded context
+    implementation details from consumers.
+
+    Args:
+        data: Query result data (dict, list, or scalar)
+
+    Returns:
+        Data with internal properties removed
+    """
+    INTERNAL_PROPERTIES = {"all_content_lower"}
+
+    if isinstance(data, dict):
+        return {
+            k: _filter_internal_properties(v)
+            for k, v in data.items()
+            if k not in INTERNAL_PROPERTIES
+        }
+    elif isinstance(data, list):
+        return [_filter_internal_properties(item) for item in data]
+    else:
+        return data
+
+
+def _fetch_documentation_source_impl(
+    documentationmodule_view_uri: str,
+) -> Dict[str, Any]:
+    """Core implementation for fetching documentation source content.
+
+    This is the testable implementation extracted from the MCP tool.
+
+    Args:
+        documentationmodule_view_uri: The view_uri from a DocumentationModule.
+
+    Returns:
+        A dictionary with success status and content or error.
+    """
+    # Transform the GitHub blob URL to raw content URL
+    try:
+        raw_url = _transform_github_blob_to_raw_url(documentationmodule_view_uri)
+    except ValueError as e:
+        return {
+            "success": False,
+            "error": str(e),
+        }
+
+    # Fetch the raw content
+    try:
+        response = httpx.get(raw_url, timeout=30.0, follow_redirects=True)
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to fetch content: {e}",
+        }
+
+    # Check for HTTP errors
+    if response.status_code != 200:
+        return {
+            "success": False,
+            "error": f"HTTP {response.status_code}: Failed to fetch content from {raw_url}",
+        }
+
+    # Extract the main content (strip metadata/comments before title)
+    raw_content = response.text
+    content = _extract_asciidoc_content(raw_content)
+
+    return {
+        "success": True,
+        "content": content,
+        "source_url": documentationmodule_view_uri,
+        "raw_url": raw_url,
+    }
 
 
 @mcp.tool
@@ -50,7 +173,7 @@ def query_graph(
     timeout_seconds: int = 30,
     max_rows: int = 1000,
     service: MCPQueryService = Depends(get_mcp_query_service),  # type: ignore[arg-type]
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """Execute a Cypher query against the knowledge graph.
 
     This tool allows you to query the Kartograph knowledge graph using
@@ -115,186 +238,89 @@ def query_graph(
             "message": result.message,
         }
 
+    # Filter internal properties before returning to agent
+    filtered_rows = _filter_internal_properties(result.rows)
+
     # CypherQueryResult
     return {
         "success": True,
-        "rows": result.rows,
+        "rows": filtered_rows,
         "row_count": result.row_count,
         "truncated": result.truncated,
         "execution_time_ms": result.execution_time_ms,
     }
 
 
-@mcp.resource(
-    uri="schema://ontology",
-    name="GraphOntology",
-    description="Complete graph ontology including all node and edge type definitions with properties and examples",
-    mime_type="application/json",
-    annotations={"readOnlyHint": True, "idempotentHint": True},
-)
-def get_ontology(
-    service: ISchemaService = Depends(get_schema_service_for_mcp),
-    probe: SchemaResourceProbe = Depends(get_schema_resource_probe),
-) -> OntologyResponse | SchemaErrorResponse:
-    """Get complete graph ontology/schema.
+@mcp.tool
+def fetch_documentation_source(
+    documentationmodule_view_uri: str,
+) -> Dict[str, Any]:
+    """Fetch the full source content of a DocumentationModule from its view_uri.
 
-    Returns all type definitions for nodes and edges in the knowledge graph.
-    This includes labels, descriptions, required/optional properties, and examples.
+    Use this tool when you need to read the complete documentation content
+    for a DocumentationModule. The `content_summary` and `misc` properties
+    provide a concise overview, but this tool retrieves the full source file
+    including all procedure steps, code blocks, and configuration details.
 
-    Use this resource to understand the structure of the knowledge graph before
-    writing Cypher queries.
+    The tool automatically:
+    - Transforms GitHub blob URLs to raw content URLs
+    - Strips AsciiDoc metadata and comments
+    - Returns only the main documentation content (starting from the title)
+
+    Args:
+        documentationmodule_view_uri: The view_uri from a DocumentationModule
+            instance. Must be a GitHub blob URL like:
+            https://github.com/openshift/openshift-docs/blob/main/modules/file.adoc
 
     Returns:
-        OntologyResponse containing all type definitions
+        A dictionary containing:
+        - success: Boolean indicating if the fetch succeeded
+        - content: The extracted documentation content (on success)
+        - source_url: The original view_uri (on success)
+        - raw_url: The raw.githubusercontent.com URL used (on success)
+        - error: Error message (on failure)
+
+    Examples:
+        # Get full content for a DocumentationModule
+        details = query_graph("MATCH (d:DocumentationModule {slug: 'abi-c3-resources-services'}) RETURN properties(d)")
+        view_uri = details["rows"][0]["view_uri"]
+        source = fetch_documentation_source(view_uri)
+        print(source["content"])  # Full AsciiDoc content starting from title
     """
-    probe.schema_resource_accessed(resource_uri="schema://ontology")
+    return _fetch_documentation_source_impl(documentationmodule_view_uri)
 
-    definitions = service.get_ontology()
 
-    # Error handling for empty schema
-    if not definitions:
-        probe.schema_resource_returned(
-            resource_uri="schema://ontology", result_count=0, found=False
+@mcp.resource(
+    uri="instructions://agent",
+    name="AgentInstructions",
+    description="System instructions for AI agents using the query_graph tool with multi-term search strategies and platform-aware filtering",
+    mime_type="text/markdown",
+    annotations={"readOnlyHint": True, "idempotentHint": True},
+)
+def get_agent_instructions() -> str:
+    """Get agent instructions for querying the knowledge graph using Cypher.
+
+    Returns instructions optimized for agents that will use the query_graph tool,
+    writing raw Cypher queries against Apache AGE.
+
+    Includes:
+    - Apache AGE-specific Cypher syntax requirements
+    - Multi-term search strategies with AND logic
+    - Platform-aware filtering using view_uri paths
+    - Deprecated item discovery patterns
+    - Self-check workflow before answering
+    - Best practices for efficient graph traversal
+    - Knowledge graph overview and domain context
+
+    Returns:
+        Markdown-formatted agent instructions
+    """
+    try:
+        with open(_AGENT_INSTRUCTIONS_PATH, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return (
+            "# Agent Instructions Not Found\n\n"
+            "The agent instructions file could not be loaded. "
+            "Please ensure the instructions file exists at the expected location."
         )
-        return SchemaErrorResponse(error="No type definitions found in graph schema")
-
-    # Convert to domain value objects using shared helper
-    type_schemas = [_convert_type_definition_to_schema(td) for td in definitions]
-
-    probe.schema_resource_returned(
-        resource_uri="schema://ontology", result_count=len(type_schemas)
-    )
-
-    return OntologyResponse(type_definitions=type_schemas, count=len(type_schemas))
-
-
-@mcp.resource(
-    uri="schema://nodes/labels",
-    name="NodeTypeLabels",
-    description="List of all node type labels available in the graph schema",
-    mime_type="application/json",
-    annotations={"readOnlyHint": True, "idempotentHint": True},
-)
-def get_node_labels_resource(
-    service: ISchemaService = Depends(get_schema_service_for_mcp),
-    probe: SchemaResourceProbe = Depends(get_schema_resource_probe),
-) -> SchemaLabelsResponse:
-    """Get list of all node type labels.
-
-    Returns a list of all node type labels (e.g., person, project, repository)
-    available in the knowledge graph schema.
-
-    Returns:
-        SchemaLabelsResponse containing node labels and count
-    """
-    probe.schema_resource_accessed(resource_uri="schema://nodes/labels")
-
-    labels = service.get_node_labels()
-
-    probe.schema_resource_returned(
-        resource_uri="schema://nodes/labels", result_count=len(labels)
-    )
-
-    return SchemaLabelsResponse(labels=labels, count=len(labels))
-
-
-@mcp.resource(
-    uri="schema://edges/labels",
-    name="EdgeTypeLabels",
-    description="List of all edge type labels available in the graph schema",
-    mime_type="application/json",
-    annotations={"readOnlyHint": True, "idempotentHint": True},
-)
-def get_edge_labels_resource(
-    service: ISchemaService = Depends(get_schema_service_for_mcp),
-    probe: SchemaResourceProbe = Depends(get_schema_resource_probe),
-) -> SchemaLabelsResponse:
-    """Get list of all edge type labels.
-
-    Returns a list of all edge type labels (e.g., knows, reports_to, depends_on)
-    available in the knowledge graph schema.
-
-    Returns:
-        SchemaLabelsResponse containing edge labels and count
-    """
-    probe.schema_resource_accessed(resource_uri="schema://edges/labels")
-
-    labels = service.get_edge_labels()
-
-    probe.schema_resource_returned(
-        resource_uri="schema://edges/labels", result_count=len(labels)
-    )
-
-    return SchemaLabelsResponse(labels=labels, count=len(labels))
-
-
-@mcp.resource(
-    uri="schema://nodes/{label}",
-    name="NodeTypeSchema",
-    description="Detailed schema for a specific node type including required/optional properties and examples",
-    mime_type="application/json",
-    annotations={"readOnlyHint": True, "idempotentHint": True},
-)
-def get_node_schema_resource(
-    label: str,
-    service: ISchemaService = Depends(get_schema_service_for_mcp),
-    probe: SchemaResourceProbe = Depends(get_schema_resource_probe),
-) -> TypeDefinitionSchema | SchemaErrorResponse:
-    """Get detailed schema for a specific node type.
-
-    Provides complete type definition including description, required/optional
-    properties, and examples for a specific node type.
-
-    Args:
-        label: The node type label (e.g., "person", "project")
-
-    Returns:
-        TypeDefinitionSchema if found, SchemaErrorResponse otherwise
-    """
-    probe.schema_resource_accessed(resource_uri=f"schema://nodes/{label}", label=label)
-
-    schema = service.get_node_schema(label)
-
-    if schema is None:
-        probe.schema_type_not_found(resource_uri=f"schema://nodes/{label}", label=label)
-        return SchemaErrorResponse(error=f"Node type '{label}' not found")
-
-    probe.schema_resource_returned(resource_uri=f"schema://nodes/{label}", found=True)
-
-    return _convert_type_definition_to_schema(schema)
-
-
-@mcp.resource(
-    uri="schema://edges/{label}",
-    name="EdgeTypeSchema",
-    description="Detailed schema for a specific edge type including required/optional properties and examples",
-    mime_type="application/json",
-    annotations={"readOnlyHint": True, "idempotentHint": True},
-)
-def get_edge_schema_resource(
-    label: str,
-    service: ISchemaService = Depends(get_schema_service_for_mcp),
-    probe: SchemaResourceProbe = Depends(get_schema_resource_probe),
-) -> TypeDefinitionSchema | SchemaErrorResponse:
-    """Get detailed schema for a specific edge type.
-
-    Provides complete type definition including description, required/optional
-    properties, and examples for a specific edge type.
-
-    Args:
-        label: The edge type label (e.g., "knows", "reports_to")
-
-    Returns:
-        TypeDefinitionSchema if found, SchemaErrorResponse otherwise
-    """
-    probe.schema_resource_accessed(resource_uri=f"schema://edges/{label}", label=label)
-
-    schema = service.get_edge_schema(label)
-
-    if schema is None:
-        probe.schema_type_not_found(resource_uri=f"schema://edges/{label}", label=label)
-        return SchemaErrorResponse(error=f"Edge type '{label}' not found")
-
-    probe.schema_resource_returned(resource_uri=f"schema://edges/{label}", found=True)
-
-    return _convert_type_definition_to_schema(schema)

@@ -87,6 +87,36 @@ def _extract_asciidoc_content(raw_content: str) -> str:
         return raw_content
 
 
+def _filter_internal_properties(data: Any) -> Any:
+    """Recursively filter internal properties from query results.
+
+    Removes properties that are internal implementation details and should
+    not be exposed to agents/users:
+    - all_content_lower: Lowercase concatenation used only for search indexing
+
+    This filtering happens at the MCP layer to hide Graph bounded context
+    implementation details from consumers.
+
+    Args:
+        data: Query result data (dict, list, or scalar)
+
+    Returns:
+        Data with internal properties removed
+    """
+    INTERNAL_PROPERTIES = {"all_content_lower"}
+
+    if isinstance(data, dict):
+        return {
+            k: _filter_internal_properties(v)
+            for k, v in data.items()
+            if k not in INTERNAL_PROPERTIES
+        }
+    elif isinstance(data, list):
+        return [_filter_internal_properties(item) for item in data]
+    else:
+        return data
+
+
 def _fetch_documentation_source_impl(
     documentationmodule_view_uri: str,
 ) -> Dict[str, Any]:
@@ -208,10 +238,13 @@ def query_graph(
             "message": result.message,
         }
 
+    # Filter internal properties before returning to agent
+    filtered_rows = _filter_internal_properties(result.rows)
+
     # CypherQueryResult
     return {
         "success": True,
-        "rows": result.rows,
+        "rows": filtered_rows,
         "row_count": result.row_count,
         "truncated": result.truncated,
         "execution_time_ms": result.execution_time_ms,
@@ -260,7 +293,7 @@ def fetch_documentation_source(
 @mcp.resource(
     uri="instructions://agent",
     name="AgentInstructions",
-    description="System instructions for AI agents using the query_graph tool with raw Cypher queries",
+    description="System instructions for AI agents using the query_graph tool with multi-term search strategies and platform-aware filtering",
     mime_type="text/markdown",
     annotations={"readOnlyHint": True, "idempotentHint": True},
 )
@@ -272,7 +305,10 @@ def get_agent_instructions() -> str:
 
     Includes:
     - Apache AGE-specific Cypher syntax requirements
-    - Common query patterns for discovery and exploration
+    - Multi-term search strategies with AND logic
+    - Platform-aware filtering using view_uri paths
+    - Deprecated item discovery patterns
+    - Self-check workflow before answering
     - Best practices for efficient graph traversal
     - Knowledge graph overview and domain context
 

@@ -391,10 +391,13 @@ class TestListTenantMembers:
 
         # Add another member
         member_user_id = UserId.generate().value
-        await async_client.post(
+        add_member_response = await async_client.post(
             f"/iam/tenants/{tenant_id}/members",
             json={"user_id": member_user_id, "role": "member"},
             headers=auth_headers,
+        )
+        assert add_member_response.status_code == 201, (
+            f"Failed to add member: {add_member_response.status_code} - {add_member_response.text}"
         )
 
         # Wait for the member to be added to SpiceDB

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from iam.application.services import TenantService
 from iam.domain.aggregates import Tenant
 from iam.domain.value_objects import TenantId, TenantRole, UserId
+from iam.ports.exceptions import UnauthorizedError
 from iam.ports.repositories import (
     IAPIKeyRepository,
     IGroupRepository,
@@ -168,8 +169,6 @@ class TestAddMember:
         self, tenant_service, mock_tenant_repo, mock_authz
     ):
         """Test that add_member raises UnauthorizedError if user lacks permission."""
-        from iam.ports.exceptions import UnauthorizedError
-
         tenant_id = TenantId.generate()
         user_id = UserId.from_string("user-123")
         admin_id = UserId.from_string("admin-456")
@@ -303,8 +302,6 @@ class TestRemoveMember:
         self, tenant_service, mock_tenant_repo, mock_authz
     ):
         """Test that remove_member raises UnauthorizedError if user lacks permission."""
-        from iam.ports.exceptions import UnauthorizedError
-
         tenant_id = TenantId.generate()
         user_id = UserId.from_string("user-123")
         admin_id = UserId.from_string("admin-456")
@@ -416,8 +413,6 @@ class TestListMembers:
         self, tenant_service, mock_tenant_repo, mock_authz
     ):
         """Test that list_members raises UnauthorizedError if user lacks permission."""
-        from iam.ports.exceptions import UnauthorizedError
-
         tenant_id = TenantId.generate()
         requesting_user_id = UserId.from_string("admin-456")
 

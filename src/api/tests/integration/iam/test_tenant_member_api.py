@@ -145,13 +145,14 @@ class TestAddTenantMember:
         )
 
         # Wait for permission to propagate
-        await wait_for_permission(
+        permission_ready = await wait_for_permission(
             spicedb_client,
             resource=resource,
             permission=Permission.ADMINISTRATE,
             subject=subject,
             timeout=5.0,
         )
+        assert permission_ready, "Timed out waiting for admin permission"
 
         # Add member
         new_user_id = UserId.generate().value
@@ -189,10 +190,10 @@ class TestAddTenantMember:
         assert response.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_returns_404_for_nonexistent_tenant(
+    async def test_returns_403_for_nonexistent_tenant(
         self, async_client, clean_iam_data, auth_headers
     ):
-        """Should return 404 if tenant doesn't exist."""
+        """Should return 403 if tenant doesn't exist to avoid leaking existence."""
         fake_tenant_id = TenantId.generate().value
         response = await async_client.post(
             f"/iam/tenants/{fake_tenant_id}/members",
@@ -243,13 +244,14 @@ class TestRemoveTenantMember:
             subject=subject,
         )
 
-        await wait_for_permission(
+        permission_ready = await wait_for_permission(
             spicedb_client,
             resource=resource,
             permission=Permission.ADMINISTRATE,
             subject=subject,
             timeout=5.0,
         )
+        assert permission_ready, "Timed out waiting for admin permission"
 
         # Add a member to remove
         member_user_id = UserId.generate().value
@@ -259,6 +261,16 @@ class TestRemoveTenantMember:
             headers=auth_headers,
         )
         assert add_response.status_code == 201
+
+        # Wait for member relationship to propagate
+        member_ready = await wait_for_permission(
+            spicedb_client,
+            resource=resource,
+            permission=Permission.VIEW,
+            subject=format_resource(ResourceType.USER, member_user_id),
+            timeout=5.0,
+        )
+        assert member_ready, "Timed out waiting for member permission"
 
         # Remove the member
         response = await async_client.delete(
@@ -291,13 +303,14 @@ class TestRemoveTenantMember:
             subject=subject,
         )
 
-        await wait_for_permission(
+        permission_ready = await wait_for_permission(
             spicedb_client,
             resource=resource,
             permission=Permission.ADMINISTRATE,
             subject=subject,
             timeout=5.0,
         )
+        assert permission_ready, "Timed out waiting for admin permission"
 
         # Try to remove alice (the only admin)
         response = await async_client.delete(
@@ -367,13 +380,14 @@ class TestListTenantMembers:
             subject=subject,
         )
 
-        await wait_for_permission(
+        admin_ready = await wait_for_permission(
             spicedb_client,
             resource=resource,
             permission=Permission.ADMINISTRATE,
             subject=subject,
             timeout=5.0,
         )
+        assert admin_ready, "Timed out waiting for admin permission"
 
         # Add another member
         member_user_id = UserId.generate().value
@@ -384,13 +398,14 @@ class TestListTenantMembers:
         )
 
         # Wait for the member to be added to SpiceDB
-        await wait_for_permission(
+        member_ready = await wait_for_permission(
             spicedb_client,
             resource=resource,
             permission=Permission.VIEW,  # members have view permission
             subject=format_resource(ResourceType.USER, member_user_id),
             timeout=5.0,
         )
+        assert member_ready, "Timed out waiting for member permission"
 
         # List members
         response = await async_client.get(
@@ -428,10 +443,10 @@ class TestListTenantMembers:
         assert response.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_returns_404_for_nonexistent_tenant(
+    async def test_returns_403_for_nonexistent_tenant(
         self, async_client, clean_iam_data, auth_headers
     ):
-        """Should return 404 if tenant doesn't exist."""
+        """Should return 403 if tenant doesn't exist to avoid leaking existence."""
         fake_tenant_id = TenantId.generate().value
         response = await async_client.get(
             f"/iam/tenants/{fake_tenant_id}/members",

@@ -163,6 +163,32 @@ class TestAddMember:
 
         assert "not found" in str(exc_info.value)
 
+    @pytest.mark.asyncio
+    async def test_raises_unauthorized_if_no_permission(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that add_member raises UnauthorizedError if user lacks permission."""
+        from iam.ports.exceptions import UnauthorizedError
+
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        # Mock authorization check to deny permission
+        mock_authz.check_permission = AsyncMock(return_value=False)
+
+        with pytest.raises(UnauthorizedError):
+            await tenant_service.add_member(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                role=TenantRole.MEMBER,
+                requesting_user_id=admin_id,
+            )
+
+        # Verify repository was never called
+        mock_tenant_repo.get_by_id.assert_not_called()
+        mock_tenant_repo.save.assert_not_called()
+
 
 class TestRemoveMember:
     """Tests for TenantService.remove_member()."""
@@ -272,6 +298,31 @@ class TestRemoveMember:
 
         assert "not found" in str(exc_info.value)
 
+    @pytest.mark.asyncio
+    async def test_raises_unauthorized_if_no_permission(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that remove_member raises UnauthorizedError if user lacks permission."""
+        from iam.ports.exceptions import UnauthorizedError
+
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        # Mock authorization check to deny permission
+        mock_authz.check_permission = AsyncMock(return_value=False)
+
+        with pytest.raises(UnauthorizedError):
+            await tenant_service.remove_member(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                requesting_user_id=admin_id,
+            )
+
+        # Verify repository was never called
+        mock_tenant_repo.get_by_id.assert_not_called()
+        mock_tenant_repo.save.assert_not_called()
+
 
 class TestListMembers:
     """Tests for TenantService.list_members()."""
@@ -359,3 +410,24 @@ class TestListMembers:
         )
 
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_raises_unauthorized_if_no_permission(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that list_members raises UnauthorizedError if user lacks permission."""
+        from iam.ports.exceptions import UnauthorizedError
+
+        tenant_id = TenantId.generate()
+        requesting_user_id = UserId.from_string("admin-456")
+
+        # Mock authorization check to deny permission
+        mock_authz.check_permission = AsyncMock(return_value=False)
+
+        with pytest.raises(UnauthorizedError):
+            await tenant_service.list_members(
+                tenant_id=tenant_id, requesting_user_id=requesting_user_id
+            )
+
+        # Verify repository was never called
+        mock_tenant_repo.get_by_id.assert_not_called()

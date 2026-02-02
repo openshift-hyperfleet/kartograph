@@ -63,16 +63,16 @@ async def create_api_key(
             **APIKeyResponse.from_domain(api_key).model_dump(),
         )
 
-    except DuplicateAPIKeyNameError as e:
+    except DuplicateAPIKeyNameError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
-        ) from e
-    except Exception as e:
+            detail="An API key with this name already exists",
+        )
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create API key: {e}",
-        ) from e
+            detail="Failed to create API key",
+        )
 
 
 @router.get(
@@ -116,13 +116,19 @@ async def list_api_keys(
         # Parse and validate user_id if provided
         filter_user_id = None
         if user_id is not None:
-            try:
-                filter_user_id = UserId.from_string(value=user_id)
-            except ValueError as e:
+            # Reject empty or whitespace-only values
+            if not user_id.strip():
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid user_id format: {e}",
-                ) from e
+                    detail="Invalid user_id format: cannot be blank",
+                )
+            try:
+                filter_user_id = UserId.from_string(value=user_id)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid user_id format",
+                )
 
         # Get keys filtered by SpiceDB permissions
         api_keys = await service.list_api_keys(
@@ -134,11 +140,11 @@ async def list_api_keys(
 
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to list API keys",
-        ) from e
+        )
 
 
 @router.delete("/{api_key_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -168,11 +174,11 @@ async def revoke_api_key(
     """
     try:
         api_key_id_obj = APIKeyId.from_string(api_key_id)
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Invalid API key ID format: {e}",
-        ) from e
+            detail="Invalid API key ID format",
+        )
 
     try:
         await service.revoke_api_key(
@@ -181,20 +187,20 @@ async def revoke_api_key(
             tenant_id=current_user.tenant_id,
         )
 
-    except APIKeyNotFoundError as e:
+    except APIKeyNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
-        ) from e
-    except APIKeyAlreadyRevokedError as e:
+            detail="API key not found",
+        )
+    except APIKeyAlreadyRevokedError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
-        ) from e
+            detail="API key is already revoked",
+        )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to revoke API key: {e}",
-        ) from e
+            detail="Failed to revoke API key",
+        )

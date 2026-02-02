@@ -50,16 +50,16 @@ async def create_group(
         )
         return GroupResponse.from_domain(group)
 
-    except DuplicateGroupNameError as e:
+    except DuplicateGroupNameError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
-        ) from e
-    except Exception as e:
+            detail="A group with this name already exists",
+        )
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create group: {e}",
-        ) from e
+            detail="Failed to create group",
+        )
 
 
 @router.get("/{group_id}")
@@ -92,28 +92,28 @@ async def get_group(
     """
     try:
         group_id_obj = GroupId.from_string(group_id)
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid group ID format: {e}",
-        ) from e
+            detail="Invalid group ID format",
+        )
 
     try:
         group = await service.get_group(group_id=group_id_obj)
         if group is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Group {group_id} not found",
+                detail="Group not found",
             )
         return GroupResponse.from_domain(group)
 
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get group: {e}",
-        ) from e
+            detail="Failed to retrieve group",
+        )
 
 
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -139,11 +139,11 @@ async def delete_group(
     """
     try:
         group_id_obj = GroupId.from_string(group_id)
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid ID format: {e}",
-        ) from e
+            detail="Invalid group ID format",
+        )
 
     try:
         deleted = await service.delete_group(
@@ -152,18 +152,18 @@ async def delete_group(
         if not deleted:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Group {group_id} not found",
+                detail="Group not found",
             )
 
-    except PermissionError as e:
+    except PermissionError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(e),
-        ) from e
+            detail="Insufficient permissions",
+        )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete group: {e}",
-        ) from e
+            detail="Failed to delete group",
+        )

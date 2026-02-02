@@ -15,7 +15,7 @@ from query.domain.value_objects import QueryError
 
 settings = get_settings()
 
-mcp = FastMCP(name=settings.app_name)
+mcp = FastMCP(name=settings.app_name, stateless_http=True)
 
 query_mcp_app = mcp.http_app(path="/mcp")
 

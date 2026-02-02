@@ -2,6 +2,10 @@ import re
 from typing import Optional
 
 import httpx
+from query.infrastructure.observability.remote_file_repository_probe import (
+    DefaultRemoteFileRepositoryProbe,
+    RemoteFileRepositoryProbe,
+)
 from query.ports.exceptions import InvalidRemoteFileURL, RemoteFileFetchFailed
 from query.ports.file_repository_models import RemoteFileRepositoryResponse
 from query.ports.repositories import IRemoteFileRepository
@@ -12,8 +16,13 @@ class GithubRepository(IRemoteFileRepository):
         r"^https://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$"
     )
 
-    def __init__(self, access_token: Optional[str] = None):
+    def __init__(
+        self,
+        access_token: Optional[str] = None,
+        probe: RemoteFileRepositoryProbe | None = None,
+    ):
         self._access_token = access_token
+        self._probe = probe or DefaultRemoteFileRepositoryProbe()
 
     @property
     def _request_headers(self) -> dict[str, str]:
@@ -92,20 +101,29 @@ class GithubRepository(IRemoteFileRepository):
         Returns:
             A RemoteFileRepositoryResponse
         """
+        self._probe.file_fetch_requested(url=blob_url)
+
         # Transform the GitHub blob URL to raw content URL
         try:
             raw_url = self._transform_github_blob_to_raw_url(blob_url=blob_url)
         except ValueError as e:
+            self._probe.invalid_url_format(url=blob_url, reason=repr(e))
             raise InvalidRemoteFileURL() from e
 
         # Fetch the raw content
         try:
             response = httpx.get(raw_url, timeout=30.0, follow_redirects=True)
         except Exception as e:
+            self._probe.file_fetch_failed(url=blob_url, reason=repr(e))
             raise RemoteFileFetchFailed() from e
 
         # Check for HTTP errors
         if response.status_code != 200:
+            self._probe.file_fetch_failed(
+                url=blob_url,
+                reason="HTTP error",
+                status_code=response.status_code,
+            )
             raise RemoteFileFetchFailed(
                 f"HTTP {response.status_code}: Failed to fetch content from {raw_url}"
             )
@@ -113,6 +131,13 @@ class GithubRepository(IRemoteFileRepository):
         # Extract the main content (strip metadata/comments before title)
         raw_content = response.text
         content = self._extract_asciidoc_content(raw_content=raw_content)
+
+        self._probe.file_fetched(
+            url=blob_url,
+            raw_url=raw_url,
+            content_length=len(content),
+        )
+
         return RemoteFileRepositoryResponse(
             success=True, content=content, raw_url=raw_url, source_url=blob_url
         )

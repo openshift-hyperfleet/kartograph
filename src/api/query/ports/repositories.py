@@ -49,3 +49,13 @@ class IQueryGraphRepository(Protocol):
             QueryExecutionError: If query fails or violates safeguards.
         """
         ...
+
+
+class IRemoteFileAccessRepository(Protocol):
+    """Repository interface for fetching remote files.
+
+    This interface is designed to enable fetching
+    files from remote servers, such as Github, Gitlab, or others.
+    """
+
+    def get_file(self, url: str) -> str: ...

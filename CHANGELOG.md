@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.4.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.3.0...v3.4.0) (2026-02-03)
+
+
+### Features
+
+* **query:** add agent instructions MCP resource ([#159](https://github.com/openshift-hyperfleet/kartograph/issues/159)) ([05a8540](https://github.com/openshift-hyperfleet/kartograph/commit/05a85407cd4aa50f00a4c26ae429d7fa1a025f1d))
+
 ## [3.3.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.2.0...v3.3.0) (2026-01-30)
 
 

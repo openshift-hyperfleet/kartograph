@@ -1,3 +1,4 @@
+from abc import abstractmethod
 import re
 from typing import Optional
 
@@ -11,10 +12,14 @@ from query.ports.file_repository_models import RemoteFileRepositoryResponse
 from query.ports.repositories import IRemoteFileRepository
 
 
-class GithubRepository(IRemoteFileRepository):
-    _GITHUB_BLOB_PATTERN = re.compile(
-        r"^https://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$"
-    )
+class AbstractGitRemoteFileRepository(IRemoteFileRepository):
+    """Repository interface for fetching remote files from a remote git server.
+
+    The repository provides optional access token initialization.
+
+    This interface is designed to enable fetching
+    files from remote git servers, such as Github, Gitlab, or others.
+    """
 
     def __init__(
         self,
@@ -23,6 +28,15 @@ class GithubRepository(IRemoteFileRepository):
     ):
         self._access_token = access_token
         self._probe = probe or DefaultRemoteFileRepositoryProbe()
+
+    @abstractmethod
+    def get_file(self, url: str) -> RemoteFileRepositoryResponse: ...
+
+
+class GithubRepository(AbstractGitRemoteFileRepository):
+    _GITHUB_BLOB_PATTERN = re.compile(
+        r"^https://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$"
+    )
 
     @property
     def _request_headers(self) -> dict[str, str]:
@@ -57,37 +71,6 @@ class GithubRepository(IRemoteFileRepository):
         owner, repo, branch, path = match.groups()
 
         return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
-
-    def _extract_asciidoc_content(self, raw_content: str) -> str:
-        """Extract the main content from an AsciiDoc file.
-
-        Strips metadata, comments, and attributes that appear before the first
-        level-1 heading (= Title). Returns content from the title onwards.
-
-        Args:
-            raw_content: The raw AsciiDoc file content.
-
-        Returns:
-            The content starting from the first level-1 heading title,
-            or the original content if no heading is found.
-        """
-        if not raw_content:
-            return raw_content
-
-        # Find the first occurrence of "\n= " (level-1 heading after newline)
-        # or "= " at the very start of the file
-        newline_heading_pos = raw_content.find("\n= ")
-        start_heading_match = raw_content.startswith("= ")
-
-        if start_heading_match:
-            # Heading is at the very start, skip the "= " marker
-            return raw_content[2:]
-        elif newline_heading_pos != -1:
-            # Found heading after newline, skip "\n= " to start at title text
-            return raw_content[newline_heading_pos + 3 :]
-        else:
-            # No level-1 heading found, return as-is
-            return raw_content
 
     def _fetch_blob(
         self,
@@ -129,8 +112,7 @@ class GithubRepository(IRemoteFileRepository):
             )
 
         # Extract the main content (strip metadata/comments before title)
-        raw_content = response.text
-        content = self._extract_asciidoc_content(raw_content=raw_content)
+        content = response.text
 
         self._probe.file_fetched(
             url=blob_url,

@@ -7,11 +7,12 @@ from fastmcp import FastMCP
 from fastmcp.dependencies import Depends
 
 from query.ports.file_repository_models import RemoteFileRepositoryResponse
-from query.infrastructure.github_repository import GithubRepository
+from query.infrastructure.git_repository import GithubRepository
 from infrastructure.settings import get_settings
 from query.application.services import MCPQueryService
 from query.dependencies import get_mcp_query_service
 from query.domain.value_objects import QueryError
+from fastmcp.server.dependencies import get_http_headers
 
 settings = get_settings()
 
@@ -107,6 +108,10 @@ def query_graph(
         # Aggregations
         query_graph("MATCH (p:Person) RETURN count(p)")
     """
+
+    headers = get_http_headers()
+
+    print("HEADERS", headers)
 
     # Enforce maximum limits
     timeout_seconds = min(timeout_seconds, 60)

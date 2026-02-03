@@ -209,6 +209,9 @@ class GithubRepository(AbstractGitRemoteFileRepository):
         # Extract components from regex (hostname now comes from regex, not urlparse)
         hostname, owner, repo, ref, path = match.groups()
 
+        # Normalize hostname to lowercase for consistent comparisons
+        hostname = hostname.lower()
+
         return ParsedGitUrl(
             hostname=hostname, owner=owner, repo=repo, ref=ref, path=path
         )
@@ -226,12 +229,16 @@ class GithubRepository(AbstractGitRemoteFileRepository):
         Returns:
             GitHub API URL for fetching file content
         """
+        # Normalize hostname for case-insensitive comparison
+        hostname_lower = parsed.hostname.lower()
+
         # Public GitHub uses api.github.com subdomain
-        if parsed.hostname == "github.com":
+        if hostname_lower == "github.com":
             api_base = "https://api.github.com"
         else:
             # GitHub Enterprise uses /api/v3/ path on the same hostname
-            api_base = f"https://{parsed.hostname}/api/v3"
+            # Use normalized lowercase hostname for consistency
+            api_base = f"https://{hostname_lower}/api/v3"
 
         # URL-encode ref to handle special characters (+, #, &, etc.)
         encoded_ref = quote(parsed.ref, safe="")
@@ -304,6 +311,9 @@ class GitLabRepository(AbstractGitRemoteFileRepository):
             )
 
         hostname, owner, repo, ref, path = match.groups()
+
+        # Normalize hostname to lowercase for consistent comparisons
+        hostname = hostname.lower()
 
         return ParsedGitUrl(
             hostname=hostname, owner=owner, repo=repo, ref=ref, path=path

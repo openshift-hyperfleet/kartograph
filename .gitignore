@@ -12,7 +12,7 @@ src/api/docs
 # C extensions
 *.so
 kartograph-ddd-draft.md
-/TODO
+TODO
 # Distribution / packaging
 .Python
 build/

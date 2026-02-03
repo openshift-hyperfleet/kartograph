@@ -248,6 +248,24 @@ class TestBuildApiUrl:
             == "https://api.github.com/repos/owner/repo/contents/file.adoc?ref=feature%2Ftest%2Bbranch%231"
         )
 
+    def test_treats_mixed_case_github_com_as_public(self, repository):
+        """Should treat GitHub.COM as public GitHub, not Enterprise."""
+        parsed = ParsedGitUrl(
+            hostname="GitHub.COM",  # Mixed case
+            owner="owner",
+            repo="repo",
+            ref="main",
+            path="file.adoc",
+        )
+        api_url = repository._build_api_url(parsed)
+
+        # Should use api.github.com (public), not GitHub.COM/api/v3 (enterprise)
+        assert api_url.startswith("https://api.github.com/")
+        assert (
+            api_url
+            == "https://api.github.com/repos/owner/repo/contents/file.adoc?ref=main"
+        )
+
 
 class TestRequestHeaders:
     """Tests for request headers."""

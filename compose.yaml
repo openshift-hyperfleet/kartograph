@@ -144,12 +144,14 @@ services:
       - kartograph
     volumes:
       - ./certs:/certs:ro
+      - /etc/pki/tls/certs/ca-bundle.crt:/etc/ssl/certs/ca-bundle.crt:ro
     tty: true
     extra_hosts:
       - "localhost:host-gateway"
     environment:
       - FORCE_COLOR=1
       - GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/certs/spicedb-cert.pem
+      - SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt
     depends_on:
       postgres:
         condition: service_healthy

@@ -5,7 +5,13 @@ Cross-context composition is handled in infrastructure.mcp_dependencies.
 """
 
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Generator, Iterator
+from typing import TYPE_CHECKING, Generator, Iterator, Optional
+
+from query.infrastructure.git_repository import GitRepositoryFactory
+from query.infrastructure.observability.remote_file_repository_probe import (
+    DefaultRemoteFileRepositoryProbe,
+)
+from query.ports.repositories import IRemoteFileRepository
 
 from infrastructure.database.connection import ConnectionFactory
 from infrastructure.dependencies import get_age_connection_pool
@@ -81,3 +87,35 @@ def get_schema_resource_probe() -> SchemaResourceProbe:
         SchemaResourceProbe instance for domain event emission
     """
     return DefaultSchemaResourceProbe()
+
+
+def get_git_repository(
+    url: str,
+    access_token: Optional[str] = None,
+) -> IRemoteFileRepository:
+    """Get git repository for URL with default observability.
+
+    Automatically detects the git provider (GitHub, GitLab, etc.) from the URL
+    and returns the appropriate repository implementation with default probe.
+
+    Args:
+        url: Git blob URL (e.g., https://github.com/owner/repo/blob/main/file.txt)
+        access_token: Optional access token for private repositories
+
+    Returns:
+        Repository instance for the detected provider
+
+    Raises:
+        ValueError: If URL is from an unsupported git provider
+
+    Example:
+        >>> repo = get_git_repository(
+        ...     "https://github.com/owner/repo/blob/main/README.md",
+        ...     access_token="ghp_..."
+        ... )
+        >>> response = repo.get_file(url)
+    """
+    probe = DefaultRemoteFileRepositoryProbe()
+    return GitRepositoryFactory.create_from_url(
+        url=url, access_token=access_token, probe=probe
+    )

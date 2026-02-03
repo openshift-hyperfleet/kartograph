@@ -1,11 +1,15 @@
-"""Unit tests for GithubRepository."""
+"""Unit tests for GithubRepository and GitRepositoryFactory."""
 
 from unittest.mock import MagicMock, create_autospec, patch
 
 import httpx
 import pytest
 
-from query.infrastructure.git_repository import GithubRepository
+from query.infrastructure.git_repository import (
+    GithubRepository,
+    GitRepositoryFactory,
+    ParsedGitUrl,
+)
 from query.infrastructure.observability.remote_file_repository_probe import (
     RemoteFileRepositoryProbe,
 )
@@ -55,7 +59,7 @@ class TestParseGithubUrl:
     def test_parses_valid_blob_url(self, repository):
         """Should parse valid GitHub blob URL."""
         url = "https://github.com/owner/repo/blob/main/path/to/file.adoc"
-        parsed = repository._parse_github_url(url)
+        parsed = repository._parse_url(url)
 
         assert parsed.owner == "owner"
         assert parsed.repo == "repo"
@@ -65,7 +69,7 @@ class TestParseGithubUrl:
     def test_parses_url_with_commit_sha(self, repository):
         """Should handle commit SHA as ref."""
         url = "https://github.com/owner/repo/blob/abc123def456/file.adoc"
-        parsed = repository._parse_github_url(url)
+        parsed = repository._parse_url(url)
 
         assert parsed.owner == "owner"
         assert parsed.repo == "repo"
@@ -78,22 +82,22 @@ class TestParseGithubUrl:
         with pytest.raises(
             ValueError, match="Branch/tag names with slashes are not supported"
         ):
-            repository._parse_github_url(url)
+            repository._parse_url(url)
 
     def test_raises_on_invalid_url(self, repository):
         """Should raise ValueError for non-GitHub URL."""
         with pytest.raises(ValueError, match="Invalid GitHub blob URL"):
-            repository._parse_github_url("https://gitlab.com/owner/repo/file.adoc")
+            repository._parse_url("https://gitlab.com/owner/repo/file.adoc")
 
     def test_raises_on_missing_blob_segment(self, repository):
         """Should raise ValueError when /blob/ is missing."""
         with pytest.raises(ValueError, match="Invalid GitHub blob URL"):
-            repository._parse_github_url("https://github.com/owner/repo/main/file.adoc")
+            repository._parse_url("https://github.com/owner/repo/main/file.adoc")
 
     def test_raises_on_empty_path(self, repository):
         """Should raise ValueError when path is empty."""
         with pytest.raises(ValueError, match="Invalid GitHub blob URL"):
-            repository._parse_github_url("https://github.com/owner/repo/blob/main/")
+            repository._parse_url("https://github.com/owner/repo/blob/main/")
 
 
 class TestBuildApiUrl:
@@ -101,9 +105,8 @@ class TestBuildApiUrl:
 
     def test_builds_correct_api_url(self, repository):
         """Should build correct GitHub API URL."""
-        api_url = repository._build_api_url(
-            owner="owner", repo="repo", ref="main", path="file.adoc"
-        )
+        parsed = ParsedGitUrl(owner="owner", repo="repo", ref="main", path="file.adoc")
+        api_url = repository._build_api_url(parsed)
 
         assert (
             api_url
@@ -112,9 +115,10 @@ class TestBuildApiUrl:
 
     def test_builds_url_with_nested_path(self, repository):
         """Should handle nested file paths."""
-        api_url = repository._build_api_url(
+        parsed = ParsedGitUrl(
             owner="owner", repo="repo", ref="main", path="docs/api/file.adoc"
         )
+        api_url = repository._build_api_url(parsed)
 
         assert (
             api_url
@@ -257,3 +261,48 @@ class TestGetFile:
         mock_probe.file_fetch_failed.assert_called_once()
         call_args = mock_probe.file_fetch_failed.call_args
         assert call_args[1]["status_code"] == 403
+
+
+class TestGitRepositoryFactory:
+    """Tests for GitRepositoryFactory."""
+
+    def test_creates_github_repository_for_github_url(self, mock_probe):
+        """Should create GithubRepository for GitHub URLs."""
+        url = "https://github.com/owner/repo/blob/main/file.txt"
+        repo = GitRepositoryFactory.create_from_url(
+            url=url, access_token="token123", probe=mock_probe
+        )
+
+        assert isinstance(repo, GithubRepository)
+        assert repo._access_token == "token123"
+        assert repo._probe is mock_probe
+
+    def test_creates_github_repository_without_token(self, mock_probe):
+        """Should create GithubRepository without access token."""
+        url = "https://github.com/owner/repo/blob/main/file.txt"
+        repo = GitRepositoryFactory.create_from_url(url=url, probe=mock_probe)
+
+        assert isinstance(repo, GithubRepository)
+        assert repo._access_token is None
+
+    def test_creates_github_repository_without_probe(self):
+        """Should create GithubRepository with default probe."""
+        url = "https://github.com/owner/repo/blob/main/file.txt"
+        repo = GitRepositoryFactory.create_from_url(url=url)
+
+        assert isinstance(repo, GithubRepository)
+        assert repo._probe is not None
+
+    def test_raises_for_gitlab_url(self):
+        """Should raise ValueError for GitLab URLs (not yet implemented)."""
+        url = "https://gitlab.com/owner/repo/-/blob/main/file.txt"
+
+        with pytest.raises(ValueError, match="GitLab support coming soon"):
+            GitRepositoryFactory.create_from_url(url=url)
+
+    def test_raises_for_unsupported_provider(self):
+        """Should raise ValueError for unsupported providers."""
+        url = "https://bitbucket.org/owner/repo/src/main/file.txt"
+
+        with pytest.raises(ValueError, match="Unsupported git provider"):
+            GitRepositoryFactory.create_from_url(url=url)

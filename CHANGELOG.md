@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.5.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.4.0...v3.5.0) (2026-02-03)
+
+
+### Features
+
+* **api.query:** support github/lab token via MCP header ([#181](https://github.com/openshift-hyperfleet/kartograph/issues/181)) ([d754062](https://github.com/openshift-hyperfleet/kartograph/commit/d75406249d40db2786e595f2f1c934c72ac37335))
+
 ## [3.4.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.3.0...v3.4.0) (2026-02-03)
 
 

@@ -1,4 +1,4 @@
-"""Unit tests for GithubRepository and GitRepositoryFactory."""
+"""Unit tests for GithubRepository, GitLabRepository and GitRepositoryFactory."""
 
 from unittest.mock import MagicMock, create_autospec, patch
 
@@ -7,6 +7,7 @@ import pytest
 
 from query.infrastructure.git_repository import (
     GithubRepository,
+    GitLabRepository,
     GitRepositoryFactory,
     ParsedGitUrl,
 )
@@ -170,6 +171,22 @@ class TestBuildApiUrl:
             == "https://api.github.com/repos/owner/repo/contents/docs/api/file.adoc?ref=main"
         )
 
+    def test_builds_enterprise_api_url(self, repository):
+        """Should build GitHub Enterprise API URL with /api/v3/ path."""
+        parsed = ParsedGitUrl(
+            hostname="github.enterprise.com",
+            owner="owner",
+            repo="repo",
+            ref="main",
+            path="file.adoc",
+        )
+        api_url = repository._build_api_url(parsed)
+
+        assert (
+            api_url
+            == "https://github.enterprise.com/api/v3/repos/owner/repo/contents/file.adoc?ref=main"
+        )
+
 
 class TestRequestHeaders:
     """Tests for request headers."""
@@ -308,6 +325,154 @@ class TestGetFile:
         assert call_args[1]["status_code"] == 403
 
 
+class TestGitLabRepository:
+    """Tests for GitLabRepository."""
+
+    @pytest.fixture
+    def gitlab_repository(self, mock_probe):
+        """Create GitLab repository without access token."""
+        return GitLabRepository(probe=mock_probe)
+
+    @pytest.fixture
+    def authed_gitlab_repository(self, mock_probe):
+        """Create GitLab repository with access token."""
+        return GitLabRepository(access_token="glpat-test123", probe=mock_probe)
+
+    def test_parses_valid_gitlab_url(self, gitlab_repository):
+        """Should parse valid GitLab blob URL."""
+        url = "https://gitlab.com/owner/repo/-/blob/main/path/to/file.adoc"
+        parsed = gitlab_repository._parse_url(url)
+
+        assert parsed.hostname == "gitlab.com"
+        assert parsed.owner == "owner"
+        assert parsed.repo == "repo"
+        assert parsed.ref == "main"
+        assert parsed.path == "path/to/file.adoc"
+
+    def test_parses_self_hosted_gitlab_url(self, gitlab_repository):
+        """Should parse self-hosted GitLab URLs."""
+        url = "https://gitlab.company.com/team/project/-/blob/develop/README.md"
+        parsed = gitlab_repository._parse_url(url)
+
+        assert parsed.hostname == "gitlab.company.com"
+        assert parsed.owner == "team"
+        assert parsed.repo == "project"
+        assert parsed.ref == "develop"
+        assert parsed.path == "README.md"
+
+    def test_parses_gitlab_url_with_nested_path(self, gitlab_repository):
+        """Should handle nested directory paths."""
+        url = "https://gitlab.com/gitlab-org/gitlab/-/blob/master/doc/development/testing.md"
+        parsed = gitlab_repository._parse_url(url)
+
+        assert parsed.hostname == "gitlab.com"
+        assert parsed.owner == "gitlab-org"
+        assert parsed.repo == "gitlab"
+        assert parsed.ref == "master"
+        assert parsed.path == "doc/development/testing.md"
+
+    def test_raises_on_invalid_gitlab_url(self, gitlab_repository):
+        """Should raise ValueError for non-GitLab URL."""
+        with pytest.raises(ValueError, match="Invalid GitLab blob URL"):
+            gitlab_repository._parse_url("https://github.com/owner/repo/file.adoc")
+
+    def test_raises_on_missing_dash_blob_segment(self, gitlab_repository):
+        """Should raise ValueError when /-/blob/ is missing."""
+        with pytest.raises(ValueError, match="Invalid GitLab blob URL"):
+            gitlab_repository._parse_url(
+                "https://gitlab.com/owner/repo/blob/main/file.adoc"
+            )
+
+    def test_builds_correct_gitlab_api_url(self, gitlab_repository):
+        """Should build correct GitLab API URL with URL encoding."""
+        parsed = ParsedGitUrl(
+            hostname="gitlab.com",
+            owner="owner",
+            repo="repo",
+            ref="main",
+            path="file.adoc",
+        )
+        api_url = gitlab_repository._build_api_url(parsed)
+
+        assert (
+            api_url
+            == "https://gitlab.com/api/v4/projects/owner%2Frepo/repository/files/file.adoc/raw?ref=main"
+        )
+
+    def test_builds_gitlab_api_url_with_nested_path(self, gitlab_repository):
+        """Should URL-encode nested file paths."""
+        parsed = ParsedGitUrl(
+            hostname="gitlab.com",
+            owner="owner",
+            repo="repo",
+            ref="main",
+            path="docs/api/file.adoc",
+        )
+        api_url = gitlab_repository._build_api_url(parsed)
+
+        assert (
+            api_url
+            == "https://gitlab.com/api/v4/projects/owner%2Frepo/repository/files/docs%2Fapi%2Ffile.adoc/raw?ref=main"
+        )
+
+    def test_builds_api_url_for_self_hosted(self, gitlab_repository):
+        """Should use extracted hostname for self-hosted instances."""
+        parsed = ParsedGitUrl(
+            hostname="gitlab.company.com",
+            owner="team",
+            repo="project",
+            ref="main",
+            path="README.md",
+        )
+        api_url = gitlab_repository._build_api_url(parsed)
+
+        assert (
+            api_url
+            == "https://gitlab.company.com/api/v4/projects/team%2Fproject/repository/files/README.md/raw?ref=main"
+        )
+
+    def test_gitlab_request_headers_with_token(self, authed_gitlab_repository):
+        """Should include PRIVATE-TOKEN header when token is set."""
+        headers = authed_gitlab_repository._request_headers
+
+        assert "PRIVATE-TOKEN" in headers
+        assert headers["PRIVATE-TOKEN"] == "glpat-test123"
+
+    def test_gitlab_request_headers_without_token(self, gitlab_repository):
+        """Should return empty dict when no token."""
+        headers = gitlab_repository._request_headers
+
+        assert "PRIVATE-TOKEN" not in headers
+        assert headers == {}
+
+    @patch("query.infrastructure.git_repository.httpx.get")
+    def test_fetches_gitlab_file_successfully(
+        self, mock_get, gitlab_repository, mock_probe
+    ):
+        """Should fetch file content using GitLab API."""
+        # Setup
+        blob_url = "https://gitlab.com/owner/repo/-/blob/main/file.adoc"
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "= Document Title\n\nContent here"
+        mock_get.return_value = mock_response
+
+        # Execute
+        result = gitlab_repository.get_file(blob_url)
+
+        # Verify
+        assert result.success is True
+        assert result.content == "= Document Title\n\nContent here"
+        assert result.source_url == blob_url
+
+        # Verify API was called correctly
+        mock_get.assert_called_once()
+        call_args = mock_get.call_args
+        assert "gitlab.com/api/v4/projects" in call_args[0][0]
+        assert call_args[1]["timeout"] == 30.0
+        assert call_args[1]["follow_redirects"] is False
+
+
 class TestGitRepositoryFactory:
     """Tests for GitRepositoryFactory."""
 
@@ -338,12 +503,31 @@ class TestGitRepositoryFactory:
         assert isinstance(repo, GithubRepository)
         assert repo._probe is not None
 
-    def test_raises_for_gitlab_url(self):
-        """Should raise ValueError for GitLab URLs (not yet implemented)."""
+    def test_creates_gitlab_repository_for_gitlab_url(self, mock_probe):
+        """Should create GitLabRepository for GitLab URLs."""
         url = "https://gitlab.com/owner/repo/-/blob/main/file.txt"
+        repo = GitRepositoryFactory.create_from_url(
+            url=url, access_token="glpat-123", probe=mock_probe
+        )
 
-        with pytest.raises(ValueError, match="GitLab support coming soon"):
-            GitRepositoryFactory.create_from_url(url=url)
+        assert isinstance(repo, GitLabRepository)
+        assert repo._access_token == "glpat-123"
+        assert repo._probe is mock_probe
+
+    def test_creates_gitlab_repository_for_self_hosted(self, mock_probe):
+        """Should create GitLabRepository for self-hosted GitLab instances."""
+        url = "https://gitlab.company.com/team/project/-/blob/main/file.txt"
+        repo = GitRepositoryFactory.create_from_url(url=url, probe=mock_probe)
+
+        assert isinstance(repo, GitLabRepository)
+        assert repo._access_token is None
+
+    def test_creates_github_repository_for_github_enterprise(self, mock_probe):
+        """Should create GithubRepository for GitHub Enterprise URLs."""
+        url = "https://github.enterprise.com/owner/repo/blob/main/file.txt"
+        repo = GitRepositoryFactory.create_from_url(url=url, probe=mock_probe)
+
+        assert isinstance(repo, GithubRepository)
 
     def test_raises_for_unsupported_provider(self):
         """Should raise ValueError for unsupported providers."""
@@ -359,12 +543,16 @@ class TestGitRepositoryFactory:
         with pytest.raises(ValueError, match="Unsupported git provider"):
             GitRepositoryFactory.create_from_url(url=url)
 
-    def test_prevents_ssrf_with_github_subdomain(self):
-        """Should reject URLs with github.com as subdomain (SSRF prevention)."""
-        url = "https://github.com.evil.com/owner/repo/blob/main/file.txt"
+    def test_accepts_any_hostname_with_valid_pattern(self, mock_probe):
+        """Should accept any hostname with valid blob pattern (supports self-hosted).
 
-        with pytest.raises(ValueError, match="Unsupported git provider"):
-            GitRepositoryFactory.create_from_url(url=url)
+        Note: This is intentional to support self-hosted instances.
+        Users explicitly provide URLs, so they control the destination.
+        """
+        url = "https://custom.git.host.com/owner/repo/blob/main/file.txt"
+        repo = GitRepositoryFactory.create_from_url(url=url, probe=mock_probe)
+
+        assert isinstance(repo, GithubRepository)
 
     def test_prevents_ssrf_with_github_in_query(self):
         """Should reject URLs with github.com in query string (SSRF prevention)."""

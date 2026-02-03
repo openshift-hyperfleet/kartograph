@@ -2,7 +2,7 @@ from abc import abstractmethod
 from dataclasses import dataclass
 import re
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 from query.infrastructure.observability.remote_file_repository_probe import (
@@ -212,15 +212,110 @@ class GithubRepository(AbstractGitRemoteFileRepository):
     def _build_api_url(self, parsed: ParsedGitUrl) -> str:
         """Build the GitHub Contents API URL.
 
+        Supports both public GitHub and GitHub Enterprise:
+        - Public: https://api.github.com/repos/...
+        - Enterprise: https://hostname/api/v3/repos/...
+
         Args:
             parsed: Parsed URL components
 
         Returns:
             GitHub API URL for fetching file content
         """
+        # Public GitHub uses api.github.com subdomain
+        if parsed.hostname == "github.com":
+            api_base = "https://api.github.com"
+        else:
+            # GitHub Enterprise uses /api/v3/ path on the same hostname
+            api_base = f"https://{parsed.hostname}/api/v3"
+
         return (
-            f"https://api.github.com/repos/{parsed.owner}/{parsed.repo}/"
+            f"{api_base}/repos/{parsed.owner}/{parsed.repo}/"
             f"contents/{parsed.path}?ref={parsed.ref}"
+        )
+
+
+class GitLabRepository(AbstractGitRemoteFileRepository):
+    """GitLab file repository using the official GitLab Repository Files API.
+
+    Fetches file content from GitLab repositories (gitlab.com or self-hosted).
+    Supports both public and private repositories via optional access token.
+
+    Note: Branch/tag names containing forward slashes are not supported.
+    Use commit SHAs instead for such cases.
+    """
+
+    # Matches: https://{hostname}/owner/repo/-/blob/ref/path/to/file
+    # Note the /-/ segment which differentiates GitLab from GitHub
+    _GITLAB_URL_PATTERN = re.compile(
+        r"^https://([^/]+)/([^/]+)/([^/]+)/-/blob/([^/]+)/(.+)$"
+    )
+
+    @property
+    def _request_headers(self) -> dict[str, str]:
+        """Build request headers including auth token if available."""
+        if self._access_token is None:
+            return {}
+
+        return {"PRIVATE-TOKEN": self._access_token}
+
+    def _parse_url(self, url: str) -> ParsedGitUrl:
+        """Parse a GitLab blob URL into its components.
+
+        Args:
+            url: A GitLab blob URL like:
+                https://gitlab.com/owner/repo/-/blob/branch/path/to/file.adoc
+
+        Returns:
+            ParsedGitUrl with hostname, owner, repo, ref, and path
+
+        Raises:
+            ValueError: If the URL is not a valid GitLab blob URL.
+
+        Note:
+            Branch/tag names containing slashes (e.g., feature/my-branch) are not
+            supported. The regex pattern ensures refs cannot contain slashes.
+            If you have such a branch, use the commit SHA instead.
+        """
+        match = self._GITLAB_URL_PATTERN.match(url)
+
+        if not match:
+            raise ValueError(
+                f"Invalid GitLab blob URL. Expected format: "
+                "'https://hostname/owner/repo/-/blob/ref/path/file', "
+                f"got: {url}"
+            )
+
+        hostname, owner, repo, ref, path = match.groups()
+
+        return ParsedGitUrl(
+            hostname=hostname, owner=owner, repo=repo, ref=ref, path=path
+        )
+
+    def _build_api_url(self, parsed: ParsedGitUrl) -> str:
+        """Build the GitLab Repository Files API URL.
+
+        Args:
+            parsed: Parsed URL components
+
+        Returns:
+            GitLab API URL for fetching raw file content
+
+        Note:
+            GitLab requires URL encoding for both project path (owner/repo)
+            and file path. The API format is:
+            https://{host}/api/v4/projects/{project_id}/repository/files/{file_path}/raw?ref={ref}
+        """
+        # URL-encode project path (owner/repo)
+        project_path = f"{parsed.owner}/{parsed.repo}"
+        encoded_project = quote(project_path, safe="")
+
+        # URL-encode file path
+        encoded_path = quote(parsed.path, safe="")
+
+        return (
+            f"https://{parsed.hostname}/api/v4/projects/{encoded_project}/"
+            f"repository/files/{encoded_path}/raw?ref={parsed.ref}"
         )
 
 
@@ -237,13 +332,19 @@ class GitRepositoryFactory:
         access_token: Optional[str] = None,
         probe: Optional[RemoteFileRepositoryProbe] = None,
     ) -> IRemoteFileRepository:
-        """Create appropriate git repository based on URL.
+        """Create appropriate git repository based on URL pattern.
 
-        Security: Uses strict hostname matching to prevent SSRF attacks.
-        Only accepts URLs from exact hostnames (github.com, gitlab.com).
+        Detects provider by URL structure rather than hostname to support
+        self-hosted instances (e.g., gitlab.company.com, github.enterprise.com).
+
+        Detection:
+        - GitLab: Contains /-/blob/ segment
+        - GitHub: Contains /blob/ segment (without /-/)
+
+        Security: Validates hostname exists to prevent SSRF attacks.
 
         Args:
-            url: Git blob URL (GitHub, GitLab, etc.)
+            url: Git blob URL (GitHub, GitLab, self-hosted, etc.)
             access_token: Optional access token for authentication
             probe: Optional observability probe
 
@@ -256,12 +357,12 @@ class GitRepositoryFactory:
         Example:
             >>> factory = GitRepositoryFactory()
             >>> repo = factory.create_from_url(
-            ...     "https://github.com/owner/repo/blob/main/file.txt",
-            ...     access_token="ghp_..."
+            ...     "https://gitlab.company.com/owner/repo/-/blob/main/file.txt",
+            ...     access_token="glpat-..."
             ... )
             >>> response = repo.get_file(url)
         """
-        # Parse URL and validate hostname to prevent SSRF
+        # Validate URL and extract hostname to prevent SSRF
         try:
             parsed = urlparse(url)
             hostname = parsed.hostname
@@ -271,16 +372,15 @@ class GitRepositoryFactory:
         if not hostname:
             raise ValueError(f"Missing hostname in URL: {url}")
 
-        # Strict hostname matching (case-insensitive)
-        hostname_lower = hostname.lower()
-
-        if hostname_lower == "github.com":
+        # Detect provider by URL pattern (supports self-hosted instances)
+        if "/-/blob/" in url:
+            # GitLab pattern: /-/blob/
+            return GitLabRepository(access_token=access_token, probe=probe)
+        elif "/blob/" in url:
+            # GitHub pattern: /blob/ (without /-/)
             return GithubRepository(access_token=access_token, probe=probe)
-        elif hostname_lower == "gitlab.com":
-            # GitLabRepository not yet implemented
-            raise ValueError("GitLab support coming soon")
 
         raise ValueError(
-            f"Unsupported git provider. Currently supported: GitHub, GitLab. "
-            f"Got hostname: {hostname}"
+            f"Unsupported git provider. URL must contain /blob/ (GitHub) "
+            f"or /-/blob/ (GitLab). Got: {url}"
         )

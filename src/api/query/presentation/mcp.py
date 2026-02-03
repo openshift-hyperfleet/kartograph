@@ -7,10 +7,9 @@ from fastmcp import FastMCP
 from fastmcp.dependencies import Depends
 
 from query.ports.file_repository_models import RemoteFileRepositoryResponse
-from query.infrastructure.git_repository import GithubRepository
 from infrastructure.settings import get_settings
 from query.application.services import MCPQueryService
-from query.dependencies import get_mcp_query_service
+from query.dependencies import get_git_repository, get_mcp_query_service
 from query.domain.value_objects import QueryError
 from fastmcp.server.dependencies import get_http_headers
 
@@ -179,7 +178,7 @@ def fetch_documentation_source(
         source = fetch_documentation_source(view_uri)
         print(source["content"])  # Full AsciiDoc content starting from title
     """
-    repository = GithubRepository()
+    repository = get_git_repository(url=documentationmodule_view_uri)
 
     return repository.get_file(url=documentationmodule_view_uri)
 

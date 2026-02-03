@@ -3,6 +3,7 @@ title: MCP Server Guide
 description: Using Kartograph's MCP server with Claude Code
 ---
 import { Tabs, TabItem, Aside, Code, Steps } from '@astrojs/starlight/components';
+import { Kbd } from 'starlight-kbd/components'
 
 ## Overview
 
@@ -47,6 +48,82 @@ claude mcp add \
 ```
 </Aside>
 
+### Cursor
+
+<Steps>
+1. **Open Cursor Settings**
+
+    Open Cursor settings by typing <Kbd mac="Cmd+Shift+J" linux="Ctrl+Shift+J"/>,
+    or via menu: `File` -> `Preferences` -> `Cursor Settings`.
+
+1. **Select Tools & MCP**
+
+    In the Cursor Settings left sidebar, select `Tools & MCP`.
+
+    ![Cursor Settings Tools & MCP Sidebar Button](../../../assets/cursor-settings-tools-mcp.png)
+
+1. **Open MCP Server Settings**
+
+   Depending on whether you have previously added an MCP server to Cursor,
+   either click "Add Custom MCP" or "New MCP Server" (at the bottom of the server list.)
+
+   This will open up Cursor's `mcp.json` settings file. This file will either contain
+   configuration for existing MCP servers, or an empty object like:
+
+   ```json
+    {
+      "mcpServers": {}
+    }
+   ```
+
+   ![Cursor MCP settings JSON file](../../../assets/cursor-mcp-json.png)
+
+1. **Add Kartograph MCP Server Configuration**
+   
+   To add Kartograh's MCP server to cursor, add the following JSON object 
+   inside the existing `mcpServers` object:
+
+   ```json
+   "kartograph": {
+      "url": "http://localhost:8000/query/mcp",
+      "headers": {
+        "x-github-pat": "<your-pat-here>",
+        "x-gitlab-pat": "<your-token-here>"
+      }
+    }
+   ```
+
+   The full file should look something like: 
+   ```json
+    {
+      "mcpServers": {
+          "kartograph": {
+          "url": "http://localhost:8000/query/mcp",
+          "headers": {
+            "x-github-pat": "<your-pat-here>",
+            "x-gitlab-pat": "<your-token-here>"
+          }
+        }
+      }
+    }
+   ```
+
+   <Aside type="tip">
+    Kartograph supports fetching some raw data from GitHub
+    and GitLab. If you wish to enable this functionality,
+    you must pass in access tokens from each service
+    via `headers` as shown above.
+    </Aside>
+
+1. **Save the File**
+
+   To finish adding the Kartograph MCP server to Cursor, save the `mcp.json`
+   and re-open Cursor Settings -> MCP & Tools.
+
+   Here, you should see the Kartograph MCP server listed, as shown below.
+
+   ![Kartograph MCP server listed in Cursor Settings](../../../assets/cursor-mcp-settings-added.png)
+</Steps>
 
 ## Resources
 

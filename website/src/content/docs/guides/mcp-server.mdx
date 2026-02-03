@@ -126,87 +126,6 @@ claude mcp add \
    ![Kartograph MCP server listed in Cursor Settings](../../../assets/cursor-mcp-settings-added.png)
 </Steps>
 
-## Resources
-
-Resources provide read-only access to graph schema information.
-
-### `schema://ontology`
-
-Complete graph ontology with all type definitions.
-
-**Returns:**
-```json
-{
-  "type_definitions": [
-    {
-      "label": "person",
-      "entity_type": "node",
-      "description": "A person entity representing an individual",
-      "required_properties": ["name"],
-      "optional_properties": ["email", "role"]
-    }
-  ],
-  "count": 1
-}
-```
-
-### `schema://nodes/labels`
-
-List of all node type labels.
-
-**Returns:**
-```json
-{
-  "labels": ["person", "project", "repository"],
-  "count": 3
-}
-```
-
-### `schema://edges/labels`
-
-List of all edge type labels.
-
-**Returns:**
-```json
-{
-  "labels": ["knows", "depends_on", "contributes_to"],
-  "count": 3
-}
-```
-
-### `schema://nodes/{label}`
-
-Detailed schema for a specific node type.
-
-**Example:** `schema://nodes/person`
-
-**Returns:**
-```json
-{
-  "label": "person",
-  "entity_type": "node",
-  "description": "A person entity",
-  "required_properties": ["name"],
-  "optional_properties": ["email", "role"]
-}
-```
-
-### `schema://edges/{label}`
-
-Detailed schema for a specific edge type.
-
-**Example:** `schema://edges/knows`
-
-**Returns:**
-```json
-{
-  "label": "knows",
-  "entity_type": "edge",
-  "description": "Professional relationship",
-  "required_properties": ["since"],
-  "optional_properties": []
-}
-```
 
 ## Tools
 
@@ -265,9 +184,3 @@ RETURN {source: a, relationship: r, target: b}
   "message": "Query must be read-only. Found forbidden keyword: CREATE"
 }
 ```
-
-## Workflow
-
-1. Use `schema://nodes/labels` and `schema://edges/labels` to discover available types
-2. Use `schema://nodes/{label}` or `schema://edges/{label}` to understand type properties
-3. Write Cypher queries using `query_graph` tool based on the schema

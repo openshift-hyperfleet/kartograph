@@ -477,15 +477,28 @@ class TestGitRepositoryFactory:
     """Tests for GitRepositoryFactory."""
 
     def test_creates_github_repository_for_github_url(self, mock_probe):
-        """Should create GithubRepository for GitHub URLs."""
+        """Should create GithubRepository for GitHub URLs with github_token."""
         url = "https://github.com/owner/repo/blob/main/file.txt"
         repo = GitRepositoryFactory.create_from_url(
-            url=url, access_token="token123", probe=mock_probe
+            url=url, github_token="ghp_123", probe=mock_probe
         )
 
         assert isinstance(repo, GithubRepository)
-        assert repo._access_token == "token123"
+        assert repo._access_token == "ghp_123"
         assert repo._probe is mock_probe
+
+    def test_creates_github_repository_selects_github_token(self, mock_probe):
+        """Should use github_token and ignore gitlab_token for GitHub URLs."""
+        url = "https://github.com/owner/repo/blob/main/file.txt"
+        repo = GitRepositoryFactory.create_from_url(
+            url=url,
+            github_token="ghp_123",
+            gitlab_token="glpat_456",
+            probe=mock_probe,
+        )
+
+        assert isinstance(repo, GithubRepository)
+        assert repo._access_token == "ghp_123"  # Uses GitHub token, not GitLab
 
     def test_creates_github_repository_without_token(self, mock_probe):
         """Should create GithubRepository without access token."""
@@ -504,15 +517,28 @@ class TestGitRepositoryFactory:
         assert repo._probe is not None
 
     def test_creates_gitlab_repository_for_gitlab_url(self, mock_probe):
-        """Should create GitLabRepository for GitLab URLs."""
+        """Should create GitLabRepository for GitLab URLs with gitlab_token."""
         url = "https://gitlab.com/owner/repo/-/blob/main/file.txt"
         repo = GitRepositoryFactory.create_from_url(
-            url=url, access_token="glpat-123", probe=mock_probe
+            url=url, gitlab_token="glpat-123", probe=mock_probe
         )
 
         assert isinstance(repo, GitLabRepository)
         assert repo._access_token == "glpat-123"
         assert repo._probe is mock_probe
+
+    def test_creates_gitlab_repository_selects_gitlab_token(self, mock_probe):
+        """Should use gitlab_token and ignore github_token for GitLab URLs."""
+        url = "https://gitlab.com/owner/repo/-/blob/main/file.txt"
+        repo = GitRepositoryFactory.create_from_url(
+            url=url,
+            github_token="ghp_123",
+            gitlab_token="glpat_456",
+            probe=mock_probe,
+        )
+
+        assert isinstance(repo, GitLabRepository)
+        assert repo._access_token == "glpat_456"  # Uses GitLab token, not GitHub
 
     def test_creates_gitlab_repository_for_self_hosted(self, mock_probe):
         """Should create GitLabRepository for self-hosted GitLab instances."""

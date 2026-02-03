@@ -329,36 +329,40 @@ class GitRepositoryFactory:
     @staticmethod
     def create_from_url(
         url: str,
-        access_token: Optional[str] = None,
+        github_token: Optional[str] = None,
+        gitlab_token: Optional[str] = None,
         probe: Optional[RemoteFileRepositoryProbe] = None,
     ) -> IRemoteFileRepository:
         """Create appropriate git repository based on URL pattern.
 
-        Detects provider by URL structure rather than hostname to support
-        self-hosted instances (e.g., gitlab.company.com, github.enterprise.com).
+        Detects provider by URL structure and selects the appropriate token.
+        Supports self-hosted instances (e.g., gitlab.company.com, github.enterprise.com).
 
         Detection:
-        - GitLab: Contains /-/blob/ segment
-        - GitHub: Contains /blob/ segment (without /-/)
+        - GitLab: Contains /-/blob/ segment → uses gitlab_token
+        - GitHub: Contains /blob/ segment (without /-/) → uses github_token
 
         Security: Validates hostname exists to prevent SSRF attacks.
 
         Args:
             url: Git blob URL (GitHub, GitLab, self-hosted, etc.)
-            access_token: Optional access token for authentication
+            github_token: Optional GitHub access token
+            gitlab_token: Optional GitLab access token
             probe: Optional observability probe
 
         Returns:
-            Repository instance for the detected provider
+            Repository instance for the detected provider with appropriate token
 
         Raises:
             ValueError: If URL is not from a supported git provider
 
         Example:
             >>> factory = GitRepositoryFactory()
+            >>> # Factory auto-selects gitlab_token for GitLab URLs
             >>> repo = factory.create_from_url(
             ...     "https://gitlab.company.com/owner/repo/-/blob/main/file.txt",
-            ...     access_token="glpat-..."
+            ...     github_token="ghp_...",
+            ...     gitlab_token="glpat-..."
             ... )
             >>> response = repo.get_file(url)
         """
@@ -372,13 +376,13 @@ class GitRepositoryFactory:
         if not hostname:
             raise ValueError(f"Missing hostname in URL: {url}")
 
-        # Detect provider by URL pattern (supports self-hosted instances)
+        # Detect provider by URL pattern and select appropriate token
         if "/-/blob/" in url:
             # GitLab pattern: /-/blob/
-            return GitLabRepository(access_token=access_token, probe=probe)
+            return GitLabRepository(access_token=gitlab_token, probe=probe)
         elif "/blob/" in url:
             # GitHub pattern: /blob/ (without /-/)
-            return GithubRepository(access_token=access_token, probe=probe)
+            return GithubRepository(access_token=github_token, probe=probe)
 
         raise ValueError(
             f"Unsupported git provider. URL must contain /blob/ (GitHub) "

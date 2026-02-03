@@ -91,31 +91,35 @@ def get_schema_resource_probe() -> SchemaResourceProbe:
 
 def get_git_repository(
     url: str,
-    access_token: Optional[str] = None,
+    github_token: Optional[str] = None,
+    gitlab_token: Optional[str] = None,
 ) -> IRemoteFileRepository:
     """Get git repository for URL with default observability.
 
     Automatically detects the git provider (GitHub, GitLab, etc.) from the URL
-    and returns the appropriate repository implementation with default probe.
+    and selects the appropriate token. Supports self-hosted instances.
 
     Args:
         url: Git blob URL (e.g., https://github.com/owner/repo/blob/main/file.txt)
-        access_token: Optional access token for private repositories
+        github_token: Optional GitHub access token (for GitHub URLs)
+        gitlab_token: Optional GitLab access token (for GitLab URLs)
 
     Returns:
-        Repository instance for the detected provider
+        Repository instance for the detected provider with appropriate token
 
     Raises:
         ValueError: If URL is from an unsupported git provider
 
     Example:
+        >>> # Factory auto-selects the right token based on URL
         >>> repo = get_git_repository(
-        ...     "https://github.com/owner/repo/blob/main/README.md",
-        ...     access_token="ghp_..."
+        ...     "https://gitlab.com/owner/repo/-/blob/main/README.md",
+        ...     github_token="ghp_...",
+        ...     gitlab_token="glpat_..."
         ... )
         >>> response = repo.get_file(url)
     """
     probe = DefaultRemoteFileRepositoryProbe()
     return GitRepositoryFactory.create_from_url(
-        url=url, access_token=access_token, probe=probe
+        url=url, github_token=github_token, gitlab_token=gitlab_token, probe=probe
     )

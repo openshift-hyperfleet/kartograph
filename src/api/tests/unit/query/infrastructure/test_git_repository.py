@@ -61,6 +61,7 @@ class TestParseGithubUrl:
         url = "https://github.com/owner/repo/blob/main/path/to/file.adoc"
         parsed = repository._parse_url(url)
 
+        assert parsed.hostname == "github.com"
         assert parsed.owner == "owner"
         assert parsed.repo == "repo"
         assert parsed.ref == "main"
@@ -71,6 +72,7 @@ class TestParseGithubUrl:
         url = "https://github.com/owner/repo/blob/abc123def456/file.adoc"
         parsed = repository._parse_url(url)
 
+        assert parsed.hostname == "github.com"
         assert parsed.owner == "owner"
         assert parsed.repo == "repo"
         assert parsed.ref == "abc123def456"
@@ -81,6 +83,7 @@ class TestParseGithubUrl:
         url = "https://github.com/openshift/openshift-docs/blob/main/modules/amd-testing-the-amd-gpu-operator.adoc"
         parsed = repository._parse_url(url)
 
+        assert parsed.hostname == "github.com"
         assert parsed.owner == "openshift"
         assert parsed.repo == "openshift-docs"
         assert parsed.ref == "main"
@@ -91,6 +94,7 @@ class TestParseGithubUrl:
         url = "https://github.com/owner/repo/blob/main/docs/api/v1/examples/file.adoc"
         parsed = repository._parse_url(url)
 
+        assert parsed.hostname == "github.com"
         assert parsed.owner == "owner"
         assert parsed.repo == "repo"
         assert parsed.ref == "main"
@@ -109,6 +113,7 @@ class TestParseGithubUrl:
         parsed = repository._parse_url(url)
 
         # Parsed as ref without slash (may be incorrect if feature/my-branch is a branch name)
+        assert parsed.hostname == "github.com"
         assert parsed.owner == "owner"
         assert parsed.repo == "repo"
         assert parsed.ref == "feature"
@@ -135,7 +140,13 @@ class TestBuildApiUrl:
 
     def test_builds_correct_api_url(self, repository):
         """Should build correct GitHub API URL."""
-        parsed = ParsedGitUrl(owner="owner", repo="repo", ref="main", path="file.adoc")
+        parsed = ParsedGitUrl(
+            hostname="github.com",
+            owner="owner",
+            repo="repo",
+            ref="main",
+            path="file.adoc",
+        )
         api_url = repository._build_api_url(parsed)
 
         assert (
@@ -146,7 +157,11 @@ class TestBuildApiUrl:
     def test_builds_url_with_nested_path(self, repository):
         """Should handle nested file paths."""
         parsed = ParsedGitUrl(
-            owner="owner", repo="repo", ref="main", path="docs/api/file.adoc"
+            hostname="github.com",
+            owner="owner",
+            repo="repo",
+            ref="main",
+            path="docs/api/file.adoc",
         )
         api_url = repository._build_api_url(parsed)
 

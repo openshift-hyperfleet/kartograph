@@ -18,6 +18,7 @@ from query.ports.repositories import IRemoteFileRepository
 class ParsedGitUrl:
     """Components of a parsed Git repository URL."""
 
+    hostname: str
     owner: str
     repo: str
     ref: str
@@ -176,7 +177,7 @@ class GithubRepository(AbstractGitRemoteFileRepository):
                 https://github.com/owner/repo/blob/branch/path/to/file.adoc
 
         Returns:
-            ParsedGitUrl with owner, repo, ref, and path
+            ParsedGitUrl with hostname, owner, repo, ref, and path
 
         Raises:
             ValueError: If the URL is not a valid GitHub blob URL.
@@ -186,6 +187,13 @@ class GithubRepository(AbstractGitRemoteFileRepository):
             supported. The regex pattern ensures refs cannot contain slashes.
             If you have such a branch, use the commit SHA instead.
         """
+        # Extract hostname
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+
+        if not hostname:
+            raise ValueError(f"Missing hostname in URL: {url}")
+
         match = self._GITHUB_URL_PATTERN.match(url)
 
         if not match:
@@ -197,7 +205,9 @@ class GithubRepository(AbstractGitRemoteFileRepository):
 
         owner, repo, ref, path = match.groups()
 
-        return ParsedGitUrl(owner=owner, repo=repo, ref=ref, path=path)
+        return ParsedGitUrl(
+            hostname=hostname, owner=owner, repo=repo, ref=ref, path=path
+        )
 
     def _build_api_url(self, parsed: ParsedGitUrl) -> str:
         """Build the GitHub Contents API URL.

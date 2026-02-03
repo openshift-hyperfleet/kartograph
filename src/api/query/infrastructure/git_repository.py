@@ -151,10 +151,10 @@ class GithubRepository(AbstractGitRemoteFileRepository):
     Use commit SHAs instead for such cases.
     """
 
-    # Matches: https://github.com/owner/repo/blob/ref/path/to/file
+    # Matches: https://{hostname}/owner/repo/blob/ref/path/to/file
     # Limitation: ref cannot contain slashes (use commit SHA for branches with slashes)
     _GITHUB_URL_PATTERN = re.compile(
-        r"^https://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$"
+        r"^https://([^/]+)/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$"
     )
 
     @property
@@ -175,6 +175,7 @@ class GithubRepository(AbstractGitRemoteFileRepository):
         Args:
             url: A GitHub blob URL like:
                 https://github.com/owner/repo/blob/branch/path/to/file.adoc
+                https://github.enterprise.com/owner/repo/blob/branch/file.adoc
 
         Returns:
             ParsedGitUrl with hostname, owner, repo, ref, and path
@@ -187,11 +188,10 @@ class GithubRepository(AbstractGitRemoteFileRepository):
             supported. The regex pattern ensures refs cannot contain slashes.
             If you have such a branch, use the commit SHA instead.
         """
-        # Parse URL and extract components, stripping query/fragment
+        # Parse URL to strip query/fragment before regex matching
         parsed = urlparse(url)
-        hostname = parsed.hostname
 
-        if not hostname:
+        if not parsed.hostname:
             raise ValueError(f"Missing hostname in URL: {url}")
 
         # Rebuild URL without query string or fragment for regex matching
@@ -202,11 +202,12 @@ class GithubRepository(AbstractGitRemoteFileRepository):
         if not match:
             raise ValueError(
                 f"Invalid GitHub blob URL. Expected format: "
-                "'https://github.com/owner/repo/blob/ref/path/file', "
+                "'https://hostname/owner/repo/blob/ref/path/file', "
                 f"got: {url}"
             )
 
-        owner, repo, ref, path = match.groups()
+        # Extract components from regex (hostname now comes from regex, not urlparse)
+        hostname, owner, repo, ref, path = match.groups()
 
         return ParsedGitUrl(
             hostname=hostname, owner=owner, repo=repo, ref=ref, path=path

@@ -168,6 +168,17 @@ class TestParseGithubUrl:
         assert parsed.ref == "main"
         assert parsed.path == "file.adoc"  # Clean path
 
+    def test_parses_github_enterprise_url(self, repository):
+        """Should parse GitHub Enterprise URLs with custom hostname."""
+        url = "https://github.enterprise.com/owner/repo/blob/main/file.adoc"
+        parsed = repository._parse_url(url)
+
+        assert parsed.hostname == "github.enterprise.com"
+        assert parsed.owner == "owner"
+        assert parsed.repo == "repo"
+        assert parsed.ref == "main"
+        assert parsed.path == "file.adoc"
+
 
 class TestBuildApiUrl:
     """Tests for GitHub API URL construction."""

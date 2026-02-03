@@ -5,6 +5,7 @@ Cross-context composition is handled in infrastructure.mcp_dependencies.
 """
 
 from contextlib import contextmanager
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Generator, Iterator, Optional
 
@@ -127,14 +128,17 @@ def get_git_repository(
     )
 
 
+@lru_cache(maxsize=1)
 def get_prompt_repository() -> PromptRepository:
-    """Get prompt repository with default prompts directory.
+    """Get prompt repository with default prompts directory (cached).
 
     Loads prompts from query/infrastructure/prompts directory.
     Performs startup validation to ensure required files exist.
 
+    Cached to avoid re-creating instances and re-validating on every call.
+
     Returns:
-        PromptRepository instance with validated prompts
+        PromptRepository instance with validated prompts (singleton)
 
     Raises:
         FileNotFoundError: If prompts directory or required files are missing

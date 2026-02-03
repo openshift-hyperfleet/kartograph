@@ -1,17 +1,20 @@
 """MCP server for the Querying bounded context."""
 
-from pathlib import Path
 from typing import Any, Dict
 
 from fastmcp import FastMCP
 from fastmcp.dependencies import Depends
+from fastmcp.server.dependencies import get_http_headers
 
-from query.ports.file_repository_models import RemoteFileRepositoryResponse
 from infrastructure.settings import get_settings
 from query.application.services import MCPQueryService
-from query.dependencies import get_git_repository, get_mcp_query_service
+from query.dependencies import (
+    get_git_repository,
+    get_mcp_query_service,
+    get_prompt_repository,
+)
 from query.domain.value_objects import QueryError
-from fastmcp.server.dependencies import get_http_headers
+from query.ports.file_repository_models import RemoteFileRepositoryResponse
 
 settings = get_settings()
 
@@ -19,9 +22,8 @@ mcp = FastMCP(name=settings.app_name)
 
 query_mcp_app = mcp.http_app(path="/mcp")
 
-# Load agent instructions from file
-_PROMPTS_DIR = Path(__file__).parent / "prompts"
-_AGENT_INSTRUCTIONS_PATH = _PROMPTS_DIR / "agent_instructions.md"
+# Eagerly validate prompts at startup (fail-fast if missing)
+_prompt_repository = get_prompt_repository()
 
 
 def _filter_internal_properties(data: Any) -> Any:
@@ -183,8 +185,6 @@ def fetch_documentation_source(
 
     headers = get_http_headers()
 
-    print("HEADERS", headers)
-
     github_token = headers.get("x-github-pat", None)
     gitlab_token = headers.get("x-gitlab-pat", None)
 
@@ -220,14 +220,6 @@ def get_agent_instructions() -> str:
     - Knowledge graph overview and domain context
 
     Returns:
-        Markdown-formatted agent instructions
+        Markdown-formatted agent instructions (cached from startup)
     """
-    try:
-        with open(_AGENT_INSTRUCTIONS_PATH, "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        return (
-            "# Agent Instructions Not Found\n\n"
-            "The agent instructions file could not be loaded. "
-            "Please ensure the instructions file exists at the expected location."
-        )
+    return _prompt_repository.get_agent_instructions()

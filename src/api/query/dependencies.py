@@ -5,12 +5,14 @@ Cross-context composition is handled in infrastructure.mcp_dependencies.
 """
 
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Generator, Iterator, Optional
 
 from query.infrastructure.git_repository import GitRepositoryFactory
 from query.infrastructure.observability.remote_file_repository_probe import (
     DefaultRemoteFileRepositoryProbe,
 )
+from query.infrastructure.prompt_repository import PromptRepository
 from query.ports.repositories import IRemoteFileRepository
 
 from infrastructure.database.connection import ConnectionFactory
@@ -123,3 +125,21 @@ def get_git_repository(
     return GitRepositoryFactory.create_from_url(
         url=url, github_token=github_token, gitlab_token=gitlab_token, probe=probe
     )
+
+
+def get_prompt_repository() -> PromptRepository:
+    """Get prompt repository with default prompts directory.
+
+    Loads prompts from query/infrastructure/prompts directory.
+    Performs startup validation to ensure required files exist.
+
+    Returns:
+        PromptRepository instance with validated prompts
+
+    Raises:
+        FileNotFoundError: If prompts directory or required files are missing
+    """
+    # Path relative to this module: query/dependencies.py
+    # Target: query/infrastructure/prompts/
+    prompts_dir = Path(__file__).parent / "infrastructure" / "prompts"
+    return PromptRepository(prompts_dir=prompts_dir)

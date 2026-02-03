@@ -2,6 +2,7 @@ from abc import abstractmethod
 from dataclasses import dataclass
 import re
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 from query.infrastructure.observability.remote_file_repository_probe import (
@@ -68,7 +69,12 @@ class AbstractGitRemoteFileRepository(IRemoteFileRepository):
 
         # Common HTTP logic
         try:
-            response = httpx.get(api_url, headers=self._request_headers, timeout=30.0)
+            response = httpx.get(
+                api_url,
+                headers=self._request_headers,
+                timeout=30.0,
+                follow_redirects=False,
+            )
         except Exception as e:
             self._probe.file_fetch_failed(url=url, reason=repr(e))
             raise RemoteFileFetchFailed() from e
@@ -238,6 +244,9 @@ class GitRepositoryFactory:
     ) -> IRemoteFileRepository:
         """Create appropriate git repository based on URL.
 
+        Security: Uses strict hostname matching to prevent SSRF attacks.
+        Only accepts URLs from exact hostnames (github.com, gitlab.com).
+
         Args:
             url: Git blob URL (GitHub, GitLab, etc.)
             access_token: Optional access token for authentication
@@ -257,12 +266,26 @@ class GitRepositoryFactory:
             ... )
             >>> response = repo.get_file(url)
         """
-        if "github.com" in url:
+        # Parse URL and validate hostname to prevent SSRF
+        try:
+            parsed = urlparse(url)
+            hostname = parsed.hostname
+        except Exception:
+            raise ValueError(f"Invalid URL format: {url}")
+
+        if not hostname:
+            raise ValueError(f"Missing hostname in URL: {url}")
+
+        # Strict hostname matching (case-insensitive)
+        hostname_lower = hostname.lower()
+
+        if hostname_lower == "github.com":
             return GithubRepository(access_token=access_token, probe=probe)
-        elif "gitlab.com" in url:
+        elif hostname_lower == "gitlab.com":
             # GitLabRepository not yet implemented
             raise ValueError("GitLab support coming soon")
 
         raise ValueError(
-            f"Unsupported git provider. Currently supported: GitHub. Got URL: {url}"
+            f"Unsupported git provider. Currently supported: GitHub, GitLab. "
+            f"Got hostname: {hostname}"
         )

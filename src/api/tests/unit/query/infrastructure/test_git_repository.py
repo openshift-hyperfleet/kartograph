@@ -306,3 +306,45 @@ class TestGitRepositoryFactory:
 
         with pytest.raises(ValueError, match="Unsupported git provider"):
             GitRepositoryFactory.create_from_url(url=url)
+
+    def test_prevents_ssrf_with_github_in_path(self):
+        """Should reject URLs with github.com in path (SSRF prevention)."""
+        url = "https://evil.com/github.com/malicious"
+
+        with pytest.raises(ValueError, match="Unsupported git provider"):
+            GitRepositoryFactory.create_from_url(url=url)
+
+    def test_prevents_ssrf_with_github_subdomain(self):
+        """Should reject URLs with github.com as subdomain (SSRF prevention)."""
+        url = "https://github.com.evil.com/owner/repo/blob/main/file.txt"
+
+        with pytest.raises(ValueError, match="Unsupported git provider"):
+            GitRepositoryFactory.create_from_url(url=url)
+
+    def test_prevents_ssrf_with_github_in_query(self):
+        """Should reject URLs with github.com in query string (SSRF prevention)."""
+        url = "https://evil.com/path?redirect=github.com"
+
+        with pytest.raises(ValueError, match="Unsupported git provider"):
+            GitRepositoryFactory.create_from_url(url=url)
+
+    def test_case_insensitive_hostname_matching(self):
+        """Should accept GitHub.com with different casing."""
+        url = "https://GitHub.COM/owner/repo/blob/main/file.txt"
+        repo = GitRepositoryFactory.create_from_url(url=url)
+
+        assert isinstance(repo, GithubRepository)
+
+    def test_rejects_invalid_url_format(self):
+        """Should raise ValueError for malformed URLs."""
+        url = "not-a-url"
+
+        with pytest.raises(ValueError, match="Missing hostname"):
+            GitRepositoryFactory.create_from_url(url=url)
+
+    def test_rejects_url_without_hostname(self):
+        """Should raise ValueError for URLs without hostname."""
+        url = "file:///local/path/file.txt"
+
+        with pytest.raises(ValueError, match="Missing hostname"):
+            GitRepositoryFactory.create_from_url(url=url)

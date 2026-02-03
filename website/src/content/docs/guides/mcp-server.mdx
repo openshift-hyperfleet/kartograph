@@ -2,6 +2,7 @@
 title: MCP Server Guide
 description: Using Kartograph's MCP server with Claude Code
 ---
+import { Tabs, TabItem, Aside, Code, Steps } from '@astrojs/starlight/components';
 
 ## Overview
 
@@ -12,9 +13,40 @@ Kartograph provides an MCP (Model Context Protocol) server at `/query/mcp` that 
 Provided that you have [started the Kartograph development server](../../getting-started/quickstart/#installation),
 the Kartograph MCP server can be registered with Claude Code:
 
+### Claude Code
+
+Add the Kartograph MCP server to Claude Code by 
+running this command in your terminal.
+
 ```bash
-claude mcp add --transport http kartograph http://localhost:8000/query/mcp
+claude mcp remove kartograph # Remove any prior versions
+claude mcp add \
+  --transport http \
+  kartograph \
+  http://localhost:8000/query/mcp \
+  --scope user # Allow access from any project
 ```
+
+<Aside type="tip">
+Kartograph supports fetching some raw data from GitHub
+and GitLab. If you wish to enable this functionality,
+you must pass in access tokens from each service
+when adding the MCP server.
+
+The tokens must have `read` repository access.
+
+```bash
+claude mcp remove kartograph # Remove any prior versions
+claude mcp add \
+  --transport http \
+  kartograph \
+  http://localhost:8000/query/mcp \
+  --header "x-github-pat: <your-pat-here>" \
+  --header "x-gitlab-pat: <your-token-here>" \
+  --scope user # Allow access from any project
+```
+</Aside>
+
 
 ## Resources
 

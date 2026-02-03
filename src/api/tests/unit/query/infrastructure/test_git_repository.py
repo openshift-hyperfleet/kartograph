@@ -76,13 +76,43 @@ class TestParseGithubUrl:
         assert parsed.ref == "abc123def456"
         assert parsed.path == "file.adoc"
 
-    def test_raises_on_branch_with_slashes(self, repository):
-        """Should raise ValueError for branch names containing slashes with helpful message."""
+    def test_parses_url_with_nested_path(self, repository):
+        """Should handle nested directory paths correctly."""
+        url = "https://github.com/openshift/openshift-docs/blob/main/modules/amd-testing-the-amd-gpu-operator.adoc"
+        parsed = repository._parse_url(url)
+
+        assert parsed.owner == "openshift"
+        assert parsed.repo == "openshift-docs"
+        assert parsed.ref == "main"
+        assert parsed.path == "modules/amd-testing-the-amd-gpu-operator.adoc"
+
+    def test_parses_url_with_deeply_nested_path(self, repository):
+        """Should handle deeply nested directory paths."""
+        url = "https://github.com/owner/repo/blob/main/docs/api/v1/examples/file.adoc"
+        parsed = repository._parse_url(url)
+
+        assert parsed.owner == "owner"
+        assert parsed.repo == "repo"
+        assert parsed.ref == "main"
+        assert parsed.path == "docs/api/v1/examples/file.adoc"
+
+    def test_parses_ambiguous_url_as_ref_without_slash(self, repository):
+        """Should parse ambiguous URLs (branch with slash vs nested path) as ref without slash.
+
+        Note: URLs like blob/feature/branch/file are ambiguous:
+        - Could be: ref=feature/branch, path=file (if 'feature/branch' is a branch name)
+        - Parsed as: ref=feature, path=branch/file (regex limitation)
+
+        Users with branch names containing slashes should use commit SHAs instead.
+        """
         url = "https://github.com/owner/repo/blob/feature/my-branch/file.adoc"
-        with pytest.raises(
-            ValueError, match="Branch/tag names with slashes are not supported"
-        ):
-            repository._parse_url(url)
+        parsed = repository._parse_url(url)
+
+        # Parsed as ref without slash (may be incorrect if feature/my-branch is a branch name)
+        assert parsed.owner == "owner"
+        assert parsed.repo == "repo"
+        assert parsed.ref == "feature"
+        assert parsed.path == "my-branch/file.adoc"
 
     def test_raises_on_invalid_url(self, repository):
         """Should raise ValueError for non-GitHub URL."""

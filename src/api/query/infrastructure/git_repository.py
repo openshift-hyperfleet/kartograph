@@ -183,24 +183,9 @@ class GithubRepository(AbstractGitRemoteFileRepository):
 
         Note:
             Branch/tag names containing slashes (e.g., feature/my-branch) are not
-            supported due to URL ambiguity. Use the commit SHA instead:
-            - Not supported: github.com/owner/repo/blob/feature/my-branch/file.txt
-            - Use instead:   github.com/owner/repo/blob/abc123def456/file.txt
+            supported. The regex pattern ensures refs cannot contain slashes.
+            If you have such a branch, use the commit SHA instead.
         """
-        # Check for potential branch/tag with slashes before regex matching
-        # Format: https://github.com/owner/repo/blob/ref/file
-        # Expected: 7 slashes (https:/ / github.com/ owner/ repo/ blob/ ref/ file)
-        # If exactly 8 slashes, it's ambiguous: could be blob/ref-with-slash/file
-        # or blob/ref/dir/file. We reject to avoid silent misparsing.
-        slash_count = url.count("/")
-        if "/blob/" in url and slash_count == 8:
-            # Ambiguous: could be blob/feature/branch/file or blob/main/dir/file
-            # We err on the side of caution and require commit SHA for this case
-            raise ValueError(
-                "Invalid GitHub blob URL. Branch/tag names with slashes are not "
-                f"supported. Use a commit SHA instead. Got: {url}"
-            )
-
         match = self._GITHUB_URL_PATTERN.match(url)
 
         if not match:

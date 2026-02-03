@@ -15,7 +15,7 @@ from fastmcp.server.dependencies import get_http_headers
 
 settings = get_settings()
 
-mcp = FastMCP(name=settings.app_name, stateless_http=True)
+mcp = FastMCP(name=settings.app_name)
 
 query_mcp_app = mcp.http_app(path="/mcp")
 
@@ -185,8 +185,8 @@ def fetch_documentation_source(
 
     print("HEADERS", headers)
 
-    github_token = headers.get("x-github-pat", "")
-    gitlab_token = headers.get("x-gitlab-pat", "")
+    github_token = headers.get("x-github-pat", None)
+    gitlab_token = headers.get("x-gitlab-pat", None)
 
     repository = get_git_repository(
         url=documentationmodule_view_uri,

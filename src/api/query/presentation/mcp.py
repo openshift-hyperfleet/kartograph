@@ -108,10 +108,6 @@ def query_graph(
         query_graph("MATCH (p:Person) RETURN count(p)")
     """
 
-    headers = get_http_headers()
-
-    print("HEADERS", headers)
-
     # Enforce maximum limits
     timeout_seconds = min(timeout_seconds, 60)
     max_rows = min(max_rows, 10000)
@@ -153,6 +149,12 @@ def fetch_documentation_source(
     provide a concise overview, but this tool retrieves the full source file
     including all procedure steps, code blocks, and configuration details.
 
+    Pass GitHub and/or GitLab access tokens for access to private
+    repositories via the headers:
+
+    `x-github-pat`
+    `x-gitlab-pat`
+
     The tool automatically:
     - Transforms GitHub blob URLs to raw content URLs
     - Strips AsciiDoc metadata and comments
@@ -178,7 +180,19 @@ def fetch_documentation_source(
         source = fetch_documentation_source(view_uri)
         print(source["content"])  # Full AsciiDoc content starting from title
     """
-    repository = get_git_repository(url=documentationmodule_view_uri)
+
+    headers = get_http_headers()
+
+    print("HEADERS", headers)
+
+    github_token = headers.get("x-github-pat", "")
+    gitlab_token = headers.get("x-gitlab-pat", "")
+
+    repository = get_git_repository(
+        url=documentationmodule_view_uri,
+        github_token=github_token,
+        gitlab_token=gitlab_token,
+    )
 
     return repository.get_file(url=documentationmodule_view_uri)
 

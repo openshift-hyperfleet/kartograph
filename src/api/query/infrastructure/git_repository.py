@@ -77,7 +77,7 @@ class AbstractGitRemoteFileRepository(IRemoteFileRepository):
                 follow_redirects=False,
             )
         except Exception as e:
-            self._probe.file_fetch_failed(url=url, reason=repr(e))
+            self._probe.file_fetch_failed(url=api_url, reason=repr(e))
             raise RemoteFileFetchFailed() from e
 
         # Check for HTTP errors
@@ -187,14 +187,17 @@ class GithubRepository(AbstractGitRemoteFileRepository):
             supported. The regex pattern ensures refs cannot contain slashes.
             If you have such a branch, use the commit SHA instead.
         """
-        # Extract hostname
+        # Parse URL and extract components, stripping query/fragment
         parsed = urlparse(url)
         hostname = parsed.hostname
 
         if not hostname:
             raise ValueError(f"Missing hostname in URL: {url}")
 
-        match = self._GITHUB_URL_PATTERN.match(url)
+        # Rebuild URL without query string or fragment for regex matching
+        clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+
+        match = self._GITHUB_URL_PATTERN.match(clean_url)
 
         if not match:
             raise ValueError(
@@ -277,7 +280,17 @@ class GitLabRepository(AbstractGitRemoteFileRepository):
             supported. The regex pattern ensures refs cannot contain slashes.
             If you have such a branch, use the commit SHA instead.
         """
-        match = self._GITLAB_URL_PATTERN.match(url)
+        # Parse URL and extract components, stripping query/fragment
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+
+        if not hostname:
+            raise ValueError(f"Missing hostname in URL: {url}")
+
+        # Rebuild URL without query string or fragment for regex matching
+        clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+
+        match = self._GITLAB_URL_PATTERN.match(clean_url)
 
         if not match:
             raise ValueError(

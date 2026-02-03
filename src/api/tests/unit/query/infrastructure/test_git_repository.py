@@ -135,6 +135,39 @@ class TestParseGithubUrl:
         with pytest.raises(ValueError, match="Invalid GitHub blob URL"):
             repository._parse_url("https://github.com/owner/repo/blob/main/")
 
+    def test_strips_query_parameters(self, repository):
+        """Should strip query parameters from URL before parsing."""
+        url = "https://github.com/owner/repo/blob/main/file.adoc?ref_type=heads"
+        parsed = repository._parse_url(url)
+
+        assert parsed.hostname == "github.com"
+        assert parsed.owner == "owner"
+        assert parsed.repo == "repo"
+        assert parsed.ref == "main"
+        assert parsed.path == "file.adoc"  # No query string
+
+    def test_strips_fragment(self, repository):
+        """Should strip fragment from URL before parsing."""
+        url = "https://github.com/owner/repo/blob/main/file.adoc#L42"
+        parsed = repository._parse_url(url)
+
+        assert parsed.hostname == "github.com"
+        assert parsed.owner == "owner"
+        assert parsed.repo == "repo"
+        assert parsed.ref == "main"
+        assert parsed.path == "file.adoc"  # No fragment
+
+    def test_strips_query_and_fragment(self, repository):
+        """Should strip both query and fragment from URL."""
+        url = "https://github.com/owner/repo/blob/main/file.adoc?foo=bar#L10"
+        parsed = repository._parse_url(url)
+
+        assert parsed.hostname == "github.com"
+        assert parsed.owner == "owner"
+        assert parsed.repo == "repo"
+        assert parsed.ref == "main"
+        assert parsed.path == "file.adoc"  # Clean path
+
 
 class TestBuildApiUrl:
     """Tests for GitHub API URL construction."""
@@ -382,6 +415,39 @@ class TestGitLabRepository:
             gitlab_repository._parse_url(
                 "https://gitlab.com/owner/repo/blob/main/file.adoc"
             )
+
+    def test_strips_query_parameters(self, gitlab_repository):
+        """Should strip query parameters from URL before parsing."""
+        url = "https://gitlab.cee.redhat.com/hcm-engprod/inscope-catalog-entries/-/blob/main/entities/ai/systems/redhatai.yaml?ref_type=heads"
+        parsed = gitlab_repository._parse_url(url)
+
+        assert parsed.hostname == "gitlab.cee.redhat.com"
+        assert parsed.owner == "hcm-engprod"
+        assert parsed.repo == "inscope-catalog-entries"
+        assert parsed.ref == "main"
+        assert parsed.path == "entities/ai/systems/redhatai.yaml"  # No query string
+
+    def test_strips_fragment(self, gitlab_repository):
+        """Should strip fragment from URL before parsing."""
+        url = "https://gitlab.com/owner/repo/-/blob/main/file.adoc#L42"
+        parsed = gitlab_repository._parse_url(url)
+
+        assert parsed.hostname == "gitlab.com"
+        assert parsed.owner == "owner"
+        assert parsed.repo == "repo"
+        assert parsed.ref == "main"
+        assert parsed.path == "file.adoc"  # No fragment
+
+    def test_strips_query_and_fragment(self, gitlab_repository):
+        """Should strip both query and fragment from URL."""
+        url = "https://gitlab.com/owner/repo/-/blob/main/file.adoc?foo=bar#L10"
+        parsed = gitlab_repository._parse_url(url)
+
+        assert parsed.hostname == "gitlab.com"
+        assert parsed.owner == "owner"
+        assert parsed.repo == "repo"
+        assert parsed.ref == "main"
+        assert parsed.path == "file.adoc"  # Clean path
 
     def test_builds_correct_gitlab_api_url(self, gitlab_repository):
         """Should build correct GitLab API URL with URL encoding."""

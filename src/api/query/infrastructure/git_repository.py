@@ -233,9 +233,12 @@ class GithubRepository(AbstractGitRemoteFileRepository):
             # GitHub Enterprise uses /api/v3/ path on the same hostname
             api_base = f"https://{parsed.hostname}/api/v3"
 
+        # URL-encode ref to handle special characters (+, #, &, etc.)
+        encoded_ref = quote(parsed.ref, safe="")
+
         return (
             f"{api_base}/repos/{parsed.owner}/{parsed.repo}/"
-            f"contents/{parsed.path}?ref={parsed.ref}"
+            f"contents/{parsed.path}?ref={encoded_ref}"
         )
 
 
@@ -327,9 +330,12 @@ class GitLabRepository(AbstractGitRemoteFileRepository):
         # URL-encode file path
         encoded_path = quote(parsed.path, safe="")
 
+        # URL-encode ref to handle special characters (+, #, &, etc.)
+        encoded_ref = quote(parsed.ref, safe="")
+
         return (
             f"https://{parsed.hostname}/api/v4/projects/{encoded_project}/"
-            f"repository/files/{encoded_path}/raw?ref={parsed.ref}"
+            f"repository/files/{encoded_path}/raw?ref={encoded_ref}"
         )
 
 

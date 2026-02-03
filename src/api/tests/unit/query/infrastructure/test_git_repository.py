@@ -231,6 +231,23 @@ class TestBuildApiUrl:
             == "https://github.enterprise.com/api/v3/repos/owner/repo/contents/file.adoc?ref=main"
         )
 
+    def test_url_encodes_ref_with_special_characters(self, repository):
+        """Should URL-encode ref parameter when it contains special characters."""
+        parsed = ParsedGitUrl(
+            hostname="github.com",
+            owner="owner",
+            repo="repo",
+            ref="feature/test+branch#1",  # Contains /, +, and #
+            path="file.adoc",
+        )
+        api_url = repository._build_api_url(parsed)
+
+        # ref should be URL-encoded: feature/test+branch#1 -> feature%2Ftest%2Bbranch%231
+        assert (
+            api_url
+            == "https://api.github.com/repos/owner/repo/contents/file.adoc?ref=feature%2Ftest%2Bbranch%231"
+        )
+
 
 class TestRequestHeaders:
     """Tests for request headers."""
@@ -506,6 +523,23 @@ class TestGitLabRepository:
         assert (
             api_url
             == "https://gitlab.company.com/api/v4/projects/team%2Fproject/repository/files/README.md/raw?ref=main"
+        )
+
+    def test_url_encodes_ref_with_special_characters(self, gitlab_repository):
+        """Should URL-encode ref parameter when it contains special characters."""
+        parsed = ParsedGitUrl(
+            hostname="gitlab.com",
+            owner="owner",
+            repo="repo",
+            ref="feature/test+branch#1",  # Contains /, +, and #
+            path="file.adoc",
+        )
+        api_url = gitlab_repository._build_api_url(parsed)
+
+        # ref should be URL-encoded
+        assert (
+            api_url
+            == "https://gitlab.com/api/v4/projects/owner%2Frepo/repository/files/file.adoc/raw?ref=feature%2Ftest%2Bbranch%231"
         )
 
     def test_gitlab_request_headers_with_token(self, authed_gitlab_repository):

@@ -20,7 +20,7 @@ settings = get_settings()
 
 mcp = FastMCP(name=settings.app_name)
 
-query_mcp_app = mcp.http_app(path="/mcp")
+query_mcp_app = mcp.http_app(path="/mcp", stateless_http=True)
 
 # Eagerly validate prompts at startup (fail-fast if missing)
 _prompt_repository = get_prompt_repository()

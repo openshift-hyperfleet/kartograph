@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 import structlog
 
 if TYPE_CHECKING:
-    from infrastructure.observability.context import ObservationContext
+    from shared_kernel.observability_context import ObservationContext
 
 
 class ConnectionProbe(Protocol):
@@ -31,6 +31,34 @@ class ConnectionProbe(Protocol):
 
     def connection_closed(self) -> None:
         """Record that a database connection was closed."""
+        ...
+
+    def pool_initialized(self, min_conn: int, max_conn: int) -> None:
+        """Record that connection pool was initialized."""
+        ...
+
+    def pool_initialization_failed(self, error: Exception) -> None:
+        """Record that pool initialization failed."""
+        ...
+
+    def connection_acquired_from_pool(self) -> None:
+        """Record that a connection was acquired from the pool."""
+        ...
+
+    def connection_returned_to_pool(self) -> None:
+        """Record that a connection was returned to the pool."""
+        ...
+
+    def pool_exhausted(self) -> None:
+        """Record that the connection pool was exhausted."""
+        ...
+
+    def connection_return_failed(self, error: Exception) -> None:
+        """Record that returning connection to pool failed."""
+        ...
+
+    def pool_closed(self) -> None:
+        """Record that the connection pool was closed."""
         ...
 
     def with_context(self, context: ObservationContext) -> ConnectionProbe:
@@ -86,5 +114,133 @@ class DefaultConnectionProbe:
         """Record that a database connection was closed."""
         self._logger.info(
             "database_connection_closed",
+            **self._get_context_kwargs(),
+        )
+
+    def pool_initialized(self, min_conn: int, max_conn: int) -> None:
+        """Record that connection pool was initialized."""
+        self._logger.info(
+            "connection_pool_initialized",
+            min_connections=min_conn,
+            max_connections=max_conn,
+            **self._get_context_kwargs(),
+        )
+
+    def pool_initialization_failed(self, error: Exception) -> None:
+        """Record that pool initialization failed."""
+        self._logger.error(
+            "connection_pool_initialization_failed",
+            error=str(error),
+            **self._get_context_kwargs(),
+        )
+
+    def connection_acquired_from_pool(self) -> None:
+        """Record that a connection was acquired from the pool."""
+        self._logger.debug(
+            "connection_acquired_from_pool",
+            **self._get_context_kwargs(),
+        )
+
+    def connection_returned_to_pool(self) -> None:
+        """Record that a connection was returned to the pool."""
+        self._logger.debug(
+            "connection_returned_to_pool",
+            **self._get_context_kwargs(),
+        )
+
+    def pool_exhausted(self) -> None:
+        """Record that the connection pool was exhausted."""
+        self._logger.warning(
+            "connection_pool_exhausted",
+            **self._get_context_kwargs(),
+        )
+
+    def connection_return_failed(self, error: Exception) -> None:
+        """Record that returning connection to pool failed."""
+        self._logger.error(
+            "connection_return_failed",
+            error=str(error),
+            **self._get_context_kwargs(),
+        )
+
+    def pool_closed(self) -> None:
+        """Record that the connection pool was closed."""
+        self._logger.info(
+            "connection_pool_closed",
+            **self._get_context_kwargs(),
+        )
+
+
+class MigrationProbe(Protocol):
+    """Domain probe for database migration observability.
+
+    This probe captures domain-significant events related to database
+    migrations without exposing logging implementation details.
+    """
+
+    def migration_started(self, mode: str) -> None:
+        """Record that a migration process has started."""
+        ...
+
+    def migration_completed(self, mode: str) -> None:
+        """Record that a migration process completed successfully."""
+        ...
+
+    def migration_failed(self, mode: str, error: Exception) -> None:
+        """Record that a migration process failed."""
+        ...
+
+    def with_context(self, context: ObservationContext) -> MigrationProbe:
+        """Create a new probe with observation context bound."""
+        ...
+
+
+class DefaultMigrationProbe:
+    """Default implementation of MigrationProbe using structlog.
+
+    Supports observation context for including request-scoped metadata
+    with all log events.
+    """
+
+    def __init__(
+        self,
+        logger: structlog.stdlib.BoundLogger | None = None,
+        context: ObservationContext | None = None,
+    ):
+        self._logger = logger or structlog.get_logger()
+        self._context = context
+
+    def _get_context_kwargs(self) -> dict[str, Any]:
+        """Get context metadata as kwargs for logging."""
+        if self._context is None:
+            return {}
+        return self._context.as_dict()
+
+    def with_context(self, context: ObservationContext) -> DefaultMigrationProbe:
+        """Create a new probe with observation context bound."""
+        return DefaultMigrationProbe(logger=self._logger, context=context)
+
+    def migration_started(self, mode: str) -> None:
+        """Record that a migration process has started."""
+        self._logger.info(
+            "database_migration_started",
+            mode=mode,
+            **self._get_context_kwargs(),
+        )
+
+    def migration_completed(self, mode: str) -> None:
+        """Record that a migration process completed successfully."""
+        self._logger.info(
+            "database_migration_completed",
+            mode=mode,
+            **self._get_context_kwargs(),
+        )
+
+    def migration_failed(self, mode: str, error: Exception) -> None:
+        """Record that a migration process failed."""
+        self._logger.error(
+            "database_migration_failed",
+            mode=mode,
+            error=str(error),
             **self._get_context_kwargs(),
         )

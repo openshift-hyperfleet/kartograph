@@ -1,114 +1,65 @@
 """Mutation applier for Graph bounded context.
 
-Applies mutation operations to the graph database in transactional batches.
-Uses Domain-Oriented Observability for tracking.
+Applies mutation operations to the graph database using a pluggable
+bulk loading strategy. Uses Domain-Oriented Observability for tracking.
+
+The MutationApplier is a thin coordinator that:
+1. Validates operations
+2. Delegates execution to a database-specific BulkLoadingStrategy
+
+Different strategies optimize for their target database:
+- AgeBulkLoadingStrategy: PostgreSQL COPY + staging tables for AGE
+- Neo4jBulkLoadingStrategy (future): Large UNWIND batches
 """
 
 from __future__ import annotations
 
-from typing import Any
-
-from graph.domain.value_objects import MutationOperation, MutationResult
-from graph.infrastructure.observability import DefaultMutationProbe, MutationProbe
+from graph.domain.value_objects import EntityType, MutationOperation, MutationResult
+from graph.infrastructure.observability import DefaultMutationProbe
+from graph.ports.bulk_loading import BulkLoadingStrategy
+from graph.ports.observability import MutationProbe
 from graph.ports.protocols import GraphClientProtocol
 
 
 class MutationApplier:
     """Applies mutation operations to the graph database.
 
-    All operations are applied within a transaction for atomicity.
+    This is a thin coordinator that validates operations and delegates
+    execution to a database-specific BulkLoadingStrategy.
+
     Uses Domain-Oriented Observability for tracking.
     """
 
     def __init__(
         self,
         client: GraphClientProtocol,
+        bulk_loading_strategy: BulkLoadingStrategy,
         probe: MutationProbe | None = None,
     ):
         """Initialize the mutation applier.
 
         Args:
             client: Graph database client for executing queries
+            bulk_loading_strategy: Database-specific strategy for bulk loading
             probe: Domain probe for observability (optional, defaults to DefaultMutationProbe)
         """
         self._client = client
+        self._strategy = bulk_loading_strategy
         self._probe = probe or DefaultMutationProbe()
 
-    def apply_batch(
-        self,
-        operations: list[MutationOperation],
-    ) -> MutationResult:
-        """Apply a batch of mutations atomically.
-
-        All operations are executed within a single transaction. If any operation
-        fails, the entire batch is rolled back.
-
-        Operations are automatically sorted into the correct execution order:
-        1. DEFINE
-        2. DELETE <edge>
-        3. DELETE <node>
-        4. CREATE <node>
-        5. CREATE <edge>
-        6. UPDATE <node>
-        7. UPDATE <edge>
-
-        Args:
-            operations: List of mutation operations to apply (order does not matter)
-
-        Returns:
-            MutationResult with success status and operation count
-        """
-        if not operations:
-            return MutationResult(
-                success=True,
-                operations_applied=0,
-            )
-
-        try:
-            # Validate all operations before executing
-            for op in operations:
-                op.validate_operation()
-
-            # Sort operations into correct execution order
-            sorted_ops = self._sort_operations(operations)
-
-            # Execute all operations in a transaction
-            with self._client.transaction() as tx:
-                for op in sorted_ops:
-                    query = self._build_query(op)
-                    if query is not None:
-                        tx.execute_cypher(query)
-                    self._probe.mutation_applied(
-                        operation=op.op,
-                        entity_type=op.type,
-                        entity_id=op.id,
-                    )
-
-            return MutationResult(
-                success=True,
-                operations_applied=len(operations),
-            )
-        except Exception as e:
-            return MutationResult(
-                success=False,
-                operations_applied=0,
-                errors=[str(e)],
-            )
-
     def _sort_operations(
-        self,
-        operations: list[MutationOperation],
+        self, operations: list[MutationOperation]
     ) -> list[MutationOperation]:
         """Sort operations into correct execution order.
 
-        Order:
-        1. DEFINE
-        2. DELETE <edge>
-        3. DELETE <node>
-        4. CREATE <node>
-        5. CREATE <edge>
-        6. UPDATE <node>
-        7. UPDATE <edge>
+        Order is based on referential integrity constraints that apply to
+        ALL graph databases, not database-specific implementation details:
+        1. DEFINE (schema definitions)
+        2. DELETE edges (must delete edges before nodes)
+        3. DELETE nodes
+        4. CREATE nodes (must create nodes before edges)
+        5. CREATE edges
+        6. UPDATE (any order after creates)
 
         Args:
             operations: Unsorted list of operations
@@ -118,134 +69,68 @@ class MutationApplier:
         """
 
         def sort_key(op: MutationOperation) -> tuple[int, int]:
-            """Generate sort key for operation.
-
-            Returns tuple of (operation_priority, entity_type_priority)
-            """
-            # Operation priority
-            op_priority = {
-                "DEFINE": 0,
-                "DELETE": 1,
-                "CREATE": 2,
-                "UPDATE": 3,
-            }
-
-            # Entity type priority (edges before nodes for DELETE, nodes before edges for CREATE/UPDATE)
+            op_priority = {"DEFINE": 0, "DELETE": 1, "CREATE": 2, "UPDATE": 3}
             if op.op == "DELETE":
-                type_priority = 0 if op.type == "edge" else 1
-            else:  # CREATE or UPDATE
-                type_priority = 0 if op.type == "node" else 1
-
+                # Delete edges before nodes
+                type_priority = 0 if op.type == EntityType.EDGE else 1
+            else:
+                # Create/Update nodes before edges
+                type_priority = 0 if op.type == EntityType.NODE else 1
             return (op_priority.get(op.op, 999), type_priority)
 
         return sorted(operations, key=sort_key)
 
-    def _build_query(self, op: MutationOperation) -> str | None:
-        """Build Cypher query for mutation operation.
+    def apply_batch(
+        self,
+        operations: list[MutationOperation],
+    ) -> MutationResult:
+        """Apply a batch of mutations atomically.
+
+        Validates operations, sorts them into correct execution order, and
+        delegates execution to the bulk loading strategy.
 
         Args:
-            op: The mutation operation to convert to Cypher
+            operations: List of mutation operations to apply (order does not matter)
 
         Returns:
-            Cypher query string
-
-        Raises:
-            ValueError: If operation type is unknown
+            MutationResult with success status and operation count
         """
-        if op.op == "CREATE":
-            return self._build_create(op)
-        elif op.op == "UPDATE":
-            return self._build_update(op)
-        elif op.op == "DELETE":
-            return self._build_delete(op)
-        elif op.op == "DEFINE":
-            # DEFINE operations don't modify the database, they just define schemas
-            # For now, we skip them (they'll be handled by the TypeDefinitionRepository)
-            return None
-        else:
-            raise ValueError(f"Unknown operation: {op.op}")
-
-    def _build_create(self, op: MutationOperation) -> str:
-        """Build CREATE query using MERGE for idempotency.
-
-        Args:
-            op: The CREATE operation
-
-        Returns:
-            Cypher MERGE query
-        """
-        if op.type == "node":
-            # MERGE on id, set all properties
-            set_clauses = []
-            for k, v in (op.set_properties or {}).items():
-                set_clauses.append(f"SET n.{k} = {self._format_value(v)}")
-
-            return f"MERGE (n:{op.label} {{id: '{op.id}'}}) " + " ".join(set_clauses)
-        else:  # edge
-            # MERGE on id, match source/target nodes, set properties
-            set_clauses = []
-            for k, v in (op.set_properties or {}).items():
-                set_clauses.append(f"SET r.{k} = {self._format_value(v)}")
-
-            return (
-                f"MATCH (source {{id: '{op.start_id}'}}) "
-                f"MATCH (target {{id: '{op.end_id}'}}) "
-                f"MERGE (source)-[r:{op.label} {{id: '{op.id}'}}]->(target) "
-                + " ".join(set_clauses)
+        if not operations:
+            self._probe.apply_batch_completed(
+                total_operations=0,
+                total_batches=0,
+                duration_ms=0.0,
+                success=True,
+            )
+            return MutationResult(
+                success=True,
+                operations_applied=0,
             )
 
-    def _build_update(self, op: MutationOperation) -> str:
-        """Build UPDATE query with separate SET and REMOVE.
+        # Validate all operations before executing
+        try:
+            for op in operations:
+                op.validate_operation()
+        except Exception as e:
+            self._probe.apply_batch_completed(
+                total_operations=len(operations),
+                total_batches=0,
+                duration_ms=0.0,
+                success=False,
+            )
+            return MutationResult(
+                success=False,
+                operations_applied=0,
+                errors=[str(e)],
+            )
 
-        Args:
-            op: The UPDATE operation
+        # Sort operations to respect referential integrity
+        sorted_ops = self._sort_operations(operations)
 
-        Returns:
-            Cypher UPDATE query
-        """
-        parts = [f"MATCH (n {{id: '{op.id}'}})"]
-
-        if op.set_properties:
-            set_clauses = []
-            for k, v in op.set_properties.items():
-                set_clauses.append(f"n.{k} = {self._format_value(v)}")
-            parts.append("SET " + ", ".join(set_clauses))
-
-        if op.remove_properties:
-            remove_clauses = [f"n.{k}" for k in op.remove_properties]
-            parts.append("REMOVE " + ", ".join(remove_clauses))
-
-        return " ".join(parts)
-
-    def _build_delete(self, op: MutationOperation) -> str:
-        """Build DELETE query with cascade (DETACH).
-
-        Args:
-            op: The DELETE operation
-
-        Returns:
-            Cypher DETACH DELETE query
-        """
-        return f"MATCH (n {{id: '{op.id}'}}) DETACH DELETE n"
-
-    def _format_value(self, value: Any) -> str:
-        """Format Python value for Cypher query.
-
-        Args:
-            value: Python value to format
-
-        Returns:
-            Formatted string for Cypher query
-        """
-        if isinstance(value, str):
-            # Escape backslashes
-            escaped = value.replace("\\", "\\\\")
-            # Escape single quotes in strings
-            escaped = escaped.replace("'", "\\'")
-            return f"'{escaped}'"
-        elif isinstance(value, bool):
-            return "true" if value else "false"
-        elif value is None:
-            return "null"
-        else:
-            return str(value)
+        # Delegate to the bulk loading strategy (passes pre-sorted operations)
+        return self._strategy.apply_batch(
+            client=self._client,
+            operations=sorted_ops,
+            probe=self._probe,
+            graph_name=self._client.graph_name,
+        )

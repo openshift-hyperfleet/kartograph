@@ -9,17 +9,17 @@ Kartograph follows Domain-Driven Design with six distinct bounded contexts. Each
 
 ## The Six Contexts
 
-### 1. Identity
+### 1. IAM (Identity and Access Management)
 
 **Purpose:** Manages "who" can do "what" (Authentication & Authorization)
 
 **Responsibilities:**
-- User, Team, and Tenant management
+- User, Group, and Tenant management
 - API Key lifecycle management
 
 **Key Entities:**
 - `User`
-- `Team`
+- `Group`
 - `Tenant`
 - `APIKey`
 
@@ -29,8 +29,8 @@ Kartograph follows Domain-Driven Design with six distinct bounded contexts. Each
 
 **Responsibilities:**
 - CRUD operations for **KnowledgeGraph** and **DataSource** configurations
-- Storing encrypted credentials (via Vault)
-- Defining and managing synchronization schedules
+- Storing and retrieving encrypted credentials (via Vault)
+- Defining and managing data synchronization schedules
 
 **Key Entities:**
 - `KnowledgeGraph`
@@ -65,7 +65,7 @@ Kartograph follows Domain-Driven Design with six distinct bounded contexts. Each
 **Key Entities:**
 - `ExtractionAgent`
 - `DeterministicProcessor`
-- [`MutationLog`](/guides/extraction-mutations/) (JSONL file)
+- [`MutationLog`](../../guides/extraction-mutations/) (JSONL file)
 
 
 ### 5. Graph
@@ -75,7 +75,8 @@ Kartograph follows Domain-Driven Design with six distinct bounded contexts. Each
 **Responsibilities:**
 - Applying the **MutationLogs** to the database (Transactional Writes)
 - Managing database integrity (e.g., cascading deletes)
-- Exposing a safe, scoped, read-only API for the Extraction agent to "see" the existing graph during processing
+- Exposing a safe, scoped, read-only API for the Extraction agent to query the existing graph during processing
+- Providing a safe, scoped, read-only interface to the Query context.
 
 **Key Entities:**
 - `GraphDatabase`
@@ -83,18 +84,16 @@ Kartograph follows Domain-Driven Design with six distinct bounded contexts. Each
 - `Edge`
 - `GraphExtractionReadOnlyRepository` (for Extraction context)
 
-### 6. Querying
+### 6. Query
 
 **Purpose:** The consumer interface. Provides read access to end-users and agents.
 
 **Responsibilities:**
 - Hosting the **MCP (Model Context Protocol) Server**
-- Translating user/agent questions into database queries
 - Enforcing rate limits and query complexity safety checks
 
 **Key Entities:**
 - `MCPServer`
-- `QueryEngine`
 - `RateLimiter`
 
 ## Context Boundaries
@@ -126,7 +125,8 @@ Querying → Identity: Auth validation (REST API)
 
 ## Architectural Tests
 
-Kartograph uses `pytest-archon` to enforce boundaries:
+Kartograph uses `pytest-archon` to enforce boundaries. Here's an example
+of what that looks like:
 
 ```python
 # tests/architecture/test_bounded_contexts.py
@@ -148,4 +148,4 @@ def test_ingestion_cannot_access_database():
 
 ## Next Steps
 
-- Learn about [DDD Patterns](/architecture/ddd-patterns/) used in each context
+- Learn about [DDD Patterns](../../architecture/ddd-patterns/) used in each context

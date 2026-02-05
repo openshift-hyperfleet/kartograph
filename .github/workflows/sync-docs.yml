@@ -1,0 +1,77 @@
+name: Validate Documentation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate-docs:
+    name: Validate Documentation Sync
+    runs-on: ubuntu-latest
+    # Only run on PRs from the same repo (forks can't have their docs synced anyway)
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "src/api/uv.lock"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        working-directory: src/api
+        run: uv sync --frozen
+
+      - name: Export system properties
+        run: |
+          cd src/api
+          uv run python ../../scripts/export_system_properties.py
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if git diff --quiet website/src/data/system-properties.json && \
+             git ls-files --error-unmatch website/src/data/system-properties.json > /dev/null 2>&1; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "✅ Documentation is in sync"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "❌ Documentation is out of sync"
+          fi
+
+      - name: Post PR comment if out of sync
+        if: steps.check_changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} --body "## 📝 Documentation Update Required
+
+          The system properties documentation is out of sync with the code.
+
+          **To fix this, run the following command from the repository root:**
+
+          \`\`\`bash
+          make docs-export
+          \`\`\`
+
+          Then commit the updated \`website/src/data/system-properties.json\` file.
+
+          ---
+          <sub>This check ensures that the documentation accurately reflects the current domain model.</sub>"
+
+      - name: Fail if out of sync
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          echo "::error::Documentation is out of sync. Please run 'make docs-export' and commit the changes."
+          exit 1

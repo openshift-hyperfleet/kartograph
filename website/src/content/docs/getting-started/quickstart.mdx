@@ -1,6 +1,8 @@
 ---
 title: Quick Start
 description: Get Kartograph running in minutes
+sidebar:
+   order: 0
 ---
 
 import { Steps, Code, Aside } from '@astrojs/starlight/components';
@@ -8,8 +10,9 @@ import { Steps, Code, Aside } from '@astrojs/starlight/components';
 ## Prerequisites
 
 - Python 3.12 or higher
-- UV package manager
-- Docker (for Apache AGE database)
+- [UV package manager](https://github.com/astral-sh/uv)
+- Docker
+- OpenSSL (for generating TLS certificates for local SpiceDB usage)
 
 ## Installation
 
@@ -32,21 +35,26 @@ import { Steps, Code, Aside } from '@astrojs/starlight/components';
    make run
    ```
    This will first start a Postgres instance with ApacheAGE installed and
-   then start the Kartograph API.
+   then build and run the Kartograph API.
 </Steps>
 
 ## What's Next?
 
-TODO
+### Using the MCP Server
+
+Kartograph exposes an MCP (Model Context Protocol) server that allows AI agents like Claude to query the knowledge graph.
+
+See the **[MCP Server Guide](../../guides/mcp-server/)** for connection instructions, available tools, resources, and examples.
+
 
 ### Understanding the Architecture
 
 Kartograph is built with Domain-Driven Design:
 
-- **[Bounded Contexts](/architecture/bounded-contexts/)** - Learn about the six contexts
-- **[DDD Patterns](/architecture/ddd-patterns/)** - See DDD principles in action
+- **[Bounded Contexts](../../architecture/bounded-contexts/)** - Learn about the six contexts
+- **[DDD Patterns](../../architecture/ddd-patterns/)** - See DDD principles in action
 
 ### Core Concepts
 
-- **[Mutation Schema](/reference/mutation-schema/)** - JSONL mutation operation reference
-- **[Secure Enclave](/reference/secure-enclave/)** - How tenant isolation works
+- **[Mutation Schema](../../reference/mutation-schema/)** - JSONL mutation operation reference
+- **[Secure Enclave](../../reference/secure-enclave/)** - How tenant isolation works

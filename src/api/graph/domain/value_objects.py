@@ -7,6 +7,7 @@ on their attribute values.
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,6 +17,68 @@ from pydantic import BaseModel, ConfigDict, Field
 # Keys are column names from the query, values can be nodes, edges,
 # scalars, or other AGE data types.
 QueryResultRow: TypeAlias = dict[str, Any]
+
+ID_REGEX = r"^[0-9a-z_]+:[0-9a-f]{16}$"
+
+
+class EntityType(str, Enum):
+    """Enum for graph entity types."""
+
+    NODE = "node"
+    EDGE = "edge"
+
+
+class MutationOperationType(str, Enum):
+    """Enum for mutation operation types."""
+
+    DEFINE = "DEFINE"
+    CREATE = "CREATE"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"
+
+
+# System-managed properties
+# These are automatically added by the system and should not be tracked as optional properties
+
+# Properties required for ALL entities (nodes and edges)
+COMMON_SYSTEM_PROPERTIES: frozenset[str] = frozenset({"data_source_id", "source_path"})
+
+# Node-specific system properties (in addition to common)
+NODE_SYSTEM_PROPERTIES: frozenset[str] = frozenset({"slug"})
+
+# Edge-specific system properties (in addition to common)
+# Currently empty, but defined for future extensibility
+EDGE_SYSTEM_PROPERTIES: frozenset[str] = frozenset()
+
+
+def get_system_properties_for_entity(entity_type: EntityType) -> frozenset[str]:
+    """Get all system properties for a specific entity type.
+
+    System properties are automatically managed by the platform and should not
+    be exposed as optional properties in type definitions.
+
+    Args:
+        entity_type: EntityType.NODE or EntityType.EDGE
+
+    Returns:
+        Frozenset of system property names for the given entity type
+
+    Raises:
+        ValueError: If entity_type is not a valid EntityType
+    """
+    if entity_type == EntityType.NODE:
+        return COMMON_SYSTEM_PROPERTIES | NODE_SYSTEM_PROPERTIES
+    elif entity_type == EntityType.EDGE:
+        return COMMON_SYSTEM_PROPERTIES | EDGE_SYSTEM_PROPERTIES
+    else:
+        raise ValueError(f"Invalid entity_type: {repr(entity_type)}")
+
+
+class SchemaLabelsResponse(BaseModel):
+    """Response model for schema label list endpoints."""
+
+    labels: list[str] = Field(description="List of type labels")
+    count: int = Field(description="Total number of labels")
 
 
 class NodeRecord(BaseModel):
@@ -67,21 +130,17 @@ class TypeDefinition(BaseModel):
         label: The type label (e.g., "Person", "KNOWS")
         entity_type: Whether this is a node or edge type
         description: Plain-text description of this type
-        example_file_path: Example file where this type is found
-        example_in_file_path: Example instance as it appears in file
         required_properties: Properties that must be present on all instances
         optional_properties: Properties that may be present on instances
     """
 
     model_config = ConfigDict(frozen=True)
 
-    label: str
-    entity_type: str  # "node" or "edge"
+    label: str = Field(description="Type label (must be lowercase)")
+    entity_type: EntityType
     description: str
-    example_file_path: str
-    example_in_file_path: str
-    required_properties: list[str]
-    optional_properties: list[str] = Field(default_factory=list)
+    required_properties: set[str]
+    optional_properties: set[str] = Field(default_factory=set)
 
 
 class MutationOperation(BaseModel):
@@ -91,9 +150,21 @@ class MutationOperation(BaseModel):
 
     Operation semantics:
     - DEFINE: Declares a node/edge type schema with required/optional properties
-    - CREATE: Idempotent (uses MERGE). Creates if not exists, updates if exists
-    - UPDATE: Partial update. Use set_properties to add/change, remove_properties to remove
-    - DELETE: Cascades edges automatically (DETACH DELETE)
+    - CREATE: Entity Discovery (idempotent assertion)
+        * Semantic: "I discovered this entity with these properties"
+        * Behavior: MERGE + accumulate properties (preserves existing unlisted properties)
+        * Use case: AI agent discovering entities across multiple files
+        * Triggers schema learning for new optional properties
+    - UPDATE: Entity Modification (explicit change)
+        * Semantic: "Change this specific property value" or "Remove this property"
+        * Behavior: MATCH + SET/REMOVE specific fields
+        * Use case: Deterministic processor handling renames, corrections, deletions
+        * Triggers schema learning for new optional properties in set_properties
+        * Can remove properties via remove_properties
+    - DELETE: Cascades edges automatically (DETACH DELETE for nodes, DELETE for edges)
+
+    Key distinction: Both CREATE and UPDATE preserve unlisted properties. The difference
+    is semantic intent and the ability to REMOVE properties (UPDATE only).
 
     Attributes:
         op: The operation type
@@ -105,24 +176,22 @@ class MutationOperation(BaseModel):
         set_properties: Properties to set/update
         remove_properties: Properties to remove (UPDATE only)
         description: Type description (DEFINE only)
-        example_file_path: Example file path (DEFINE only)
-        example_in_file_path: Example instance (DEFINE only)
         required_properties: Required property names (DEFINE only)
         optional_properties: Optional property names (DEFINE only)
     """
 
     model_config = ConfigDict(frozen=True)
 
-    op: str = Field(pattern="^(DEFINE|CREATE|UPDATE|DELETE)$")
-    type: str = Field(pattern="^(node|edge)$")
-    id: str | None = Field(default=None, pattern="^[a-z_]+:[0-9a-f]{16}$")
+    op: MutationOperationType
+    type: EntityType
+    id: str | None = Field(default=None, pattern=ID_REGEX)
 
     # CREATE/DEFINE fields
-    label: str | None = None
+    label: str | None = Field(default=None, description="Type label")
 
     # CREATE edge fields
-    start_id: str | None = Field(default=None, pattern="^[a-z_]+:[0-9a-f]{16}$")
-    end_id: str | None = Field(default=None, pattern="^[a-z_]+:[0-9a-f]{16}$")
+    start_id: str | None = Field(default=None, pattern=ID_REGEX)
+    end_id: str | None = Field(default=None, pattern=ID_REGEX)
 
     # CREATE/UPDATE fields
     set_properties: dict[str, Any] | None = None
@@ -130,10 +199,8 @@ class MutationOperation(BaseModel):
 
     # DEFINE fields
     description: str | None = None
-    example_file_path: str | None = None
-    example_in_file_path: str | None = None
-    required_properties: list[str] | None = None
-    optional_properties: list[str] | None = None
+    required_properties: set[str] | None = None
+    optional_properties: set[str] | None = None
 
     def validate_operation(self) -> None:
         """Validate operation-specific requirements.
@@ -147,14 +214,11 @@ class MutationOperation(BaseModel):
                 [
                     self.label,
                     self.description,
-                    self.example_file_path,
-                    self.example_in_file_path,
                     self.required_properties is not None,
                 ]
             ):
                 raise ValueError(
-                    "DEFINE requires 'label', 'description', 'example_file_path', "
-                    "'example_in_file_path', and 'required_properties'"
+                    "DEFINE requires 'label', 'description', and 'required_properties'"
                 )
             if any(
                 [
@@ -225,14 +289,15 @@ class MutationOperation(BaseModel):
                 "Only DEFINE operations can be converted to TypeDefinition"
             )
 
+        # Convert string type to EntityType enum
+        entity_type = EntityType.NODE if self.type == "node" else EntityType.EDGE
+
         return TypeDefinition(
             label=self.label or "",
-            entity_type=self.type,
+            entity_type=entity_type,
             description=self.description or "",
-            example_file_path=self.example_file_path or "",
-            example_in_file_path=self.example_in_file_path or "",
-            required_properties=self.required_properties or [],
-            optional_properties=self.optional_properties or [],
+            required_properties=self.required_properties or set(),
+            optional_properties=self.optional_properties or set(),
         )
 
 

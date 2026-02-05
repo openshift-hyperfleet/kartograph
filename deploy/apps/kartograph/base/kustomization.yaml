@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # API
+  - api-deployment.yaml
+  - api-service.yaml
+  - api-serviceaccount.yaml
+  # Database
+  - postgres-deployment.yaml
+  - postgres-service.yaml
+  - postgres-pvc.yaml
+  # Authorization
+  - spicedb-deployment.yaml
+  - spicedb-service.yaml
+  # RBAC
+  - init-waiter-rbac.yaml
+  # Jobs
+  - job-db-init.yaml
+  - job-spicedb-migrate.yaml
+  - job-db-migrate.yaml
+  - job-spicedb-schema.yaml
+  # Config
+  - configmap.yaml
+  - spicedb-schema-configmap.yaml
+
+commonLabels:
+  app.kubernetes.io/name: kartograph
+  app.kubernetes.io/part-of: kartograph

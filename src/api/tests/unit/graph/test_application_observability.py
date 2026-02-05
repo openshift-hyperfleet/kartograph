@@ -24,24 +24,6 @@ class TestDefaultGraphServiceProbe:
         assert probe._logger is mock_logger
 
 
-class TestNodesQueried:
-    """Tests for nodes_queried method."""
-
-    def test_logs_with_correct_parameters(self):
-        """nodes_queried should log with path and counts."""
-        mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
-        probe = DefaultGraphServiceProbe(logger=mock_logger)
-
-        probe.nodes_queried(path="test/path.md", node_count=5, edge_count=3)
-
-        mock_logger.info.assert_called_once_with(
-            "graph_nodes_queried",
-            path="test/path.md",
-            node_count=5,
-            edge_count=3,
-        )
-
-
 class TestSlugSearched:
     """Tests for slug_searched method."""
 
@@ -96,7 +78,7 @@ class TestWithContext:
 
     def test_with_context_creates_new_probe(self):
         """with_context should create a new probe with context bound."""
-        from infrastructure.observability.context import ObservationContext
+        from shared_kernel.observability_context import ObservationContext
 
         probe = DefaultGraphServiceProbe()
         context = ObservationContext(request_id="req-123", graph_name="test_graph")
@@ -108,7 +90,7 @@ class TestWithContext:
 
     def test_with_context_preserves_logger(self):
         """with_context should preserve the original logger."""
-        from infrastructure.observability.context import ObservationContext
+        from shared_kernel.observability_context import ObservationContext
 
         mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
         probe = DefaultGraphServiceProbe(logger=mock_logger)
@@ -120,20 +102,22 @@ class TestWithContext:
 
     def test_context_included_in_log_calls(self):
         """Bound context should be included in log calls."""
-        from infrastructure.observability.context import ObservationContext
+        from shared_kernel.observability_context import ObservationContext
 
         mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
         probe = DefaultGraphServiceProbe(logger=mock_logger)
         context = ObservationContext(request_id="req-456", graph_name="my_graph")
 
         probe_with_context = probe.with_context(context)
-        probe_with_context.nodes_queried(path="test.md", node_count=1, edge_count=0)
+        probe_with_context.slug_searched(
+            slug="test", node_type="Person", result_count=1
+        )
 
         mock_logger.info.assert_called_once_with(
-            "graph_nodes_queried",
-            path="test.md",
-            node_count=1,
-            edge_count=0,
+            "graph_slug_searched",
+            slug="test",
+            node_type="Person",
+            result_count=1,
             request_id="req-456",
             graph_name="my_graph",
         )

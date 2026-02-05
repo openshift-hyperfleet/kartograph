@@ -8,10 +8,11 @@ from fastapi.testclient import TestClient
 
 from graph.domain.value_objects import (
     EdgeRecord,
-    MutationOperation,
     MutationResult,
     NodeRecord,
 )
+from iam.application.value_objects import CurrentUser
+from iam.domain.value_objects import TenantId, UserId
 
 
 @pytest.fixture
@@ -27,19 +28,34 @@ def mock_mutation_service():
 
 
 @pytest.fixture
-def test_client(mock_query_service, mock_mutation_service):
+def mock_current_user():
+    """Mock CurrentUser for authentication."""
+    return CurrentUser(
+        user_id=UserId(value="test-user-123"),
+        username="testuser",
+        tenant_id=TenantId.generate(),
+    )
+
+
+@pytest.fixture
+def test_client(mock_query_service, mock_mutation_service, mock_current_user):
     """Create TestClient with mocked dependencies."""
     from fastapi import FastAPI
 
+    from graph import dependencies
     from graph.presentation import routes
+    from iam.dependencies.user import get_current_user
 
     app = FastAPI()
 
     # Override dependencies with mocks
-    app.dependency_overrides[routes.get_query_service] = lambda: mock_query_service
-    app.dependency_overrides[routes.get_mutation_service] = (
+    app.dependency_overrides[dependencies.get_graph_query_service] = (
+        lambda: mock_query_service
+    )
+    app.dependency_overrides[dependencies.get_graph_mutation_service] = (
         lambda: mock_mutation_service
     )
+    app.dependency_overrides[get_current_user] = lambda: mock_current_user
 
     app.include_router(routes.router)
 
@@ -50,152 +66,89 @@ class TestApplyMutationsRoute:
     """Tests for POST /graph/mutations endpoint."""
 
     def test_apply_mutations_success(self, test_client, mock_mutation_service):
-        """Should apply mutations and return success result."""
-        mock_mutation_service.apply_mutations.return_value = MutationResult(
+        """Should apply mutations from JSONL and return success result."""
+        mock_mutation_service.apply_mutations_from_jsonl.return_value = MutationResult(
             success=True,
             operations_applied=2,
         )
 
-        request_data = [
-            {
-                "op": "CREATE",
-                "type": "node",
-                "id": "person:abc123def456789a",
-                "label": "Person",
-                "set_properties": {
-                    "slug": "alice",
-                    "name": "Alice",
-                    "data_source_id": "ds-123",
-                    "source_path": "people/alice.md",
-                },
-            },
-            {
-                "op": "UPDATE",
-                "type": "node",
-                "id": "person:abc123def456789a",
-                "set_properties": {"email": "alice@example.com"},
-            },
-        ]
+        jsonl_data = '{"op": "CREATE", "type": "node", "id": "person:abc123def456789a", "label": "person", "set_properties": {"slug": "alice", "name": "Alice", "data_source_id": "ds-123", "source_path": "people/alice.md"}}\n{"op": "UPDATE", "type": "node", "id": "person:abc123def456789a", "set_properties": {"email": "alice@example.com"}}'
 
-        response = test_client.post("/graph/mutations", json=request_data)
+        response = test_client.post(
+            "/graph/mutations",
+            content=jsonl_data,
+            headers={"Content-Type": "application/jsonlines"},
+        )
 
         assert response.status_code == status.HTTP_200_OK
         result = response.json()
         assert result["success"] is True
         assert result["operations_applied"] == 2
 
-        # Verify service was called with parsed operations
-        mock_mutation_service.apply_mutations.assert_called_once()
-        operations = mock_mutation_service.apply_mutations.call_args[0][0]
-        assert len(operations) == 2
-        assert all(isinstance(op, MutationOperation) for op in operations)
+        # Verify service was called with JSONL string
+        mock_mutation_service.apply_mutations_from_jsonl.assert_called_once_with(
+            jsonl_content=jsonl_data
+        )
 
     def test_apply_mutations_failure_returns_500(
         self, test_client, mock_mutation_service
     ):
         """Should return 500 when mutation application fails."""
-        mock_mutation_service.apply_mutations.return_value = MutationResult(
+        mock_mutation_service.apply_mutations_from_jsonl.return_value = MutationResult(
             success=False,
             operations_applied=0,
             errors=["Database connection failed"],
         )
 
-        request_data = [
-            {
-                "op": "DELETE",
-                "type": "node",
-                "id": "person:abc123def456789a",
-            }
-        ]
+        jsonl_data = '{"op": "DELETE", "type": "node", "id": "person:abc123def456789a"}'
 
-        response = test_client.post("/graph/mutations", json=request_data)
+        response = test_client.post(
+            "/graph/mutations",
+            content=jsonl_data,
+            headers={"Content-Type": "application/jsonlines"},
+        )
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert "errors" in response.json()["detail"]
 
-    def test_apply_mutations_invalid_operation_returns_422(self, test_client):
-        """Should return 422 for invalid mutation operation."""
-        # Missing required 'op' field
-        request_data = [
-            {
-                "type": "node",
-                "id": "person:abc123def456789a",
-            }
-        ]
-
-        response = test_client.post("/graph/mutations", json=request_data)
-
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-
-    def test_apply_empty_mutations_list(self, test_client, mock_mutation_service):
-        """Should handle empty mutations list."""
-        mock_mutation_service.apply_mutations.return_value = MutationResult(
+    def test_apply_whitespace_only_jsonl(self, test_client, mock_mutation_service):
+        """Should handle JSONL with only whitespace/newlines."""
+        mock_mutation_service.apply_mutations_from_jsonl.return_value = MutationResult(
             success=True,
             operations_applied=0,
         )
 
-        response = test_client.post("/graph/mutations", json=[])
+        response = test_client.post(
+            "/graph/mutations",
+            content="\n\n  \n",  # Whitespace only
+            headers={"Content-Type": "application/jsonlines"},
+        )
 
         assert response.status_code == status.HTTP_200_OK
         result = response.json()
         assert result["success"] is True
         assert result["operations_applied"] == 0
 
+    def test_apply_mutations_validation_error_returns_422(
+        self, test_client, mock_mutation_service
+    ):
+        """Should return 422 for validation errors."""
+        mock_mutation_service.apply_mutations_from_jsonl.return_value = MutationResult(
+            success=False,
+            operations_applied=0,
+            errors=["JSON parse error: Invalid syntax"],
+        )
 
-class TestFindByPathRoute:
-    """Tests for GET /graph/nodes/by-path endpoint."""
+        invalid_jsonl = "not valid json"
 
-    def test_find_by_path_success(self, test_client, mock_query_service):
-        """Should find nodes and edges by path."""
-        mock_nodes = [
-            NodeRecord(
-                id="person:abc123def456789a",
-                label="Person",
-                properties={
-                    "slug": "alice",
-                    "name": "Alice",
-                    "data_source_id": "ds-123",
-                    "source_path": "people/alice.md",
-                },
-            )
-        ]
-        mock_edges = [
-            EdgeRecord(
-                id="knows:aaa111bbb222ccc3",
-                label="KNOWS",
-                start_id="person:abc123def456789a",
-                end_id="person:def456abc123789a",
-                properties={
-                    "since": 2020,
-                    "data_source_id": "ds-123",
-                    "source_path": "people/alice.md",
-                },
-            )
-        ]
+        response = test_client.post(
+            "/graph/mutations",
+            content=invalid_jsonl,
+            headers={"Content-Type": "application/jsonlines"},
+        )
 
-        mock_query_service.get_nodes_by_path.return_value = (mock_nodes, mock_edges)
-
-        response = test_client.get("/graph/nodes/by-path?path=people/alice.md")
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert "nodes" in data
-        assert "edges" in data
-        assert len(data["nodes"]) == 1
-        assert len(data["edges"]) == 1
-        assert data["nodes"][0]["label"] == "Person"
-        assert data["edges"][0]["label"] == "KNOWS"
-
-    def test_find_by_path_no_results(self, test_client, mock_query_service):
-        """Should return empty arrays when no results found."""
-        mock_query_service.get_nodes_by_path.return_value = ([], [])
-
-        response = test_client.get("/graph/nodes/by-path?path=nonexistent.md")
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["nodes"] == []
-        assert data["edges"] == []
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert "errors" in response.json()["detail"]
 
 
 class TestFindBySlugRoute:
@@ -206,7 +159,7 @@ class TestFindBySlugRoute:
         mock_nodes = [
             NodeRecord(
                 id="person:abc123def456789a",
-                label="Person",
+                label="person",
                 properties={
                     "slug": "alice",
                     "name": "Alice",
@@ -231,7 +184,7 @@ class TestFindBySlugRoute:
         mock_nodes = [
             NodeRecord(
                 id="person:abc123def456789a",
-                label="Person",
+                label="person",
                 properties={
                     "slug": "alice",
                     "name": "Alice",
@@ -260,7 +213,7 @@ class TestGetNeighborsRoute:
 
         mock_central_node = NodeRecord(
             id="person:abc123def456789a",
-            label="Person",
+            label="person",
             properties={
                 "slug": "alice",
                 "name": "Alice",
@@ -271,7 +224,7 @@ class TestGetNeighborsRoute:
         mock_neighbor_nodes = [
             NodeRecord(
                 id="person:def456abc123789a",
-                label="Person",
+                label="person",
                 properties={
                     "slug": "bob",
                     "name": "Bob",
@@ -283,7 +236,7 @@ class TestGetNeighborsRoute:
         mock_connecting_edges = [
             EdgeRecord(
                 id="knows:aaa111bbb222ccc3",
-                label="KNOWS",
+                label="knows",
                 start_id="person:abc123def456789a",
                 end_id="person:def456abc123789a",
                 properties={
@@ -318,7 +271,7 @@ class TestGetNeighborsRoute:
 
         mock_central_node = NodeRecord(
             id="person:isolated111111",
-            label="Person",
+            label="person",
             properties={
                 "slug": "isolated",
                 "data_source_id": "ds-123",

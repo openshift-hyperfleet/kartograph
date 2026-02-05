@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: kartograph-stage
+resources:
+  - ../../base
+  - route.yaml
+  # secret-provider-class.yaml removed - using K8s auth method until CSI driver is available
+patches:
+  - path: configmap-patch.yaml
+  - path: resources-patch.yaml
+  # deployment-vault-patch.yaml removed - using K8s auth method until CSI driver is available
+images:
+  - name: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-api
+    newTag: 1.1.1

@@ -1,4 +1,86 @@
 services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.5
+    command: start-dev --import-realm --health-enabled=true
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: localhost
+    ports:
+      - "8080:8080"
+      - "9000:9000"
+    networks:
+      - kartograph
+    volumes:
+      - ./keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e 'GET /health/ready HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3;if [ $? -eq 0 ]; then exit 0; else exit 1; fi",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  spicedb:
+    image: authzed/spicedb:v1.48.0
+    command: "serve"
+    env_file:
+      - env/spicedb.env
+    ports:
+      - "50051:50051"
+    networks:
+      - kartograph
+    restart: unless-stopped
+    environment:
+      - "SPICEDB_DATASTORE_ENGINE=postgres"
+      - "SPICEDB_GRPC_TLS_CERT_PATH=/certs/spicedb-cert.pem"
+      - "SPICEDB_GRPC_TLS_KEY_PATH=/certs/spicedb-key.pem"
+    volumes:
+      - ./certs:/certs:ro
+    depends_on:
+      spicedb-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        ["CMD", "grpc_health_probe", "-addr=:50051", "-tls", "-tls-no-verify"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  spicedb-migrate:
+    image: "authzed/spicedb"
+    command: "migrate head"
+    restart: "on-failure"
+    networks:
+      - kartograph
+    env_file:
+      - env/spicedb.env
+    environment:
+      - "SPICEDB_DATASTORE_ENGINE=postgres"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+  # Transient service to ensure the 'spicedb' database exists
+  db-init:
+    image: postgres:17-alpine
+    networks:
+      - kartograph
+    env_file:
+      - env/postgres.env
+    command: >
+      sh -c "
+      PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres -U $${POSTGRES_USER} -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname = 'spicedb'\" | grep -q 1 || 
+      PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres -U $${POSTGRES_USER} -d postgres -c \"CREATE DATABASE spicedb;\"
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     image: apache/age:release_PG17_1.6.0
     env_file:
@@ -10,11 +92,45 @@ services:
     networks:
       - kartograph
     restart: unless-stopped
+    command: postgres -c max_locks_per_transaction=1024
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kartograph"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Init service: Run Alembic database migrations
+  db-migrate:
+    build:
+      context: ./src/api
+      dockerfile: Dockerfile
+    env_file:
+      - env/api.env
+    networks:
+      - kartograph
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    restart: "on-failure"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Init service: Load SpiceDB authorization schema
+  spicedb-schema-init:
+    image: authzed/zed:latest
+    networks:
+      - kartograph
+    volumes:
+      - ./src/api/shared_kernel/authorization/spicedb/schema.zed:/schema/schema.zed:ro
+      - ./certs:/certs:ro
+    command: ["schema", "write", "--no-verify-ca", "/schema/schema.zed"]
+    environment:
+      - ZED_ENDPOINT=spicedb:50051
+      - ZED_TOKEN=${SPICEDB_PRESHARED_KEY:-changeme}
+      - GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/certs/spicedb-cert.pem
+    restart: "on-failure"
+    depends_on:
+      spicedb:
+        condition: service_healthy
 
   api:
     build:
@@ -26,9 +142,26 @@ services:
       - "8000:8000"
     networks:
       - kartograph
+    volumes:
+      - ./certs:/certs:ro
+      # Mount host CA bundle (supports multiple OS types via env var)
+      # Default fallback order: RHEL/Fedora -> Debian/Ubuntu -> macOS
+      - ${HOST_CA_BUNDLE:-/etc/pki/tls/certs/ca-bundle.crt}:/etc/ssl/certs/ca-bundle.crt:ro
+    tty: true
+    extra_hosts:
+      - "localhost:host-gateway"
+    environment:
+      - FORCE_COLOR=1
+      - GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/certs/spicedb-cert.pem
+      # SSL cert file uses mounted path (same for all systems)
+      - SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+      spicedb-schema-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
       test:

@@ -17,7 +17,8 @@ api/
     domain/           # Pure domain logic, no dependencies
     application/      # Use cases, orchestrates domain
     infrastructure/   # Adapters, database, external services
-    interface/        # HTTP, CLI, MCP endpoints
+    ports/            # Define contracts between the application layer and infrastructure
+    presentation/     # HTTP, CLI, MCP endpoints
 ```
 
 ### Domain Layer
@@ -53,7 +54,7 @@ class Node:
 **Example:**
 ```python
 # api/graph/application/apply_mutations.py
-class ApplyMutationsUseCase:
+class ApplyMutationsService:
     """Application service - orchestrates domain logic."""
 
     def __init__(self, repository: GraphRepository):
@@ -69,7 +70,7 @@ class ApplyMutationsUseCase:
 ### Infrastructure Layer
 
 **Rules:**
-- Implements interfaces defined in domain/application
+- Implements interfaces defined by ports
 - Database, file system, external APIs
 - Never imported by domain layer
 
@@ -250,5 +251,5 @@ def test_domain_has_no_infrastructure_dependencies():
 
 ## Next Steps
 
-- Explore [Bounded Contexts](/architecture/bounded-contexts/) to see DDD in action
-- Read [Extraction → Graph Mutations](/guides/extraction-mutations/) for a real-world interface
+- Explore [Bounded Contexts](../../architecture/bounded-contexts/) to see DDD in action
+- Read [Extraction → Graph Mutations](../../guides/extraction-mutations/) for a real-world interface

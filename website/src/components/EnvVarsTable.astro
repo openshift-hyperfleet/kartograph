@@ -1,0 +1,187 @@
+---
+// website/src/components/EnvVarsTable.astro
+import envData from '../data/env-vars.json';
+import { Badge } from '@astrojs/starlight/components';
+
+interface EnvVar {
+  env_var: string;
+  type: string;
+  default: string | boolean | string[] | null;
+  required: boolean;
+  description: string;
+}
+
+function formatDefault(value: string | boolean | string[] | null): string {
+  if (value === null || value === undefined) {
+    return '—';
+  }
+  if (Array.isArray(value)) {
+    return value.length === 0 ? '[]' : value.join(', ');
+  }
+  if (typeof value === 'boolean') {
+    return String(value);
+  }
+  if (value === '') {
+    return '""';
+  }
+  return value;
+}
+
+interface SettingsGroup {
+  class_name: string;
+  prefix: string;
+  doc: string;
+  properties: EnvVar[];
+}
+
+type EnvData = Record<string, SettingsGroup>;
+
+interface Props {
+  group: string;
+}
+
+const { group } = Astro.props as Props;
+const settings = (envData as EnvData)[group];
+---
+
+<div class="env-vars-wrapper not-prose">
+  <table>
+    <thead>
+      <tr>
+        <th class="col-var">Variable</th>
+        <th class="col-status">Required</th>
+        <th class="col-default">Default</th>
+        <th class="col-desc">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      {settings.properties.map((prop: EnvVar) => (
+        <tr>
+          <td class="col-var">
+            <span class="var-name">{prop.env_var}</span>
+            <span class="var-type">{prop.type}</span>
+          </td>
+          <td class="col-status">
+            <div class="status-container">
+              {prop.required ? (
+                <Badge text="Required" variant="danger" />
+              ) : (
+                <span class="optional-text">Optional</span>
+              )}
+            </div>
+          </td>
+          <td class="col-default">
+            {prop.required ? (
+              <span class="dash">—</span>
+            ) : (
+              <code>{formatDefault(prop.default)}</code>
+            )}
+          </td>
+          <td class="col-desc">{prop.description}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+
+<style>
+  .env-vars-wrapper {
+    margin: 2rem 0;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.5rem;
+    background: var(--sl-color-bg);
+    overflow-x: auto; /* Handle smaller screens gracefully */
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto; /* Let browser find best fit, but we'll guide it */
+    min-width: 800px; /* Ensure it doesn't squish too much */
+  }
+
+  th, td {
+    padding: 1rem;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--sl-color-gray-5);
+  }
+
+  th {
+    background: var(--sl-color-gray-6);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--sl-color-gray-3);
+  }
+
+  /* --- Column Constraint Logic --- */
+
+  .col-var {
+    width: 35%;
+    min-width: 250px;
+  }
+
+  .col-status {
+    width: 120px;
+    white-space: nowrap; /* CRITICAL: Prevents badge breaking */
+  }
+
+  .col-default {
+    width: 20%;
+    min-width: 150px;
+    word-break: break-all; /* Allow URLs/long defaults to wrap within their cell */
+  }
+
+  .col-desc {
+    width: auto;
+  }
+
+  /* --- Content Styling --- */
+
+  .var-name {
+    display: block;
+    font-family: var(--sl-font-mono);
+    font-weight: 600;
+    color: var(--sl-color-accent-high);
+    line-height: 1.4;
+    margin-bottom: 0.25rem;
+  }
+
+  .var-type {
+    font-size: 0.7rem;
+    color: var(--sl-color-gray-4);
+    text-transform: uppercase;
+  }
+
+  .status-container {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* Force Starlight badge to stay on one line */
+  .status-container :global(.sl-badge) {
+    white-space: nowrap;
+    display: inline-flex;
+  }
+
+  .optional-text {
+    font-size: 0.85rem;
+    color: var(--sl-color-gray-4);
+  }
+
+  code {
+    font-size: 0.85rem;
+    background: var(--sl-color-gray-6);
+    padding: 0.15rem 0.3rem;
+    border-radius: 0.25rem;
+  }
+
+  .dash {
+    color: var(--sl-color-gray-5);
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+</style>

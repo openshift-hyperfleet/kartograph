@@ -2,6 +2,7 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import mermaid from 'astro-mermaid';
+import starlightKbd from 'starlight-kbd';
 
 // Determine base path based on environment
 // - Local dev: /
@@ -49,37 +50,35 @@ export default defineConfig({
 			sidebar: [
 				{
 					label: 'Getting Started',
-					items: [
-						{ label: 'Introduction', slug: '' },
-						{ label: 'Quick Start', slug: 'getting-started/quickstart' },
-					],
+					autogenerate: { directory: 'getting-started' }
+
 				},
 				{
 					label: 'Guides',
-					items: [
-						{
-							label: 'Extraction → Graph Mutations',
-							slug: 'guides/extraction-mutations',
-						},
-					],
+					autogenerate: { directory: 'guides' }
+
 				},
 				{
 					label: 'Reference',
-					items: [
-						{ label: 'Mutation Operation Schema', slug: 'reference/mutation-schema' },
-						{ label: 'Secure Enclave ID Design', slug: 'reference/secure-enclave' },
-					],
+					autogenerate: { directory: 'reference' }
+
 				},
 				{
 					label: 'Architecture',
-					items: [
-						{ label: 'Bounded Contexts', slug: 'architecture/bounded-contexts' },
-						{ label: 'DDD Patterns', slug: 'architecture/ddd-patterns' },
-					],
+					autogenerate: { directory: 'architecture' }
 				},
 			],
 			customCss: [
 				'./src/styles/custom.css',
+			],
+			plugins: [
+				starlightKbd({
+					globalPicker: false,
+					types: [
+						{ id: 'mac', label: 'macOS' },
+						{ id: 'linux', label: 'Linux/Windows', default: true, detector: "linux" },
+					],
+				}),
 			],
 		}),
 	],

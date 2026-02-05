@@ -1,0 +1,165 @@
+name: Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    services:
+      postgres:
+        image: apache/age:release_PG17_1.6.0
+        env:
+          POSTGRES_USER: kartograph
+          POSTGRES_PASSWORD: kartograph_dev_password
+          POSTGRES_DB: kartograph
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kartograph"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start Keycloak
+        run: |
+          docker run -d --name keycloak \
+            -p 8080:8080 \
+            -p 9000:9000 \
+            -e KEYCLOAK_ADMIN=admin \
+            -e KEYCLOAK_ADMIN_PASSWORD=admin \
+            -v ${{ github.workspace }}/keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro \
+            quay.io/keycloak/keycloak:26.0.5 \
+            start-dev --import-realm --health-enabled=true
+
+      - name: Start SpiceDB
+        uses: authzed/action-spicedb@v1
+        with:
+          version: "v1.48.0"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "src/api/uv.lock"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        working-directory: src/api
+        run: uv sync --frozen
+
+      - name: Run Alembic migrations
+        working-directory: src/api
+        env:
+          KARTOGRAPH_DB_HOST: localhost
+          KARTOGRAPH_DB_PORT: 5432
+          KARTOGRAPH_DB_DATABASE: kartograph
+          KARTOGRAPH_DB_USERNAME: kartograph
+          KARTOGRAPH_DB_PASSWORD: kartograph_dev_password
+        run: uv run alembic upgrade head
+
+      - name: Wait for SpiceDB to be ready
+        run: |
+          echo "Waiting for SpiceDB to be ready..."
+          for i in {1..30}; do
+            if nc -z localhost 50051 2>/dev/null; then
+              echo "SpiceDB is ready!"
+              break
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 1
+          done
+
+      - name: Load SpiceDB schema
+        working-directory: src/api
+        run: |
+          echo "Schema file contents:"
+          head -20 shared_kernel/authorization/spicedb/schema.zed
+          echo "---"
+          echo "Loading schema into SpiceDB..."
+          docker run --rm --network host \
+            -v ${{ github.workspace }}/src/api/shared_kernel/authorization/spicedb/schema.zed:/schema/schema.zed:ro \
+            authzed/zed:latest schema write \
+              --endpoint=localhost:50051 \
+              --token=test_key \
+              --insecure \
+              /schema/schema.zed
+          echo "Schema load complete, verifying..."
+          docker run --rm --network host \
+            authzed/zed:latest schema read \
+              --endpoint=localhost:50051 \
+              --token=test_key \
+              --insecure
+
+      - name: Wait for Keycloak to be ready
+        run: |
+          echo "Waiting for Keycloak to be ready..."
+          keycloak_ready=false
+          for i in {1..60}; do
+            if curl -sf http://localhost:9000/health/ready > /dev/null 2>&1; then
+              echo "Keycloak is ready!"
+              keycloak_ready=true
+              break
+            fi
+            echo "Waiting... ($i/60)"
+            sleep 2
+          done
+          if [ "$keycloak_ready" = false ]; then
+            echo "ERROR: Keycloak did not become ready within timeout"
+            docker logs keycloak 2>&1 | tail -50
+            exit 1
+          fi
+          # Verify realm was imported
+          echo "Checking Keycloak logs for realm import..."
+          if ! docker logs keycloak 2>&1 | grep -qi "realm.*kartograph.*imported\|kartograph.*imported"; then
+            echo "ERROR: Realm import not confirmed in Keycloak logs"
+            docker logs keycloak 2>&1 | tail -50
+            exit 1
+          fi
+          echo "Realm 'kartograph' import confirmed"
+
+      - name: Run ruff (linter)
+        working-directory: src/api
+        run: uv run ruff check .
+
+      - name: Run ruff (formatter check)
+        working-directory: src/api
+        run: uv run ruff format --check .
+
+      - name: Run mypy (type checker)
+        working-directory: src/api
+        run: uv run mypy --ignore-missing-imports .
+
+      - name: Run pytest
+        working-directory: src/api
+        env:
+          KARTOGRAPH_DB_HOST: localhost
+          KARTOGRAPH_DB_PORT: 5432
+          KARTOGRAPH_DB_DATABASE: kartograph
+          KARTOGRAPH_DB_USERNAME: kartograph
+          KARTOGRAPH_DB_PASSWORD: kartograph_dev_password
+          KARTOGRAPH_DB_GRAPH_NAME: test_graph
+          KARTOGRAPH_DB_SSL_MODE: prefer
+          SPICEDB_ENDPOINT: localhost:50051
+          SPICEDB_PRESHARED_KEY: test_key
+          SPICEDB_USE_TLS: "false"
+          KARTOGRAPH_OIDC_ISSUER_URL: http://localhost:8080/realms/kartograph
+          KARTOGRAPH_OIDC_CLIENT_ID: kartograph-api
+          KARTOGRAPH_OIDC_CLIENT_SECRET: kartograph-api-secret
+        run: uv run pytest -v

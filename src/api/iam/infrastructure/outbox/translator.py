@@ -26,6 +26,8 @@ from iam.domain.events import (
     TenantDeleted,
     TenantMemberAdded,
     TenantMemberRemoved,
+    WorkspaceCreated,
+    WorkspaceDeleted,
 )
 from iam.domain.value_objects import GroupRole, TenantRole
 from shared_kernel.authorization.types import RelationType, ResourceType
@@ -62,6 +64,8 @@ class IAMEventTranslator:
             TenantDeleted: self._translate_tenant_deleted,
             TenantMemberAdded: self._translate_tenant_member_added,
             TenantMemberRemoved: self._translate_tenant_member_removed,
+            WorkspaceCreated: self._translate_workspace_created,
+            WorkspaceDeleted: self._translate_workspace_deleted,
             APIKeyCreated: self._translate_api_key_created,
             APIKeyRevoked: self._translate_api_key_revoked,
             APIKeyDeleted: self._translate_api_key_deleted,
@@ -317,6 +321,44 @@ class IAMEventTranslator:
                 resource_id=payload["tenant_id"],
             )
             for role in TenantRole
+        ]
+
+    def _translate_workspace_created(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate WorkspaceCreated to tenant relationship write.
+
+        Creates a relationship between the workspace and its tenant:
+        - workspace:<id>#tenant@tenant:<tenant_id>
+        """
+        return [
+            WriteRelationship(
+                resource_type=ResourceType.WORKSPACE,
+                resource_id=payload["workspace_id"],
+                relation=RelationType.TENANT,
+                subject_type=ResourceType.TENANT,
+                subject_id=payload["tenant_id"],
+            )
+        ]
+
+    def _translate_workspace_deleted(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate WorkspaceDeleted to delete tenant relationship.
+
+        Deletes the relationship between the workspace and its tenant:
+        - workspace:<id>#tenant@tenant:<tenant_id>
+        """
+        return [
+            DeleteRelationship(
+                resource_type=ResourceType.WORKSPACE,
+                resource_id=payload["workspace_id"],
+                relation=RelationType.TENANT,
+                subject_type=ResourceType.TENANT,
+                subject_id=payload["tenant_id"],
+            )
         ]
 
     def _translate_api_key_created(

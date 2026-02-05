@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator, Callable, Coroutine
 import os
 from typing import Any
 
+from jose import jwt
 import pytest
 import pytest_asyncio
 from pydantic import SecretStr
@@ -226,3 +227,65 @@ async def process_outbox(
         await worker._process_batch()
 
     return _process
+
+
+def _extract_user_id_from_token(token: str, token_name: str) -> str:
+    """Extract user_id (sub claim) from a JWT token.
+
+    Helper function for test fixtures that need to extract the Keycloak
+    user UUID from JWT tokens for setting up SpiceDB relationships.
+
+    Args:
+        token: JWT access token from Keycloak
+        token_name: Name of the token (for error messages, e.g., "alice_token")
+
+    Returns:
+        The user_id (Keycloak UUID) from the 'sub' claim
+
+    Raises:
+        AssertionError: If token cannot be decoded or 'sub' claim is missing
+    """
+    try:
+        claims = jwt.get_unverified_claims(token)
+    except Exception as e:
+        pytest.fail(f"Failed to decode {token_name}: {e}")
+
+    if "sub" not in claims:
+        pytest.fail(
+            f"{token_name} missing 'sub' claim. Available claims: {list(claims.keys())}"
+        )
+
+    return claims["sub"]
+
+
+@pytest.fixture
+def alice_user_id(alice_token: str) -> str:
+    """Extract the actual user_id (sub claim) from alice's JWT token.
+
+    This fixture decodes the JWT token without verification to extract
+    the 'sub' claim, which contains the Keycloak user UUID. This is the
+    actual user_id that get_current_user will use.
+
+    Use this fixture when setting up SpiceDB relationships for alice
+    instead of hardcoding "alice" (the username).
+
+    Args:
+        alice_token: Alice's JWT access token from Keycloak
+
+    Returns:
+        The user_id (Keycloak UUID) for alice
+    """
+    return _extract_user_id_from_token(alice_token, "alice_token")
+
+
+@pytest.fixture
+def bob_user_id(bob_token: str) -> str:
+    """Extract the actual user_id (sub claim) from bob's JWT token.
+
+    Args:
+        bob_token: Bob's JWT access token from Keycloak
+
+    Returns:
+        The user_id (Keycloak UUID) for bob
+    """
+    return _extract_user_id_from_token(bob_token, "bob_token")

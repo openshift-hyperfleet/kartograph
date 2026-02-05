@@ -2,6 +2,8 @@
 title: MCP Server Guide
 description: Using Kartograph's MCP server with Claude Code
 ---
+import { Tabs, TabItem, Aside, Code, Steps } from '@astrojs/starlight/components';
+import { Kbd } from 'starlight-kbd/components'
 
 ## Overview
 
@@ -10,93 +12,120 @@ Kartograph provides an MCP (Model Context Protocol) server at `/query/mcp` that 
 ## Connection
 
 Provided that you have [started the Kartograph development server](../../getting-started/quickstart/#installation),
-the Kartograph MCP server can be registered with Claude Code:
+the Kartograph MCP server can be registered with any AI Agent that supports
+HTTP MCP servers. Here we provide detailed instructions for Claude Code and Cursor configuration.
+
+### Claude Code
+
+Add the Kartograph MCP server to Claude Code by 
+running this command in your terminal.
 
 ```bash
-claude mcp add --transport http kartograph http://localhost:8000/query/mcp
+claude mcp remove kartograph # Remove any prior versions
+claude mcp add \
+  --transport http \
+  kartograph \
+  http://localhost:8000/query/mcp \
+  --scope user # Allow access from any project
 ```
 
-## Resources
+<Aside type="tip">
+Kartograph supports fetching some raw data from GitHub
+and GitLab. If you wish to enable this functionality,
+you must pass in access tokens from each service
+when adding the MCP server.
 
-Resources provide read-only access to graph schema information.
+The tokens must have `read` repository access.
 
-### `schema://ontology`
+```bash
+claude mcp remove kartograph # Remove any prior versions
+claude mcp add \
+  --transport http \
+  kartograph \
+  http://localhost:8000/query/mcp \
+  --header "x-github-pat: <your-pat-here>" \
+  --header "x-gitlab-pat: <your-token-here>" \
+  --scope user # Allow access from any project
+```
+</Aside>
 
-Complete graph ontology with all type definitions.
+### Cursor
 
-**Returns:**
-```json
-{
-  "type_definitions": [
+<Steps>
+1. **Open Cursor Settings**
+
+    Open Cursor settings by typing <Kbd mac="Cmd+Shift+J" linux="Ctrl+Shift+J"/>,
+    or via menu: `File` -> `Preferences` -> `Cursor Settings`.
+
+1. **Select Tools & MCP**
+
+    In the Cursor Settings left sidebar, select `Tools & MCP`.
+
+    ![Cursor Settings Tools & MCP Sidebar Button](../../../assets/cursor-settings-tools-mcp.png)
+
+1. **Open MCP Server Settings**
+
+   Depending on whether you have previously added an MCP server to Cursor,
+   either click "Add Custom MCP" or "New MCP Server" (at the bottom of the server list.)
+
+   This will open up Cursor's `mcp.json` settings file. This file will either contain
+   configuration for existing MCP servers, or an empty object like:
+
+   ```json
     {
-      "label": "person",
-      "entity_type": "node",
-      "description": "A person entity representing an individual",
-      "required_properties": ["name"],
-      "optional_properties": ["email", "role"]
+      "mcpServers": {}
     }
-  ],
-  "count": 1
-}
-```
+   ```
 
-### `schema://nodes/labels`
+   ![Cursor MCP settings JSON file](../../../assets/cursor-mcp-json.png)
 
-List of all node type labels.
+1. **Add Kartograph MCP Server Configuration**
+   
+   To add Kartograph's MCP server to cursor, add the following JSON object 
+   inside the existing `mcpServers` object:
 
-**Returns:**
-```json
-{
-  "labels": ["person", "project", "repository"],
-  "count": 3
-}
-```
+   ```json
+   "kartograph": {
+      "url": "http://localhost:8000/query/mcp",
+      "headers": {
+        "x-github-pat": "<your-pat-here>",
+        "x-gitlab-pat": "<your-token-here>"
+      }
+    }
+   ```
 
-### `schema://edges/labels`
+   The full file should look something like: 
+   ```json
+    {
+      "mcpServers": {
+          "kartograph": {
+          "url": "http://localhost:8000/query/mcp",
+          "headers": {
+            "x-github-pat": "<your-pat-here>",
+            "x-gitlab-pat": "<your-token-here>"
+          }
+        }
+      }
+    }
+   ```
 
-List of all edge type labels.
+   <Aside type="tip">
+    Kartograph supports fetching some raw data from GitHub
+    and GitLab. If you wish to enable this functionality,
+    you must pass in access tokens from each service
+    via `headers` as shown above.
+    </Aside>
 
-**Returns:**
-```json
-{
-  "labels": ["knows", "depends_on", "contributes_to"],
-  "count": 3
-}
-```
+1. **Save the File**
 
-### `schema://nodes/{label}`
+   To finish adding the Kartograph MCP server to Cursor, save the `mcp.json`
+   and re-open Cursor Settings -> Tools & MCP.
 
-Detailed schema for a specific node type.
+   Here, you should see the Kartograph MCP server listed, as shown below.
 
-**Example:** `schema://nodes/person`
+   ![Kartograph MCP server listed in Cursor Settings](../../../assets/cursor-mcp-settings-added.png)
+</Steps>
 
-**Returns:**
-```json
-{
-  "label": "person",
-  "entity_type": "node",
-  "description": "A person entity",
-  "required_properties": ["name"],
-  "optional_properties": ["email", "role"]
-}
-```
-
-### `schema://edges/{label}`
-
-Detailed schema for a specific edge type.
-
-**Example:** `schema://edges/knows`
-
-**Returns:**
-```json
-{
-  "label": "knows",
-  "entity_type": "edge",
-  "description": "Professional relationship",
-  "required_properties": ["since"],
-  "optional_properties": []
-}
-```
 
 ## Tools
 
@@ -155,9 +184,3 @@ RETURN {source: a, relationship: r, target: b}
   "message": "Query must be read-only. Found forbidden keyword: CREATE"
 }
 ```
-
-## Workflow
-
-1. Use `schema://nodes/labels` and `schema://edges/labels` to discover available types
-2. Use `schema://nodes/{label}` or `schema://edges/{label}` to understand type properties
-3. Write Cypher queries using `query_graph` tool based on the schema

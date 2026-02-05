@@ -5,7 +5,16 @@ Cross-context composition is handled in infrastructure.mcp_dependencies.
 """
 
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Generator, Iterator
+from functools import lru_cache
+from pathlib import Path
+from typing import TYPE_CHECKING, Generator, Iterator, Optional
+
+from query.infrastructure.git_repository import GitRepositoryFactory
+from query.infrastructure.observability.remote_file_repository_probe import (
+    DefaultRemoteFileRepositoryProbe,
+)
+from query.infrastructure.prompt_repository import PromptRepository
+from query.ports.repositories import IRemoteFileRepository
 
 from infrastructure.database.connection import ConnectionFactory
 from infrastructure.dependencies import get_age_connection_pool
@@ -81,3 +90,60 @@ def get_schema_resource_probe() -> SchemaResourceProbe:
         SchemaResourceProbe instance for domain event emission
     """
     return DefaultSchemaResourceProbe()
+
+
+def get_git_repository(
+    url: str,
+    github_token: Optional[str] = None,
+    gitlab_token: Optional[str] = None,
+) -> IRemoteFileRepository:
+    """Get git repository for URL with default observability.
+
+    Automatically detects the git provider (GitHub, GitLab, etc.) from the URL
+    and selects the appropriate token. Supports self-hosted instances.
+
+    Args:
+        url: Git blob URL (e.g., https://github.com/owner/repo/blob/main/file.txt)
+        github_token: Optional GitHub access token (for GitHub URLs)
+        gitlab_token: Optional GitLab access token (for GitLab URLs)
+
+    Returns:
+        Repository instance for the detected provider with appropriate token
+
+    Raises:
+        ValueError: If URL is from an unsupported git provider
+
+    Example:
+        >>> # Factory auto-selects the right token based on URL
+        >>> repo = get_git_repository(
+        ...     "https://gitlab.com/owner/repo/-/blob/main/README.md",
+        ...     github_token="ghp_...",
+        ...     gitlab_token="glpat_..."
+        ... )
+        >>> response = repo.get_file(url)
+    """
+    probe = DefaultRemoteFileRepositoryProbe()
+    return GitRepositoryFactory.create_from_url(
+        url=url, github_token=github_token, gitlab_token=gitlab_token, probe=probe
+    )
+
+
+@lru_cache(maxsize=1)
+def get_prompt_repository() -> PromptRepository:
+    """Get prompt repository with default prompts directory (cached).
+
+    Loads prompts from query/infrastructure/prompts directory.
+    Performs startup validation to ensure required files exist.
+
+    Cached to avoid re-creating instances and re-validating on every call.
+
+    Returns:
+        PromptRepository instance with validated prompts (singleton)
+
+    Raises:
+        FileNotFoundError: If prompts directory or required files are missing
+    """
+    # Path relative to this module: query/dependencies.py
+    # Target: query/infrastructure/prompts/
+    prompts_dir = Path(__file__).parent / "infrastructure" / "prompts"
+    return PromptRepository(prompts_dir=prompts_dir)

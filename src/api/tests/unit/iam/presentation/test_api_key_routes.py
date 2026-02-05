@@ -74,7 +74,7 @@ def test_client(
     """Create TestClient with mocked dependencies."""
     from iam.dependencies.user import get_current_user
     from iam.dependencies.api_key import get_api_key_service
-    from iam.presentation.routes import router
+    from iam.presentation import router
     from infrastructure.authorization_dependencies import get_spicedb_client
 
     app = FastAPI()

@@ -2,6 +2,7 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import mermaid from 'astro-mermaid';
+import starlightKbd from 'starlight-kbd';
 
 // Determine base path based on environment
 // - Local dev: /
@@ -69,6 +70,15 @@ export default defineConfig({
 			],
 			customCss: [
 				'./src/styles/custom.css',
+			],
+			plugins: [
+				starlightKbd({
+					globalPicker: false,
+					types: [
+						{ id: 'mac', label: 'macOS' },
+						{ id: 'linux', label: 'Linux/Windows', default: true, detector: "linux" },
+					],
+				}),
 			],
 		}),
 	],

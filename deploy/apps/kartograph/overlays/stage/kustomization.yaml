@@ -11,4 +11,4 @@ patches:
   # deployment-vault-patch.yaml removed - using K8s auth method until CSI driver is available
 images:
   - name: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-api
-    newTag: 1.1.1
+    newTag: 20537154d73b5b8f8ced3cfabc56f6a841068e99

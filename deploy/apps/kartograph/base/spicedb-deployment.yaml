@@ -33,6 +33,7 @@ spec:
             - sh
             - -c
             - |
+              set -e
               echo "Waiting for spicedb-migrate job to complete..."
               kubectl wait --for=condition=complete --timeout=300s job/kartograph-spicedb-migrate
               echo "Migration complete!"

@@ -50,4 +50,4 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: kartograph-spicedb-credentials
-                  key: SPICEDB_DATASTORE_CONN_URI
+                  key: datastore-uri

@@ -33,6 +33,7 @@ spec:
             - sh
             - -c
             - |
+              set -e
               echo "Waiting for db-init job to complete..."
               kubectl wait --for=condition=complete --timeout=300s job/kartograph-db-init
               echo "DB init complete!"

@@ -309,3 +309,100 @@ class DefaultTenantRepositoryProbe:
             name=name,
             **self._get_context_kwargs(),
         )
+
+
+class WorkspaceRepositoryProbe(Protocol):
+    """Domain probe for workspace repository operations.
+
+    Records domain events during workspace persistence operations.
+    """
+
+    def workspace_saved(self, workspace_id: str, tenant_id: str) -> None:
+        """Record that a workspace was successfully saved."""
+        ...
+
+    def workspace_retrieved(self, workspace_id: str) -> None:
+        """Record that a workspace was retrieved."""
+        ...
+
+    def workspace_not_found(self, workspace_id: str) -> None:
+        """Record that a workspace was not found."""
+        ...
+
+    def workspace_deleted(self, workspace_id: str) -> None:
+        """Record that a workspace was deleted."""
+        ...
+
+    def workspaces_listed(self, tenant_id: str, count: int) -> None:
+        """Record that workspaces were listed for a tenant."""
+        ...
+
+    def with_context(self, context: ObservationContext) -> WorkspaceRepositoryProbe:
+        """Create a new probe with observation context bound."""
+        ...
+
+
+class DefaultWorkspaceRepositoryProbe:
+    """Default implementation of WorkspaceRepositoryProbe using structlog."""
+
+    def __init__(
+        self,
+        logger: structlog.stdlib.BoundLogger | None = None,
+        context: ObservationContext | None = None,
+    ):
+        self._logger = logger or structlog.get_logger()
+        self._context = context
+
+    def _get_context_kwargs(self) -> dict[str, Any]:
+        """Get context metadata as kwargs for logging."""
+        if self._context is None:
+            return {}
+        return self._context.as_dict()
+
+    def with_context(
+        self, context: ObservationContext
+    ) -> DefaultWorkspaceRepositoryProbe:
+        """Create a new probe with observation context bound."""
+        return DefaultWorkspaceRepositoryProbe(logger=self._logger, context=context)
+
+    def workspace_saved(self, workspace_id: str, tenant_id: str) -> None:
+        """Record that a workspace was successfully saved."""
+        self._logger.info(
+            "workspace_saved",
+            workspace_id=workspace_id,
+            tenant_id=tenant_id,
+            **self._get_context_kwargs(),
+        )
+
+    def workspace_retrieved(self, workspace_id: str) -> None:
+        """Record that a workspace was retrieved."""
+        self._logger.debug(
+            "workspace_retrieved",
+            workspace_id=workspace_id,
+            **self._get_context_kwargs(),
+        )
+
+    def workspace_not_found(self, workspace_id: str) -> None:
+        """Record that a workspace was not found."""
+        self._logger.debug(
+            "workspace_not_found",
+            workspace_id=workspace_id,
+            **self._get_context_kwargs(),
+        )
+
+    def workspace_deleted(self, workspace_id: str) -> None:
+        """Record that a workspace was deleted."""
+        self._logger.info(
+            "workspace_deleted",
+            workspace_id=workspace_id,
+            **self._get_context_kwargs(),
+        )
+
+    def workspaces_listed(self, tenant_id: str, count: int) -> None:
+        """Record that workspaces were listed for a tenant."""
+        self._logger.debug(
+            "workspaces_listed",
+            tenant_id=tenant_id,
+            count=count,
+            **self._get_context_kwargs(),
+        )

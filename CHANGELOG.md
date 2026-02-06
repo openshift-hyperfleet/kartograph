@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.6.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.6.0...v3.6.1) (2026-02-06)
+
+
+### Bug Fixes
+
+* **deploy:** update deployment to use correct vault keys ([#188](https://github.com/openshift-hyperfleet/kartograph/issues/188)) ([7eabc2e](https://github.com/openshift-hyperfleet/kartograph/commit/7eabc2e623ea457bb609dafda7255452c93b7c6a))
+
+## [3.6.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.5.0...v3.6.0) (2026-02-05)
+
+
+### Features
+
+* **api.iam:** add basic tenant user managment routes ([#180](https://github.com/openshift-hyperfleet/kartograph/issues/180)) ([f3e7398](https://github.com/openshift-hyperfleet/kartograph/commit/f3e739817dd032687e4c4b475d6cc9b7464a9cdd))
+
 ## [3.5.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.4.0...v3.5.0) (2026-02-03)
 
 

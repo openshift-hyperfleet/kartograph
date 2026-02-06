@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.6.3](https://github.com/openshift-hyperfleet/kartograph/compare/v3.6.2...v3.6.3) (2026-02-06)
+
+
+### Bug Fixes
+
+* **deploy:** fix broken secret reference in spicedb migrate job ([#194](https://github.com/openshift-hyperfleet/kartograph/issues/194)) ([4a3f00d](https://github.com/openshift-hyperfleet/kartograph/commit/4a3f00da5f111b0481d36f53ced10467bd9cb6ac))
+* **deploy:** fix secret references ([#192](https://github.com/openshift-hyperfleet/kartograph/issues/192)) ([a7aecac](https://github.com/openshift-hyperfleet/kartograph/commit/a7aecac8136708f7895ed00f214ad7f964e55a47))
+
 ## [3.6.2](https://github.com/openshift-hyperfleet/kartograph/compare/v3.6.1...v3.6.2) (2026-02-06)
 
 

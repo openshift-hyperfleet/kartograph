@@ -72,17 +72,15 @@ spec:
                   name: kartograph-spicedb-credentials
                   key: SPICEDB_PRESHARED_KEY
           livenessProbe:
-            httpGet:
-              path: /health
-              port: 8443
+            grpc:
+              port: 50051
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
           readinessProbe:
-            httpGet:
-              path: /health
-              port: 8443
+            grpc:
+              port: 50051
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3

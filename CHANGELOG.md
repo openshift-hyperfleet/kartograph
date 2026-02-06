@@ -1,5 +1,44 @@
 # Changelog
 
+## [3.6.4](https://github.com/openshift-hyperfleet/kartograph/compare/v3.6.3...v3.6.4) (2026-02-06)
+
+
+### Bug Fixes
+
+* **deploy:** fix spicedb healthcheck ports ([#198](https://github.com/openshift-hyperfleet/kartograph/issues/198)) ([39935f6](https://github.com/openshift-hyperfleet/kartograph/commit/39935f6fef0258b6bbbab8e707aa4b6fddf4684c))
+* **deploy:** fix spicedb schema init container  ([#195](https://github.com/openshift-hyperfleet/kartograph/issues/195)) ([80cfe20](https://github.com/openshift-hyperfleet/kartograph/commit/80cfe20f064d72f416bdc814d0be994b093f8291))
+* **deploy:** update waiter rbac to allow watching deployments ([#197](https://github.com/openshift-hyperfleet/kartograph/issues/197)) ([63885d9](https://github.com/openshift-hyperfleet/kartograph/commit/63885d955415a77cba6ecaae17ea063d7211f526))
+* **deploy:** use grpc healthcheck for spicedb ([#199](https://github.com/openshift-hyperfleet/kartograph/issues/199)) ([42c662a](https://github.com/openshift-hyperfleet/kartograph/commit/42c662a9a513298e5d4d07333dbd9bae705d6aad))
+
+## [3.6.3](https://github.com/openshift-hyperfleet/kartograph/compare/v3.6.2...v3.6.3) (2026-02-06)
+
+
+### Bug Fixes
+
+* **deploy:** fix broken secret reference in spicedb migrate job ([#194](https://github.com/openshift-hyperfleet/kartograph/issues/194)) ([4a3f00d](https://github.com/openshift-hyperfleet/kartograph/commit/4a3f00da5f111b0481d36f53ced10467bd9cb6ac))
+* **deploy:** fix secret references ([#192](https://github.com/openshift-hyperfleet/kartograph/issues/192)) ([a7aecac](https://github.com/openshift-hyperfleet/kartograph/commit/a7aecac8136708f7895ed00f214ad7f964e55a47))
+
+## [3.6.2](https://github.com/openshift-hyperfleet/kartograph/compare/v3.6.1...v3.6.2) (2026-02-06)
+
+
+### Bug Fixes
+
+* **deploy:** update kubectl tag and fix secret references ([#190](https://github.com/openshift-hyperfleet/kartograph/issues/190)) ([16895e1](https://github.com/openshift-hyperfleet/kartograph/commit/16895e1c0ebe111efc374c0653e4073043f82994))
+
+## [3.6.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.6.0...v3.6.1) (2026-02-06)
+
+
+### Bug Fixes
+
+* **deploy:** update deployment to use correct vault keys ([#188](https://github.com/openshift-hyperfleet/kartograph/issues/188)) ([7eabc2e](https://github.com/openshift-hyperfleet/kartograph/commit/7eabc2e623ea457bb609dafda7255452c93b7c6a))
+
+## [3.6.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.5.0...v3.6.0) (2026-02-05)
+
+
+### Features
+
+* **api.iam:** add basic tenant user managment routes ([#180](https://github.com/openshift-hyperfleet/kartograph/issues/180)) ([f3e7398](https://github.com/openshift-hyperfleet/kartograph/commit/f3e739817dd032687e4c4b475d6cc9b7464a9cdd))
+
 ## [3.5.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.4.0...v3.5.0) (2026-02-03)
 
 

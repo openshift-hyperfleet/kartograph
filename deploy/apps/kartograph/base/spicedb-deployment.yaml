@@ -33,6 +33,7 @@ spec:
             - sh
             - -c
             - |
+              set -e
               echo "Waiting for spicedb-migrate job to complete..."
               kubectl wait --for=condition=complete --timeout=300s job/kartograph-spicedb-migrate
               echo "Migration complete!"
@@ -55,7 +56,7 @@ spec:
           ports:
             - containerPort: 50051
               name: grpc
-            - containerPort: 8080
+            - containerPort: 8443
               name: http
           env:
             - name: SPICEDB_DATASTORE_ENGINE
@@ -64,24 +65,22 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: kartograph-spicedb-credentials
-                  key: datastore-uri
+                  key: SPICEDB_DATASTORE_CONN_URI
             - name: SPICEDB_GRPC_PRESHARED_KEY
               valueFrom:
                 secretKeyRef:
                   name: kartograph-spicedb-credentials
-                  key: preshared-key
+                  key: SPICEDB_PRESHARED_KEY
           livenessProbe:
-            httpGet:
-              path: /health
-              port: 8080
+            grpc:
+              port: 50051
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
           readinessProbe:
-            httpGet:
-              path: /health
-              port: 8080
+            grpc:
+              port: 50051
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3

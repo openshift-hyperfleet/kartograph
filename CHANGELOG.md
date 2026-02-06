@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.6.4](https://github.com/openshift-hyperfleet/kartograph/compare/v3.6.3...v3.6.4) (2026-02-06)
+
+
+### Bug Fixes
+
+* **deploy:** fix spicedb healthcheck ports ([#198](https://github.com/openshift-hyperfleet/kartograph/issues/198)) ([39935f6](https://github.com/openshift-hyperfleet/kartograph/commit/39935f6fef0258b6bbbab8e707aa4b6fddf4684c))
+* **deploy:** fix spicedb schema init container  ([#195](https://github.com/openshift-hyperfleet/kartograph/issues/195)) ([80cfe20](https://github.com/openshift-hyperfleet/kartograph/commit/80cfe20f064d72f416bdc814d0be994b093f8291))
+* **deploy:** update waiter rbac to allow watching deployments ([#197](https://github.com/openshift-hyperfleet/kartograph/issues/197)) ([63885d9](https://github.com/openshift-hyperfleet/kartograph/commit/63885d955415a77cba6ecaae17ea063d7211f526))
+* **deploy:** use grpc healthcheck for spicedb ([#199](https://github.com/openshift-hyperfleet/kartograph/issues/199)) ([42c662a](https://github.com/openshift-hyperfleet/kartograph/commit/42c662a9a513298e5d4d07333dbd9bae705d6aad))
+
 ## [3.6.3](https://github.com/openshift-hyperfleet/kartograph/compare/v3.6.2...v3.6.3) (2026-02-06)
 
 

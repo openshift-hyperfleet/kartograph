@@ -33,6 +33,7 @@ from iam.domain.value_objects import GroupRole, TenantRole
 from shared_kernel.authorization.types import RelationType, ResourceType
 from shared_kernel.outbox.operations import (
     DeleteRelationship,
+    DeleteRelationshipsByFilter,
     SpiceDBOperation,
     WriteRelationship,
 )
@@ -249,23 +250,34 @@ class IAMEventTranslator:
         self,
         payload: dict[str, Any],
     ) -> list[SpiceDBOperation]:
-        """Translate TenantDeleted to delete all member relationships.
+        """Translate TenantDeleted to delete all member relationships and root workspace pointer.
 
         Deletes all tenant membership relationships from the member snapshot.
         Each member may have one or more role relationships (member, admin).
 
-        Note: The tenant#root_workspace relationship is not cleaned up here
-        because DeleteRelationship requires a specific subject_id, and
-        TenantDeleted does not carry the root workspace ID in its snapshot.
-        Tenant deletion should cascade to workspaces at the application layer
-        (i.e., emit WorkspaceDeleted events for all workspaces before deleting
-        the tenant), which will clean up the root_workspace pointer via
-        _translate_workspace_deleted.
+        Also deletes the tenant#root_workspace relationship using filter-based
+        deletion (no need to know the specific workspace ID).
 
         TODO: Ensure the tenant deletion service emits WorkspaceDeleted events
-        for all tenant workspaces (including root) before emitting TenantDeleted.
+        for all tenant workspaces before emitting TenantDeleted. This ensures:
+        - Workspace data is cleaned up from the database (via repository)
+        - Child workspace relationships are cleaned up in SpiceDB
+        - Domain events provide audit trail for workspace deletions
+        The filter-based deletion here only cleans up the tenant's pointer to
+        its root workspace; the workspace's own relationships are cleaned up
+        by WorkspaceDeleted events.
         """
         operations: list[SpiceDBOperation] = []
+
+        # Delete the tenant's root_workspace pointer (filter-based)
+        operations.append(
+            DeleteRelationshipsByFilter(
+                resource_type=ResourceType.TENANT,
+                resource_id=payload["tenant_id"],
+                relation=RelationType.ROOT_WORKSPACE,
+                # No subject filters - delete any root_workspace relationship
+            )
+        )
 
         # Delete all member relationships from the snapshot
         for member in payload["members"]:

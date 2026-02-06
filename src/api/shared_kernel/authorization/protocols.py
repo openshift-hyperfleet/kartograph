@@ -142,6 +142,32 @@ class AuthorizationProvider(Protocol):
         """
         ...
 
+    async def delete_relationships_by_filter(
+        self,
+        resource_type: str,
+        resource_id: str | None = None,
+        relation: str | None = None,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+    ) -> None:
+        """Delete all relationships matching the filter.
+
+        Uses filter-based deletion to remove multiple relationships
+        in a single operation without specifying each individually.
+
+        Args:
+            resource_type: Type of resource (required)
+            resource_id: Specific resource ID (optional, omit to match all)
+            relation: Relation name (optional, omit to match all)
+            subject_type: Type of subject (optional, omit to match all)
+            subject_id: Specific subject ID (optional, omit to match all)
+
+        Raises:
+            AuthorizationError: If the delete fails
+            ValueError: If insufficient filter criteria provided
+        """
+        ...
+
     async def lookup_subjects(
         self,
         resource: str,

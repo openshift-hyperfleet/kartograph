@@ -14,11 +14,14 @@ import grpc
 from authzed.api.v1 import (
     CheckPermissionRequest,
     Consistency,
+    DeleteRelationshipsRequest,
     LookupResourcesRequest,
     LookupSubjectsRequest,
     ObjectReference,
     Relationship,
+    RelationshipFilter,
     RelationshipUpdate,
+    SubjectFilter,
     SubjectReference,
     WriteRelationshipsRequest,
 )
@@ -531,6 +534,98 @@ class SpiceDBClient(AuthorizationProvider):
         await self._execute_relationship_updates(
             relationships, RelationshipOperation.DELETE
         )
+
+    async def delete_relationships_by_filter(
+        self,
+        resource_type: str,
+        resource_id: str | None = None,
+        relation: str | None = None,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+    ) -> None:
+        """Delete all relationships matching the filter.
+
+        Uses SpiceDB's filter-based deletion to remove multiple relationships
+        in a single operation. At least one filter parameter must be specified
+        beyond resource_type.
+
+        Args:
+            resource_type: Type of resource (required)
+            resource_id: Specific resource ID (optional, omit to match all)
+            relation: Relation name (optional, omit to match all)
+            subject_type: Type of subject (optional, omit to match all)
+            subject_id: Specific subject ID (optional, omit to match all)
+
+        Raises:
+            SpiceDBPermissionError: If the delete fails
+            ValueError: If insufficient filter criteria provided
+
+        Example:
+            # Delete all root_workspace relations for tenant:123
+            await client.delete_relationships_by_filter(
+                resource_type="tenant",
+                resource_id="123",
+                relation="root_workspace",
+            )
+        """
+        if not any([resource_id, relation, subject_type, subject_id]):
+            raise ValueError(
+                "At least one filter parameter beyond resource_type must be specified"
+            )
+
+        await self._ensure_client()
+        assert self._client is not None  # For mypy
+
+        try:
+            # Build the relationship filter
+            filter_kwargs: dict[str, object] = {
+                "resource_type": resource_type,
+            }
+            if resource_id:
+                filter_kwargs["optional_resource_id"] = resource_id
+            if relation:
+                filter_kwargs["optional_relation"] = relation
+
+            # Build optional subject filter
+            if subject_type or subject_id:
+                subject_filter_kwargs: dict[str, str] = {}
+                if subject_type:
+                    subject_filter_kwargs["subject_type"] = subject_type
+                if subject_id:
+                    subject_filter_kwargs["optional_subject_id"] = subject_id
+                filter_kwargs["optional_subject_filter"] = SubjectFilter(
+                    **subject_filter_kwargs
+                )
+
+            relationship_filter = RelationshipFilter(**filter_kwargs)
+            request = DeleteRelationshipsRequest(
+                relationship_filter=relationship_filter,
+            )
+
+            await self._client.DeleteRelationships(request)
+
+            self._probe.relationships_deleted_by_filter(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                relation=relation,
+                subject_type=subject_type,
+                subject_id=subject_id,
+            )
+
+        except Exception as e:
+            self._probe.relationships_delete_by_filter_failed(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                relation=relation,
+                subject_type=subject_type,
+                subject_id=subject_id,
+                error=e,
+            )
+            raise SpiceDBPermissionError(
+                f"Failed to delete relationships by filter: "
+                f"resource_type={resource_type}, resource_id={resource_id}, "
+                f"relation={relation}"
+            ) from e
 
     async def lookup_subjects(
         self,

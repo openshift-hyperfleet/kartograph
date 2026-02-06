@@ -9,7 +9,11 @@ import pytest
 from iam.domain.value_objects import GroupRole
 from iam.infrastructure.outbox import IAMEventTranslator
 from shared_kernel.authorization.types import RelationType, ResourceType
-from shared_kernel.outbox.operations import DeleteRelationship, WriteRelationship
+from shared_kernel.outbox.operations import (
+    DeleteRelationship,
+    DeleteRelationshipsByFilter,
+    WriteRelationship,
+)
 
 
 class TestIAMEventTranslatorSupportedEvents:
@@ -390,7 +394,7 @@ class TestIAMEventTranslatorTenantDeleted:
     """Tests for TenantDeleted translation."""
 
     def test_translates_tenant_deleted_with_no_members(self):
-        """TenantDeleted with empty members should return no operations."""
+        """TenantDeleted with empty members should still delete root_workspace filter."""
         translator = IAMEventTranslator()
         payload = {
             "tenant_id": "01TENANT123",
@@ -400,10 +404,20 @@ class TestIAMEventTranslatorTenantDeleted:
 
         operations = translator.translate("TenantDeleted", payload)
 
-        assert len(operations) == 0
+        # Should have exactly 1 operation: the filter-based root_workspace deletion
+        assert len(operations) == 1
+        filter_ops = [
+            op for op in operations if isinstance(op, DeleteRelationshipsByFilter)
+        ]
+        assert len(filter_ops) == 1
+        assert filter_ops[0].resource_type == ResourceType.TENANT
+        assert filter_ops[0].resource_id == "01TENANT123"
+        assert filter_ops[0].relation == RelationType.ROOT_WORKSPACE
+        assert filter_ops[0].subject_type is None
+        assert filter_ops[0].subject_id is None
 
     def test_translates_tenant_deleted_with_members(self):
-        """TenantDeleted should delete all member relationships from snapshot."""
+        """TenantDeleted should delete root_workspace filter and all member relationships."""
         translator = IAMEventTranslator()
         payload = {
             "tenant_id": "01TENANT123",
@@ -417,22 +431,51 @@ class TestIAMEventTranslatorTenantDeleted:
 
         operations = translator.translate("TenantDeleted", payload)
 
-        assert len(operations) == 3
+        # 1 filter-based deletion + 3 member deletions
+        assert len(operations) == 4
 
-        # Verify all are delete operations
-        for op in operations:
-            assert isinstance(op, DeleteRelationship)
+        # Check that DeleteRelationshipsByFilter for root_workspace is present
+        filter_ops = [
+            op for op in operations if isinstance(op, DeleteRelationshipsByFilter)
+        ]
+        assert len(filter_ops) == 1
+        assert filter_ops[0].resource_type == ResourceType.TENANT
+        assert filter_ops[0].resource_id == "01TENANT123"
+        assert filter_ops[0].relation == RelationType.ROOT_WORKSPACE
+
+        # Verify member delete operations
+        member_ops = [op for op in operations if isinstance(op, DeleteRelationship)]
+        assert len(member_ops) == 3
+        for op in member_ops:
             assert op.resource_type == ResourceType.TENANT
             assert op.resource_id == "01TENANT123"
             assert op.subject_type == ResourceType.USER
 
         # Verify specific members
-        deleted_members = {(op.subject_id, op.relation.value) for op in operations}
+        deleted_members = {(op.subject_id, op.relation.value) for op in member_ops}
         assert deleted_members == {
             ("user-admin-1", "admin"),
             ("user-admin-2", "admin"),
             ("user-member-1", "member"),
         }
+
+    def test_filter_based_deletion_is_first_operation(self):
+        """Filter-based root_workspace deletion should precede member deletions."""
+        translator = IAMEventTranslator()
+        payload = {
+            "tenant_id": "01TENANT123",
+            "members": [
+                {"user_id": "user-1", "role": "member"},
+            ],
+            "occurred_at": "2026-01-29T12:00:00+00:00",
+        }
+
+        operations = translator.translate("TenantDeleted", payload)
+
+        # First operation should be the filter-based deletion
+        assert isinstance(operations[0], DeleteRelationshipsByFilter)
+        # Second should be the member deletion
+        assert isinstance(operations[1], DeleteRelationship)
 
 
 class TestIAMEventTranslatorWorkspaceCreated:

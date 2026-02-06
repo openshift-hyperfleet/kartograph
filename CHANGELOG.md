@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.2](https://github.com/openshift-hyperfleet/kartograph/compare/v3.6.1...v3.6.2) (2026-02-06)
+
+
+### Bug Fixes
+
+* **deploy:** update kubectl tag and fix secret references ([#190](https://github.com/openshift-hyperfleet/kartograph/issues/190)) ([16895e1](https://github.com/openshift-hyperfleet/kartograph/commit/16895e1c0ebe111efc374c0653e4073043f82994))
+
 ## [3.6.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.6.0...v3.6.1) (2026-02-06)
 
 

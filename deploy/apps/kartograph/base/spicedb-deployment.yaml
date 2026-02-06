@@ -65,7 +65,7 @@ spec:
                 secretKeyRef:
                   name: kartograph-spicedb-credentials
                   key: SPICEDB_DATASTORE_CONN_URI
-            - name: preshared-key
+            - name: SPICEDB_GRPC_PRESHARED_KEY
               valueFrom:
                 secretKeyRef:
                   name: kartograph-spicedb-credentials

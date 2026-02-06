@@ -435,6 +435,148 @@ class TestIAMEventTranslatorTenantDeleted:
         }
 
 
+class TestIAMEventTranslatorWorkspaceCreated:
+    """Tests for WorkspaceCreated translation."""
+
+    def test_translate_workspace_created_root_workspace(self):
+        """Root workspace creation should produce tenant and root_workspace relationships."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ROOT",
+            "tenant_id": "01TENANT_ABC",
+            "name": "Root Workspace",
+            "parent_workspace_id": None,
+            "is_root": True,
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceCreated", payload)
+
+        assert len(operations) == 2
+
+        # First: workspace#tenant@tenant
+        tenant_op = operations[0]
+        assert isinstance(tenant_op, WriteRelationship)
+        assert tenant_op.resource_type == ResourceType.WORKSPACE
+        assert tenant_op.resource_id == "01WORKSPACE_ROOT"
+        assert tenant_op.relation == RelationType.TENANT
+        assert tenant_op.subject_type == ResourceType.TENANT
+        assert tenant_op.subject_id == "01TENANT_ABC"
+
+        # Second: tenant#root_workspace@workspace
+        root_op = operations[1]
+        assert isinstance(root_op, WriteRelationship)
+        assert root_op.resource_type == ResourceType.TENANT
+        assert root_op.resource_id == "01TENANT_ABC"
+        assert root_op.relation == RelationType.ROOT_WORKSPACE
+        assert root_op.subject_type == ResourceType.WORKSPACE
+        assert root_op.subject_id == "01WORKSPACE_ROOT"
+
+    def test_translate_workspace_created_child_workspace(self):
+        """Child workspace creation should produce tenant and parent relationships."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_CHILD",
+            "tenant_id": "01TENANT_ABC",
+            "name": "Engineering",
+            "parent_workspace_id": "01WORKSPACE_ROOT",
+            "is_root": False,
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceCreated", payload)
+
+        assert len(operations) == 2
+
+        # First: workspace#tenant@tenant
+        tenant_op = operations[0]
+        assert isinstance(tenant_op, WriteRelationship)
+        assert tenant_op.resource_type == ResourceType.WORKSPACE
+        assert tenant_op.resource_id == "01WORKSPACE_CHILD"
+        assert tenant_op.relation == RelationType.TENANT
+        assert tenant_op.subject_type == ResourceType.TENANT
+        assert tenant_op.subject_id == "01TENANT_ABC"
+
+        # Second: workspace#parent@workspace
+        parent_op = operations[1]
+        assert isinstance(parent_op, WriteRelationship)
+        assert parent_op.resource_type == ResourceType.WORKSPACE
+        assert parent_op.resource_id == "01WORKSPACE_CHILD"
+        assert parent_op.relation == RelationType.PARENT
+        assert parent_op.subject_type == ResourceType.WORKSPACE
+        assert parent_op.subject_id == "01WORKSPACE_ROOT"
+
+
+class TestIAMEventTranslatorWorkspaceDeleted:
+    """Tests for WorkspaceDeleted translation."""
+
+    def test_translate_workspace_deleted_root_workspace(self):
+        """Root workspace deletion should delete tenant and root_workspace relationships."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ROOT",
+            "tenant_id": "01TENANT_ABC",
+            "parent_workspace_id": None,
+            "is_root": True,
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceDeleted", payload)
+
+        assert len(operations) == 2
+
+        # First: delete workspace#tenant@tenant
+        tenant_op = operations[0]
+        assert isinstance(tenant_op, DeleteRelationship)
+        assert tenant_op.resource_type == ResourceType.WORKSPACE
+        assert tenant_op.resource_id == "01WORKSPACE_ROOT"
+        assert tenant_op.relation == RelationType.TENANT
+        assert tenant_op.subject_type == ResourceType.TENANT
+        assert tenant_op.subject_id == "01TENANT_ABC"
+
+        # Second: delete tenant#root_workspace@workspace
+        root_op = operations[1]
+        assert isinstance(root_op, DeleteRelationship)
+        assert root_op.resource_type == ResourceType.TENANT
+        assert root_op.resource_id == "01TENANT_ABC"
+        assert root_op.relation == RelationType.ROOT_WORKSPACE
+        assert root_op.subject_type == ResourceType.WORKSPACE
+        assert root_op.subject_id == "01WORKSPACE_ROOT"
+
+    def test_translate_workspace_deleted_child_workspace(self):
+        """Child workspace deletion should delete tenant and parent relationships."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_CHILD",
+            "tenant_id": "01TENANT_ABC",
+            "parent_workspace_id": "01WORKSPACE_ROOT",
+            "is_root": False,
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceDeleted", payload)
+
+        assert len(operations) == 2
+
+        # First: delete workspace#tenant@tenant
+        tenant_op = operations[0]
+        assert isinstance(tenant_op, DeleteRelationship)
+        assert tenant_op.resource_type == ResourceType.WORKSPACE
+        assert tenant_op.resource_id == "01WORKSPACE_CHILD"
+        assert tenant_op.relation == RelationType.TENANT
+        assert tenant_op.subject_type == ResourceType.TENANT
+        assert tenant_op.subject_id == "01TENANT_ABC"
+
+        # Second: delete workspace#parent@workspace
+        parent_op = operations[1]
+        assert isinstance(parent_op, DeleteRelationship)
+        assert parent_op.resource_type == ResourceType.WORKSPACE
+        assert parent_op.resource_id == "01WORKSPACE_CHILD"
+        assert parent_op.relation == RelationType.PARENT
+        assert parent_op.subject_type == ResourceType.WORKSPACE
+        assert parent_op.subject_id == "01WORKSPACE_ROOT"
+
+
 class TestIAMEventTranslatorErrors:
     """Tests for error handling."""
 

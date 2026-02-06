@@ -156,6 +156,9 @@ class Workspace:
     def mark_for_deletion(self) -> None:
         """Mark the workspace for deletion and record the WorkspaceDeleted event.
 
+        Captures a snapshot of the workspace's parent relationship and root status
+        to ensure proper cleanup of SpiceDB relationships.
+
         Note: Business rule enforcement (cannot delete root workspace,
         cannot delete workspace with children) is handled at the service layer.
         """
@@ -163,6 +166,10 @@ class Workspace:
             WorkspaceDeleted(
                 workspace_id=self.id.value,
                 tenant_id=self.tenant_id.value,
+                parent_workspace_id=self.parent_workspace_id.value
+                if self.parent_workspace_id
+                else None,
+                is_root=self.is_root,
                 occurred_at=datetime.now(UTC),
             )
         )

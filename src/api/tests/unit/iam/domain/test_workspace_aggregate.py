@@ -320,6 +320,60 @@ class TestMarkForDeletion:
 
         assert events[0].occurred_at.tzinfo == UTC
 
+    def test_workspace_deleted_event_captures_parent_snapshot(self):
+        """WorkspaceDeleted should capture parent_workspace_id snapshot."""
+        tenant_id = TenantId.generate()
+        parent_id = WorkspaceId.generate()
+        workspace = Workspace.create(
+            name="Engineering",
+            tenant_id=tenant_id,
+            parent_workspace_id=parent_id,
+        )
+        workspace.collect_events()  # Clear creation event
+
+        workspace.mark_for_deletion()
+        events = workspace.collect_events()
+
+        assert events[0].parent_workspace_id == parent_id.value
+        assert events[0].is_root is False
+
+    def test_workspace_deleted_event_captures_root_snapshot(self):
+        """WorkspaceDeleted for root workspace should capture is_root=True."""
+        tenant_id = TenantId.generate()
+        workspace = Workspace.create_root(
+            name="Root",
+            tenant_id=tenant_id,
+        )
+        workspace.collect_events()  # Clear creation event
+
+        workspace.mark_for_deletion()
+        events = workspace.collect_events()
+
+        assert events[0].is_root is True
+        assert events[0].parent_workspace_id is None
+
+    def test_workspace_deleted_event_no_parent_for_non_root_orphan(self):
+        """WorkspaceDeleted for non-root without parent should have None parent."""
+        tenant_id = TenantId.generate()
+        workspace_id = WorkspaceId.generate()
+        now = datetime.now(UTC)
+
+        workspace = Workspace(
+            id=workspace_id,
+            tenant_id=tenant_id,
+            name="Orphan",
+            parent_workspace_id=None,
+            is_root=False,
+            created_at=now,
+            updated_at=now,
+        )
+
+        workspace.mark_for_deletion()
+        events = workspace.collect_events()
+
+        assert events[0].parent_workspace_id is None
+        assert events[0].is_root is False
+
 
 class TestEventCollection:
     """Tests for Workspace event collection mechanism."""

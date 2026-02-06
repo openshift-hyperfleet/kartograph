@@ -38,14 +38,19 @@ class WorkspaceDeleted:
     """Event raised when a workspace is deleted.
 
     This event triggers the deletion of all relationships for this workspace
-    in SpiceDB.
+    in SpiceDB. Carries a snapshot of the workspace's parent relationship
+    and root status to ensure proper cleanup without external lookups.
 
     Attributes:
         workspace_id: The ULID of the deleted workspace
         tenant_id: The ULID of the tenant the workspace belonged to
+        parent_workspace_id: The parent workspace ID (if this is a child workspace)
+        is_root: Whether this was a root workspace
         occurred_at: When the event occurred (UTC)
     """
 
     workspace_id: str
     tenant_id: str
+    parent_workspace_id: Optional[str]
+    is_root: bool
     occurred_at: datetime

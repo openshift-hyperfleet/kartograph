@@ -207,7 +207,7 @@
   "IAMSettings": {
     "class_name": "IAMSettings",
     "prefix": "KARTOGRAPH_IAM_",
-    "doc": "IAM (Identity and Access Management) settings.\n\n    Environment variables:\n        KARTOGRAPH_IAM_DEFAULT_TENANT_NAME: Default tenant name for single-tenant mode (default: default)\n    ",
+    "doc": "IAM (Identity and Access Management) settings.\n\n    Environment variables:\n        KARTOGRAPH_IAM_DEFAULT_TENANT_NAME: Default tenant name for single-tenant mode (default: default)\n        KARTOGRAPH_IAM_DEFAULT_WORKSPACE_NAME: Default root workspace name (default: None, uses tenant name)\n    ",
     "properties": [
       {
         "env_var": "KARTOGRAPH_IAM_DEFAULT_TENANT_NAME",
@@ -215,6 +215,13 @@
         "default": "default",
         "required": false,
         "description": "Default tenant name for single-tenant mode"
+      },
+      {
+        "env_var": "KARTOGRAPH_IAM_DEFAULT_WORKSPACE_NAME",
+        "type": "str | None",
+        "default": null,
+        "required": false,
+        "description": "Default root workspace name (if None, uses tenant name)"
       }
     ]
   },

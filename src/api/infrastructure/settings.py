@@ -271,6 +271,7 @@ class IAMSettings(BaseSettings):
 
     Environment variables:
         KARTOGRAPH_IAM_DEFAULT_TENANT_NAME: Default tenant name for single-tenant mode (default: default)
+        KARTOGRAPH_IAM_DEFAULT_WORKSPACE_NAME: Default root workspace name (default: None, uses tenant name)
     """
 
     model_config = SettingsConfigDict(
@@ -283,6 +284,11 @@ class IAMSettings(BaseSettings):
     default_tenant_name: str = Field(
         default="default",
         description="Default tenant name for single-tenant mode",
+    )
+
+    default_workspace_name: str | None = Field(
+        default=None,
+        description="Default root workspace name (if None, uses tenant name)",
     )
 
 

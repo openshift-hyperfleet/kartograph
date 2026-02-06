@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.6.0...v3.6.1) (2026-02-06)
+
+
+### Bug Fixes
+
+* **deploy:** update deployment to use correct vault keys ([#188](https://github.com/openshift-hyperfleet/kartograph/issues/188)) ([7eabc2e](https://github.com/openshift-hyperfleet/kartograph/commit/7eabc2e623ea457bb609dafda7255452c93b7c6a))
+
 ## [3.6.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.5.0...v3.6.0) (2026-02-05)
 
 

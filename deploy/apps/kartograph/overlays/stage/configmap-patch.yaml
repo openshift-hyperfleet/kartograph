@@ -5,4 +5,4 @@ metadata:
 data:
   # Stage-specific overrides (merged with base)
   # TODO: Update with actual cluster hostname
-  KARTOGRAPH_CORS_ORIGINS: "https://kartograph-stage.apps.example.com"
+  KARTOGRAPH_CORS_ORIGINS: "https://kartograph-stage.devshift.net"

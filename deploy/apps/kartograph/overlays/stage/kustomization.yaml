@@ -4,11 +4,9 @@ namespace: kartograph-stage
 resources:
   - ../../base
   - route.yaml
-  - secret-provider-class.yaml
 patches:
   - path: configmap-patch.yaml
   - path: resources-patch.yaml
-  - path: deployment-vault-patch.yaml
 images:
   - name: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-api
-    newTag: 1.1.1
+    newTag: 20537154d73b5b8f8ced3cfabc56f6a841068e99

@@ -18,7 +18,7 @@ spec:
       initContainers:
         # Wait for database migrations to complete
         - name: wait-for-db-migrate
-          image: bitnami/kubectl:b349e60a6ae2969af84a778c0b976b050a0cc77f4fb6a4ad44307cd0a06e9d8f
+          image: bitnami/kubectl@sha256:b349e60a6ae2969af84a778c0b976b050a0cc77f4fb6a4ad44307cd0a06e9d8f
           imagePullPolicy: IfNotPresent
           securityContext:
             runAsNonRoot: true
@@ -33,12 +33,13 @@ spec:
             - sh
             - -c
             - |
+              set -e
               echo "Waiting for db-migrate job to complete..."
               kubectl wait --for=condition=complete --timeout=300s job/kartograph-db-migrate
               echo "Database migration complete!"
         # Wait for SpiceDB schema to be loaded
         - name: wait-for-spicedb-schema
-          image: bitnami/kubectl:b349e60a6ae2969af84a778c0b976b050a0cc77f4fb6a4ad44307cd0a06e9d8f
+          image: bitnami/kubectl@sha256:b349e60a6ae2969af84a778c0b976b050a0cc77f4fb6a4ad44307cd0a06e9d8f
           imagePullPolicy: IfNotPresent
           securityContext:
             runAsNonRoot: true
@@ -53,6 +54,7 @@ spec:
             - sh
             - -c
             - |
+              set -e
               echo "Waiting for spicedb-schema job to complete..."
               kubectl wait --for=condition=complete --timeout=300s job/kartograph-spicedb-schema
               echo "SpiceDB schema loaded!"
@@ -105,7 +107,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: kartograph-spicedb-credentials
-                  key: preshared-key
+                  key: SPICEDB_PRESHARED_KEY
             - name: SPICEDB_USE_TLS
               valueFrom:
                 configMapKeyRef:

@@ -25,7 +25,7 @@ class Workspace:
     have multiple child workspaces.
 
     Business rules:
-    - Workspace names must be 1-255 characters
+    - Workspace names must be 1-512 characters
     - Cannot have both is_root=True and parent_workspace_id set
     - Root workspace must have is_root=True and parent_workspace_id=None
     - Cannot delete root workspace (enforced at service layer)
@@ -51,8 +51,8 @@ class Workspace:
 
     def _validate_name(self, name: str) -> None:
         """Validate workspace name length."""
-        if not name or len(name) < 1 or len(name) > 255:
-            raise ValueError("Workspace name must be between 1 and 255 characters")
+        if not name or len(name) < 1 or len(name) > 512:
+            raise ValueError("Workspace name must be between 1 and 512 characters")
 
     def _validate_root_and_parent(self) -> None:
         """Validate that root workspaces don't have parents."""
@@ -67,23 +67,26 @@ class Workspace:
         cls,
         name: str,
         tenant_id: TenantId,
-        parent_workspace_id: Optional[WorkspaceId] = None,
+        parent_workspace_id: WorkspaceId,
     ) -> "Workspace":
         """Factory method for creating a new child workspace.
 
         This is the proper DDD way to create aggregates. It generates the ID,
         initializes the aggregate, and records the WorkspaceCreated event.
 
+        Use create_root() instead for creating root workspaces. This method
+        is exclusively for child workspaces that must have a parent.
+
         Args:
-            name: The name of the workspace (1-255 characters)
+            name: The name of the workspace (1-512 characters)
             tenant_id: The tenant this workspace belongs to
-            parent_workspace_id: Optional parent workspace for hierarchy
+            parent_workspace_id: The parent workspace in the hierarchy (required)
 
         Returns:
             A new Workspace aggregate with WorkspaceCreated event recorded
 
         Raises:
-            ValueError: If name is empty or exceeds 255 characters
+            ValueError: If name is empty or exceeds 512 characters
         """
         now = datetime.now(UTC)
         workspace = cls(
@@ -121,14 +124,14 @@ class Workspace:
         creates a workspace with is_root=True and no parent.
 
         Args:
-            name: The name of the workspace (1-255 characters)
+            name: The name of the workspace (1-512 characters)
             tenant_id: The tenant this workspace belongs to
 
         Returns:
             A new root Workspace aggregate with WorkspaceCreated event recorded
 
         Raises:
-            ValueError: If name is empty or exceeds 255 characters
+            ValueError: If name is empty or exceeds 512 characters
         """
         now = datetime.now(UTC)
         workspace = cls(

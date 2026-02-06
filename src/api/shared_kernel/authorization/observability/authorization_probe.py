@@ -138,6 +138,29 @@ class AuthorizationProbe(Protocol):
         """Record that looking up resources failed."""
         ...
 
+    def relationships_deleted_by_filter(
+        self,
+        resource_type: str,
+        resource_id: str | None,
+        relation: str | None,
+        subject_type: str | None,
+        subject_id: str | None,
+    ) -> None:
+        """Record that relationships were deleted by filter."""
+        ...
+
+    def relationships_delete_by_filter_failed(
+        self,
+        resource_type: str,
+        resource_id: str | None,
+        relation: str | None,
+        subject_type: str | None,
+        subject_id: str | None,
+        error: Exception,
+    ) -> None:
+        """Record that deleting relationships by filter failed."""
+        ...
+
     def with_context(self, context: ObservationContext) -> AuthorizationProbe:
         """Create a new probe with observation context bound."""
         ...
@@ -369,6 +392,47 @@ class DefaultAuthorizationProbe:
             resource_type=resource_type,
             permission=permission,
             subject=subject,
+            error=str(error),
+            error_type=type(error).__name__,
+            **self._get_context_kwargs(),
+        )
+
+    def relationships_deleted_by_filter(
+        self,
+        resource_type: str,
+        resource_id: str | None,
+        relation: str | None,
+        subject_type: str | None,
+        subject_id: str | None,
+    ) -> None:
+        """Record that relationships were deleted by filter."""
+        self._logger.info(
+            "authorization_relationships_deleted_by_filter",
+            resource_type=resource_type,
+            resource_id=resource_id,
+            relation=relation,
+            subject_type=subject_type,
+            subject_id=subject_id,
+            **self._get_context_kwargs(),
+        )
+
+    def relationships_delete_by_filter_failed(
+        self,
+        resource_type: str,
+        resource_id: str | None,
+        relation: str | None,
+        subject_type: str | None,
+        subject_id: str | None,
+        error: Exception,
+    ) -> None:
+        """Record that deleting relationships by filter failed."""
+        self._logger.error(
+            "authorization_relationships_delete_by_filter_failed",
+            resource_type=resource_type,
+            resource_id=resource_id,
+            relation=relation,
+            subject_type=subject_type,
+            subject_id=subject_id,
             error=str(error),
             error_type=type(error).__name__,
             **self._get_context_kwargs(),

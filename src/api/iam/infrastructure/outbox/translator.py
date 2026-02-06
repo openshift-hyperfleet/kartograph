@@ -26,11 +26,14 @@ from iam.domain.events import (
     TenantDeleted,
     TenantMemberAdded,
     TenantMemberRemoved,
+    WorkspaceCreated,
+    WorkspaceDeleted,
 )
 from iam.domain.value_objects import GroupRole, TenantRole
 from shared_kernel.authorization.types import RelationType, ResourceType
 from shared_kernel.outbox.operations import (
     DeleteRelationship,
+    DeleteRelationshipsByFilter,
     SpiceDBOperation,
     WriteRelationship,
 )
@@ -62,6 +65,8 @@ class IAMEventTranslator:
             TenantDeleted: self._translate_tenant_deleted,
             TenantMemberAdded: self._translate_tenant_member_added,
             TenantMemberRemoved: self._translate_tenant_member_removed,
+            WorkspaceCreated: self._translate_workspace_created,
+            WorkspaceDeleted: self._translate_workspace_deleted,
             APIKeyCreated: self._translate_api_key_created,
             APIKeyRevoked: self._translate_api_key_revoked,
             APIKeyDeleted: self._translate_api_key_deleted,
@@ -245,12 +250,34 @@ class IAMEventTranslator:
         self,
         payload: dict[str, Any],
     ) -> list[SpiceDBOperation]:
-        """Translate TenantDeleted to delete all member relationships.
+        """Translate TenantDeleted to delete all member relationships and root workspace pointer.
 
         Deletes all tenant membership relationships from the member snapshot.
         Each member may have one or more role relationships (member, admin).
+
+        Also deletes the tenant#root_workspace relationship using filter-based
+        deletion (no need to know the specific workspace ID).
+
+        TODO: Ensure the tenant deletion service emits WorkspaceDeleted events
+        for all tenant workspaces before emitting TenantDeleted. This ensures:
+        - Workspace data is cleaned up from the database (via repository)
+        - Child workspace relationships are cleaned up in SpiceDB
+        - Domain events provide audit trail for workspace deletions
+        The filter-based deletion here only cleans up the tenant's pointer to
+        its root workspace; the workspace's own relationships are cleaned up
+        by WorkspaceDeleted events.
         """
         operations: list[SpiceDBOperation] = []
+
+        # Delete the tenant's root_workspace pointer (filter-based)
+        operations.append(
+            DeleteRelationshipsByFilter(
+                resource_type=ResourceType.TENANT,
+                resource_id=payload["tenant_id"],
+                relation=RelationType.ROOT_WORKSPACE,
+                # No subject filters - delete any root_workspace relationship
+            )
+        )
 
         # Delete all member relationships from the snapshot
         for member in payload["members"]:
@@ -318,6 +345,128 @@ class IAMEventTranslator:
             )
             for role in TenantRole
         ]
+
+    def _translate_workspace_created(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate WorkspaceCreated event to SpiceDB relationships.
+
+        Creates the following relationships:
+        - workspace#tenant@tenant (always)
+        - tenant#root_workspace@workspace (if is_root=True)
+        - workspace#parent@workspace (if parent_workspace_id exists)
+
+        Args:
+            payload: Event payload containing workspace_id, tenant_id,
+                     parent_workspace_id, and is_root
+
+        Returns:
+            List of WriteRelationship operations for SpiceDB
+        """
+        workspace_id = payload["workspace_id"]
+        tenant_id = payload["tenant_id"]
+        parent_workspace_id = payload.get("parent_workspace_id")
+        is_root = payload["is_root"]
+
+        relationships: list[SpiceDBOperation] = []
+
+        # 1. ALWAYS: Workspace belongs to tenant
+        relationships.append(
+            WriteRelationship(
+                resource_type=ResourceType.WORKSPACE,
+                resource_id=workspace_id,
+                relation=RelationType.TENANT,
+                subject_type=ResourceType.TENANT,
+                subject_id=tenant_id,
+            )
+        )
+
+        # 2. If root: Tenant points to root workspace
+        if is_root:
+            relationships.append(
+                WriteRelationship(
+                    resource_type=ResourceType.TENANT,
+                    resource_id=tenant_id,
+                    relation=RelationType.ROOT_WORKSPACE,
+                    subject_type=ResourceType.WORKSPACE,
+                    subject_id=workspace_id,
+                )
+            )
+
+        # 3. If non-root: Workspace has a parent workspace
+        if parent_workspace_id:
+            relationships.append(
+                WriteRelationship(
+                    resource_type=ResourceType.WORKSPACE,
+                    resource_id=workspace_id,
+                    relation=RelationType.PARENT,
+                    subject_type=ResourceType.WORKSPACE,
+                    subject_id=parent_workspace_id,
+                )
+            )
+
+        return relationships
+
+    def _translate_workspace_deleted(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate WorkspaceDeleted event to SpiceDB relationship deletions.
+
+        Deletes the relationships that were created during workspace creation,
+        using the snapshot data captured in the event.
+
+        Args:
+            payload: Event payload containing workspace_id, tenant_id,
+                     parent_workspace_id, and is_root (snapshot)
+
+        Returns:
+            List of DeleteRelationship operations for SpiceDB
+        """
+        workspace_id = payload["workspace_id"]
+        tenant_id = payload["tenant_id"]
+        parent_workspace_id = payload.get("parent_workspace_id")
+        is_root = payload["is_root"]
+
+        relationships: list[SpiceDBOperation] = []
+
+        # 1. ALWAYS: Remove workspace->tenant relation
+        relationships.append(
+            DeleteRelationship(
+                resource_type=ResourceType.WORKSPACE,
+                resource_id=workspace_id,
+                relation=RelationType.TENANT,
+                subject_type=ResourceType.TENANT,
+                subject_id=tenant_id,
+            )
+        )
+
+        # 2. If root: Remove tenant->root_workspace pointer
+        if is_root:
+            relationships.append(
+                DeleteRelationship(
+                    resource_type=ResourceType.TENANT,
+                    resource_id=tenant_id,
+                    relation=RelationType.ROOT_WORKSPACE,
+                    subject_type=ResourceType.WORKSPACE,
+                    subject_id=workspace_id,
+                )
+            )
+
+        # 3. If non-root: Remove workspace->parent relation
+        if parent_workspace_id:
+            relationships.append(
+                DeleteRelationship(
+                    resource_type=ResourceType.WORKSPACE,
+                    resource_id=workspace_id,
+                    relation=RelationType.PARENT,
+                    subject_type=ResourceType.WORKSPACE,
+                    subject_id=parent_workspace_id,
+                )
+            )
+
+        return relationships
 
     def _translate_api_key_created(
         self,

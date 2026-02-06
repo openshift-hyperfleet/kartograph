@@ -148,7 +148,7 @@ class Workspace:
                 name=name,
                 parent_workspace_id=None,
                 is_root=True,
-                occurred_at=datetime.now(UTC),
+                occurred_at=now,
             )
         )
         return workspace

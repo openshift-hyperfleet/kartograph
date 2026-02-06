@@ -59,7 +59,7 @@ class TenantMemberAdded:
         user_id: The user added as a member to the tenant
         role: The role the user is given within the tenant
         added_by: The [optional] ID of the user that initiated this action
-        occurred_at: When this even occurred (UTC)
+        occurred_at: When this event occurred (UTC)
     """
 
     tenant_id: str
@@ -77,7 +77,7 @@ class TenantMemberRemoved:
         tenant_id: The ID of the tenant from which the member was removed
         user_id: The user removed as a member from the tenant
         removed_by: The ID of the user that initiated this action
-        occurred_at: When this even occurred (UTC)
+        occurred_at: When this event occurred (UTC)
     """
 
     tenant_id: str

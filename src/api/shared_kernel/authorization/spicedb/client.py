@@ -559,6 +559,7 @@ class SpiceDBClient(AuthorizationProvider):
         Raises:
             SpiceDBPermissionError: If the delete fails
             ValueError: If insufficient filter criteria provided
+            ValueError: If subject_id is provided without subject_type
 
         Example:
             # Delete all root_workspace relations for tenant:123
@@ -571,6 +572,12 @@ class SpiceDBClient(AuthorizationProvider):
         if not any([resource_id, relation, subject_type, subject_id]):
             raise ValueError(
                 "At least one filter parameter beyond resource_type must be specified"
+            )
+
+        # Validate subject_id requires subject_type
+        if subject_id and not subject_type:
+            raise ValueError(
+                "subject_type must be provided when subject_id is specified"
             )
 
         await self._ensure_client()

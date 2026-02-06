@@ -105,7 +105,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: kartograph-spicedb-credentials
-                  key: preshared-key
+                  key: SPICEDB_PRESHARED_KEY
             - name: SPICEDB_USE_TLS
               valueFrom:
                 configMapKeyRef:

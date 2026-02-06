@@ -103,11 +103,9 @@ class Workspace:
                 workspace_id=workspace.id.value,
                 tenant_id=tenant_id.value,
                 name=name,
-                parent_workspace_id=(
-                    parent_workspace_id.value if parent_workspace_id else None
-                ),
+                parent_workspace_id=parent_workspace_id.value,
                 is_root=False,
-                occurred_at=datetime.now(UTC),
+                occurred_at=now,
             )
         )
         return workspace

@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.7.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.6.4...v3.7.0) (2026-02-06)
+
+
+### Features
+
+* **api.iam:** create workspace domain objects ([#200](https://github.com/openshift-hyperfleet/kartograph/issues/200)) ([b4085eb](https://github.com/openshift-hyperfleet/kartograph/commit/b4085eb732a3850a7248a60d633e46ab45e69b29))
+
 ## [3.6.4](https://github.com/openshift-hyperfleet/kartograph/compare/v3.6.3...v3.6.4) (2026-02-06)
 
 

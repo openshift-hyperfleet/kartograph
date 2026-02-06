@@ -62,7 +62,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: kartograph-spicedb-credentials
-                  key: preshared-key
+                  key: SPICEDB_PRESHARED_KEY
             - name: ZED_INSECURE
               valueFrom:
                 configMapKeyRef:
@@ -90,7 +90,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: kartograph-spicedb-credentials
-                  key: preshared-key
+                  key: SPICEDB_PRESHARED_KEY
             - name: ZED_INSECURE
               valueFrom:
                 configMapKeyRef:

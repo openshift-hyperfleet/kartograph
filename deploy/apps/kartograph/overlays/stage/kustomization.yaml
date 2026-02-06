@@ -4,7 +4,6 @@ namespace: kartograph-stage
 resources:
   - ../../base
   - route.yaml
-  # secret-provider-class.yaml removed - using K8s auth method until CSI driver is available
 patches:
   - path: configmap-patch.yaml
   - path: resources-patch.yaml

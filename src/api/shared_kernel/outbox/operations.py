@@ -63,5 +63,20 @@ class DeleteRelationship(SpiceDBRelationshipBase):
     pass
 
 
+@dataclass(frozen=True)
+class DeleteRelationshipsByFilter:
+    """Operation to delete relationships by filter in SpiceDB.
+
+    Uses filter-based deletion to remove multiple relationships matching
+    the criteria without specifying each relationship individually.
+    """
+
+    resource_type: ResourceType
+    resource_id: str | None = None
+    relation: RelationType | str | None = None
+    subject_type: ResourceType | None = None
+    subject_id: str | None = None
+
+
 # Type alias for all SpiceDB operations
-SpiceDBOperation = WriteRelationship | DeleteRelationship
+SpiceDBOperation = WriteRelationship | DeleteRelationship | DeleteRelationshipsByFilter

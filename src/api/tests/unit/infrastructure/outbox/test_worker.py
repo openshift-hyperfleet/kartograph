@@ -13,7 +13,11 @@ import pytest
 from iam.domain.value_objects import GroupRole
 from infrastructure.outbox.worker import OutboxWorker
 from shared_kernel.authorization.types import RelationType, ResourceType
-from shared_kernel.outbox.operations import DeleteRelationship, WriteRelationship
+from shared_kernel.outbox.operations import (
+    DeleteRelationship,
+    DeleteRelationshipsByFilter,
+    WriteRelationship,
+)
 from shared_kernel.outbox.ports import EventTranslator
 from shared_kernel.outbox.value_objects import OutboxEntry
 
@@ -131,6 +135,56 @@ class TestOutboxWorkerProcessBatch:
             resource="group:01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             relation="member",
             subject="user:01ARZCX0P0HZGQP3MZXQQ0NNWW",
+        )
+
+    @pytest.mark.asyncio
+    async def test_handles_delete_relationships_by_filter(self):
+        """Test that filter-based delete operations are executed correctly."""
+        mock_session = AsyncMock()
+        mock_authz = AsyncMock()
+        mock_translator = MagicMock(spec=EventTranslator)
+        mock_probe = MagicMock()
+
+        entry = OutboxEntry(
+            id=uuid4(),
+            aggregate_type="tenant",
+            aggregate_id="01TENANT123",
+            event_type="TenantDeleted",
+            payload={
+                "__type__": "TenantDeleted",
+                "tenant_id": "01TENANT123",
+                "members": [],
+                "occurred_at": "2026-01-08T12:00:00+00:00",
+            },
+            occurred_at=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
+            processed_at=None,
+            created_at=datetime(2026, 1, 8, 12, 0, 1, tzinfo=UTC),
+        )
+
+        mock_translator.translate.return_value = [
+            DeleteRelationshipsByFilter(
+                resource_type=ResourceType.TENANT,
+                resource_id="01TENANT123",
+                relation=RelationType.ROOT_WORKSPACE,
+            )
+        ]
+
+        worker = OutboxWorker(
+            session_factory=AsyncMock(),
+            authz=mock_authz,
+            translator=mock_translator,
+            probe=mock_probe,
+            event_source=None,
+        )
+
+        await worker._process_entries([entry], mock_session)
+
+        mock_authz.delete_relationships_by_filter.assert_called_once_with(
+            resource_type="tenant",
+            resource_id="01TENANT123",
+            relation="root_workspace",
+            subject_type=None,
+            subject_id=None,
         )
 
     @pytest.mark.asyncio

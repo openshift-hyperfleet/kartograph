@@ -19,7 +19,11 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from infrastructure.outbox.models import OutboxModel
-from shared_kernel.outbox.operations import DeleteRelationship, WriteRelationship
+from shared_kernel.outbox.operations import (
+    DeleteRelationship,
+    DeleteRelationshipsByFilter,
+    WriteRelationship,
+)
 from shared_kernel.outbox.ports import EventTranslator
 from shared_kernel.outbox.value_objects import OutboxEntry
 
@@ -226,7 +230,7 @@ class OutboxWorker:
 
     async def _apply_operation(
         self,
-        operation: WriteRelationship | DeleteRelationship,
+        operation: WriteRelationship | DeleteRelationship | DeleteRelationshipsByFilter,
     ) -> None:
         """Apply a single SpiceDB operation."""
         match operation:
@@ -242,6 +246,17 @@ class OutboxWorker:
                     resource=operation.resource,
                     relation=operation.relation_name,
                     subject=operation.subject,
+                )
+
+            case DeleteRelationshipsByFilter():
+                await self._authz.delete_relationships_by_filter(
+                    resource_type=operation.resource_type.value,
+                    resource_id=operation.resource_id,
+                    relation=str(operation.relation) if operation.relation else None,
+                    subject_type=operation.subject_type.value
+                    if operation.subject_type
+                    else None,
+                    subject_id=operation.subject_id,
                 )
 
     async def _mark_processed(self, entry_id: UUID, session: AsyncSession) -> None:

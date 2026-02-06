@@ -1,7 +1,7 @@
 """Domain probe for IAM repository operations.
 
 Following Domain-Oriented Observability patterns, this probe captures
-domain-significant events related to group, user, and tenant repository operations.
+domain-significant events related to group, user, tenant, and workspace repository operations.
 """
 
 from __future__ import annotations
@@ -325,7 +325,7 @@ class WorkspaceRepositoryProbe(Protocol):
         """Record that a workspace was retrieved."""
         ...
 
-    def workspace_not_found(self, workspace_id: str) -> None:
+    def workspace_not_found(self, **kwargs: Any) -> None:
         """Record that a workspace was not found."""
         ...
 
@@ -382,11 +382,11 @@ class DefaultWorkspaceRepositoryProbe:
             **self._get_context_kwargs(),
         )
 
-    def workspace_not_found(self, workspace_id: str) -> None:
+    def workspace_not_found(self, **kwargs: Any) -> None:
         """Record that a workspace was not found."""
         self._logger.debug(
             "workspace_not_found",
-            workspace_id=workspace_id,
+            **kwargs,
             **self._get_context_kwargs(),
         )
 

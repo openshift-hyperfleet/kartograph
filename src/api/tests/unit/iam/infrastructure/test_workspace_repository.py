@@ -700,7 +700,41 @@ class TestObservabilityProbe:
 
         await repository.get_by_id(workspace_id)
 
-        mock_probe.workspace_not_found.assert_called_once_with(workspace_id.value)
+        mock_probe.workspace_not_found.assert_called_once_with(
+            workspace_id=workspace_id.value
+        )
+
+    @pytest.mark.asyncio
+    async def test_probe_called_on_get_by_name_not_found(
+        self, repository, mock_session, mock_probe, tenant_id
+    ):
+        """Should call probe.workspace_not_found when get_by_name finds nothing."""
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        await repository.get_by_name(tenant_id, "Nonexistent")
+
+        mock_probe.workspace_not_found.assert_called_once_with(
+            tenant_id=tenant_id.value,
+            name="Nonexistent",
+        )
+
+    @pytest.mark.asyncio
+    async def test_probe_called_on_get_root_workspace_not_found(
+        self, repository, mock_session, mock_probe, tenant_id
+    ):
+        """Should call probe.workspace_not_found when get_root_workspace finds nothing."""
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        await repository.get_root_workspace(tenant_id)
+
+        mock_probe.workspace_not_found.assert_called_once_with(
+            tenant_id=tenant_id.value,
+            is_root=True,
+        )
 
     @pytest.mark.asyncio
     async def test_probe_called_on_retrieved(

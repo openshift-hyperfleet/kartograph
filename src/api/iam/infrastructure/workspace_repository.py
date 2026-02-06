@@ -134,7 +134,7 @@ class WorkspaceRepository(IWorkspaceRepository):
         model = result.scalar_one_or_none()
 
         if model is None:
-            self._probe.workspace_not_found(workspace_id.value)
+            self._probe.workspace_not_found(workspace_id=workspace_id.value)
             return None
 
         workspace = self._to_domain(model)
@@ -159,6 +159,10 @@ class WorkspaceRepository(IWorkspaceRepository):
         model = result.scalar_one_or_none()
 
         if model is None:
+            self._probe.workspace_not_found(
+                tenant_id=tenant_id.value,
+                name=name,
+            )
             return None
 
         workspace = self._to_domain(model)
@@ -182,6 +186,10 @@ class WorkspaceRepository(IWorkspaceRepository):
         model = result.scalar_one_or_none()
 
         if model is None:
+            self._probe.workspace_not_found(
+                tenant_id=tenant_id.value,
+                is_root=True,
+            )
             return None
 
         workspace = self._to_domain(model)

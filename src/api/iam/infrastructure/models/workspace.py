@@ -4,9 +4,7 @@ Stores workspace metadata in PostgreSQL. Workspaces organize knowledge
 graphs within a tenant.
 """
 
-from datetime import datetime
-
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String
+from sqlalchemy import Boolean, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.database.models import Base, TimestampMixin
@@ -46,12 +44,6 @@ class WorkspaceModel(Base, TimestampMixin):
         index=True,
     )
     is_root: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
 
     # Relationships
     tenant = relationship("TenantModel", back_populates="workspaces")

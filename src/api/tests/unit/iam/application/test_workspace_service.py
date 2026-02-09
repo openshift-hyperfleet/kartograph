@@ -6,11 +6,18 @@ Following TDD - write tests first to define desired behavior.
 import pytest
 from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
+from sqlalchemy.exc import IntegrityError
+
 from iam.application.services.workspace_service import WorkspaceService
 from iam.domain.aggregates import Workspace
-from iam.domain.events import WorkspaceCreated
+from iam.domain.events import WorkspaceCreated, WorkspaceDeleted
 from iam.domain.value_objects import TenantId, UserId, WorkspaceId
-from iam.ports.exceptions import DuplicateWorkspaceNameError
+from iam.ports.exceptions import (
+    CannotDeleteRootWorkspaceError,
+    DuplicateWorkspaceNameError,
+    UnauthorizedError,
+    WorkspaceHasChildrenError,
+)
 from iam.ports.repositories import IWorkspaceRepository
 
 
@@ -633,3 +640,208 @@ class TestListWorkspaces:
             tenant_id=tenant1_id.value,
             count=2,
         )
+
+
+class TestDeleteWorkspace:
+    """Tests for WorkspaceService.delete_workspace()."""
+
+    @pytest.mark.asyncio
+    async def test_delete_workspace_removes_from_database(
+        self,
+        workspace_service: WorkspaceService,
+        mock_workspace_repository,
+        mock_probe,
+        tenant_id,
+        root_workspace,
+    ):
+        """Test that delete_workspace successfully deletes a child workspace."""
+        # Setup: Create a child workspace in the scoped tenant
+        child_workspace = Workspace.create(
+            name="Engineering",
+            tenant_id=tenant_id,
+            parent_workspace_id=root_workspace.id,
+        )
+        # Consume creation event so it doesn't interfere with deletion assertions
+        child_workspace.collect_events()
+
+        mock_workspace_repository.get_by_id = AsyncMock(return_value=child_workspace)
+        mock_workspace_repository.delete = AsyncMock(return_value=True)
+
+        # Call
+        result = await workspace_service.delete_workspace(child_workspace.id)
+
+        # Assert: Deletion succeeded
+        assert result is True
+
+        # Assert: Repository delete was called with workspace that has deletion event
+        mock_workspace_repository.delete.assert_called_once()
+
+        # Assert: Probe recorded successful deletion
+        mock_probe.workspace_deleted.assert_called_once_with(
+            workspace_id=child_workspace.id.value,
+            tenant_id=tenant_id.value,
+        )
+
+    @pytest.mark.asyncio
+    async def test_delete_workspace_returns_false_when_not_found(
+        self,
+        workspace_service: WorkspaceService,
+        mock_workspace_repository,
+        mock_probe,
+    ):
+        """Test that delete_workspace returns False when workspace doesn't exist."""
+        # Setup: Repository returns None (workspace not found)
+        nonexistent_id = WorkspaceId.generate()
+        mock_workspace_repository.get_by_id = AsyncMock(return_value=None)
+
+        # Call
+        result = await workspace_service.delete_workspace(nonexistent_id)
+
+        # Assert: Returns False
+        assert result is False
+
+        # Assert: Delete was NOT called
+        mock_workspace_repository.delete.assert_not_called()
+
+        # Assert: Deletion probes not called
+        mock_probe.workspace_deleted.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cannot_delete_root_workspace(
+        self,
+        workspace_service: WorkspaceService,
+        mock_workspace_repository,
+        mock_probe,
+        root_workspace,
+    ):
+        """Test that deleting root workspace raises CannotDeleteRootWorkspaceError."""
+        # Setup: Return the root workspace
+        # Consume creation event
+        root_workspace.collect_events()
+        mock_workspace_repository.get_by_id = AsyncMock(return_value=root_workspace)
+
+        # Call and Assert: Should raise CannotDeleteRootWorkspaceError
+        with pytest.raises(CannotDeleteRootWorkspaceError):
+            await workspace_service.delete_workspace(root_workspace.id)
+
+        # Assert: Delete was NOT called (business rule prevented it)
+        mock_workspace_repository.delete.assert_not_called()
+
+        # Assert: Deletion failure probe was called
+        mock_probe.workspace_deletion_failed.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_cannot_delete_workspace_with_children(
+        self,
+        workspace_service: WorkspaceService,
+        mock_workspace_repository,
+        mock_probe,
+        tenant_id,
+        root_workspace,
+    ):
+        """Test that deleting workspace with children raises WorkspaceHasChildrenError."""
+        # Setup: Create a child workspace (which has a grandchild via DB constraint)
+        child_workspace = Workspace.create(
+            name="Engineering",
+            tenant_id=tenant_id,
+            parent_workspace_id=root_workspace.id,
+        )
+        child_workspace.collect_events()
+
+        mock_workspace_repository.get_by_id = AsyncMock(return_value=child_workspace)
+
+        # Simulate database IntegrityError when trying to delete
+        # (the DB RESTRICT constraint on parent_workspace_id fires)
+        integrity_error = IntegrityError(
+            "DELETE FROM workspaces",
+            params={},
+            orig=Exception(
+                'update or delete on table "workspaces" violates '
+                'foreign key constraint "workspaces_parent_workspace_id_fkey"'
+            ),
+        )
+        mock_workspace_repository.delete = AsyncMock(side_effect=integrity_error)
+
+        # Call and Assert: Should raise WorkspaceHasChildrenError
+        with pytest.raises(WorkspaceHasChildrenError):
+            await workspace_service.delete_workspace(child_workspace.id)
+
+        # Assert: Deletion failure probe was called
+        mock_probe.workspace_deletion_failed.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_workspace_checks_tenant_ownership(
+        self,
+        workspace_service: WorkspaceService,
+        mock_workspace_repository,
+        mock_probe,
+    ):
+        """Test that delete_workspace rejects workspace from different tenant."""
+        # Setup: Create workspace belonging to a different tenant
+        other_tenant_id = TenantId.generate()
+        other_tenant_root = Workspace.create_root(
+            name="Other Root",
+            tenant_id=other_tenant_id,
+        )
+        other_workspace = Workspace.create(
+            name="Other Workspace",
+            tenant_id=other_tenant_id,
+            parent_workspace_id=other_tenant_root.id,
+        )
+        other_workspace.collect_events()
+
+        mock_workspace_repository.get_by_id = AsyncMock(return_value=other_workspace)
+
+        # Call and Assert: Should raise UnauthorizedError
+        with pytest.raises(UnauthorizedError, match="different tenant"):
+            await workspace_service.delete_workspace(other_workspace.id)
+
+        # Assert: Delete was NOT called
+        mock_workspace_repository.delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_workspace_emits_events(
+        self,
+        workspace_service: WorkspaceService,
+        mock_workspace_repository,
+        mock_probe,
+        tenant_id,
+        root_workspace,
+    ):
+        """Test that workspace deletion emits WorkspaceDeleted event to outbox."""
+        # Setup: Create a child workspace
+        child_workspace = Workspace.create(
+            name="Engineering",
+            tenant_id=tenant_id,
+            parent_workspace_id=root_workspace.id,
+        )
+        # Consume the creation event
+        child_workspace.collect_events()
+
+        mock_workspace_repository.get_by_id = AsyncMock(return_value=child_workspace)
+        mock_workspace_repository.delete = AsyncMock(return_value=True)
+
+        # Call
+        await workspace_service.delete_workspace(child_workspace.id)
+
+        # Assert: The workspace passed to delete had mark_for_deletion() called
+        # which records a WorkspaceDeleted event
+        deleted_workspace = mock_workspace_repository.delete.call_args[0][0]
+
+        # Since mark_for_deletion was called and events haven't been collected
+        # by the mock repository, we can verify the event was recorded
+        # by checking that mark_for_deletion was called (the workspace
+        # is the same object passed to delete)
+        # The repository's delete method collects events internally,
+        # but in mock, we can verify the workspace had events pending
+        # We need to check the workspace state BEFORE delete consumed the events
+        # Since the mock doesn't consume events, we can collect them here
+        events = deleted_workspace.collect_events()
+        assert len(events) == 1
+
+        event = events[0]
+        assert isinstance(event, WorkspaceDeleted)
+        assert event.workspace_id == child_workspace.id.value
+        assert event.tenant_id == tenant_id.value
+        assert event.parent_workspace_id == root_workspace.id.value
+        assert event.is_root is False

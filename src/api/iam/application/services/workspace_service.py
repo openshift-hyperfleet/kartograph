@@ -5,6 +5,7 @@ Orchestrates workspace creation with proper validation and authorization setup.
 
 from __future__ import annotations
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.application.observability import (
@@ -15,7 +16,10 @@ from iam.domain.aggregates import Workspace
 from iam.domain.value_objects import TenantId, UserId, WorkspaceId
 from infrastructure.settings import get_iam_settings
 from iam.ports.exceptions import (
+    CannotDeleteRootWorkspaceError,
     DuplicateWorkspaceNameError,
+    UnauthorizedError,
+    WorkspaceHasChildrenError,
 )
 from iam.ports.repositories import IWorkspaceRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
@@ -283,3 +287,70 @@ class WorkspaceService:
         )
 
         return workspaces
+
+    async def delete_workspace(
+        self,
+        workspace_id: WorkspaceId,
+    ) -> bool:
+        """Delete a workspace.
+
+        Business rules:
+        - Cannot delete root workspace
+        - Cannot delete workspace with children (caught via DB IntegrityError)
+        - Workspace must belong to scoped tenant
+
+        Args:
+            workspace_id: The workspace ID to delete
+
+        Returns:
+            True if deleted, False if not found
+
+        Raises:
+            CannotDeleteRootWorkspaceError: If attempting to delete root workspace
+            WorkspaceHasChildrenError: If workspace has children
+            UnauthorizedError: If workspace belongs to different tenant
+        """
+        async with self._session.begin():
+            # Load workspace from repository
+            workspace = await self._workspace_repository.get_by_id(workspace_id)
+            if workspace is None:
+                return False
+
+            # Check tenant ownership
+            if workspace.tenant_id != self._scope_to_tenant:
+                raise UnauthorizedError(
+                    f"Workspace {workspace_id.value} belongs to different tenant"
+                )
+
+            # Check if root workspace
+            if workspace.is_root:
+                self._probe.workspace_deletion_failed(
+                    workspace_id=workspace_id.value,
+                    error="Root workspace cannot be deleted",
+                )
+                raise CannotDeleteRootWorkspaceError("Root workspace cannot be deleted")
+
+            # Mark for deletion (records WorkspaceDeleted event with snapshot)
+            workspace.mark_for_deletion()
+
+            # Attempt to delete; catch IntegrityError from DB RESTRICT constraint
+            try:
+                result = await self._workspace_repository.delete(workspace)
+            except IntegrityError as e:
+                if "parent_workspace_id" in str(e):
+                    self._probe.workspace_deletion_failed(
+                        workspace_id=workspace_id.value,
+                        error="Cannot delete workspace with children",
+                    )
+                    raise WorkspaceHasChildrenError(
+                        "Cannot delete workspace with children"
+                    ) from e
+                raise
+
+            if result:
+                self._probe.workspace_deleted(
+                    workspace_id=workspace_id.value,
+                    tenant_id=workspace.tenant_id.value,
+                )
+
+            return result

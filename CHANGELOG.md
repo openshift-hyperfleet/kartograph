@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.9.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.8.0...v3.9.0) (2026-02-09)
+
+
+### Features
+
+* **api.iam:** workspace service ([#204](https://github.com/openshift-hyperfleet/kartograph/issues/204)) ([dc50513](https://github.com/openshift-hyperfleet/kartograph/commit/dc50513eb62d6bc41a8dcb110c8583a2ab4240de))
+
 ## [3.8.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.7.0...v3.8.0) (2026-02-06)
 
 

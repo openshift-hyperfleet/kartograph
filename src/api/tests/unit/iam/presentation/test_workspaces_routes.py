@@ -17,7 +17,12 @@ from iam.application.services import WorkspaceService
 from iam.application.value_objects import CurrentUser
 from iam.domain.aggregates import Workspace
 from iam.domain.value_objects import TenantId, UserId, WorkspaceId
-from iam.ports.exceptions import DuplicateWorkspaceNameError
+from iam.ports.exceptions import (
+    CannotDeleteRootWorkspaceError,
+    DuplicateWorkspaceNameError,
+    UnauthorizedError,
+    WorkspaceHasChildrenError,
+)
 
 
 @pytest.fixture
@@ -416,5 +421,108 @@ class TestListWorkspaces:
     ) -> None:
         """Test GET /workspaces returns 401 without authentication."""
         response = unauthenticated_test_client.get("/iam/workspaces")
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+class TestDeleteWorkspace:
+    """Tests for DELETE /iam/workspaces/{id} endpoint."""
+
+    def test_delete_workspace_returns_204(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+        child_workspace: Workspace,
+    ) -> None:
+        """Test DELETE /workspaces/{id} returns 204 on successful deletion."""
+        mock_workspace_service.delete_workspace.return_value = True
+
+        response = test_client.delete(
+            f"/iam/workspaces/{child_workspace.id.value}",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.content == b""
+
+    def test_delete_workspace_returns_404_when_not_found(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+    ) -> None:
+        """Test DELETE /workspaces/{id} returns 404 when workspace doesn't exist."""
+        mock_workspace_service.delete_workspace.return_value = False
+        random_id = WorkspaceId.generate().value
+
+        response = test_client.delete(
+            f"/iam/workspaces/{random_id}",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_delete_workspace_returns_409_for_root(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+        root_workspace: Workspace,
+    ) -> None:
+        """Test DELETE /workspaces/{id} returns 409 when trying to delete root workspace."""
+        mock_workspace_service.delete_workspace.side_effect = (
+            CannotDeleteRootWorkspaceError("Root workspace cannot be deleted")
+        )
+
+        response = test_client.delete(
+            f"/iam/workspaces/{root_workspace.id.value}",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "cannot be deleted" in response.json()["detail"].lower()
+
+    def test_delete_workspace_returns_409_for_has_children(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+        child_workspace: Workspace,
+    ) -> None:
+        """Test DELETE /workspaces/{id} returns 409 when workspace has children."""
+        mock_workspace_service.delete_workspace.side_effect = WorkspaceHasChildrenError(
+            "Cannot delete workspace with children"
+        )
+
+        response = test_client.delete(
+            f"/iam/workspaces/{child_workspace.id.value}",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "children" in response.json()["detail"].lower()
+
+    def test_delete_workspace_returns_403_for_different_tenant(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+    ) -> None:
+        """Test DELETE /workspaces/{id} returns 403 for workspace in different tenant."""
+        cross_tenant_workspace_id = WorkspaceId.generate().value
+        mock_workspace_service.delete_workspace.side_effect = UnauthorizedError(
+            f"Workspace {cross_tenant_workspace_id} belongs to different tenant"
+        )
+
+        response = test_client.delete(
+            f"/iam/workspaces/{cross_tenant_workspace_id}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "different tenant" in response.json()["detail"].lower()
+
+    def test_delete_workspace_returns_401_when_not_authenticated(
+        self,
+        unauthenticated_test_client: TestClient,
+    ) -> None:
+        """Test DELETE /workspaces/{id} returns 401 without authentication."""
+        random_id = WorkspaceId.generate().value
+
+        response = unauthenticated_test_client.delete(
+            f"/iam/workspaces/{random_id}",
+        )
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED

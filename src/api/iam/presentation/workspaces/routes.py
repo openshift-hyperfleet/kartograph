@@ -11,7 +11,12 @@ from iam.application.value_objects import CurrentUser
 from iam.dependencies.user import get_current_user
 from iam.dependencies.workspace import get_workspace_service
 from iam.domain.value_objects import WorkspaceId
-from iam.ports.exceptions import DuplicateWorkspaceNameError
+from iam.ports.exceptions import (
+    CannotDeleteRootWorkspaceError,
+    DuplicateWorkspaceNameError,
+    UnauthorizedError,
+    WorkspaceHasChildrenError,
+)
 from iam.presentation.workspaces.models import (
     CreateWorkspaceRequest,
     WorkspaceListResponse,
@@ -197,6 +202,51 @@ async def delete_workspace(
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[WorkspaceService, Depends(get_workspace_service)],
 ) -> None:
-    """Delete a workspace."""
-    # TODO: Implement in next task
-    raise NotImplementedError()
+    """Delete a workspace.
+
+    Deletes a workspace from the user's tenant. Cannot delete root workspace
+    or workspace with children.
+
+    Returns:
+        204 No Content on success
+
+    Raises:
+        403 Forbidden: Workspace belongs to different tenant
+        404 Not Found: Workspace doesn't exist
+        409 Conflict: Cannot delete root workspace or workspace with children
+    """
+    try:
+        workspace_id_obj = WorkspaceId(workspace_id)
+
+        result = await service.delete_workspace(workspace_id_obj)
+
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Workspace {workspace_id} not found",
+            )
+
+        return None
+
+    except CannotDeleteRootWorkspaceError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except WorkspaceHasChildrenError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except UnauthorizedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete workspace",
+        )

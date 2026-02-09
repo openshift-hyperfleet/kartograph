@@ -67,3 +67,34 @@ class UnauthorizedError(Exception):
     """
 
     pass
+
+
+class DuplicateWorkspaceNameError(Exception):
+    """Raised when workspace name already exists in tenant.
+
+    This exception indicates that the business rule of unique workspace
+    names per tenant has been violated. The application layer should
+    handle this and provide appropriate feedback to the user.
+    """
+
+    pass
+
+
+class CannotDeleteRootWorkspaceError(Exception):
+    """Raised when attempting to delete root workspace.
+
+    Root workspaces are auto-created with tenants and serve as the
+    default workspace. They cannot be deleted while the tenant exists.
+    """
+
+    pass
+
+
+class WorkspaceHasChildrenError(Exception):
+    """Raised when attempting to delete workspace with children.
+
+    A workspace cannot be deleted if it has child workspaces. The
+    children must be deleted or reparented first.
+    """
+
+    pass

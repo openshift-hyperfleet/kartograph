@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.10.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.9.0...v3.10.0) (2026-02-09)
+
+
+### Features
+
+* **api.iam:** workspace api routes & dto objects ([#206](https://github.com/openshift-hyperfleet/kartograph/issues/206)) ([c5573d3](https://github.com/openshift-hyperfleet/kartograph/commit/c5573d3240355acf3b38b79046e7e1329d40c774))
+
 ## [3.9.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.8.0...v3.9.0) (2026-02-09)
 
 

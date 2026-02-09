@@ -6,14 +6,16 @@ Handles tenant management operations (create, read, list, delete).
 from __future__ import annotations
 
 from iam.application.observability import DefaultTenantServiceProbe, TenantServiceProbe
-from iam.domain.aggregates import Tenant
+from iam.domain.aggregates import Tenant, Workspace
 from iam.domain.value_objects import TenantId, TenantRole, UserId
 from iam.ports.exceptions import DuplicateTenantNameError, UnauthorizedError
 from iam.ports.repositories import (
     IAPIKeyRepository,
     IGroupRepository,
     ITenantRepository,
+    IWorkspaceRepository,
 )
+from infrastructure.settings import get_iam_settings
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
@@ -35,6 +37,7 @@ class TenantService:
     def __init__(
         self,
         tenant_repository: ITenantRepository,
+        workspace_repository: IWorkspaceRepository,
         group_repository: IGroupRepository,
         api_key_repository: IAPIKeyRepository,
         authz: AuthorizationProvider,
@@ -45,6 +48,7 @@ class TenantService:
 
         Args:
             tenant_repository: Repository for tenant persistence
+            workspace_repository: Repository for workspace persistence (for root workspace creation)
             group_repository: Repository for group persistence (for cascade delete)
             api_key_repository: Repository for API key persistence (for cascade delete)
             authz: Authorization provider for SpiceDB queries
@@ -52,6 +56,7 @@ class TenantService:
             probe: Optional domain probe for observability
         """
         self._tenant_repository = tenant_repository
+        self._workspace_repository = workspace_repository
         self._group_repository = group_repository
         self._api_key_repository = api_key_repository
         self._authz = authz
@@ -59,9 +64,10 @@ class TenantService:
         self._session = session
 
     async def create_tenant(self, name: str) -> Tenant:
-        """Create a new tenant.
+        """Create a new tenant with root workspace.
 
-        Manages database transaction for the entire use case.
+        Creates a tenant and automatically provisions a root workspace for it.
+        Uses default_workspace_name from settings, falling back to tenant name.
 
         Args:
             name: The name of the tenant
@@ -74,8 +80,19 @@ class TenantService:
         """
         async with self._session.begin():
             try:
+                # Create tenant
                 tenant = Tenant.create(name=name)
                 await self._tenant_repository.save(tenant)
+
+                # Create root workspace for tenant
+                settings = get_iam_settings()
+                workspace_name = settings.default_workspace_name or tenant.name
+
+                workspace = Workspace.create_root(
+                    name=workspace_name,
+                    tenant_id=tenant.id,
+                )
+                await self._workspace_repository.save(workspace)
 
                 self._probe.tenant_created(
                     tenant_id=tenant.id.value,
@@ -301,9 +318,15 @@ class TenantService:
     async def delete_tenant(self, tenant_id: TenantId) -> bool:
         """Delete a tenant and all its child resources.
 
-        Explicitly deletes all child aggregates (groups, API keys) before
-        deleting the tenant to ensure proper domain events are emitted for
-        SpiceDB cleanup. This prevents orphaned relationships in SpiceDB.
+        Explicitly deletes all child aggregates (workspaces, groups, API keys)
+        before deleting the tenant to ensure proper domain events are emitted
+        for SpiceDB cleanup. This prevents orphaned relationships in SpiceDB.
+
+        Cascade deletion order:
+        1. Workspaces (ensures WorkspaceDeleted events for SpiceDB cleanup)
+        2. Groups (ensures GroupDeleted events for SpiceDB cleanup)
+        3. API keys (ensures APIKeyDeleted events for SpiceDB cleanup)
+        4. Tenant itself
 
         Args:
             tenant_id: The unique identifier of the tenant to delete
@@ -318,21 +341,32 @@ class TenantService:
                 self._probe.tenant_not_found(tenant_id=tenant_id.value)
                 return False
 
-            # Step 1: Delete all groups belonging to this tenant
+            # Step 1: Delete all workspaces belonging to this tenant
+            # This ensures WorkspaceDeleted events are emitted for SpiceDB cleanup
+            workspaces = await self._workspace_repository.list_by_tenant(tenant_id)
+
+            # Step 2: Delete all groups belonging to this tenant
             # This ensures GroupDeleted events are emitted for SpiceDB cleanup
             groups = await self._group_repository.list_by_tenant(tenant_id)
 
-            # Step 2: Delete all API keys belonging to this tenant
+            # Step 3: Delete all API keys belonging to this tenant
             # This ensures APIKeyDeleted events are emitted for SpiceDB cleanup
             api_keys = await self._api_key_repository.list(tenant_id=tenant_id)
 
             # Log cascade deletion scope for operational visibility
             self._probe.tenant_cascade_deletion_started(
                 tenant_id=tenant_id.value,
+                workspaces_count=len(workspaces),
                 groups_count=len(groups),
                 api_keys_count=len(api_keys),
             )
 
+            # Delete workspaces first (may have parent-child relationships)
+            for workspace in workspaces:
+                workspace.mark_for_deletion()
+                await self._workspace_repository.delete(workspace)
+
+            # Then delete groups
             for group in groups:
                 group.mark_for_deletion()
                 await self._group_repository.delete(group)
@@ -341,12 +375,12 @@ class TenantService:
                 api_key.mark_for_deletion()
                 await self._api_key_repository.delete(api_key)
 
-            # Step 3: Query SpiceDB for tenant members to build snapshot
+            # Step 4: Query SpiceDB for tenant members to build snapshot
             members = await self._list_tenant_members_from_authorization(
                 tenant_id=tenant_id
             )
 
-            # Step 4: Delete the tenant
+            # Step 5: Delete the tenant
             tenant.mark_for_deletion(members=members)
             result = await self._tenant_repository.delete(tenant)
 

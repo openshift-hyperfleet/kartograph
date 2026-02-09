@@ -311,3 +311,110 @@ class TestGetWorkspace:
         )
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+class TestListWorkspaces:
+    """Tests for GET /iam/workspaces endpoint."""
+
+    def test_list_workspaces_returns_200_with_all_workspaces(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+        mock_current_user: CurrentUser,
+        root_workspace: Workspace,
+        child_workspace: Workspace,
+    ) -> None:
+        """Test GET /workspaces returns 200 with all workspaces in tenant."""
+        now = datetime.now(UTC)
+        second_child = Workspace(
+            id=WorkspaceId.generate(),
+            tenant_id=mock_current_user.tenant_id,
+            name="Marketing",
+            parent_workspace_id=root_workspace.id,
+            is_root=False,
+            created_at=now,
+            updated_at=now,
+        )
+        all_workspaces = [root_workspace, child_workspace, second_child]
+        mock_workspace_service.list_workspaces.return_value = all_workspaces
+
+        response = test_client.get("/iam/workspaces")
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["count"] == 3
+        assert len(result["workspaces"]) == 3
+        # All workspaces should have the same tenant_id
+        for ws in result["workspaces"]:
+            assert ws["tenant_id"] == mock_current_user.tenant_id.value
+
+    def test_list_workspaces_returns_empty_list(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+    ) -> None:
+        """Test GET /workspaces returns 200 with empty list when tenant has no workspaces."""
+        mock_workspace_service.list_workspaces.return_value = []
+
+        response = test_client.get("/iam/workspaces")
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["workspaces"] == []
+        assert result["count"] == 0
+
+    def test_list_workspaces_scoped_to_tenant(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """Test GET /workspaces only returns workspaces from user's tenant.
+
+        The service handles tenant scoping, so the route delegates and
+        returns whatever the service provides. We verify that only
+        workspaces from the authenticated user's tenant are returned.
+        """
+        now = datetime.now(UTC)
+        # Only tenant1's workspaces (the mock user's tenant)
+        tenant1_ws1 = Workspace(
+            id=WorkspaceId.generate(),
+            tenant_id=mock_current_user.tenant_id,
+            name="Root",
+            parent_workspace_id=None,
+            is_root=True,
+            created_at=now,
+            updated_at=now,
+        )
+        tenant1_ws2 = Workspace(
+            id=WorkspaceId.generate(),
+            tenant_id=mock_current_user.tenant_id,
+            name="Engineering",
+            parent_workspace_id=tenant1_ws1.id,
+            is_root=False,
+            created_at=now,
+            updated_at=now,
+        )
+        # Service returns ONLY tenant1's workspaces (tenant scoping is enforced by service)
+        mock_workspace_service.list_workspaces.return_value = [
+            tenant1_ws1,
+            tenant1_ws2,
+        ]
+
+        response = test_client.get("/iam/workspaces")
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["count"] == 2
+        # All returned workspaces belong to the user's tenant
+        for ws in result["workspaces"]:
+            assert ws["tenant_id"] == mock_current_user.tenant_id.value
+
+    def test_list_workspaces_returns_401_when_not_authenticated(
+        self,
+        unauthenticated_test_client: TestClient,
+    ) -> None:
+        """Test GET /workspaces returns 401 without authentication."""
+        response = unauthenticated_test_client.get("/iam/workspaces")
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED

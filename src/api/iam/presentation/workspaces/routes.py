@@ -145,9 +145,31 @@ async def list_workspaces(
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[WorkspaceService, Depends(get_workspace_service)],
 ) -> WorkspaceListResponse:
-    """List all workspaces in user's tenant."""
-    # TODO: Implement in next task
-    raise NotImplementedError()
+    """List all workspaces in user's tenant.
+
+    Returns all workspaces the user has access to within their tenant.
+    In Phase 1, this returns all workspaces without user-level permission filtering.
+
+    Returns:
+        200 OK with list of workspaces and count
+    """
+    try:
+        workspaces = await service.list_workspaces()
+
+        workspace_responses = [
+            WorkspaceResponse.from_domain(workspace) for workspace in workspaces
+        ]
+
+        return WorkspaceListResponse(
+            workspaces=workspace_responses,
+            count=len(workspace_responses),
+        )
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list workspaces",
+        )
 
 
 @router.delete(

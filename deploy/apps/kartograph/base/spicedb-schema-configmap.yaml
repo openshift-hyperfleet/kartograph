@@ -129,8 +129,8 @@ data:
      *     relation editor: user | group#member
      *
      *     permission view = viewer + editor + workspace->member
-     *     permission edit = editor + workspace->owner
-     *     permission delete = workspace->owner
+     *     permission edit = editor + workspace->admin
+     *     permission delete = workspace->admin
      * }
      *
      * definition data_source {

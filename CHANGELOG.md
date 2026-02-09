@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.8.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.7.0...v3.8.0) (2026-02-06)
+
+
+### Features
+
+* **api.iam:** AIHCM-143 workspace repo infra ([#202](https://github.com/openshift-hyperfleet/kartograph/issues/202)) ([9502ff5](https://github.com/openshift-hyperfleet/kartograph/commit/9502ff52cb86b0ee703ec5cb835d27e0400d0bba))
+
 ## [3.7.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.6.4...v3.7.0) (2026-02-06)
 
 

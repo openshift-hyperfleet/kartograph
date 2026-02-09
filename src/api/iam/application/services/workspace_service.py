@@ -114,9 +114,24 @@ class WorkspaceService:
                 parent_workspace_id=parent_workspace_id,
             )
 
-            # Persist in transaction
-            async with self._session.begin():
-                await self._workspace_repository.save(workspace)
+            # Persist in transaction with IntegrityError handling
+            try:
+                async with self._session.begin():
+                    await self._workspace_repository.save(workspace)
+            except IntegrityError as e:
+                # DB unique constraint violation (race condition)
+                if "uq_workspaces_tenant_name" in str(e) or (
+                    "tenant_id" in str(e) and "name" in str(e)
+                ):
+                    self._probe.workspace_creation_failed(
+                        tenant_id=self._scope_to_tenant.value,
+                        name=name,
+                        error=f"Workspace name '{name}' already exists in tenant",
+                    )
+                    raise DuplicateWorkspaceNameError(
+                        f"Workspace '{name}' already exists in tenant"
+                    ) from e
+                raise  # Re-raise if different constraint
 
             # Probe success
             self._probe.workspace_created(
@@ -130,12 +145,15 @@ class WorkspaceService:
 
             return workspace
 
-        except DuplicateWorkspaceNameError:
-            self._probe.workspace_creation_failed(
-                tenant_id=self._scope_to_tenant.value,
-                name=name,
-                error=f"Workspace '{name}' already exists in tenant",
-            )
+        except DuplicateWorkspaceNameError as e:
+            # Only probe if this is from the pre-check, not from IntegrityError
+            # (IntegrityError handler already called the probe)
+            if not isinstance(e.__cause__, IntegrityError):
+                self._probe.workspace_creation_failed(
+                    tenant_id=self._scope_to_tenant.value,
+                    name=name,
+                    error=f"Workspace '{name}' already exists in tenant",
+                )
             raise
         except ValueError:
             raise
@@ -203,9 +221,24 @@ class WorkspaceService:
                 tenant_id=self._scope_to_tenant,
             )
 
-            # Persist in transaction
-            async with self._session.begin():
-                await self._workspace_repository.save(workspace)
+            # Persist in transaction with IntegrityError handling
+            try:
+                async with self._session.begin():
+                    await self._workspace_repository.save(workspace)
+            except IntegrityError as e:
+                # DB unique constraint violation (race condition)
+                if "uq_workspaces_tenant_name" in str(e) or (
+                    "tenant_id" in str(e) and "name" in str(e)
+                ):
+                    self._probe.workspace_creation_failed(
+                        tenant_id=self._scope_to_tenant.value,
+                        name=workspace_name,
+                        error=f"Workspace name '{workspace_name}' already exists in tenant",
+                    )
+                    raise DuplicateWorkspaceNameError(
+                        f"Workspace '{workspace_name}' already exists in tenant"
+                    ) from e
+                raise  # Re-raise if different constraint
 
             # Probe success
             self._probe.workspace_created(
@@ -219,6 +252,8 @@ class WorkspaceService:
 
             return workspace
 
+        except (DuplicateWorkspaceNameError, IntegrityError):
+            raise
         except Exception as e:
             self._probe.workspace_creation_failed(
                 tenant_id=self._scope_to_tenant.value,

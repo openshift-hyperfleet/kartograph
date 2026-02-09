@@ -215,6 +215,52 @@ class TestCreateWorkspace:
         mock_workspace_repository.save.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_create_workspace_handles_concurrent_creation_race(
+        self,
+        workspace_service: WorkspaceService,
+        mock_workspace_repository,
+        mock_probe,
+        tenant_id,
+        creator_id,
+        root_workspace,
+    ):
+        """Test that concurrent workspace creation with same name is handled via DB constraint.
+
+        When two requests race past the get_by_name pre-check, the DB unique
+        constraint (uq_workspaces_tenant_name) catches the duplicate and the
+        service converts IntegrityError to DuplicateWorkspaceNameError.
+        """
+        # Setup: Pre-check passes (no duplicate found), parent exists
+        mock_workspace_repository.get_by_name = AsyncMock(return_value=None)
+        mock_workspace_repository.get_by_id = AsyncMock(return_value=root_workspace)
+
+        # Simulate DB unique constraint violation on save
+        integrity_error = IntegrityError(
+            "INSERT INTO workspaces",
+            params={},
+            orig=Exception(
+                "duplicate key value violates unique constraint "
+                '"uq_workspaces_tenant_name"'
+            ),
+        )
+        mock_workspace_repository.save = AsyncMock(side_effect=integrity_error)
+
+        # Call and Assert: Should raise DuplicateWorkspaceNameError
+        with pytest.raises(DuplicateWorkspaceNameError):
+            await workspace_service.create_workspace(
+                name="Engineering",
+                parent_workspace_id=root_workspace.id,
+                creator_id=creator_id,
+            )
+
+        # Assert: Probe workspace_creation_failed was called
+        mock_probe.workspace_creation_failed.assert_called_once()
+        probe_kwargs = mock_probe.workspace_creation_failed.call_args[1]
+        assert probe_kwargs["tenant_id"] == tenant_id.value
+        assert probe_kwargs["name"] == "Engineering"
+        assert "already exists" in probe_kwargs["error"]
+
+    @pytest.mark.asyncio
     async def test_create_workspace_emits_events(
         self,
         workspace_service: WorkspaceService,
@@ -417,6 +463,51 @@ class TestCreateRootWorkspace:
         assert probe_kwargs["is_root"] is True
         assert probe_kwargs["parent_workspace_id"] is None
         assert probe_kwargs["creator_id"] == ""
+
+    @pytest.mark.asyncio
+    async def test_create_root_workspace_handles_concurrent_creation_race(
+        self,
+        mock_session,
+        mock_workspace_repository,
+        mock_authz,
+        mock_probe,
+        tenant_id,
+    ):
+        """Test that concurrent root workspace creation is handled via DB constraint.
+
+        When two requests race to create a root workspace for the same tenant,
+        the DB unique constraint catches the duplicate and the service converts
+        IntegrityError to DuplicateWorkspaceNameError.
+        """
+        # Setup: Simulate DB unique constraint violation on save
+        integrity_error = IntegrityError(
+            "INSERT INTO workspaces",
+            params={},
+            orig=Exception(
+                "duplicate key value violates unique constraint "
+                '"uq_workspaces_tenant_name"'
+            ),
+        )
+        mock_workspace_repository.save = AsyncMock(side_effect=integrity_error)
+
+        service = WorkspaceService(
+            session=mock_session,
+            workspace_repository=mock_workspace_repository,
+            authz=mock_authz,
+            scope_to_tenant=tenant_id,
+            probe=mock_probe,
+        )
+
+        # Call and Assert: Should raise DuplicateWorkspaceNameError
+        with pytest.raises(DuplicateWorkspaceNameError):
+            await service.create_root_workspace(name="Root")
+
+        # Assert: Probe workspace_creation_failed was called
+        mock_probe.workspace_creation_failed.assert_called_once()
+        probe_kwargs = mock_probe.workspace_creation_failed.call_args[1]
+        assert probe_kwargs["tenant_id"] == tenant_id.value
+        assert probe_kwargs["name"] == "Root"
+        assert "already exists" in probe_kwargs["error"]
 
 
 class TestGetWorkspace:

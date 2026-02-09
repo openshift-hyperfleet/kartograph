@@ -77,7 +77,6 @@ class RelationType(StrEnum):
     ADMIN = "admin"
     PARENT = "parent"
     TENANT = "tenant"
-    WORKSPACE = "workspace"
     ROOT_WORKSPACE = "root_workspace"
 
 
@@ -89,7 +88,6 @@ class Permission(StrEnum):
 
     VIEW = "view"
     EDIT = "edit"
-    DELETE = "delete"
     MANAGE = "manage"
     ADMINISTRATE = "administrate"
 

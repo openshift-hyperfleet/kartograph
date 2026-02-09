@@ -54,10 +54,6 @@ class TestRelationType:
         """Test that PARENT relation exists."""
         assert RelationType.PARENT == "parent"
 
-    def test_has_workspace_relation(self):
-        """Test that WORKSPACE relation exists."""
-        assert RelationType.WORKSPACE == "workspace"
-
     def test_relation_types_are_lowercase(self):
         """Test that all relation types are lowercase strings."""
         for relation_type in RelationType:
@@ -75,10 +71,6 @@ class TestPermission:
     def test_has_edit_permission(self):
         """Test that EDIT permission exists."""
         assert Permission.EDIT == "edit"
-
-    def test_has_delete_permission(self):
-        """Test that DELETE permission exists."""
-        assert Permission.DELETE == "delete"
 
     def test_has_manage_permission(self):
         """Test that MANAGE permission exists."""

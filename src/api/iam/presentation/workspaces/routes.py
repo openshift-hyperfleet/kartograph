@@ -24,30 +24,32 @@ router = APIRouter(
 )
 
 
-@router.post("", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=WorkspaceResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a child workspace",
+    description="""
+Create a new child workspace within your tenant.
+
+The parent workspace must exist and belong to your tenant. Workspace names
+must be unique within the tenant.
+""",
+    response_description="The created workspace with generated ID and timestamps",
+    responses={
+        201: {"description": "Workspace created successfully"},
+        400: {"description": "Invalid parent workspace or validation error"},
+        401: {"description": "Authentication required"},
+        409: {"description": "Workspace name already exists in tenant"},
+        500: {"description": "Internal server error"},
+    },
+)
 async def create_workspace(
     request: CreateWorkspaceRequest,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[WorkspaceService, Depends(get_workspace_service)],
 ) -> WorkspaceResponse:
-    """Create a new child workspace.
-
-    Creates a workspace within the user's tenant. The parent workspace must
-    exist and belong to the same tenant.
-
-    Args:
-        request: Workspace creation request with name and parent ID
-        current_user: Current authenticated user
-        service: Workspace service, tenant scoped
-
-    Returns:
-        201 Created with workspace details
-
-    Raises:
-        HTTPException: 400 Bad Request if invalid parent workspace
-        HTTPException: 409 Conflict if workspace name already exists in tenant
-        HTTPException: 500 Internal Server Error for unexpected errors
-    """
+    """Create a new child workspace."""
     try:
         parent_id = WorkspaceId(request.parent_workspace_id)
 
@@ -76,77 +78,103 @@ async def create_workspace(
         )
 
 
-@router.get("/{workspace_id}", response_model=WorkspaceResponse)
+@router.get(
+    "/{workspace_id}",
+    response_model=WorkspaceResponse,
+    summary="Get workspace by ID",
+    description="""
+Retrieve a workspace by its ID within the authenticated user's tenant.
+
+Returns 404 if the workspace does not exist or belongs to a different tenant
+(to avoid leaking existence of workspaces across tenant boundaries).
+""",
+    response_description="The workspace details including name, hierarchy, and timestamps",
+    responses={
+        200: {"description": "Workspace found and returned"},
+        401: {"description": "Authentication required"},
+        404: {"description": "Workspace not found or belongs to different tenant"},
+        500: {"description": "Internal server error"},
+    },
+)
 async def get_workspace(
     workspace_id: str,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[WorkspaceService, Depends(get_workspace_service)],
 ) -> WorkspaceResponse:
-    """Get workspace by ID.
+    """Get workspace by ID."""
+    try:
+        workspace_id_obj = WorkspaceId(workspace_id)
 
-    Retrieves a workspace within the user's tenant.
+        workspace = await service.get_workspace(workspace_id_obj)
 
-    Args:
-        workspace_id: Workspace ID (ULID format)
-        current_user: Current authenticated user with tenant context
-        service: Workspace service
+        if workspace is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Workspace {workspace_id} not found",
+            )
 
-    Returns:
-        200 OK with workspace details
+        return WorkspaceResponse.from_domain(workspace)
 
-    Raises:
-        HTTPException: 400 Bad Request if workspace ID is invalid
-        HTTPException: 404 Not Found if workspace doesn't exist or belongs to different tenant
-        HTTPException: 500 Internal Server Error for unexpected errors
-    """
-    # TODO: Implement in next task
-    raise NotImplementedError()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve workspace",
+        )
 
 
-@router.get("", response_model=WorkspaceListResponse)
+@router.get(
+    "",
+    response_model=WorkspaceListResponse,
+    summary="List workspaces",
+    description="""
+List all workspaces within the authenticated user's tenant.
+
+Returns all workspaces the user has access to, including the root workspace
+and any child workspaces. Results are scoped to the user's tenant.
+""",
+    response_description="List of workspaces with total count",
+    responses={
+        200: {"description": "Workspaces listed successfully"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Internal server error"},
+    },
+)
 async def list_workspaces(
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[WorkspaceService, Depends(get_workspace_service)],
 ) -> WorkspaceListResponse:
-    """List all workspaces in user's tenant.
-
-    Returns all workspaces the user has access to within their tenant.
-
-    Args:
-        current_user: Current authenticated user with tenant context
-        service: Workspace service, tenant scoped
-
-    Returns:
-        200 OK with list of workspaces and count
-    """
+    """List all workspaces in user's tenant."""
     # TODO: Implement in next task
     raise NotImplementedError()
 
 
-@router.delete("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{workspace_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a workspace",
+    description="""
+Delete a workspace from the authenticated user's tenant.
+
+The root workspace cannot be deleted. Workspaces with child workspaces
+cannot be deleted until all children are removed first.
+""",
+    response_description="No content returned on successful deletion",
+    responses={
+        204: {"description": "Workspace deleted successfully"},
+        401: {"description": "Authentication required"},
+        403: {"description": "Workspace belongs to different tenant"},
+        404: {"description": "Workspace not found"},
+        409: {"description": "Cannot delete root workspace or workspace with children"},
+        500: {"description": "Internal server error"},
+    },
+)
 async def delete_workspace(
     workspace_id: str,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[WorkspaceService, Depends(get_workspace_service)],
 ) -> None:
-    """Delete a workspace.
-
-    Deletes a workspace from the user's tenant. Cannot delete root workspace
-    or workspace with children.
-
-    Args:
-        workspace_id: Workspace ID (ULID format)
-        current_user: Current authenticated user
-        service: Workspace service, tenant scoped
-
-    Returns:
-        204 No Content on success
-
-    Raises:
-        HTTPException: 403 Forbidden if workspace belongs to different tenant
-        HTTPException: 404 Not Found if workspace doesn't exist
-        HTTPException: 409 Conflict if cannot delete root workspace or workspace with children
-        HTTPException: 500 Internal Server Error for unexpected errors
-    """
+    """Delete a workspace."""
     # TODO: Implement in next task
     raise NotImplementedError()

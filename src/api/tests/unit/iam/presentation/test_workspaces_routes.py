@@ -232,3 +232,82 @@ class TestCreateWorkspace:
         )
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+class TestGetWorkspace:
+    """Tests for GET /iam/workspaces/{id} endpoint."""
+
+    def test_get_workspace_returns_200(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+        child_workspace: Workspace,
+    ) -> None:
+        """Test GET /workspaces/{id} returns 200 with workspace details."""
+        mock_workspace_service.get_workspace.return_value = child_workspace
+
+        response = test_client.get(
+            f"/iam/workspaces/{child_workspace.id.value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["id"] == child_workspace.id.value
+        assert result["tenant_id"] == child_workspace.tenant_id.value
+        assert result["name"] == child_workspace.name
+        assert child_workspace.parent_workspace_id is not None
+        assert (
+            result["parent_workspace_id"] == child_workspace.parent_workspace_id.value
+        )
+        assert result["is_root"] is False
+        assert "created_at" in result
+        assert "updated_at" in result
+
+    def test_get_workspace_returns_404_when_not_found(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+    ) -> None:
+        """Test GET /workspaces/{id} returns 404 when workspace doesn't exist."""
+        mock_workspace_service.get_workspace.return_value = None
+        random_id = WorkspaceId.generate().value
+
+        response = test_client.get(
+            f"/iam/workspaces/{random_id}",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_get_workspace_returns_404_for_different_tenant(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+    ) -> None:
+        """Test GET /workspaces/{id} returns 404 for workspace in different tenant.
+
+        The service returns None for cross-tenant workspaces (don't leak existence),
+        so the route should return 404 just like a missing workspace.
+        """
+        mock_workspace_service.get_workspace.return_value = None
+        cross_tenant_workspace_id = WorkspaceId.generate().value
+
+        response = test_client.get(
+            f"/iam/workspaces/{cross_tenant_workspace_id}",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_get_workspace_returns_401_when_not_authenticated(
+        self,
+        unauthenticated_test_client: TestClient,
+    ) -> None:
+        """Test GET /workspaces/{id} returns 401 without authentication."""
+        random_id = WorkspaceId.generate().value
+
+        response = unauthenticated_test_client.get(
+            f"/iam/workspaces/{random_id}",
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED

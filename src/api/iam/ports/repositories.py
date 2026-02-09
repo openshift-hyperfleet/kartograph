@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Callable, Protocol, runtime_checkable
 
-from iam.domain.aggregates import APIKey, Group, Tenant, User
-from iam.domain.value_objects import APIKeyId, GroupId, TenantId, UserId
+from iam.domain.aggregates import APIKey, Group, Tenant, User, Workspace
+from iam.domain.value_objects import APIKeyId, GroupId, TenantId, UserId, WorkspaceId
 
 from shared_kernel.authorization.protocols import AuthorizationProvider
 
@@ -213,6 +213,95 @@ class ITenantRepository(Protocol):
 
         Returns:
             True if user is the last admin, False otherwise
+        """
+        ...
+
+
+@runtime_checkable
+class IWorkspaceRepository(Protocol):
+    """Repository for Workspace aggregate persistence.
+
+    Simple repository for workspace metadata. Workspaces organize knowledge
+    graphs within a tenant. Unlike GroupRepository, no SpiceDB member
+    hydration is needed (workspace members are managed in a later phase).
+
+    Write operations use the transactional outbox pattern to emit domain
+    events for SpiceDB relationship management.
+    """
+
+    async def save(self, workspace: Workspace) -> None:
+        """Persist a workspace aggregate.
+
+        Creates a new workspace or updates an existing one. Persists workspace
+        metadata to PostgreSQL and domain events to the outbox.
+
+        Args:
+            workspace: The Workspace aggregate to persist
+        """
+        ...
+
+    async def get_by_id(self, workspace_id: WorkspaceId) -> Workspace | None:
+        """Retrieve a workspace by its ID.
+
+        Args:
+            workspace_id: The unique identifier of the workspace
+
+        Returns:
+            The Workspace aggregate, or None if not found
+        """
+        ...
+
+    async def get_by_name(self, tenant_id: TenantId, name: str) -> Workspace | None:
+        """Retrieve a workspace by name within a tenant.
+
+        Used for application-level uniqueness checks before creating
+        a new workspace.
+
+        Args:
+            tenant_id: The tenant to search within
+            name: The workspace name
+
+        Returns:
+            The Workspace aggregate, or None if not found
+        """
+        ...
+
+    async def get_root_workspace(self, tenant_id: TenantId) -> Workspace | None:
+        """Retrieve the root workspace for a tenant.
+
+        Each tenant has exactly one root workspace (is_root=True).
+
+        Args:
+            tenant_id: The tenant to find the root workspace for
+
+        Returns:
+            The root Workspace aggregate, or None if not found
+        """
+        ...
+
+    async def list_by_tenant(self, tenant_id: TenantId) -> list[Workspace]:
+        """List all workspaces in a tenant.
+
+        Args:
+            tenant_id: The tenant to list workspaces for
+
+        Returns:
+            List of Workspace aggregates in the tenant
+        """
+        ...
+
+    async def delete(self, workspace: Workspace) -> bool:
+        """Delete a workspace and emit domain events.
+
+        The workspace should have mark_for_deletion() called before this
+        method to record the WorkspaceDeleted event. The outbox worker
+        will handle removing relationships from SpiceDB.
+
+        Args:
+            workspace: The Workspace aggregate to delete (with deletion event recorded)
+
+        Returns:
+            True if deleted, False if not found
         """
         ...
 

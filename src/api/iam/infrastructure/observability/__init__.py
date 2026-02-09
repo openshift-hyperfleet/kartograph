@@ -11,9 +11,11 @@ from iam.infrastructure.observability.repository_probe import (
     DefaultGroupRepositoryProbe,
     DefaultTenantRepositoryProbe,
     DefaultUserRepositoryProbe,
+    DefaultWorkspaceRepositoryProbe,
     GroupRepositoryProbe,
     TenantRepositoryProbe,
     UserRepositoryProbe,
+    WorkspaceRepositoryProbe,
 )
 
 __all__ = [
@@ -25,4 +27,6 @@ __all__ = [
     "DefaultUserRepositoryProbe",
     "TenantRepositoryProbe",
     "DefaultTenantRepositoryProbe",
+    "WorkspaceRepositoryProbe",
+    "DefaultWorkspaceRepositoryProbe",
 ]

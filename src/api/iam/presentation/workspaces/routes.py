@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from iam.application.services import WorkspaceService
 from iam.application.value_objects import CurrentUser
 from iam.dependencies.user import get_current_user
 from iam.dependencies.workspace import get_workspace_service
+from iam.domain.value_objects import WorkspaceId
+from iam.ports.exceptions import DuplicateWorkspaceNameError
 from iam.presentation.workspaces.models import (
     CreateWorkspaceRequest,
     WorkspaceListResponse,
@@ -46,8 +48,32 @@ async def create_workspace(
         HTTPException: 409 Conflict if workspace name already exists in tenant
         HTTPException: 500 Internal Server Error for unexpected errors
     """
-    # TODO: Implement in next task
-    raise NotImplementedError()
+    try:
+        parent_id = WorkspaceId(request.parent_workspace_id)
+
+        workspace = await service.create_workspace(
+            name=request.name,
+            parent_workspace_id=parent_id,
+            creator_id=current_user.user_id,
+        )
+
+        return WorkspaceResponse.from_domain(workspace)
+
+    except DuplicateWorkspaceNameError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create workspace",
+        )
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)

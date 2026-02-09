@@ -1,10 +1,10 @@
-"""Unit tests for WorkspaceService.create_workspace.
+"""Unit tests for WorkspaceService.
 
 Following TDD - write tests first to define desired behavior.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, create_autospec
+from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 from iam.application.services.workspace_service import WorkspaceService
 from iam.domain.aggregates import Workspace
@@ -253,3 +253,160 @@ class TestCreateWorkspace:
         assert probe_kwargs["parent_workspace_id"] == root_workspace.id.value
         assert probe_kwargs["is_root"] is False
         assert probe_kwargs["creator_id"] == creator_id.value
+
+
+class TestCreateRootWorkspace:
+    """Tests for create_root_workspace method."""
+
+    @pytest.mark.asyncio
+    async def test_create_root_workspace_uses_settings_default_name(
+        self,
+        mock_session,
+        mock_workspace_repository,
+        mock_authz,
+        mock_probe,
+        tenant_id,
+    ):
+        """Test that create_root_workspace uses default_workspace_name from settings if provided."""
+        # Setup: Mock settings with default_workspace_name = "Default"
+        mock_settings = MagicMock()
+        mock_settings.default_workspace_name = "Default"
+
+        mock_workspace_repository.save = AsyncMock()
+
+        service = WorkspaceService(
+            session=mock_session,
+            workspace_repository=mock_workspace_repository,
+            authz=mock_authz,
+            scope_to_tenant=tenant_id,
+            probe=mock_probe,
+        )
+
+        # Call: No name provided, should use settings default
+        with patch(
+            "iam.application.services.workspace_service.get_iam_settings",
+            return_value=mock_settings,
+        ):
+            workspace = await service.create_root_workspace(name=None)
+
+        # Assert
+        assert workspace.name == "Default"
+        assert workspace.is_root is True
+        assert workspace.parent_workspace_id is None
+        assert workspace.tenant_id == tenant_id
+
+    @pytest.mark.asyncio
+    async def test_create_root_workspace_uses_tenant_name_when_no_setting(
+        self,
+        mock_session,
+        mock_workspace_repository,
+        mock_authz,
+        mock_probe,
+        tenant_id,
+    ):
+        """Test that create_root_workspace falls back to tenant name when setting is None.
+
+        When neither an explicit name nor a settings default is available,
+        the caller (TenantService) passes the tenant name explicitly.
+        This test verifies that the explicit name parameter works as the fallback path.
+        """
+        # Setup: Settings with default_workspace_name = None
+        mock_settings = MagicMock()
+        mock_settings.default_workspace_name = None
+
+        mock_workspace_repository.save = AsyncMock()
+
+        service = WorkspaceService(
+            session=mock_session,
+            workspace_repository=mock_workspace_repository,
+            authz=mock_authz,
+            scope_to_tenant=tenant_id,
+            probe=mock_probe,
+        )
+
+        # Call: Pass tenant name explicitly (as TenantService would)
+        workspace = await service.create_root_workspace(name="Acme Corp")
+
+        # Assert
+        assert workspace.name == "Acme Corp"
+        assert workspace.is_root is True
+        assert workspace.parent_workspace_id is None
+        assert workspace.tenant_id == tenant_id
+
+    @pytest.mark.asyncio
+    async def test_create_root_workspace_uses_provided_name(
+        self,
+        mock_session,
+        mock_workspace_repository,
+        mock_authz,
+        mock_probe,
+        tenant_id,
+    ):
+        """Test that explicit name parameter overrides settings."""
+        # Setup: Settings with default_workspace_name = "Default"
+        mock_settings = MagicMock()
+        mock_settings.default_workspace_name = "Default"
+
+        mock_workspace_repository.save = AsyncMock()
+
+        service = WorkspaceService(
+            session=mock_session,
+            workspace_repository=mock_workspace_repository,
+            authz=mock_authz,
+            scope_to_tenant=tenant_id,
+            probe=mock_probe,
+        )
+
+        # Call: Explicit name should override settings
+        with patch(
+            "iam.application.services.workspace_service.get_iam_settings",
+            return_value=mock_settings,
+        ):
+            workspace = await service.create_root_workspace(name="Custom Root")
+
+        # Assert: Explicit name used, not settings default
+        assert workspace.name == "Custom Root"
+        assert workspace.is_root is True
+
+    @pytest.mark.asyncio
+    async def test_create_root_workspace_emits_events(
+        self,
+        mock_session,
+        mock_workspace_repository,
+        mock_authz,
+        mock_probe,
+        tenant_id,
+    ):
+        """Test that root workspace creation emits WorkspaceCreated event."""
+        # Setup
+        mock_workspace_repository.save = AsyncMock()
+
+        service = WorkspaceService(
+            session=mock_session,
+            workspace_repository=mock_workspace_repository,
+            authz=mock_authz,
+            scope_to_tenant=tenant_id,
+            probe=mock_probe,
+        )
+
+        # Call
+        await service.create_root_workspace(name="Root")
+
+        # Assert: The workspace aggregate was saved with a WorkspaceCreated event
+        saved_workspace = mock_workspace_repository.save.call_args[0][0]
+        events = saved_workspace.collect_events()
+        assert len(events) == 1
+
+        event = events[0]
+        assert isinstance(event, WorkspaceCreated)
+        assert event.is_root is True
+        assert event.parent_workspace_id is None
+        assert event.name == "Root"
+        assert event.tenant_id == tenant_id.value
+
+        # Assert: Probe was called for success
+        mock_probe.workspace_created.assert_called_once()
+        probe_kwargs = mock_probe.workspace_created.call_args[1]
+        assert probe_kwargs["is_root"] is True
+        assert probe_kwargs["parent_workspace_id"] is None
+        assert probe_kwargs["creator_id"] == ""

@@ -13,6 +13,7 @@ from iam.application.observability import (
 )
 from iam.domain.aggregates import Workspace
 from iam.domain.value_objects import TenantId, UserId, WorkspaceId
+from infrastructure.settings import get_iam_settings
 from iam.ports.exceptions import (
     DuplicateWorkspaceNameError,
 )
@@ -138,6 +139,86 @@ class WorkspaceService:
             self._probe.workspace_creation_failed(
                 tenant_id=self._scope_to_tenant.value,
                 name=name,
+                error=str(e),
+            )
+            raise
+
+    async def create_root_workspace(
+        self,
+        name: str | None = None,
+    ) -> Workspace:
+        """Create root workspace for the scoped tenant.
+
+        Uses service's scope_to_tenant for the tenant ID.
+
+        Name priority:
+        1. Provided name parameter
+        2. default_workspace_name from IAMSettings
+        3. "Root" (hardcoded fallback)
+
+        Called by TenantService during tenant creation. TenantService
+        instantiates a WorkspaceService scoped to the new tenant and
+        passes the tenant name explicitly when no settings default exists:
+
+        ```python
+        # In TenantService.create_tenant():
+        workspace_service = WorkspaceService(
+            session=self._session,
+            workspace_repository=workspace_repo,
+            authz=self._authz,
+            scope_to_tenant=new_tenant.id,
+        )
+        await workspace_service.create_root_workspace(name=tenant.name)
+        ```
+
+        Args:
+            name: Optional workspace name. If None, uses settings or "Root" fallback.
+
+        Returns:
+            The created root Workspace aggregate
+
+        Raises:
+            Exception: If workspace creation fails
+        """
+        # Determine workspace name with priority:
+        # 1. Explicit name parameter
+        # 2. Settings default_workspace_name
+        # 3. "Root" fallback
+        workspace_name = name
+        if workspace_name is None:
+            settings = get_iam_settings()
+            workspace_name = settings.default_workspace_name
+
+        if workspace_name is None:
+            workspace_name = "Root"
+
+        try:
+            # Create root workspace using domain factory method
+            workspace = Workspace.create_root(
+                name=workspace_name,
+                tenant_id=self._scope_to_tenant,
+            )
+
+            # Persist in transaction
+            async with self._session.begin():
+                await self._workspace_repository.save(workspace)
+
+            # Probe success
+            self._probe.workspace_created(
+                workspace_id=workspace.id.value,
+                tenant_id=self._scope_to_tenant.value,
+                name=workspace_name,
+                parent_workspace_id=None,
+                is_root=True,
+                creator_id="",  # Root workspace has no creator
+            )
+
+            return workspace
+
+        except Exception as e:
+            self._probe.workspace_creation_failed(
+                tenant_id=self._scope_to_tenant.value,
+                name=workspace_name,
                 error=str(e),
             )
             raise

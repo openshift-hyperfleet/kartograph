@@ -222,3 +222,64 @@ class WorkspaceService:
                 error=str(e),
             )
             raise
+
+    async def get_workspace(
+        self,
+        workspace_id: WorkspaceId,
+    ) -> Workspace | None:
+        """Get workspace by ID with tenant scoping check.
+
+        Returns None if workspace doesn't exist or belongs to different tenant.
+        Tenant scoping prevents cross-tenant access.
+
+        TODO (Phase 3): Add user-level VIEW permission check via SpiceDB.
+
+        Args:
+            workspace_id: The workspace ID to retrieve
+
+        Returns:
+            The Workspace aggregate, or None if not found or not accessible
+        """
+        # Fetch workspace from repository
+        workspace = await self._workspace_repository.get_by_id(workspace_id)
+        if workspace is None:
+            self._probe.workspace_not_found(workspace_id=workspace_id.value)
+            return None
+
+        # Verify workspace belongs to scoped tenant
+        if workspace.tenant_id != self._scope_to_tenant:
+            # Don't leak existence of workspaces in other tenants
+            return None
+
+        # Probe success
+        self._probe.workspace_retrieved(
+            workspace_id=workspace.id.value,
+            tenant_id=workspace.tenant_id.value,
+            name=workspace.name,
+        )
+
+        return workspace
+
+    async def list_workspaces(self) -> list[Workspace]:
+        """List all workspaces in the scoped tenant.
+
+        Returns all workspaces within scope_to_tenant.
+        No user-level permission filtering in Phase 1 - that's added in Phase 3.
+
+        TODO (Phase 3): Add SpiceDB permission filtering to only return
+        workspaces the user has VIEW permission on.
+
+        Returns:
+            List of Workspace aggregates in the scoped tenant
+        """
+        workspaces = await self._workspace_repository.list_by_tenant(
+            tenant_id=self._scope_to_tenant
+        )
+
+        # Probe success
+        self._probe.workspaces_listed(
+            tenant_id=self._scope_to_tenant.value,
+            count=len(workspaces),
+        )
+
+        return workspaces

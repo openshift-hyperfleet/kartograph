@@ -27,6 +27,10 @@ from iam.application.observability.user_service_probe import (
     DefaultUserServiceProbe,
     UserServiceProbe,
 )
+from iam.application.observability.workspace_service_probe import (
+    DefaultWorkspaceServiceProbe,
+    WorkspaceServiceProbe,
+)
 
 __all__ = [
     "APIKeyServiceProbe",
@@ -41,4 +45,6 @@ __all__ = [
     "DefaultUserServiceProbe",
     "TenantServiceProbe",
     "DefaultTenantServiceProbe",
+    "WorkspaceServiceProbe",
+    "DefaultWorkspaceServiceProbe",
 ]

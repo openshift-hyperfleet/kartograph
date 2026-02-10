@@ -82,58 +82,43 @@ class WorkspaceService:
             Exception: If workspace creation fails
         """
         try:
-            # Check name uniqueness within tenant
-            existing = await self._workspace_repository.get_by_name(
-                tenant_id=self._scope_to_tenant,
-                name=name,
-            )
-            if existing:
-                raise DuplicateWorkspaceNameError(
-                    f"Workspace '{name}' already exists in tenant"
+            async with self._session.begin():
+                # Check name uniqueness within tenant
+                existing = await self._workspace_repository.get_by_name(
+                    tenant_id=self._scope_to_tenant,
+                    name=name,
                 )
-
-            # Validate parent workspace exists
-            parent = await self._workspace_repository.get_by_id(parent_workspace_id)
-            if not parent:
-                raise ValueError(
-                    f"Parent workspace {parent_workspace_id.value} does not exist - "
-                    f"the parent workspace must exist before creating a child"
-                )
-
-            # Validate parent belongs to the scoped tenant
-            if parent.tenant_id != self._scope_to_tenant:
-                raise ValueError(
-                    "Parent workspace belongs to different tenant - "
-                    "cannot create child workspace across tenant boundaries"
-                )
-
-            # Create workspace using domain factory method
-            workspace = Workspace.create(
-                name=name,
-                tenant_id=self._scope_to_tenant,
-                parent_workspace_id=parent_workspace_id,
-            )
-
-            # Persist in transaction with IntegrityError handling
-            try:
-                async with self._session.begin():
-                    await self._workspace_repository.save(workspace)
-            except IntegrityError as e:
-                # DB unique constraint violation (race condition)
-                if "uq_workspaces_tenant_name" in str(e) or (
-                    "tenant_id" in str(e) and "name" in str(e)
-                ):
-                    self._probe.workspace_creation_failed(
-                        tenant_id=self._scope_to_tenant.value,
-                        name=name,
-                        error=f"Workspace name '{name}' already exists in tenant",
-                    )
+                if existing:
                     raise DuplicateWorkspaceNameError(
                         f"Workspace '{name}' already exists in tenant"
-                    ) from e
-                raise  # Re-raise if different constraint
+                    )
 
-            # Probe success
+                # Validate parent workspace exists
+                parent = await self._workspace_repository.get_by_id(parent_workspace_id)
+                if not parent:
+                    raise ValueError(
+                        f"Parent workspace {parent_workspace_id.value} does not exist - "
+                        f"the parent workspace must exist before creating a child"
+                    )
+
+                # Validate parent belongs to the scoped tenant
+                if parent.tenant_id != self._scope_to_tenant:
+                    raise ValueError(
+                        "Parent workspace belongs to different tenant - "
+                        "cannot create child workspace across tenant boundaries"
+                    )
+
+                # Create workspace using domain factory method
+                workspace = Workspace.create(
+                    name=name,
+                    tenant_id=self._scope_to_tenant,
+                    parent_workspace_id=parent_workspace_id,
+                )
+
+                # Persist workspace
+                await self._workspace_repository.save(workspace)
+
+            # Probe success (outside transaction - it's committed)
             self._probe.workspace_created(
                 workspace_id=workspace.id.value,
                 tenant_id=self._scope_to_tenant.value,
@@ -145,15 +130,26 @@ class WorkspaceService:
 
             return workspace
 
-        except DuplicateWorkspaceNameError as e:
-            # Only probe if this is from the pre-check, not from IntegrityError
-            # (IntegrityError handler already called the probe)
-            if not isinstance(e.__cause__, IntegrityError):
+        except IntegrityError as e:
+            # DB unique constraint violation (race condition)
+            if "uq_workspaces_tenant_name" in str(e) or (
+                "tenant_id" in str(e) and "name" in str(e)
+            ):
                 self._probe.workspace_creation_failed(
                     tenant_id=self._scope_to_tenant.value,
                     name=name,
-                    error=f"Workspace '{name}' already exists in tenant",
+                    error=f"Workspace name '{name}' already exists in tenant",
                 )
+                raise DuplicateWorkspaceNameError(
+                    f"Workspace '{name}' already exists in tenant"
+                ) from e
+            raise  # Re-raise if different constraint
+        except DuplicateWorkspaceNameError:
+            self._probe.workspace_creation_failed(
+                tenant_id=self._scope_to_tenant.value,
+                name=name,
+                error=f"Workspace '{name}' already exists in tenant",
+            )
             raise
         except ValueError:
             raise

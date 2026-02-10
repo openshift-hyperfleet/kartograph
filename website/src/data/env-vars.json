@@ -207,7 +207,7 @@
   "IAMSettings": {
     "class_name": "IAMSettings",
     "prefix": "KARTOGRAPH_IAM_",
-    "doc": "IAM (Identity and Access Management) settings.\n\n    Environment variables:\n        KARTOGRAPH_IAM_DEFAULT_TENANT_NAME: Default tenant name for single-tenant mode (default: default)\n        KARTOGRAPH_IAM_DEFAULT_WORKSPACE_NAME: Default root workspace name (default: None, uses tenant name)\n    ",
+    "doc": "IAM (Identity and Access Management) settings.\n\n    Environment variables:\n        KARTOGRAPH_IAM_DEFAULT_TENANT_NAME: Default tenant name for single-tenant mode (default: default)\n        KARTOGRAPH_IAM_DEFAULT_WORKSPACE_NAME: Default root workspace name (default: None, uses tenant name)\n        KARTOGRAPH_IAM_SINGLE_TENANT_MODE: Enable single-tenant dev mode (default: true)\n    ",
     "properties": [
       {
         "env_var": "KARTOGRAPH_IAM_DEFAULT_TENANT_NAME",
@@ -222,6 +222,13 @@
         "default": null,
         "required": false,
         "description": "Default root workspace name (if None, uses tenant name)"
+      },
+      {
+        "env_var": "KARTOGRAPH_IAM_SINGLE_TENANT_MODE",
+        "type": "bool",
+        "default": true,
+        "required": false,
+        "description": "Enable single-tenant dev mode. When true and X-Tenant-ID header is missing, auto-selects the default tenant. When false, X-Tenant-ID header is required on every request."
       }
     ]
   },

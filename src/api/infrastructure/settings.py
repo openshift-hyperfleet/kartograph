@@ -272,6 +272,7 @@ class IAMSettings(BaseSettings):
     Environment variables:
         KARTOGRAPH_IAM_DEFAULT_TENANT_NAME: Default tenant name for single-tenant mode (default: default)
         KARTOGRAPH_IAM_DEFAULT_WORKSPACE_NAME: Default root workspace name (default: None, uses tenant name)
+        KARTOGRAPH_IAM_SINGLE_TENANT_MODE: Enable single-tenant dev mode (default: true)
     """
 
     model_config = SettingsConfigDict(
@@ -289,6 +290,13 @@ class IAMSettings(BaseSettings):
     default_workspace_name: str | None = Field(
         default=None,
         description="Default root workspace name (if None, uses tenant name)",
+    )
+
+    single_tenant_mode: bool = Field(
+        default=True,
+        description="Enable single-tenant dev mode. When true and X-Tenant-ID header "
+        "is missing, auto-selects the default tenant. When false, X-Tenant-ID "
+        "header is required on every request.",
     )
 
 

@@ -29,6 +29,7 @@ from infrastructure.settings import get_iam_settings
 from infrastructure.settings import DatabaseSettings
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.outbox.observability import DefaultOutboxWorkerProbe
+from tests.integration.iam.cleanup_probe import DefaultTestCleanupProbe
 
 
 @pytest.fixture(scope="session")
@@ -99,59 +100,78 @@ def spicedb_client() -> AuthorizationProvider:
 @pytest_asyncio.fixture
 async def clean_iam_data(
     async_session: AsyncSession, spicedb_client: AuthorizationProvider
-):
+) -> AsyncGenerator[None, None]:
     """Clean IAM tables and SpiceDB relationships before and after tests.
 
-    Note: Requires migrations to be run first. If tables don't exist,
-    this fixture will skip cleanup gracefully.
+    Deletes test data while preserving the default tenant and its root workspace.
+    Uses domain probe for observability instead of direct logging.
 
-    With FK CASCADE constraints, deleting tenants automatically deletes
-    groups and api_keys. Deletion order matters for referential integrity.
-
-    Preserves the default tenant which is created at app startup and
-    expected to exist for API integration tests.
+    Deletion order respects FK constraints:
+    outbox -> api_keys -> groups -> users -> workspaces (children) ->
+    workspaces (roots) -> tenants
     """
-    # Get default tenant name from settings
     default_tenant_name = get_iam_settings().default_tenant_name
+    probe = DefaultTestCleanupProbe()
+
+    async def cleanup() -> None:
+        """Perform cleanup with proper FK constraint ordering."""
+        probe.cleanup_started(default_tenant_name=default_tenant_name)
+
+        try:
+            # Delete in FK-respecting order
+            await async_session.execute(text("DELETE FROM outbox"))
+            probe.table_cleaned("outbox")
+
+            await async_session.execute(text("DELETE FROM api_keys"))
+            probe.table_cleaned("api_keys")
+
+            await async_session.execute(text("DELETE FROM groups"))
+            probe.table_cleaned("groups")
+
+            await async_session.execute(text("DELETE FROM users"))
+            probe.table_cleaned("users")
+
+            # Delete workspaces before tenants (RESTRICT FK constraint)
+            # Delete child workspaces first (those with parent_workspace_id)
+            result = await async_session.execute(
+                text("DELETE FROM workspaces WHERE parent_workspace_id IS NOT NULL")
+            )
+            probe.table_cleaned("workspaces (children)", result.rowcount)
+
+            # Delete remaining workspaces (root workspaces) except default tenant's
+            result = await async_session.execute(
+                text("""
+                    DELETE FROM workspaces
+                    WHERE tenant_id IN (
+                        SELECT id FROM tenants WHERE name != :default_name
+                    )
+                """),
+                {"default_name": default_tenant_name},
+            )
+            probe.table_cleaned("workspaces (roots)", result.rowcount)
+
+            # Now safe to delete tenants
+            result = await async_session.execute(
+                text("DELETE FROM tenants WHERE name != :default_name"),
+                {"default_name": default_tenant_name},
+            )
+            probe.table_cleaned("tenants", result.rowcount)
+
+            await async_session.commit()
+            probe.cleanup_completed(tables_cleaned=7)
+
+        except Exception as e:
+            probe.cleanup_failed(table_name="unknown", error=str(e))
+            await async_session.rollback()
+            raise  # Re-raise to make test failures visible
 
     # Clean before test
-    try:
-        # Use DELETE instead of TRUNCATE to avoid deadlocks in parallel tests
-        # DELETE in correct order to respect FK constraints
-        await async_session.execute(text("DELETE FROM outbox"))
-        await async_session.execute(text("DELETE FROM api_keys"))  # FK to tenants
-        await async_session.execute(text("DELETE FROM groups"))  # FK to tenants
-        await async_session.execute(text("DELETE FROM users"))
-        # Delete all tenants EXCEPT the default tenant
-        await async_session.execute(
-            text("DELETE FROM tenants WHERE name != :default_name"),
-            {"default_name": default_tenant_name},
-        )
-        await async_session.commit()
-    except Exception:
-        # Tables might not exist if migrations haven't been run
-        await async_session.rollback()
-
-    # Note: SpiceDB cleanup would require iterating over all relationships
-    # For now, rely on test isolation
+    await cleanup()
 
     yield
 
     # Clean after test
-    try:
-        # DELETE in correct order to respect FK constraints
-        await async_session.execute(text("DELETE FROM outbox"))
-        await async_session.execute(text("DELETE FROM api_keys"))
-        await async_session.execute(text("DELETE FROM groups"))
-        await async_session.execute(text("DELETE FROM users"))
-        # Delete all tenants EXCEPT the default tenant
-        await async_session.execute(
-            text("DELETE FROM tenants WHERE name != :default_name"),
-            {"default_name": default_tenant_name},
-        )
-        await async_session.commit()
-    except Exception:
-        await async_session.rollback()
+    await cleanup()
 
 
 @pytest.fixture

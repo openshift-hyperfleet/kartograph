@@ -65,11 +65,12 @@ async def kartograph_lifespan(app: FastAPI):
     # Startup: initialize database engines
     init_database_engines(app)
 
-    # Startup: ensure default tenant exists (single-tenant mode)
+    # Startup: ensure default tenant and root workspace exist (single-tenant mode)
     if hasattr(app.state, "write_sessionmaker"):
-        from iam.walking_skeleton_bootstrap import set_default_tenant_id
-        from iam.domain.aggregates import Tenant
+        from iam.application.services import TenantBootstrapService
         from iam.infrastructure.tenant_repository import TenantRepository
+        from iam.infrastructure.workspace_repository import WorkspaceRepository
+        from iam.walking_skeleton_bootstrap import set_default_tenant_id
         from infrastructure.observability.startup_probe import DefaultStartupProbe
         from infrastructure.outbox.repository import OutboxRepository
         from infrastructure.settings import get_iam_settings
@@ -78,46 +79,29 @@ async def kartograph_lifespan(app: FastAPI):
         startup_probe = DefaultStartupProbe()
 
         async with app.state.write_sessionmaker() as session:
-            async with session.begin():
-                from iam.ports.exceptions import DuplicateTenantNameError
+            outbox = OutboxRepository(session=session)
+            tenant_repo = TenantRepository(session=session, outbox=outbox)
+            workspace_repo = WorkspaceRepository(session=session, outbox=outbox)
 
-                outbox = OutboxRepository(session=session)
-                tenant_repo = TenantRepository(session=session, outbox=outbox)
+            bootstrap_service = TenantBootstrapService(
+                tenant_repository=tenant_repo,
+                workspace_repository=workspace_repo,
+                session=session,
+                probe=startup_probe,
+            )
 
-                # Check if default tenant exists
-                tenant = await tenant_repo.get_by_name(iam_settings.default_tenant_name)
-                if not tenant:
-                    # Handle race condition during concurrent startups
-                    try:
-                        tenant = Tenant.create(name=iam_settings.default_tenant_name)
-                        await tenant_repo.save(tenant)
-                        startup_probe.default_tenant_bootstrapped(
-                            tenant_id=tenant.id.value,
-                            name=tenant.name,
-                        )
-                    except DuplicateTenantNameError:
-                        # Another instance created it concurrently, re-query
-                        tenant = await tenant_repo.get_by_name(
-                            iam_settings.default_tenant_name
-                        )
-                        if tenant:
-                            startup_probe.default_tenant_already_exists(
-                                tenant_id=tenant.id.value,
-                                name=tenant.name,
-                            )
-                        else:
-                            # Should never happen, but handle gracefully
-                            raise RuntimeError(
-                                "Failed to create or retrieve default tenant"
-                            )
-                else:
-                    startup_probe.default_tenant_already_exists(
-                        tenant_id=tenant.id.value,
-                        name=tenant.name,
-                    )
+            # Resolve workspace name (use setting or fall back to tenant name)
+            workspace_name = (
+                iam_settings.default_workspace_name or iam_settings.default_tenant_name
+            )
 
-                # Cache default tenant ID for single-tenant mode
-                set_default_tenant_id(tenant.id)
+            tenant = await bootstrap_service.ensure_default_tenant_with_workspace(
+                tenant_name=iam_settings.default_tenant_name,
+                workspace_name=workspace_name,
+            )
+
+            # Cache default tenant ID for single-tenant mode
+            set_default_tenant_id(tenant.id)
 
     # Startup: start outbox worker if enabled
     outbox_settings = get_outbox_worker_settings()

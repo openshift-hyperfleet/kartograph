@@ -58,7 +58,11 @@ class TenantServiceProbe(Protocol):
         ...
 
     def tenant_cascade_deletion_started(
-        self, tenant_id: str, groups_count: int, api_keys_count: int
+        self,
+        tenant_id: str,
+        workspaces_count: int,
+        groups_count: int,
+        api_keys_count: int,
     ) -> None:
         """Record that cascade deletion is starting for a tenant."""
         ...
@@ -173,7 +177,11 @@ class DefaultTenantServiceProbe:
         )
 
     def tenant_cascade_deletion_started(
-        self, tenant_id: str, groups_count: int, api_keys_count: int
+        self,
+        tenant_id: str,
+        workspaces_count: int,
+        groups_count: int,
+        api_keys_count: int,
     ) -> None:
         """Record that cascade deletion is starting for a tenant.
 
@@ -183,6 +191,7 @@ class DefaultTenantServiceProbe:
         self._logger.info(
             "tenant_cascade_deletion_started",
             tenant_id=tenant_id,
+            workspaces_count=workspaces_count,
             groups_count=groups_count,
             api_keys_count=api_keys_count,
             **self._get_context_kwargs(),

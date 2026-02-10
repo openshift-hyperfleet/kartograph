@@ -4,19 +4,20 @@ Following TDD: Write tests that describe the desired behavior,
 then implement the TenantService to make these tests pass.
 """
 
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.application.services import TenantService
-from iam.domain.aggregates import Tenant
-from iam.domain.value_objects import TenantId, TenantRole, UserId
+from iam.domain.aggregates import Tenant, Workspace
+from iam.domain.value_objects import TenantId, TenantRole, UserId, WorkspaceId
 from iam.ports.exceptions import UnauthorizedError
 from iam.ports.repositories import (
     IAPIKeyRepository,
     IGroupRepository,
     ITenantRepository,
+    IWorkspaceRepository,
 )
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import SubjectRelation
@@ -26,6 +27,12 @@ from shared_kernel.authorization.types import SubjectRelation
 def mock_tenant_repo():
     """Mock TenantRepository."""
     return Mock(spec=ITenantRepository)
+
+
+@pytest.fixture
+def mock_workspace_repo():
+    """Mock WorkspaceRepository."""
+    return Mock(spec=IWorkspaceRepository)
 
 
 @pytest.fixture
@@ -62,11 +69,17 @@ def mock_session():
 
 @pytest.fixture
 def tenant_service(
-    mock_tenant_repo, mock_group_repo, mock_api_key_repo, mock_authz, mock_session
+    mock_tenant_repo,
+    mock_workspace_repo,
+    mock_group_repo,
+    mock_api_key_repo,
+    mock_authz,
+    mock_session,
 ):
     """Create TenantService with mocked dependencies."""
     return TenantService(
         tenant_repository=mock_tenant_repo,
+        workspace_repository=mock_workspace_repo,
         group_repository=mock_group_repo,
         api_key_repository=mock_api_key_repo,
         authz=mock_authz,
@@ -426,3 +439,212 @@ class TestListMembers:
 
         # Verify repository was never called
         mock_tenant_repo.get_by_id.assert_not_called()
+
+
+class TestCreateTenant:
+    """Tests for TenantService.create_tenant()."""
+
+    @pytest.mark.asyncio
+    async def test_creates_tenant(
+        self, tenant_service, mock_tenant_repo, mock_workspace_repo
+    ):
+        """Test that create_tenant creates a tenant."""
+        mock_tenant_repo.save = AsyncMock()
+        mock_workspace_repo.save = AsyncMock()
+
+        tenant = await tenant_service.create_tenant(name="Acme Corp")
+
+        assert tenant.name == "Acme Corp"
+        mock_tenant_repo.save.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_creates_root_workspace_on_tenant_creation(
+        self, tenant_service, mock_tenant_repo, mock_workspace_repo
+    ):
+        """Test that creating a tenant auto-creates a root workspace."""
+        mock_tenant_repo.save = AsyncMock()
+        mock_workspace_repo.save = AsyncMock()
+
+        tenant = await tenant_service.create_tenant(name="Acme Corp")
+
+        # Verify workspace_repository.save was called once
+        mock_workspace_repo.save.assert_called_once()
+
+        # Verify the saved workspace is a root workspace
+        saved_workspace = mock_workspace_repo.save.call_args[0][0]
+        assert saved_workspace.is_root is True
+        assert saved_workspace.tenant_id == tenant.id
+        assert saved_workspace.parent_workspace_id is None
+
+    @pytest.mark.asyncio
+    async def test_root_workspace_uses_settings_default_name(
+        self, tenant_service, mock_tenant_repo, mock_workspace_repo
+    ):
+        """Test that root workspace uses default_workspace_name from settings."""
+        mock_tenant_repo.save = AsyncMock()
+        mock_workspace_repo.save = AsyncMock()
+
+        # Patch settings to return a custom default workspace name
+        mock_settings = Mock()
+        mock_settings.default_workspace_name = "My Default Workspace"
+
+        with patch(
+            "iam.application.services.tenant_service.get_iam_settings",
+            return_value=mock_settings,
+        ):
+            await tenant_service.create_tenant(name="Acme Corp")
+
+        saved_workspace = mock_workspace_repo.save.call_args[0][0]
+        assert saved_workspace.name == "My Default Workspace"
+
+    @pytest.mark.asyncio
+    async def test_root_workspace_falls_back_to_tenant_name(
+        self, tenant_service, mock_tenant_repo, mock_workspace_repo
+    ):
+        """Test that root workspace falls back to tenant name when no settings default."""
+        mock_tenant_repo.save = AsyncMock()
+        mock_workspace_repo.save = AsyncMock()
+
+        # Patch settings to return None for default_workspace_name
+        mock_settings = Mock()
+        mock_settings.default_workspace_name = None
+
+        with patch(
+            "iam.application.services.tenant_service.get_iam_settings",
+            return_value=mock_settings,
+        ):
+            await tenant_service.create_tenant(name="Acme Corp")
+
+        saved_workspace = mock_workspace_repo.save.call_args[0][0]
+        assert saved_workspace.name == "Acme Corp"
+
+
+class TestDeleteTenant:
+    """Tests for TenantService.delete_tenant()."""
+
+    @pytest.mark.asyncio
+    async def test_deletes_tenant(
+        self,
+        tenant_service,
+        mock_tenant_repo,
+        mock_workspace_repo,
+        mock_group_repo,
+        mock_api_key_repo,
+        mock_authz,
+    ):
+        """Test that delete_tenant deletes a tenant."""
+        tenant_id = TenantId.generate()
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.delete = AsyncMock(return_value=True)
+        mock_workspace_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_group_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_api_key_repo.list = AsyncMock(return_value=[])
+        mock_authz.lookup_subjects = AsyncMock(return_value=[])
+
+        result = await tenant_service.delete_tenant(tenant_id)
+
+        assert result is True
+        mock_tenant_repo.delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_deletes_workspaces_on_tenant_deletion(
+        self,
+        tenant_service,
+        mock_tenant_repo,
+        mock_workspace_repo,
+        mock_group_repo,
+        mock_api_key_repo,
+        mock_authz,
+    ):
+        """Test that deleting tenant cascades to workspaces."""
+        from datetime import UTC, datetime
+
+        tenant_id = TenantId.generate()
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        # Create test workspace
+        workspace = Workspace(
+            id=WorkspaceId.generate(),
+            tenant_id=tenant_id,
+            name="Root",
+            parent_workspace_id=None,
+            is_root=True,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.delete = AsyncMock(return_value=True)
+        mock_workspace_repo.list_by_tenant = AsyncMock(return_value=[workspace])
+        mock_workspace_repo.delete = AsyncMock(return_value=True)
+        mock_group_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_api_key_repo.list = AsyncMock(return_value=[])
+        mock_authz.lookup_subjects = AsyncMock(return_value=[])
+
+        await tenant_service.delete_tenant(tenant_id)
+
+        # Verify workspace was deleted
+        mock_workspace_repo.delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_tenant_returns_false_if_not_found(
+        self, tenant_service, mock_tenant_repo
+    ):
+        """Test that delete_tenant returns False if tenant doesn't exist."""
+        tenant_id = TenantId.generate()
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=None)
+
+        result = await tenant_service.delete_tenant(tenant_id)
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_delete_tenant_deletes_multiple_workspaces(
+        self,
+        tenant_service,
+        mock_tenant_repo,
+        mock_workspace_repo,
+        mock_group_repo,
+        mock_api_key_repo,
+        mock_authz,
+    ):
+        """Test that delete_tenant deletes all workspaces belonging to tenant."""
+        from datetime import UTC, datetime
+
+        tenant_id = TenantId.generate()
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        # Create multiple test workspaces
+        root_ws = Workspace(
+            id=WorkspaceId.generate(),
+            tenant_id=tenant_id,
+            name="Root",
+            parent_workspace_id=None,
+            is_root=True,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        child_ws = Workspace(
+            id=WorkspaceId.generate(),
+            tenant_id=tenant_id,
+            name="Child",
+            parent_workspace_id=root_ws.id,
+            is_root=False,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.delete = AsyncMock(return_value=True)
+        mock_workspace_repo.list_by_tenant = AsyncMock(return_value=[root_ws, child_ws])
+        mock_workspace_repo.delete = AsyncMock(return_value=True)
+        mock_group_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_api_key_repo.list = AsyncMock(return_value=[])
+        mock_authz.lookup_subjects = AsyncMock(return_value=[])
+
+        await tenant_service.delete_tenant(tenant_id)
+
+        # Verify workspace_repository.delete was called for each workspace
+        assert mock_workspace_repo.delete.call_count == 2

@@ -55,6 +55,7 @@ class WorkspaceModel(Base, TimestampMixin):
     child_workspaces = relationship(
         "WorkspaceModel",
         back_populates="parent_workspace",
+        passive_deletes=True,  # Let DB handle FK constraint, don't NULL children
     )
 
     __table_args__ = (

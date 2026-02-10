@@ -11,9 +11,11 @@ from iam.application.services import TenantService
 from iam.dependencies.api_key import get_api_key_repository
 from iam.dependencies.group import get_group_repository
 from iam.dependencies.outbox import get_outbox_repository
+from iam.dependencies.workspace import get_workspace_repository
 from iam.infrastructure.api_key_repository import APIKeyRepository
 from iam.infrastructure.group_repository import GroupRepository
 from iam.infrastructure.tenant_repository import TenantRepository
+from iam.infrastructure.workspace_repository import WorkspaceRepository
 from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.database.dependencies import get_write_session
 from infrastructure.outbox.repository import OutboxRepository
@@ -47,6 +49,7 @@ def get_tenant_repository(
 
 def get_tenant_service(
     tenant_repo: Annotated[TenantRepository, Depends(get_tenant_repository)],
+    workspace_repo: Annotated[WorkspaceRepository, Depends(get_workspace_repository)],
     group_repo: Annotated[GroupRepository, Depends(get_group_repository)],
     api_key_repo: Annotated[APIKeyRepository, Depends(get_api_key_repository)],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
@@ -59,6 +62,7 @@ def get_tenant_service(
 
     Args:
         tenant_repo: Tenant repository (shares session via FastAPI dependency caching)
+        workspace_repo: Workspace repository for root workspace creation and cascade deletion
         group_repo: Group repository for cascade deletion
         api_key_repo: API key repository for cascade deletion
         authz: Authorization provider (SpiceDB client)
@@ -70,6 +74,7 @@ def get_tenant_service(
     """
     return TenantService(
         tenant_repository=tenant_repo,
+        workspace_repository=workspace_repo,
         group_repository=group_repo,
         api_key_repository=api_key_repo,
         authz=authz,

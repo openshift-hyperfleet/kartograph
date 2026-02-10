@@ -25,6 +25,18 @@ class StartupProbe(Protocol):
         """Record that the default tenant already existed."""
         ...
 
+    def default_workspace_bootstrapped(
+        self, workspace_id: str, tenant_id: str, name: str
+    ) -> None:
+        """Record that the default root workspace was bootstrapped at startup."""
+        ...
+
+    def default_workspace_already_exists(
+        self, workspace_id: str, tenant_id: str, name: str
+    ) -> None:
+        """Record that the default root workspace already existed."""
+        ...
+
     def with_context(self, context: ObservationContext) -> StartupProbe:
         """Create a new probe with observation context bound."""
         ...
@@ -64,6 +76,30 @@ class DefaultStartupProbe:
         """Record that the default tenant already existed."""
         self._logger.info(
             "default_tenant_already_exists",
+            tenant_id=tenant_id,
+            name=name,
+            **self._get_context_kwargs(),
+        )
+
+    def default_workspace_bootstrapped(
+        self, workspace_id: str, tenant_id: str, name: str
+    ) -> None:
+        """Record that the default root workspace was bootstrapped at startup."""
+        self._logger.info(
+            "default_workspace_bootstrapped",
+            workspace_id=workspace_id,
+            tenant_id=tenant_id,
+            name=name,
+            **self._get_context_kwargs(),
+        )
+
+    def default_workspace_already_exists(
+        self, workspace_id: str, tenant_id: str, name: str
+    ) -> None:
+        """Record that the default root workspace already existed."""
+        self._logger.info(
+            "default_workspace_already_exists",
+            workspace_id=workspace_id,
             tenant_id=tenant_id,
             name=name,
             **self._get_context_kwargs(),

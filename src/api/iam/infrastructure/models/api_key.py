@@ -27,9 +27,9 @@ class APIKeyModel(Base, TimestampMixin):
     - Per-user key names are unique within a tenant
 
     Foreign Key Constraint:
-    - tenant_id references tenants.id with CASCADE delete
-    - When a tenant is deleted, all API keys are cascade deleted
-    - API key revocation must be handled in service layer to emit events
+    - tenant_id references tenants.id with RESTRICT delete
+      Application must delete API keys before tenant deletion
+    - API key deletion must be handled in service layer to emit events
     """
 
     __tablename__ = "api_keys"
@@ -40,7 +40,7 @@ class APIKeyModel(Base, TimestampMixin):
     )
     tenant_id: Mapped[str] = mapped_column(
         String(26),
-        ForeignKey("tenants.id", ondelete="CASCADE"),
+        ForeignKey("tenants.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )

@@ -3,7 +3,12 @@
 import pytest
 from pydantic import ValidationError
 
-from infrastructure.settings import DatabaseSettings, OIDCSettings, get_oidc_settings
+from infrastructure.settings import (
+    DatabaseSettings,
+    IAMSettings,
+    OIDCSettings,
+    get_oidc_settings,
+)
 
 
 class TestDatabaseSettingsPoolConfiguration:
@@ -130,3 +135,27 @@ class TestOIDCSettings:
         settings2 = get_oidc_settings()
 
         assert settings1 is settings2
+
+
+class TestIAMSettings:
+    """Tests for IAM configuration settings."""
+
+    def test_bootstrap_admin_usernames_defaults_to_empty_list(self):
+        """bootstrap_admin_usernames should default to an empty list."""
+        settings = IAMSettings()
+        assert settings.bootstrap_admin_usernames == []
+
+    def test_bootstrap_admin_usernames_accepts_list(self):
+        """bootstrap_admin_usernames should accept a list of usernames."""
+        settings = IAMSettings(
+            bootstrap_admin_usernames=["alice", "bob"],
+        )
+        assert settings.bootstrap_admin_usernames == ["alice", "bob"]
+
+    def test_bootstrap_admin_usernames_from_env(self, monkeypatch):
+        """bootstrap_admin_usernames should be settable from environment."""
+        monkeypatch.setenv(
+            "KARTOGRAPH_IAM_BOOTSTRAP_ADMIN_USERNAMES", '["admin1","admin2"]'
+        )
+        settings = IAMSettings()
+        assert settings.bootstrap_admin_usernames == ["admin1", "admin2"]

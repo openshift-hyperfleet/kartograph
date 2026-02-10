@@ -34,12 +34,18 @@ def mock_session():
     """Mock AsyncSession."""
     session = Mock(spec=AsyncSession)
 
-    # Create async context manager mock
+    # Create async context manager mock for begin()
     ctx_manager = AsyncMock()
     ctx_manager.__aenter__ = AsyncMock(return_value=None)
     ctx_manager.__aexit__ = AsyncMock(return_value=None)
 
+    # Create async context manager mock for begin_nested() (savepoints)
+    nested_ctx_manager = AsyncMock()
+    nested_ctx_manager.__aenter__ = AsyncMock(return_value=None)
+    nested_ctx_manager.__aexit__ = AsyncMock(return_value=None)
+
     session.begin = Mock(return_value=ctx_manager)
+    session.begin_nested = Mock(return_value=nested_ctx_manager)
     return session
 
 

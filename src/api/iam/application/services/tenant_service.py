@@ -361,8 +361,37 @@ class TenantService:
                 api_keys_count=len(api_keys),
             )
 
-            # Delete workspaces first (may have parent-child relationships)
-            for workspace in workspaces:
+            # Delete workspaces in depth-first order (children before parents)
+            # Build depth map for topological sort
+            workspace_by_id = {ws.id.value: ws for ws in workspaces}
+            depth_map: dict[str, int] = {}
+
+            def compute_depth(ws_id: str) -> int:
+                if ws_id in depth_map:
+                    return depth_map[ws_id]
+                ws = workspace_by_id.get(ws_id)
+                if not ws or ws.parent_workspace_id is None:
+                    depth_map[ws_id] = 0
+                    return 0
+                parent_id = ws.parent_workspace_id.value
+                if parent_id not in workspace_by_id:
+                    # Parent not in deletion set (e.g., belongs to another tenant)
+                    depth_map[ws_id] = 0
+                    return 0
+                depth_map[ws_id] = compute_depth(parent_id) + 1
+                return depth_map[ws_id]
+
+            for ws in workspaces:
+                compute_depth(ws.id.value)
+
+            # Sort by descending depth (deepest children first)
+            sorted_workspaces = sorted(
+                workspaces,
+                key=lambda ws: depth_map.get(ws.id.value, 0),
+                reverse=True,
+            )
+
+            for workspace in sorted_workspaces:
                 workspace.mark_for_deletion()
                 await self._workspace_repository.delete(workspace)
 

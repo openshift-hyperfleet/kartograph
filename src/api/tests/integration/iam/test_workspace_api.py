@@ -121,6 +121,7 @@ class TestWorkspaceDeletion:
         """Test that deleting a workspace without children succeeds."""
         # Get root workspace
         resp = await async_client.get("/iam/workspaces", headers=auth_headers)
+        assert resp.status_code == 200
         root = next((w for w in resp.json()["workspaces"] if w["is_root"]), None)
         assert root is not None
 
@@ -146,6 +147,7 @@ class TestWorkspaceDeletion:
         """Test that deleting the root workspace fails with 409."""
         # Get root workspace
         resp = await async_client.get("/iam/workspaces", headers=auth_headers)
+        assert resp.status_code == 200
         root = next((w for w in resp.json()["workspaces"] if w["is_root"]), None)
         assert root is not None
 

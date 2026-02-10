@@ -47,6 +47,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Revert to previous state (no change needed, RESTRICT is correct)."""
-    # No-op: we don't want to revert to a broken state
-    pass
+    """Downgrade is not supported for this migration.
+
+    RESTRICT is the correct behavior and reverting would restore a broken state.
+    """
+    raise NotImplementedError(
+        "Downgrade not supported: reverting to non-RESTRICT behavior is not allowed"
+    )

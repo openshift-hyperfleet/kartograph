@@ -6,13 +6,13 @@ SpiceDB settings are configured in the parent conftest.
 
 from collections.abc import AsyncGenerator, Callable, Coroutine
 import os
-from typing import Any
+from typing import Any, cast
 
 from jose import jwt
 import pytest
 import pytest_asyncio
 from pydantic import SecretStr
-from sqlalchemy import text
+from sqlalchemy import CursorResult, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from iam.domain.aggregates import Tenant
@@ -133,29 +133,38 @@ async def clean_iam_data(
 
             # Delete workspaces before tenants (RESTRICT FK constraint)
             # Delete child workspaces first (those with parent_workspace_id)
-            result = await async_session.execute(
-                text("DELETE FROM workspaces WHERE parent_workspace_id IS NOT NULL")
+            children_result = cast(
+                CursorResult,
+                await async_session.execute(
+                    text("DELETE FROM workspaces WHERE parent_workspace_id IS NOT NULL")
+                ),
             )
-            probe.table_cleaned("workspaces (children)", result.rowcount)
+            probe.table_cleaned("workspaces (children)", children_result.rowcount)
 
             # Delete remaining workspaces (root workspaces) except default tenant's
-            result = await async_session.execute(
-                text("""
-                    DELETE FROM workspaces
-                    WHERE tenant_id IN (
-                        SELECT id FROM tenants WHERE name != :default_name
-                    )
-                """),
-                {"default_name": default_tenant_name},
+            roots_result = cast(
+                CursorResult,
+                await async_session.execute(
+                    text("""
+                        DELETE FROM workspaces
+                        WHERE tenant_id IN (
+                            SELECT id FROM tenants WHERE name != :default_name
+                        )
+                    """),
+                    {"default_name": default_tenant_name},
+                ),
             )
-            probe.table_cleaned("workspaces (roots)", result.rowcount)
+            probe.table_cleaned("workspaces (roots)", roots_result.rowcount)
 
             # Now safe to delete tenants
-            result = await async_session.execute(
-                text("DELETE FROM tenants WHERE name != :default_name"),
-                {"default_name": default_tenant_name},
+            tenants_result = cast(
+                CursorResult,
+                await async_session.execute(
+                    text("DELETE FROM tenants WHERE name != :default_name"),
+                    {"default_name": default_tenant_name},
+                ),
             )
-            probe.table_cleaned("tenants", result.rowcount)
+            probe.table_cleaned("tenants", tenants_result.rowcount)
 
             await async_session.commit()
             probe.cleanup_completed(tables_cleaned=7)

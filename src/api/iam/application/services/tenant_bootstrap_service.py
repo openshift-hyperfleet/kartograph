@@ -12,6 +12,9 @@ This service will be removed when proper multi-tenancy is implemented.
 
 from __future__ import annotations
 
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from iam.domain.aggregates import Tenant, Workspace
 from iam.ports.exceptions import DuplicateTenantNameError
 from iam.ports.repositories import ITenantRepository, IWorkspaceRepository
@@ -19,7 +22,6 @@ from infrastructure.observability.startup_probe import (
     DefaultStartupProbe,
     StartupProbe,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class TenantBootstrapService:
@@ -106,6 +108,10 @@ class TenantBootstrapService:
     ) -> Tenant | None:
         """Create tenant with handling for race conditions.
 
+        Uses a savepoint (nested transaction) to isolate the tenant creation
+        so that a DuplicateTenantNameError doesn't mark the outer transaction
+        for rollback, allowing subsequent queries to proceed.
+
         Args:
             tenant_name: Name for the tenant
 
@@ -113,8 +119,9 @@ class TenantBootstrapService:
             The created or concurrently-created Tenant, or None if unrecoverable
         """
         try:
-            tenant = Tenant.create(name=tenant_name)
-            await self._tenant_repository.save(tenant)
+            async with self._session.begin_nested():
+                tenant = Tenant.create(name=tenant_name)
+                await self._tenant_repository.save(tenant)
 
             self._probe.default_tenant_bootstrapped(
                 tenant_id=tenant.id.value,
@@ -139,6 +146,10 @@ class TenantBootstrapService:
     ) -> None:
         """Ensure the root workspace exists for the tenant.
 
+        Uses a savepoint (nested transaction) to isolate the workspace creation
+        so that an IntegrityError from a concurrent creation doesn't mark the
+        outer transaction for rollback.
+
         Args:
             tenant: The tenant to create the workspace for
             workspace_name: Name for the root workspace
@@ -156,15 +167,32 @@ class TenantBootstrapService:
             )
             return
 
-        # Create root workspace
+        # Create root workspace with race condition handling
         workspace = Workspace.create_root(
             name=workspace_name,
             tenant_id=tenant.id,
         )
-        await self._workspace_repository.save(workspace)
 
-        self._probe.default_workspace_bootstrapped(
-            workspace_id=workspace.id.value,
-            tenant_id=tenant.id.value,
-            name=workspace.name,
-        )
+        try:
+            async with self._session.begin_nested():
+                await self._workspace_repository.save(workspace)
+
+            self._probe.default_workspace_bootstrapped(
+                workspace_id=workspace.id.value,
+                tenant_id=tenant.id.value,
+                name=workspace.name,
+            )
+        except IntegrityError:
+            # Another instance created it concurrently, re-query
+            concurrent_workspace = await self._workspace_repository.get_root_workspace(
+                tenant.id
+            )
+            if concurrent_workspace:
+                self._probe.default_workspace_already_exists(
+                    workspace_id=concurrent_workspace.id.value,
+                    tenant_id=tenant.id.value,
+                    name=concurrent_workspace.name,
+                )
+            else:
+                # Re-raise if we can't recover
+                raise

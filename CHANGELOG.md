@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.12.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.11.0...v3.12.0) (2026-02-10)
+
+
+### Features
+
+* **api.iam:** auto tenant root workspace creation ([#210](https://github.com/openshift-hyperfleet/kartograph/issues/210)) ([11db83f](https://github.com/openshift-hyperfleet/kartograph/commit/11db83fa71f74e87fe70d61bb223e1bdabfab96f))
+
 ## [3.11.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.10.0...v3.11.0) (2026-02-10)
 
 

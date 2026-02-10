@@ -42,27 +42,30 @@ definition group {
 
 /**
  * Workspace provides resource organization within a tenant.
- * Workspaces can be owned by users (personal) or groups (shared).
  * Each tenant has at least one root workspace.
+ * Workspaces can form hierarchies via parent references.
  */
 definition workspace {
-	/** The parent tenant this workspace belongs to */
-	relation parent: tenant
+	/** The tenant this workspace belongs to (organizational ownership) */
+	relation tenant: tenant
 
-	/** Users or groups who own this workspace */
-	relation owner: user | group#member
+	/** The parent workspace (for hierarchical structure, child workspaces only) */
+	relation parent: workspace
 
-	/** Users or groups who are members of this workspace */
+	/** Users or groups who can administer this workspace (Phase 3) */
+	relation admin: user | group#member
+
+	/** Users or groups who are members of this workspace (Phase 3) */
 	relation member: user | group#member
 
-	/** Permission to view workspace and its resources */
-	permission view = owner + member
+	/** Permission to view workspace and its resources (Phase 3) */
+	permission view = admin + member
 
-	/** Permission to edit workspace configuration */
-	permission edit = owner
+	/** Permission to edit workspace configuration (Phase 3) */
+	permission edit = admin
 
-	/** Permission to delete workspace */
-	permission delete = owner
+	/** Permission to manage workspace (delete, modify members) (Phase 3) */
+	permission manage = admin
 }
 
 /**
@@ -119,8 +122,8 @@ definition api_key {
  *     relation editor: user | group#member
  *
  *     permission view = viewer + editor + workspace->member
- *     permission edit = editor + workspace->owner
- *     permission delete = workspace->owner
+ *     permission edit = editor + workspace->admin
+ *     permission delete = workspace->admin
  * }
  *
  * definition data_source {

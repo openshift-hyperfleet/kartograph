@@ -49,27 +49,30 @@ data:
 
     /**
      * Workspace provides resource organization within a tenant.
-     * Workspaces can be owned by users (personal) or groups (shared).
      * Each tenant has at least one root workspace.
+     * Workspaces can form hierarchies via parent references.
      */
     definition workspace {
-        /** The parent tenant this workspace belongs to */
-        relation parent: tenant
+        /** The tenant this workspace belongs to (organizational ownership) */
+        relation tenant: tenant
 
-        /** Users or groups who own this workspace */
-        relation owner: user | group#member
+        /** The parent workspace (for hierarchical structure, child workspaces only) */
+        relation parent: workspace
 
-        /** Users or groups who are members of this workspace */
+        /** Users or groups who can administer this workspace (Phase 3) */
+        relation admin: user | group#member
+
+        /** Users or groups who are members of this workspace (Phase 3) */
         relation member: user | group#member
 
-        /** Permission to view workspace and its resources */
-        permission view = owner + member
+        /** Permission to view workspace and its resources (Phase 3) */
+        permission view = admin + member
 
-        /** Permission to edit workspace configuration */
-        permission edit = owner
+        /** Permission to edit workspace configuration (Phase 3) */
+        permission edit = admin
 
-        /** Permission to delete workspace */
-        permission delete = owner
+        /** Permission to manage workspace (delete, modify members) (Phase 3) */
+        permission manage = admin
     }
 
     /**
@@ -84,9 +87,58 @@ data:
         /** The mandatory root workspace for this tenant */
         relation root_workspace: workspace
 
+        /** Members of this tenant */
+        relation member: user
+
         /** Permission to view tenant */
-        permission view = admin
+        permission view = admin + member
 
         /** Permission to manage tenant configuration */
         permission manage = admin
+
+        /** Permission to perform administrative actions on the tenant */
+        permission administrate = admin
     }
+
+    /**
+     * API Key represents a programmatic access credential.
+     * API keys are owned by users and scoped to tenants.
+     * Tenant admins can view and revoke any API key in their tenant.
+     */
+    definition api_key {
+        /** The user who owns this API key */
+        relation owner: user
+
+        /** The tenant this API key belongs to */
+        relation tenant: tenant
+
+        /** Permission to view API key metadata */
+        permission view = owner + tenant->administrate
+
+        /** Permission to revoke this API key */
+        permission revoke = owner + tenant->administrate
+    }
+
+
+    /**
+     * Future resource types (not yet implemented):
+     *
+     * definition knowledge_graph {
+     *     relation workspace: workspace
+     *     relation viewer: user | group#member
+     *     relation editor: user | group#member
+     *
+     *     permission view = viewer + editor + workspace->member
+     *     permission edit = editor + workspace->admin
+     *     permission delete = workspace->admin
+     * }
+     *
+     * definition data_source {
+     *     relation knowledge_graph: knowledge_graph
+     *     relation owner: user | group#member
+     *
+     *     permission view = owner + knowledge_graph->view
+     *     permission edit = owner + knowledge_graph->edit
+     *     permission delete = owner + knowledge_graph->delete
+     * }
+     */

@@ -75,14 +75,19 @@ class TestAddTenantMember:
 
     @pytest.mark.asyncio
     async def test_adds_admin_member_successfully(
-        self, async_client, clean_iam_data, auth_headers, spicedb_client, alice_user_id
+        self,
+        async_client,
+        clean_iam_data,
+        tenant_auth_headers,
+        spicedb_client,
+        alice_user_id,
     ):
         """Should add an admin member to tenant and return 201."""
         # Create tenant first
         create_response = await async_client.post(
             "/iam/tenants",
             json={"name": "Acme Corp"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
         assert create_response.status_code == 201
         tenant_id = create_response.json()["id"]
@@ -113,7 +118,7 @@ class TestAddTenantMember:
         response = await async_client.post(
             f"/iam/tenants/{tenant_id}/members",
             json={"user_id": new_user_id, "role": "admin"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert response.status_code == 201
@@ -123,14 +128,19 @@ class TestAddTenantMember:
 
     @pytest.mark.asyncio
     async def test_adds_regular_member_successfully(
-        self, async_client, clean_iam_data, auth_headers, spicedb_client, alice_user_id
+        self,
+        async_client,
+        clean_iam_data,
+        tenant_auth_headers,
+        spicedb_client,
+        alice_user_id,
     ):
         """Should add a regular member to tenant and return 201."""
         # Create tenant
         create_response = await async_client.post(
             "/iam/tenants",
             json={"name": "Acme Corp"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
         tenant_id = create_response.json()["id"]
 
@@ -159,7 +169,7 @@ class TestAddTenantMember:
         response = await async_client.post(
             f"/iam/tenants/{tenant_id}/members",
             json={"user_id": new_user_id, "role": "member"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert response.status_code == 201
@@ -169,14 +179,14 @@ class TestAddTenantMember:
 
     @pytest.mark.asyncio
     async def test_returns_403_when_not_authorized(
-        self, async_client, clean_iam_data, auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers
     ):
         """Should return 403 if caller is not tenant admin."""
         # Create tenant (alice is NOT automatically an admin)
         create_response = await async_client.post(
             "/iam/tenants",
             json={"name": "Acme Corp"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
         tenant_id = create_response.json()["id"]
 
@@ -184,21 +194,21 @@ class TestAddTenantMember:
         response = await async_client.post(
             f"/iam/tenants/{tenant_id}/members",
             json={"user_id": UserId.generate().value, "role": "member"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert response.status_code == 403
 
     @pytest.mark.asyncio
     async def test_returns_403_for_nonexistent_tenant(
-        self, async_client, clean_iam_data, auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers
     ):
         """Should return 403 if tenant doesn't exist to avoid leaking existence."""
         fake_tenant_id = TenantId.generate().value
         response = await async_client.post(
             f"/iam/tenants/{fake_tenant_id}/members",
             json={"user_id": UserId.generate().value, "role": "member"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         # 403 is returned to avoid leaking existence
@@ -206,13 +216,13 @@ class TestAddTenantMember:
 
     @pytest.mark.asyncio
     async def test_returns_400_for_invalid_tenant_id(
-        self, async_client, clean_iam_data, auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers
     ):
         """Should return 400 for invalid tenant ID format."""
         response = await async_client.post(
             "/iam/tenants/invalid/members",
             json={"user_id": UserId.generate().value, "role": "member"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert response.status_code == 400
@@ -223,14 +233,19 @@ class TestRemoveTenantMember:
 
     @pytest.mark.asyncio
     async def test_removes_member_successfully(
-        self, async_client, clean_iam_data, auth_headers, spicedb_client, alice_user_id
+        self,
+        async_client,
+        clean_iam_data,
+        tenant_auth_headers,
+        spicedb_client,
+        alice_user_id,
     ):
         """Should remove member from tenant and return 204."""
         # Create tenant
         create_response = await async_client.post(
             "/iam/tenants",
             json={"name": "Acme Corp"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
         tenant_id = create_response.json()["id"]
 
@@ -258,7 +273,7 @@ class TestRemoveTenantMember:
         add_response = await async_client.post(
             f"/iam/tenants/{tenant_id}/members",
             json={"user_id": member_user_id, "role": "member"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
         assert add_response.status_code == 201
 
@@ -275,21 +290,26 @@ class TestRemoveTenantMember:
         # Remove the member
         response = await async_client.delete(
             f"/iam/tenants/{tenant_id}/members/{member_user_id}",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert response.status_code == 204
 
     @pytest.mark.asyncio
     async def test_returns_409_when_removing_last_admin(
-        self, async_client, clean_iam_data, auth_headers, spicedb_client, alice_user_id
+        self,
+        async_client,
+        clean_iam_data,
+        tenant_auth_headers,
+        spicedb_client,
+        alice_user_id,
     ):
         """Should return 409 if trying to remove the last admin."""
         # Create tenant
         create_response = await async_client.post(
             "/iam/tenants",
             json={"name": "Acme Corp"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
         tenant_id = create_response.json()["id"]
 
@@ -315,40 +335,40 @@ class TestRemoveTenantMember:
         # Try to remove alice (the only admin)
         response = await async_client.delete(
             f"/iam/tenants/{tenant_id}/members/{alice_user_id}",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert response.status_code == 409
 
     @pytest.mark.asyncio
     async def test_returns_403_when_not_authorized(
-        self, async_client, clean_iam_data, auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers
     ):
         """Should return 403 if caller is not tenant admin."""
         # Create tenant
         create_response = await async_client.post(
             "/iam/tenants",
             json={"name": "Acme Corp"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
         tenant_id = create_response.json()["id"]
 
         # Try to remove member without being admin
         response = await async_client.delete(
             f"/iam/tenants/{tenant_id}/members/{UserId.generate().value}",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert response.status_code == 403
 
     @pytest.mark.asyncio
     async def test_returns_400_for_invalid_tenant_id(
-        self, async_client, clean_iam_data, auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers
     ):
         """Should return 400 for invalid tenant ID format."""
         response = await async_client.delete(
             f"/iam/tenants/invalid/members/{UserId.generate().value}",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert response.status_code == 400
@@ -359,14 +379,19 @@ class TestListTenantMembers:
 
     @pytest.mark.asyncio
     async def test_lists_members_successfully(
-        self, async_client, clean_iam_data, auth_headers, spicedb_client, alice_user_id
+        self,
+        async_client,
+        clean_iam_data,
+        tenant_auth_headers,
+        spicedb_client,
+        alice_user_id,
     ):
         """Should list all tenant members."""
         # Create tenant
         create_response = await async_client.post(
             "/iam/tenants",
             json={"name": "Acme Corp"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
         tenant_id = create_response.json()["id"]
 
@@ -394,7 +419,7 @@ class TestListTenantMembers:
         add_member_response = await async_client.post(
             f"/iam/tenants/{tenant_id}/members",
             json={"user_id": member_user_id, "role": "member"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
         assert add_member_response.status_code == 201, (
             f"Failed to add member: {add_member_response.status_code} - {add_member_response.text}"
@@ -413,7 +438,7 @@ class TestListTenantMembers:
         # List members
         response = await async_client.get(
             f"/iam/tenants/{tenant_id}/members",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert response.status_code == 200
@@ -426,34 +451,34 @@ class TestListTenantMembers:
 
     @pytest.mark.asyncio
     async def test_returns_403_when_not_authorized(
-        self, async_client, clean_iam_data, auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers
     ):
         """Should return 403 if caller is not tenant admin."""
         # Create tenant
         create_response = await async_client.post(
             "/iam/tenants",
             json={"name": "Acme Corp"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
         tenant_id = create_response.json()["id"]
 
         # Try to list members without being admin
         response = await async_client.get(
             f"/iam/tenants/{tenant_id}/members",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert response.status_code == 403
 
     @pytest.mark.asyncio
     async def test_returns_403_for_nonexistent_tenant(
-        self, async_client, clean_iam_data, auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers
     ):
         """Should return 403 if tenant doesn't exist to avoid leaking existence."""
         fake_tenant_id = TenantId.generate().value
         response = await async_client.get(
             f"/iam/tenants/{fake_tenant_id}/members",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         # 403 to avoid leaking existence
@@ -461,12 +486,12 @@ class TestListTenantMembers:
 
     @pytest.mark.asyncio
     async def test_returns_400_for_invalid_tenant_id(
-        self, async_client, clean_iam_data, auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers
     ):
         """Should return 400 for invalid tenant ID format."""
         response = await async_client.get(
             "/iam/tenants/invalid/members",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert response.status_code == 400

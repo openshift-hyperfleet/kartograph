@@ -55,6 +55,13 @@ def mock_tenant_repo() -> AsyncMock:
     return AsyncMock()
 
 
+@pytest.fixture
+def mock_session() -> AsyncMock:
+    """Create a mock async session with commit support."""
+    session = AsyncMock()
+    return session
+
+
 class TestValidateUlidNormalization:
     """Tests for _validate_ulid canonical form normalization."""
 
@@ -1084,3 +1091,105 @@ class TestAutoAddUserInSingleTenantMode:
         # The tenant passed to save should have pending events from add_member
         saved_tenant = mock_tenant_repo.save.call_args[0][0]
         assert saved_tenant is default_tenant
+
+
+class TestAutoAddTransactionCommit:
+    """Tests that auto-add member writes are committed to the database.
+
+    The tenant context session uses autocommit=False, so the save must be
+    followed by an explicit ``await session.commit()``. We cannot use
+    ``async with session.begin()`` because the preceding
+    ``tenant_repository.get_by_name()`` call already starts a transaction.
+    Without the commit, outbox events produced by tenant_repository.save()
+    are silently rolled back when the session closes.
+    """
+
+    @pytest.mark.asyncio
+    async def test_auto_add_save_is_committed(
+        self,
+        valid_tenant_id: TenantId,
+        mock_authz: AsyncMock,
+        mock_probe: MagicMock,
+        mock_tenant_repo: AsyncMock,
+        mock_session: AsyncMock,
+    ) -> None:
+        """session.commit() must be called after save() so outbox rows are committed."""
+        from iam.domain.aggregates import Tenant
+
+        default_tenant = Tenant(id=valid_tenant_id, name="default")
+        mock_tenant_repo.get_by_name.return_value = default_tenant
+        mock_authz.check_permission.return_value = False
+
+        await get_tenant_context(
+            x_tenant_id=None,
+            user_id="user-123",
+            username="alice",
+            authz=mock_authz,
+            probe=mock_probe,
+            single_tenant_mode=True,
+            tenant_repository=mock_tenant_repo,
+            default_tenant_name="default",
+            bootstrap_admin_usernames=[],
+            session=mock_session,
+        )
+
+        # save() must have been called, followed by commit()
+        mock_tenant_repo.save.assert_awaited_once()
+        mock_session.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_no_commit_when_user_already_member(
+        self,
+        valid_tenant_id: TenantId,
+        mock_authz: AsyncMock,
+        mock_probe: MagicMock,
+        mock_tenant_repo: AsyncMock,
+        mock_session: AsyncMock,
+    ) -> None:
+        """session.commit() should NOT be called when no auto-add is needed."""
+        from iam.domain.aggregates import Tenant
+
+        default_tenant = Tenant(id=valid_tenant_id, name="default")
+        mock_tenant_repo.get_by_name.return_value = default_tenant
+        mock_authz.check_permission.return_value = True  # already a member
+
+        await get_tenant_context(
+            x_tenant_id=None,
+            user_id="user-123",
+            username="alice",
+            authz=mock_authz,
+            probe=mock_probe,
+            single_tenant_mode=True,
+            tenant_repository=mock_tenant_repo,
+            default_tenant_name="default",
+            bootstrap_admin_usernames=[],
+            session=mock_session,
+        )
+
+        mock_session.commit.assert_not_awaited()
+        mock_tenant_repo.save.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_commit_when_header_provided(
+        self,
+        valid_tenant_id: TenantId,
+        mock_authz: AsyncMock,
+        mock_probe: MagicMock,
+        mock_tenant_repo: AsyncMock,
+        mock_session: AsyncMock,
+    ) -> None:
+        """session.commit() should NOT be called for the header-based path."""
+        await get_tenant_context(
+            x_tenant_id=valid_tenant_id.value,
+            user_id="user-123",
+            username="alice",
+            authz=mock_authz,
+            probe=mock_probe,
+            single_tenant_mode=False,
+            tenant_repository=mock_tenant_repo,
+            default_tenant_name="default",
+            bootstrap_admin_usernames=[],
+            session=mock_session,
+        )
+
+        mock_session.commit.assert_not_awaited()

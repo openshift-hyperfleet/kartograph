@@ -9,6 +9,7 @@ import pytest_asyncio
 from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
 
+from iam.dependencies.multi_tenant_mode import _get_single_tenant_mode
 from iam.domain.value_objects import TenantId
 from main import app
 
@@ -21,11 +22,16 @@ async def async_client():
 
     Uses LifespanManager to ensure app lifespan (database engine init)
     runs before tests and cleanup runs after.
+
+    Overrides _get_single_tenant_mode to return False so that tenant
+    CRUD routes (POST, DELETE) are not blocked by the single-tenant gate.
     """
+    app.dependency_overrides[_get_single_tenant_mode] = lambda: False
     async with LifespanManager(app):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             yield client
+    app.dependency_overrides.pop(_get_single_tenant_mode, None)
 
 
 class TestCreateTenant:

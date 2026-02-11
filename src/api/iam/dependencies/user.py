@@ -117,6 +117,9 @@ async def resolve_tenant_context(
     tenant_repo: Annotated[
         TenantRepository, Depends(_get_tenant_repository_for_context)
     ],
+    tenant_context_session: Annotated[
+        AsyncSession, Depends(get_tenant_context_session)
+    ],
     token: Annotated[str | None, Depends(oauth2_scheme)] = None,
     x_tenant_id: Annotated[str | None, Header(alias="X-Tenant-ID")] = None,
     x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
@@ -141,6 +144,9 @@ async def resolve_tenant_context(
         authz: Authorization provider for SpiceDB permission checks
         tenant_context_probe: Domain probe for tenant context observability
         tenant_repo: Repository for looking up tenants
+        tenant_context_session: Dedicated database session for tenant context
+            resolution. Passed to get_tenant_context so that auto-add member
+            writes are followed by an explicit ``await session.commit()`` call.
         token: Bearer token from Authorization header
         x_tenant_id: Optional X-Tenant-ID header value
         x_api_key: Optional X-API-Key header value
@@ -174,6 +180,7 @@ async def resolve_tenant_context(
             tenant_repository=tenant_repo,
             default_tenant_name=iam_settings.default_tenant_name,
             bootstrap_admin_usernames=iam_settings.bootstrap_admin_usernames,
+            session=tenant_context_session,
         )
 
     # For API key requests, the tenant comes from the API key itself.

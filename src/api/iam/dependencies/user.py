@@ -146,7 +146,7 @@ async def resolve_tenant_context(
         tenant_repo: Repository for looking up tenants
         tenant_context_session: Dedicated database session for tenant context
             resolution. Passed to get_tenant_context so that auto-add member
-            writes are wrapped in ``async with session.begin()`` and committed.
+            writes are followed by an explicit ``await session.commit()`` call.
         token: Bearer token from Authorization header
         x_tenant_id: Optional X-Tenant-ID header value
         x_api_key: Optional X-API-Key header value

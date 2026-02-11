@@ -20,6 +20,7 @@ Usage in FastAPI routes:
 from __future__ import annotations
 
 from fastapi import HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID
 
 from iam.domain.value_objects import TenantId, TenantRole, UserId
@@ -66,6 +67,7 @@ async def get_tenant_context(
     tenant_repository: ITenantRepository,
     default_tenant_name: str,
     bootstrap_admin_usernames: list[str],
+    session: AsyncSession | None = None,
 ) -> TenantContext:
     """Get the tenant context from the X-Tenant-ID header.
 
@@ -83,6 +85,10 @@ async def get_tenant_context(
         tenant_repository: Repository for looking up the default tenant.
         default_tenant_name: Configured default tenant name from IAMSettings.
         bootstrap_admin_usernames: Usernames that should be auto-added as admins.
+        session: Database session for transaction management. Required when
+            single_tenant_mode is True and auto-add may occur. After the save,
+            ``await session.commit()`` is called to ensure outbox events are
+            committed.
 
     Returns:
         TenantContext with the resolved tenant ID and source.
@@ -120,6 +126,7 @@ async def get_tenant_context(
                 tenant_repository=tenant_repository,
                 default_tenant_name=default_tenant_name,
                 bootstrap_admin_usernames=bootstrap_admin_usernames,
+                session=session,
             )
         else:
             probe.tenant_header_missing(user_id=user_id)
@@ -185,12 +192,22 @@ async def _resolve_default_tenant(
     tenant_repository: ITenantRepository,
     default_tenant_name: str,
     bootstrap_admin_usernames: list[str],
+    session: AsyncSession | None = None,
 ) -> TenantContext:
     """Auto-select the default tenant in single-tenant mode.
 
     Looks up the default tenant by name, checks if the user already has
     access, and auto-adds them if not. Users in the bootstrap_admin_usernames
     list are added as ADMIN; all others are added as MEMBER.
+
+    After saving, ``await session.commit()`` is called to ensure the
+    outbox events produced by ``tenant_repository.save()`` are committed.
+    Without this, the tenant context session (which has autocommit=False)
+    would silently roll back the outbox writes on close.
+
+    Note: We cannot use ``async with session.begin()`` here because the
+    session already has an active transaction from the preceding
+    ``tenant_repository.get_by_name()`` call.
 
     Args:
         user_id: The authenticated user's ID.
@@ -200,6 +217,7 @@ async def _resolve_default_tenant(
         tenant_repository: Repository for tenant lookup and save.
         default_tenant_name: Configured default tenant name from IAMSettings.
         bootstrap_admin_usernames: Usernames to auto-add as admins.
+        session: Database session for committing the save.
 
     Returns:
         TenantContext with the default tenant and 'default' source.
@@ -243,6 +261,8 @@ async def _resolve_default_tenant(
         try:
             tenant.add_member(user_id=UserId(value=user_id), role=role)
             await tenant_repository.save(tenant)
+            if session is not None:
+                await session.commit()
         except Exception as e:
             probe.user_auto_add_failed(
                 tenant_id=tenant.id.value,

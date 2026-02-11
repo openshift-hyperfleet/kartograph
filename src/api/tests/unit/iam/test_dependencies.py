@@ -1,6 +1,8 @@
 """Unit tests for IAM dependencies.
 
 Tests the JWT Bearer authentication flow in get_current_user.
+Tests verify that get_current_user_no_jit uses the tenant context dependency
+(get_tenant_context) instead of the walking skeleton's get_default_tenant_id().
 """
 
 from __future__ import annotations
@@ -13,11 +15,14 @@ from fastapi import HTTPException
 from iam.application.observability.authentication_probe import AuthenticationProbe
 from iam.application.value_objects import CurrentUser
 from iam.dependencies.authentication import JWTValidator
-from iam.walking_skeleton_bootstrap import set_default_tenant_id
 from iam.dependencies.user import get_current_user, get_current_user_no_jit
 from iam.domain.value_objects import TenantId, UserId
 from shared_kernel.auth import InvalidTokenError
 from shared_kernel.auth.jwt_validator import TokenClaims
+from shared_kernel.middleware.observability.tenant_context_probe import (
+    TenantContextProbe,
+)
+from shared_kernel.middleware.tenant_context import TenantContext
 
 
 @pytest.fixture
@@ -49,11 +54,35 @@ def mock_api_key_service() -> AsyncMock:
 
 
 @pytest.fixture
-def default_tenant_id() -> TenantId:
-    """Set up default tenant for tests."""
-    tenant_id = TenantId.generate()
-    set_default_tenant_id(tenant_id)
-    return tenant_id
+def mock_tenant_context_probe() -> MagicMock:
+    """Create a mock tenant context probe."""
+    return MagicMock(spec=TenantContextProbe)
+
+
+@pytest.fixture
+def mock_authz() -> AsyncMock:
+    """Create a mock authorization provider."""
+    authz = AsyncMock()
+    authz.check_permission = AsyncMock(return_value=True)
+    return authz
+
+
+@pytest.fixture
+def mock_tenant_repo() -> AsyncMock:
+    """Create a mock tenant repository."""
+    return AsyncMock()
+
+
+@pytest.fixture
+def tenant_id() -> TenantId:
+    """Generate a tenant ID for tests (no walking skeleton global state)."""
+    return TenantId.generate()
+
+
+@pytest.fixture
+def tenant_context(tenant_id: TenantId) -> TenantContext:
+    """Create a TenantContext for tests, simulating resolved tenant context."""
+    return TenantContext(tenant_id=tenant_id.value, source="default")
 
 
 @pytest.fixture
@@ -72,7 +101,11 @@ def valid_token_claims() -> TokenClaims:
 
 
 class TestGetCurrentUserNoJit:
-    """Tests for get_current_user_no_jit dependency (authentication without JIT provisioning)."""
+    """Tests for get_current_user_no_jit dependency (authentication without JIT provisioning).
+
+    Verifies that get_current_user_no_jit resolves tenant context via get_tenant_context
+    instead of the walking skeleton's get_default_tenant_id().
+    """
 
     @pytest.mark.asyncio
     async def test_successful_authentication_with_valid_jwt(
@@ -80,11 +113,15 @@ class TestGetCurrentUserNoJit:
         mock_jwt_validator: MagicMock,
         mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
-        default_tenant_id: TenantId,
+        tenant_context: TenantContext,
         valid_token: str,
         valid_token_claims: TokenClaims,
     ) -> None:
-        """Test successful authentication with a valid JWT token."""
+        """Test successful authentication with a valid JWT token.
+
+        The tenant context should come from get_tenant_context, not from
+        a hardcoded walking skeleton global.
+        """
         mock_jwt_validator.validate_token = AsyncMock(return_value=valid_token_claims)
 
         result = await get_current_user_no_jit(
@@ -92,13 +129,13 @@ class TestGetCurrentUserNoJit:
             validator=mock_jwt_validator,
             api_key_service=mock_api_key_service,
             auth_probe=mock_auth_probe,
-            x_tenant_id=default_tenant_id.value,
+            tenant_context=tenant_context,
         )
 
         assert isinstance(result, CurrentUser)
         assert result.user_id == UserId(value="external-user-123")
         assert result.username == "testuser"
-        assert result.tenant_id == default_tenant_id
+        assert result.tenant_id == TenantId(value=tenant_context.tenant_id)
 
         mock_jwt_validator.validate_token.assert_awaited_once_with("valid.jwt.token")
         mock_auth_probe.user_authenticated.assert_called_once_with(
@@ -112,7 +149,7 @@ class TestGetCurrentUserNoJit:
         mock_jwt_validator: MagicMock,
         mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
-        default_tenant_id: TenantId,
+        tenant_context: TenantContext,
     ) -> None:
         """Test 401 response when Authorization header is missing."""
         with pytest.raises(HTTPException) as exc_info:
@@ -121,7 +158,7 @@ class TestGetCurrentUserNoJit:
                 validator=mock_jwt_validator,
                 api_key_service=mock_api_key_service,
                 auth_probe=mock_auth_probe,
-                x_tenant_id=default_tenant_id.value,
+                tenant_context=tenant_context,
             )
 
         assert exc_info.value.status_code == 401
@@ -138,7 +175,7 @@ class TestGetCurrentUserNoJit:
         mock_jwt_validator: MagicMock,
         mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
-        default_tenant_id: TenantId,
+        tenant_context: TenantContext,
         valid_token: str,
     ) -> None:
         """Test 401 response when token validation fails."""
@@ -152,7 +189,7 @@ class TestGetCurrentUserNoJit:
                 validator=mock_jwt_validator,
                 api_key_service=mock_api_key_service,
                 auth_probe=mock_auth_probe,
-                x_tenant_id=default_tenant_id.value,
+                tenant_context=tenant_context,
             )
 
         assert exc_info.value.status_code == 401
@@ -169,7 +206,7 @@ class TestGetCurrentUserNoJit:
         mock_jwt_validator: MagicMock,
         mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
-        default_tenant_id: TenantId,
+        tenant_context: TenantContext,
         valid_token: str,
     ) -> None:
         """Test 401 response when token has expired."""
@@ -183,7 +220,7 @@ class TestGetCurrentUserNoJit:
                 validator=mock_jwt_validator,
                 api_key_service=mock_api_key_service,
                 auth_probe=mock_auth_probe,
-                x_tenant_id=default_tenant_id.value,
+                tenant_context=tenant_context,
             )
 
         assert exc_info.value.status_code == 401
@@ -200,7 +237,7 @@ class TestGetCurrentUserNoJit:
         mock_jwt_validator: MagicMock,
         mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
-        default_tenant_id: TenantId,
+        tenant_context: TenantContext,
         valid_token: str,
     ) -> None:
         """Test that user_id is correctly extracted from 'sub' claim."""
@@ -215,7 +252,7 @@ class TestGetCurrentUserNoJit:
             validator=mock_jwt_validator,
             api_key_service=mock_api_key_service,
             auth_probe=mock_auth_probe,
-            x_tenant_id=default_tenant_id.value,
+            tenant_context=tenant_context,
         )
 
         assert result.user_id == UserId(value="keycloak-user-uuid-12345")
@@ -226,7 +263,7 @@ class TestGetCurrentUserNoJit:
         mock_jwt_validator: MagicMock,
         mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
-        default_tenant_id: TenantId,
+        tenant_context: TenantContext,
         valid_token: str,
     ) -> None:
         """Test that username is extracted from 'preferred_username' claim."""
@@ -241,7 +278,7 @@ class TestGetCurrentUserNoJit:
             validator=mock_jwt_validator,
             api_key_service=mock_api_key_service,
             auth_probe=mock_auth_probe,
-            x_tenant_id=default_tenant_id.value,
+            tenant_context=tenant_context,
         )
 
         assert result.username == "jane.smith"
@@ -252,7 +289,7 @@ class TestGetCurrentUserNoJit:
         mock_jwt_validator: MagicMock,
         mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
-        default_tenant_id: TenantId,
+        tenant_context: TenantContext,
         valid_token: str,
     ) -> None:
         """Test that username falls back to 'sub' when preferred_username is missing."""
@@ -267,22 +304,27 @@ class TestGetCurrentUserNoJit:
             validator=mock_jwt_validator,
             api_key_service=mock_api_key_service,
             auth_probe=mock_auth_probe,
-            x_tenant_id=default_tenant_id.value,
+            tenant_context=tenant_context,
         )
 
         assert result.username == "user-123"
 
     @pytest.mark.asyncio
-    async def test_uses_default_tenant_for_single_tenant_mode(
+    async def test_uses_tenant_context_for_tenant_resolution(
         self,
         mock_jwt_validator: MagicMock,
         mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
-        default_tenant_id: TenantId,
+        tenant_context: TenantContext,
         valid_token: str,
         valid_token_claims: TokenClaims,
     ) -> None:
-        """Test that default tenant is used in single-tenant mode."""
+        """Test that tenant ID comes from the TenantContext dependency, not walking skeleton.
+
+        This is the key behavioral change: the tenant is resolved via
+        get_tenant_context (which handles headers, SpiceDB checks, and
+        single-tenant mode auto-selection) rather than from a cached global.
+        """
         mock_jwt_validator.validate_token = AsyncMock(return_value=valid_token_claims)
 
         result = await get_current_user_no_jit(
@@ -290,10 +332,36 @@ class TestGetCurrentUserNoJit:
             validator=mock_jwt_validator,
             api_key_service=mock_api_key_service,
             auth_probe=mock_auth_probe,
-            x_tenant_id=default_tenant_id.value,
+            tenant_context=tenant_context,
         )
 
-        assert result.tenant_id == default_tenant_id
+        assert result.tenant_id == TenantId(value=tenant_context.tenant_id)
+
+    @pytest.mark.asyncio
+    async def test_tenant_context_with_header_source(
+        self,
+        mock_jwt_validator: MagicMock,
+        mock_api_key_service: AsyncMock,
+        mock_auth_probe: MagicMock,
+        valid_token: str,
+        valid_token_claims: TokenClaims,
+    ) -> None:
+        """Test that tenant context from explicit header works correctly."""
+        header_tenant_id = TenantId.generate()
+        header_context = TenantContext(
+            tenant_id=header_tenant_id.value, source="header"
+        )
+        mock_jwt_validator.validate_token = AsyncMock(return_value=valid_token_claims)
+
+        result = await get_current_user_no_jit(
+            token=valid_token,
+            validator=mock_jwt_validator,
+            api_key_service=mock_api_key_service,
+            auth_probe=mock_auth_probe,
+            tenant_context=header_context,
+        )
+
+        assert result.tenant_id == header_tenant_id
 
     @pytest.mark.asyncio
     async def test_handles_non_ulid_user_id_from_external_idp(
@@ -301,7 +369,7 @@ class TestGetCurrentUserNoJit:
         mock_jwt_validator: MagicMock,
         mock_api_key_service: AsyncMock,
         mock_auth_probe: MagicMock,
-        default_tenant_id: TenantId,
+        tenant_context: TenantContext,
         valid_token: str,
     ) -> None:
         """Test that non-ULID user IDs from external IdP are accepted."""
@@ -316,7 +384,7 @@ class TestGetCurrentUserNoJit:
             validator=mock_jwt_validator,
             api_key_service=mock_api_key_service,
             auth_probe=mock_auth_probe,
-            x_tenant_id=default_tenant_id.value,
+            tenant_context=tenant_context,
         )
 
         assert result.user_id == UserId(value="auth0|12345678901234567890")

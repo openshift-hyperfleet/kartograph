@@ -6,6 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from iam.dependencies.multi_tenant_mode import require_multi_tenant_mode
 from iam.dependencies.tenant import get_tenant_service
 from iam.dependencies.user import get_current_user
 from iam.application.services import TenantService
@@ -26,7 +27,11 @@ router = APIRouter(
 )
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_multi_tenant_mode)],
+)
 async def create_tenant(
     request: CreateTenantRequest,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
@@ -146,7 +151,11 @@ async def list_tenants(
         )
 
 
-@router.delete("/{tenant_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{tenant_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_multi_tenant_mode)],
+)
 async def delete_tenant(
     tenant_id: str,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],

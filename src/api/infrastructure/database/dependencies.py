@@ -130,6 +130,31 @@ async def get_write_session(request: Request) -> AsyncGenerator[AsyncSession, No
         yield session
 
 
+async def get_tenant_context_session(
+    request: Request,
+) -> AsyncGenerator[AsyncSession, None]:
+    """Provide a separate write session for tenant context resolution.
+
+    This is intentionally a distinct dependency from get_write_session so that
+    tenant context resolution (which may auto-add users to the default tenant)
+    operates in its own transaction, independent of the main request session.
+
+    Without this separation, the auto-add member write in resolve_tenant_context
+    would start a transaction on the shared session, causing "A transaction is
+    already begun" errors when the main request handler later calls
+    session.begin().
+
+    Args:
+        request: FastAPI request (injected)
+
+    Yields:
+        AsyncSession for tenant context database operations
+    """
+    sessionmaker = request.app.state.write_sessionmaker
+    async with sessionmaker() as session:
+        yield session
+
+
 async def get_read_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
     """Provide a read-only session for queries (FastAPI dependency).
 

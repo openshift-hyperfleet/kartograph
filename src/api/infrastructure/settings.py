@@ -295,7 +295,8 @@ class IAMSettings(BaseSettings):
     single_tenant_mode: bool = Field(
         default=True,
         description="Enable single-tenant dev mode. When true and X-Tenant-ID header "
-        "is missing, auto-selects the default tenant. When false, X-Tenant-ID "
+        "is missing, auto-selects the default tenant. Creation of multiple tenants "
+        "is not supported when true. When false, X-Tenant-ID "
         "header is required on every request.",
     )
 

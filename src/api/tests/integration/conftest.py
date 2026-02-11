@@ -14,15 +14,19 @@ before ANY imports that might trigger settings caching.
 import os
 
 # Step 2: Now safe to import other modules
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 
 import httpx
 import pytest
+import pytest_asyncio
 from pydantic import SecretStr
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from graph.infrastructure.age_client import AgeGraphClient
 from infrastructure.database.connection import ConnectionFactory
 from infrastructure.database.connection_pool import ConnectionPool
+from infrastructure.database.engines import create_write_engine
 from infrastructure.settings import DatabaseSettings
 
 os.environ.setdefault("SPICEDB_ENDPOINT", "localhost:50051")
@@ -211,3 +215,88 @@ def bob_token(get_test_token) -> str:
 def auth_headers(alice_token: str) -> dict[str, str]:
     """Default auth headers using alice's token."""
     return {"Authorization": f"Bearer {alice_token}"}
+
+
+@pytest_asyncio.fixture
+async def default_tenant_id(
+    integration_db_settings: DatabaseSettings,
+) -> AsyncGenerator[str, None]:
+    """Get the default tenant ID from the database.
+
+    The default tenant is created at app startup by TenantBootstrapService.
+    This fixture queries the database directly to retrieve its ID for use
+    in X-Tenant-ID headers during integration tests.
+
+    Returns:
+        The default tenant's ID (ULID string)
+    """
+    from infrastructure.settings import get_iam_settings
+
+    iam_settings = get_iam_settings()
+    engine = create_write_engine(integration_db_settings)
+    sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with sessionmaker() as session:
+        result = await session.execute(
+            text("SELECT id FROM tenants WHERE name = :name"),
+            {"name": iam_settings.default_tenant_name},
+        )
+        row = result.scalar_one_or_none()
+        assert row is not None, (
+            f"Default tenant '{iam_settings.default_tenant_name}' not found. "
+            "Ensure app lifespan ran (use async_client fixture)."
+        )
+        yield row
+
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def tenant_auth_headers(
+    auth_headers: dict[str, str],
+    default_tenant_id: str,
+    alice_token: str,
+) -> dict[str, str]:
+    """Auth headers with X-Tenant-ID for integration tests.
+
+    Merges the JWT Bearer auth headers with the default tenant's
+    X-Tenant-ID header, making tenant context explicit in test requests
+    instead of relying on single-tenant mode auto-selection.
+
+    Also ensures the user has a SpiceDB 'member' relationship on the
+    default tenant, since the explicit X-Tenant-ID header triggers an
+    authorization check (unlike the auto-select path).
+
+    Args:
+        auth_headers: JWT Bearer auth headers
+        default_tenant_id: The default tenant's ID
+        alice_token: Alice's JWT token (for extracting user_id)
+
+    Returns:
+        Headers dict with both Authorization and X-Tenant-ID
+    """
+    from jose import jwt as jose_jwt
+
+    from infrastructure.authorization_dependencies import get_spicedb_client
+    from shared_kernel.authorization.types import (
+        ResourceType,
+        format_resource,
+        format_subject,
+    )
+
+    # Extract user_id from JWT claims
+    claims = jose_jwt.get_unverified_claims(alice_token)
+    user_id = claims["sub"]
+
+    # Ensure alice has 'member' relationship on the default tenant in SpiceDB
+    spicedb = get_spicedb_client()
+    resource = format_resource(ResourceType.TENANT, default_tenant_id)
+    subject = format_subject(ResourceType.USER, user_id)
+
+    await spicedb.write_relationship(
+        resource=resource,
+        relation="member",
+        subject=subject,
+    )
+
+    return {**auth_headers, "X-Tenant-ID": default_tenant_id}

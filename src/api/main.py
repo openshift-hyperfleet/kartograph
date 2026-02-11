@@ -70,7 +70,6 @@ async def kartograph_lifespan(app: FastAPI):
         from iam.application.services import TenantBootstrapService
         from iam.infrastructure.tenant_repository import TenantRepository
         from iam.infrastructure.workspace_repository import WorkspaceRepository
-        from iam.walking_skeleton_bootstrap import set_default_tenant_id
         from infrastructure.observability.startup_probe import DefaultStartupProbe
         from infrastructure.outbox.repository import OutboxRepository
         from infrastructure.settings import get_iam_settings
@@ -95,13 +94,10 @@ async def kartograph_lifespan(app: FastAPI):
                 iam_settings.default_workspace_name or iam_settings.default_tenant_name
             )
 
-            tenant = await bootstrap_service.ensure_default_tenant_with_workspace(
+            await bootstrap_service.ensure_default_tenant_with_workspace(
                 tenant_name=iam_settings.default_tenant_name,
                 workspace_name=workspace_name,
             )
-
-            # Cache default tenant ID for single-tenant mode
-            set_default_tenant_id(tenant.id)
 
     # Startup: start outbox worker if enabled
     outbox_settings = get_outbox_worker_settings()

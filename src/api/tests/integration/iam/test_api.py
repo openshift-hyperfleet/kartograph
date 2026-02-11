@@ -75,13 +75,13 @@ class TestCreateGroup:
 
     @pytest.mark.asyncio
     async def test_creates_group_successfully(
-        self, async_client, clean_iam_data, auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers
     ):
         """Should create group and return 201 with group details."""
         response = await async_client.post(
             "/iam/groups",
             json={"name": "Engineering"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert response.status_code == 201
@@ -96,21 +96,21 @@ class TestCreateGroup:
 
     @pytest.mark.asyncio
     async def test_returns_409_for_duplicate_name(
-        self, async_client, clean_iam_data, auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers
     ):
         """Should return 409 Conflict if group name exists in tenant."""
         # Create first group
         await async_client.post(
             "/iam/groups",
             json={"name": "Engineering"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         # Try to create duplicate
         response = await async_client.post(
             "/iam/groups",
             json={"name": "Engineering"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert response.status_code == 409
@@ -122,20 +122,20 @@ class TestGetGroup:
 
     @pytest.mark.asyncio
     async def test_gets_group_successfully(
-        self, async_client, clean_iam_data, auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers
     ):
         """Should retrieve group with members."""
         # Create group
         create_response = await async_client.post(
             "/iam/groups",
             json={"name": "Engineering"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
         group_id = create_response.json()["id"]
 
         # Get group
         response = await async_client.get(
-            f"/iam/groups/{group_id}", headers=auth_headers
+            f"/iam/groups/{group_id}", headers=tenant_auth_headers
         )
 
         assert response.status_code == 200
@@ -145,21 +145,25 @@ class TestGetGroup:
         assert len(data["members"]) == 1
 
     @pytest.mark.asyncio
-    async def test_returns_404_for_nonexistent_group(self, async_client, auth_headers):
+    async def test_returns_404_for_nonexistent_group(
+        self, async_client, tenant_auth_headers
+    ):
         """Should return 404 if group doesn't exist."""
         response = await async_client.get(
             f"/iam/groups/{GroupId.generate().value}",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_returns_400_for_invalid_group_id(
-        self, async_client, clean_iam_data, auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers
     ):
         """Should return 400 for invalid group ID format."""
-        response = await async_client.get("/iam/groups/invalid", headers=auth_headers)
+        response = await async_client.get(
+            "/iam/groups/invalid", headers=tenant_auth_headers
+        )
 
         assert response.status_code == 400
 
@@ -169,7 +173,12 @@ class TestDeleteGroup:
 
     @pytest.mark.asyncio
     async def test_deletes_group_successfully(
-        self, async_client, clean_iam_data, spicedb_client, auth_headers, alice_token
+        self,
+        async_client,
+        clean_iam_data,
+        spicedb_client,
+        tenant_auth_headers,
+        alice_token,
     ):
         """Should delete group and return 204.
 
@@ -182,7 +191,7 @@ class TestDeleteGroup:
         create_response = await async_client.post(
             "/iam/groups",
             json={"name": "Engineering"},
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
         group_id = create_response.json()["id"]
         # Get the user_id from the member (comes from JWT)
@@ -209,23 +218,25 @@ class TestDeleteGroup:
         # Delete group
         response = await async_client.delete(
             f"/iam/groups/{group_id}",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert response.status_code == 204
 
         # Verify it's gone
         get_response = await async_client.get(
-            f"/iam/groups/{group_id}", headers=auth_headers
+            f"/iam/groups/{group_id}", headers=tenant_auth_headers
         )
         assert get_response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_returns_403_for_nonexistent_group(self, async_client, auth_headers):
+    async def test_returns_403_for_nonexistent_group(
+        self, async_client, tenant_auth_headers
+    ):
         """Should return 403 if user lacks permission (doesn't leak existence)."""
         response = await async_client.delete(
             f"/iam/groups/{GroupId.generate().value}",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         # Returns 403 (not 404) to avoid leaking group existence information
@@ -233,12 +244,12 @@ class TestDeleteGroup:
 
     @pytest.mark.asyncio
     async def test_returns_400_for_invalid_id(
-        self, async_client, clean_iam_data, auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers
     ):
         """Should return 400 for invalid group ID."""
         response = await async_client.delete(
             "/iam/groups/invalid",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert response.status_code == 400

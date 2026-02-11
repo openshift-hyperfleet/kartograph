@@ -32,11 +32,11 @@ class TestWorkspaceCreation:
 
     @pytest.mark.asyncio
     async def test_creates_child_workspace(
-        self, async_client: AsyncClient, auth_headers: dict, clean_iam_data
+        self, async_client: AsyncClient, tenant_auth_headers: dict, clean_iam_data
     ):
         """Test creating a child workspace under root."""
         # Get root workspace
-        resp = await async_client.get("/iam/workspaces", headers=auth_headers)
+        resp = await async_client.get("/iam/workspaces", headers=tenant_auth_headers)
         assert resp.status_code == 200
         workspaces = resp.json()["workspaces"]
         root = next((w for w in workspaces if w["is_root"]), None)
@@ -45,7 +45,7 @@ class TestWorkspaceCreation:
         # Create child workspace
         resp = await async_client.post(
             "/iam/workspaces",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
             json={"name": "test_child", "parent_workspace_id": root["id"]},
         )
         assert resp.status_code == 201
@@ -60,7 +60,7 @@ class TestWorkspaceDeletion:
 
     @pytest.mark.asyncio
     async def test_cannot_delete_parent_with_children(
-        self, async_client: AsyncClient, auth_headers: dict, clean_iam_data
+        self, async_client: AsyncClient, tenant_auth_headers: dict, clean_iam_data
     ):
         """Test that deleting a parent workspace with children fails with 409.
 
@@ -70,7 +70,7 @@ class TestWorkspaceDeletion:
         a 409 Conflict error.
         """
         # Get root workspace
-        resp = await async_client.get("/iam/workspaces", headers=auth_headers)
+        resp = await async_client.get("/iam/workspaces", headers=tenant_auth_headers)
         assert resp.status_code == 200
         root = next((w for w in resp.json()["workspaces"] if w["is_root"]), None)
         assert root is not None
@@ -78,7 +78,7 @@ class TestWorkspaceDeletion:
         # Create parent workspace (child of root)
         resp = await async_client.post(
             "/iam/workspaces",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
             json={"name": "parent_ws", "parent_workspace_id": root["id"]},
         )
         assert resp.status_code == 201
@@ -87,7 +87,7 @@ class TestWorkspaceDeletion:
         # Create child workspace (child of parent)
         resp = await async_client.post(
             "/iam/workspaces",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
             json={"name": "child_ws", "parent_workspace_id": parent["id"]},
         )
         assert resp.status_code == 201
@@ -95,7 +95,7 @@ class TestWorkspaceDeletion:
 
         # Attempt to delete parent - should fail with 409
         resp = await async_client.delete(
-            f"/iam/workspaces/{parent['id']}", headers=auth_headers
+            f"/iam/workspaces/{parent['id']}", headers=tenant_auth_headers
         )
         assert resp.status_code == 409, (
             f"Expected 409 Conflict when deleting parent with children, "
@@ -105,22 +105,22 @@ class TestWorkspaceDeletion:
 
         # Cleanup: delete child first, then parent
         resp = await async_client.delete(
-            f"/iam/workspaces/{child['id']}", headers=auth_headers
+            f"/iam/workspaces/{child['id']}", headers=tenant_auth_headers
         )
         assert resp.status_code == 204
 
         resp = await async_client.delete(
-            f"/iam/workspaces/{parent['id']}", headers=auth_headers
+            f"/iam/workspaces/{parent['id']}", headers=tenant_auth_headers
         )
         assert resp.status_code == 204
 
     @pytest.mark.asyncio
     async def test_can_delete_workspace_without_children(
-        self, async_client: AsyncClient, auth_headers: dict, clean_iam_data
+        self, async_client: AsyncClient, tenant_auth_headers: dict, clean_iam_data
     ):
         """Test that deleting a workspace without children succeeds."""
         # Get root workspace
-        resp = await async_client.get("/iam/workspaces", headers=auth_headers)
+        resp = await async_client.get("/iam/workspaces", headers=tenant_auth_headers)
         assert resp.status_code == 200
         root = next((w for w in resp.json()["workspaces"] if w["is_root"]), None)
         assert root is not None
@@ -128,7 +128,7 @@ class TestWorkspaceDeletion:
         # Create a workspace
         resp = await async_client.post(
             "/iam/workspaces",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
             json={"name": "leaf_ws", "parent_workspace_id": root["id"]},
         )
         assert resp.status_code == 201
@@ -136,23 +136,23 @@ class TestWorkspaceDeletion:
 
         # Delete it - should succeed
         resp = await async_client.delete(
-            f"/iam/workspaces/{workspace['id']}", headers=auth_headers
+            f"/iam/workspaces/{workspace['id']}", headers=tenant_auth_headers
         )
         assert resp.status_code == 204
 
     @pytest.mark.asyncio
     async def test_cannot_delete_root_workspace(
-        self, async_client: AsyncClient, auth_headers: dict, clean_iam_data
+        self, async_client: AsyncClient, tenant_auth_headers: dict, clean_iam_data
     ):
         """Test that deleting the root workspace fails with 409."""
         # Get root workspace
-        resp = await async_client.get("/iam/workspaces", headers=auth_headers)
+        resp = await async_client.get("/iam/workspaces", headers=tenant_auth_headers)
         assert resp.status_code == 200
         root = next((w for w in resp.json()["workspaces"] if w["is_root"]), None)
         assert root is not None
 
         # Attempt to delete root - should fail
         resp = await async_client.delete(
-            f"/iam/workspaces/{root['id']}", headers=auth_headers
+            f"/iam/workspaces/{root['id']}", headers=tenant_auth_headers
         )
         assert resp.status_code == 409

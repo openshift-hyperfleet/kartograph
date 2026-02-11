@@ -31,7 +31,9 @@ async def unique_api_key_name() -> str:
 
 
 @pytest_asyncio.fixture
-async def api_key_secret(async_client, auth_headers, unique_api_key_name: str) -> str:
+async def api_key_secret(
+    async_client, tenant_auth_headers, unique_api_key_name: str
+) -> str:
     """Create an API key and return the plaintext secret.
 
     Uses JWT auth to create the key, then returns the secret for testing.
@@ -40,7 +42,7 @@ async def api_key_secret(async_client, auth_headers, unique_api_key_name: str) -
     response = await async_client.post(
         "/iam/api-keys",
         json={"name": unique_api_key_name, "expires_in_days": 1},
-        headers=auth_headers,
+        headers=tenant_auth_headers,
     )
     assert response.status_code == 201, f"Failed to create API key: {response.json()}"
     return response.json()["secret"]
@@ -48,7 +50,7 @@ async def api_key_secret(async_client, auth_headers, unique_api_key_name: str) -
 
 @pytest_asyncio.fixture
 async def revoked_api_key_secret(
-    async_client, auth_headers, unique_api_key_name: str
+    async_client, tenant_auth_headers, unique_api_key_name: str
 ) -> str:
     """Create an API key, revoke it, and return the secret.
 
@@ -59,7 +61,7 @@ async def revoked_api_key_secret(
     create_response = await async_client.post(
         "/iam/api-keys",
         json={"name": unique_api_key_name, "expires_in_days": 1},
-        headers=auth_headers,
+        headers=tenant_auth_headers,
     )
     assert create_response.status_code == 201
     key_data = create_response.json()
@@ -69,7 +71,7 @@ async def revoked_api_key_secret(
     # Revoke the key
     revoke_response = await async_client.delete(
         f"/iam/api-keys/{key_id}",
-        headers=auth_headers,
+        headers=tenant_auth_headers,
     )
     assert revoke_response.status_code == 204
 
@@ -116,13 +118,17 @@ class TestAPIKeyAuthentication:
 
     @pytest.mark.asyncio
     async def test_updates_last_used_at_on_success(
-        self, async_client, auth_headers, api_key_secret, unique_api_key_name: str
+        self,
+        async_client,
+        tenant_auth_headers,
+        api_key_secret,
+        unique_api_key_name: str,
     ):
         """Successful auth should update last_used_at."""
         # First, list keys to get the initial state
         list_response_before = await async_client.get(
             "/iam/api-keys",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
         assert list_response_before.status_code == 200
         keys_before = list_response_before.json()
@@ -142,7 +148,7 @@ class TestAPIKeyAuthentication:
         # Check that last_used_at was updated
         list_response_after = await async_client.get(
             "/iam/api-keys",
-            headers=auth_headers,
+            headers=tenant_auth_headers,
         )
         assert list_response_after.status_code == 200
         keys_after = list_response_after.json()
@@ -164,9 +170,9 @@ class TestDualAuthentication:
     """Tests for dual JWT + API Key authentication support."""
 
     @pytest.mark.asyncio
-    async def test_jwt_auth_still_works(self, async_client, auth_headers):
+    async def test_jwt_auth_still_works(self, async_client, tenant_auth_headers):
         """JWT Bearer token should still work."""
-        response = await async_client.get("/iam/tenants", headers=auth_headers)
+        response = await async_client.get("/iam/tenants", headers=tenant_auth_headers)
 
         assert response.status_code == 200
         assert isinstance(response.json(), list)
@@ -192,7 +198,7 @@ class TestDualAuthentication:
 
     @pytest.mark.asyncio
     async def test_prefers_jwt_when_both_provided(
-        self, async_client, auth_headers, api_key_secret
+        self, async_client, tenant_auth_headers, api_key_secret
     ):
         """When both JWT and API Key provided, prefer JWT.
 
@@ -202,7 +208,7 @@ class TestDualAuthentication:
         """
         # Combine both auth methods
         combined_headers = {
-            **auth_headers,
+            **tenant_auth_headers,
             "X-API-Key": api_key_secret,
         }
 

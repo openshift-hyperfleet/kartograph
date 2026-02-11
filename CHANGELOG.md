@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.13.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.12.0...v3.13.0) (2026-02-11)
+
+
+### Features
+
+* **api.iam:** aihcm 149 tenant context dependency ([#213](https://github.com/openshift-hyperfleet/kartograph/issues/213)) ([bfa46d1](https://github.com/openshift-hyperfleet/kartograph/commit/bfa46d1a76a516b4e848cf4271f0914842b6b1cb))
+
 ## [3.12.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.11.0...v3.12.0) (2026-02-10)
 
 

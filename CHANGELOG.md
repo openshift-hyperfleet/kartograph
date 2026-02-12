@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.13.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.13.0...v3.13.1) (2026-02-11)
+
+
+### Bug Fixes
+
+* **api.iam:** prevent multi-tenancy when single tenancy is enabled ([#216](https://github.com/openshift-hyperfleet/kartograph/issues/216)) ([488a19b](https://github.com/openshift-hyperfleet/kartograph/commit/488a19bb27471319a6faccd350a89788b6715768))
+
 ## [3.13.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.12.0...v3.13.0) (2026-02-11)
 
 

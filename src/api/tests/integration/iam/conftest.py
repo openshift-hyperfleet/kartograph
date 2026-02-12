@@ -4,8 +4,10 @@ These fixtures require running PostgreSQL and SpiceDB instances.
 SpiceDB settings are configured in the parent conftest.
 """
 
+import asyncio
 from collections.abc import AsyncGenerator, Callable, Coroutine
 import os
+import time
 from typing import Any, cast
 
 from jose import jwt
@@ -318,3 +320,36 @@ def bob_user_id(bob_token: str) -> str:
         The user_id (Keycloak UUID) for bob
     """
     return _extract_user_id_from_token(bob_token, "bob_token")
+
+
+async def wait_for_permission(
+    authz: AuthorizationProvider,
+    resource: str,
+    permission: str,
+    subject: str,
+    timeout: float = 5.0,
+    poll_interval: float = 0.05,
+) -> bool:
+    """Wait for a permission to become available in SpiceDB.
+
+    The outbox pattern introduces eventual consistency between PostgreSQL
+    and SpiceDB. This helper waits for the outbox worker to process events
+    and write relationships to SpiceDB before proceeding with assertions.
+
+    Args:
+        authz: Authorization provider (SpiceDB client)
+        resource: Resource identifier (e.g., "group:123")
+        permission: Permission to check (e.g., "manage")
+        subject: Subject identifier (e.g., "user:456")
+        timeout: Maximum time to wait in seconds
+        poll_interval: Time between checks in seconds
+
+    Returns:
+        True if permission became available, False if timeout exceeded
+    """
+    start = time.monotonic()
+    while time.monotonic() - start < timeout:
+        if await authz.check_permission(resource, permission, subject):
+            return True
+        await asyncio.sleep(poll_interval)
+    return False

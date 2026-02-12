@@ -147,6 +147,27 @@ class TenantRole(StrEnum):
     MEMBER = "member"
 
 
+class WorkspaceRole(StrEnum):
+    """Roles for workspace membership.
+
+    Defines the 3-tier permission hierarchy within a workspace.
+    """
+
+    ADMIN = "admin"  # Full control (view + edit + manage)
+    EDITOR = "editor"  # Read + write (view + edit)
+    MEMBER = "member"  # Read-only (view)
+
+
+class MemberType(StrEnum):
+    """Type of member in workspace membership.
+
+    Distinguishes between direct user grants and group-based grants.
+    """
+
+    USER = "user"  # Direct user grant: workspace#admin@user:alice
+    GROUP = "group"  # Group grant: workspace#admin@group:eng#member
+
+
 @dataclass(frozen=True)
 class GroupMember:
     """Represents a user's membership in a group with a specific role.

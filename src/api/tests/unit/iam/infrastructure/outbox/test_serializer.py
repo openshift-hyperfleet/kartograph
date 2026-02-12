@@ -16,8 +16,11 @@ from iam.domain.events import (
     MemberRemoved,
     MemberRoleChanged,
     MemberSnapshot,
+    WorkspaceMemberAdded,
+    WorkspaceMemberRemoved,
+    WorkspaceMemberRoleChanged,
 )
-from iam.domain.value_objects import GroupRole
+from iam.domain.value_objects import GroupRole, MemberType, WorkspaceRole
 from iam.infrastructure.outbox import IAMEventSerializer
 
 
@@ -34,6 +37,9 @@ class TestIAMEventSerializerSupportedEvents:
         assert "MemberAdded" in supported
         assert "MemberRemoved" in supported
         assert "MemberRoleChanged" in supported
+        assert "WorkspaceMemberAdded" in supported
+        assert "WorkspaceMemberRemoved" in supported
+        assert "WorkspaceMemberRoleChanged" in supported
 
 
 class TestIAMEventSerializerSerialize:
@@ -109,6 +115,66 @@ class TestIAMEventSerializerSerialize:
 
         payload = serializer.serialize(event)
 
+        assert payload["old_role"] == "member"
+        assert payload["new_role"] == "admin"
+
+    def test_serializes_workspace_member_added(self):
+        """WorkspaceMemberAdded should serialize role and member_type enums to strings."""
+        serializer = IAMEventSerializer()
+        occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
+        event = WorkspaceMemberAdded(
+            workspace_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            member_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
+            member_type=MemberType.USER,
+            role=WorkspaceRole.EDITOR,
+            occurred_at=occurred_at,
+        )
+
+        payload = serializer.serialize(event)
+
+        assert payload["workspace_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
+        assert payload["member_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNWW"
+        assert payload["member_type"] == "user"
+        assert payload["role"] == "editor"
+        assert payload["occurred_at"] == "2026-01-08T12:00:00+00:00"
+
+    def test_serializes_workspace_member_removed(self):
+        """WorkspaceMemberRemoved should serialize correctly."""
+        serializer = IAMEventSerializer()
+        occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
+        event = WorkspaceMemberRemoved(
+            workspace_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            member_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
+            member_type=MemberType.GROUP,
+            role=WorkspaceRole.ADMIN,
+            occurred_at=occurred_at,
+        )
+
+        payload = serializer.serialize(event)
+
+        assert payload["workspace_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
+        assert payload["member_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNWW"
+        assert payload["member_type"] == "group"
+        assert payload["role"] == "admin"
+
+    def test_serializes_workspace_member_role_changed(self):
+        """WorkspaceMemberRoleChanged should serialize both roles."""
+        serializer = IAMEventSerializer()
+        occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
+        event = WorkspaceMemberRoleChanged(
+            workspace_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            member_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
+            member_type=MemberType.USER,
+            old_role=WorkspaceRole.MEMBER,
+            new_role=WorkspaceRole.ADMIN,
+            occurred_at=occurred_at,
+        )
+
+        payload = serializer.serialize(event)
+
+        assert payload["workspace_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
+        assert payload["member_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNWW"
+        assert payload["member_type"] == "user"
         assert payload["old_role"] == "member"
         assert payload["new_role"] == "admin"
 
@@ -218,6 +284,63 @@ class TestIAMEventSerializerDeserialize:
         assert event.old_role == GroupRole.MEMBER
         assert event.new_role == GroupRole.ADMIN
 
+    def test_deserializes_workspace_member_added(self):
+        """WorkspaceMemberAdded should be deserialized correctly."""
+        serializer = IAMEventSerializer()
+        payload = {
+            "workspace_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            "member_id": "01ARZCX0P0HZGQP3MZXQQ0NNWW",
+            "member_type": "user",
+            "role": "editor",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        event = serializer.deserialize("WorkspaceMemberAdded", payload)
+
+        assert isinstance(event, WorkspaceMemberAdded)
+        assert event.workspace_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
+        assert event.member_id == "01ARZCX0P0HZGQP3MZXQQ0NNWW"
+        assert event.member_type is MemberType.USER
+        assert event.role is WorkspaceRole.EDITOR
+        assert event.occurred_at == datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
+
+    def test_deserializes_workspace_member_removed(self):
+        """WorkspaceMemberRemoved should be deserialized correctly."""
+        serializer = IAMEventSerializer()
+        payload = {
+            "workspace_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            "member_id": "01ARZCX0P0HZGQP3MZXQQ0NNWW",
+            "member_type": "group",
+            "role": "admin",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        event = serializer.deserialize("WorkspaceMemberRemoved", payload)
+
+        assert isinstance(event, WorkspaceMemberRemoved)
+        assert event.workspace_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
+        assert event.member_type is MemberType.GROUP
+        assert event.role is WorkspaceRole.ADMIN
+
+    def test_deserializes_workspace_member_role_changed(self):
+        """WorkspaceMemberRoleChanged should be deserialized correctly."""
+        serializer = IAMEventSerializer()
+        payload = {
+            "workspace_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            "member_id": "01ARZCX0P0HZGQP3MZXQQ0NNWW",
+            "member_type": "user",
+            "old_role": "member",
+            "new_role": "admin",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        event = serializer.deserialize("WorkspaceMemberRoleChanged", payload)
+
+        assert isinstance(event, WorkspaceMemberRoleChanged)
+        assert event.old_role is WorkspaceRole.MEMBER
+        assert event.new_role is WorkspaceRole.ADMIN
+        assert event.member_type is MemberType.USER
+
     def test_raises_for_unknown_event_type(self):
         """Deserializer should raise for unknown event types."""
         serializer = IAMEventSerializer()
@@ -306,3 +429,52 @@ class TestIAMEventSerializerRoundTrip:
             payload = serializer.serialize(original)
             restored = serializer.deserialize(event_type, payload)
             assert restored == original, f"Round trip failed for {event_type}"
+
+    def test_round_trip_workspace_member_added(self):
+        """WorkspaceMemberAdded should round trip correctly."""
+        serializer = IAMEventSerializer()
+        original = WorkspaceMemberAdded(
+            workspace_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            member_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
+            member_type=MemberType.USER,
+            role=WorkspaceRole.EDITOR,
+            occurred_at=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
+        )
+
+        payload = serializer.serialize(original)
+        restored = serializer.deserialize("WorkspaceMemberAdded", payload)
+
+        assert restored == original
+
+    def test_round_trip_workspace_member_removed(self):
+        """WorkspaceMemberRemoved should round trip correctly."""
+        serializer = IAMEventSerializer()
+        original = WorkspaceMemberRemoved(
+            workspace_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            member_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
+            member_type=MemberType.GROUP,
+            role=WorkspaceRole.ADMIN,
+            occurred_at=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
+        )
+
+        payload = serializer.serialize(original)
+        restored = serializer.deserialize("WorkspaceMemberRemoved", payload)
+
+        assert restored == original
+
+    def test_round_trip_workspace_member_role_changed(self):
+        """WorkspaceMemberRoleChanged should round trip correctly."""
+        serializer = IAMEventSerializer()
+        original = WorkspaceMemberRoleChanged(
+            workspace_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            member_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
+            member_type=MemberType.USER,
+            old_role=WorkspaceRole.MEMBER,
+            new_role=WorkspaceRole.ADMIN,
+            occurred_at=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
+        )
+
+        payload = serializer.serialize(original)
+        restored = serializer.deserialize("WorkspaceMemberRoleChanged", payload)
+
+        assert restored == original

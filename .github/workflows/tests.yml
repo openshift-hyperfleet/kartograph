@@ -48,11 +48,11 @@ jobs:
 
       - name: Start SpiceDB
         run: |
-          docker run -d 
-          -p 50051:50051
-          -p 50052:50052
-          --entrypoint spicedb
-          quay.io/authzed/spicedb:v1.48.0
+          docker run -d \
+          -p 50051:50051 \
+          -p 50052:50052 \
+          --entrypoint spicedb \
+          quay.io/authzed/spicedb:v1.48.0 \
           serve-testing
 
       - name: Set up uv

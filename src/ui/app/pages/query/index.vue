@@ -110,14 +110,12 @@ const historyOpen = ref(true)
 
 const editorContainer = ref<HTMLElement | null>(null)
 
-const cmExtensions = computed<Extension[]>(() => [
+// Static extensions that never change — created once to avoid unnecessary
+// CodeMirror reconfiguration cycles when reactive schema data updates.
+const staticExtensions: Extension[] = [
   kartographTheme,
   kartographHighlightStyle,
   cypher(),
-  cypherAutocomplete({
-    labels: nodeLabels.value,
-    relationshipTypes: edgeLabels.value,
-  }),
   ageCypherLinter(),
   cypherTooltips(),
   keymap.of([
@@ -130,6 +128,15 @@ const cmExtensions = computed<Extension[]>(() => [
       },
     },
   ]),
+]
+
+// Only the autocomplete extension needs to react to schema changes
+const cmExtensions = computed<Extension[]>(() => [
+  ...staticExtensions,
+  cypherAutocomplete({
+    labels: nodeLabels.value,
+    relationshipTypes: edgeLabels.value,
+  }),
 ])
 
 const { view: editorView, focus: focusEditor } = useCodemirror(
@@ -148,8 +155,8 @@ const columns = computed<string[]>(() => {
 // ── Actions ────────────────────────────────────────────────────────────────
 
 async function executeQuery() {
-  const cypher = query.value.trim()
-  if (!cypher || executing.value) return
+  const cypherQuery = query.value.trim()
+  if (!cypherQuery || executing.value) return
 
   executing.value = true
   error.value = null
@@ -165,7 +172,7 @@ async function executeQuery() {
 
   try {
     const res = await queryGraph(
-      cypher,
+      cypherQuery,
       Number(timeout.value),
       Number(maxRows.value),
     )
@@ -173,7 +180,7 @@ async function executeQuery() {
     result.value = res
     activeResultTab.value = 'table'
 
-    addToHistory(cypher, res.row_count)
+    addToHistory(cypherQuery, res.row_count)
     toast.success(`Query returned ${res.row_count} row${res.row_count !== 1 ? 's' : ''}`, {
       description: `Completed in ${executionTime.value}ms`,
     })
@@ -187,7 +194,7 @@ async function executeQuery() {
       applyServerError(editorView.value, message)
     }
 
-    addToHistory(cypher, null)
+    addToHistory(cypherQuery, null)
     toast.error('Query failed', { description: message })
   } finally {
     executing.value = false
@@ -205,8 +212,8 @@ function clearEditor() {
   nextTick(focusEditor)
 }
 
-function setQuery(cypher: string) {
-  query.value = cypher
+function setQuery(cypherText: string) {
+  query.value = cypherText
   if (editorView.value) {
     clearServerErrors(editorView.value)
   }
@@ -260,9 +267,9 @@ function saveHistory() {
   } catch { /* storage full – ignore */ }
 }
 
-function addToHistory(cypher: string, rowCount: number | null) {
-  history.value = history.value.filter(h => h.query !== cypher)
-  history.value.unshift({ query: cypher, timestamp: Date.now(), rowCount })
+function addToHistory(cypherText: string, rowCount: number | null) {
+  history.value = history.value.filter(h => h.query !== cypherText)
+  history.value.unshift({ query: cypherText, timestamp: Date.now(), rowCount })
   if (history.value.length > MAX_HISTORY) {
     history.value = history.value.slice(0, MAX_HISTORY)
   }

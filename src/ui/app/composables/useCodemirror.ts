@@ -1,4 +1,4 @@
-import { onMounted, onUnmounted, ref, watch, shallowRef, type Ref } from 'vue'
+import { onMounted, onUnmounted, watch, shallowRef, type Ref } from 'vue'
 import { EditorState, Compartment, type Extension } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
@@ -14,8 +14,14 @@ export function useCodemirror(
   const view = shallowRef<EditorView | null>(null)
   const dynamicCompartment = new Compartment()
 
-  // Prevent feedback loops when we programmatically update the doc
-  let ignoreNextUpdate = false
+  // Prevent feedback loops between the EditorView update listener and the
+  // Vue doc watcher.  A simple boolean flag doesn't work because the listener
+  // sets it synchronously, but Vue schedules watchers asynchronously — by the
+  // time the watcher runs the flag has already been reset.  Instead we use a
+  // generation counter: the listener bumps it, and the watcher only dispatches
+  // when the generation hasn't changed since its last observation.
+  let updateGeneration = 0
+  let watcherGeneration = 0
 
   onMounted(() => {
     if (!container.value) return
@@ -41,10 +47,9 @@ export function useCodemirror(
 
         // Sync doc changes back to the ref
         EditorView.updateListener.of((update) => {
-          if (update.docChanged && !ignoreNextUpdate) {
-            ignoreNextUpdate = true
+          if (update.docChanged) {
+            updateGeneration++
             doc.value = update.state.doc.toString()
-            ignoreNextUpdate = false
           }
         }),
       ],
@@ -58,10 +63,15 @@ export function useCodemirror(
 
   // Watch for external doc changes (e.g., setting query from history/examples)
   watch(doc, (newDoc) => {
-    if (!view.value || ignoreNextUpdate) return
+    if (!view.value) return
+    // If this change originated from the editor itself, skip the dispatch
+    if (watcherGeneration !== updateGeneration) {
+      watcherGeneration = updateGeneration
+      return
+    }
     const currentDoc = view.value.state.doc.toString()
     if (newDoc !== currentDoc) {
-      ignoreNextUpdate = true
+      updateGeneration++ // prevent the listener from echoing back
       view.value.dispatch({
         changes: {
           from: 0,
@@ -69,7 +79,6 @@ export function useCodemirror(
           insert: newDoc,
         },
       })
-      ignoreNextUpdate = false
     }
   })
 

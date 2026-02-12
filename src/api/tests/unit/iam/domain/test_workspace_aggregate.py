@@ -769,3 +769,49 @@ class TestWorkspaceMemberHelpers:
         role = workspace.get_member_role("user-unknown", MemberType.USER)
 
         assert role is None
+
+
+class TestMemberIdValidation:
+    """Tests for member_id validation across workspace member operations."""
+
+    def test_add_member_rejects_empty_member_id(self):
+        """add_member should reject an empty member_id."""
+        workspace = _make_workspace()
+
+        with pytest.raises(ValueError, match="member_id cannot be empty"):
+            workspace.add_member("", MemberType.USER, WorkspaceRole.MEMBER)
+
+    def test_add_member_rejects_whitespace_only_member_id(self):
+        """add_member should reject a whitespace-only member_id."""
+        workspace = _make_workspace()
+
+        with pytest.raises(ValueError, match="member_id cannot be empty"):
+            workspace.add_member("   ", MemberType.USER, WorkspaceRole.EDITOR)
+
+    def test_remove_member_rejects_empty_member_id(self):
+        """remove_member should reject an empty member_id."""
+        workspace = _make_workspace()
+
+        with pytest.raises(ValueError, match="member_id cannot be empty"):
+            workspace.remove_member("", MemberType.USER)
+
+    def test_remove_member_rejects_whitespace_only_member_id(self):
+        """remove_member should reject a whitespace-only member_id."""
+        workspace = _make_workspace()
+
+        with pytest.raises(ValueError, match="member_id cannot be empty"):
+            workspace.remove_member("   ", MemberType.GROUP)
+
+    def test_update_member_role_rejects_empty_member_id(self):
+        """update_member_role should reject an empty member_id."""
+        workspace = _make_workspace()
+
+        with pytest.raises(ValueError, match="member_id cannot be empty"):
+            workspace.update_member_role("", MemberType.USER, WorkspaceRole.ADMIN)
+
+    def test_update_member_role_rejects_whitespace_only_member_id(self):
+        """update_member_role should reject a whitespace-only member_id."""
+        workspace = _make_workspace()
+
+        with pytest.raises(ValueError, match="member_id cannot be empty"):
+            workspace.update_member_role("   ", MemberType.GROUP, WorkspaceRole.EDITOR)

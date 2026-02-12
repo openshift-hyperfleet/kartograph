@@ -179,8 +179,11 @@ class Workspace:
             role: The role to assign (ADMIN, EDITOR, or MEMBER)
 
         Raises:
-            ValueError: If member (same id + type combination) is already added
+            ValueError: If member_id is empty or member is already added
         """
+        if not member_id or not member_id.strip():
+            raise ValueError("member_id cannot be empty")
+        # TODO: Add domain probe for member addition (Domain Oriented Observability pattern)
         if self.has_member(member_id, member_type):
             raise ValueError(
                 f"{member_type.value} {member_id} is already a member of this workspace"
@@ -215,8 +218,11 @@ class Workspace:
             member_type: Whether this is a USER or GROUP
 
         Raises:
-            ValueError: If member is not in workspace
+            ValueError: If member_id is empty or member is not in workspace
         """
+        if not member_id or not member_id.strip():
+            raise ValueError("member_id cannot be empty")
+        # TODO: Add domain probe for member removal (Domain Oriented Observability pattern)
         if not self.has_member(member_id, member_type):
             raise ValueError(
                 f"{member_type.value} {member_id} is not a member of this workspace"
@@ -224,8 +230,10 @@ class Workspace:
 
         # Get role for event (need to know which relation to delete in SpiceDB)
         member_role = self.get_member_role(member_id, member_type)
-        if member_role is None:
-            raise ValueError("Unexpected None-type member_role")
+        assert member_role is not None, (
+            f"Invariant violated: member exists but role is None "
+            f"(member_id={member_id}, member_type={member_type})"
+        )
 
         # Remove from list
         self.members = [
@@ -258,16 +266,21 @@ class Workspace:
             new_role: The new role to assign
 
         Raises:
-            ValueError: If member is not in workspace or role unchanged
+            ValueError: If member_id is empty, member is not in workspace, or role unchanged
         """
+        if not member_id or not member_id.strip():
+            raise ValueError("member_id cannot be empty")
+        # TODO: Add domain probe for member role update (Domain Oriented Observability pattern)
         if not self.has_member(member_id, member_type):
             raise ValueError(
                 f"{member_type.value} {member_id} is not a member of this workspace"
             )
 
         old_role = self.get_member_role(member_id, member_type)
-        if old_role is None:
-            raise ValueError("Unexpected None-type old_role")
+        assert old_role is not None, (
+            f"Invariant violated: member exists but role is None "
+            f"(member_id={member_id}, member_type={member_type})"
+        )
 
         if old_role == new_role:
             raise ValueError(f"Member already has role {new_role.value}")

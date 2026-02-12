@@ -4,9 +4,6 @@ Tests the full vertical slice: API -> Service -> Repository -> PostgreSQL + Spic
 Uses JWT Bearer token authentication via Keycloak.
 """
 
-import asyncio
-import time
-
 import pytest
 import pytest_asyncio
 from asgi_lifespan import LifespanManager
@@ -14,47 +11,14 @@ from httpx import ASGITransport, AsyncClient
 
 from iam.domain.value_objects import GroupId, GroupRole
 from main import app
-from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
     ResourceType,
     format_resource,
 )
+from tests.integration.iam.conftest import wait_for_permission
 
 pytestmark = [pytest.mark.integration, pytest.mark.keycloak]
-
-
-async def wait_for_permission(
-    authz: AuthorizationProvider,
-    resource: str,
-    permission: str,
-    subject: str,
-    timeout: float = 5.0,
-    poll_interval: float = 0.05,
-) -> bool:
-    """Wait for a permission to become available in SpiceDB.
-
-    The outbox pattern introduces eventual consistency between PostgreSQL
-    and SpiceDB. This helper waits for the outbox worker to process events
-    and write relationships to SpiceDB before proceeding with assertions.
-
-    Args:
-        authz: Authorization provider (SpiceDB client)
-        resource: Resource identifier (e.g., "group:123")
-        permission: Permission to check (e.g., "manage")
-        subject: Subject identifier (e.g., "user:456")
-        timeout: Maximum time to wait in seconds
-        poll_interval: Time between checks in seconds
-
-    Returns:
-        True if permission became available, False if timeout exceeded
-    """
-    start = time.monotonic()
-    while time.monotonic() - start < timeout:
-        if await authz.check_permission(resource, permission, subject):
-            return True
-        await asyncio.sleep(poll_interval)
-    return False
 
 
 @pytest_asyncio.fixture
@@ -122,9 +86,15 @@ class TestGetGroup:
 
     @pytest.mark.asyncio
     async def test_gets_group_successfully(
-        self, async_client, clean_iam_data, tenant_auth_headers
+        self, async_client, clean_iam_data, spicedb_client, tenant_auth_headers
     ):
-        """Should retrieve group with members."""
+        """Should retrieve group with members.
+
+        Note: This test depends on the outbox worker processing events
+        asynchronously. We wait for the 'manage' permission to be available
+        in SpiceDB before the GET request, ensuring the MemberAdded event
+        has been processed and group membership is hydrated from SpiceDB.
+        """
         # Create group
         create_response = await async_client.post(
             "/iam/groups",
@@ -132,6 +102,25 @@ class TestGetGroup:
             headers=tenant_auth_headers,
         )
         group_id = create_response.json()["id"]
+        user_id = create_response.json()["members"][0]["user_id"]
+
+        # Wait for outbox worker to process events and sync to SpiceDB.
+        # The GET endpoint hydrates group members from SpiceDB via
+        # lookup_subjects. Without this wait, the MemberAdded event may
+        # not have been processed yet, resulting in an empty members list.
+        resource = format_resource(ResourceType.GROUP, group_id)
+        subject = format_resource(ResourceType.USER, user_id)
+        permission_ready = await wait_for_permission(
+            spicedb_client,
+            resource=resource,
+            permission=Permission.MANAGE,
+            subject=subject,
+            timeout=5.0,
+        )
+        assert permission_ready, (
+            "Timed out waiting for SpiceDB to have manage permission. "
+            "The outbox worker may not have processed the MemberAdded event."
+        )
 
         # Get group
         response = await async_client.get(

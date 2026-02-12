@@ -52,19 +52,22 @@ definition workspace {
 	/** The parent workspace (for hierarchical structure, child workspaces only) */
 	relation parent: workspace
 
-	/** Users or groups who can administer this workspace (Phase 3) */
+	/** Users or groups who can administer this workspace */
 	relation admin: user | group#member
 
-	/** Users or groups who are members of this workspace (Phase 3) */
+	/** Users or groups who can edit resources in this workspace */
+	relation editor: user | group#member
+
+	/** Users or groups who are members of this workspace */
 	relation member: user | group#member
 
-	/** Permission to view workspace and its resources (Phase 3) */
-	permission view = admin + member
+	/** Permission to view workspace and its resources */
+	permission view = admin + editor + member
 
-	/** Permission to edit workspace configuration (Phase 3) */
-	permission edit = admin
+	/** Permission to edit workspace configuration */
+	permission edit = admin + editor
 
-	/** Permission to manage workspace (delete, modify members) (Phase 3) */
+	/** Permission to manage workspace (delete, modify members) */
 	permission manage = admin
 }
 

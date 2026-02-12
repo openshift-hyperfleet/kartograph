@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.14.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.13.1...v3.14.0) (2026-02-12)
+
+
+### Features
+
+* **api.iam:** aihcm 152 workspace editor role ([#218](https://github.com/openshift-hyperfleet/kartograph/issues/218)) ([ee5c6cd](https://github.com/openshift-hyperfleet/kartograph/commit/ee5c6cd7406c8606b80ad316aa441aafa14787a8))
+
 ## [3.13.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.13.0...v3.13.1) (2026-02-11)
 
 

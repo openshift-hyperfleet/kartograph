@@ -47,9 +47,13 @@ jobs:
             start-dev --import-realm --health-enabled=true
 
       - name: Start SpiceDB
-        uses: authzed/action-spicedb@v1
-        with:
-          version: "v1.48.0"
+        run: |
+          docker run -d 
+          -p 50051:50051
+          -p 50052:50052
+          --entrypoint spicedb
+          quay.io/authzed/spicedb:v1.48.0
+          serve-testing
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5

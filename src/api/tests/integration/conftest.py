@@ -256,6 +256,7 @@ async def tenant_auth_headers(
     auth_headers: dict[str, str],
     default_tenant_id: str,
     alice_token: str,
+    integration_db_settings: DatabaseSettings,
 ) -> dict[str, str]:
     """Auth headers with X-Tenant-ID for integration tests.
 
@@ -263,14 +264,18 @@ async def tenant_auth_headers(
     X-Tenant-ID header, making tenant context explicit in test requests
     instead of relying on single-tenant mode auto-selection.
 
-    Also ensures the user has a SpiceDB 'member' relationship on the
-    default tenant, since the explicit X-Tenant-ID header triggers an
-    authorization check (unlike the auto-select path).
+    Also ensures the user has SpiceDB relationships on:
+    - The default tenant (member role)
+    - The default tenant's root workspace (admin role)
+
+    This allows workspace integration tests to work with the new
+    authorization enforcement.
 
     Args:
         auth_headers: JWT Bearer auth headers
         default_tenant_id: The default tenant's ID
         alice_token: Alice's JWT token (for extracting user_id)
+        integration_db_settings: Database settings for querying root workspace
 
     Returns:
         Headers dict with both Authorization and X-Tenant-ID
@@ -290,13 +295,38 @@ async def tenant_auth_headers(
 
     # Ensure alice has 'member' relationship on the default tenant in SpiceDB
     spicedb = get_spicedb_client()
-    resource = format_resource(ResourceType.TENANT, default_tenant_id)
-    subject = format_subject(ResourceType.USER, user_id)
+    tenant_resource = format_resource(ResourceType.TENANT, default_tenant_id)
+    user_subject = format_subject(ResourceType.USER, user_id)
 
     await spicedb.write_relationship(
-        resource=resource,
+        resource=tenant_resource,
         relation="member",
-        subject=subject,
+        subject=user_subject,
     )
+
+    # Query database for the root workspace ID
+    engine = create_write_engine(integration_db_settings)
+    sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with sessionmaker() as session:
+        result = await session.execute(
+            text(
+                "SELECT id FROM workspaces WHERE tenant_id = :tenant_id AND is_root = true"
+            ),
+            {"tenant_id": default_tenant_id},
+        )
+        root_workspace_id = result.scalar_one_or_none()
+
+    await engine.dispose()
+
+    # Grant alice admin permission on the root workspace
+    if root_workspace_id:
+        workspace_resource = format_resource(ResourceType.WORKSPACE, root_workspace_id)
+
+        await spicedb.write_relationship(
+            resource=workspace_resource,
+            relation="admin",
+            subject=user_subject,
+        )
 
     return {**auth_headers, "X-Tenant-ID": default_tenant_id}

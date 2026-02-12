@@ -61,6 +61,7 @@ class WorkspaceServiceProbe(Protocol):
         self,
         tenant_id: str,
         count: int,
+        user_id: str = "",
     ) -> None:
         """Record workspaces listed."""
         ...
@@ -79,6 +80,36 @@ class WorkspaceServiceProbe(Protocol):
         error: str,
     ) -> None:
         """Record failed workspace deletion."""
+        ...
+
+    def workspace_access_denied(
+        self,
+        workspace_id: str,
+        user_id: str,
+        permission: str,
+    ) -> None:
+        """Record workspace access denied."""
+        ...
+
+    def workspace_member_added(
+        self,
+        workspace_id: str,
+        member_id: str,
+        member_type: str,
+        role: str,
+        acting_user_id: str,
+    ) -> None:
+        """Record workspace member addition."""
+        ...
+
+    def workspace_member_removed(
+        self,
+        workspace_id: str,
+        member_id: str,
+        member_type: str,
+        acting_user_id: str,
+    ) -> None:
+        """Record workspace member removal."""
         ...
 
     def with_context(self, context: ObservationContext) -> WorkspaceServiceProbe:
@@ -201,13 +232,17 @@ class DefaultWorkspaceServiceProbe:
         self,
         tenant_id: str,
         count: int,
+        user_id: str = "",
     ) -> None:
         """Record workspaces listed."""
-        context_kwargs = self._get_context_kwargs(exclude={"tenant_id", "count"})
+        context_kwargs = self._get_context_kwargs(
+            exclude={"tenant_id", "count", "user_id"}
+        )
         self._logger.debug(
             "workspaces_listed",
             tenant_id=tenant_id,
             count=count,
+            user_id=user_id,
             **context_kwargs,
         )
 
@@ -236,5 +271,71 @@ class DefaultWorkspaceServiceProbe:
             "workspace_deletion_failed",
             workspace_id=workspace_id,
             error=error,
+            **context_kwargs,
+        )
+
+    def workspace_access_denied(
+        self,
+        workspace_id: str,
+        user_id: str,
+        permission: str,
+    ) -> None:
+        """Record workspace access denied."""
+        context_kwargs = self._get_context_kwargs(
+            exclude={"workspace_id", "user_id", "permission"}
+        )
+        self._logger.warning(
+            "workspace_access_denied",
+            workspace_id=workspace_id,
+            user_id=user_id,
+            permission=permission,
+            **context_kwargs,
+        )
+
+    def workspace_member_added(
+        self,
+        workspace_id: str,
+        member_id: str,
+        member_type: str,
+        role: str,
+        acting_user_id: str,
+    ) -> None:
+        """Record workspace member addition."""
+        context_kwargs = self._get_context_kwargs(
+            exclude={
+                "workspace_id",
+                "member_id",
+                "member_type",
+                "role",
+                "acting_user_id",
+            }
+        )
+        self._logger.info(
+            "workspace_member_added",
+            workspace_id=workspace_id,
+            member_id=member_id,
+            member_type=member_type,
+            role=role,
+            acting_user_id=acting_user_id,
+            **context_kwargs,
+        )
+
+    def workspace_member_removed(
+        self,
+        workspace_id: str,
+        member_id: str,
+        member_type: str,
+        acting_user_id: str,
+    ) -> None:
+        """Record workspace member removal."""
+        context_kwargs = self._get_context_kwargs(
+            exclude={"workspace_id", "member_id", "member_type", "acting_user_id"}
+        )
+        self._logger.info(
+            "workspace_member_removed",
+            workspace_id=workspace_id,
+            member_id=member_id,
+            member_type=member_type,
+            acting_user_id=acting_user_id,
             **context_kwargs,
         )

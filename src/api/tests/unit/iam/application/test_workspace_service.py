@@ -68,6 +68,12 @@ def creator_id() -> UserId:
 
 
 @pytest.fixture
+def user_id() -> UserId:
+    """User ID for authorization checks on read/delete operations."""
+    return UserId.generate()
+
+
+@pytest.fixture
 def root_workspace(tenant_id: TenantId) -> Workspace:
     """Create a root workspace for the tenant."""
     return Workspace.create_root(name="Root", tenant_id=tenant_id)
@@ -99,12 +105,14 @@ class TestCreateWorkspace:
         self,
         workspace_service: WorkspaceService,
         mock_workspace_repository,
+        mock_authz,
         tenant_id,
         creator_id,
         root_workspace,
     ):
         """Test that create_workspace persists workspace to database."""
-        # Setup: No duplicate name, parent exists in same tenant
+        # Setup: No duplicate name, parent exists in same tenant, user has MANAGE on parent
+        mock_authz.check_permission = AsyncMock(return_value=True)
         mock_workspace_repository.get_by_name = AsyncMock(return_value=None)
         mock_workspace_repository.get_by_id = AsyncMock(return_value=root_workspace)
         mock_workspace_repository.save = AsyncMock()
@@ -134,12 +142,14 @@ class TestCreateWorkspace:
         self,
         workspace_service: WorkspaceService,
         mock_workspace_repository,
+        mock_authz,
         tenant_id,
         creator_id,
         root_workspace,
     ):
         """Test that duplicate workspace names are rejected within tenant."""
-        # Setup: A workspace with the same name already exists
+        # Setup: User has MANAGE permission, but name already exists
+        mock_authz.check_permission = AsyncMock(return_value=True)
         existing_workspace = Workspace.create(
             name="Engineering",
             tenant_id=tenant_id,
@@ -165,10 +175,12 @@ class TestCreateWorkspace:
         self,
         workspace_service: WorkspaceService,
         mock_workspace_repository,
+        mock_authz,
         creator_id,
     ):
         """Test that non-existent parent workspace is rejected."""
-        # Setup: No duplicate name, parent does NOT exist
+        # Setup: User has MANAGE permission, but parent doesn't exist
+        mock_authz.check_permission = AsyncMock(return_value=True)
         mock_workspace_repository.get_by_name = AsyncMock(return_value=None)
         mock_workspace_repository.get_by_id = AsyncMock(return_value=None)
 
@@ -190,10 +202,12 @@ class TestCreateWorkspace:
         self,
         workspace_service: WorkspaceService,
         mock_workspace_repository,
+        mock_authz,
         creator_id,
     ):
         """Test that parent workspace from different tenant is rejected."""
-        # Setup: Parent workspace belongs to a different tenant
+        # Setup: User has MANAGE permission, but parent is in different tenant
+        mock_authz.check_permission = AsyncMock(return_value=True)
         other_tenant_id = TenantId.generate()
         other_tenant_root = Workspace.create_root(
             name="Other Root",
@@ -219,6 +233,7 @@ class TestCreateWorkspace:
         self,
         workspace_service: WorkspaceService,
         mock_workspace_repository,
+        mock_authz,
         mock_probe,
         tenant_id,
         creator_id,
@@ -230,7 +245,8 @@ class TestCreateWorkspace:
         constraint (uq_workspaces_tenant_name) catches the duplicate and the
         service converts IntegrityError to DuplicateWorkspaceNameError.
         """
-        # Setup: Pre-check passes (no duplicate found), parent exists
+        # Setup: User has MANAGE permission, pre-check passes, parent exists
+        mock_authz.check_permission = AsyncMock(return_value=True)
         mock_workspace_repository.get_by_name = AsyncMock(return_value=None)
         mock_workspace_repository.get_by_id = AsyncMock(return_value=root_workspace)
 
@@ -265,13 +281,15 @@ class TestCreateWorkspace:
         self,
         workspace_service: WorkspaceService,
         mock_workspace_repository,
+        mock_authz,
         mock_probe,
         tenant_id,
         creator_id,
         root_workspace,
     ):
         """Test that workspace creation emits WorkspaceCreated event and probe calls."""
-        # Setup: No duplicate name, parent exists
+        # Setup: User has MANAGE permission, no duplicate name, parent exists
+        mock_authz.check_permission = AsyncMock(return_value=True)
         mock_workspace_repository.get_by_name = AsyncMock(return_value=None)
         mock_workspace_repository.get_by_id = AsyncMock(return_value=root_workspace)
         mock_workspace_repository.save = AsyncMock()
@@ -518,8 +536,10 @@ class TestGetWorkspace:
         self,
         workspace_service: WorkspaceService,
         mock_workspace_repository,
+        mock_authz,
         mock_probe,
         tenant_id,
+        user_id,
         root_workspace,
     ):
         """Test that get_workspace returns workspace when it exists in scoped tenant."""
@@ -530,9 +550,12 @@ class TestGetWorkspace:
             parent_workspace_id=root_workspace.id,
         )
         mock_workspace_repository.get_by_id = AsyncMock(return_value=child_workspace)
+        mock_authz.check_permission = AsyncMock(return_value=True)
 
         # Call
-        workspace = await workspace_service.get_workspace(child_workspace.id)
+        workspace = await workspace_service.get_workspace(
+            child_workspace.id, user_id=user_id
+        )
 
         # Assert: Workspace returned with correct attributes
         assert workspace is not None
@@ -556,6 +579,7 @@ class TestGetWorkspace:
         workspace_service: WorkspaceService,
         mock_workspace_repository,
         mock_probe,
+        user_id,
     ):
         """Test that get_workspace returns None when workspace doesn't exist."""
         # Setup: Repository returns None (workspace not found)
@@ -563,7 +587,9 @@ class TestGetWorkspace:
         mock_workspace_repository.get_by_id = AsyncMock(return_value=None)
 
         # Call
-        workspace = await workspace_service.get_workspace(nonexistent_id)
+        workspace = await workspace_service.get_workspace(
+            nonexistent_id, user_id=user_id
+        )
 
         # Assert: Returns None
         assert workspace is None
@@ -582,6 +608,7 @@ class TestGetWorkspace:
         workspace_service: WorkspaceService,
         mock_workspace_repository,
         mock_probe,
+        user_id,
     ):
         """Test that get_workspace returns None for workspace in different tenant."""
         # Setup: Create workspace belonging to a different tenant
@@ -598,7 +625,9 @@ class TestGetWorkspace:
         mock_workspace_repository.get_by_id = AsyncMock(return_value=other_workspace)
 
         # Call: Service is scoped to tenant_id, but workspace belongs to other_tenant_id
-        workspace = await workspace_service.get_workspace(other_workspace.id)
+        workspace = await workspace_service.get_workspace(
+            other_workspace.id, user_id=user_id
+        )
 
         # Assert: Returns None (doesn't leak existence of workspace in other tenant)
         assert workspace is None
@@ -613,15 +642,17 @@ class TestListWorkspaces:
     """Tests for WorkspaceService.list_workspaces()."""
 
     @pytest.mark.asyncio
-    async def test_list_workspaces_returns_all_in_tenant(
+    async def test_list_workspaces_returns_accessible_in_tenant(
         self,
         workspace_service: WorkspaceService,
         mock_workspace_repository,
+        mock_authz,
         mock_probe,
         tenant_id,
+        user_id,
         root_workspace,
     ):
-        """Test that list_workspaces returns all workspaces in scoped tenant."""
+        """Test that list_workspaces returns workspaces user has VIEW permission on."""
         # Setup: Tenant has root workspace + 2 child workspaces
         child1 = Workspace.create(
             name="Engineering",
@@ -638,10 +669,19 @@ class TestListWorkspaces:
             return_value=all_workspaces
         )
 
-        # Call
-        workspaces = await workspace_service.list_workspaces()
+        # User has VIEW on all workspaces
+        mock_authz.lookup_resources = AsyncMock(
+            return_value=[
+                root_workspace.id.value,
+                child1.id.value,
+                child2.id.value,
+            ]
+        )
 
-        # Assert: All 3 workspaces returned
+        # Call
+        workspaces = await workspace_service.list_workspaces(user_id=user_id)
+
+        # Assert: All 3 workspaces returned (user has VIEW on all)
         assert len(workspaces) == 3
         assert all(w.tenant_id == tenant_id for w in workspaces)
 
@@ -654,6 +694,7 @@ class TestListWorkspaces:
         mock_probe.workspaces_listed.assert_called_once_with(
             tenant_id=tenant_id.value,
             count=3,
+            user_id=user_id.value,
         )
 
     @pytest.mark.asyncio
@@ -661,15 +702,18 @@ class TestListWorkspaces:
         self,
         workspace_service: WorkspaceService,
         mock_workspace_repository,
+        mock_authz,
         mock_probe,
         tenant_id,
+        user_id,
     ):
         """Test that list_workspaces returns empty list when tenant has no workspaces."""
         # Setup: Repository returns empty list
         mock_workspace_repository.list_by_tenant = AsyncMock(return_value=[])
+        mock_authz.lookup_resources = AsyncMock(return_value=[])
 
         # Call
-        workspaces = await workspace_service.list_workspaces()
+        workspaces = await workspace_service.list_workspaces(user_id=user_id)
 
         # Assert: Empty list returned
         assert workspaces == []
@@ -678,6 +722,7 @@ class TestListWorkspaces:
         mock_probe.workspaces_listed.assert_called_once_with(
             tenant_id=tenant_id.value,
             count=0,
+            user_id=user_id.value,
         )
 
     @pytest.mark.asyncio
@@ -691,6 +736,7 @@ class TestListWorkspaces:
         """Test that list_workspaces only returns workspaces from scoped tenant."""
         # Setup: Two tenants with different workspaces
         tenant1_id = TenantId.generate()
+        user_id = UserId.generate()
 
         tenant1_root = Workspace.create_root(name="T1 Root", tenant_id=tenant1_id)
         tenant1_child = Workspace.create(
@@ -713,9 +759,13 @@ class TestListWorkspaces:
         mock_workspace_repository.list_by_tenant = AsyncMock(
             return_value=tenant1_workspaces
         )
+        # User has VIEW on all tenant1 workspaces
+        mock_authz.lookup_resources = AsyncMock(
+            return_value=[tenant1_root.id.value, tenant1_child.id.value]
+        )
 
         # Call
-        workspaces = await service.list_workspaces()
+        workspaces = await service.list_workspaces(user_id=user_id)
 
         # Assert: Only tenant1's workspaces returned
         assert len(workspaces) == 2
@@ -730,6 +780,7 @@ class TestListWorkspaces:
         mock_probe.workspaces_listed.assert_called_once_with(
             tenant_id=tenant1_id.value,
             count=2,
+            user_id=user_id.value,
         )
 
 
@@ -741,8 +792,10 @@ class TestDeleteWorkspace:
         self,
         workspace_service: WorkspaceService,
         mock_workspace_repository,
+        mock_authz,
         mock_probe,
         tenant_id,
+        user_id,
         root_workspace,
     ):
         """Test that delete_workspace successfully deletes a child workspace."""
@@ -755,11 +808,14 @@ class TestDeleteWorkspace:
         # Consume creation event so it doesn't interfere with deletion assertions
         child_workspace.collect_events()
 
+        mock_authz.check_permission = AsyncMock(return_value=True)
         mock_workspace_repository.get_by_id = AsyncMock(return_value=child_workspace)
         mock_workspace_repository.delete = AsyncMock(return_value=True)
 
         # Call
-        result = await workspace_service.delete_workspace(child_workspace.id)
+        result = await workspace_service.delete_workspace(
+            child_workspace.id, user_id=user_id
+        )
 
         # Assert: Deletion succeeded
         assert result is True
@@ -778,15 +834,20 @@ class TestDeleteWorkspace:
         self,
         workspace_service: WorkspaceService,
         mock_workspace_repository,
+        mock_authz,
         mock_probe,
+        user_id,
     ):
         """Test that delete_workspace returns False when workspace doesn't exist."""
-        # Setup: Repository returns None (workspace not found)
+        # Setup: User has MANAGE permission but workspace doesn't exist
         nonexistent_id = WorkspaceId.generate()
+        mock_authz.check_permission = AsyncMock(return_value=True)
         mock_workspace_repository.get_by_id = AsyncMock(return_value=None)
 
         # Call
-        result = await workspace_service.delete_workspace(nonexistent_id)
+        result = await workspace_service.delete_workspace(
+            nonexistent_id, user_id=user_id
+        )
 
         # Assert: Returns False
         assert result is False
@@ -802,18 +863,20 @@ class TestDeleteWorkspace:
         self,
         workspace_service: WorkspaceService,
         mock_workspace_repository,
+        mock_authz,
         mock_probe,
+        user_id,
         root_workspace,
     ):
         """Test that deleting root workspace raises CannotDeleteRootWorkspaceError."""
-        # Setup: Return the root workspace
-        # Consume creation event
+        # Setup: User has MANAGE permission, return the root workspace
         root_workspace.collect_events()
+        mock_authz.check_permission = AsyncMock(return_value=True)
         mock_workspace_repository.get_by_id = AsyncMock(return_value=root_workspace)
 
         # Call and Assert: Should raise CannotDeleteRootWorkspaceError
         with pytest.raises(CannotDeleteRootWorkspaceError):
-            await workspace_service.delete_workspace(root_workspace.id)
+            await workspace_service.delete_workspace(root_workspace.id, user_id=user_id)
 
         # Assert: Delete was NOT called (business rule prevented it)
         mock_workspace_repository.delete.assert_not_called()
@@ -826,8 +889,10 @@ class TestDeleteWorkspace:
         self,
         workspace_service: WorkspaceService,
         mock_workspace_repository,
+        mock_authz,
         mock_probe,
         tenant_id,
+        user_id,
         root_workspace,
     ):
         """Test that deleting workspace with children raises WorkspaceHasChildrenError."""
@@ -839,6 +904,7 @@ class TestDeleteWorkspace:
         )
         child_workspace.collect_events()
 
+        mock_authz.check_permission = AsyncMock(return_value=True)
         mock_workspace_repository.get_by_id = AsyncMock(return_value=child_workspace)
 
         # Simulate database IntegrityError when trying to delete
@@ -855,7 +921,9 @@ class TestDeleteWorkspace:
 
         # Call and Assert: Should raise WorkspaceHasChildrenError
         with pytest.raises(WorkspaceHasChildrenError):
-            await workspace_service.delete_workspace(child_workspace.id)
+            await workspace_service.delete_workspace(
+                child_workspace.id, user_id=user_id
+            )
 
         # Assert: Deletion failure probe was called
         mock_probe.workspace_deletion_failed.assert_called_once()
@@ -865,10 +933,13 @@ class TestDeleteWorkspace:
         self,
         workspace_service: WorkspaceService,
         mock_workspace_repository,
+        mock_authz,
         mock_probe,
+        user_id,
     ):
         """Test that delete_workspace rejects workspace from different tenant."""
-        # Setup: Create workspace belonging to a different tenant
+        # Setup: User has MANAGE permission but workspace is in different tenant
+        mock_authz.check_permission = AsyncMock(return_value=True)
         other_tenant_id = TenantId.generate()
         other_tenant_root = Workspace.create_root(
             name="Other Root",
@@ -885,7 +956,9 @@ class TestDeleteWorkspace:
 
         # Call and Assert: Should raise UnauthorizedError
         with pytest.raises(UnauthorizedError, match="different tenant"):
-            await workspace_service.delete_workspace(other_workspace.id)
+            await workspace_service.delete_workspace(
+                other_workspace.id, user_id=user_id
+            )
 
         # Assert: Delete was NOT called
         mock_workspace_repository.delete.assert_not_called()
@@ -895,8 +968,10 @@ class TestDeleteWorkspace:
         self,
         workspace_service: WorkspaceService,
         mock_workspace_repository,
+        mock_authz,
         mock_probe,
         tenant_id,
+        user_id,
         root_workspace,
     ):
         """Test that workspace deletion emits WorkspaceDeleted event to outbox."""
@@ -909,11 +984,12 @@ class TestDeleteWorkspace:
         # Consume the creation event
         child_workspace.collect_events()
 
+        mock_authz.check_permission = AsyncMock(return_value=True)
         mock_workspace_repository.get_by_id = AsyncMock(return_value=child_workspace)
         mock_workspace_repository.delete = AsyncMock(return_value=True)
 
         # Call
-        await workspace_service.delete_workspace(child_workspace.id)
+        await workspace_service.delete_workspace(child_workspace.id, user_id=user_id)
 
         # Assert: The workspace passed to delete had mark_for_deletion() called
         # which records a WorkspaceDeleted event

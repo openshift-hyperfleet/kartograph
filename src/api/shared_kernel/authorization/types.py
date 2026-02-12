@@ -72,12 +72,13 @@ class RelationType(StrEnum):
     Each value corresponds to a `relation` in the SpiceDB schema definitions.
     """
 
+    ADMIN = "admin"
+    EDITOR = "editor"
     MEMBER = "member"
     OWNER = "owner"
-    ADMIN = "admin"
     PARENT = "parent"
-    TENANT = "tenant"
     ROOT_WORKSPACE = "root_workspace"
+    TENANT = "tenant"
 
 
 class Permission(StrEnum):

@@ -5,21 +5,15 @@ import { toast } from 'vue-sonner'
 
 const props = withDefaults(defineProps<{
   text: string
+  /** Use CSS truncation to fit available space (default: true) */
   truncate?: boolean
-  maxLength?: number
   label?: string
 }>(), {
   truncate: true,
-  maxLength: 12,
   label: undefined,
 })
 
 const copied = ref(false)
-
-function displayText(): string {
-  if (!props.truncate || props.text.length <= props.maxLength) return props.text
-  return props.text.slice(0, props.maxLength - 4) + '...'
-}
 
 async function copy() {
   try {
@@ -35,11 +29,14 @@ async function copy() {
 
 <template>
   <button
-    class="inline-flex items-center gap-1 rounded px-1 py-0.5 font-mono text-xs hover:bg-muted"
+    class="inline-flex min-w-0 max-w-full items-center gap-1 rounded px-1 py-0.5 font-mono text-xs hover:bg-muted"
     :title="text"
     @click.stop="copy"
   >
-    <span class="text-muted-foreground">{{ displayText() }}</span>
+    <span
+      class="text-muted-foreground"
+      :class="truncate ? 'truncate' : ''"
+    >{{ text }}</span>
     <component :is="copied ? Check : Copy" class="size-3 shrink-0 text-muted-foreground" />
   </button>
 </template>

@@ -6,9 +6,10 @@ import { Prec, type Extension } from '@codemirror/state'
 import { useLocalStorage } from '@vueuse/core'
 import {
   Terminal, Play, Trash2, Loader2, Clock, Hash,
-  PanelRight, PanelRightClose,
+  PanelRight, PanelRightClose, Database, Sparkles, BookOpen,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import {
   Card, CardContent, CardHeader, CardTitle,
 } from '@/components/ui/card'
@@ -72,6 +73,12 @@ const history = ref<HistoryEntry[]>([])
 
 // Responsive sidebar sheet
 const sheetOpen = ref(false)
+const sheetDefaultTab = ref('history')
+
+function openSheetTo(tab: string) {
+  sheetDefaultTab.value = tab
+  sheetOpen.value = true
+}
 
 // Resizable & collapsible sidebar
 const SIDEBAR_WIDTH_KEY = 'kartograph:sidebar-width'
@@ -331,15 +338,70 @@ onBeforeUnmount(() => {
         <Terminal class="size-6 text-muted-foreground" />
         <h1 class="text-2xl font-bold tracking-tight">Cypher Console</h1>
       </div>
-      <Button
-        variant="outline"
-        size="sm"
-        class="gap-2 xl:hidden"
-        @click="sheetOpen = true"
-      >
-        <PanelRight class="size-4" />
-        <span class="hidden sm:inline">Sidebar</span>
-      </Button>
+      <div class="flex items-center gap-1 xl:hidden">
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button
+              variant="outline"
+              size="icon"
+              class="relative size-8"
+              @click="openSheetTo('history')"
+            >
+              <Clock class="size-4" />
+              <Badge
+                v-if="history.length > 0"
+                variant="secondary"
+                class="absolute -right-1.5 -top-1.5 h-4 min-w-4 px-1 text-[10px]"
+              >
+                {{ history.length }}
+              </Badge>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent><p>History</p></TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button
+              variant="outline"
+              size="icon"
+              class="size-8"
+              @click="openSheetTo('schema')"
+            >
+              <Database class="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent><p>Schema</p></TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button
+              variant="outline"
+              size="icon"
+              class="size-8"
+              @click="openSheetTo('templates')"
+            >
+              <Sparkles class="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent><p>Templates</p></TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button
+              variant="outline"
+              size="icon"
+              class="size-8"
+              @click="openSheetTo('reference')"
+            >
+              <BookOpen class="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent><p>Reference</p></TooltipContent>
+        </Tooltip>
+      </div>
     </div>
 
     <!-- Main layout: Editor + Results on left, Sidebar on right -->
@@ -511,11 +573,13 @@ onBeforeUnmount(() => {
         </SheetHeader>
         <div class="flex h-full flex-col pt-6">
           <QuerySidebar
+            :key="sheetDefaultTab"
             :node-labels="nodeLabels"
             :edge-labels="edgeLabels"
             :schema-loading="schemaLoading"
             :history="history"
             :current-query="query"
+            :default-tab="sheetDefaultTab"
             @select-query="setQuery"
             @insert-at-cursor="insertAtCursor"
             @clear-history="clearHistory"

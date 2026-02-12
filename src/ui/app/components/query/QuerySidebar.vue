@@ -15,7 +15,7 @@ import CypherCheatSheet from '@/components/query/CypherCheatSheet.vue'
 import SchemaPanel from '@/components/query/SchemaPanel.vue'
 import HistoryPanel from '@/components/query/HistoryPanel.vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   nodeLabels: string[]
   edgeLabels: string[]
   schemaLoading: boolean
@@ -23,7 +23,11 @@ const props = defineProps<{
   currentQuery: string
   /** When true, the collapse button is shown inline with the tab bar */
   collapsible?: boolean
-}>()
+  /** Which tab to show initially (defaults to "history") */
+  defaultTab?: string
+}>(), {
+  defaultTab: 'history',
+})
 
 const emit = defineEmits<{
   'select-query': [query: string]
@@ -35,7 +39,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <Tabs default-value="history" class="flex h-full min-w-0 flex-col">
+  <Tabs :default-value="defaultTab" class="flex h-full min-w-0 flex-col">
     <div class="flex shrink-0 items-center gap-1">
       <TabsList class="min-w-0 flex-1">
         <TabsTrigger value="history" class="gap-1 text-xs">

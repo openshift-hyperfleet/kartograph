@@ -10,6 +10,7 @@ const props = defineProps<ToasterProps>()
 <template>
   <Sonner
     :class="cn('toaster group', props.class)"
+    rich-colors
     :style="{
       '--normal-bg': 'var(--popover)',
       '--normal-text': 'var(--popover-foreground)',

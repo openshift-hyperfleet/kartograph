@@ -4,9 +4,6 @@ Tests the full vertical slice: API -> Service -> Repository -> PostgreSQL + Spic
 Uses JWT Bearer token authentication via Keycloak.
 """
 
-import asyncio
-import time
-
 import pytest
 import pytest_asyncio
 from asgi_lifespan import LifespanManager
@@ -15,47 +12,14 @@ from httpx import ASGITransport, AsyncClient
 from iam.dependencies.multi_tenant_mode import _get_single_tenant_mode
 from iam.domain.value_objects import TenantId, TenantRole, UserId
 from main import app
-from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
     ResourceType,
     format_resource,
 )
+from tests.integration.iam.conftest import wait_for_permission
 
 pytestmark = [pytest.mark.integration, pytest.mark.keycloak]
-
-
-async def wait_for_permission(
-    authz: AuthorizationProvider,
-    resource: str,
-    permission: str,
-    subject: str,
-    timeout: float = 5.0,
-    poll_interval: float = 0.05,
-) -> bool:
-    """Wait for a permission to become available in SpiceDB.
-
-    The outbox pattern introduces eventual consistency between PostgreSQL
-    and SpiceDB. This helper waits for the outbox worker to process events
-    and write relationships to SpiceDB before proceeding with assertions.
-
-    Args:
-        authz: Authorization provider (SpiceDB client)
-        resource: Resource identifier (e.g., "tenant:123")
-        permission: Permission to check (e.g., "administrate")
-        subject: Subject identifier (e.g., "user:456")
-        timeout: Maximum time to wait in seconds
-        poll_interval: Time between checks in seconds
-
-    Returns:
-        True if permission became available, False if timeout exceeded
-    """
-    start = time.monotonic()
-    while time.monotonic() - start < timeout:
-        if await authz.check_permission(resource, permission, subject):
-            return True
-        await asyncio.sleep(poll_interval)
-    return False
 
 
 @pytest_asyncio.fixture

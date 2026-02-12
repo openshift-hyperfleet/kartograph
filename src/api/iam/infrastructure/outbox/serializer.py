@@ -15,6 +15,7 @@ from iam.domain.events import (
     DomainEvent,
     MemberSnapshot,
 )
+from iam.domain.value_objects import MemberType, TenantRole, WorkspaceRole
 
 # Derive supported events from the DomainEvent type alias
 _SUPPORTED_EVENTS: frozenset[str] = frozenset(
@@ -135,3 +136,23 @@ class IAMEventSerializer:
                 )
                 for m in data["members"]
             )
+
+        # Convert workspace member event strings to domain enums
+        _WORKSPACE_MEMBER_EVENTS = (
+            "WorkspaceMemberAdded",
+            "WorkspaceMemberRemoved",
+            "WorkspaceMemberRoleChanged",
+        )
+        if event_type in _WORKSPACE_MEMBER_EVENTS:
+            if "member_type" in data:
+                data["member_type"] = MemberType(data["member_type"])
+            if "role" in data:
+                data["role"] = WorkspaceRole(data["role"])
+            if "old_role" in data:
+                data["old_role"] = WorkspaceRole(data["old_role"])
+            if "new_role" in data:
+                data["new_role"] = WorkspaceRole(data["new_role"])
+
+        # Convert tenant member event strings to domain enums
+        if event_type == "TenantMemberAdded" and "role" in data:
+            data["role"] = TenantRole(data["role"])

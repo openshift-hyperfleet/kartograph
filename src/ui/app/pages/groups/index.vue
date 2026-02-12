@@ -236,6 +236,9 @@ async function refreshGroup(groupId: string) {
       <p class="mt-1 text-sm text-muted-foreground">
         Create a new group or look up an existing one by ID.
       </p>
+      <p class="mt-2 text-xs text-muted-foreground/70">
+        The API does not provide a list endpoint for groups. Use the lookup above to fetch a group by its ID.
+      </p>
     </div>
 
     <div v-else class="space-y-4">

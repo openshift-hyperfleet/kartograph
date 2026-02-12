@@ -104,6 +104,19 @@ export interface CypherResult {
   row_count: number
 }
 
+// ── Query History Types ─────────────────────────────────────────────────────
+
+export interface HistoryEntry {
+  query: string
+  timestamp: number
+  rowCount: number | null
+}
+
+export interface HistoryGroup {
+  label: string
+  entries: (HistoryEntry & { originalIndex: number })[]
+}
+
 // ── Graph Visualization Types ──────────────────────────────────────────────
 
 export interface GraphNode {

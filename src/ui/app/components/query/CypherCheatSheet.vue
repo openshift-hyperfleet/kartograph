@@ -1,19 +1,28 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { ChevronDown, ChevronRight, BookOpen } from 'lucide-vue-next'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ChevronDown, ChevronRight, ArrowDownToLine } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
-const isOpen = ref(false)
+const emit = defineEmits<{
+  'insert-at-cursor': [pattern: string]
+}>()
 
 interface CheatSection {
   title: string
+  defaultOpen: boolean
   items: { pattern: string; description: string }[]
 }
 
 const sections: CheatSection[] = [
   {
     title: 'Node Patterns',
+    defaultOpen: false,
     items: [
       { pattern: '(n)', description: 'Any node' },
       { pattern: '(n:Label)', description: 'Node with label' },
@@ -23,6 +32,7 @@ const sections: CheatSection[] = [
   },
   {
     title: 'Relationship Patterns',
+    defaultOpen: false,
     items: [
       { pattern: '-[r]->', description: 'Directed relationship' },
       { pattern: '-[r:TYPE]->', description: 'Typed relationship' },
@@ -33,6 +43,7 @@ const sections: CheatSection[] = [
   },
   {
     title: 'Common Clauses',
+    defaultOpen: true,
     items: [
       { pattern: 'MATCH (n) RETURN n', description: 'Find and return nodes' },
       { pattern: 'WHERE n.prop = val', description: 'Filter results' },
@@ -45,6 +56,7 @@ const sections: CheatSection[] = [
   },
   {
     title: 'Operators',
+    defaultOpen: false,
     items: [
       { pattern: '=, <>, <, >, <=, >=', description: 'Comparison' },
       { pattern: 'AND, OR, NOT, XOR', description: 'Logical' },
@@ -57,6 +69,7 @@ const sections: CheatSection[] = [
   },
   {
     title: 'Useful Functions',
+    defaultOpen: false,
     items: [
       { pattern: 'labels(n)', description: 'Node labels' },
       { pattern: 'type(r)', description: 'Relationship type' },
@@ -70,6 +83,7 @@ const sections: CheatSection[] = [
   },
   {
     title: 'Apache AGE Notes',
+    defaultOpen: false,
     items: [
       { pattern: 'RETURN {a: v1, b: v2}', description: 'Single column only — use map syntax' },
       { pattern: 'No OPTIONAL MATCH', description: 'Use WHERE + IS NOT NULL instead' },
@@ -78,50 +92,78 @@ const sections: CheatSection[] = [
     ],
   },
 ]
+
+const openSections = ref<Set<string>>(
+  new Set(sections.filter((s) => s.defaultOpen).map((s) => s.title)),
+)
+
+function toggleSection(title: string) {
+  if (openSections.value.has(title)) {
+    openSections.value.delete(title)
+  } else {
+    openSections.value.add(title)
+  }
+  // Trigger reactivity
+  openSections.value = new Set(openSections.value)
+}
+
+function handleInsert(pattern: string) {
+  emit('insert-at-cursor', pattern)
+}
 </script>
 
 <template>
-  <Card class="flex flex-col">
-    <CardHeader
-      class="cursor-pointer pb-3"
-      @click="isOpen = !isOpen"
-    >
-      <div class="flex items-center justify-between">
-        <CardTitle class="flex items-center gap-1.5 text-sm font-medium">
-          <BookOpen class="size-3.5" />
-          Cheat Sheet
-        </CardTitle>
-        <ChevronDown v-if="isOpen" class="size-4 text-muted-foreground" />
-        <ChevronRight v-else class="size-4 text-muted-foreground" />
-      </div>
-    </CardHeader>
-    <CardContent v-if="isOpen" class="max-h-96 overflow-y-auto pt-0">
-      <div class="space-y-4">
-        <div v-for="section in sections" :key="section.title">
-          <div class="mb-1.5 flex items-center gap-1.5">
-            <span class="text-xs font-semibold text-muted-foreground">{{ section.title }}</span>
-            <Badge
-              v-if="section.title === 'Apache AGE Notes'"
-              variant="warning"
-              class="h-4 px-1 text-[9px]"
-            >
-              Important
-            </Badge>
-          </div>
-          <div class="space-y-1">
-            <div
-              v-for="item in section.items"
-              :key="item.pattern"
-              class="flex items-start gap-2 text-[11px]"
-            >
-              <code class="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px]">
-                {{ item.pattern }}
-              </code>
-              <span class="text-muted-foreground">{{ item.description }}</span>
-            </div>
-          </div>
+  <TooltipProvider :delay-duration="300">
+    <div class="space-y-1">
+      <div v-for="section in sections" :key="section.title">
+        <!-- Section header (collapsible toggle) -->
+        <button
+          class="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left transition-colors hover:bg-muted/50"
+          @click="toggleSection(section.title)"
+        >
+          <ChevronDown
+            v-if="openSections.has(section.title)"
+            class="size-3 shrink-0 text-muted-foreground"
+          />
+          <ChevronRight
+            v-else
+            class="size-3 shrink-0 text-muted-foreground"
+          />
+          <span class="text-xs font-semibold text-muted-foreground">{{ section.title }}</span>
+          <Badge
+            v-if="section.title === 'Apache AGE Notes'"
+            variant="warning"
+            class="h-4 px-1 text-[10px]"
+          >
+            Important
+          </Badge>
+        </button>
+
+        <!-- Collapsible section content -->
+        <div v-if="openSections.has(section.title)" class="space-y-0.5 pb-1 pl-[18px]">
+          <Tooltip v-for="item in section.items" :key="item.pattern">
+            <TooltipTrigger as-child>
+              <button
+                class="group flex w-full items-center gap-2 rounded px-1 py-0.5 text-left transition-colors hover:bg-muted/70"
+                @click="handleInsert(item.pattern)"
+              >
+                <code class="min-w-0 truncate rounded bg-muted px-1 py-0.5 font-mono text-[10px] transition-colors group-hover:bg-primary/15 group-hover:text-primary">
+                  {{ item.pattern }}
+                </code>
+                <span class="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                  {{ item.description }}
+                </span>
+                <ArrowDownToLine
+                  class="size-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left" :side-offset="8">
+              <p class="text-xs">Click to insert into editor</p>
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
-    </CardContent>
-  </Card>
+    </div>
+  </TooltipProvider>
 </template>

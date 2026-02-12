@@ -3,26 +3,27 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { toast } from 'vue-sonner'
 import { keymap } from '@codemirror/view'
 import { Prec, type Extension } from '@codemirror/state'
+import { useLocalStorage } from '@vueuse/core'
 import {
   Terminal, Play, Trash2, Loader2, Clock, Hash,
-  ChevronRight, ChevronDown, Database, GitBranch,
-  Search,
+  PanelRight, PanelRightClose,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
 import {
   Card, CardContent, CardHeader, CardTitle,
 } from '@/components/ui/card'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import {
   Tooltip, TooltipContent, TooltipTrigger,
 } from '@/components/ui/tooltip'
-import type { CypherResult } from '~/types'
+import {
+  Sheet, SheetContent, SheetTitle, SheetHeader,
+  SheetDescription,
+} from '@/components/ui/sheet'
+import type { CypherResult, HistoryEntry } from '~/types'
 
 // Modifier key tracking
 import { useModifierKeys } from '@/composables/useModifierKeys'
@@ -37,9 +38,8 @@ import { cypherTooltips } from '@/lib/codemirror/lang-cypher/tooltips'
 import { applyServerError, clearServerErrors } from '@/lib/codemirror/error-parser'
 
 // Components
-import QueryTemplates from '@/components/query/QueryTemplates.vue'
-import CypherCheatSheet from '@/components/query/CypherCheatSheet.vue'
 import QueryResultsPanel from '@/components/query/QueryResultsPanel.vue'
+import QuerySidebar from '@/components/query/QuerySidebar.vue'
 
 const { ctrlHeld } = useModifierKeys()
 
@@ -63,49 +63,26 @@ const executionTime = ref<number | null>(null)
 const nodeLabels = ref<string[]>([])
 const edgeLabels = ref<string[]>([])
 const schemaLoading = ref(false)
-const schemaOpen = ref(true)
-
-// Schema search & filtering
-const schemaSearch = ref('')
-const SCHEMA_INITIAL_LIMIT = 50
-const schemaShowAll = ref(false)
-
-const filteredNodeLabels = computed(() => {
-  const search = schemaSearch.value.toLowerCase().trim()
-  let labels = nodeLabels.value
-  if (search) {
-    labels = labels.filter(l => l.toLowerCase().includes(search))
-  }
-  if (!schemaShowAll.value && !search) {
-    return labels.slice(0, SCHEMA_INITIAL_LIMIT)
-  }
-  return labels
-})
-
-const filteredEdgeLabels = computed(() => {
-  const search = schemaSearch.value.toLowerCase().trim()
-  let labels = edgeLabels.value
-  if (search) {
-    labels = labels.filter(l => l.toLowerCase().includes(search))
-  }
-  if (!schemaShowAll.value && !search) {
-    return labels.slice(0, SCHEMA_INITIAL_LIMIT)
-  }
-  return labels
-})
 
 // History
 const HISTORY_KEY = 'kartograph:query-history'
 const MAX_HISTORY = 20
 
-interface HistoryEntry {
-  query: string
-  timestamp: number
-  rowCount: number | null
-}
-
 const history = ref<HistoryEntry[]>([])
-const historyOpen = ref(true)
+
+// Responsive sidebar sheet
+const sheetOpen = ref(false)
+
+// Resizable & collapsible sidebar
+const SIDEBAR_WIDTH_KEY = 'kartograph:sidebar-width'
+const SIDEBAR_COLLAPSED_KEY = 'kartograph:sidebar-collapsed'
+const SIDEBAR_MIN = 180
+const SIDEBAR_MAX = 800
+const SIDEBAR_DEFAULT = 320
+
+const sidebarWidth = useLocalStorage(SIDEBAR_WIDTH_KEY, SIDEBAR_DEFAULT)
+const sidebarCollapsed = useLocalStorage(SIDEBAR_COLLAPSED_KEY, false)
+const isResizing = ref(false)
 
 // ── CodeMirror Setup ───────────────────────────────────────────────────────
 
@@ -210,6 +187,7 @@ function setQuery(cypherText: string) {
   if (editorView.value) {
     clearServerErrors(editorView.value)
   }
+  sheetOpen.value = false
   nextTick(focusEditor)
 }
 
@@ -226,6 +204,15 @@ function insertAtCursor(text: string) {
     selection: { anchor: from + text.length },
   })
   view.focus()
+}
+
+function handleExecuteFromSidebar(cypherText: string) {
+  query.value = cypherText
+  if (editorView.value) {
+    clearServerErrors(editorView.value)
+  }
+  sheetOpen.value = false
+  nextTick(() => executeQuery())
 }
 
 // ── History ────────────────────────────────────────────────────────────────
@@ -259,56 +246,6 @@ function clearHistory() {
   saveHistory()
 }
 
-function formatRelativeTime(ts: number): string {
-  const now = Date.now()
-  const diff = now - ts
-  const seconds = Math.floor(diff / 1000)
-  const minutes = Math.floor(seconds / 60)
-  const hours = Math.floor(minutes / 60)
-  const days = Math.floor(hours / 24)
-
-  if (seconds < 60) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-  if (hours < 24) return `${hours}h ago`
-  if (days === 1) return 'yesterday'
-  if (days < 7) return `${days}d ago`
-  return new Date(ts).toLocaleDateString()
-}
-
-interface HistoryGroup {
-  label: string
-  entries: (HistoryEntry & { originalIndex: number })[]
-}
-
-const groupedHistory = computed<HistoryGroup[]>(() => {
-  if (history.value.length === 0) return []
-
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  const yesterday = today - 86400000
-
-  const groups: Record<string, (HistoryEntry & { originalIndex: number })[]> = {}
-
-  history.value.forEach((entry, idx) => {
-    let label: string
-    if (entry.timestamp >= today) {
-      label = 'Today'
-    } else if (entry.timestamp >= yesterday) {
-      label = 'Yesterday'
-    } else {
-      label = new Date(entry.timestamp).toLocaleDateString(undefined, {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-      })
-    }
-    if (!groups[label]) groups[label] = []
-    groups[label].push({ ...entry, originalIndex: idx })
-  })
-
-  return Object.entries(groups).map(([label, entries]) => ({ label, entries }))
-})
-
 // ── Schema ─────────────────────────────────────────────────────────────────
 
 async function fetchSchema() {
@@ -328,6 +265,33 @@ async function fetchSchema() {
     schemaLoading.value = false
   }
 }
+
+// ── Resizable sidebar ──────────────────────────────────────────────────────
+
+function startResize(e: MouseEvent) {
+  e.preventDefault()
+  isResizing.value = true
+  const startX = e.clientX
+  const startWidth = sidebarWidth.value
+
+  function onMouseMove(ev: MouseEvent) {
+    // Sidebar is on the right, so dragging left increases width
+    const delta = startX - ev.clientX
+    const newWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startWidth + delta))
+    sidebarWidth.value = newWidth
+  }
+
+  function onMouseUp() {
+    isResizing.value = false
+    document.removeEventListener('mousemove', onMouseMove)
+    document.removeEventListener('mouseup', onMouseUp)
+  }
+
+  document.addEventListener('mousemove', onMouseMove)
+  document.addEventListener('mouseup', onMouseUp)
+}
+
+// ── Keyboard shortcuts ─────────────────────────────────────────────────────
 
 function handleCtrlEnter(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -405,6 +369,23 @@ onBeforeUnmount(() => {
                   <Trash2 class="mr-2 size-4" />
                   Clear
                 </Button>
+
+                <!-- Sidebar toggle (below xl) -->
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      class="xl:hidden"
+                      @click="sheetOpen = true"
+                    >
+                      <PanelRight class="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Open sidebar</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
 
               <div class="flex items-center gap-3">
@@ -465,179 +446,94 @@ onBeforeUnmount(() => {
         />
       </div>
 
-      <!-- Right sidebar: Templates + Cheat Sheet + Schema + History -->
-      <div class="hidden w-72 flex-shrink-0 flex-col gap-4 xl:flex">
-        <!-- Query Templates -->
-        <QueryTemplates
-          :node-labels="nodeLabels"
-          :edge-labels="edgeLabels"
-          @select-query="setQuery"
+      <!-- Right sidebar: resizable with drag handle, collapsible -->
+      <div
+        class="relative hidden flex-shrink-0 overflow-hidden xl:flex"
+        :style="{ width: sidebarCollapsed ? '40px' : `${sidebarWidth}px` }"
+      >
+        <!-- Drag handle (hidden when collapsed) -->
+        <div
+          v-if="!sidebarCollapsed"
+          class="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize transition-colors hover:bg-primary/30"
+          :class="isResizing ? 'bg-primary/40' : 'bg-transparent'"
+          @mousedown="startResize"
         />
 
-        <!-- Cheat Sheet -->
-        <CypherCheatSheet />
+        <!-- Collapsed state: just a vertical toggle bar -->
+        <div v-if="sidebarCollapsed" class="flex h-full w-full flex-col items-center pt-1">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-8"
+                @click="sidebarCollapsed = false"
+              >
+                <PanelRight class="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">
+              <p>Expand sidebar</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
 
-        <!-- Schema Reference -->
-        <Card class="flex flex-col">
-          <CardHeader class="cursor-pointer pb-3" @click="schemaOpen = !schemaOpen">
-            <div class="flex items-center justify-between">
-              <CardTitle class="text-sm font-medium">Schema Reference</CardTitle>
-              <ChevronDown v-if="schemaOpen" class="size-4 text-muted-foreground" />
-              <ChevronRight v-else class="size-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent v-if="schemaOpen" class="space-y-4 pt-0">
-            <div v-if="schemaLoading" class="flex items-center justify-center py-4">
-              <Loader2 class="size-4 animate-spin text-muted-foreground" />
-            </div>
-            <template v-else>
-              <!-- Search filter -->
-              <div class="relative">
-                <Search class="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  v-model="schemaSearch"
-                  placeholder="Filter types..."
-                  class="h-7 pl-7 text-xs"
-                />
-              </div>
-
-              <!-- Node labels -->
-              <div>
-                <div class="mb-2 flex items-center gap-1.5">
-                  <Database class="size-3.5 text-blue-500" />
-                  <span class="text-xs font-medium">Node Types</span>
-                  <Badge variant="secondary" class="ml-auto h-4 px-1 text-[10px]">
-                    {{ schemaSearch ? `${filteredNodeLabels.length} of ` : '' }}{{ nodeLabels.length }}
-                  </Badge>
-                </div>
-                <div v-if="nodeLabels.length === 0" class="text-xs text-muted-foreground">
-                  No node types found.
-                </div>
-                <div v-else class="max-h-64 overflow-y-auto">
-                  <div class="flex flex-wrap gap-1">
-                    <Button
-                      v-for="label in filteredNodeLabels"
-                      :key="label"
-                      variant="outline"
-                      size="sm"
-                      class="h-6 px-2 font-mono text-[11px]"
-                      @click="insertAtCursor(label)"
-                    >
-                      {{ label }}
-                    </Button>
-                  </div>
-                  <button
-                    v-if="!schemaSearch && !schemaShowAll && nodeLabels.length > SCHEMA_INITIAL_LIMIT"
-                    class="mt-1 w-full text-center text-[11px] text-muted-foreground hover:text-foreground"
-                    @click.stop="schemaShowAll = true"
-                  >
-                    Show all {{ nodeLabels.length }} types
-                  </button>
-                </div>
-              </div>
-
-              <Separator />
-
-              <!-- Edge labels -->
-              <div>
-                <div class="mb-2 flex items-center gap-1.5">
-                  <GitBranch class="size-3.5 text-orange-500" />
-                  <span class="text-xs font-medium">Edge Types</span>
-                  <Badge variant="secondary" class="ml-auto h-4 px-1 text-[10px]">
-                    {{ schemaSearch ? `${filteredEdgeLabels.length} of ` : '' }}{{ edgeLabels.length }}
-                  </Badge>
-                </div>
-                <div v-if="edgeLabels.length === 0" class="text-xs text-muted-foreground">
-                  No edge types found.
-                </div>
-                <div v-else class="max-h-64 overflow-y-auto">
-                  <div class="flex flex-wrap gap-1">
-                    <Button
-                      v-for="label in filteredEdgeLabels"
-                      :key="label"
-                      variant="outline"
-                      size="sm"
-                      class="h-6 px-2 font-mono text-[11px]"
-                      @click="insertAtCursor(label)"
-                    >
-                      {{ label }}
-                    </Button>
-                  </div>
-                  <button
-                    v-if="!schemaSearch && !schemaShowAll && edgeLabels.length > SCHEMA_INITIAL_LIMIT"
-                    class="mt-1 w-full text-center text-[11px] text-muted-foreground hover:text-foreground"
-                    @click.stop="schemaShowAll = true"
-                  >
-                    Show all {{ edgeLabels.length }} types
-                  </button>
-                </div>
-              </div>
-            </template>
-          </CardContent>
-        </Card>
-
-        <!-- Query History -->
-        <Card class="flex min-h-0 flex-1 flex-col">
-          <CardHeader class="cursor-pointer pb-3" @click="historyOpen = !historyOpen">
-            <div class="flex items-center justify-between">
-              <CardTitle class="text-sm font-medium">History</CardTitle>
-              <div class="flex items-center gap-1">
-                <Badge v-if="history.length > 0" variant="secondary" class="h-4 px-1 text-[10px]">
-                  {{ history.length }}
-                </Badge>
-                <ChevronDown v-if="historyOpen" class="size-4 text-muted-foreground" />
-                <ChevronRight v-else class="size-4 text-muted-foreground" />
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent v-if="historyOpen" class="max-h-64 min-h-0 flex-1 overflow-y-auto pt-0">
-            <div v-if="history.length === 0" class="py-4 text-center text-xs text-muted-foreground">
-              No queries yet.
-            </div>
-            <template v-else>
-              <div class="mb-2 flex justify-end">
+        <!-- Expanded sidebar content -->
+        <div v-else class="ml-1.5 flex min-h-0 min-w-0 flex-1 flex-col">
+          <!-- Collapse button -->
+          <div class="mb-1 flex justify-end">
+            <Tooltip>
+              <TooltipTrigger as-child>
                 <Button
                   variant="ghost"
-                  size="sm"
-                  class="h-6 px-2 text-xs text-muted-foreground"
-                  @click.stop="clearHistory"
+                  size="icon"
+                  class="size-6"
+                  @click="sidebarCollapsed = true"
                 >
-                  <Trash2 class="mr-1 size-3" />
-                  Clear
+                  <PanelRightClose class="size-3.5" />
                 </Button>
-              </div>
-              <div class="space-y-3">
-                <div v-for="group in groupedHistory" :key="group.label">
-                  <p class="mb-1 text-[10px] font-semibold uppercase text-muted-foreground">
-                    {{ group.label }}
-                  </p>
-                  <div class="space-y-0.5">
-                    <button
-                      v-for="entry in group.entries"
-                      :key="entry.originalIndex"
-                      class="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted"
-                      @click="setQuery(entry.query)"
-                    >
-                      <p class="truncate font-mono text-[11px] text-foreground">
-                        {{ entry.query }}
-                      </p>
-                      <div class="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
-                        <span>{{ formatRelativeTime(entry.timestamp) }}</span>
-                        <span v-if="entry.rowCount !== null">
-                          {{ entry.rowCount }} row{{ entry.rowCount !== 1 ? 's' : '' }}
-                        </span>
-                        <Badge v-else variant="destructive" class="h-3.5 px-1 text-[9px]">
-                          error
-                        </Badge>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </template>
-          </CardContent>
-        </Card>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                <p>Collapse sidebar</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <QuerySidebar
+            :node-labels="nodeLabels"
+            :edge-labels="edgeLabels"
+            :schema-loading="schemaLoading"
+            :history="history"
+            :current-query="query"
+            @select-query="setQuery"
+            @insert-at-cursor="insertAtCursor"
+            @clear-history="clearHistory"
+            @execute-query="handleExecuteFromSidebar"
+          />
+        </div>
       </div>
     </div>
+
+    <!-- Responsive sidebar sheet (below xl) -->
+    <Sheet v-model:open="sheetOpen">
+      <SheetContent side="right" class="w-80 p-4 sm:max-w-sm">
+        <SheetHeader class="sr-only">
+          <SheetTitle>Query Sidebar</SheetTitle>
+          <SheetDescription>Schema, templates, reference, and history</SheetDescription>
+        </SheetHeader>
+        <div class="flex h-full flex-col pt-6">
+          <QuerySidebar
+            :node-labels="nodeLabels"
+            :edge-labels="edgeLabels"
+            :schema-loading="schemaLoading"
+            :history="history"
+            :current-query="query"
+            @select-query="setQuery"
+            @insert-at-cursor="insertAtCursor"
+            @clear-history="clearHistory"
+            @execute-query="handleExecuteFromSidebar"
+          />
+        </div>
+      </SheetContent>
+    </Sheet>
   </div>
 </template>

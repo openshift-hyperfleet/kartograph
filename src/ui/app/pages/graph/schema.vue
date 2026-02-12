@@ -21,13 +21,13 @@ const activeTab = ref('nodes')
 
 // Node types
 const nodeLabels = ref<string[]>([])
-const nodeCount = ref(0)
+const nodeTotalCount = ref(0)
 const nodeSearch = ref('')
 const nodeLabelsLoading = ref(false)
 
 // Edge types
 const edgeLabels = ref<string[]>([])
-const edgeCount = ref(0)
+const edgeTotalCount = ref(0)
 const edgeSearch = ref('')
 const edgeLabelsLoading = ref(false)
 
@@ -47,7 +47,10 @@ async function fetchNodeLabels() {
   try {
     const result = await listNodeLabels(nodeSearch.value || undefined)
     nodeLabels.value = result.labels
-    nodeCount.value = result.count
+    // Only update total count on unfiltered fetches
+    if (!nodeSearch.value) {
+      nodeTotalCount.value = result.count
+    }
   } catch (err) {
     toast.error('Failed to load node types', {
       description: err instanceof Error ? err.message : 'Unknown error',
@@ -62,7 +65,10 @@ async function fetchEdgeLabels() {
   try {
     const result = await listEdgeLabels(edgeSearch.value || undefined)
     edgeLabels.value = result.labels
-    edgeCount.value = result.count
+    // Only update total count on unfiltered fetches
+    if (!edgeSearch.value) {
+      edgeTotalCount.value = result.count
+    }
   } catch (err) {
     toast.error('Failed to load edge types', {
       description: err instanceof Error ? err.message : 'Unknown error',
@@ -152,11 +158,11 @@ onMounted(() => {
       <TabsList class="w-full">
         <TabsTrigger value="nodes" class="flex-1">
           Node Types
-          <Badge variant="secondary" class="ml-2">{{ nodeCount }}</Badge>
+          <Badge variant="secondary" class="ml-2">{{ nodeTotalCount }}</Badge>
         </TabsTrigger>
         <TabsTrigger value="edges" class="flex-1">
           Edge Types
-          <Badge variant="secondary" class="ml-2">{{ edgeCount }}</Badge>
+          <Badge variant="secondary" class="ml-2">{{ edgeTotalCount }}</Badge>
         </TabsTrigger>
       </TabsList>
 
@@ -173,7 +179,7 @@ onMounted(() => {
         </div>
 
         <p v-if="nodeSearch && !nodeLabelsLoading" class="text-sm text-muted-foreground">
-          Showing {{ nodeLabels.length }} matching of {{ nodeCount }} node types
+          Showing {{ nodeLabels.length }} matching of {{ nodeTotalCount }} node types
         </p>
 
         <!-- Loading -->
@@ -221,7 +227,7 @@ onMounted(() => {
         </div>
 
         <p v-if="edgeSearch && !edgeLabelsLoading" class="text-sm text-muted-foreground">
-          Showing {{ edgeLabels.length }} matching of {{ edgeCount }} edge types
+          Showing {{ edgeLabels.length }} matching of {{ edgeTotalCount }} edge types
         </p>
 
         <!-- Loading -->

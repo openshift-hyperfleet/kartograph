@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  Share2, Search, Loader2, Info, ChevronDown, ChevronUp,
+  Share2, Search, Loader2, Info, ChevronDown, ChevronUp, ChevronsUpDown, Check, X,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,8 +10,11 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
+  Popover, PopoverContent, PopoverTrigger,
+} from '@/components/ui/popover'
+import {
+  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from '@/components/ui/command'
 import {
   Table, TableBody, TableRow, TableCell,
 } from '@/components/ui/table'
@@ -23,12 +26,42 @@ const { findNodesBySlug, listNodeLabels } = useGraphApi()
 
 // Search
 const slugQuery = ref('')
-const nodeTypeFilter = ref<string>('__all__')
+const nodeTypeFilter = ref<string>('')
 const availableNodeTypes = ref<string[]>([])
 const nodeTypesLoading = ref(false)
 const searching = ref(false)
 const searchResults = ref<NodeRecord[]>([])
 const hasSearched = ref(false)
+
+// Type filter combobox
+const typeFilterOpen = ref(false)
+const typeFilterSearch = ref('')
+const COMBOBOX_LIMIT = 100
+
+const filteredNodeTypes = computed(() => {
+  let types = availableNodeTypes.value
+  if (typeFilterSearch.value) {
+    const q = typeFilterSearch.value.toLowerCase()
+    types = types.filter(t => t.toLowerCase().includes(q))
+  }
+  return types.slice(0, COMBOBOX_LIMIT)
+})
+
+const typeFilterLabel = computed(() => {
+  if (!nodeTypeFilter.value) return 'All types'
+  return nodeTypeFilter.value
+})
+
+function selectNodeType(value: string) {
+  nodeTypeFilter.value = value
+  typeFilterOpen.value = false
+  typeFilterSearch.value = ''
+}
+
+function clearNodeTypeFilter() {
+  nodeTypeFilter.value = ''
+  typeFilterSearch.value = ''
+}
 
 // Property expansion tracking
 const expandedProps = reactive(new Set<string>())
@@ -52,7 +85,7 @@ async function handleSearch() {
   searching.value = true
   hasSearched.value = true
   try {
-    const typeArg = nodeTypeFilter.value && nodeTypeFilter.value !== '__all__' ? nodeTypeFilter.value : undefined
+    const typeArg = nodeTypeFilter.value || undefined
     const result = await findNodesBySlug(slugQuery.value.trim(), typeArg)
     searchResults.value = result.nodes
   } catch (err) {
@@ -121,20 +154,59 @@ onMounted(loadNodeTypes)
               />
             </div>
           </div>
-          <div class="w-full space-y-1.5 sm:w-48">
+          <div class="w-full space-y-1.5 sm:w-56">
             <Label>Type Filter</Label>
-            <Select v-model="nodeTypeFilter">
-              <SelectTrigger>
-                <Loader2 v-if="nodeTypesLoading" class="mr-2 size-4 animate-spin" />
-                <SelectValue placeholder="All types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">All types</SelectItem>
-                <SelectItem v-for="nt in availableNodeTypes" :key="nt" :value="nt">
-                  {{ nt }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            <Popover v-model:open="typeFilterOpen">
+              <PopoverTrigger as-child>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  :aria-expanded="typeFilterOpen"
+                  class="w-full justify-between font-normal"
+                >
+                  <Loader2 v-if="nodeTypesLoading" class="mr-2 size-4 animate-spin" />
+                  <span class="truncate">{{ typeFilterLabel }}</span>
+                  <div class="ml-2 flex shrink-0 items-center gap-1">
+                    <button
+                      v-if="nodeTypeFilter"
+                      class="rounded-sm p-0.5 hover:bg-accent"
+                      @click.stop="clearNodeTypeFilter"
+                    >
+                      <X class="size-3" />
+                    </button>
+                    <ChevronsUpDown class="size-4 opacity-50" />
+                  </div>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent class="w-[280px] p-0" align="start">
+                <Command>
+                  <CommandInput v-model="typeFilterSearch" placeholder="Search types..." />
+                  <CommandList class="max-h-64">
+                    <CommandEmpty>No types found.</CommandEmpty>
+                    <CommandGroup>
+                      <CommandItem
+                        v-for="nt in filteredNodeTypes"
+                        :key="nt"
+                        :value="nt"
+                        @select="selectNodeType(nt)"
+                      >
+                        <Check
+                          class="mr-2 size-4"
+                          :class="nodeTypeFilter === nt ? 'opacity-100' : 'opacity-0'"
+                        />
+                        {{ nt }}
+                      </CommandItem>
+                      <div
+                        v-if="!typeFilterSearch && availableNodeTypes.length > COMBOBOX_LIMIT"
+                        class="px-2 py-1.5 text-center text-xs text-muted-foreground"
+                      >
+                        Showing {{ COMBOBOX_LIMIT }} of {{ availableNodeTypes.length }} types. Search to narrow down.
+                      </div>
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
           <Button :disabled="searching || !slugQuery.trim()" @click="handleSearch">
             <Loader2 v-if="searching" class="mr-2 size-4 animate-spin" />

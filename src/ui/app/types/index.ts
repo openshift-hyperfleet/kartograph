@@ -103,3 +103,26 @@ export interface CypherResult {
   rows: Record<string, unknown>[]
   row_count: number
 }
+
+// ── Graph Visualization Types ──────────────────────────────────────────────
+
+export interface GraphNode {
+  id: string
+  label: string
+  properties: Record<string, unknown>
+  /** Resolved from properties.name, properties.slug, or label */
+  displayName: string
+}
+
+export interface GraphEdge {
+  id: string
+  label: string
+  source: string
+  target: string
+  properties: Record<string, unknown>
+}
+
+export interface GraphData {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+}

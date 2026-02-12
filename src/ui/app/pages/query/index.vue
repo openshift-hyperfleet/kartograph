@@ -40,6 +40,8 @@ import { applyServerError, clearServerErrors } from '@/lib/codemirror/error-pars
 // Components
 import QueryTemplates from '@/components/query/QueryTemplates.vue'
 import CypherCheatSheet from '@/components/query/CypherCheatSheet.vue'
+import GraphVisualization from '@/components/query/GraphVisualization.vue'
+import { extractGraphData } from '@/composables/query/graph/useGraphExtraction'
 
 // ── API ────────────────────────────────────────────────────────────────────
 
@@ -150,6 +152,12 @@ const { view: editorView, focus: focusEditor } = useCodemirror(
 const columns = computed<string[]>(() => {
   if (!result.value || result.value.rows.length === 0) return []
   return Object.keys(result.value.rows[0])
+})
+
+const hasGraphElements = computed(() => {
+  if (!result.value) return false
+  const data = extractGraphData(result.value)
+  return data.nodes.length > 0
 })
 
 // ── Actions ────────────────────────────────────────────────────────────────
@@ -428,6 +436,7 @@ onMounted(() => {
                 <TabsList>
                   <TabsTrigger value="table">Table</TabsTrigger>
                   <TabsTrigger value="json">JSON</TabsTrigger>
+                  <TabsTrigger value="graph" :disabled="!hasGraphElements">Graph</TabsTrigger>
                   <TabsTrigger value="info">Info</TabsTrigger>
                 </TabsList>
                 <Badge v-if="result" variant="secondary">
@@ -551,6 +560,14 @@ onMounted(() => {
                     <AlertDescription class="font-mono text-xs">{{ error }}</AlertDescription>
                   </Alert>
                 </div>
+              </TabsContent>
+
+              <!-- Graph tab -->
+              <TabsContent value="graph" class="mt-0 h-full">
+                <GraphVisualization
+                  :result="result"
+                  :executing="executing"
+                />
               </TabsContent>
             </CardContent>
           </Tabs>

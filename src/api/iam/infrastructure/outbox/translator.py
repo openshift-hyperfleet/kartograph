@@ -45,6 +45,28 @@ from shared_kernel.outbox.operations import (
 _EVENT_REGISTRY: dict[str, type] = {cls.__name__: cls for cls in get_args(DomainEvent)}
 
 
+def validate_required_keys(payload: dict[str, Any], required_keys: list[str]) -> None:
+    """Validate that all required keys are present and are strings.
+
+    Args:
+        payload: The event payload to validate
+        required_keys: List of keys that must be present with string values
+
+    Raises:
+        ValueError: If any required keys are missing or have non-string values
+    """
+    missing = [key for key in required_keys if key not in payload]
+    if missing:
+        raise ValueError(f"Payload missing required keys: {sorted(missing)}")
+
+    for key in required_keys:
+        if not isinstance(payload[key], str):
+            raise ValueError(
+                f"Payload key '{key}' must be a string, "
+                f"got {type(payload[key]).__name__}"
+            )
+
+
 class IAMEventTranslator:
     """Translates IAM domain events to SpiceDB operations.
 
@@ -496,6 +518,9 @@ class IAMEventTranslator:
 
         Creates a relationship: workspace#<role>@<member_type>:<member_id>
         """
+        validate_required_keys(
+            payload, ["workspace_id", "member_id", "member_type", "role"]
+        )
         role = WorkspaceRole(payload["role"])
         subject_type = self._resolve_subject_type(payload["member_type"])
 
@@ -517,6 +542,9 @@ class IAMEventTranslator:
 
         Deletes: workspace#<role>@<member_type>:<member_id>
         """
+        validate_required_keys(
+            payload, ["workspace_id", "member_id", "member_type", "role"]
+        )
         role = WorkspaceRole(payload["role"])
         subject_type = self._resolve_subject_type(payload["member_type"])
 
@@ -539,6 +567,10 @@ class IAMEventTranslator:
         Deletes: workspace#<old_role>@<member_type>:<member_id>
         Writes:  workspace#<new_role>@<member_type>:<member_id>
         """
+        validate_required_keys(
+            payload,
+            ["workspace_id", "member_id", "member_type", "old_role", "new_role"],
+        )
         old_role = WorkspaceRole(payload["old_role"])
         new_role = WorkspaceRole(payload["new_role"])
         subject_type = self._resolve_subject_type(payload["member_type"])

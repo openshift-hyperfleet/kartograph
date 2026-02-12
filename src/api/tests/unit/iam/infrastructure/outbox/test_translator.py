@@ -778,6 +778,117 @@ class TestIAMEventTranslatorWorkspaceMemberRoleChanged:
             assert op.subject_id == "01GROUP_ENG"
 
 
+class TestIAMEventTranslatorWorkspaceMemberValidation:
+    """Tests for workspace member translator payload validation."""
+
+    def test_workspace_member_added_missing_workspace_id_raises(self):
+        """Missing workspace_id should raise ValueError with descriptive message."""
+        translator = IAMEventTranslator()
+        payload = {
+            "member_id": "user-alice",
+            "member_type": "user",
+            "role": "editor",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        with pytest.raises(ValueError, match="workspace_id"):
+            translator.translate("WorkspaceMemberAdded", payload)
+
+    def test_workspace_member_added_missing_member_id_raises(self):
+        """Missing member_id should raise ValueError with descriptive message."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "member_type": "user",
+            "role": "editor",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        with pytest.raises(ValueError, match="member_id"):
+            translator.translate("WorkspaceMemberAdded", payload)
+
+    def test_workspace_member_added_missing_multiple_keys_raises(self):
+        """Missing multiple keys should raise ValueError listing all missing keys."""
+        translator = IAMEventTranslator()
+        payload = {"occurred_at": "2026-01-08T12:00:00+00:00"}
+
+        with pytest.raises(ValueError, match="missing required keys"):
+            translator.translate("WorkspaceMemberAdded", payload)
+
+    def test_workspace_member_added_non_string_workspace_id_raises(self):
+        """Non-string workspace_id should raise ValueError."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": 12345,
+            "member_id": "user-alice",
+            "member_type": "user",
+            "role": "editor",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        with pytest.raises(ValueError, match="workspace_id.*must be a string"):
+            translator.translate("WorkspaceMemberAdded", payload)
+
+    def test_workspace_member_removed_missing_keys_raises(self):
+        """Missing keys in WorkspaceMemberRemoved should raise ValueError."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        with pytest.raises(ValueError, match="missing required keys"):
+            translator.translate("WorkspaceMemberRemoved", payload)
+
+    def test_workspace_member_removed_non_string_role_raises(self):
+        """Non-string role in WorkspaceMemberRemoved should raise ValueError."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "member_id": "user-alice",
+            "member_type": "user",
+            "role": 42,
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        with pytest.raises(ValueError, match="role.*must be a string"):
+            translator.translate("WorkspaceMemberRemoved", payload)
+
+    def test_workspace_member_role_changed_missing_keys_raises(self):
+        """Missing keys in WorkspaceMemberRoleChanged should raise ValueError."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "member_id": "user-alice",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        with pytest.raises(ValueError, match="missing required keys"):
+            translator.translate("WorkspaceMemberRoleChanged", payload)
+
+    def test_workspace_member_role_changed_non_string_old_role_raises(self):
+        """Non-string old_role in WorkspaceMemberRoleChanged should raise ValueError."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "member_id": "user-alice",
+            "member_type": "user",
+            "old_role": 1,
+            "new_role": "admin",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        with pytest.raises(ValueError, match="old_role.*must be a string"):
+            translator.translate("WorkspaceMemberRoleChanged", payload)
+
+    def test_workspace_member_added_empty_payload_raises(self):
+        """Completely empty payload should raise ValueError."""
+        translator = IAMEventTranslator()
+
+        with pytest.raises(ValueError, match="missing required keys"):
+            translator.translate("WorkspaceMemberAdded", {})
+
+
 class TestIAMEventTranslatorErrors:
     """Tests for error handling."""
 

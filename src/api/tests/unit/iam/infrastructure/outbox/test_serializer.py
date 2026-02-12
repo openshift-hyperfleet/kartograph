@@ -300,8 +300,8 @@ class TestIAMEventSerializerDeserialize:
         assert isinstance(event, WorkspaceMemberAdded)
         assert event.workspace_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
         assert event.member_id == "01ARZCX0P0HZGQP3MZXQQ0NNWW"
-        assert event.member_type == "user"
-        assert event.role == "editor"
+        assert event.member_type is MemberType.USER
+        assert event.role is WorkspaceRole.EDITOR
         assert event.occurred_at == datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
 
     def test_deserializes_workspace_member_removed(self):
@@ -319,8 +319,8 @@ class TestIAMEventSerializerDeserialize:
 
         assert isinstance(event, WorkspaceMemberRemoved)
         assert event.workspace_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
-        assert event.member_type == "group"
-        assert event.role == "admin"
+        assert event.member_type is MemberType.GROUP
+        assert event.role is WorkspaceRole.ADMIN
 
     def test_deserializes_workspace_member_role_changed(self):
         """WorkspaceMemberRoleChanged should be deserialized correctly."""
@@ -337,9 +337,9 @@ class TestIAMEventSerializerDeserialize:
         event = serializer.deserialize("WorkspaceMemberRoleChanged", payload)
 
         assert isinstance(event, WorkspaceMemberRoleChanged)
-        assert event.old_role == "member"
-        assert event.new_role == "admin"
-        assert event.member_type == "user"
+        assert event.old_role is WorkspaceRole.MEMBER
+        assert event.new_role is WorkspaceRole.ADMIN
+        assert event.member_type is MemberType.USER
 
     def test_raises_for_unknown_event_type(self):
         """Deserializer should raise for unknown event types."""

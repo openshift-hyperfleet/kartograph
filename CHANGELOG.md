@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.17.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.16.0...v3.17.0) (2026-02-12)
+
+
+### Features
+
+* **api.iam:** aihcm 156 workspace service authorization ([#224](https://github.com/openshift-hyperfleet/kartograph/issues/224)) ([e06fb52](https://github.com/openshift-hyperfleet/kartograph/commit/e06fb528de14f86e3e9f3021fe7ba9693df10f8c))
+
 ## [3.16.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.15.0...v3.16.0) (2026-02-12)
 
 

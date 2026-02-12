@@ -322,6 +322,44 @@ def bob_user_id(bob_token: str) -> str:
     return _extract_user_id_from_token(bob_token, "bob_token")
 
 
+@pytest.fixture
+def grant_workspace_admin(
+    spicedb_client: AuthorizationProvider,
+    alice_user_id: str,
+) -> Callable[[str], Coroutine[Any, Any, None]]:
+    """Provide a function to grant Alice admin on a workspace in SpiceDB.
+
+    After creating a workspace via the API, the outbox pattern means
+    SpiceDB relationships are written asynchronously. Additionally, the
+    WorkspaceCreated event does NOT auto-grant creator admin (AIHCM-158).
+
+    This fixture provides a callable to manually grant the admin
+    relationship so that subsequent operations (create children, delete)
+    succeed permission checks.
+
+    Usage:
+        workspace = resp.json()
+        await grant_workspace_admin(workspace["id"])
+    """
+    from shared_kernel.authorization.types import (
+        ResourceType,
+        format_resource,
+        format_subject,
+    )
+
+    async def _grant(workspace_id: str) -> None:
+        resource = format_resource(ResourceType.WORKSPACE, workspace_id)
+        subject = format_subject(ResourceType.USER, alice_user_id)
+
+        await spicedb_client.write_relationship(
+            resource=resource,
+            relation="admin",
+            subject=subject,
+        )
+
+    return _grant
+
+
 async def wait_for_permission(
     authz: AuthorizationProvider,
     resource: str,

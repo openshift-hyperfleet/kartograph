@@ -66,6 +66,11 @@ async def create_workspace(
 
         return WorkspaceResponse.from_domain(workspace)
 
+    except PermissionError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions to create workspace under this parent",
+        )
     except DuplicateWorkspaceNameError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -110,7 +115,9 @@ async def get_workspace(
     try:
         workspace_id_obj = WorkspaceId(workspace_id)
 
-        workspace = await service.get_workspace(workspace_id_obj)
+        workspace = await service.get_workspace(
+            workspace_id_obj, user_id=current_user.user_id
+        )
 
         if workspace is None:
             raise HTTPException(
@@ -152,14 +159,14 @@ async def list_workspaces(
 ) -> WorkspaceListResponse:
     """List all workspaces in user's tenant.
 
-    Returns all workspaces the user has access to within their tenant.
-    In Phase 1, this returns all workspaces without user-level permission filtering.
+    Returns workspaces the user has VIEW permission on within their tenant.
+    Filtered via SpiceDB lookup_resources for authorization enforcement.
 
     Returns:
         200 OK with list of workspaces and count
     """
     try:
-        workspaces = await service.list_workspaces()
+        workspaces = await service.list_workspaces(user_id=current_user.user_id)
 
         workspace_responses = [
             WorkspaceResponse.from_domain(workspace) for workspace in workspaces
@@ -218,7 +225,9 @@ async def delete_workspace(
     try:
         workspace_id_obj = WorkspaceId(workspace_id)
 
-        result = await service.delete_workspace(workspace_id_obj)
+        result = await service.delete_workspace(
+            workspace_id_obj, user_id=current_user.user_id
+        )
 
         if not result:
             raise HTTPException(
@@ -228,6 +237,11 @@ async def delete_workspace(
 
         return None
 
+    except PermissionError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions to delete workspace",
+        )
     except CannotDeleteRootWorkspaceError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

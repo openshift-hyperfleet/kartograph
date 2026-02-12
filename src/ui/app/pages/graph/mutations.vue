@@ -24,6 +24,15 @@ const lastResult = ref<MutationResult | null>(null)
 const apiError = ref<string | null>(null)
 const validationErrors = ref<string[]>([])
 const isDragOver = ref(false)
+const editorRef = ref<HTMLDivElement | null>(null)
+const lineNumberRef = ref<HTMLDivElement | null>(null)
+
+function syncScroll(event: Event) {
+  const target = event.target as HTMLElement
+  if (lineNumberRef.value) {
+    lineNumberRef.value.scrollTop = target.scrollTop
+  }
+}
 
 // ── Templates ──────────────────────────────────────────────────────────────
 
@@ -228,6 +237,7 @@ function handleDragLeave() {
                     type="file"
                     accept=".jsonl,.json,.ndjson"
                     class="hidden"
+                    aria-label="Upload JSONL mutation file"
                     @change="handleFileUpload"
                   >
                   <Button variant="outline" size="sm" as="span" class="cursor-pointer">
@@ -264,9 +274,10 @@ function handleDragLeave() {
               </div>
 
               <!-- Editor with line numbers -->
-              <div class="flex">
+              <div class="flex max-h-[500px]">
                 <div
-                  class="select-none border-r bg-muted/50 px-3 py-3 text-right font-mono text-xs leading-6 text-muted-foreground"
+                  ref="lineNumberRef"
+                  class="select-none overflow-hidden border-r bg-muted/50 px-3 py-3 text-right font-mono text-xs leading-6 text-muted-foreground"
                   aria-hidden="true"
                 >
                   <pre>{{ lineNumbers }}</pre>
@@ -274,8 +285,9 @@ function handleDragLeave() {
                 <Textarea
                   v-model="editorContent"
                   placeholder='{"op": "CREATE", "type": "node", "label": "person", ...}'
-                  class="min-h-[300px] resize-y rounded-none border-0 font-mono text-xs leading-6 focus-visible:ring-0 focus-visible:ring-offset-0"
+                  class="min-h-[300px] resize-none rounded-none border-0 font-mono text-xs leading-6 focus-visible:ring-0 focus-visible:ring-offset-0"
                   spellcheck="false"
+                  @scroll="syncScroll"
                 />
               </div>
             </div>
@@ -319,10 +331,10 @@ function handleDragLeave() {
 
         <!-- Result display -->
         <template v-if="lastResult">
-          <Alert v-if="lastResult.success" variant="default" class="border-green-500/50 bg-green-50 dark:bg-green-950/20">
-            <CheckCircle2 class="size-4 text-green-600" />
-            <AlertTitle class="text-green-700 dark:text-green-400">Mutations Applied</AlertTitle>
-            <AlertDescription class="text-green-600 dark:text-green-400">
+          <Alert v-if="lastResult.success" variant="success">
+            <CheckCircle2 class="size-4" />
+            <AlertTitle>Mutations Applied</AlertTitle>
+            <AlertDescription>
               Successfully applied {{ lastResult.operations_applied }} operation{{ lastResult.operations_applied === 1 ? '' : 's' }}.
             </AlertDescription>
           </Alert>

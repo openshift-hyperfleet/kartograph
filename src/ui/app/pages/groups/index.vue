@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Users, Plus, Search, Trash2, ChevronDown, ChevronRight, UserCircle } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
-import { ref, reactive } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import type { GroupResponse } from '~/types'
 
 import { Button } from '@/components/ui/button'
@@ -39,7 +39,7 @@ const groups = ref<GroupResponse[]>([])
 const expandedGroupIds = ref<Set<string>>(new Set())
 
 const createDialogOpen = ref(false)
-const createForm = reactive({ name: '' })
+const createFormName = ref('')
 const isCreating = ref(false)
 
 const lookupId = ref('')
@@ -48,6 +48,26 @@ const isLookingUp = ref(false)
 const deleteDialogOpen = ref(false)
 const groupToDelete = ref<GroupResponse | null>(null)
 const isDeleting = ref(false)
+
+// ── localStorage cache ─────────────────────────────────────────────────────
+const GROUPS_CACHE_KEY = 'kartograph:groups-cache'
+
+function saveGroupsCache() {
+  try {
+    localStorage.setItem(GROUPS_CACHE_KEY, JSON.stringify(groups.value))
+  } catch { /* storage full – ignore */ }
+}
+
+function loadGroupsCache() {
+  try {
+    const stored = localStorage.getItem(GROUPS_CACHE_KEY)
+    if (stored) {
+      groups.value = JSON.parse(stored)
+    }
+  } catch {
+    groups.value = []
+  }
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -66,15 +86,15 @@ function isExpanded(groupId: string): boolean {
 // ── Create ─────────────────────────────────────────────────────────────────
 
 async function handleCreate() {
-  if (!createForm.name.trim()) {
+  if (!createFormName.value.trim()) {
     toast.error('Group name is required')
     return
   }
   isCreating.value = true
   try {
-    const group = await createGroup({ name: createForm.name.trim() })
+    const group = await createGroup({ name: createFormName.value.trim() })
     groups.value.unshift(group)
-    createForm.name = ''
+    createFormName.value = ''
     toast.success(`Group "${group.name}" created`)
   } catch (err: unknown) {
     toast.error('Failed to create group', {
@@ -153,6 +173,10 @@ async function refreshGroup(groupId: string) {
     toast.error('Failed to refresh group')
   }
 }
+
+watch(groups, saveGroupsCache, { deep: true })
+
+onMounted(loadGroupsCache)
 </script>
 
 <template>
@@ -184,19 +208,20 @@ async function refreshGroup(groupId: string) {
           </DialogHeader>
           <form @submit.prevent="handleCreate" class="space-y-4">
             <div class="space-y-2">
-              <Label for="group-name">Name</Label>
+              <Label for="group-name">Name <span class="text-destructive">*</span></Label>
               <Input
                 id="group-name"
-                v-model="createForm.name"
+                v-model="createFormName"
                 placeholder="e.g. Engineering Team"
                 :disabled="isCreating"
+                @keydown.enter="handleCreate"
               />
             </div>
             <DialogFooter>
               <DialogClose as-child>
                 <Button type="button" variant="outline" :disabled="isCreating">Cancel</Button>
               </DialogClose>
-              <Button type="submit" :disabled="isCreating || !createForm.name.trim()">
+              <Button type="submit" :disabled="isCreating || !createFormName.trim()">
                 {{ isCreating ? 'Creating...' : 'Create' }}
               </Button>
             </DialogFooter>
@@ -239,6 +264,10 @@ async function refreshGroup(groupId: string) {
       <p class="mt-2 text-xs text-muted-foreground/70">
         The API does not provide a list endpoint for groups. Use the lookup above to fetch a group by its ID.
       </p>
+      <Button variant="outline" size="sm" class="mt-4" @click="createDialogOpen = true">
+        <Plus class="mr-2 size-4" />
+        Create Group
+      </Button>
     </div>
 
     <div v-else class="space-y-4">
@@ -263,6 +292,7 @@ async function refreshGroup(groupId: string) {
                 variant="ghost"
                 size="icon"
                 class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                :aria-label="`Delete group ${group.name}`"
                 @click.stop="confirmDelete(group)"
               >
                 <Trash2 class="size-4" />

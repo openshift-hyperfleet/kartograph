@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { toast } from 'vue-sonner'
 import { Database, Search, Loader2, Info, ChevronRight } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,7 @@ import {
 import type { TypeDefinition } from '~/types'
 
 const { listNodeLabels, listEdgeLabels, getNodeSchema, getEdgeSchema } = useGraphApi()
+const { extractErrorMessage } = useErrorHandler()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -53,7 +54,7 @@ async function fetchNodeLabels() {
     }
   } catch (err) {
     toast.error('Failed to load node types', {
-      description: err instanceof Error ? err.message : 'Unknown error',
+      description: extractErrorMessage(err),
     })
   } finally {
     nodeLabelsLoading.value = false
@@ -71,7 +72,7 @@ async function fetchEdgeLabels() {
     }
   } catch (err) {
     toast.error('Failed to load edge types', {
-      description: err instanceof Error ? err.message : 'Unknown error',
+      description: extractErrorMessage(err),
     })
   } finally {
     edgeLabelsLoading.value = false
@@ -97,7 +98,7 @@ async function selectNodeType(label: string) {
     selectedType.value = await getNodeSchema(label)
   } catch (err) {
     toast.error(`Failed to load schema for "${label}"`, {
-      description: err instanceof Error ? err.message : 'Unknown error',
+      description: extractErrorMessage(err),
     })
     selectedLabel.value = null
     detailDialogOpen.value = false
@@ -115,7 +116,7 @@ async function selectEdgeType(label: string) {
     selectedType.value = await getEdgeSchema(label)
   } catch (err) {
     toast.error(`Failed to load schema for "${label}"`, {
-      description: err instanceof Error ? err.message : 'Unknown error',
+      description: extractErrorMessage(err),
     })
     selectedLabel.value = null
     detailDialogOpen.value = false
@@ -141,6 +142,11 @@ function onTabChange() {
 onMounted(() => {
   fetchNodeLabels()
   fetchEdgeLabels()
+})
+
+onUnmounted(() => {
+  if (nodeSearchDebounce) clearTimeout(nodeSearchDebounce)
+  if (edgeSearchDebounce) clearTimeout(edgeSearchDebounce)
 })
 </script>
 
@@ -198,20 +204,20 @@ onMounted(() => {
         </Card>
 
         <!-- Label list -->
-        <div v-else class="max-h-[calc(100vh-12rem)] space-y-1 overflow-y-auto">
-          <button
-            v-for="label in nodeLabels"
-            :key="label"
-            class="flex w-full items-center justify-between rounded-md border px-4 py-3 text-left text-sm transition-colors hover:bg-accent"
-            @click="selectNodeType(label)"
-          >
-            <div class="flex items-center gap-2">
-              <Badge variant="default">Node</Badge>
-              <span class="font-medium">{{ label }}</span>
-            </div>
-            <ChevronRight class="size-4 text-muted-foreground" />
-          </button>
-        </div>
+        <ul v-else role="list" class="max-h-[calc(100vh-12rem)] space-y-1 overflow-y-auto">
+          <li v-for="label in nodeLabels" :key="label">
+            <button
+              class="flex w-full items-center justify-between rounded-md border px-4 py-3 text-left text-sm transition-colors hover:bg-accent"
+              @click="selectNodeType(label)"
+            >
+              <div class="flex items-center gap-2">
+                <Badge variant="default">Node</Badge>
+                <span class="font-medium">{{ label }}</span>
+              </div>
+              <ChevronRight class="size-4 text-muted-foreground" />
+            </button>
+          </li>
+        </ul>
       </TabsContent>
 
       <!-- Edge Types Tab -->
@@ -246,20 +252,20 @@ onMounted(() => {
         </Card>
 
         <!-- Label list -->
-        <div v-else class="max-h-[calc(100vh-12rem)] space-y-1 overflow-y-auto">
-          <button
-            v-for="label in edgeLabels"
-            :key="label"
-            class="flex w-full items-center justify-between rounded-md border px-4 py-3 text-left text-sm transition-colors hover:bg-accent"
-            @click="selectEdgeType(label)"
-          >
-            <div class="flex items-center gap-2">
-              <Badge variant="outline">Edge</Badge>
-              <span class="font-medium">{{ label }}</span>
-            </div>
-            <ChevronRight class="size-4 text-muted-foreground" />
-          </button>
-        </div>
+        <ul v-else role="list" class="max-h-[calc(100vh-12rem)] space-y-1 overflow-y-auto">
+          <li v-for="label in edgeLabels" :key="label">
+            <button
+              class="flex w-full items-center justify-between rounded-md border px-4 py-3 text-left text-sm transition-colors hover:bg-accent"
+              @click="selectEdgeType(label)"
+            >
+              <div class="flex items-center gap-2">
+                <Badge variant="outline">Edge</Badge>
+                <span class="font-medium">{{ label }}</span>
+              </div>
+              <ChevronRight class="size-4 text-muted-foreground" />
+            </button>
+          </li>
+        </ul>
       </TabsContent>
     </Tabs>
 

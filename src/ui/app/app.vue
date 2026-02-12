@@ -6,5 +6,5 @@ import { Toaster } from '@/components/ui/sonner'
   <NuxtLayout>
     <NuxtPage />
   </NuxtLayout>
-  <Toaster richColors />
+  <Toaster richColors :duration="5000" position="bottom-right" />
 </template>

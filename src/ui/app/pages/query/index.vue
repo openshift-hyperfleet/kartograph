@@ -22,7 +22,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import {
-  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+  Tooltip, TooltipContent, TooltipTrigger,
 } from '@/components/ui/tooltip'
 import type { CypherResult } from '~/types'
 
@@ -30,6 +30,7 @@ import type { CypherResult } from '~/types'
 
 const { queryGraph } = useQueryApi()
 const { listNodeLabels, listEdgeLabels } = useGraphApi()
+const { extractErrorMessage } = useErrorHandler()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -138,7 +139,7 @@ async function executeQuery() {
     })
   } catch (err) {
     executionTime.value = Math.round(performance.now() - start)
-    let message = err instanceof Error ? err.message : 'An unexpected error occurred'
+    let message = extractErrorMessage(err)
     // Detect the common multi-column error and add a helpful hint
     if (message.includes('column definition list') || message.includes('return row and column')) {
       message += '\n\nHint: Apache AGE requires a single RETURN column. Wrap multiple values in a map: RETURN {a: val1, b: val2}'
@@ -187,6 +188,15 @@ function formatCellValue(value: unknown): string {
   if (value === null || value === undefined) return 'null'
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)
+}
+
+async function copyToClipboard(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success('Copied to clipboard')
+  } catch {
+    toast.error('Failed to copy to clipboard')
+  }
 }
 
 // ── History ────────────────────────────────────────────────────────────────
@@ -238,7 +248,7 @@ async function fetchSchema() {
     edgeLabels.value = edges.labels
   } catch (err) {
     toast.error('Failed to load schema', {
-      description: err instanceof Error ? err.message : 'Unknown error',
+      description: extractErrorMessage(err),
     })
   } finally {
     schemaLoading.value = false
@@ -266,7 +276,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex h-[calc(100vh-6rem)] flex-col gap-4">
+  <div class="flex max-h-[calc(100vh-5.5rem)] flex-col gap-4">
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-3">
@@ -310,8 +320,9 @@ onUnmounted(() => {
               <textarea
                 ref="textareaRef"
                 v-model="query"
-                class="min-h-[120px] w-full resize-y rounded-md border border-input bg-zinc-950 px-4 py-3 font-mono text-sm text-green-400 placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                class="min-h-[120px] w-full resize-y rounded-md border border-input bg-muted px-4 py-3 font-mono text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 placeholder="Enter your Cypher query here..."
+                aria-label="Cypher query editor"
                 spellcheck="false"
                 autocomplete="off"
                 autocorrect="off"
@@ -320,36 +331,34 @@ onUnmounted(() => {
             </div>
 
             <!-- Single-column requirement hint -->
-            <div class="flex items-start gap-2 rounded-md border border-blue-500/30 bg-blue-50/50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950/20 dark:text-blue-400">
-              <Info class="mt-0.5 size-3.5 flex-shrink-0" />
-              <div>
+            <Alert variant="info" class="text-xs">
+              <Info class="size-3.5" />
+              <AlertDescription>
                 <span class="font-medium">Apache AGE requires a single RETURN column.</span>
                 Use map syntax for multiple values:
                 <code class="rounded bg-blue-100 px-1 py-0.5 dark:bg-blue-900/40">RETURN {name: n.name, label: labels(n)}</code>
-              </div>
-            </div>
+              </AlertDescription>
+            </Alert>
 
             <!-- Controls bar -->
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-3">
                 <!-- Execute -->
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <Button
-                        :disabled="executing || !query.trim()"
-                        @click="executeQuery"
-                      >
-                        <Loader2 v-if="executing" class="mr-2 size-4 animate-spin" />
-                        <Play v-else class="mr-2 size-4" />
-                        Execute
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Ctrl+Enter</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <Button
+                      :disabled="executing || !query.trim()"
+                      @click="executeQuery"
+                    >
+                      <Loader2 v-if="executing" class="mr-2 size-4 animate-spin" />
+                      <Play v-else class="mr-2 size-4" />
+                      Execute
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Ctrl+Enter</p>
+                  </TooltipContent>
+                </Tooltip>
 
                 <!-- Clear -->
                 <Button variant="outline" @click="clearEditor">
@@ -481,12 +490,12 @@ onUnmounted(() => {
                     variant="ghost"
                     size="icon"
                     class="absolute right-2 top-2"
-                    title="Copy JSON"
-                    @click="navigator.clipboard.writeText(JSON.stringify(result, null, 2)); toast.success('Copied to clipboard')"
+                    aria-label="Copy JSON to clipboard"
+                    @click="copyToClipboard(JSON.stringify(result, null, 2))"
                   >
                     <Clipboard class="size-4" />
                   </Button>
-                  <pre class="max-h-[calc(100vh-30rem)] overflow-auto rounded-md bg-zinc-950 p-4 font-mono text-xs text-green-400"><code>{{ JSON.stringify(result, null, 2) }}</code></pre>
+                  <pre class="max-h-[calc(100vh-30rem)] overflow-auto rounded-md bg-muted p-4 font-mono text-xs text-foreground"><code>{{ JSON.stringify(result, null, 2) }}</code></pre>
                 </div>
               </TabsContent>
 
@@ -544,7 +553,7 @@ onUnmounted(() => {
       </div>
 
       <!-- Right sidebar: Schema + History -->
-      <div class="flex w-64 flex-shrink-0 flex-col gap-4">
+      <div class="hidden w-64 flex-shrink-0 flex-col gap-4 xl:flex">
         <!-- Schema Reference -->
         <Card class="flex flex-col">
           <CardHeader class="cursor-pointer pb-3" @click="schemaOpen = !schemaOpen">

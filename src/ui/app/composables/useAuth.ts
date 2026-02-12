@@ -7,6 +7,13 @@ import { UserManager, WebStorageStateStore, type User } from 'oidc-client-ts'
  * `automaticSilentRenew` setting which fires a silent token refresh
  * before the access token expires.
  */
+/**
+ * Module-level singleton for the UserManager.
+ * Shared across all invocations of useAuth() via Nuxt's auto-import
+ * module caching. This ensures only one UserManager instance exists.
+ */
+let _manager: UserManager | undefined
+
 export function useAuth() {
   const config = useRuntimeConfig()
   const kc = config.public.keycloak as {
@@ -20,10 +27,6 @@ export function useAuth() {
 
   const isAuthenticated = computed(() => !!user.value && !user.value.expired)
   const accessToken = computed(() => user.value?.access_token ?? null)
-
-  // Lazily create the UserManager – only in the browser (SPA mode means
-  // this composable is never called on the server, but guard anyway).
-  let _manager: UserManager | undefined
 
   function getManager(): UserManager {
     if (_manager) return _manager

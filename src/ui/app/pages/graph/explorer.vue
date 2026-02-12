@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   Share2, Search, Loader2, Info, ChevronDown, ChevronUp, ChevronsUpDown, Check, X,
@@ -21,6 +21,7 @@ import {
 import type { NodeRecord } from '~/types'
 
 const { findNodesBySlug, listNodeLabels } = useGraphApi()
+const { extractErrorMessage } = useErrorHandler()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ function clearNodeTypeFilter() {
 }
 
 // Property expansion tracking
-const expandedProps = reactive(new Set<string>())
+const expandedProps = ref(new Set<string>())
 
 // ── Data loading ───────────────────────────────────────────────────────────
 
@@ -90,7 +91,7 @@ async function handleSearch() {
     searchResults.value = result.nodes
   } catch (err) {
     toast.error('Search failed', {
-      description: err instanceof Error ? err.message : 'Unknown error',
+      description: extractErrorMessage(err),
     })
     searchResults.value = []
   } finally {
@@ -118,11 +119,13 @@ function formatPropertyValue(value: unknown): string {
 }
 
 function togglePropExpansion(key: string) {
-  if (expandedProps.has(key)) {
-    expandedProps.delete(key)
+  const next = new Set(expandedProps.value)
+  if (next.has(key)) {
+    next.delete(key)
   } else {
-    expandedProps.add(key)
+    next.add(key)
   }
+  expandedProps.value = next
 }
 
 onMounted(loadNodeTypes)

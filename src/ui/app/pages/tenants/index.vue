@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
-import { Building2, Plus, Users, Trash2, Loader2, UserPlus, X } from 'lucide-vue-next'
+import { Building2, Plus, Users, Trash2, Loader2, UserPlus, X, Copy, Check } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -34,6 +34,7 @@ const loading = ref(true)
 const showCreateDialog = ref(false)
 const createName = ref('')
 const creating = ref(false)
+const createNameError = ref('')
 
 // Delete dialog
 const showDeleteDialog = ref(false)
@@ -47,6 +48,11 @@ const membersLoading = ref(false)
 const newMemberUserId = ref('')
 const newMemberRole = ref<'admin' | 'member'>('member')
 const addingMember = ref(false)
+
+// Remove member dialog
+const showRemoveMemberDialog = ref(false)
+const memberToRemove = ref<string | null>(null)
+const removingMember = ref(false)
 
 // ── Data loading ───────────────────────────────────────────────────────────
 
@@ -81,7 +87,11 @@ async function fetchMembers(tenant: TenantResponse) {
 // ── Actions ────────────────────────────────────────────────────────────────
 
 async function handleCreate() {
-  if (!createName.value.trim()) return
+  if (!createName.value.trim()) {
+    createNameError.value = 'Tenant name is required'
+    return
+  }
+  createNameError.value = ''
   creating.value = true
   try {
     await createTenant({ name: createName.value.trim() })
@@ -146,22 +156,50 @@ async function handleAddMember() {
   }
 }
 
-async function handleRemoveMember(userId: string) {
-  if (!selectedTenant.value) return
+function confirmRemoveMember(userId: string) {
+  memberToRemove.value = userId
+  showRemoveMemberDialog.value = true
+}
+
+async function handleRemoveMember() {
+  if (!selectedTenant.value || !memberToRemove.value) return
+  removingMember.value = true
   try {
-    await removeTenantMember(selectedTenant.value.id, userId)
+    await removeTenantMember(selectedTenant.value.id, memberToRemove.value)
     toast.success('Member removed')
     await fetchMembers(selectedTenant.value)
   } catch (err) {
     toast.error('Failed to remove member', {
       description: extractErrorMessage(err),
     })
+  } finally {
+    showRemoveMemberDialog.value = false
+    memberToRemove.value = null
+    removingMember.value = false
   }
 }
 
 function closeMembers() {
   selectedTenant.value = null
   members.value = []
+}
+
+const copiedId = ref<string | null>(null)
+
+async function copyId(id: string) {
+  try {
+    await navigator.clipboard.writeText(id)
+    copiedId.value = id
+    toast.success('Copied to clipboard')
+    setTimeout(() => { copiedId.value = null }, 2000)
+  } catch {
+    toast.error('Failed to copy')
+  }
+}
+
+function truncateId(id: string): string {
+  if (id.length <= 12) return id
+  return id.slice(0, 8) + '...'
 }
 
 onMounted(fetchTenants)
@@ -205,13 +243,26 @@ onMounted(fetchTenants)
 
           <!-- Empty state -->
           <TableEmpty v-else-if="tenants.length === 0" :colspan="3">
-            No tenants found. Create one to get started.
+            <div class="flex flex-col items-center gap-2">
+              <p>No tenants found.</p>
+              <Button variant="outline" size="sm" @click="showCreateDialog = true">
+                <Plus class="mr-2 size-4" />
+                Create your first tenant
+              </Button>
+            </div>
           </TableEmpty>
 
           <!-- Data rows -->
           <TableRow v-for="tenant in tenants" v-else :key="tenant.id">
             <TableCell class="font-mono text-xs text-muted-foreground">
-              {{ tenant.id }}
+              <button
+                class="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted"
+                :title="tenant.id"
+                @click="copyId(tenant.id)"
+              >
+                {{ truncateId(tenant.id) }}
+                <component :is="copiedId === tenant.id ? Check : Copy" class="size-3" />
+              </button>
             </TableCell>
             <TableCell class="font-medium">{{ tenant.name }}</TableCell>
             <TableCell class="text-right">
@@ -220,6 +271,7 @@ onMounted(fetchTenants)
                   variant="ghost"
                   size="icon"
                   title="View Members"
+                  :aria-label="`View members of ${tenant.name}`"
                   @click="fetchMembers(tenant)"
                 >
                   <Users class="size-4" />
@@ -228,6 +280,7 @@ onMounted(fetchTenants)
                   variant="ghost"
                   size="icon"
                   title="Delete"
+                  :aria-label="`Delete tenant ${tenant.name}`"
                   class="text-destructive hover:text-destructive"
                   @click="confirmDelete(tenant)"
                 >
@@ -257,7 +310,7 @@ onMounted(fetchTenants)
         <!-- Add member form -->
         <div class="flex items-end gap-3">
           <div class="flex-1 space-y-1.5">
-            <Label for="member-user-id">User ID</Label>
+            <Label for="member-user-id">User ID <span class="text-destructive">*</span></Label>
             <Input
               id="member-user-id"
               v-model="newMemberUserId"
@@ -307,7 +360,16 @@ onMounted(fetchTenants)
                 No members in this tenant.
               </TableEmpty>
               <TableRow v-for="member in members" v-else :key="member.user_id">
-                <TableCell class="font-mono text-xs">{{ member.user_id }}</TableCell>
+                <TableCell class="font-mono text-xs">
+                  <button
+                    class="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted"
+                    :title="member.user_id"
+                    @click="copyId(member.user_id)"
+                  >
+                    {{ truncateId(member.user_id) }}
+                    <component :is="copiedId === member.user_id ? Check : Copy" class="size-3" />
+                  </button>
+                </TableCell>
                 <TableCell>
                   <Badge :variant="member.role === 'admin' ? 'default' : 'secondary'">
                     {{ member.role }}
@@ -319,7 +381,8 @@ onMounted(fetchTenants)
                     size="icon"
                     class="text-destructive hover:text-destructive"
                     title="Remove member"
-                    @click="handleRemoveMember(member.user_id)"
+                    :aria-label="`Remove member ${member.user_id}`"
+                    @click="confirmRemoveMember(member.user_id)"
                   >
                     <Trash2 class="size-4" />
                   </Button>
@@ -342,13 +405,15 @@ onMounted(fetchTenants)
         </DialogHeader>
         <div class="space-y-4 py-4">
           <div class="space-y-1.5">
-            <Label for="tenant-name">Name</Label>
+            <Label for="tenant-name">Name <span class="text-destructive">*</span></Label>
             <Input
               id="tenant-name"
               v-model="createName"
               placeholder="My Tenant"
               @keydown.enter="handleCreate"
+              @input="createNameError = ''"
             />
+            <p v-if="createNameError" class="text-sm text-destructive">{{ createNameError }}</p>
           </div>
         </div>
         <DialogFooter>
@@ -379,6 +444,27 @@ onMounted(fetchTenants)
           <Button variant="destructive" :disabled="deleting" @click="handleDelete">
             <Loader2 v-if="deleting" class="mr-2 size-4 animate-spin" />
             Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Remove member confirmation dialog -->
+    <Dialog v-model:open="showRemoveMemberDialog">
+      <DialogContent class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Remove Member</DialogTitle>
+          <DialogDescription>
+            Are you sure you want to remove member "{{ memberToRemove }}" from "{{ selectedTenant?.name }}"?
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose as-child>
+            <Button variant="outline">Cancel</Button>
+          </DialogClose>
+          <Button variant="destructive" :disabled="removingMember" @click="handleRemoveMember">
+            <Loader2 v-if="removingMember" class="mr-2 size-4 animate-spin" />
+            Remove
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -64,6 +64,7 @@ const { currentTenantId } = useApiClient()
 const { extractErrorMessage } = useErrorHandler()
 
 const tenants = ref<TenantResponse[]>([])
+const tenantsLoading = ref(false)
 const selectedTenantId = ref<string>('')
 
 const displayName = computed(() => {
@@ -90,6 +91,7 @@ watch(selectedTenantId, (id) => {
 })
 
 async function fetchTenants() {
+  tenantsLoading.value = true
   try {
     tenants.value = await listTenants()
     // Auto-select first tenant if none selected
@@ -100,6 +102,8 @@ async function fetchTenants() {
     toast.error('Failed to load tenants', {
       description: extractErrorMessage(err),
     })
+  } finally {
+    tenantsLoading.value = false
   }
 }
 
@@ -155,7 +159,8 @@ const navSections: NavSection[] = [
 ]
 
 function isActive(to: string): boolean {
-  return route.path === to
+  if (to === '/') return route.path === '/'
+  return route.path === to || route.path.startsWith(to + '/')
 }
 
 const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
@@ -292,6 +297,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
             variant="ghost"
             size="icon"
             class="md:hidden"
+            aria-label="Open navigation menu"
             @click="isMobileOpen = true"
           >
             <Menu class="size-5" />
@@ -299,13 +305,20 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
 
           <!-- Tenant selector -->
           <div class="flex items-center gap-2">
-            <Select v-model="selectedTenantId">
+            <Select v-model="selectedTenantId" :disabled="tenantsLoading">
               <SelectTrigger class="w-48">
-                <SelectValue placeholder="Select tenant..." />
+                <SelectValue :placeholder="tenantsLoading ? 'Loading...' : tenants.length === 0 ? 'No tenants' : 'Select tenant...'" />
               </SelectTrigger>
               <SelectContent>
+                <div v-if="tenantsLoading" class="px-2 py-1.5 text-sm text-muted-foreground">
+                  Loading tenants...
+                </div>
+                <div v-else-if="tenants.length === 0" class="px-2 py-1.5 text-sm text-muted-foreground">
+                  No tenants available
+                </div>
                 <SelectItem
                   v-for="tenant in tenants"
+                  v-else
                   :key="tenant.id"
                   :value="tenant.id"
                 >

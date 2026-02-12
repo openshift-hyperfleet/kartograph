@@ -54,6 +54,7 @@ const loadError = ref<string | null>(null)
 const createDialogOpen = ref(false)
 const createForm = reactive({ name: '', expires_in_days: 30 })
 const isCreating = ref(false)
+const createExpiryError = ref('')
 
 const newlyCreatedKey = ref<APIKeyCreatedResponse | null>(null)
 const secretCopied = ref(false)
@@ -143,6 +144,11 @@ async function handleCreate() {
     toast.error('Key name is required')
     return
   }
+  if (createForm.expires_in_days < 1 || createForm.expires_in_days > 3650) {
+    createExpiryError.value = 'Must be between 1 and 3650 days'
+    return
+  }
+  createExpiryError.value = ''
   isCreating.value = true
   try {
     const key = await createApiKey({
@@ -290,7 +296,7 @@ function keyStatus(key: APIKeyResponse): 'active' | 'revoked' | 'expired' {
           </DialogHeader>
           <form @submit.prevent="handleCreate" class="space-y-4">
             <div class="space-y-2">
-              <Label for="key-name">Name</Label>
+              <Label for="key-name">Name <span class="text-destructive">*</span></Label>
               <Input
                 id="key-name"
                 v-model="createForm.name"
@@ -309,6 +315,7 @@ function keyStatus(key: APIKeyResponse): 'active' | 'revoked' | 'expired' {
                 :disabled="isCreating"
               />
               <p class="text-xs text-muted-foreground">Between 1 and 3650 days (10 years)</p>
+              <p v-if="createExpiryError" class="text-sm text-destructive">{{ createExpiryError }}</p>
             </div>
             <DialogFooter>
               <DialogClose as-child>
@@ -327,12 +334,12 @@ function keyStatus(key: APIKeyResponse): 'active' | 'revoked' | 'expired' {
 
     <!-- Newly Created Key Alert -->
     <div v-if="newlyCreatedKey" class="space-y-4">
-      <Alert class="border-amber-500/50 bg-amber-50 dark:bg-amber-950/20">
-        <AlertTriangle class="size-4 text-amber-600" />
-        <AlertTitle class="text-amber-800 dark:text-amber-200">
+      <Alert variant="warning">
+        <AlertTriangle class="size-4" />
+        <AlertTitle>
           Save your API key
         </AlertTitle>
-        <AlertDescription class="text-amber-700 dark:text-amber-300">
+        <AlertDescription>
           This is the only time the full key will be shown. Copy it now and store it securely.
         </AlertDescription>
       </Alert>
@@ -387,12 +394,12 @@ function keyStatus(key: APIKeyResponse): 'active' | 'revoked' | 'expired' {
                 </p>
                 <div class="relative">
                   <pre
-                    class="overflow-x-auto rounded-md border bg-zinc-950 p-4 font-mono text-sm text-zinc-100"
+                    class="overflow-x-auto rounded-md border bg-muted p-4 font-mono text-sm text-foreground"
                   >{{ mcpConfigClaude(newlyCreatedKey.secret) }}</pre>
                   <Button
                     variant="ghost"
                     size="icon"
-                    class="absolute right-2 top-2 text-zinc-400 hover:text-zinc-100"
+                    class="absolute right-2 top-2 text-muted-foreground hover:text-foreground"
                     @click="copyConfig('Claude Code', mcpConfigClaude(newlyCreatedKey!.secret))"
                   >
                     <component :is="copiedConfigTab === 'Claude Code' ? Check : Copy" class="size-4" />
@@ -407,12 +414,12 @@ function keyStatus(key: APIKeyResponse): 'active' | 'revoked' | 'expired' {
                 </p>
                 <div class="relative">
                   <pre
-                    class="overflow-x-auto rounded-md border bg-zinc-950 p-4 font-mono text-sm text-zinc-100"
+                    class="overflow-x-auto rounded-md border bg-muted p-4 font-mono text-sm text-foreground"
                   >{{ mcpConfigCursor(newlyCreatedKey.secret) }}</pre>
                   <Button
                     variant="ghost"
                     size="icon"
-                    class="absolute right-2 top-2 text-zinc-400 hover:text-zinc-100"
+                    class="absolute right-2 top-2 text-muted-foreground hover:text-foreground"
                     @click="copyConfig('Cursor', mcpConfigCursor(newlyCreatedKey!.secret))"
                   >
                     <component :is="copiedConfigTab === 'Cursor' ? Check : Copy" class="size-4" />
@@ -427,12 +434,12 @@ function keyStatus(key: APIKeyResponse): 'active' | 'revoked' | 'expired' {
                 </p>
                 <div class="relative">
                   <pre
-                    class="overflow-x-auto rounded-md border bg-zinc-950 p-4 font-mono text-sm text-zinc-100"
+                    class="overflow-x-auto rounded-md border bg-muted p-4 font-mono text-sm text-foreground"
                   >{{ mcpConfigDesktop(newlyCreatedKey.secret) }}</pre>
                   <Button
                     variant="ghost"
                     size="icon"
-                    class="absolute right-2 top-2 text-zinc-400 hover:text-zinc-100"
+                    class="absolute right-2 top-2 text-muted-foreground hover:text-foreground"
                     @click="copyConfig('Claude Desktop', mcpConfigDesktop(newlyCreatedKey!.secret))"
                   >
                     <component :is="copiedConfigTab === 'Claude Desktop' ? Check : Copy" class="size-4" />
@@ -447,12 +454,12 @@ function keyStatus(key: APIKeyResponse): 'active' | 'revoked' | 'expired' {
                 </p>
                 <div class="relative">
                   <pre
-                    class="overflow-x-auto rounded-md border bg-zinc-950 p-4 font-mono text-sm text-zinc-100"
+                    class="overflow-x-auto rounded-md border bg-muted p-4 font-mono text-sm text-foreground"
                   >{{ mcpConfigCurl(newlyCreatedKey.secret) }}</pre>
                   <Button
                     variant="ghost"
                     size="icon"
-                    class="absolute right-2 top-2 text-zinc-400 hover:text-zinc-100"
+                    class="absolute right-2 top-2 text-muted-foreground hover:text-foreground"
                     @click="copyConfig('cURL', mcpConfigCurl(newlyCreatedKey!.secret))"
                   >
                     <component :is="copiedConfigTab === 'cURL' ? Check : Copy" class="size-4" />
@@ -526,8 +533,7 @@ function keyStatus(key: APIKeyResponse): 'active' | 'revoked' | 'expired' {
                 </TableCell>
                 <TableCell>
                   <Badge
-                    :variant="keyStatus(key) === 'active' ? 'default' : 'destructive'"
-                    :class="keyStatus(key) === 'active' ? 'bg-emerald-600 hover:bg-emerald-700' : ''"
+                    :variant="keyStatus(key) === 'active' ? 'success' : keyStatus(key) === 'expired' ? 'destructive' : 'secondary'"
                   >
                     {{ keyStatus(key) }}
                   </Badge>
@@ -537,6 +543,7 @@ function keyStatus(key: APIKeyResponse): 'active' | 'revoked' | 'expired' {
                     variant="ghost"
                     size="icon"
                     class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    :aria-label="`Revoke API key ${key.name}`"
                     @click="confirmRevoke(key)"
                   >
                     <Trash2 class="size-4" />

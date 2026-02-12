@@ -1,5 +1,12 @@
 import type { CypherResult } from '~/types'
 
+interface JsonRpcResponse {
+  jsonrpc: string
+  id: string
+  result?: { content: Array<{ type: string; text: string }> }
+  error?: { code: number; message: string }
+}
+
 /**
  * Typed API client for the Querying bounded context.
  *
@@ -74,12 +81,7 @@ export function useQueryApi() {
 
     const contentType = response.headers.get('content-type') || ''
 
-    let rpcResponse: {
-      jsonrpc: string
-      id: string
-      result?: { content: Array<{ type: string; text: string }> }
-      error?: { code: number; message: string }
-    }
+    let rpcResponse: JsonRpcResponse
 
     if (contentType.includes('text/event-stream')) {
       rpcResponse = await parseSSEResponse(response)
@@ -125,7 +127,7 @@ export function useQueryApi() {
  * data: {"jsonrpc":"2.0","id":"...","result":{...}}
  * ```
  */
-async function parseSSEResponse(response: Response): Promise<any> {
+async function parseSSEResponse(response: Response): Promise<JsonRpcResponse> {
   const text = await response.text()
   const lines = text.split('\n')
 

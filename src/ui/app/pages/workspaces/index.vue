@@ -32,6 +32,8 @@ const showCreateDialog = ref(false)
 const createName = ref('')
 const createParentId = ref('')
 const creating = ref(false)
+const createNameError = ref('')
+const createParentError = ref('')
 
 // Delete dialog
 const showDeleteDialog = ref(false)
@@ -127,11 +129,21 @@ async function fetchWorkspaces() {
 function openCreateDialog() {
   createName.value = ''
   createParentId.value = ''
+  createNameError.value = ''
+  createParentError.value = ''
   showCreateDialog.value = true
 }
 
 async function handleCreate() {
-  if (!createName.value.trim() || !createParentId.value) return
+  createNameError.value = ''
+  createParentError.value = ''
+  if (!createName.value.trim()) {
+    createNameError.value = 'Workspace name is required'
+  }
+  if (!createParentId.value) {
+    createParentError.value = 'Parent workspace is required'
+  }
+  if (createNameError.value || createParentError.value) return
   creating.value = true
   try {
     await createWorkspace({
@@ -186,10 +198,7 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleString()
 }
 
-onMounted(() => {
-  fetchWorkspaces()
-  expandAll()
-})
+onMounted(fetchWorkspaces)
 </script>
 
 <template>
@@ -235,6 +244,7 @@ onMounted(() => {
             <button
               v-if="node.children.length > 0"
               class="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+              :aria-label="expandedIds.has(node.workspace.id) ? `Collapse ${node.workspace.name}` : `Expand ${node.workspace.name}`"
               @click="toggleExpand(node.workspace.id)"
             >
               <ChevronDown v-if="expandedIds.has(node.workspace.id)" class="size-4" />
@@ -245,6 +255,7 @@ onMounted(() => {
             <!-- Workspace info -->
             <button
               class="flex flex-1 items-center gap-2 text-left"
+              :aria-label="`Select workspace ${node.workspace.name}`"
               @click="selectWorkspace(node.workspace)"
             >
               <FolderTree class="size-4 shrink-0 text-muted-foreground" />
@@ -261,6 +272,7 @@ onMounted(() => {
               size="icon"
               class="size-7 shrink-0 text-destructive hover:text-destructive"
               title="Delete workspace"
+              :aria-label="`Delete workspace ${node.workspace.name}`"
               @click.stop="confirmDelete(node.workspace)"
             >
               <Trash2 class="size-3.5" />
@@ -325,16 +337,18 @@ onMounted(() => {
         </DialogHeader>
         <div class="space-y-4 py-4">
           <div class="space-y-1.5">
-            <Label for="workspace-name">Name</Label>
+            <Label for="workspace-name">Name <span class="text-destructive">*</span></Label>
             <Input
               id="workspace-name"
               v-model="createName"
               placeholder="My Workspace"
               @keydown.enter="handleCreate"
+              @input="createNameError = ''"
             />
+            <p v-if="createNameError" class="text-sm text-destructive">{{ createNameError }}</p>
           </div>
           <div class="space-y-1.5">
-            <Label>Parent Workspace</Label>
+            <Label>Parent Workspace <span class="text-destructive">*</span></Label>
             <Select v-model="createParentId">
               <SelectTrigger>
                 <SelectValue placeholder="Select parent..." />
@@ -349,6 +363,7 @@ onMounted(() => {
                 </SelectItem>
               </SelectContent>
             </Select>
+            <p v-if="createParentError" class="text-sm text-destructive">{{ createParentError }}</p>
           </div>
         </div>
         <DialogFooter>

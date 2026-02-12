@@ -19,8 +19,21 @@ export function useApiClient() {
     path: string,
     opts: NitroFetchOptions<string> = {},
   ): Promise<T> {
-    const headers: Record<string, string> = {
-      ...(opts.headers as Record<string, string> ?? {}),
+    const headers: Record<string, string> = {}
+
+    // Normalize incoming headers to a plain object
+    if (opts.headers) {
+      if (opts.headers instanceof Headers) {
+        opts.headers.forEach((value, key) => {
+          headers[key] = value
+        })
+      } else if (Array.isArray(opts.headers)) {
+        for (const [key, value] of opts.headers) {
+          headers[key] = value
+        }
+      } else {
+        Object.assign(headers, opts.headers)
+      }
     }
 
     if (accessToken.value) {

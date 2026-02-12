@@ -818,6 +818,52 @@ class TestMemberIdValidation:
             workspace.update_member_role("   ", MemberType.GROUP, WorkspaceRole.EDITOR)
 
 
+class TestMemberIdTypeValidation:
+    """Tests for member_id type validation before .strip() is called."""
+
+    def test_add_member_rejects_none_member_id(self):
+        """Should raise TypeError if member_id is None."""
+        workspace = _make_workspace()
+
+        with pytest.raises(TypeError, match="member_id must be str, got NoneType"):
+            workspace.add_member(None, MemberType.USER, WorkspaceRole.ADMIN)
+
+    def test_add_member_rejects_int_member_id(self):
+        """Should raise TypeError if member_id is int."""
+        workspace = _make_workspace()
+
+        with pytest.raises(TypeError, match="member_id must be str, got int"):
+            workspace.add_member(123, MemberType.USER, WorkspaceRole.ADMIN)
+
+    def test_remove_member_rejects_none_member_id(self):
+        """Should raise TypeError if member_id is None."""
+        workspace = _make_workspace()
+
+        with pytest.raises(TypeError, match="member_id must be str, got NoneType"):
+            workspace.remove_member(None, MemberType.USER)
+
+    def test_remove_member_rejects_int_member_id(self):
+        """Should raise TypeError if member_id is int."""
+        workspace = _make_workspace()
+
+        with pytest.raises(TypeError, match="member_id must be str, got int"):
+            workspace.remove_member(123, MemberType.USER)
+
+    def test_update_member_role_rejects_none_member_id(self):
+        """Should raise TypeError if member_id is None."""
+        workspace = _make_workspace()
+
+        with pytest.raises(TypeError, match="member_id must be str, got NoneType"):
+            workspace.update_member_role(None, MemberType.USER, WorkspaceRole.EDITOR)
+
+    def test_update_member_role_rejects_int_member_id(self):
+        """Should raise TypeError if member_id is int."""
+        workspace = _make_workspace()
+
+        with pytest.raises(TypeError, match="member_id must be str, got int"):
+            workspace.update_member_role(123, MemberType.USER, WorkspaceRole.EDITOR)
+
+
 class TestMemberTypeValidation:
     """Tests for enum type validation in workspace member operations."""
 

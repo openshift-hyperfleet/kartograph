@@ -193,9 +193,14 @@ class Workspace:
             role: The role to assign (ADMIN, EDITOR, or MEMBER)
 
         Raises:
+            TypeError: If member_id is not a string, or if member_type/role
+                are not the correct enum types
             ValueError: If member_id is empty or member is already added
-            TypeError: If member_type or role are not the correct enum types
         """
+        # Validate member_id type
+        if not isinstance(member_id, str):
+            raise TypeError(f"member_id must be str, got {type(member_id).__name__}")
+
         # Normalize member_id by stripping whitespace
         member_id = member_id.strip()
 
@@ -251,10 +256,15 @@ class Workspace:
             member_type: Whether this is a USER or GROUP
 
         Raises:
+            TypeError: If member_id is not a string, or if member_type is not
+                the correct enum type
             ValueError: If member_id is empty or member is not in workspace
-            TypeError: If member_type is not the correct enum type
             RuntimeError: If invariant is violated
         """
+        # Validate member_id type
+        if not isinstance(member_id, str):
+            raise TypeError(f"member_id must be str, got {type(member_id).__name__}")
+
         # Normalize member_id by stripping whitespace
         member_id = member_id.strip()
 
@@ -318,10 +328,16 @@ class Workspace:
             new_role: The new role to assign
 
         Raises:
-            ValueError: If member_id is empty, member is not in workspace, or role unchanged
-            TypeError: If member_type or new_role are not the correct enum types
+            TypeError: If member_id is not a string, or if member_type/new_role
+                are not the correct enum types
+            ValueError: If member_id is empty, member is not in workspace,
+                or role unchanged
             RuntimeError: If invariant is violated
         """
+        # Validate member_id type
+        if not isinstance(member_id, str):
+            raise TypeError(f"member_id must be str, got {type(member_id).__name__}")
+
         # Normalize member_id by stripping whitespace
         member_id = member_id.strip()
 

@@ -28,8 +28,11 @@ from iam.domain.events import (
     TenantMemberRemoved,
     WorkspaceCreated,
     WorkspaceDeleted,
+    WorkspaceMemberAdded,
+    WorkspaceMemberRemoved,
+    WorkspaceMemberRoleChanged,
 )
-from iam.domain.value_objects import GroupRole, TenantRole
+from iam.domain.value_objects import GroupRole, MemberType, TenantRole, WorkspaceRole
 from shared_kernel.authorization.types import RelationType, ResourceType
 from shared_kernel.outbox.operations import (
     DeleteRelationship,
@@ -67,6 +70,9 @@ class IAMEventTranslator:
             TenantMemberRemoved: self._translate_tenant_member_removed,
             WorkspaceCreated: self._translate_workspace_created,
             WorkspaceDeleted: self._translate_workspace_deleted,
+            WorkspaceMemberAdded: self._translate_workspace_member_added,
+            WorkspaceMemberRemoved: self._translate_workspace_member_removed,
+            WorkspaceMemberRoleChanged: self._translate_workspace_member_role_changed,
             APIKeyCreated: self._translate_api_key_created,
             APIKeyRevoked: self._translate_api_key_revoked,
             APIKeyDeleted: self._translate_api_key_deleted,
@@ -467,6 +473,92 @@ class IAMEventTranslator:
             )
 
         return relationships
+
+    def _resolve_subject_type(self, member_type: str) -> ResourceType:
+        """Resolve the SpiceDB subject type from the member_type field.
+
+        Args:
+            member_type: The member type string ("user" or "group")
+
+        Returns:
+            ResourceType.USER for user grants, ResourceType.GROUP for group grants
+        """
+        resolved = MemberType(member_type)
+        if resolved == MemberType.USER:
+            return ResourceType.USER
+        return ResourceType.GROUP
+
+    def _translate_workspace_member_added(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate WorkspaceMemberAdded to role relationship write.
+
+        Creates a relationship: workspace#<role>@<member_type>:<member_id>
+        """
+        role = WorkspaceRole(payload["role"])
+        subject_type = self._resolve_subject_type(payload["member_type"])
+
+        return [
+            WriteRelationship(
+                resource_type=ResourceType.WORKSPACE,
+                resource_id=payload["workspace_id"],
+                relation=role,
+                subject_type=subject_type,
+                subject_id=payload["member_id"],
+            )
+        ]
+
+    def _translate_workspace_member_removed(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate WorkspaceMemberRemoved to role relationship delete.
+
+        Deletes: workspace#<role>@<member_type>:<member_id>
+        """
+        role = WorkspaceRole(payload["role"])
+        subject_type = self._resolve_subject_type(payload["member_type"])
+
+        return [
+            DeleteRelationship(
+                resource_type=ResourceType.WORKSPACE,
+                resource_id=payload["workspace_id"],
+                relation=role,
+                subject_type=subject_type,
+                subject_id=payload["member_id"],
+            )
+        ]
+
+    def _translate_workspace_member_role_changed(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate WorkspaceMemberRoleChanged to delete old + write new role.
+
+        Deletes: workspace#<old_role>@<member_type>:<member_id>
+        Writes:  workspace#<new_role>@<member_type>:<member_id>
+        """
+        old_role = WorkspaceRole(payload["old_role"])
+        new_role = WorkspaceRole(payload["new_role"])
+        subject_type = self._resolve_subject_type(payload["member_type"])
+
+        return [
+            DeleteRelationship(
+                resource_type=ResourceType.WORKSPACE,
+                resource_id=payload["workspace_id"],
+                relation=old_role,
+                subject_type=subject_type,
+                subject_id=payload["member_id"],
+            ),
+            WriteRelationship(
+                resource_type=ResourceType.WORKSPACE,
+                resource_id=payload["workspace_id"],
+                relation=new_role,
+                subject_type=subject_type,
+                subject_id=payload["member_id"],
+            ),
+        ]
 
     def _translate_api_key_created(
         self,

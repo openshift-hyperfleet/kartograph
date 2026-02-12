@@ -6,7 +6,7 @@ SpiceDB relationship operations using type-safe enums.
 
 import pytest
 
-from iam.domain.value_objects import GroupRole
+from iam.domain.value_objects import GroupRole, WorkspaceRole
 from iam.infrastructure.outbox import IAMEventTranslator
 from shared_kernel.authorization.types import RelationType, ResourceType
 from shared_kernel.outbox.operations import (
@@ -31,6 +31,9 @@ class TestIAMEventTranslatorSupportedEvents:
         assert "MemberRoleChanged" in supported
         assert "APIKeyCreated" in supported
         assert "APIKeyRevoked" in supported
+        assert "WorkspaceMemberAdded" in supported
+        assert "WorkspaceMemberRemoved" in supported
+        assert "WorkspaceMemberRoleChanged" in supported
 
 
 class TestIAMEventTranslatorGroupCreated:
@@ -618,6 +621,161 @@ class TestIAMEventTranslatorWorkspaceDeleted:
         assert parent_op.relation == RelationType.PARENT
         assert parent_op.subject_type == ResourceType.WORKSPACE
         assert parent_op.subject_id == "01WORKSPACE_ROOT"
+
+
+class TestIAMEventTranslatorWorkspaceMemberAdded:
+    """Tests for WorkspaceMemberAdded translation."""
+
+    def test_translates_user_member_added_to_workspace(self):
+        """WorkspaceMemberAdded with USER type should write user role relationship."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "member_id": "user-alice",
+            "member_type": "user",
+            "role": "editor",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceMemberAdded", payload)
+
+        assert len(operations) == 1
+        op = operations[0]
+        assert isinstance(op, WriteRelationship)
+        assert op.resource_type == ResourceType.WORKSPACE
+        assert op.resource_id == "01WORKSPACE_ABC"
+        assert op.relation == WorkspaceRole.EDITOR
+        assert op.subject_type == ResourceType.USER
+        assert op.subject_id == "user-alice"
+
+    def test_translates_group_member_added_to_workspace(self):
+        """WorkspaceMemberAdded with GROUP type should write group role relationship."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "member_id": "01GROUP_ENG",
+            "member_type": "group",
+            "role": "admin",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceMemberAdded", payload)
+
+        assert len(operations) == 1
+        op = operations[0]
+        assert isinstance(op, WriteRelationship)
+        assert op.resource_type == ResourceType.WORKSPACE
+        assert op.resource_id == "01WORKSPACE_ABC"
+        assert op.relation == WorkspaceRole.ADMIN
+        assert op.subject_type == ResourceType.GROUP
+        assert op.subject_id == "01GROUP_ENG"
+
+
+class TestIAMEventTranslatorWorkspaceMemberRemoved:
+    """Tests for WorkspaceMemberRemoved translation."""
+
+    def test_translates_user_member_removed_from_workspace(self):
+        """WorkspaceMemberRemoved with USER type should delete user role relationship."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "member_id": "user-alice",
+            "member_type": "user",
+            "role": "member",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceMemberRemoved", payload)
+
+        assert len(operations) == 1
+        op = operations[0]
+        assert isinstance(op, DeleteRelationship)
+        assert op.resource_type == ResourceType.WORKSPACE
+        assert op.resource_id == "01WORKSPACE_ABC"
+        assert op.relation == WorkspaceRole.MEMBER
+        assert op.subject_type == ResourceType.USER
+        assert op.subject_id == "user-alice"
+
+    def test_translates_group_member_removed_from_workspace(self):
+        """WorkspaceMemberRemoved with GROUP type should delete group role relationship."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "member_id": "01GROUP_ENG",
+            "member_type": "group",
+            "role": "editor",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceMemberRemoved", payload)
+
+        assert len(operations) == 1
+        op = operations[0]
+        assert isinstance(op, DeleteRelationship)
+        assert op.resource_type == ResourceType.WORKSPACE
+        assert op.resource_id == "01WORKSPACE_ABC"
+        assert op.relation == WorkspaceRole.EDITOR
+        assert op.subject_type == ResourceType.GROUP
+        assert op.subject_id == "01GROUP_ENG"
+
+
+class TestIAMEventTranslatorWorkspaceMemberRoleChanged:
+    """Tests for WorkspaceMemberRoleChanged translation."""
+
+    def test_translates_workspace_member_role_changed(self):
+        """WorkspaceMemberRoleChanged should delete old role and write new role."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "member_id": "user-alice",
+            "member_type": "user",
+            "old_role": "member",
+            "new_role": "admin",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceMemberRoleChanged", payload)
+
+        assert len(operations) == 2
+
+        # First should delete old role
+        delete_op = operations[0]
+        assert isinstance(delete_op, DeleteRelationship)
+        assert delete_op.resource_type == ResourceType.WORKSPACE
+        assert delete_op.resource_id == "01WORKSPACE_ABC"
+        assert delete_op.relation == WorkspaceRole.MEMBER
+        assert delete_op.subject_type == ResourceType.USER
+        assert delete_op.subject_id == "user-alice"
+
+        # Second should write new role
+        write_op = operations[1]
+        assert isinstance(write_op, WriteRelationship)
+        assert write_op.resource_type == ResourceType.WORKSPACE
+        assert write_op.resource_id == "01WORKSPACE_ABC"
+        assert write_op.relation == WorkspaceRole.ADMIN
+        assert write_op.subject_type == ResourceType.USER
+        assert write_op.subject_id == "user-alice"
+
+    def test_translates_group_workspace_member_role_changed(self):
+        """WorkspaceMemberRoleChanged with GROUP type should use group subject type."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "member_id": "01GROUP_ENG",
+            "member_type": "group",
+            "old_role": "editor",
+            "new_role": "admin",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceMemberRoleChanged", payload)
+
+        assert len(operations) == 2
+
+        # Both should use GROUP subject type
+        for op in operations:
+            assert op.subject_type == ResourceType.GROUP
+            assert op.subject_id == "01GROUP_ENG"
 
 
 class TestIAMEventTranslatorErrors:

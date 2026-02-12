@@ -20,6 +20,9 @@ from iam.domain.events import (
     MemberRemoved,
     MemberRoleChanged,
     MemberSnapshot,
+    WorkspaceMemberAdded,
+    WorkspaceMemberRemoved,
+    WorkspaceMemberRoleChanged,
 )
 from iam.domain.value_objects import GroupRole
 
@@ -330,3 +333,29 @@ class TestEventTypeUnion:
         ]
 
         assert len(events) == 5
+
+    def test_workspace_member_events_in_domain_event_union(self):
+        """Test that workspace member events are part of the DomainEvent union."""
+        from typing import get_args
+
+        from iam.domain.events import DomainEvent
+
+        event_types = {cls.__name__ for cls in get_args(DomainEvent)}
+
+        assert "WorkspaceMemberAdded" in event_types
+        assert "WorkspaceMemberRemoved" in event_types
+        assert "WorkspaceMemberRoleChanged" in event_types
+
+    def test_workspace_member_events_in_all(self):
+        """Test that workspace member events are exported in __all__."""
+        import iam.domain.events as events_module
+
+        assert "WorkspaceMemberAdded" in events_module.__all__
+        assert "WorkspaceMemberRemoved" in events_module.__all__
+        assert "WorkspaceMemberRoleChanged" in events_module.__all__
+
+    def test_workspace_member_events_importable(self):
+        """Test that workspace member events can be imported from events module."""
+        assert WorkspaceMemberAdded is not None
+        assert WorkspaceMemberRemoved is not None
+        assert WorkspaceMemberRoleChanged is not None

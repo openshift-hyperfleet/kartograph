@@ -14,6 +14,7 @@ from typing import Any, get_args
 from iam.domain.events import (
     DomainEvent,
     MemberSnapshot,
+    WorkspaceMemberSnapshot,
 )
 from iam.domain.value_objects import MemberType, TenantRole, WorkspaceRole
 
@@ -132,6 +133,17 @@ class IAMEventSerializer:
             data["members"] = tuple(
                 MemberSnapshot(
                     user_id=m["user_id"],
+                    role=m["role"],
+                )
+                for m in data["members"]
+            )
+
+        # Convert members list back to tuple of WorkspaceMemberSnapshot
+        if "members" in data and event_type == "WorkspaceDeleted":
+            data["members"] = tuple(
+                WorkspaceMemberSnapshot(
+                    member_id=m["member_id"],
+                    member_type=m["member_type"],
                     role=m["role"],
                 )
                 for m in data["members"]

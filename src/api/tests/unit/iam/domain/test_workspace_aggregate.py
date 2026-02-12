@@ -8,8 +8,20 @@ import pytest
 from datetime import datetime, UTC
 
 from iam.domain.aggregates import Workspace
-from iam.domain.events import WorkspaceCreated, WorkspaceDeleted
-from iam.domain.value_objects import TenantId, WorkspaceId
+from iam.domain.events import (
+    WorkspaceCreated,
+    WorkspaceDeleted,
+    WorkspaceMemberAdded,
+    WorkspaceMemberRemoved,
+    WorkspaceMemberRoleChanged,
+)
+from iam.domain.events.workspace_member import WorkspaceMemberSnapshot
+from iam.domain.value_objects import (
+    MemberType,
+    TenantId,
+    WorkspaceId,
+    WorkspaceRole,
+)
 
 
 class TestWorkspaceCreation:
@@ -429,3 +441,331 @@ class TestEventCollection:
         assert len(events) == 2
         assert isinstance(events[0], WorkspaceCreated)
         assert isinstance(events[1], WorkspaceDeleted)
+
+
+# --- Helper to create a workspace for member management tests ---
+
+
+def _make_workspace() -> Workspace:
+    """Create a basic non-root workspace for testing member operations."""
+    now = datetime.now(UTC)
+    return Workspace(
+        id=WorkspaceId.generate(),
+        tenant_id=TenantId.generate(),
+        name="Engineering",
+        parent_workspace_id=None,
+        is_root=False,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+class TestWorkspaceAddMember:
+    """Tests for Workspace.add_member() business logic."""
+
+    def test_adds_user_member_successfully(self):
+        """Test that a user member can be added to the workspace."""
+        workspace = _make_workspace()
+
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.MEMBER)
+
+        assert len(workspace.members) == 1
+        assert workspace.members[0].member_id == "user-alice"
+        assert workspace.members[0].member_type == MemberType.USER
+        assert workspace.members[0].role == WorkspaceRole.MEMBER
+
+    def test_adds_group_member_successfully(self):
+        """Test that a group member can be added to the workspace."""
+        workspace = _make_workspace()
+
+        workspace.add_member("group-eng", MemberType.GROUP, WorkspaceRole.EDITOR)
+
+        assert len(workspace.members) == 1
+        assert workspace.members[0].member_id == "group-eng"
+        assert workspace.members[0].member_type == MemberType.GROUP
+        assert workspace.members[0].role == WorkspaceRole.EDITOR
+
+    def test_records_workspace_member_added_event(self):
+        """Test that add_member records a WorkspaceMemberAdded event."""
+        workspace = _make_workspace()
+
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+        events = workspace.collect_events()
+
+        assert len(events) == 1
+        assert isinstance(events[0], WorkspaceMemberAdded)
+        assert events[0].workspace_id == workspace.id.value
+        assert events[0].member_id == "user-alice"
+        assert events[0].member_type == "user"
+        assert events[0].role == "admin"
+
+    def test_supports_all_three_roles(self):
+        """Test that all three workspace roles (ADMIN, EDITOR, MEMBER) are supported."""
+        workspace = _make_workspace()
+
+        workspace.add_member("user-admin", MemberType.USER, WorkspaceRole.ADMIN)
+        workspace.add_member("user-editor", MemberType.USER, WorkspaceRole.EDITOR)
+        workspace.add_member("user-viewer", MemberType.USER, WorkspaceRole.MEMBER)
+
+        assert len(workspace.members) == 3
+        roles = {m.role for m in workspace.members}
+        assert roles == {
+            WorkspaceRole.ADMIN,
+            WorkspaceRole.EDITOR,
+            WorkspaceRole.MEMBER,
+        }
+
+    def test_prevents_duplicate_user_members(self):
+        """Test that same user cannot be added twice."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.MEMBER)
+
+        with pytest.raises(ValueError, match="already a member"):
+            workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+
+    def test_prevents_duplicate_group_members(self):
+        """Test that same group cannot be added twice."""
+        workspace = _make_workspace()
+        workspace.add_member("group-eng", MemberType.GROUP, WorkspaceRole.EDITOR)
+
+        with pytest.raises(ValueError, match="already a member"):
+            workspace.add_member("group-eng", MemberType.GROUP, WorkspaceRole.ADMIN)
+
+    def test_allows_same_id_different_types(self):
+        """Test that same ID with different member types is allowed.
+
+        user:alice and group:alice are distinct members.
+        """
+        workspace = _make_workspace()
+
+        workspace.add_member("alice", MemberType.USER, WorkspaceRole.MEMBER)
+        workspace.add_member("alice", MemberType.GROUP, WorkspaceRole.EDITOR)
+
+        assert len(workspace.members) == 2
+
+
+class TestWorkspaceRemoveMember:
+    """Tests for Workspace.remove_member() business logic."""
+
+    def test_removes_user_member_successfully(self):
+        """Test that a user member can be removed from the workspace."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.MEMBER)
+        workspace.collect_events()  # Clear add event
+
+        workspace.remove_member("user-alice", MemberType.USER)
+
+        assert len(workspace.members) == 0
+
+    def test_removes_group_member_successfully(self):
+        """Test that a group member can be removed from the workspace."""
+        workspace = _make_workspace()
+        workspace.add_member("group-eng", MemberType.GROUP, WorkspaceRole.EDITOR)
+        workspace.collect_events()  # Clear add event
+
+        workspace.remove_member("group-eng", MemberType.GROUP)
+
+        assert len(workspace.members) == 0
+
+    def test_records_workspace_member_removed_event(self):
+        """Test that remove_member records a WorkspaceMemberRemoved event."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.EDITOR)
+        workspace.collect_events()  # Clear add event
+
+        workspace.remove_member("user-alice", MemberType.USER)
+        events = workspace.collect_events()
+
+        assert len(events) == 1
+        assert isinstance(events[0], WorkspaceMemberRemoved)
+        assert events[0].workspace_id == workspace.id.value
+        assert events[0].member_id == "user-alice"
+        assert events[0].member_type == "user"
+        assert events[0].role == "editor"
+
+    def test_raises_if_member_not_found(self):
+        """Test that removing a non-existent member raises ValueError."""
+        workspace = _make_workspace()
+
+        with pytest.raises(ValueError, match="not a member"):
+            workspace.remove_member("user-unknown", MemberType.USER)
+
+    def test_removes_from_members_list(self):
+        """Test that removed member is no longer in the members list."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+        workspace.add_member("user-bob", MemberType.USER, WorkspaceRole.MEMBER)
+
+        workspace.remove_member("user-alice", MemberType.USER)
+
+        assert not workspace.has_member("user-alice", MemberType.USER)
+        assert workspace.has_member("user-bob", MemberType.USER)
+        assert len(workspace.members) == 1
+
+
+class TestWorkspaceUpdateMemberRole:
+    """Tests for Workspace.update_member_role() business logic."""
+
+    def test_updates_role_successfully(self):
+        """Test that a member's role can be updated."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.MEMBER)
+        workspace.collect_events()
+
+        workspace.update_member_role("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+
+        assert workspace.get_member_role("user-alice", MemberType.USER) == (
+            WorkspaceRole.ADMIN
+        )
+
+    def test_records_workspace_member_role_changed_event(self):
+        """Test that update_member_role records a WorkspaceMemberRoleChanged event."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.MEMBER)
+        workspace.collect_events()
+
+        workspace.update_member_role(
+            "user-alice", MemberType.USER, WorkspaceRole.EDITOR
+        )
+        events = workspace.collect_events()
+
+        assert len(events) == 1
+        assert isinstance(events[0], WorkspaceMemberRoleChanged)
+        assert events[0].workspace_id == workspace.id.value
+        assert events[0].member_id == "user-alice"
+        assert events[0].member_type == "user"
+        assert events[0].old_role == "member"
+        assert events[0].new_role == "editor"
+
+    def test_raises_if_member_not_found(self):
+        """Test that updating a non-existent member raises ValueError."""
+        workspace = _make_workspace()
+
+        with pytest.raises(ValueError, match="not a member"):
+            workspace.update_member_role(
+                "user-unknown", MemberType.USER, WorkspaceRole.ADMIN
+            )
+
+    def test_raises_if_role_unchanged(self):
+        """Test that setting the same role raises ValueError."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.EDITOR)
+
+        with pytest.raises(ValueError, match="already has role"):
+            workspace.update_member_role(
+                "user-alice", MemberType.USER, WorkspaceRole.EDITOR
+            )
+
+    def test_updates_in_memory_member_list(self):
+        """Test that the in-memory member list is correctly updated."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.MEMBER)
+        workspace.add_member("user-bob", MemberType.USER, WorkspaceRole.EDITOR)
+
+        workspace.update_member_role("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+
+        # Alice should now be ADMIN
+        assert workspace.get_member_role("user-alice", MemberType.USER) == (
+            WorkspaceRole.ADMIN
+        )
+        # Bob should remain EDITOR
+        assert workspace.get_member_role("user-bob", MemberType.USER) == (
+            WorkspaceRole.EDITOR
+        )
+
+
+class TestWorkspaceMarkForDeletionWithMembers:
+    """Tests for mark_for_deletion() with member snapshot."""
+
+    def test_includes_member_snapshot_in_event(self):
+        """mark_for_deletion should include member snapshot in WorkspaceDeleted."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+        workspace.add_member("group-eng", MemberType.GROUP, WorkspaceRole.EDITOR)
+        workspace.collect_events()  # Clear add events
+
+        workspace.mark_for_deletion()
+        events = workspace.collect_events()
+
+        assert len(events) == 1
+        event = events[0]
+        assert isinstance(event, WorkspaceDeleted)
+        assert len(event.members) == 2
+
+        # Verify member snapshots
+        member_ids = {m.member_id for m in event.members}
+        assert "user-alice" in member_ids
+        assert "group-eng" in member_ids
+
+    def test_includes_empty_members_tuple_if_no_members(self):
+        """mark_for_deletion should include empty tuple if workspace has no members."""
+        workspace = _make_workspace()
+
+        workspace.mark_for_deletion()
+        events = workspace.collect_events()
+
+        event = events[0]
+        assert isinstance(event, WorkspaceDeleted)
+        assert event.members == ()
+
+    def test_snapshot_captures_member_type_and_role(self):
+        """Member snapshot should capture member_type and role correctly."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+        workspace.add_member("group-eng", MemberType.GROUP, WorkspaceRole.MEMBER)
+        workspace.collect_events()
+
+        workspace.mark_for_deletion()
+        events = workspace.collect_events()
+
+        event = events[0]
+        for snapshot in event.members:
+            assert isinstance(snapshot, WorkspaceMemberSnapshot)
+            if snapshot.member_id == "user-alice":
+                assert snapshot.member_type == "user"
+                assert snapshot.role == "admin"
+            elif snapshot.member_id == "group-eng":
+                assert snapshot.member_type == "group"
+                assert snapshot.role == "member"
+
+
+class TestWorkspaceMemberHelpers:
+    """Tests for Workspace member helper methods."""
+
+    def test_has_member_returns_true_for_existing(self):
+        """has_member should return True for an existing member."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.MEMBER)
+
+        assert workspace.has_member("user-alice", MemberType.USER) is True
+
+    def test_has_member_returns_false_for_nonexistent(self):
+        """has_member should return False for a non-existent member."""
+        workspace = _make_workspace()
+
+        assert workspace.has_member("user-unknown", MemberType.USER) is False
+
+    def test_has_member_distinguishes_user_vs_group(self):
+        """has_member should distinguish between user and group types."""
+        workspace = _make_workspace()
+        workspace.add_member("alice", MemberType.USER, WorkspaceRole.MEMBER)
+
+        assert workspace.has_member("alice", MemberType.USER) is True
+        assert workspace.has_member("alice", MemberType.GROUP) is False
+
+    def test_get_member_role_returns_correct_role(self):
+        """get_member_role should return the correct role for an existing member."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.EDITOR)
+
+        role = workspace.get_member_role("user-alice", MemberType.USER)
+
+        assert role == WorkspaceRole.EDITOR
+
+    def test_get_member_role_returns_none_if_not_found(self):
+        """get_member_role should return None for a non-existent member."""
+        workspace = _make_workspace()
+
+        role = workspace.get_member_role("user-unknown", MemberType.USER)
+
+        assert role is None

@@ -100,6 +100,15 @@ const templates: QueryTemplate[] = [
     ],
   },
   {
+    id: 'graph-connections',
+    name: 'Graph Connections',
+    description: 'Show connected nodes with relationships (ideal for graph view)',
+    template: 'MATCH (a)-[r]->(b) RETURN {source: a, rel: r, target: b} LIMIT {{limit}}',
+    params: [
+      { key: 'limit', label: 'Limit', type: 'number', default: '50' },
+    ],
+  },
+  {
     id: 'nodes-with-slugs',
     name: 'Nodes with Slugs',
     description: 'Find all nodes that have a slug property',

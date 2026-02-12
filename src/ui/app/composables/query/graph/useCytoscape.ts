@@ -2,7 +2,7 @@ import { shallowRef, ref, watch, onBeforeUnmount, nextTick, type Ref } from 'vue
 import cytoscape from 'cytoscape'
 import fcose from 'cytoscape-fcose'
 import type { GraphData, GraphNode } from '~/types'
-import { graphStylesheet, resetLabelColors, getLabelColors } from './graphStyles'
+import { createGraphStylesheet, resetLabelColors, getLabelColors } from './graphStyles'
 import { layoutPresets, tuneLayout } from './graphLayouts'
 
 // Register the fcose layout extension once at module level
@@ -10,6 +10,14 @@ let fcoseRegistered = false
 if (!fcoseRegistered) {
   cytoscape.use(fcose)
   fcoseRegistered = true
+}
+
+/** Scale wheel sensitivity based on graph size to balance responsiveness and control. */
+function getWheelSensitivity(nodeCount: number): number {
+  if (nodeCount < 50) return 1.0
+  if (nodeCount <= 200) return 0.8
+  if (nodeCount <= 500) return 0.6
+  return 0.4
 }
 
 export function useCytoscape(
@@ -24,6 +32,7 @@ export function useCytoscape(
   const selectedNode = ref<GraphNode | null>(null)
   const hoveredNodeId = ref<string | null>(null)
   const labelColors = ref<Map<string, string>>(new Map())
+  let resizeObserver: ResizeObserver | null = null
 
   function initialize() {
     if (!container.value || !graphData.value || graphData.value.nodes.length === 0) {
@@ -69,11 +78,11 @@ export function useCytoscape(
     cy.value = cytoscape({
       container: container.value,
       elements,
-      style: graphStylesheet,
+      style: createGraphStylesheet(),
       layout: layoutOpts,
-      minZoom: 0.05,
-      maxZoom: 5,
-      wheelSensitivity: 0.3,
+      minZoom: 0.1,
+      maxZoom: 4,
+      wheelSensitivity: getWheelSensitivity(nodeCount),
       boxSelectionEnabled: false,
     })
 
@@ -81,6 +90,14 @@ export function useCytoscape(
     nextTick(() => {
       labelColors.value = getLabelColors()
     })
+
+    // Watch for container resizes and re-fit the graph
+    resizeObserver?.disconnect()
+    resizeObserver = new ResizeObserver(() => {
+      cy.value?.resize()
+      cy.value?.fit(undefined, 40)
+    })
+    resizeObserver.observe(container.value)
 
     // Performance: hide labels on large graphs until zoomed in
     if (nodeCount > 200) {
@@ -220,6 +237,8 @@ export function useCytoscape(
   })
 
   onBeforeUnmount(() => {
+    resizeObserver?.disconnect()
+    resizeObserver = null
     cy.value?.destroy()
     cy.value = null
   })

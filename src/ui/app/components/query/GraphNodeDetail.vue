@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { X, Copy, Check } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
+import { CopyableText } from '@/components/ui/copyable-text'
 import { Badge } from '@/components/ui/badge'
 import type { GraphNode } from '~/types'
 
@@ -92,9 +93,7 @@ async function copyAllProperties() {
       <!-- ID -->
       <div class="border-b px-4 py-2">
         <span class="text-[10px] font-medium uppercase text-muted-foreground">ID</span>
-        <p class="truncate font-mono text-xs text-foreground" :title="node.id">
-          {{ node.id }}
-        </p>
+        <CopyableText :text="node.id" :truncate="false" label="Node ID copied" />
       </div>
 
       <!-- Properties header -->

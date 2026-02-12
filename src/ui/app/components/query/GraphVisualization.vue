@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { AlertTriangle, Loader2 } from 'lucide-vue-next'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import type { CypherResult, GraphData, GraphNode } from '~/types'
@@ -35,6 +35,7 @@ const canvasContainer = ref<HTMLElement | null>(null)
 const currentLayout = ref('fcose')
 
 const {
+  cy,
   selectedNode,
   labelColors,
   zoomToFit,
@@ -68,6 +69,30 @@ function handleSearch(query: string) {
     clearSearch()
   }
 }
+
+// -- Fullscreen ---------------------------------------------------------------
+
+const fullscreen = ref(false)
+
+function toggleFullscreen() {
+  fullscreen.value = !fullscreen.value
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && fullscreen.value) {
+    fullscreen.value = false
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+
+watch(fullscreen, () => {
+  nextTick(() => {
+    cy.value?.resize()
+    cy.value?.fit(undefined, 40)
+  })
+})
 </script>
 
 <template>
@@ -116,7 +141,7 @@ function handleSearch(query: string) {
     <!-- Graph view -->
     <template v-else>
       <!-- Warning for large graphs -->
-      <Alert v-if="showWarning" variant="warning" class="mx-1 mb-2">
+      <Alert v-if="showWarning && !fullscreen" variant="warning" class="mx-1 mb-2">
         <AlertTriangle class="size-4" />
         <AlertDescription class="text-xs">
           Large graph ({{ nodeCount.toLocaleString() }} nodes). Labels hidden until
@@ -124,38 +149,42 @@ function handleSearch(query: string) {
         </AlertDescription>
       </Alert>
 
-      <!-- Toolbar -->
-      <GraphToolbar
-        :layout="currentLayout"
-        :node-count="nodeCount"
-        :edge-count="edgeCount"
-        @layout-change="handleLayoutChange"
-        @zoom-fit="zoomToFit"
-        @search="handleSearch"
-      />
-
-      <!-- Canvas + Legend + Detail -->
-      <div class="relative flex min-h-0 flex-1">
-        <!-- Canvas (inline for direct ref access by useCytoscape) -->
-        <div
-          ref="canvasContainer"
-          class="flex-1 rounded-md border bg-slate-950"
-          style="min-height: 300px"
+      <div :class="fullscreen ? 'fixed inset-0 z-50 flex flex-col bg-background' : 'flex min-h-0 flex-1 flex-col'">
+        <!-- Toolbar -->
+        <GraphToolbar
+          :layout="currentLayout"
+          :node-count="nodeCount"
+          :edge-count="edgeCount"
+          :fullscreen="fullscreen"
+          @layout-change="handleLayoutChange"
+          @zoom-fit="zoomToFit"
+          @search="handleSearch"
+          @toggle-fullscreen="toggleFullscreen"
         />
 
-        <!-- Legend overlay -->
-        <GraphLegend
-          :label-colors="labelColors"
-          class="absolute bottom-3 left-3"
-          @toggle-label="toggleLabel"
-        />
+        <!-- Canvas + Legend + Detail -->
+        <div class="relative flex min-h-0 flex-1">
+          <!-- Canvas (inline for direct ref access by useCytoscape) -->
+          <div
+            ref="canvasContainer"
+            class="flex-1 rounded-md border bg-background"
+            style="min-height: 300px"
+          />
 
-        <!-- Node detail panel -->
-        <GraphNodeDetail
-          :node="selectedNode"
-          :open="detailOpen"
-          @close="detailOpen = false"
-        />
+          <!-- Legend overlay -->
+          <GraphLegend
+            :label-colors="labelColors"
+            class="absolute bottom-3 left-3"
+            @toggle-label="toggleLabel"
+          />
+
+          <!-- Node detail panel -->
+          <GraphNodeDetail
+            :node="selectedNode"
+            :open="detailOpen"
+            @close="detailOpen = false"
+          />
+        </div>
       </div>
     </template>
   </div>

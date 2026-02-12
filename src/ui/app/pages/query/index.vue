@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { toast } from 'vue-sonner'
 import { keymap } from '@codemirror/view'
-import type { Extension } from '@codemirror/state'
+import { Prec, type Extension } from '@codemirror/state'
 import {
   Terminal, Play, Trash2, Loader2, Clock, Hash,
   ChevronRight, ChevronDown, Database, GitBranch,
-  Clipboard, Search,
+  Search,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -14,10 +14,6 @@ import { Separator } from '@/components/ui/separator'
 import {
   Card, CardContent, CardHeader, CardTitle,
 } from '@/components/ui/card'
-import {
-  Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty,
-} from '@/components/ui/table'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
@@ -27,6 +23,9 @@ import {
   Tooltip, TooltipContent, TooltipTrigger,
 } from '@/components/ui/tooltip'
 import type { CypherResult } from '~/types'
+
+// Modifier key tracking
+import { useModifierKeys } from '@/composables/useModifierKeys'
 
 // CodeMirror
 import { useCodemirror } from '@/composables/useCodemirror'
@@ -40,8 +39,9 @@ import { applyServerError, clearServerErrors } from '@/lib/codemirror/error-pars
 // Components
 import QueryTemplates from '@/components/query/QueryTemplates.vue'
 import CypherCheatSheet from '@/components/query/CypherCheatSheet.vue'
-import GraphVisualization from '@/components/query/GraphVisualization.vue'
-import { extractGraphData } from '@/composables/query/graph/useGraphExtraction'
+import QueryResultsPanel from '@/components/query/QueryResultsPanel.vue'
+
+const { ctrlHeld } = useModifierKeys()
 
 // ── API ────────────────────────────────────────────────────────────────────
 
@@ -58,7 +58,6 @@ const executing = ref(false)
 const result = ref<CypherResult | null>(null)
 const error = ref<string | null>(null)
 const executionTime = ref<number | null>(null)
-const activeResultTab = ref('table')
 
 // Schema reference
 const nodeLabels = ref<string[]>([])
@@ -120,7 +119,7 @@ const staticExtensions: Extension[] = [
   cypher(),
   ageCypherLinter(),
   cypherTooltips(),
-  keymap.of([
+  Prec.highest(keymap.of([
     {
       key: 'Ctrl-Enter',
       mac: 'Cmd-Enter',
@@ -129,7 +128,7 @@ const staticExtensions: Extension[] = [
         return true
       },
     },
-  ]),
+  ])),
 ]
 
 // Only the autocomplete extension needs to react to schema changes
@@ -146,19 +145,6 @@ const { view: editorView, focus: focusEditor } = useCodemirror(
   query,
   cmExtensions,
 )
-
-// ── Computed ────────────────────────────────────────────────────────────────
-
-const columns = computed<string[]>(() => {
-  if (!result.value || result.value.rows.length === 0) return []
-  return Object.keys(result.value.rows[0])
-})
-
-const hasGraphElements = computed(() => {
-  if (!result.value) return false
-  const data = extractGraphData(result.value)
-  return data.nodes.length > 0
-})
 
 // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -186,7 +172,6 @@ async function executeQuery() {
     )
     executionTime.value = Math.round(performance.now() - start)
     result.value = res
-    activeResultTab.value = 'table'
 
     addToHistory(cypherQuery, res.row_count)
     toast.success(`Query returned ${res.row_count} row${res.row_count !== 1 ? 's' : ''}`, {
@@ -243,21 +228,6 @@ function insertAtCursor(text: string) {
   view.focus()
 }
 
-function formatCellValue(value: unknown): string {
-  if (value === null || value === undefined) return 'null'
-  if (typeof value === 'object') return JSON.stringify(value)
-  return String(value)
-}
-
-async function copyToClipboard(text: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    toast.success('Copied to clipboard')
-  } catch {
-    toast.error('Failed to copy to clipboard')
-  }
-}
-
 // ── History ────────────────────────────────────────────────────────────────
 
 function loadHistory() {
@@ -289,9 +259,55 @@ function clearHistory() {
   saveHistory()
 }
 
-function formatTimestamp(ts: number): string {
-  return new Date(ts).toLocaleTimeString()
+function formatRelativeTime(ts: number): string {
+  const now = Date.now()
+  const diff = now - ts
+  const seconds = Math.floor(diff / 1000)
+  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(minutes / 60)
+  const days = Math.floor(hours / 24)
+
+  if (seconds < 60) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  if (hours < 24) return `${hours}h ago`
+  if (days === 1) return 'yesterday'
+  if (days < 7) return `${days}d ago`
+  return new Date(ts).toLocaleDateString()
 }
+
+interface HistoryGroup {
+  label: string
+  entries: (HistoryEntry & { originalIndex: number })[]
+}
+
+const groupedHistory = computed<HistoryGroup[]>(() => {
+  if (history.value.length === 0) return []
+
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const yesterday = today - 86400000
+
+  const groups: Record<string, (HistoryEntry & { originalIndex: number })[]> = {}
+
+  history.value.forEach((entry, idx) => {
+    let label: string
+    if (entry.timestamp >= today) {
+      label = 'Today'
+    } else if (entry.timestamp >= yesterday) {
+      label = 'Yesterday'
+    } else {
+      label = new Date(entry.timestamp).toLocaleDateString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+      })
+    }
+    if (!groups[label]) groups[label] = []
+    groups[label].push({ ...entry, originalIndex: idx })
+  })
+
+  return Object.entries(groups).map(([label, entries]) => ({ label, entries }))
+})
 
 // ── Schema ─────────────────────────────────────────────────────────────────
 
@@ -313,9 +329,21 @@ async function fetchSchema() {
   }
 }
 
+function handleCtrlEnter(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault()
+    executeQuery()
+  }
+}
+
 onMounted(() => {
   loadHistory()
   fetchSchema()
+  document.addEventListener('keydown', handleCtrlEnter)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleCtrlEnter)
 })
 </script>
 
@@ -336,15 +364,7 @@ onMounted(() => {
         <!-- Query Editor -->
         <Card class="flex flex-col">
           <CardHeader class="pb-3">
-            <div class="flex items-center justify-between">
-              <CardTitle class="text-sm font-medium">Query Editor</CardTitle>
-              <div class="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <kbd class="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">Ctrl</kbd>
-                <span>+</span>
-                <kbd class="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">Enter</kbd>
-                <span class="ml-1">to execute</span>
-              </div>
-            </div>
+            <CardTitle class="text-sm font-medium">Query Editor</CardTitle>
           </CardHeader>
           <CardContent class="space-y-3">
             <!-- CodeMirror editor -->
@@ -361,11 +381,18 @@ onMounted(() => {
                   <TooltipTrigger as-child>
                     <Button
                       :disabled="executing || !query.trim()"
+                      :class="ctrlHeld && !executing && query.trim() ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''"
                       @click="executeQuery"
                     >
                       <Loader2 v-if="executing" class="mr-2 size-4 animate-spin" />
                       <Play v-else class="mr-2 size-4" />
                       Execute
+                      <kbd
+                        v-if="ctrlHeld"
+                        class="ml-2 rounded bg-primary-foreground/20 px-1 py-0.5 font-mono text-[10px]"
+                      >
+                        Enter
+                      </kbd>
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -428,150 +455,14 @@ onMounted(() => {
           </AlertDescription>
         </Alert>
 
-        <!-- Results panel -->
-        <Card class="flex min-h-0 flex-1 flex-col">
-          <Tabs v-model="activeResultTab" class="flex min-h-0 flex-1 flex-col">
-            <CardHeader class="pb-3">
-              <div class="flex items-center justify-between">
-                <TabsList>
-                  <TabsTrigger value="table">Table</TabsTrigger>
-                  <TabsTrigger value="json">JSON</TabsTrigger>
-                  <TabsTrigger value="graph" :disabled="!hasGraphElements">Graph</TabsTrigger>
-                  <TabsTrigger value="info">Info</TabsTrigger>
-                </TabsList>
-                <Badge v-if="result" variant="secondary">
-                  {{ result.row_count }} row{{ result.row_count !== 1 ? 's' : '' }}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent class="min-h-0 flex-1 overflow-auto">
-              <!-- Table tab -->
-              <TabsContent value="table" class="mt-0 h-full">
-                <div v-if="executing" class="flex h-full items-center justify-center">
-                  <div class="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 class="size-5 animate-spin" />
-                    Executing query...
-                  </div>
-                </div>
-                <div v-else-if="!result" class="flex h-full items-center justify-center">
-                  <p class="text-sm text-muted-foreground">
-                    Execute a query to see results here.
-                  </p>
-                </div>
-                <div v-else class="rounded-md border">
-                  <div class="max-h-[calc(100vh-30rem)] overflow-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead
-                            v-for="col in columns"
-                            :key="col"
-                            class="whitespace-nowrap font-mono text-xs"
-                          >
-                            {{ col }}
-                          </TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        <TableEmpty v-if="result.rows.length === 0" :colspan="columns.length || 1">
-                          Query returned no rows.
-                        </TableEmpty>
-                        <TableRow v-for="(row, idx) in result.rows" :key="idx">
-                          <TableCell
-                            v-for="col in columns"
-                            :key="col"
-                            class="max-w-[400px] truncate font-mono text-xs"
-                            :title="formatCellValue(row[col])"
-                          >
-                            {{ formatCellValue(row[col]) }}
-                          </TableCell>
-                        </TableRow>
-                      </TableBody>
-                    </Table>
-                  </div>
-                </div>
-              </TabsContent>
-
-              <!-- JSON tab -->
-              <TabsContent value="json" class="mt-0 h-full">
-                <div v-if="!result" class="flex h-full items-center justify-center">
-                  <p class="text-sm text-muted-foreground">
-                    Execute a query to see results here.
-                  </p>
-                </div>
-                <div v-else class="relative">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    class="absolute right-2 top-2"
-                    aria-label="Copy JSON to clipboard"
-                    @click="copyToClipboard(JSON.stringify(result, null, 2))"
-                  >
-                    <Clipboard class="size-4" />
-                  </Button>
-                  <pre class="max-h-[calc(100vh-30rem)] overflow-auto rounded-md bg-muted p-4 font-mono text-xs text-foreground"><code>{{ JSON.stringify(result, null, 2) }}</code></pre>
-                </div>
-              </TabsContent>
-
-              <!-- Info tab -->
-              <TabsContent value="info" class="mt-0 h-full">
-                <div v-if="!result && !error" class="flex h-full items-center justify-center">
-                  <p class="text-sm text-muted-foreground">
-                    Execute a query to see metadata here.
-                  </p>
-                </div>
-                <div v-else class="space-y-4">
-                  <div class="grid grid-cols-2 gap-4">
-                    <Card>
-                      <CardContent class="pt-6">
-                        <div class="text-2xl font-bold">
-                          {{ result?.row_count ?? '---' }}
-                        </div>
-                        <p class="text-xs text-muted-foreground">Rows returned</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent class="pt-6">
-                        <div class="text-2xl font-bold">
-                          {{ executionTime !== null ? `${executionTime}ms` : '---' }}
-                        </div>
-                        <p class="text-xs text-muted-foreground">Execution time (client)</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent class="pt-6">
-                        <div class="text-2xl font-bold">
-                          {{ columns.length || '---' }}
-                        </div>
-                        <p class="text-xs text-muted-foreground">Columns</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent class="pt-6">
-                        <div class="text-2xl font-bold">
-                          {{ timeout }}s / {{ Number(maxRows).toLocaleString() }}
-                        </div>
-                        <p class="text-xs text-muted-foreground">Timeout / Max rows</p>
-                      </CardContent>
-                    </Card>
-                  </div>
-                  <Alert v-if="error" variant="destructive">
-                    <AlertTitle>Error</AlertTitle>
-                    <AlertDescription class="font-mono text-xs">{{ error }}</AlertDescription>
-                  </Alert>
-                </div>
-              </TabsContent>
-
-              <!-- Graph tab -->
-              <TabsContent value="graph" class="mt-0 h-full">
-                <GraphVisualization
-                  :result="result"
-                  :executing="executing"
-                />
-              </TabsContent>
-            </CardContent>
-          </Tabs>
-        </Card>
+        <!-- Results panel (stats bar + tabbed results) -->
+        <QueryResultsPanel
+          :result="result"
+          :error="error"
+          :executing="executing"
+          :execution-time="executionTime"
+          :max-rows="maxRows"
+        />
       </div>
 
       <!-- Right sidebar: Templates + Cheat Sheet + Schema + History -->
@@ -715,26 +606,33 @@ onMounted(() => {
                   Clear
                 </Button>
               </div>
-              <div class="space-y-1">
-                <button
-                  v-for="(entry, idx) in history"
-                  :key="idx"
-                  class="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted"
-                  @click="setQuery(entry.query)"
-                >
-                  <p class="truncate font-mono text-[11px] text-foreground">
-                    {{ entry.query }}
+              <div class="space-y-3">
+                <div v-for="group in groupedHistory" :key="group.label">
+                  <p class="mb-1 text-[10px] font-semibold uppercase text-muted-foreground">
+                    {{ group.label }}
                   </p>
-                  <div class="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
-                    <span>{{ formatTimestamp(entry.timestamp) }}</span>
-                    <span v-if="entry.rowCount !== null">
-                      {{ entry.rowCount }} row{{ entry.rowCount !== 1 ? 's' : '' }}
-                    </span>
-                    <Badge v-else variant="destructive" class="h-3.5 px-1 text-[9px]">
-                      error
-                    </Badge>
+                  <div class="space-y-0.5">
+                    <button
+                      v-for="entry in group.entries"
+                      :key="entry.originalIndex"
+                      class="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted"
+                      @click="setQuery(entry.query)"
+                    >
+                      <p class="truncate font-mono text-[11px] text-foreground">
+                        {{ entry.query }}
+                      </p>
+                      <div class="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+                        <span>{{ formatRelativeTime(entry.timestamp) }}</span>
+                        <span v-if="entry.rowCount !== null">
+                          {{ entry.rowCount }} row{{ entry.rowCount !== 1 ? 's' : '' }}
+                        </span>
+                        <Badge v-else variant="destructive" class="h-3.5 px-1 text-[9px]">
+                          error
+                        </Badge>
+                      </div>
+                    </button>
                   </div>
-                </button>
+                </div>
               </div>
             </template>
           </CardContent>

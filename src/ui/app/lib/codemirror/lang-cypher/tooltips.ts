@@ -221,6 +221,11 @@ function createTooltipDom(doc: KeywordDoc): HTMLElement {
   container.style.padding = '8px 12px'
   container.style.fontSize = '0.8125rem'
   container.style.lineHeight = '1.5'
+  container.style.backgroundColor = 'var(--popover)'
+  container.style.color = 'var(--popover-foreground)'
+  container.style.border = '1px solid var(--border)'
+  container.style.borderRadius = 'calc(var(--radius) - 2px)'
+  container.style.boxShadow = '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)'
 
   // Title
   const title = document.createElement('div')
@@ -243,7 +248,7 @@ function createTooltipDom(doc: KeywordDoc): HTMLElement {
     syntax.style.fontSize = '0.75rem'
     syntax.style.padding = '4px 6px'
     syntax.style.borderRadius = '4px'
-    syntax.style.backgroundColor = 'hsl(var(--muted))'
+    syntax.style.backgroundColor = 'var(--muted)'
     syntax.style.marginBottom = '4px'
     syntax.textContent = doc.syntax
     container.appendChild(syntax)
@@ -253,7 +258,7 @@ function createTooltipDom(doc: KeywordDoc): HTMLElement {
   if (doc.example) {
     const exLabel = document.createElement('div')
     exLabel.style.fontSize = '0.6875rem'
-    exLabel.style.color = 'hsl(var(--muted-foreground))'
+    exLabel.style.color = 'var(--muted-foreground)'
     exLabel.style.marginBottom = '2px'
     exLabel.textContent = 'Example:'
     container.appendChild(exLabel)
@@ -263,7 +268,7 @@ function createTooltipDom(doc: KeywordDoc): HTMLElement {
     example.style.fontSize = '0.75rem'
     example.style.padding = '4px 6px'
     example.style.borderRadius = '4px'
-    example.style.backgroundColor = 'hsl(var(--muted))'
+    example.style.backgroundColor = 'var(--muted)'
     example.style.marginBottom = '4px'
     example.textContent = doc.example
     container.appendChild(example)
@@ -275,8 +280,8 @@ function createTooltipDom(doc: KeywordDoc): HTMLElement {
     note.style.fontSize = '0.6875rem'
     note.style.padding = '4px 6px'
     note.style.borderRadius = '4px'
-    note.style.border = '1px solid hsl(var(--chart-5) / 0.3)'
-    note.style.backgroundColor = 'hsl(var(--chart-5) / 0.1)'
+    note.style.border = '1px solid color-mix(in oklch, var(--chart-5), transparent 70%)'
+    note.style.backgroundColor = 'color-mix(in oklch, var(--chart-5), transparent 90%)'
     note.textContent = 'AGE: ' + doc.ageNote
     container.appendChild(note)
   }

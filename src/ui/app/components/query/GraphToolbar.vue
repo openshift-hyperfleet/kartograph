@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Maximize, Search, X, LayoutGrid } from 'lucide-vue-next'
+import { Maximize, Maximize2, Minimize2, Search, X, LayoutGrid } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import {
+  Tooltip, TooltipContent, TooltipTrigger,
+} from '@/components/ui/tooltip'
 import {
   Select,
   SelectContent,
@@ -16,12 +19,14 @@ const props = defineProps<{
   layout: string
   nodeCount: number
   edgeCount: number
+  fullscreen: boolean
 }>()
 
 const emit = defineEmits<{
   'layout-change': [layout: string]
   'zoom-fit': []
   'search': [query: string]
+  'toggle-fullscreen': []
 }>()
 
 const searchQuery = ref('')
@@ -69,27 +74,60 @@ function toggleSearch() {
       </div>
 
       <!-- Zoom to fit -->
-      <Button
-        variant="ghost"
-        size="icon"
-        class="size-7"
-        aria-label="Fit graph to viewport"
-        @click="emit('zoom-fit')"
-      >
-        <Maximize class="size-3.5" />
-      </Button>
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="size-7"
+            aria-label="Fit graph to viewport"
+            @click="emit('zoom-fit')"
+          >
+            <Maximize class="size-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          <p>Fit to viewport</p>
+        </TooltipContent>
+      </Tooltip>
+
+      <!-- Fullscreen toggle -->
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="size-7"
+            aria-label="Toggle fullscreen"
+            @click="emit('toggle-fullscreen')"
+          >
+            <Minimize2 v-if="props.fullscreen" class="size-3.5" />
+            <Maximize2 v-else class="size-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          <p>{{ props.fullscreen ? 'Exit fullscreen' : 'Fullscreen' }}</p>
+        </TooltipContent>
+      </Tooltip>
 
       <!-- Search toggle -->
-      <Button
-        variant="ghost"
-        size="icon"
-        class="size-7"
-        :class="searchVisible ? 'bg-muted' : ''"
-        aria-label="Search nodes"
-        @click="toggleSearch"
-      >
-        <Search class="size-3.5" />
-      </Button>
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="size-7"
+            :class="searchVisible ? 'bg-muted' : ''"
+            aria-label="Search nodes"
+            @click="toggleSearch"
+          >
+            <Search class="size-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          <p>Search nodes</p>
+        </TooltipContent>
+      </Tooltip>
 
       <!-- Search input -->
       <div v-if="searchVisible" class="flex items-center gap-1">
@@ -102,16 +140,23 @@ function toggleSearch() {
           @keydown.enter="handleSearch"
           @keydown.escape="clearSearch"
         />
-        <Button
-          v-if="searchQuery"
-          variant="ghost"
-          size="icon"
-          class="size-6"
-          aria-label="Clear search"
-          @click="clearSearch"
-        >
-          <X class="size-3" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button
+              v-if="searchQuery"
+              variant="ghost"
+              size="icon"
+              class="size-6"
+              aria-label="Clear search"
+              @click="clearSearch"
+            >
+              <X class="size-3" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <p>Clear search</p>
+          </TooltipContent>
+        </Tooltip>
       </div>
     </div>
 

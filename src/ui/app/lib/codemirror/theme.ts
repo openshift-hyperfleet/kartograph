@@ -5,11 +5,17 @@ import { tags } from '@lezer/highlight'
 /**
  * CodeMirror 6 theme matching the Kartograph shadcn-vue design system.
  * Uses CSS variables so it adapts to light/dark mode automatically.
+ *
+ * IMPORTANT: The shadcn CSS variables (--foreground, --chart-1, etc.) contain
+ * complete oklch() color values, NOT raw channel numbers. Therefore we must use
+ * var(--name) directly — never hsl(var(--name)).
+ *
+ * For opacity variants we use color-mix() instead of the hsl slash syntax.
  */
 export const kartographTheme = EditorView.theme({
   '&': {
-    backgroundColor: 'hsl(var(--muted))',
-    color: 'hsl(var(--foreground))',
+    backgroundColor: 'var(--muted)',
+    color: 'var(--foreground)',
     fontSize: '0.875rem',
     fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
   },
@@ -18,69 +24,76 @@ export const kartographTheme = EditorView.theme({
   },
   '.cm-content': {
     padding: '0.75rem 1rem',
-    caretColor: 'hsl(var(--foreground))',
+    caretColor: 'var(--foreground)',
     lineHeight: '1.6',
   },
   '.cm-cursor, .cm-dropCursor': {
-    borderLeftColor: 'hsl(var(--foreground))',
+    borderLeftColor: 'var(--foreground)',
     borderLeftWidth: '2px',
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
-    backgroundColor: 'hsl(var(--accent) / 0.4)',
+    backgroundColor: 'color-mix(in oklch, var(--ring), transparent 60%)',
   },
   '.cm-panels': {
-    backgroundColor: 'hsl(var(--card))',
-    color: 'hsl(var(--card-foreground))',
+    backgroundColor: 'var(--card)',
+    color: 'var(--card-foreground)',
   },
   '.cm-panels.cm-panels-top': {
-    borderBottom: '1px solid hsl(var(--border))',
+    borderBottom: '1px solid var(--border)',
   },
   '.cm-panels.cm-panels-bottom': {
-    borderTop: '1px solid hsl(var(--border))',
+    borderTop: '1px solid var(--border)',
   },
   '.cm-searchMatch': {
-    backgroundColor: 'hsl(var(--chart-4) / 0.3)',
+    backgroundColor: 'color-mix(in oklch, var(--chart-4), transparent 70%)',
   },
   '.cm-searchMatch.cm-searchMatch-selected': {
-    backgroundColor: 'hsl(var(--chart-4) / 0.5)',
+    backgroundColor: 'color-mix(in oklch, var(--chart-4), transparent 50%)',
   },
   '.cm-activeLine': {
-    backgroundColor: 'hsl(var(--accent) / 0.15)',
+    backgroundColor: 'color-mix(in oklch, var(--ring), transparent 85%)',
   },
   '.cm-selectionMatch': {
-    backgroundColor: 'hsl(var(--accent) / 0.3)',
+    backgroundColor: 'color-mix(in oklch, var(--ring), transparent 70%)',
   },
   '.cm-matchingBracket, .cm-nonmatchingBracket': {
-    outline: '1px solid hsl(var(--ring) / 0.5)',
+    outline: '1px solid color-mix(in oklch, var(--ring), transparent 50%)',
   },
   '.cm-gutters': {
     backgroundColor: 'transparent',
-    color: 'hsl(var(--muted-foreground))',
+    color: 'var(--muted-foreground)',
     border: 'none',
     paddingRight: '4px',
   },
   '.cm-activeLineGutter': {
-    backgroundColor: 'hsl(var(--accent) / 0.15)',
+    backgroundColor: 'color-mix(in oklch, var(--ring), transparent 85%)',
   },
   '.cm-foldPlaceholder': {
-    backgroundColor: 'hsl(var(--muted))',
-    color: 'hsl(var(--muted-foreground))',
-    border: '1px solid hsl(var(--border))',
+    backgroundColor: 'var(--muted)',
+    color: 'var(--muted-foreground)',
+    border: '1px solid var(--border)',
   },
   '.cm-tooltip': {
-    backgroundColor: 'hsl(var(--popover))',
-    color: 'hsl(var(--popover-foreground))',
-    border: '1px solid hsl(var(--border))',
+    backgroundColor: 'var(--popover)',
+    color: 'var(--popover-foreground)',
+    border: '1px solid var(--border)',
+    borderRadius: 'calc(var(--radius) - 2px)',
+    boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+  },
+  '.cm-tooltip.cm-tooltip-hover': {
+    backgroundColor: 'var(--popover)',
+    color: 'var(--popover-foreground)',
+    border: '1px solid var(--border)',
     borderRadius: 'calc(var(--radius) - 2px)',
     boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
   },
   '.cm-tooltip .cm-tooltip-arrow:before': {
-    borderTopColor: 'hsl(var(--border))',
-    borderBottomColor: 'hsl(var(--border))',
+    borderTopColor: 'var(--border)',
+    borderBottomColor: 'var(--border)',
   },
   '.cm-tooltip .cm-tooltip-arrow:after': {
-    borderTopColor: 'hsl(var(--popover))',
-    borderBottomColor: 'hsl(var(--popover))',
+    borderTopColor: 'var(--popover)',
+    borderBottomColor: 'var(--popover)',
   },
   '.cm-tooltip-autocomplete': {
     '& > ul': {
@@ -91,8 +104,8 @@ export const kartographTheme = EditorView.theme({
       padding: '2px 8px',
     },
     '& > ul > li[aria-selected]': {
-      backgroundColor: 'hsl(var(--accent))',
-      color: 'hsl(var(--accent-foreground))',
+      backgroundColor: 'var(--accent)',
+      color: 'var(--accent-foreground)',
     },
   },
   '.cm-completionLabel': {
@@ -100,25 +113,25 @@ export const kartographTheme = EditorView.theme({
   },
   '.cm-completionDetail': {
     fontStyle: 'normal',
-    color: 'hsl(var(--muted-foreground))',
+    color: 'var(--muted-foreground)',
     marginLeft: '8px',
   },
   // Lint markers
   '.cm-lintRange-error': {
     backgroundImage: 'none',
-    textDecoration: 'wavy underline hsl(var(--destructive))',
+    textDecoration: 'wavy underline var(--destructive)',
     textDecorationSkipInk: 'none',
     textUnderlineOffset: '3px',
   },
   '.cm-lintRange-warning': {
     backgroundImage: 'none',
-    textDecoration: 'wavy underline hsl(var(--chart-5))',
+    textDecoration: 'wavy underline var(--chart-5)',
     textDecorationSkipInk: 'none',
     textUnderlineOffset: '3px',
   },
   '.cm-lintRange-info': {
     backgroundImage: 'none',
-    textDecoration: 'wavy underline hsl(var(--chart-2))',
+    textDecoration: 'wavy underline var(--chart-2)',
     textDecorationSkipInk: 'none',
     textUnderlineOffset: '3px',
   },
@@ -130,15 +143,15 @@ export const kartographTheme = EditorView.theme({
   },
   // Lint tooltip
   '.cm-tooltip.cm-tooltip-lint': {
-    backgroundColor: 'hsl(var(--popover))',
-    color: 'hsl(var(--popover-foreground))',
+    backgroundColor: 'var(--popover)',
+    color: 'var(--popover-foreground)',
   },
   '.cm-diagnosticText': {
     fontSize: '0.8125rem',
   },
   '.cm-diagnosticAction': {
-    backgroundColor: 'hsl(var(--primary))',
-    color: 'hsl(var(--primary-foreground))',
+    backgroundColor: 'var(--primary)',
+    color: 'var(--primary-foreground)',
     borderRadius: 'calc(var(--radius) - 4px)',
     padding: '2px 8px',
     fontSize: '0.75rem',
@@ -149,42 +162,53 @@ export const kartographTheme = EditorView.theme({
 })
 
 /**
+ * JSON-specific highlight style — softer, muted colors suited for reading
+ * data rather than editing code. Uses the shadcn palette but avoids the
+ * bright yellow (chart-4) that's hard to read on light backgrounds.
+ */
+export const jsonHighlightStyle = syntaxHighlighting(
+  HighlightStyle.define([
+    { tag: tags.string, color: 'var(--chart-2)' },
+    { tag: tags.number, color: 'var(--chart-3)' },
+    { tag: tags.bool, color: 'var(--chart-5)', fontStyle: 'italic' },
+    { tag: tags.null, color: 'var(--muted-foreground)', fontStyle: 'italic' },
+    { tag: tags.atom, color: 'var(--chart-5)', fontStyle: 'italic' },
+    { tag: tags.propertyName, color: 'var(--foreground)', fontWeight: '600' },
+    { tag: tags.punctuation, color: 'var(--muted-foreground)' },
+    { tag: tags.bracket, color: 'var(--muted-foreground)' },
+  ])
+)
+
+/**
  * Syntax highlighting colors using the shadcn chart color palette.
+ * CSS variables contain complete oklch() values so we use var() directly.
  */
 export const kartographHighlightStyle = syntaxHighlighting(
   HighlightStyle.define([
-    // Keywords: MATCH, WHERE, RETURN, CREATE, DELETE, SET, etc.
-    { tag: tags.keyword, color: 'hsl(var(--chart-1))', fontWeight: 'bold' },
-    // Control: AND, OR, NOT, IN, IS, NULL
-    { tag: tags.controlKeyword, color: 'hsl(var(--chart-1))', fontWeight: 'bold' },
+    // Keywords: MATCH, WHERE, RETURN, CREATE, DELETE, SET, AND, OR, NOT, IN, etc.
+    { tag: tags.keyword, color: 'var(--chart-1)', fontWeight: 'bold' },
     // Operators: =, <>, <, >, +, -, etc.
-    { tag: tags.operator, color: 'hsl(var(--muted-foreground))' },
-    // Labels/types: Person, KNOWS
-    { tag: tags.typeName, color: 'hsl(var(--chart-2))' },
-    { tag: tags.labelName, color: 'hsl(var(--chart-2))' },
-    // Functions: count(), collect(), labels(), type()
-    { tag: tags.function(tags.variableName), color: 'hsl(var(--chart-3))' },
+    { tag: tags.operator, color: 'var(--muted-foreground)' },
+    // Labels/types: Person, KNOWS (CM6 maps 'type' → tags.typeName)
+    { tag: tags.typeName, color: 'var(--chart-2)' },
+    // Functions: count(), collect(), labels(), type() (CM6 maps 'def' → tags.definition(tags.variableName))
+    { tag: tags.definition(tags.variableName), color: 'var(--chart-3)' },
+    { tag: tags.function(tags.variableName), color: 'var(--chart-3)' },
     // Strings
-    { tag: tags.string, color: 'hsl(var(--chart-4))' },
+    { tag: tags.string, color: 'var(--chart-4)' },
     // Numbers
-    { tag: tags.number, color: 'hsl(var(--chart-5))' },
-    // Booleans
-    { tag: tags.bool, color: 'hsl(var(--chart-5))' },
-    // Variables: n, m, r
-    { tag: tags.variableName, color: 'hsl(var(--foreground))' },
-    // Properties: .name, .age
-    { tag: tags.propertyName, color: 'hsl(var(--chart-2))' },
-    // Punctuation / Brackets
-    { tag: tags.bracket, color: 'hsl(var(--muted-foreground))' },
-    { tag: tags.paren, color: 'hsl(var(--muted-foreground))' },
-    { tag: tags.squareBracket, color: 'hsl(var(--muted-foreground))' },
-    { tag: tags.brace, color: 'hsl(var(--muted-foreground))' },
-    // Comments
-    { tag: tags.comment, color: 'hsl(var(--muted-foreground))', fontStyle: 'italic' },
-    { tag: tags.lineComment, color: 'hsl(var(--muted-foreground))', fontStyle: 'italic' },
-    // Null
-    { tag: tags.null, color: 'hsl(var(--chart-5))', fontStyle: 'italic' },
-    // Special
-    { tag: tags.special(tags.variableName), color: 'hsl(var(--chart-3))' },
+    { tag: tags.number, color: 'var(--chart-5)' },
+    // Atoms: true, false, null (CM6 maps 'atom' → tags.atom)
+    { tag: tags.atom, color: 'var(--chart-5)', fontStyle: 'italic' },
+    // Variables: n, m, r (CM6 maps 'variable' → tags.variableName)
+    { tag: tags.variableName, color: 'var(--foreground)' },
+    // Properties: .name, .age (CM6 maps 'property' → tags.propertyName)
+    { tag: tags.propertyName, color: 'var(--chart-2)' },
+    // Brackets: (), [], {} (CM6 maps 'bracket' → tags.bracket)
+    { tag: tags.bracket, color: 'var(--muted-foreground)' },
+    // Comments: // and /* */ (CM6 maps 'comment' → tags.comment)
+    { tag: tags.comment, color: 'var(--muted-foreground)', fontStyle: 'italic' },
+    // Parameters: $param (CM6 maps 'variable-2' → tags.variableName)
+    { tag: tags.special(tags.variableName), color: 'var(--chart-3)' },
   ])
 )

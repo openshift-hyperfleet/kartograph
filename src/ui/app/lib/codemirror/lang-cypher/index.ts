@@ -57,7 +57,7 @@ const cypherStreamParser: StreamParser<CypherState> = {
     // Line comments: //
     if (stream.match('//')) {
       stream.skipToEnd()
-      return 'lineComment'
+      return 'comment'
     }
 
     // Block comments: /* ... */
@@ -99,20 +99,20 @@ const cypherStreamParser: StreamParser<CypherState> = {
       state.inPattern = true
       state.afterColon = false
       stream.next()
-      return 'paren'
+      return 'bracket'
     }
     if (stream.peek() === ')' || stream.peek() === ']') {
       state.inPattern = false
       state.afterColon = false
       stream.next()
-      return 'paren'
+      return 'bracket'
     }
 
     // Braces
     if (stream.peek() === '{' || stream.peek() === '}') {
       state.afterColon = false
       stream.next()
-      return 'brace'
+      return 'bracket'
     }
 
     // Colon (label prefix in patterns)
@@ -167,7 +167,7 @@ const cypherStreamParser: StreamParser<CypherState> = {
       stream.next()
       stream.match(/^[a-zA-Z_][a-zA-Z0-9_]*/)
       state.afterColon = false
-      return 'special(variableName)'
+      return 'special.variableName'
     }
 
     // Words (keywords, functions, variables, labels)
@@ -184,10 +184,10 @@ const cypherStreamParser: StreamParser<CypherState> = {
       // Check if followed by ( => function
       if (stream.peek() === '(') {
         if (CYPHER_FUNCTIONS.has(lower)) {
-          return 'function(variableName)'
+          return 'definition.variableName'
         }
         // Unknown function name
-        return 'function(variableName)'
+        return 'definition.variableName'
       }
 
       // Keywords
@@ -197,13 +197,12 @@ const cypherStreamParser: StreamParser<CypherState> = {
 
       // Operator keywords (AND, OR, NOT, IN, etc.)
       if (CYPHER_OPERATORS.has(lower)) {
-        return 'controlKeyword'
+        return 'keyword'
       }
 
       // Constants (null, true, false)
       if (CYPHER_CONSTANTS.has(lower)) {
-        if (lower === 'null') return 'null'
-        return 'bool'
+        return 'atom'
       }
 
       state.afterColon = false
@@ -222,25 +221,22 @@ const cypherStreamParser: StreamParser<CypherState> = {
   },
 }
 
-// Map stream token names to Lezer highlight tags
+// Map stream token names to Lezer highlight tags.
+// Note: StreamLanguage.define() has a built-in mapping from these token strings
+// to tags. This map is kept for reference and potential external use.
 const tokenTagMap: Record<string, Tag> = {
   'keyword': tags.keyword,
-  'controlKeyword': tags.controlKeyword,
   'operator': tags.operator,
   'string': tags.string,
   'number': tags.number,
-  'bool': tags.bool,
-  'null': tags.null,
+  'atom': tags.atom,
   'comment': tags.comment,
-  'lineComment': tags.lineComment,
   'typeName': tags.typeName,
-  'labelName': tags.labelName,
   'variableName': tags.variableName,
   'propertyName': tags.propertyName,
-  'paren': tags.paren,
-  'brace': tags.brace,
-  'function(variableName)': tags.function(tags.variableName),
-  'special(variableName)': tags.special(tags.variableName),
+  'bracket': tags.bracket,
+  'definition.variableName': tags.definition(tags.variableName),
+  'special.variableName': tags.special(tags.variableName),
 }
 
 /**

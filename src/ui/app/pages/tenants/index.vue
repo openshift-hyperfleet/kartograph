@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
-import { Building2, Plus, Users, Trash2, Loader2, UserPlus, X, Copy, Check } from 'lucide-vue-next'
+import { Building2, Plus, Users, Trash2, Loader2, UserPlus, X } from 'lucide-vue-next'
+import { CopyableText } from '@/components/ui/copyable-text'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -184,24 +185,6 @@ function closeMembers() {
   members.value = []
 }
 
-const copiedId = ref<string | null>(null)
-
-async function copyId(id: string) {
-  try {
-    await navigator.clipboard.writeText(id)
-    copiedId.value = id
-    toast.success('Copied to clipboard')
-    setTimeout(() => { copiedId.value = null }, 2000)
-  } catch {
-    toast.error('Failed to copy')
-  }
-}
-
-function truncateId(id: string): string {
-  if (id.length <= 12) return id
-  return id.slice(0, 8) + '...'
-}
-
 onMounted(fetchTenants)
 
 </script>
@@ -254,15 +237,8 @@ onMounted(fetchTenants)
 
           <!-- Data rows -->
           <TableRow v-for="tenant in tenants" v-else :key="tenant.id">
-            <TableCell class="font-mono text-xs text-muted-foreground">
-              <button
-                class="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted"
-                :title="tenant.id"
-                @click="copyId(tenant.id)"
-              >
-                {{ truncateId(tenant.id) }}
-                <component :is="copiedId === tenant.id ? Check : Copy" class="size-3" />
-              </button>
+            <TableCell>
+              <CopyableText :text="tenant.id" label="Tenant ID copied" />
             </TableCell>
             <TableCell class="font-medium">{{ tenant.name }}</TableCell>
             <TableCell class="text-right">
@@ -360,15 +336,8 @@ onMounted(fetchTenants)
                 No members in this tenant.
               </TableEmpty>
               <TableRow v-for="member in members" v-else :key="member.user_id">
-                <TableCell class="font-mono text-xs">
-                  <button
-                    class="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted"
-                    :title="member.user_id"
-                    @click="copyId(member.user_id)"
-                  >
-                    {{ truncateId(member.user_id) }}
-                    <component :is="copiedId === member.user_id ? Check : Copy" class="size-3" />
-                  </button>
+                <TableCell>
+                  <CopyableText :text="member.user_id" label="User ID copied" />
                 </TableCell>
                 <TableCell>
                   <Badge :variant="member.role === 'admin' ? 'default' : 'secondary'">

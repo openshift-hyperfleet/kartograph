@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Users, Plus, Search, Trash2, ChevronDown, ChevronRight, UserCircle } from 'lucide-vue-next'
+import { CopyableText } from '@/components/ui/copyable-text'
 import { toast } from 'vue-sonner'
 import { ref, onMounted, watch } from 'vue'
 import type { GroupResponse } from '~/types'
@@ -281,7 +282,7 @@ onMounted(loadGroupsCache)
               />
               <div>
                 <CardTitle class="text-base">{{ group.name }}</CardTitle>
-                <p class="mt-0.5 font-mono text-xs text-muted-foreground">{{ group.id }}</p>
+                <CopyableText :text="group.id" label="Group ID copied" class="mt-0.5" />
               </div>
             </div>
             <div class="flex items-center gap-2">
@@ -315,10 +316,10 @@ onMounted(loadGroupsCache)
             </TableHeader>
             <TableBody>
               <TableRow v-for="member in group.members" :key="member.user_id">
-                <TableCell class="font-mono text-sm">
+                <TableCell>
                   <div class="flex items-center gap-2">
                     <UserCircle class="size-4 text-muted-foreground" />
-                    {{ member.user_id }}
+                    <CopyableText :text="member.user_id" label="User ID copied" :truncate="false" />
                   </div>
                 </TableCell>
                 <TableCell>

@@ -17,6 +17,7 @@ import {
 import {
   Card, CardContent, CardHeader, CardTitle,
 } from '@/components/ui/card'
+import { CopyableText } from '@/components/ui/copyable-text'
 import type { WorkspaceResponse } from '~/types'
 
 const { listWorkspaces, createWorkspace, deleteWorkspace } = useIamApi()
@@ -296,15 +297,16 @@ onMounted(fetchWorkspaces)
           </div>
           <div>
             <span class="text-muted-foreground">ID</span>
-            <p class="font-mono text-xs">{{ selectedWorkspace.id }}</p>
+            <CopyableText :text="selectedWorkspace.id" :truncate="false" label="Workspace ID copied" />
           </div>
           <div>
             <span class="text-muted-foreground">Tenant ID</span>
-            <p class="font-mono text-xs">{{ selectedWorkspace.tenant_id }}</p>
+            <CopyableText :text="selectedWorkspace.tenant_id" :truncate="false" label="Tenant ID copied" />
           </div>
           <div>
             <span class="text-muted-foreground">Parent Workspace</span>
-            <p class="font-mono text-xs">{{ selectedWorkspace.parent_workspace_id ?? 'None (root)' }}</p>
+            <CopyableText v-if="selectedWorkspace.parent_workspace_id" :text="selectedWorkspace.parent_workspace_id" :truncate="false" label="Parent Workspace ID copied" />
+            <p v-else class="font-mono text-xs">None (root)</p>
           </div>
           <div>
             <span class="text-muted-foreground">Root</span>

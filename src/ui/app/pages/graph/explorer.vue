@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { CopyableText } from '@/components/ui/copyable-text'
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from '@/components/ui/popover'
@@ -249,7 +250,7 @@ onMounted(loadNodeTypes)
               <div class="flex items-start justify-between gap-2">
                 <div class="min-w-0">
                   <CardTitle class="truncate text-base">{{ getNodeDisplayName(node) }}</CardTitle>
-                  <CardDescription class="font-mono text-xs">{{ node.id }}</CardDescription>
+                  <CopyableText :text="node.id" label="Node ID copied" />
                 </div>
                 <Badge variant="default">{{ node.label }}</Badge>
               </div>

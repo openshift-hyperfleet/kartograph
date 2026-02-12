@@ -42,6 +42,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 const { createApiKey, listApiKeys, revokeApiKey } = useIamApi()
 const { currentTenantId } = useApiClient()
+const { extractErrorMessage } = useErrorHandler()
 const config = useRuntimeConfig()
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -126,8 +127,8 @@ async function loadKeys() {
   try {
     apiKeys.value = await listApiKeys()
   } catch (err: unknown) {
-    loadError.value = err instanceof Error ? err.message : 'Failed to load API keys'
-    toast.error(loadError.value)
+    loadError.value = extractErrorMessage(err)
+    toast.error('Failed to load API keys', { description: loadError.value })
   } finally {
     isLoading.value = false
   }
@@ -151,15 +152,16 @@ async function handleCreate() {
     newlyCreatedKey.value = key
     createForm.name = ''
     createForm.expires_in_days = 30
-    createDialogOpen.value = false
     secretCopied.value = false
     copiedConfigTab.value = null
     toast.success(`API key "${key.name}" created`)
     await loadKeys()
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Failed to create API key'
-    toast.error(message)
+    toast.error('Failed to create API key', {
+      description: extractErrorMessage(err),
+    })
   } finally {
+    createDialogOpen.value = false
     isCreating.value = false
   }
 }
@@ -206,13 +208,14 @@ async function handleRevoke() {
   try {
     await revokeApiKey(keyToRevoke.value.id)
     toast.success(`API key "${keyToRevoke.value.name}" revoked`)
-    revokeDialogOpen.value = false
-    keyToRevoke.value = null
     await loadKeys()
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Failed to revoke API key'
-    toast.error(message)
+    toast.error('Failed to revoke API key', {
+      description: extractErrorMessage(err),
+    })
   } finally {
+    revokeDialogOpen.value = false
+    keyToRevoke.value = null
     isRevoking.value = false
   }
 }

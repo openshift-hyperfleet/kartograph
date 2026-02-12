@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   Building2,
@@ -58,9 +58,10 @@ const { isCollapsed, isMobileOpen, toggleCollapsed, closeMobile } = useSidebar()
 const { isDark, toggle: toggleColorMode } = useColorMode()
 
 // ── Auth & Tenant state ────────────────────────────────────────────────────
-const { user, logout } = useAuth()
+const { user, isAuthenticated, logout } = useAuth()
 const { listTenants } = useIamApi()
 const { currentTenantId } = useApiClient()
+const { extractErrorMessage } = useErrorHandler()
 
 const tenants = ref<TenantResponse[]>([])
 const selectedTenantId = ref<string>('')
@@ -97,7 +98,7 @@ async function fetchTenants() {
     }
   } catch (err) {
     toast.error('Failed to load tenants', {
-      description: err instanceof Error ? err.message : 'Unknown error',
+      description: extractErrorMessage(err),
     })
   }
 }
@@ -110,7 +111,11 @@ async function handleLogout() {
   }
 }
 
-onMounted(fetchTenants)
+watch(isAuthenticated, (authenticated) => {
+  if (authenticated) {
+    fetchTenants()
+  }
+}, { immediate: true })
 
 interface NavItem {
   label: string

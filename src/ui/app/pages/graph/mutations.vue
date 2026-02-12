@@ -35,27 +35,27 @@ const templates: MutationTemplate[] = [
   {
     name: 'Define Type',
     description: 'Define a new node or edge type schema',
-    content: '{"operation": "DEFINE", "entity_type": "node", "type": "Person", "description": "A person entity", "required_properties": ["name"], "optional_properties": ["email", "age"]}',
+    content: '{"op": "DEFINE", "type": "node", "label": "person", "description": "A person entity", "required_properties": ["name"], "optional_properties": ["email", "age"]}',
   },
   {
     name: 'Create Node',
     description: 'Create a new node instance',
-    content: '{"operation": "CREATE", "entity_type": "node", "type": "Person", "id": "person:abc123def456gh78", "properties": {"name": "Alice", "slug": "alice"}}',
+    content: '{"op": "CREATE", "type": "node", "label": "person", "id": "person:a1b2c3d4e5f67890", "set_properties": {"name": "Alice", "slug": "alice"}}',
   },
   {
     name: 'Create Edge',
     description: 'Create a relationship between nodes',
-    content: '{"operation": "CREATE", "entity_type": "edge", "type": "KNOWS", "id": "knows:abc123def456gh78", "start_id": "person:abc123def456gh78", "end_id": "person:def456abc123gh78", "properties": {}}',
+    content: '{"op": "CREATE", "type": "edge", "label": "knows", "id": "knows:a1b2c3d4e5f67890", "start_id": "person:a1b2c3d4e5f67890", "end_id": "person:f6e5d4c3b2a10987", "set_properties": {}}',
   },
   {
     name: 'Update Node',
     description: 'Update properties on an existing node',
-    content: '{"operation": "UPDATE", "entity_type": "node", "type": "Person", "id": "person:abc123def456gh78", "properties": {"email": "alice@example.com"}}',
+    content: '{"op": "UPDATE", "type": "node", "id": "person:a1b2c3d4e5f67890", "set_properties": {"email": "alice@example.com"}}',
   },
   {
     name: 'Delete Node',
     description: 'Remove a node from the graph',
-    content: '{"operation": "DELETE", "entity_type": "node", "type": "Person", "id": "person:abc123def456gh78"}',
+    content: '{"op": "DELETE", "type": "node", "id": "person:a1b2c3d4e5f67890"}',
   },
 ]
 
@@ -269,7 +269,7 @@ function handleDragLeave() {
                 </div>
                 <Textarea
                   v-model="editorContent"
-                  placeholder='{"operation": "CREATE", "entity_type": "node", ...}'
+                  placeholder='{"op": "CREATE", "type": "node", "label": "person", ...}'
                   class="min-h-[300px] resize-y rounded-none border-0 font-mono text-xs leading-6 focus-visible:ring-0 focus-visible:ring-offset-0"
                   spellcheck="false"
                 />
@@ -358,7 +358,9 @@ function handleDragLeave() {
         <div class="space-y-2 text-xs text-muted-foreground">
           <p class="font-medium">JSONL Format</p>
           <p>Each line must be a valid JSON object representing a single mutation operation.</p>
-          <p>Supported operations: <code class="rounded bg-muted px-1 py-0.5">DEFINE</code>, <code class="rounded bg-muted px-1 py-0.5">CREATE</code>, <code class="rounded bg-muted px-1 py-0.5">UPDATE</code>, <code class="rounded bg-muted px-1 py-0.5">DELETE</code></p>
+          <p>Required field: <code class="rounded bg-muted px-1 py-0.5">op</code> — one of <code class="rounded bg-muted px-1 py-0.5">DEFINE</code>, <code class="rounded bg-muted px-1 py-0.5">CREATE</code>, <code class="rounded bg-muted px-1 py-0.5">UPDATE</code>, <code class="rounded bg-muted px-1 py-0.5">DELETE</code></p>
+          <p>Other fields: <code class="rounded bg-muted px-1 py-0.5">type</code> (node/edge), <code class="rounded bg-muted px-1 py-0.5">label</code>, <code class="rounded bg-muted px-1 py-0.5">id</code>, <code class="rounded bg-muted px-1 py-0.5">set_properties</code></p>
+          <p>ID format: <code class="rounded bg-muted px-1 py-0.5">label:16hexchars</code> (lowercase)</p>
         </div>
       </div>
     </div>

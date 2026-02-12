@@ -4,7 +4,7 @@ import { toast } from 'vue-sonner'
 import {
   Terminal, Play, Trash2, Loader2, Clock, Hash,
   ChevronRight, ChevronDown, Database, GitBranch,
-  Clipboard, X,
+  Clipboard, X, Search,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -19,6 +19,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
@@ -47,6 +48,35 @@ const edgeLabels = ref<string[]>([])
 const schemaLoading = ref(false)
 const schemaOpen = ref(true)
 
+// Schema search & filtering
+const schemaSearch = ref('')
+const SCHEMA_INITIAL_LIMIT = 50
+const schemaShowAll = ref(false)
+
+const filteredNodeLabels = computed(() => {
+  const search = schemaSearch.value.toLowerCase().trim()
+  let labels = nodeLabels.value
+  if (search) {
+    labels = labels.filter(l => l.toLowerCase().includes(search))
+  }
+  if (!schemaShowAll.value && !search) {
+    return labels.slice(0, SCHEMA_INITIAL_LIMIT)
+  }
+  return labels
+})
+
+const filteredEdgeLabels = computed(() => {
+  const search = schemaSearch.value.toLowerCase().trim()
+  let labels = edgeLabels.value
+  if (search) {
+    labels = labels.filter(l => l.toLowerCase().includes(search))
+  }
+  if (!schemaShowAll.value && !search) {
+    return labels.slice(0, SCHEMA_INITIAL_LIMIT)
+  }
+  return labels
+})
+
 // History
 const HISTORY_KEY = 'kartograph:query-history'
 const MAX_HISTORY = 20
@@ -58,7 +88,7 @@ interface HistoryEntry {
 }
 
 const history = ref<HistoryEntry[]>([])
-const historyOpen = ref(false)
+const historyOpen = ref(true)
 
 // Textarea ref
 const textareaRef = ref<HTMLTextAreaElement | null>()
@@ -515,29 +545,48 @@ onUnmounted(() => {
               <Loader2 class="size-4 animate-spin text-muted-foreground" />
             </div>
             <template v-else>
+              <!-- Search filter -->
+              <div class="relative">
+                <Search class="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  v-model="schemaSearch"
+                  placeholder="Filter types..."
+                  class="h-7 pl-7 text-xs"
+                />
+              </div>
+
               <!-- Node labels -->
               <div>
                 <div class="mb-2 flex items-center gap-1.5">
                   <Database class="size-3.5 text-blue-500" />
                   <span class="text-xs font-medium">Node Types</span>
                   <Badge variant="secondary" class="ml-auto h-4 px-1 text-[10px]">
-                    {{ nodeLabels.length }}
+                    {{ schemaSearch ? `${filteredNodeLabels.length} of ` : '' }}{{ nodeLabels.length }}
                   </Badge>
                 </div>
                 <div v-if="nodeLabels.length === 0" class="text-xs text-muted-foreground">
                   No node types found.
                 </div>
-                <div v-else class="flex flex-wrap gap-1">
-                  <Button
-                    v-for="label in nodeLabels"
-                    :key="label"
-                    variant="outline"
-                    size="sm"
-                    class="h-6 px-2 font-mono text-[11px]"
-                    @click="insertAtCursor(label)"
+                <div v-else class="max-h-64 overflow-y-auto">
+                  <div class="flex flex-wrap gap-1">
+                    <Button
+                      v-for="label in filteredNodeLabels"
+                      :key="label"
+                      variant="outline"
+                      size="sm"
+                      class="h-6 px-2 font-mono text-[11px]"
+                      @click="insertAtCursor(label)"
+                    >
+                      {{ label }}
+                    </Button>
+                  </div>
+                  <button
+                    v-if="!schemaSearch && !schemaShowAll && nodeLabels.length > SCHEMA_INITIAL_LIMIT"
+                    class="mt-1 w-full text-center text-[11px] text-muted-foreground hover:text-foreground"
+                    @click.stop="schemaShowAll = true"
                   >
-                    {{ label }}
-                  </Button>
+                    Show all {{ nodeLabels.length }} types
+                  </button>
                 </div>
               </div>
 
@@ -549,23 +598,32 @@ onUnmounted(() => {
                   <GitBranch class="size-3.5 text-orange-500" />
                   <span class="text-xs font-medium">Edge Types</span>
                   <Badge variant="secondary" class="ml-auto h-4 px-1 text-[10px]">
-                    {{ edgeLabels.length }}
+                    {{ schemaSearch ? `${filteredEdgeLabels.length} of ` : '' }}{{ edgeLabels.length }}
                   </Badge>
                 </div>
                 <div v-if="edgeLabels.length === 0" class="text-xs text-muted-foreground">
                   No edge types found.
                 </div>
-                <div v-else class="flex flex-wrap gap-1">
-                  <Button
-                    v-for="label in edgeLabels"
-                    :key="label"
-                    variant="outline"
-                    size="sm"
-                    class="h-6 px-2 font-mono text-[11px]"
-                    @click="insertAtCursor(label)"
+                <div v-else class="max-h-64 overflow-y-auto">
+                  <div class="flex flex-wrap gap-1">
+                    <Button
+                      v-for="label in filteredEdgeLabels"
+                      :key="label"
+                      variant="outline"
+                      size="sm"
+                      class="h-6 px-2 font-mono text-[11px]"
+                      @click="insertAtCursor(label)"
+                    >
+                      {{ label }}
+                    </Button>
+                  </div>
+                  <button
+                    v-if="!schemaSearch && !schemaShowAll && edgeLabels.length > SCHEMA_INITIAL_LIMIT"
+                    class="mt-1 w-full text-center text-[11px] text-muted-foreground hover:text-foreground"
+                    @click.stop="schemaShowAll = true"
                   >
-                    {{ label }}
-                  </Button>
+                    Show all {{ edgeLabels.length }} types
+                  </button>
                 </div>
               </div>
             </template>
@@ -586,7 +644,7 @@ onUnmounted(() => {
               </div>
             </div>
           </CardHeader>
-          <CardContent v-if="historyOpen" class="min-h-0 flex-1 overflow-auto pt-0">
+          <CardContent v-if="historyOpen" class="max-h-64 min-h-0 flex-1 overflow-y-auto pt-0">
             <div v-if="history.length === 0" class="py-4 text-center text-xs text-muted-foreground">
               No queries yet.
             </div>

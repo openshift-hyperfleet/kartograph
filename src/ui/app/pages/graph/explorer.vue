@@ -1,60 +1,49 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  Share2, Search, Loader2, ArrowRight, ArrowLeft,
-  ChevronRight, Compass, CircleDot, Info,
+  Share2, Search, Loader2, Info, ChevronDown, ChevronUp,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Separator } from '@/components/ui/separator'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty,
+  Table, TableBody, TableRow, TableCell,
 } from '@/components/ui/table'
-import type { NodeRecord, EdgeRecord, NodeNeighborsResult } from '~/types'
+import type { NodeRecord } from '~/types'
 
-const { findNodesBySlug, getNodeNeighbors, listNodeLabels } = useGraphApi()
+const { findNodesBySlug, listNodeLabels } = useGraphApi()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
 // Search
 const slugQuery = ref('')
-const nodeTypeFilter = ref<string>('')
+const nodeTypeFilter = ref<string>('__all__')
 const availableNodeTypes = ref<string[]>([])
+const nodeTypesLoading = ref(false)
 const searching = ref(false)
 const searchResults = ref<NodeRecord[]>([])
 const hasSearched = ref(false)
 
-// Neighbor exploration
-const neighborResult = ref<NodeNeighborsResult | null>(null)
-const neighborsLoading = ref(false)
-
-// Breadcrumb trail
-interface BreadcrumbEntry {
-  nodeId: string
-  label: string
-  displayName: string
-}
-const breadcrumbs = ref<BreadcrumbEntry[]>([])
-
-// ── Computed ───────────────────────────────────────────────────────────────
-
-const currentCentralNode = computed(() => neighborResult.value?.central_node ?? null)
+// Property expansion tracking
+const expandedProps = reactive(new Set<string>())
 
 // ── Data loading ───────────────────────────────────────────────────────────
 
 async function loadNodeTypes() {
+  nodeTypesLoading.value = true
   try {
     const result = await listNodeLabels()
     availableNodeTypes.value = result.labels
   } catch {
     // Non-critical: filter dropdown just won't have options
+  } finally {
+    nodeTypesLoading.value = false
   }
 }
 
@@ -62,10 +51,8 @@ async function handleSearch() {
   if (!slugQuery.value.trim()) return
   searching.value = true
   hasSearched.value = true
-  neighborResult.value = null
-  breadcrumbs.value = []
   try {
-    const typeArg = nodeTypeFilter.value || undefined
+    const typeArg = nodeTypeFilter.value && nodeTypeFilter.value !== '__all__' ? nodeTypeFilter.value : undefined
     const result = await findNodesBySlug(slugQuery.value.trim(), typeArg)
     searchResults.value = result.nodes
   } catch (err) {
@@ -76,45 +63,6 @@ async function handleSearch() {
   } finally {
     searching.value = false
   }
-}
-
-async function exploreNeighbors(node: NodeRecord) {
-  neighborsLoading.value = true
-  try {
-    neighborResult.value = await getNodeNeighbors(node.id)
-    // Update breadcrumbs
-    const existingIndex = breadcrumbs.value.findIndex(b => b.nodeId === node.id)
-    if (existingIndex >= 0) {
-      // Navigating back to an already-visited node: truncate trail
-      breadcrumbs.value = breadcrumbs.value.slice(0, existingIndex + 1)
-    } else {
-      breadcrumbs.value.push({
-        nodeId: node.id,
-        label: node.label,
-        displayName: getNodeDisplayName(node),
-      })
-    }
-  } catch (err) {
-    toast.error('Failed to load neighbors', {
-      description: err instanceof Error ? err.message : 'Unknown error',
-    })
-  } finally {
-    neighborsLoading.value = false
-  }
-}
-
-function navigateBreadcrumb(entry: BreadcrumbEntry) {
-  // Re-explore from that node
-  exploreNeighbors({
-    id: entry.nodeId,
-    label: entry.label,
-    properties: {},
-  })
-}
-
-function backToSearch() {
-  neighborResult.value = null
-  breadcrumbs.value = []
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -136,16 +84,12 @@ function formatPropertyValue(value: unknown): string {
   return String(value)
 }
 
-function getEdgeDirection(edge: EdgeRecord, nodeId: string): 'outgoing' | 'incoming' {
-  return edge.start_id === nodeId ? 'outgoing' : 'incoming'
-}
-
-function getNeighborForEdge(edge: EdgeRecord): NodeRecord | undefined {
-  if (!neighborResult.value) return undefined
-  const targetId = edge.start_id === neighborResult.value.central_node.id
-    ? edge.end_id
-    : edge.start_id
-  return neighborResult.value.nodes.find(n => n.id === targetId)
+function togglePropExpansion(key: string) {
+  if (expandedProps.has(key)) {
+    expandedProps.delete(key)
+  } else {
+    expandedProps.add(key)
+  }
 }
 
 onMounted(loadNodeTypes)
@@ -158,7 +102,7 @@ onMounted(loadNodeTypes)
       <Share2 class="size-6 text-muted-foreground" />
       <h1 class="text-2xl font-bold tracking-tight">Graph Explorer</h1>
     </div>
-    <p class="text-muted-foreground">Search for nodes and explore their relationships in the knowledge graph.</p>
+    <p class="text-muted-foreground">Search for nodes in the knowledge graph.</p>
 
     <!-- Search Section -->
     <Card>
@@ -181,10 +125,11 @@ onMounted(loadNodeTypes)
             <Label>Type Filter</Label>
             <Select v-model="nodeTypeFilter">
               <SelectTrigger>
+                <Loader2 v-if="nodeTypesLoading" class="mr-2 size-4 animate-spin" />
                 <SelectValue placeholder="All types" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All types</SelectItem>
+                <SelectItem value="__all__">All types</SelectItem>
                 <SelectItem v-for="nt in availableNodeTypes" :key="nt" :value="nt">
                   {{ nt }}
                 </SelectItem>
@@ -200,159 +145,8 @@ onMounted(loadNodeTypes)
       </CardContent>
     </Card>
 
-    <!-- Breadcrumb Trail -->
-    <div v-if="breadcrumbs.length > 0" class="flex flex-wrap items-center gap-1 text-sm">
-      <button
-        class="text-muted-foreground transition-colors hover:text-foreground"
-        @click="backToSearch"
-      >
-        Search Results
-      </button>
-      <template v-for="(crumb, idx) in breadcrumbs" :key="crumb.nodeId">
-        <ChevronRight class="size-3 text-muted-foreground" />
-        <button
-          class="max-w-[200px] truncate rounded px-1.5 py-0.5 transition-colors hover:bg-accent"
-          :class="{ 'font-medium text-foreground': idx === breadcrumbs.length - 1, 'text-muted-foreground': idx !== breadcrumbs.length - 1 }"
-          @click="navigateBreadcrumb(crumb)"
-        >
-          {{ crumb.displayName }}
-        </button>
-      </template>
-    </div>
-
-    <!-- Neighbor Exploration View -->
-    <template v-if="neighborResult">
-      <!-- Loading overlay -->
-      <div v-if="neighborsLoading" class="flex items-center justify-center gap-2 py-12 text-muted-foreground">
-        <Loader2 class="size-4 animate-spin" />
-        Loading neighbors...
-      </div>
-
-      <template v-else>
-        <!-- Central Node -->
-        <Card class="border-primary">
-          <CardHeader>
-            <div class="flex items-center gap-2">
-              <CircleDot class="size-5 text-primary" />
-              <CardTitle>{{ getNodeDisplayName(neighborResult.central_node) }}</CardTitle>
-              <Badge variant="default">{{ neighborResult.central_node.label }}</Badge>
-            </div>
-            <CardDescription class="font-mono text-xs">
-              {{ neighborResult.central_node.id }}
-            </CardDescription>
-          </CardHeader>
-          <CardContent v-if="getPropertyEntries(neighborResult.central_node.properties).length > 0">
-            <div class="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead class="w-[180px]">Property</TableHead>
-                    <TableHead>Value</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <TableRow v-for="[key, value] in getPropertyEntries(neighborResult.central_node.properties)" :key="key">
-                    <TableCell class="font-mono text-xs font-medium">{{ key }}</TableCell>
-                    <TableCell class="font-mono text-xs">{{ formatPropertyValue(value) }}</TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-
-        <!-- Connections -->
-        <div v-if="neighborResult.edges.length > 0" class="space-y-3">
-          <h2 class="flex items-center gap-2 text-lg font-semibold">
-            <Compass class="size-5" />
-            Connections
-            <Badge variant="secondary">{{ neighborResult.edges.length }}</Badge>
-          </h2>
-
-          <div class="space-y-2">
-            <Card
-              v-for="edge in neighborResult.edges"
-              :key="edge.id"
-              class="transition-colors hover:bg-accent/50"
-            >
-              <CardContent class="py-4">
-                <div class="flex items-start gap-4">
-                  <!-- Direction indicator -->
-                  <div class="mt-1 flex flex-col items-center gap-1">
-                    <ArrowRight
-                      v-if="getEdgeDirection(edge, neighborResult.central_node.id) === 'outgoing'"
-                      class="size-5 text-primary"
-                    />
-                    <ArrowLeft
-                      v-else
-                      class="size-5 text-muted-foreground"
-                    />
-                    <span class="text-[10px] uppercase text-muted-foreground">
-                      {{ getEdgeDirection(edge, neighborResult.central_node.id) === 'outgoing' ? 'out' : 'in' }}
-                    </span>
-                  </div>
-
-                  <!-- Edge + neighbor info -->
-                  <div class="min-w-0 flex-1 space-y-2">
-                    <div class="flex flex-wrap items-center gap-2">
-                      <Badge variant="outline">{{ edge.label }}</Badge>
-                      <span class="text-xs text-muted-foreground">
-                        {{ getEdgeDirection(edge, neighborResult.central_node.id) === 'outgoing' ? '→' : '←' }}
-                      </span>
-                      <template v-if="getNeighborForEdge(edge)">
-                        <Badge variant="default">{{ getNeighborForEdge(edge)!.label }}</Badge>
-                        <span class="truncate font-medium">
-                          {{ getNodeDisplayName(getNeighborForEdge(edge)!) }}
-                        </span>
-                      </template>
-                    </div>
-
-                    <!-- Edge properties (inline) -->
-                    <div v-if="getPropertyEntries(edge.properties).length > 0" class="flex flex-wrap gap-2">
-                      <span
-                        v-for="[key, value] in getPropertyEntries(edge.properties)"
-                        :key="key"
-                        class="rounded bg-muted px-2 py-0.5 font-mono text-xs"
-                      >
-                        {{ key }}: {{ formatPropertyValue(value) }}
-                      </span>
-                    </div>
-                  </div>
-
-                  <!-- Explore button -->
-                  <Button
-                    v-if="getNeighborForEdge(edge)"
-                    variant="ghost"
-                    size="sm"
-                    @click="exploreNeighbors(getNeighborForEdge(edge)!)"
-                  >
-                    Explore
-                    <ChevronRight class="ml-1 size-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-
-        <!-- No connections -->
-        <Card v-else>
-          <CardContent class="flex flex-col items-center gap-2 py-8 text-center text-muted-foreground">
-            <Info class="size-8" />
-            <p class="font-medium">No connections</p>
-            <p class="text-sm">This node has no edges to other nodes.</p>
-          </CardContent>
-        </Card>
-
-        <Button variant="outline" @click="backToSearch">
-          <ArrowLeft class="mr-2 size-4" />
-          Back to Search Results
-        </Button>
-      </template>
-    </template>
-
-    <!-- Search Results (shown when not exploring) -->
-    <template v-else-if="hasSearched">
+    <!-- Search Results -->
+    <template v-if="hasSearched">
       <!-- Loading -->
       <div v-if="searching" class="flex items-center justify-center gap-2 py-12 text-muted-foreground">
         <Loader2 class="size-4 animate-spin" />
@@ -385,25 +179,37 @@ onMounted(loadNodeTypes)
                 <Badge variant="default">{{ node.label }}</Badge>
               </div>
             </CardHeader>
-            <CardContent class="space-y-3">
+            <CardContent>
               <!-- Properties table -->
               <div v-if="getPropertyEntries(node.properties).length > 0" class="rounded-md border">
                 <Table>
                   <TableBody>
                     <TableRow v-for="[key, value] in getPropertyEntries(node.properties)" :key="key">
-                      <TableCell class="w-[120px] font-mono text-xs font-medium text-muted-foreground">{{ key }}</TableCell>
-                      <TableCell class="font-mono text-xs">{{ formatPropertyValue(value) }}</TableCell>
+                      <TableCell class="w-[120px] align-top font-mono text-xs font-medium text-muted-foreground">{{ key }}</TableCell>
+                      <TableCell class="font-mono text-xs">
+                        <template v-if="formatPropertyValue(value).length > 100">
+                          <div
+                            :class="expandedProps.has(`${node.id}:${key}`) ? 'whitespace-pre-wrap break-all' : 'truncate max-w-[300px]'"
+                          >
+                            {{ expandedProps.has(`${node.id}:${key}`) ? formatPropertyValue(value) : formatPropertyValue(value).slice(0, 100) + '...' }}
+                          </div>
+                          <button
+                            class="mt-1 inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                            @click="togglePropExpansion(`${node.id}:${key}`)"
+                          >
+                            <ChevronUp v-if="expandedProps.has(`${node.id}:${key}`)" class="size-3" />
+                            <ChevronDown v-else class="size-3" />
+                            {{ expandedProps.has(`${node.id}:${key}`) ? 'Collapse' : 'Expand' }}
+                          </button>
+                        </template>
+                        <template v-else>
+                          {{ formatPropertyValue(value) }}
+                        </template>
+                      </TableCell>
                     </TableRow>
                   </TableBody>
                 </Table>
               </div>
-
-              <Separator />
-
-              <Button variant="outline" size="sm" class="w-full" @click="exploreNeighbors(node)">
-                <Compass class="mr-2 size-4" />
-                Explore Neighbors
-              </Button>
             </CardContent>
           </Card>
         </div>

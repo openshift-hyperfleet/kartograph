@@ -20,6 +20,7 @@ import {
 import type { WorkspaceResponse } from '~/types'
 
 const { listWorkspaces, createWorkspace, deleteWorkspace } = useIamApi()
+const { extractErrorMessage } = useErrorHandler()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -114,7 +115,7 @@ async function fetchWorkspaces() {
     }
   } catch (err) {
     toast.error('Failed to load workspaces', {
-      description: err instanceof Error ? err.message : 'Unknown error',
+      description: extractErrorMessage(err),
     })
   } finally {
     loading.value = false
@@ -138,15 +139,15 @@ async function handleCreate() {
       parent_workspace_id: createParentId.value,
     })
     toast.success('Workspace created')
-    showCreateDialog.value = false
     createName.value = ''
     createParentId.value = ''
     await fetchWorkspaces()
   } catch (err) {
     toast.error('Failed to create workspace', {
-      description: err instanceof Error ? err.message : 'Unknown error',
+      description: extractErrorMessage(err),
     })
   } finally {
+    showCreateDialog.value = false
     creating.value = false
   }
 }
@@ -162,17 +163,17 @@ async function handleDelete() {
   try {
     await deleteWorkspace(workspaceToDelete.value.id)
     toast.success('Workspace deleted')
-    showDeleteDialog.value = false
     if (selectedWorkspace.value?.id === workspaceToDelete.value.id) {
       selectedWorkspace.value = null
     }
-    workspaceToDelete.value = null
     await fetchWorkspaces()
   } catch (err) {
     toast.error('Failed to delete workspace', {
-      description: err instanceof Error ? err.message : 'Unknown error',
+      description: extractErrorMessage(err),
     })
   } finally {
+    showDeleteDialog.value = false
+    workspaceToDelete.value = null
     deleting.value = false
   }
 }

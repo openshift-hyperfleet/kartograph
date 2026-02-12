@@ -31,6 +31,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
 const { createGroup, getGroup, deleteGroup } = useIamApi()
+const { extractErrorMessage } = useErrorHandler()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -74,12 +75,13 @@ async function handleCreate() {
     const group = await createGroup({ name: createForm.name.trim() })
     groups.value.unshift(group)
     createForm.name = ''
-    createDialogOpen.value = false
     toast.success(`Group "${group.name}" created`)
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Failed to create group'
-    toast.error(message)
+    toast.error('Failed to create group', {
+      description: extractErrorMessage(err),
+    })
   } finally {
+    createDialogOpen.value = false
     isCreating.value = false
   }
 }
@@ -103,8 +105,9 @@ async function handleLookup() {
     lookupId.value = ''
     toast.success(`Found group "${group.name}"`)
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Group not found'
-    toast.error(message)
+    toast.error('Group not found', {
+      description: extractErrorMessage(err),
+    })
   } finally {
     isLookingUp.value = false
   }
@@ -126,12 +129,13 @@ async function handleDelete() {
     groups.value = groups.value.filter((g) => g.id !== groupToDelete.value!.id)
     expandedGroupIds.value.delete(groupToDelete.value.id)
     toast.success(`Group "${name}" deleted`)
+  } catch (err: unknown) {
+    toast.error('Failed to delete group', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
     deleteDialogOpen.value = false
     groupToDelete.value = null
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Failed to delete group'
-    toast.error(message)
-  } finally {
     isDeleting.value = false
   }
 }
@@ -215,8 +219,9 @@ async function refreshGroup(groupId: string) {
             placeholder="Enter Group ID"
             class="max-w-sm font-mono text-sm"
             :disabled="isLookingUp"
+            @keydown.enter="handleLookup"
           />
-          <Button type="submit" variant="secondary" :disabled="isLookingUp || !lookupId.trim()">
+          <Button type="submit" variant="secondary" :disabled="isLookingUp || !lookupId.trim()" @click="handleLookup">
             <Search class="mr-2 size-4" />
             {{ isLookingUp ? 'Searching...' : 'Look Up' }}
           </Button>

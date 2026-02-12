@@ -23,6 +23,7 @@ const {
   listTenants, createTenant, deleteTenant,
   listTenantMembers, addTenantMember, removeTenantMember,
 } = useIamApi()
+const { extractErrorMessage } = useErrorHandler()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -55,7 +56,7 @@ async function fetchTenants() {
     tenants.value = await listTenants()
   } catch (err) {
     toast.error('Failed to load tenants', {
-      description: err instanceof Error ? err.message : 'Unknown error',
+      description: extractErrorMessage(err),
     })
   } finally {
     loading.value = false
@@ -69,7 +70,7 @@ async function fetchMembers(tenant: TenantResponse) {
     members.value = await listTenantMembers(tenant.id)
   } catch (err) {
     toast.error('Failed to load members', {
-      description: err instanceof Error ? err.message : 'Unknown error',
+      description: extractErrorMessage(err),
     })
     members.value = []
   } finally {
@@ -85,14 +86,14 @@ async function handleCreate() {
   try {
     await createTenant({ name: createName.value.trim() })
     toast.success('Tenant created')
-    showCreateDialog.value = false
     createName.value = ''
     await fetchTenants()
   } catch (err) {
     toast.error('Failed to create tenant', {
-      description: err instanceof Error ? err.message : 'Unknown error',
+      description: extractErrorMessage(err),
     })
   } finally {
+    showCreateDialog.value = false
     creating.value = false
   }
 }
@@ -108,8 +109,6 @@ async function handleDelete() {
   try {
     await deleteTenant(tenantToDelete.value.id)
     toast.success('Tenant deleted')
-    showDeleteDialog.value = false
-    tenantToDelete.value = null
     if (selectedTenant.value?.id === tenantToDelete.value?.id) {
       selectedTenant.value = null
       members.value = []
@@ -117,9 +116,11 @@ async function handleDelete() {
     await fetchTenants()
   } catch (err) {
     toast.error('Failed to delete tenant', {
-      description: err instanceof Error ? err.message : 'Unknown error',
+      description: extractErrorMessage(err),
     })
   } finally {
+    showDeleteDialog.value = false
+    tenantToDelete.value = null
     deleting.value = false
   }
 }
@@ -138,7 +139,7 @@ async function handleAddMember() {
     await fetchMembers(selectedTenant.value)
   } catch (err) {
     toast.error('Failed to add member', {
-      description: err instanceof Error ? err.message : 'Unknown error',
+      description: extractErrorMessage(err),
     })
   } finally {
     addingMember.value = false
@@ -153,7 +154,7 @@ async function handleRemoveMember(userId: string) {
     await fetchMembers(selectedTenant.value)
   } catch (err) {
     toast.error('Failed to remove member', {
-      description: err instanceof Error ? err.message : 'Unknown error',
+      description: extractErrorMessage(err),
     })
   }
 }
@@ -164,6 +165,7 @@ function closeMembers() {
 }
 
 onMounted(fetchTenants)
+
 </script>
 
 <template>

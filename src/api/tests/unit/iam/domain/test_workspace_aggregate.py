@@ -6,6 +6,7 @@ then implement the Workspace aggregate to make these tests pass.
 
 import pytest
 from datetime import datetime, UTC
+from unittest.mock import Mock
 
 from iam.domain.aggregates import Workspace
 from iam.domain.events import (
@@ -815,3 +816,133 @@ class TestMemberIdValidation:
 
         with pytest.raises(ValueError, match="member_id cannot be empty"):
             workspace.update_member_role("   ", MemberType.GROUP, WorkspaceRole.EDITOR)
+
+
+class TestWorkspaceProbes:
+    """Tests for workspace domain probe emissions.
+
+    Verifies that workspace member operations emit the correct domain probes
+    following the Domain Oriented Observability pattern.
+    """
+
+    def test_add_member_emits_probe(self):
+        """Verify member_added probe is emitted when adding a member."""
+        probe = Mock()
+        workspace = Workspace.create(
+            name="Test",
+            tenant_id=TenantId.generate(),
+            parent_workspace_id=WorkspaceId.generate(),
+            probe=probe,
+        )
+
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.EDITOR)
+
+        probe.member_added.assert_called_once_with(
+            workspace_id=workspace.id.value,
+            member_id="user-alice",
+            member_type="user",
+            role="editor",
+        )
+
+    def test_add_group_member_emits_probe(self):
+        """Verify member_added probe is emitted for group members."""
+        probe = Mock()
+        workspace = Workspace.create(
+            name="Test",
+            tenant_id=TenantId.generate(),
+            parent_workspace_id=WorkspaceId.generate(),
+            probe=probe,
+        )
+
+        workspace.add_member("group-eng", MemberType.GROUP, WorkspaceRole.ADMIN)
+
+        probe.member_added.assert_called_once_with(
+            workspace_id=workspace.id.value,
+            member_id="group-eng",
+            member_type="group",
+            role="admin",
+        )
+
+    def test_remove_member_emits_probe(self):
+        """Verify member_removed probe is emitted when removing a member."""
+        probe = Mock()
+        workspace = Workspace.create(
+            name="Test",
+            tenant_id=TenantId.generate(),
+            parent_workspace_id=WorkspaceId.generate(),
+            probe=probe,
+        )
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.EDITOR)
+
+        workspace.remove_member("user-alice", MemberType.USER)
+
+        probe.member_removed.assert_called_once_with(
+            workspace_id=workspace.id.value,
+            member_id="user-alice",
+            member_type="user",
+            role="editor",
+        )
+
+    def test_update_member_role_emits_probe(self):
+        """Verify member_role_changed probe is emitted when updating a role."""
+        probe = Mock()
+        workspace = Workspace.create(
+            name="Test",
+            tenant_id=TenantId.generate(),
+            parent_workspace_id=WorkspaceId.generate(),
+            probe=probe,
+        )
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.MEMBER)
+
+        workspace.update_member_role("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+
+        probe.member_role_changed.assert_called_once_with(
+            workspace_id=workspace.id.value,
+            member_id="user-alice",
+            member_type="user",
+            old_role="member",
+            new_role="admin",
+        )
+
+    def test_probe_not_emitted_on_add_member_validation_failure(self):
+        """Verify probe is NOT emitted when add_member validation fails."""
+        probe = Mock()
+        workspace = Workspace.create(
+            name="Test",
+            tenant_id=TenantId.generate(),
+            parent_workspace_id=WorkspaceId.generate(),
+            probe=probe,
+        )
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.MEMBER)
+        probe.reset_mock()
+
+        # Try to add duplicate - should fail
+        with pytest.raises(ValueError, match="already a member"):
+            workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+
+        probe.member_added.assert_not_called()
+
+    def test_create_root_accepts_probe(self):
+        """Verify create_root factory accepts a probe parameter."""
+        probe = Mock()
+        workspace = Workspace.create_root(
+            name="Root",
+            tenant_id=TenantId.generate(),
+            probe=probe,
+        )
+
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+
+        probe.member_added.assert_called_once()
+
+    def test_default_probe_used_when_none_provided(self):
+        """Verify DefaultWorkspaceProbe is used when no probe is provided."""
+        from iam.domain.observability.workspace_probe import DefaultWorkspaceProbe
+
+        workspace = Workspace.create(
+            name="Test",
+            tenant_id=TenantId.generate(),
+            parent_workspace_id=WorkspaceId.generate(),
+        )
+
+        assert isinstance(workspace._probe, DefaultWorkspaceProbe)

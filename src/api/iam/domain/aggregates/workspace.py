@@ -14,6 +14,10 @@ from iam.domain.events import (
     WorkspaceMemberRoleChanged,
 )
 from iam.domain.events.workspace_member import WorkspaceMemberSnapshot
+from iam.domain.observability.workspace_probe import (
+    DefaultWorkspaceProbe,
+    WorkspaceProbe,
+)
 from iam.domain.value_objects import (
     MemberType,
     TenantId,
@@ -55,6 +59,10 @@ class Workspace:
     updated_at: datetime
     members: list[WorkspaceMember] = field(default_factory=list)
     _pending_events: list[DomainEvent] = field(default_factory=list, repr=False)
+    _probe: WorkspaceProbe = field(
+        default_factory=DefaultWorkspaceProbe,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         """Validate business rules after initialization."""
@@ -80,6 +88,7 @@ class Workspace:
         name: str,
         tenant_id: TenantId,
         parent_workspace_id: WorkspaceId,
+        probe: WorkspaceProbe | None = None,
     ) -> "Workspace":
         """Factory method for creating a new child workspace.
 
@@ -93,6 +102,7 @@ class Workspace:
             name: The name of the workspace (1-512 characters)
             tenant_id: The tenant this workspace belongs to
             parent_workspace_id: The parent workspace in the hierarchy (required)
+            probe: Optional observability probe for domain events
 
         Returns:
             A new Workspace aggregate with WorkspaceCreated event recorded
@@ -109,6 +119,7 @@ class Workspace:
             is_root=False,
             created_at=now,
             updated_at=now,
+            _probe=probe or DefaultWorkspaceProbe(),
         )
         workspace._pending_events.append(
             WorkspaceCreated(
@@ -127,6 +138,7 @@ class Workspace:
         cls,
         name: str,
         tenant_id: TenantId,
+        probe: WorkspaceProbe | None = None,
     ) -> "Workspace":
         """Factory method for creating a root workspace.
 
@@ -136,6 +148,7 @@ class Workspace:
         Args:
             name: The name of the workspace (1-512 characters)
             tenant_id: The tenant this workspace belongs to
+            probe: Optional observability probe for domain events
 
         Returns:
             A new root Workspace aggregate with WorkspaceCreated event recorded
@@ -152,6 +165,7 @@ class Workspace:
             is_root=True,
             created_at=now,
             updated_at=now,
+            _probe=probe or DefaultWorkspaceProbe(),
         )
         workspace._pending_events.append(
             WorkspaceCreated(
@@ -183,7 +197,6 @@ class Workspace:
         """
         if not member_id or not member_id.strip():
             raise ValueError("member_id cannot be empty")
-        # TODO: Add domain probe for member addition (Domain Oriented Observability pattern)
         if self.has_member(member_id, member_type):
             raise ValueError(
                 f"{member_type.value} {member_id} is already a member of this workspace"
@@ -205,6 +218,12 @@ class Workspace:
                 occurred_at=datetime.now(UTC),
             )
         )
+        self._probe.member_added(
+            workspace_id=self.id.value,
+            member_id=member_id,
+            member_type=member_type.value,
+            role=role.value,
+        )
 
     def remove_member(
         self,
@@ -222,7 +241,6 @@ class Workspace:
         """
         if not member_id or not member_id.strip():
             raise ValueError("member_id cannot be empty")
-        # TODO: Add domain probe for member removal (Domain Oriented Observability pattern)
         if not self.has_member(member_id, member_type):
             raise ValueError(
                 f"{member_type.value} {member_id} is not a member of this workspace"
@@ -251,6 +269,12 @@ class Workspace:
                 occurred_at=datetime.now(UTC),
             )
         )
+        self._probe.member_removed(
+            workspace_id=self.id.value,
+            member_id=member_id,
+            member_type=member_type.value,
+            role=member_role.value,
+        )
 
     def update_member_role(
         self,
@@ -270,7 +294,6 @@ class Workspace:
         """
         if not member_id or not member_id.strip():
             raise ValueError("member_id cannot be empty")
-        # TODO: Add domain probe for member role update (Domain Oriented Observability pattern)
         if not self.has_member(member_id, member_type):
             raise ValueError(
                 f"{member_type.value} {member_id} is not a member of this workspace"
@@ -304,6 +327,13 @@ class Workspace:
                 new_role=new_role.value,
                 occurred_at=datetime.now(UTC),
             )
+        )
+        self._probe.member_role_changed(
+            workspace_id=self.id.value,
+            member_id=member_id,
+            member_type=member_type.value,
+            old_role=old_role.value,
+            new_role=new_role.value,
         )
 
     def has_member(self, member_id: str, member_type: MemberType) -> bool:

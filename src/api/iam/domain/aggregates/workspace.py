@@ -248,10 +248,11 @@ class Workspace:
 
         # Get role for event (need to know which relation to delete in SpiceDB)
         member_role = self.get_member_role(member_id, member_type)
-        assert member_role is not None, (
-            f"Invariant violated: member exists but role is None "
-            f"(member_id={member_id}, member_type={member_type})"
-        )
+        if member_role is None:
+            raise RuntimeError(
+                f"Invariant violated: member exists but role is None "
+                f"(member_id={member_id}, member_type={member_type})"
+            )
 
         # Remove from list
         self.members = [
@@ -300,10 +301,11 @@ class Workspace:
             )
 
         old_role = self.get_member_role(member_id, member_type)
-        assert old_role is not None, (
-            f"Invariant violated: member exists but role is None "
-            f"(member_id={member_id}, member_type={member_type})"
-        )
+        if old_role is None:
+            raise RuntimeError(
+                f"Invariant violated: member exists but role is None "
+                f"(member_id={member_id}, member_type={member_type})"
+            )
 
         if old_role == new_role:
             raise ValueError(f"Member already has role {new_role.value}")

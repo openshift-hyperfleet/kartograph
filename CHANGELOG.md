@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.15.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.14.0...v3.15.0) (2026-02-12)
+
+
+### Features
+
+* **api.iam:** aihcm 153 workspace member events ([#220](https://github.com/openshift-hyperfleet/kartograph/issues/220)) ([68a348c](https://github.com/openshift-hyperfleet/kartograph/commit/68a348c72c5b09f678407eb5245b1191052e8ab9))
+
 ## [3.14.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.13.1...v3.14.0) (2026-02-12)
 
 

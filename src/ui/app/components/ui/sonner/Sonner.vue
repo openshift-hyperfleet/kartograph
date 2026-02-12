@@ -9,15 +9,15 @@ const props = defineProps<ToasterProps>()
 
 <template>
   <Sonner
+    v-bind="props"
     :class="cn('toaster group', props.class)"
-    rich-colors
+    :rich-colors="props.richColors ?? true"
     :style="{
       '--normal-bg': 'var(--popover)',
       '--normal-text': 'var(--popover-foreground)',
       '--normal-border': 'var(--border)',
       '--border-radius': 'var(--radius)',
     }"
-    v-bind="props"
   >
     <template #success-icon>
       <CircleCheckIcon class="size-4" />

@@ -218,19 +218,23 @@ function useTemplate(template: QueryTemplate) {
                 <!-- Label select -->
                 <Select
                   v-if="param.type === 'label-select'"
-                  :model-value="getParamValue(template.id, param.key, param.default)"
+                  :key="`${template.id}-${param.key}-${props.nodeLabels.length}`"
+                  :model-value="getParamValue(template.id, param.key, param.default) || undefined"
                   @update:model-value="(v: string) => setParamValue(template.id, param.key, v)"
                 >
                   <SelectTrigger class="h-7 text-xs">
                     <SelectValue placeholder="Select label..." />
                   </SelectTrigger>
                   <SelectContent>
+                    <div v-if="props.nodeLabels.length === 0" class="px-2 py-1.5 text-xs text-muted-foreground">
+                      Loading labels...
+                    </div>
                     <SelectItem
-                      v-for="label in nodeLabels"
-                      :key="label"
-                      :value="label"
+                      v-for="lbl in props.nodeLabels"
+                      :key="lbl"
+                      :value="lbl"
                     >
-                      {{ label }}
+                      {{ lbl }}
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -238,19 +242,23 @@ function useTemplate(template: QueryTemplate) {
                 <!-- Edge select -->
                 <Select
                   v-else-if="param.type === 'edge-select'"
-                  :model-value="getParamValue(template.id, param.key, param.default)"
+                  :key="`${template.id}-${param.key}-${props.edgeLabels.length}`"
+                  :model-value="getParamValue(template.id, param.key, param.default) || undefined"
                   @update:model-value="(v: string) => setParamValue(template.id, param.key, v)"
                 >
                   <SelectTrigger class="h-7 text-xs">
                     <SelectValue placeholder="Select edge type..." />
                   </SelectTrigger>
                   <SelectContent>
+                    <div v-if="props.edgeLabels.length === 0" class="px-2 py-1.5 text-xs text-muted-foreground">
+                      Loading edge types...
+                    </div>
                     <SelectItem
-                      v-for="label in edgeLabels"
-                      :key="label"
-                      :value="label"
+                      v-for="lbl in props.edgeLabels"
+                      :key="lbl"
+                      :value="lbl"
                     >
-                      {{ label }}
+                      {{ lbl }}
                     </SelectItem>
                   </SelectContent>
                 </Select>

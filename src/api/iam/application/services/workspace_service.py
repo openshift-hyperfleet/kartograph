@@ -13,7 +13,13 @@ from iam.application.observability import (
     WorkspaceServiceProbe,
 )
 from iam.domain.aggregates import Workspace
-from iam.domain.value_objects import TenantId, UserId, WorkspaceId
+from iam.domain.value_objects import (
+    MemberType,
+    TenantId,
+    UserId,
+    WorkspaceId,
+    WorkspaceRole,
+)
 from infrastructure.settings import get_iam_settings
 from iam.ports.exceptions import (
     CannotDeleteRootWorkspaceError,
@@ -23,6 +29,12 @@ from iam.ports.exceptions import (
 )
 from iam.ports.repositories import IWorkspaceRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
+from shared_kernel.authorization.types import (
+    Permission,
+    ResourceType,
+    format_resource,
+    format_subject,
+)
 
 
 class WorkspaceService:
@@ -55,6 +67,31 @@ class WorkspaceService:
         self._scope_to_tenant = scope_to_tenant
         self._probe = probe or DefaultWorkspaceServiceProbe()
 
+    async def _check_workspace_permission(
+        self,
+        user_id: UserId,
+        workspace_id: WorkspaceId,
+        permission: Permission,
+    ) -> bool:
+        """Check if user has permission on workspace.
+
+        Args:
+            user_id: The user to check
+            workspace_id: The workspace resource
+            permission: The permission to check (VIEW, EDIT, MANAGE)
+
+        Returns:
+            True if user has permission, False otherwise
+        """
+        resource = format_resource(ResourceType.WORKSPACE, workspace_id.value)
+        subject = format_subject(ResourceType.USER, user_id.value)
+
+        return await self._authz.check_permission(
+            resource=resource,
+            permission=permission.value,
+            subject=subject,
+        )
+
     async def create_workspace(
         self,
         name: str,
@@ -64,6 +101,7 @@ class WorkspaceService:
         """Create a child workspace.
 
         Business rules:
+        - User must have MANAGE permission on parent workspace
         - Name must be unique within tenant
         - Parent workspace must exist and belong to tenant
         - Service is scoped to tenant boundary
@@ -71,16 +109,30 @@ class WorkspaceService:
         Args:
             name: Workspace name (1-512 characters)
             parent_workspace_id: Parent workspace ID (must exist in scoped tenant)
-            creator_id: User creating the workspace (for event attribution)
+            creator_id: User creating the workspace (for permission check and event attribution)
 
         Returns:
             The created Workspace aggregate
 
         Raises:
+            PermissionError: If user lacks MANAGE permission on parent
             DuplicateWorkspaceNameError: If workspace name already exists in tenant
             ValueError: If parent workspace doesn't exist or belongs to different tenant
             Exception: If workspace creation fails
         """
+        # Check user has MANAGE permission on parent (before transaction)
+        has_manage = await self._check_workspace_permission(
+            user_id=creator_id,
+            workspace_id=parent_workspace_id,
+            permission=Permission.MANAGE,
+        )
+
+        if not has_manage:
+            raise PermissionError(
+                f"User {creator_id.value} lacks manage permission on parent workspace "
+                f"{parent_workspace_id.value}"
+            )
+
         try:
             async with self._session.begin():
                 # Check name uniqueness within tenant
@@ -152,6 +204,8 @@ class WorkspaceService:
             )
             raise
         except ValueError:
+            raise
+        except PermissionError:
             raise
         except Exception as e:
             self._probe.workspace_creation_failed(
@@ -261,16 +315,16 @@ class WorkspaceService:
     async def get_workspace(
         self,
         workspace_id: WorkspaceId,
+        user_id: UserId,
     ) -> Workspace | None:
-        """Get workspace by ID with tenant scoping check.
+        """Get workspace by ID with tenant scoping and VIEW permission check.
 
-        Returns None if workspace doesn't exist or belongs to different tenant.
-        Tenant scoping prevents cross-tenant access.
-
-        TODO (Phase 3): Add user-level VIEW permission check via SpiceDB.
+        Returns None if workspace doesn't exist, belongs to different tenant,
+        or user lacks VIEW permission.
 
         Args:
             workspace_id: The workspace ID to retrieve
+            user_id: The user requesting access (for permission check)
 
         Returns:
             The Workspace aggregate, or None if not found or not accessible
@@ -286,6 +340,22 @@ class WorkspaceService:
             # Don't leak existence of workspaces in other tenants
             return None
 
+        # Check user has VIEW permission
+        has_view = await self._check_workspace_permission(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            permission=Permission.VIEW,
+        )
+
+        if not has_view:
+            # User lacks VIEW permission - act as if not found
+            self._probe.workspace_access_denied(
+                workspace_id=workspace_id.value,
+                user_id=user_id.value,
+                permission="view",
+            )
+            return None
+
         # Probe success
         self._probe.workspace_retrieved(
             workspace_id=workspace.id.value,
@@ -295,52 +365,91 @@ class WorkspaceService:
 
         return workspace
 
-    async def list_workspaces(self) -> list[Workspace]:
-        """List all workspaces in the scoped tenant.
+    async def list_workspaces(
+        self,
+        user_id: UserId,
+    ) -> list[Workspace]:
+        """List workspaces the user has VIEW permission on.
 
-        Returns all workspaces within scope_to_tenant.
-        No user-level permission filtering in Phase 1 - that's added in Phase 3.
+        Filters workspaces in scoped tenant to only those where user has
+        VIEW permission via SpiceDB lookup_resources.
 
-        TODO (Phase 3): Add SpiceDB permission filtering to only return
-        workspaces the user has VIEW permission on.
+        Args:
+            user_id: The user requesting the list (for permission filtering)
 
         Returns:
-            List of Workspace aggregates in the scoped tenant
+            List of Workspace aggregates user can view
         """
-        workspaces = await self._workspace_repository.list_by_tenant(
+        # Get all workspaces in tenant from database
+        all_workspaces = await self._workspace_repository.list_by_tenant(
             tenant_id=self._scope_to_tenant
         )
+
+        # Use SpiceDB lookup_resources to filter by VIEW permission
+        subject = format_subject(ResourceType.USER, user_id.value)
+
+        accessible_ids = await self._authz.lookup_resources(
+            resource_type=ResourceType.WORKSPACE,
+            permission=Permission.VIEW,
+            subject=subject,
+        )
+
+        # Convert to set for O(1) lookup
+        accessible_set = set(accessible_ids)
+
+        # Filter workspaces to only accessible ones
+        accessible_workspaces = [
+            w for w in all_workspaces if w.id.value in accessible_set
+        ]
 
         # Probe success
         self._probe.workspaces_listed(
             tenant_id=self._scope_to_tenant.value,
-            count=len(workspaces),
+            count=len(accessible_workspaces),
+            user_id=user_id.value,
         )
 
-        return workspaces
+        return accessible_workspaces
 
     async def delete_workspace(
         self,
         workspace_id: WorkspaceId,
+        user_id: UserId,
     ) -> bool:
         """Delete a workspace.
 
         Business rules:
+        - User must have MANAGE permission on workspace
         - Cannot delete root workspace
-        - Cannot delete workspace with children (caught via DB IntegrityError)
+        - Cannot delete workspace with children
         - Workspace must belong to scoped tenant
 
         Args:
             workspace_id: The workspace ID to delete
+            user_id: The user attempting deletion (for permission check)
 
         Returns:
             True if deleted, False if not found
 
         Raises:
+            PermissionError: If user lacks MANAGE permission
             CannotDeleteRootWorkspaceError: If attempting to delete root workspace
             WorkspaceHasChildrenError: If workspace has children
             UnauthorizedError: If workspace belongs to different tenant
         """
+        # Check user has MANAGE permission (before transaction)
+        has_manage = await self._check_workspace_permission(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            permission=Permission.MANAGE,
+        )
+
+        if not has_manage:
+            raise PermissionError(
+                f"User {user_id.value} lacks manage permission on workspace "
+                f"{workspace_id.value}"
+            )
+
         async with self._session.begin():
             # Load workspace from repository
             workspace = await self._workspace_repository.get_by_id(workspace_id)
@@ -385,3 +494,194 @@ class WorkspaceService:
                 )
 
             return result
+
+    async def add_member(
+        self,
+        workspace_id: WorkspaceId,
+        acting_user_id: UserId,
+        member_id: str,
+        member_type: MemberType,
+        role: WorkspaceRole,
+    ) -> Workspace:
+        """Add a member to a workspace.
+
+        Args:
+            workspace_id: The workspace to add member to
+            acting_user_id: User performing the action (must have MANAGE permission)
+            member_id: ID of user or group to add
+            member_type: Whether adding a USER or GROUP
+            role: The role to assign (ADMIN, EDITOR, MEMBER)
+
+        Returns:
+            Updated Workspace aggregate
+
+        Raises:
+            PermissionError: If acting user lacks MANAGE permission
+            ValueError: If member already exists or workspace not found
+            UnauthorizedError: If workspace belongs to different tenant
+        """
+        # Check acting user has MANAGE permission
+        has_manage = await self._check_workspace_permission(
+            user_id=acting_user_id,
+            workspace_id=workspace_id,
+            permission=Permission.MANAGE,
+        )
+
+        if not has_manage:
+            raise PermissionError(
+                f"User {acting_user_id.value} lacks manage permission on workspace "
+                f"{workspace_id.value}"
+            )
+
+        async with self._session.begin():
+            # Load workspace
+            workspace = await self._workspace_repository.get_by_id(workspace_id)
+            if workspace is None:
+                raise ValueError(f"Workspace {workspace_id.value} not found")
+
+            # Verify tenant ownership
+            if workspace.tenant_id != self._scope_to_tenant:
+                raise UnauthorizedError("Workspace belongs to different tenant")
+
+            # Add member (aggregate handles validation and events)
+            workspace.add_member(member_id, member_type, role)
+
+            # Save (persists events to outbox)
+            await self._workspace_repository.save(workspace)
+
+        # Emit probe
+        self._probe.workspace_member_added(
+            workspace_id=workspace_id.value,
+            member_id=member_id,
+            member_type=member_type.value,
+            role=role.value,
+            acting_user_id=acting_user_id.value,
+        )
+
+        return workspace
+
+    async def remove_member(
+        self,
+        workspace_id: WorkspaceId,
+        acting_user_id: UserId,
+        member_id: str,
+        member_type: MemberType,
+    ) -> Workspace:
+        """Remove a member from a workspace.
+
+        Args:
+            workspace_id: The workspace to remove member from
+            acting_user_id: User performing the action (must have MANAGE permission)
+            member_id: ID of user or group to remove
+            member_type: Whether removing a USER or GROUP
+
+        Returns:
+            Updated Workspace aggregate
+
+        Raises:
+            PermissionError: If acting user lacks MANAGE permission
+            ValueError: If member doesn't exist or workspace not found
+            UnauthorizedError: If workspace belongs to different tenant
+        """
+        # Check acting user has MANAGE permission
+        has_manage = await self._check_workspace_permission(
+            user_id=acting_user_id,
+            workspace_id=workspace_id,
+            permission=Permission.MANAGE,
+        )
+
+        if not has_manage:
+            raise PermissionError(
+                f"User {acting_user_id.value} lacks manage permission on workspace "
+                f"{workspace_id.value}"
+            )
+
+        async with self._session.begin():
+            # Load workspace
+            workspace = await self._workspace_repository.get_by_id(workspace_id)
+            if workspace is None:
+                raise ValueError(f"Workspace {workspace_id.value} not found")
+
+            # Verify tenant ownership
+            if workspace.tenant_id != self._scope_to_tenant:
+                raise UnauthorizedError("Workspace belongs to different tenant")
+
+            # Remove member (aggregate handles validation and events)
+            workspace.remove_member(member_id, member_type)
+
+            # Save (persists events to outbox)
+            await self._workspace_repository.save(workspace)
+
+        # Emit probe
+        self._probe.workspace_member_removed(
+            workspace_id=workspace_id.value,
+            member_id=member_id,
+            member_type=member_type.value,
+            acting_user_id=acting_user_id.value,
+        )
+
+        return workspace
+
+    async def list_members(
+        self,
+        workspace_id: WorkspaceId,
+        user_id: UserId,
+    ) -> list[tuple[str, str, str]]:
+        """List members of a workspace.
+
+        Returns list of (member_id, member_type, role) tuples from SpiceDB.
+        User must have VIEW permission on workspace.
+
+        Args:
+            workspace_id: The workspace to list members for
+            user_id: User requesting the list (must have VIEW permission)
+
+        Returns:
+            List of (member_id, member_type, role) tuples
+
+        Raises:
+            PermissionError: If user lacks VIEW permission
+        """
+        # Check user has VIEW permission
+        has_view = await self._check_workspace_permission(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            permission=Permission.VIEW,
+        )
+
+        if not has_view:
+            raise PermissionError(
+                f"User {user_id.value} lacks view permission on workspace "
+                f"{workspace_id.value}"
+            )
+
+        # Query SpiceDB for all members across all three roles
+        resource = format_resource(ResourceType.WORKSPACE, workspace_id.value)
+        members: list[tuple[str, str, str]] = []
+
+        for role in WorkspaceRole:
+            # Query users
+            user_subjects = await self._authz.lookup_subjects(
+                resource=resource,
+                relation=role.value,
+                subject_type=ResourceType.USER,
+            )
+
+            for subject_relation in user_subjects:
+                members.append(
+                    (subject_relation.subject_id, MemberType.USER.value, role.value)
+                )
+
+            # Query groups
+            group_subjects = await self._authz.lookup_subjects(
+                resource=resource,
+                relation=role.value,
+                subject_type=ResourceType.GROUP,
+            )
+
+            for subject_relation in group_subjects:
+                members.append(
+                    (subject_relation.subject_id, MemberType.GROUP.value, role.value)
+                )
+
+        return members

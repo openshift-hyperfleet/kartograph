@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from iam.domain.aggregates import Workspace
+from iam.domain.value_objects import MemberType, WorkspaceRole
 
 
 class CreateWorkspaceRequest(BaseModel):
@@ -93,3 +95,97 @@ class WorkspaceListResponse(BaseModel):
         ..., description="List of workspace details"
     )
     count: int = Field(..., description="Number of workspaces returned")
+
+
+class MemberTypeEnum(StrEnum):
+    """API-level enum for member types.
+
+    Maps to domain MemberType values for validation.
+    """
+
+    USER = "user"
+    GROUP = "group"
+
+
+class WorkspaceRoleEnum(StrEnum):
+    """API-level enum for workspace roles.
+
+    Maps to domain WorkspaceRole values for validation.
+    """
+
+    ADMIN = "admin"
+    EDITOR = "editor"
+    MEMBER = "member"
+
+
+class AddWorkspaceMemberRequest(BaseModel):
+    """Request model for adding a member to a workspace.
+
+    Attributes:
+        member_id: User ID or Group ID to add
+        member_type: Type of member (user or group)
+        role: Role to assign (admin, editor, or member)
+    """
+
+    member_id: str = Field(
+        ...,
+        description="User ID or Group ID to add as member",
+        min_length=1,
+        examples=["01HN3XQ7K2XYZ123456789ABCD", "engineering-group"],
+    )
+    member_type: MemberTypeEnum = Field(
+        ...,
+        description="Type of member being added",
+        examples=["user", "group"],
+    )
+    role: WorkspaceRoleEnum = Field(
+        ...,
+        description="Role to assign to the member",
+        examples=["admin", "editor", "member"],
+    )
+
+    def to_domain_member_type(self) -> MemberType:
+        """Convert API member_type to domain MemberType.
+
+        Returns:
+            MemberType domain value object
+        """
+        return MemberType(self.member_type.value)
+
+    def to_domain_role(self) -> WorkspaceRole:
+        """Convert API role to domain WorkspaceRole.
+
+        Returns:
+            WorkspaceRole domain value object
+        """
+        return WorkspaceRole(self.role.value)
+
+
+class WorkspaceMemberResponse(BaseModel):
+    """Response model for a workspace member.
+
+    Attributes:
+        member_id: User ID or Group ID
+        member_type: Type of member (user or group)
+        role: Member's role in the workspace
+    """
+
+    member_id: str = Field(..., description="User ID or Group ID")
+    member_type: str = Field(..., description="Type of member (user or group)")
+    role: str = Field(..., description="Member's role in the workspace")
+
+    @classmethod
+    def from_tuple(cls, member: tuple[str, str, str]) -> WorkspaceMemberResponse:
+        """Create from (member_id, member_type, role) tuple.
+
+        Args:
+            member: Tuple of (member_id, member_type, role) from service
+
+        Returns:
+            WorkspaceMemberResponse
+        """
+        return cls(
+            member_id=member[0],
+            member_type=member[1],
+            role=member[2],
+        )

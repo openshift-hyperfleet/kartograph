@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { toast } from 'vue-sonner'
+import { keymap } from '@codemirror/view'
+import type { Extension } from '@codemirror/state'
 import {
   Terminal, Play, Trash2, Loader2, Clock, Hash,
   ChevronRight, ChevronDown, Database, GitBranch,
-  Clipboard, X, Search, Info,
+  Clipboard, Search,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -25,6 +27,19 @@ import {
   Tooltip, TooltipContent, TooltipTrigger,
 } from '@/components/ui/tooltip'
 import type { CypherResult } from '~/types'
+
+// CodeMirror
+import { useCodemirror } from '@/composables/useCodemirror'
+import { kartographTheme, kartographHighlightStyle } from '@/lib/codemirror/theme'
+import { cypher } from '@/lib/codemirror/lang-cypher'
+import { cypherAutocomplete } from '@/lib/codemirror/lang-cypher/autocomplete'
+import { ageCypherLinter } from '@/lib/codemirror/lang-cypher/age-linter'
+import { cypherTooltips } from '@/lib/codemirror/lang-cypher/tooltips'
+import { applyServerError, clearServerErrors } from '@/lib/codemirror/error-parser'
+
+// Components
+import QueryTemplates from '@/components/query/QueryTemplates.vue'
+import CypherCheatSheet from '@/components/query/CypherCheatSheet.vue'
 
 // ── API ────────────────────────────────────────────────────────────────────
 
@@ -91,17 +106,37 @@ interface HistoryEntry {
 const history = ref<HistoryEntry[]>([])
 const historyOpen = ref(true)
 
-// Textarea ref
-const textareaRef = ref<HTMLTextAreaElement | null>()
+// ── CodeMirror Setup ───────────────────────────────────────────────────────
 
-// ── Example queries ────────────────────────────────────────────────────────
+const editorContainer = ref<HTMLElement | null>(null)
 
-const exampleQueries = [
-  { label: 'All Nodes', cypher: 'MATCH (n) RETURN n LIMIT 25' },
-  { label: 'Node Counts', cypher: 'MATCH (n) RETURN {label: labels(n), count: count(*)}' },
-  { label: 'All Relationships', cypher: 'MATCH (n)-[r]->(m) RETURN {source: n, rel: type(r), target: m} LIMIT 25' },
-  { label: 'Nodes with Slugs', cypher: 'MATCH (n) WHERE n.slug IS NOT NULL RETURN {slug: n.slug, labels: labels(n)} LIMIT 50' },
-]
+const cmExtensions = computed<Extension[]>(() => [
+  kartographTheme,
+  kartographHighlightStyle,
+  cypher(),
+  cypherAutocomplete({
+    labels: nodeLabels.value,
+    relationshipTypes: edgeLabels.value,
+  }),
+  ageCypherLinter(),
+  cypherTooltips(),
+  keymap.of([
+    {
+      key: 'Ctrl-Enter',
+      mac: 'Cmd-Enter',
+      run: () => {
+        executeQuery()
+        return true
+      },
+    },
+  ]),
+])
+
+const { view: editorView, focus: focusEditor } = useCodemirror(
+  editorContainer,
+  query,
+  cmExtensions,
+)
 
 // ── Computed ────────────────────────────────────────────────────────────────
 
@@ -121,6 +156,11 @@ async function executeQuery() {
   result.value = null
   executionTime.value = null
 
+  // Clear any previous server error markers
+  if (editorView.value) {
+    clearServerErrors(editorView.value)
+  }
+
   const start = performance.now()
 
   try {
@@ -139,12 +179,14 @@ async function executeQuery() {
     })
   } catch (err) {
     executionTime.value = Math.round(performance.now() - start)
-    let message = extractErrorMessage(err)
-    // Detect the common multi-column error and add a helpful hint
-    if (message.includes('column definition list') || message.includes('return row and column')) {
-      message += '\n\nHint: Apache AGE requires a single RETURN column. Wrap multiple values in a map: RETURN {a: val1, b: val2}'
-    }
+    const message = extractErrorMessage(err)
     error.value = message
+
+    // Apply inline error markers in the editor
+    if (editorView.value) {
+      applyServerError(editorView.value, message)
+    }
+
     addToHistory(cypher, null)
     toast.error('Query failed', { description: message })
   } finally {
@@ -157,31 +199,33 @@ function clearEditor() {
   result.value = null
   error.value = null
   executionTime.value = null
-  nextTick(() => textareaRef.value?.focus())
+  if (editorView.value) {
+    clearServerErrors(editorView.value)
+  }
+  nextTick(focusEditor)
 }
 
 function setQuery(cypher: string) {
   query.value = cypher
-  nextTick(() => textareaRef.value?.focus())
+  if (editorView.value) {
+    clearServerErrors(editorView.value)
+  }
+  nextTick(focusEditor)
 }
 
 function insertAtCursor(text: string) {
-  const el = textareaRef.value
-  if (!el) {
+  const view = editorView.value
+  if (!view) {
     query.value += text
     return
   }
 
-  const start = el.selectionStart
-  const end = el.selectionEnd
-  const before = query.value.slice(0, start)
-  const after = query.value.slice(end)
-  query.value = before + text + after
-
-  nextTick(() => {
-    el.selectionStart = el.selectionEnd = start + text.length
-    el.focus()
+  const { from, to } = view.state.selection.main
+  view.dispatch({
+    changes: { from, to, insert: text },
+    selection: { anchor: from + text.length },
   })
+  view.focus()
 }
 
 function formatCellValue(value: unknown): string {
@@ -217,7 +261,6 @@ function saveHistory() {
 }
 
 function addToHistory(cypher: string, rowCount: number | null) {
-  // Remove duplicate if exists
   history.value = history.value.filter(h => h.query !== cypher)
   history.value.unshift({ query: cypher, timestamp: Date.now(), rowCount })
   if (history.value.length > MAX_HISTORY) {
@@ -255,23 +298,9 @@ async function fetchSchema() {
   }
 }
 
-// ── Keyboard shortcut ──────────────────────────────────────────────────────
-
-function handleKeydown(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-    e.preventDefault()
-    executeQuery()
-  }
-}
-
 onMounted(() => {
   loadHistory()
   fetchSchema()
-  window.addEventListener('keydown', handleKeydown)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeydown)
 })
 </script>
 
@@ -285,7 +314,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Main layout: Editor + Results on left, Schema on right -->
+    <!-- Main layout: Editor + Results on left, Sidebar on right -->
     <div class="flex min-h-0 flex-1 gap-4">
       <!-- Left: Editor + Results -->
       <div class="flex min-w-0 flex-1 flex-col gap-4">
@@ -294,51 +323,20 @@ onUnmounted(() => {
           <CardHeader class="pb-3">
             <div class="flex items-center justify-between">
               <CardTitle class="text-sm font-medium">Query Editor</CardTitle>
-              <div class="flex items-center gap-2">
-                <!-- Example queries -->
-                <div class="flex items-center gap-1.5">
-                  <span class="text-xs text-muted-foreground">Examples:</span>
-                  <div class="flex flex-wrap gap-1">
-                    <Button
-                      v-for="example in exampleQueries"
-                      :key="example.label"
-                      variant="outline"
-                      size="sm"
-                      class="h-6 px-2 text-xs"
-                      @click="setQuery(example.cypher)"
-                    >
-                      {{ example.label }}
-                    </Button>
-                  </div>
-                </div>
+              <div class="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <kbd class="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">Ctrl</kbd>
+                <span>+</span>
+                <kbd class="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">Enter</kbd>
+                <span class="ml-1">to execute</span>
               </div>
             </div>
           </CardHeader>
           <CardContent class="space-y-3">
-            <!-- Textarea editor -->
-            <div class="relative">
-              <textarea
-                ref="textareaRef"
-                v-model="query"
-                class="min-h-[120px] w-full resize-y rounded-md border border-input bg-muted px-4 py-3 font-mono text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                placeholder="Enter your Cypher query here..."
-                aria-label="Cypher query editor"
-                spellcheck="false"
-                autocomplete="off"
-                autocorrect="off"
-                autocapitalize="off"
-              />
-            </div>
-
-            <!-- Single-column requirement hint -->
-            <Alert variant="info" class="text-xs">
-              <Info class="size-3.5" />
-              <AlertDescription>
-                <span class="font-medium">Apache AGE requires a single RETURN column.</span>
-                Use map syntax for multiple values:
-                <code class="rounded bg-blue-100 px-1 py-0.5 dark:bg-blue-900/40">RETURN {name: n.name, label: labels(n)}</code>
-              </AlertDescription>
-            </Alert>
+            <!-- CodeMirror editor -->
+            <div
+              ref="editorContainer"
+              class="overflow-hidden rounded-md border border-input [&_.cm-editor]:min-h-[120px] [&_.cm-editor]:max-h-[300px] [&_.cm-editor]:overflow-auto [&_.cm-editor.cm-focused]:ring-1 [&_.cm-editor.cm-focused]:ring-ring"
+            />
 
             <!-- Controls bar -->
             <div class="flex items-center justify-between">
@@ -552,8 +550,18 @@ onUnmounted(() => {
         </Card>
       </div>
 
-      <!-- Right sidebar: Schema + History -->
-      <div class="hidden w-64 flex-shrink-0 flex-col gap-4 xl:flex">
+      <!-- Right sidebar: Templates + Cheat Sheet + Schema + History -->
+      <div class="hidden w-72 flex-shrink-0 flex-col gap-4 xl:flex">
+        <!-- Query Templates -->
+        <QueryTemplates
+          :node-labels="nodeLabels"
+          :edge-labels="edgeLabels"
+          @select-query="setQuery"
+        />
+
+        <!-- Cheat Sheet -->
+        <CypherCheatSheet />
+
         <!-- Schema Reference -->
         <Card class="flex flex-col">
           <CardHeader class="cursor-pointer pb-3" @click="schemaOpen = !schemaOpen">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { keymap } from '@codemirror/view'
 import { Prec, type Extension } from '@codemirror/state'
@@ -76,13 +76,19 @@ const sheetOpen = ref(false)
 // Resizable & collapsible sidebar
 const SIDEBAR_WIDTH_KEY = 'kartograph:sidebar-width'
 const SIDEBAR_COLLAPSED_KEY = 'kartograph:sidebar-collapsed'
-const SIDEBAR_MIN = 180
-const SIDEBAR_MAX = 800
-const SIDEBAR_DEFAULT = 320
+const SIDEBAR_MIN = 300
+const SIDEBAR_DEFAULT = 340
+const SIDEBAR_MAX_PERCENT = 0.3
 
-const sidebarWidth = useLocalStorage(SIDEBAR_WIDTH_KEY, SIDEBAR_DEFAULT)
+const storedSidebarWidth = useLocalStorage(SIDEBAR_WIDTH_KEY, SIDEBAR_DEFAULT)
 const sidebarCollapsed = useLocalStorage(SIDEBAR_COLLAPSED_KEY, false)
 const isResizing = ref(false)
+const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920)
+
+// Clamp sidebar width to 30% of current viewport
+const sidebarWidth = computed(() =>
+  Math.min(storedSidebarWidth.value, Math.floor(windowWidth.value * SIDEBAR_MAX_PERCENT)),
+)
 
 // ── CodeMirror Setup ───────────────────────────────────────────────────────
 
@@ -275,10 +281,10 @@ function startResize(e: MouseEvent) {
   const startWidth = sidebarWidth.value
 
   function onMouseMove(ev: MouseEvent) {
-    // Sidebar is on the right, so dragging left increases width
+    const maxWidth = Math.floor(window.innerWidth * SIDEBAR_MAX_PERCENT)
     const delta = startX - ev.clientX
-    const newWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startWidth + delta))
-    sidebarWidth.value = newWidth
+    const newWidth = Math.min(maxWidth, Math.max(SIDEBAR_MIN, startWidth + delta))
+    storedSidebarWidth.value = newWidth
   }
 
   function onMouseUp() {
@@ -289,6 +295,10 @@ function startResize(e: MouseEvent) {
 
   document.addEventListener('mousemove', onMouseMove)
   document.addEventListener('mouseup', onMouseUp)
+}
+
+function onWindowResize() {
+  windowWidth.value = window.innerWidth
 }
 
 // ── Keyboard shortcuts ─────────────────────────────────────────────────────
@@ -304,25 +314,36 @@ onMounted(() => {
   loadHistory()
   fetchSchema()
   document.addEventListener('keydown', handleCtrlEnter)
+  window.addEventListener('resize', onWindowResize)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleCtrlEnter)
+  window.removeEventListener('resize', onWindowResize)
 })
 </script>
 
 <template>
-  <div class="flex max-h-[calc(100vh-5.5rem)] flex-col gap-4">
+  <div class="flex flex-col gap-4">
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-3">
         <Terminal class="size-6 text-muted-foreground" />
         <h1 class="text-2xl font-bold tracking-tight">Cypher Console</h1>
       </div>
+      <Button
+        variant="outline"
+        size="sm"
+        class="gap-2 xl:hidden"
+        @click="sheetOpen = true"
+      >
+        <PanelRight class="size-4" />
+        <span class="hidden sm:inline">Sidebar</span>
+      </Button>
     </div>
 
     <!-- Main layout: Editor + Results on left, Sidebar on right -->
-    <div class="flex min-h-0 flex-1 gap-4">
+    <div class="flex items-start gap-4">
       <!-- Left: Editor + Results -->
       <div class="flex min-w-0 flex-1 flex-col gap-4">
         <!-- Query Editor -->
@@ -370,22 +391,6 @@ onBeforeUnmount(() => {
                   Clear
                 </Button>
 
-                <!-- Sidebar toggle (below xl) -->
-                <Tooltip>
-                  <TooltipTrigger as-child>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      class="xl:hidden"
-                      @click="sheetOpen = true"
-                    >
-                      <PanelRight class="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Open sidebar</p>
-                  </TooltipContent>
-                </Tooltip>
               </div>
 
               <div class="flex items-center gap-3">
@@ -446,9 +451,9 @@ onBeforeUnmount(() => {
         />
       </div>
 
-      <!-- Right sidebar: resizable with drag handle, collapsible -->
+      <!-- Right sidebar: sticky, resizable with drag handle, collapsible -->
       <div
-        class="relative hidden flex-shrink-0 overflow-hidden xl:flex"
+        class="sticky top-0 hidden h-[calc(100vh-5rem)] flex-shrink-0 overflow-hidden xl:flex"
         :style="{ width: sidebarCollapsed ? '40px' : `${sidebarWidth}px` }"
       >
         <!-- Drag handle (hidden when collapsed) -->
@@ -480,34 +485,18 @@ onBeforeUnmount(() => {
 
         <!-- Expanded sidebar content -->
         <div v-else class="ml-1.5 flex min-h-0 min-w-0 flex-1 flex-col">
-          <!-- Collapse button -->
-          <div class="mb-1 flex justify-end">
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  class="size-6"
-                  @click="sidebarCollapsed = true"
-                >
-                  <PanelRightClose class="size-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left">
-                <p>Collapse sidebar</p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
           <QuerySidebar
             :node-labels="nodeLabels"
             :edge-labels="edgeLabels"
             :schema-loading="schemaLoading"
             :history="history"
             :current-query="query"
+            collapsible
             @select-query="setQuery"
             @insert-at-cursor="insertAtCursor"
             @clear-history="clearHistory"
             @execute-query="handleExecuteFromSidebar"
+            @collapse="sidebarCollapsed = true"
           />
         </div>
       </div>
@@ -515,7 +504,7 @@ onBeforeUnmount(() => {
 
     <!-- Responsive sidebar sheet (below xl) -->
     <Sheet v-model:open="sheetOpen">
-      <SheetContent side="right" class="w-80 p-4 sm:max-w-sm">
+      <SheetContent side="right" class="w-[28rem] max-w-[85vw] p-4">
         <SheetHeader class="sr-only">
           <SheetTitle>Query Sidebar</SheetTitle>
           <SheetDescription>Schema, templates, reference, and history</SheetDescription>

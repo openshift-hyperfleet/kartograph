@@ -270,7 +270,7 @@ watch(() => props.result, (newResult) => {
   </div>
 
   <!-- Results panel -->
-  <Card class="flex min-h-0 flex-1 flex-col">
+  <Card class="flex flex-col">
     <Tabs v-model="activeResultTab" class="flex min-h-0 flex-1 flex-col">
       <CardHeader class="pb-3">
         <div class="flex items-center justify-between">
@@ -305,9 +305,9 @@ watch(() => props.result, (newResult) => {
           </TabsList>
         </div>
       </CardHeader>
-      <CardContent class="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <CardContent class="flex flex-col overflow-hidden">
         <!-- Table tab -->
-        <TabsContent value="table" class="mt-0 flex min-h-0 flex-1 flex-col">
+        <TabsContent value="table" class="mt-0 flex flex-col">
           <div v-if="executing" class="flex h-full items-center justify-center">
             <div class="flex items-center gap-2 text-muted-foreground">
               <Loader2 class="size-5 animate-spin" />
@@ -343,7 +343,7 @@ watch(() => props.result, (newResult) => {
               </div>
             </div>
             <!-- Scrollable table area — scrolls both X and Y independently -->
-            <div class="min-h-0 flex-1 overflow-auto rounded-md border">
+            <div class="max-h-[80vh] overflow-auto rounded-md border">
               <table class="w-full caption-bottom text-sm">
                 <thead class="sticky top-0 z-10 bg-background [&_tr]:border-b">
                   <tr v-for="headerGroup in table.getHeaderGroups()" :key="headerGroup.id" class="border-b">
@@ -422,7 +422,7 @@ watch(() => props.result, (newResult) => {
         </TabsContent>
 
         <!-- JSON tab -->
-        <TabsContent value="json" class="mt-0 flex min-h-0 flex-1 flex-col">
+        <TabsContent value="json" class="mt-0 flex flex-col">
           <div v-if="executing" class="flex h-full items-center justify-center">
             <div class="flex items-center gap-2 text-muted-foreground">
               <Loader2 class="size-5 animate-spin" />
@@ -458,13 +458,13 @@ watch(() => props.result, (newResult) => {
             <!-- Scrollable JSON area -->
             <div
               ref="jsonContainer"
-              class="min-h-0 flex-1 overflow-auto rounded-md border"
+              class="max-h-[80vh] overflow-auto rounded-md border"
             />
           </template>
         </TabsContent>
 
         <!-- Graph tab -->
-        <TabsContent value="graph" class="mt-0 h-full">
+        <TabsContent value="graph" class="mt-0">
           <GraphVisualization
             :result="result"
             :executing="executing"

@@ -96,7 +96,7 @@ watch(fullscreen, () => {
 </script>
 
 <template>
-  <div class="flex h-full flex-col">
+  <div class="flex flex-col" style="height: 80vh;">
     <!-- Executing state -->
     <div v-if="props.executing" class="flex flex-1 items-center justify-center">
       <div class="flex items-center gap-2 text-muted-foreground">
@@ -167,8 +167,7 @@ watch(fullscreen, () => {
           <!-- Canvas (inline for direct ref access by useCytoscape) -->
           <div
             ref="canvasContainer"
-            class="flex-1 rounded-md border bg-background"
-            style="min-height: 300px"
+            class="min-h-0 flex-1 rounded-md border bg-background"
           />
 
           <!-- Legend overlay -->

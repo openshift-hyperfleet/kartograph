@@ -62,6 +62,9 @@ importers:
       cytoscape:
         specifier: ^3.33.1
         version: 3.33.1
+      cytoscape-cise:
+        specifier: ^2.0.1
+        version: 2.0.1(cytoscape@3.33.1)
       cytoscape-fcose:
         specifier: ^2.2.0
         version: 2.2.0(cytoscape@3.33.1)
@@ -1664,6 +1667,9 @@ packages:
     peerDependencies:
       postcss: ^8.1.0
 
+  avsdf-base@1.0.0:
+    resolution: {integrity: sha512-APhZNUFJwIwrLsSfE95QjobEntdUhFQgfNtC/BrYmjUpwHh5Y2fbRv8lxAlMr1hdf/CuQYsqJxK3dRzcCL77qw==}
+
   b4a@1.7.3:
     resolution: {integrity: sha512-5Q2mfq2WfGuFp3uS//0s6baOJLMoVduPYVeNmDYxu5OUA1/cBfvr2RIS7vi62LdNj/urk1hfmj867I3qt6uZ7Q==}
     peerDependencies:
@@ -1918,6 +1924,11 @@ packages:
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
+
+  cytoscape-cise@2.0.1:
+    resolution: {integrity: sha512-3nNq5z0UnVFmcFo2VtngIJqmmLwa6NGei9c9eXa8AwqNs3Fi7Cav1QEDKgQqtmxdq7hMKN7xIXYRye2x2cH5vA==}
+    peerDependencies:
+      cytoscape: ^3.2.0
 
   cytoscape-fcose@2.2.0:
     resolution: {integrity: sha512-ki1/VuRIHFCzxWNrsshHYPs6L7TvLu3DL+TyIGEsRcvVERmxokbf5Gdk7mFxZnTdiGtnA4cfSmjZJMviqSuZrQ==}
@@ -2416,6 +2427,9 @@ packages:
 
   launch-editor@2.12.0:
     resolution: {integrity: sha512-giOHXoOtifjdHqUamwKq6c49GzBdLjvxrd2D+Q4V6uOHopJv7p9VJxikDsQ/CBXZbEITgUqSVHXLTG3VhPP1Dg==}
+
+  layout-base@1.0.2:
+    resolution: {integrity: sha512-8h2oVEZNktL4BH2JCOI90iD1yXwL6iNW7KcCKT2QZgQJR2vbqDsldCTPRU9NifTCqHZci57XvQQ15YTu+sTYPg==}
 
   layout-base@2.0.1:
     resolution: {integrity: sha512-dp3s92+uNI1hWIpPGH3jK2kxE2lMjdXdr+DH8ynZHpd6PUlH6x6cbuXnoMmiNumznqaNO31xu9e79F0uuZ0JFg==}
@@ -5317,6 +5331,10 @@ snapshots:
       postcss: 8.5.6
       postcss-value-parser: 4.2.0
 
+  avsdf-base@1.0.0:
+    dependencies:
+      layout-base: 1.0.2
+
   b4a@1.7.3: {}
 
   balanced-match@1.0.2: {}
@@ -5586,6 +5604,12 @@ snapshots:
       css-tree: 2.2.1
 
   csstype@3.2.3: {}
+
+  cytoscape-cise@2.0.1(cytoscape@3.33.1):
+    dependencies:
+      avsdf-base: 1.0.0
+      cose-base: 2.2.0
+      cytoscape: 3.33.1
 
   cytoscape-fcose@2.2.0(cytoscape@3.33.1):
     dependencies:
@@ -6020,6 +6044,8 @@ snapshots:
     dependencies:
       picocolors: 1.1.1
       shell-quote: 1.8.3
+
+  layout-base@1.0.2: {}
 
   layout-base@2.0.1: {}
 

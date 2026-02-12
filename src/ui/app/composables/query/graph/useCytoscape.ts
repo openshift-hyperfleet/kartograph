@@ -1,15 +1,24 @@
 import { shallowRef, ref, watch, onBeforeUnmount, nextTick, type Ref } from 'vue'
 import cytoscape from 'cytoscape'
 import fcose from 'cytoscape-fcose'
+// @ts-ignore -- cytoscape-cise has no TypeScript declarations
+import cise from 'cytoscape-cise'
 import type { GraphData, GraphNode } from '~/types'
 import { createGraphStylesheet, resetLabelColors, getLabelColors } from './graphStyles'
-import { layoutPresets, tuneLayout } from './graphLayouts'
+import { layoutPresets, tuneLayout, selectDefaultLayout } from './graphLayouts'
+import { clusterByLabel, clusterByTopology } from './useClustering'
 
-// Register the fcose layout extension once at module level
+// Register layout extensions once at module level
 let fcoseRegistered = false
 if (!fcoseRegistered) {
   cytoscape.use(fcose)
   fcoseRegistered = true
+}
+
+let ciseRegistered = false
+if (!ciseRegistered) {
+  cytoscape.use(cise)
+  ciseRegistered = true
 }
 
 /** Scale wheel sensitivity based on graph size to balance responsiveness and control. */
@@ -69,22 +78,38 @@ export function useCytoscape(
       })),
     ]
 
-    const layoutName = options.layout?.value ?? 'fcose'
+    const edgeCount = data.edges.length
+    // Use the user's chosen layout, or auto-select based on graph topology
+    const layoutName = options.layout?.value ?? selectDefaultLayout(nodeCount, edgeCount)
     const baseLayout = layoutPresets[layoutName] ?? layoutPresets.fcose
-    const layoutOpts = options.disableAnimations?.value
+    let layoutOpts = options.disableAnimations?.value
       ? { ...baseLayout, animate: false }
       : tuneLayout(baseLayout, nodeCount)
+
+    // CiSE layouts need a live cy instance to compute clusters, so we
+    // create the instance with a preset layout first and run CiSE after.
+    const needsDeferredCise = layoutName === 'cise-label' || layoutName === 'cise-mcl'
 
     cy.value = cytoscape({
       container: container.value,
       elements,
       style: createGraphStylesheet(),
-      layout: layoutOpts,
+      layout: needsDeferredCise ? { name: 'preset' } : layoutOpts,
       minZoom: 0.1,
       maxZoom: 4,
       wheelSensitivity: getWheelSensitivity(nodeCount),
       boxSelectionEnabled: false,
     })
+
+    // Run deferred CiSE layout now that the cy instance exists
+    if (needsDeferredCise && cy.value) {
+      if (layoutName === 'cise-label') {
+        layoutOpts = { ...layoutOpts, clusters: clusterByLabel(cy.value) }
+      } else {
+        layoutOpts = { ...layoutOpts, clusters: clusterByTopology(cy.value) }
+      }
+      cy.value.layout(layoutOpts).run()
+    }
 
     // Update label colors for legend after styles are applied
     nextTick(() => {
@@ -201,9 +226,16 @@ export function useCytoscape(
   function changeLayout(name: string) {
     if (!cy.value || !graphData.value) return
     const baseLayout = layoutPresets[name] ?? layoutPresets.fcose
-    const layoutOpts = options.disableAnimations?.value
+    let layoutOpts = options.disableAnimations?.value
       ? { ...baseLayout, animate: false }
       : tuneLayout(baseLayout, graphData.value.nodes.length)
+
+    // Inject clusters for CiSE layouts
+    if (name === 'cise-label' && cy.value) {
+      layoutOpts = { ...layoutOpts, clusters: clusterByLabel(cy.value) }
+    } else if (name === 'cise-mcl' && cy.value) {
+      layoutOpts = { ...layoutOpts, clusters: clusterByTopology(cy.value) }
+    }
 
     const layout = cy.value.layout(layoutOpts)
     layout.run()

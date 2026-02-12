@@ -28,6 +28,7 @@
     "clsx": "^2.1.1",
     "codemirror": "^6.0.2",
     "cytoscape": "^3.33.1",
+    "cytoscape-cise": "^2.0.1",
     "cytoscape-fcose": "^2.2.0",
     "lucide-vue-next": "^0.563.0",
     "nuxt": "^4.3.1",

@@ -60,11 +60,13 @@ function toggleSearch() {
           :model-value="props.layout"
           @update:model-value="(v: string) => emit('layout-change', v)"
         >
-          <SelectTrigger class="h-7 w-[120px] text-xs">
+          <SelectTrigger class="h-7 w-[160px] text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="fcose">Force Directed</SelectItem>
+            <SelectItem value="cise-label">Clustered (by type)</SelectItem>
+            <SelectItem value="cise-mcl">Clustered (topology)</SelectItem>
             <SelectItem value="breadthfirst">Hierarchical</SelectItem>
             <SelectItem value="concentric">Concentric</SelectItem>
             <SelectItem value="grid">Grid</SelectItem>

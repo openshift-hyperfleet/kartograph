@@ -16,9 +16,11 @@ from iam.domain.events import (
     MemberRemoved,
     MemberRoleChanged,
     MemberSnapshot,
+    WorkspaceDeleted,
     WorkspaceMemberAdded,
     WorkspaceMemberRemoved,
     WorkspaceMemberRoleChanged,
+    WorkspaceMemberSnapshot,
 )
 from iam.domain.value_objects import GroupRole, MemberType, WorkspaceRole
 from iam.infrastructure.outbox import IAMEventSerializer
@@ -476,5 +478,126 @@ class TestIAMEventSerializerRoundTrip:
 
         payload = serializer.serialize(original)
         restored = serializer.deserialize("WorkspaceMemberRoleChanged", payload)
+
+        assert restored == original
+
+
+class TestWorkspaceDeletedSerialization:
+    """Tests for WorkspaceDeleted serialization with WorkspaceMemberSnapshot."""
+
+    def test_serializes_workspace_deleted_with_members(self):
+        """WorkspaceDeleted should serialize WorkspaceMemberSnapshot members."""
+        serializer = IAMEventSerializer()
+        occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
+        members = (
+            WorkspaceMemberSnapshot(
+                member_id="user-alice", member_type="user", role="admin"
+            ),
+            WorkspaceMemberSnapshot(
+                member_id="group-eng", member_type="group", role="editor"
+            ),
+        )
+        event = WorkspaceDeleted(
+            workspace_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            tenant_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
+            parent_workspace_id="01ARZCX0P0HZGQP3MZXQQ0NNXX",
+            is_root=False,
+            members=members,
+            occurred_at=occurred_at,
+        )
+
+        payload = serializer.serialize(event)
+
+        assert payload["workspace_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
+        assert payload["tenant_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNYY"
+        assert len(payload["members"]) == 2
+        assert payload["members"][0]["member_id"] == "user-alice"
+        assert payload["members"][0]["member_type"] == "user"
+        assert payload["members"][0]["role"] == "admin"
+        assert payload["members"][1]["member_id"] == "group-eng"
+        assert payload["members"][1]["member_type"] == "group"
+        assert payload["members"][1]["role"] == "editor"
+
+    def test_serializes_workspace_deleted_with_empty_members(self):
+        """WorkspaceDeleted with no members should serialize empty list."""
+        serializer = IAMEventSerializer()
+        occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
+        event = WorkspaceDeleted(
+            workspace_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            tenant_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
+            parent_workspace_id=None,
+            is_root=True,
+            members=(),
+            occurred_at=occurred_at,
+        )
+
+        payload = serializer.serialize(event)
+
+        assert payload["members"] == []
+
+    def test_workspace_deleted_payload_is_json_serializable(self):
+        """WorkspaceDeleted serialized payload should be JSON-compatible."""
+        import json
+
+        serializer = IAMEventSerializer()
+        occurred_at = datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC)
+        members = (
+            WorkspaceMemberSnapshot(
+                member_id="user-alice", member_type="user", role="admin"
+            ),
+        )
+        event = WorkspaceDeleted(
+            workspace_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            tenant_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
+            parent_workspace_id=None,
+            is_root=True,
+            members=members,
+            occurred_at=occurred_at,
+        )
+
+        payload = serializer.serialize(event)
+        json_str = json.dumps(payload)
+
+        assert isinstance(json_str, str)
+
+    def test_round_trip_workspace_deleted_with_members(self):
+        """WorkspaceDeleted should round trip with WorkspaceMemberSnapshot."""
+        serializer = IAMEventSerializer()
+        members = (
+            WorkspaceMemberSnapshot(
+                member_id="user-alice", member_type="user", role="admin"
+            ),
+            WorkspaceMemberSnapshot(
+                member_id="group-eng", member_type="group", role="editor"
+            ),
+        )
+        original = WorkspaceDeleted(
+            workspace_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            tenant_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
+            parent_workspace_id="01ARZCX0P0HZGQP3MZXQQ0NNXX",
+            is_root=False,
+            members=members,
+            occurred_at=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
+        )
+
+        payload = serializer.serialize(original)
+        restored = serializer.deserialize("WorkspaceDeleted", payload)
+
+        assert restored == original
+
+    def test_round_trip_workspace_deleted_empty_members(self):
+        """WorkspaceDeleted with no members should round trip correctly."""
+        serializer = IAMEventSerializer()
+        original = WorkspaceDeleted(
+            workspace_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            tenant_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
+            parent_workspace_id=None,
+            is_root=True,
+            members=(),
+            occurred_at=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
+        )
+
+        payload = serializer.serialize(original)
+        restored = serializer.deserialize("WorkspaceDeleted", payload)
 
         assert restored == original

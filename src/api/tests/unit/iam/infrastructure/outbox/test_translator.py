@@ -889,6 +889,117 @@ class TestIAMEventTranslatorWorkspaceMemberValidation:
             translator.translate("WorkspaceMemberAdded", {})
 
 
+class TestIAMEventTranslatorWorkspaceDeletedWithMembers:
+    """Tests for WorkspaceDeleted translation with member snapshot."""
+
+    def test_deletes_member_relationships_from_snapshot(self):
+        """WorkspaceDeleted with members should delete member relationships."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "tenant_id": "01TENANT_ABC",
+            "parent_workspace_id": None,
+            "is_root": False,
+            "members": [
+                {"member_id": "user-alice", "member_type": "user", "role": "admin"},
+            ],
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceDeleted", payload)
+
+        # 1 tenant delete + 1 member delete
+        assert len(operations) == 2
+        assert all(isinstance(op, DeleteRelationship) for op in operations)
+
+        # Second should be the member relationship deletion
+        member_op = operations[1]
+        assert member_op.resource_type == ResourceType.WORKSPACE
+        assert member_op.resource_id == "01WORKSPACE_ABC"
+        assert member_op.relation == WorkspaceRole.ADMIN
+        assert member_op.subject_type == ResourceType.USER
+        assert member_op.subject_id == "user-alice"
+
+    def test_handles_user_and_group_members(self):
+        """WorkspaceDeleted should correctly resolve user and group subject types."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "tenant_id": "01TENANT_ABC",
+            "parent_workspace_id": None,
+            "is_root": False,
+            "members": [
+                {"member_id": "user-alice", "member_type": "user", "role": "admin"},
+                {"member_id": "group-eng", "member_type": "group", "role": "editor"},
+            ],
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceDeleted", payload)
+
+        # 1 tenant delete + 2 member deletes
+        assert len(operations) == 3
+
+        # Find user member operation
+        user_op = [
+            op for op in operations if getattr(op, "subject_id", None) == "user-alice"
+        ]
+        assert len(user_op) == 1
+        assert user_op[0].subject_type == ResourceType.USER
+
+        # Find group member operation
+        group_op = [
+            op for op in operations if getattr(op, "subject_id", None) == "group-eng"
+        ]
+        assert len(group_op) == 1
+        assert group_op[0].subject_type == ResourceType.GROUP
+
+    def test_handles_all_three_roles(self):
+        """WorkspaceDeleted should handle admin, editor, and member roles."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "tenant_id": "01TENANT_ABC",
+            "parent_workspace_id": None,
+            "is_root": False,
+            "members": [
+                {"member_id": "user-admin", "member_type": "user", "role": "admin"},
+                {"member_id": "user-editor", "member_type": "user", "role": "editor"},
+                {"member_id": "user-viewer", "member_type": "user", "role": "member"},
+            ],
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceDeleted", payload)
+
+        # 1 tenant delete + 3 member deletes
+        assert len(operations) == 4
+
+        # Check that all three roles are represented
+        member_ops = operations[1:]
+        roles = {str(op.relation) for op in member_ops}
+        assert roles == {"admin", "editor", "member"}
+
+    def test_handles_empty_members_list(self):
+        """WorkspaceDeleted with empty members should only delete base relationships."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "tenant_id": "01TENANT_ABC",
+            "parent_workspace_id": None,
+            "is_root": False,
+            "members": [],
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceDeleted", payload)
+
+        # Only 1 tenant delete, no member deletes
+        assert len(operations) == 1
+        assert isinstance(operations[0], DeleteRelationship)
+        assert operations[0].relation == RelationType.TENANT
+
+
 class TestIAMEventTranslatorErrors:
     """Tests for error handling."""
 

@@ -442,12 +442,12 @@ class IAMEventTranslator:
     ) -> list[SpiceDBOperation]:
         """Translate WorkspaceDeleted event to SpiceDB relationship deletions.
 
-        Deletes the relationships that were created during workspace creation,
-        using the snapshot data captured in the event.
+        Deletes the relationships that were created during workspace creation
+        and membership management, using the snapshot data captured in the event.
 
         Args:
             payload: Event payload containing workspace_id, tenant_id,
-                     parent_workspace_id, and is_root (snapshot)
+                     parent_workspace_id, is_root, and members (snapshot)
 
         Returns:
             List of DeleteRelationship operations for SpiceDB
@@ -491,6 +491,21 @@ class IAMEventTranslator:
                     relation=RelationType.PARENT,
                     subject_type=ResourceType.WORKSPACE,
                     subject_id=parent_workspace_id,
+                )
+            )
+
+        # 4. Delete all member relationships from the snapshot
+        for member in payload.get("members", []):
+            role = WorkspaceRole(member["role"])
+            subject_type = self._resolve_subject_type(member["member_type"])
+
+            relationships.append(
+                DeleteRelationship(
+                    resource_type=ResourceType.WORKSPACE,
+                    resource_id=workspace_id,
+                    relation=role,
+                    subject_type=subject_type,
+                    subject_id=member["member_id"],
                 )
             )
 

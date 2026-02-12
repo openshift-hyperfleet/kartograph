@@ -12,6 +12,24 @@ from datetime import datetime
 
 
 @dataclass(frozen=True)
+class WorkspaceMemberSnapshot:
+    """Immutable snapshot of a workspace member at deletion time.
+
+    Used in WorkspaceDeleted to capture members that need their
+    relationships cleaned up in SpiceDB.
+
+    Attributes:
+        member_id: The user ID or group ID
+        member_type: "user" or "group"
+        role: The role the member had
+    """
+
+    member_id: str
+    member_type: str
+    role: str
+
+
+@dataclass(frozen=True)
 class WorkspaceMemberAdded:
     """Event raised when a member (user or group) is added to a workspace.
 

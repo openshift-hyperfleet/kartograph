@@ -14,6 +14,7 @@ from typing import Any, get_args
 from iam.domain.events import (
     DomainEvent,
     MemberSnapshot,
+    WorkspaceMemberSnapshot,
 )
 from iam.domain.value_objects import MemberType, TenantRole, WorkspaceRole
 
@@ -99,10 +100,13 @@ class IAMEventSerializer:
             if isinstance(value, datetime):
                 data[key] = value.isoformat()
             elif isinstance(value, tuple):
-                # Handle MemberSnapshot tuples in GroupDeleted
+                # Handle MemberSnapshot tuples in GroupDeleted/TenantDeleted
+                # and WorkspaceMemberSnapshot tuples in WorkspaceDeleted
                 data[key] = [
                     self._convert_member_snapshot(item)
                     if isinstance(item, MemberSnapshot)
+                    else self._convert_workspace_member_snapshot(item)
+                    if isinstance(item, WorkspaceMemberSnapshot)
                     else item
                     for item in value
                 ]
@@ -113,6 +117,16 @@ class IAMEventSerializer:
         """Convert a MemberSnapshot to a JSON-serializable dict."""
         return {
             "user_id": snapshot.user_id,
+            "role": snapshot.role,
+        }
+
+    def _convert_workspace_member_snapshot(
+        self, snapshot: WorkspaceMemberSnapshot
+    ) -> dict[str, Any]:
+        """Convert a WorkspaceMemberSnapshot to a JSON-serializable dict."""
+        return {
+            "member_id": snapshot.member_id,
+            "member_type": snapshot.member_type,
             "role": snapshot.role,
         }
 
@@ -132,6 +146,17 @@ class IAMEventSerializer:
             data["members"] = tuple(
                 MemberSnapshot(
                     user_id=m["user_id"],
+                    role=m["role"],
+                )
+                for m in data["members"]
+            )
+
+        # Convert members list back to tuple of WorkspaceMemberSnapshot
+        if "members" in data and event_type == "WorkspaceDeleted":
+            data["members"] = tuple(
+                WorkspaceMemberSnapshot(
+                    member_id=m["member_id"],
+                    member_type=m["member_type"],
                     role=m["role"],
                 )
                 for m in data["members"]

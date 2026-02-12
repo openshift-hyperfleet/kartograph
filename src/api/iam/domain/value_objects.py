@@ -198,3 +198,33 @@ class TenantMember:
 
     user_id: UserId
     role: TenantRole
+
+
+@dataclass(frozen=True)
+class WorkspaceMember:
+    """Represents a member's (user or group) access to a workspace.
+
+    This is an immutable value object describing the relationship between
+    a member (user or group) and a workspace.
+
+    Attributes:
+        member_id: The user ID or group ID
+        member_type: Whether this is a USER or GROUP grant
+        role: The workspace role (ADMIN, EDITOR, or MEMBER)
+    """
+
+    member_id: str  # Can be user ID or group ID
+    member_type: MemberType
+    role: WorkspaceRole
+
+    def is_admin(self) -> bool:
+        """Check if this member has admin role."""
+        return self.role == WorkspaceRole.ADMIN
+
+    def is_editor(self) -> bool:
+        """Check if this member has editor role."""
+        return self.role == WorkspaceRole.EDITOR
+
+    def is_member(self) -> bool:
+        """Check if this member has member (viewer) role."""
+        return self.role == WorkspaceRole.MEMBER

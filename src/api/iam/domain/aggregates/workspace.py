@@ -194,9 +194,23 @@ class Workspace:
 
         Raises:
             ValueError: If member_id is empty or member is already added
+            TypeError: If member_type or role are not the correct enum types
         """
-        if not member_id or not member_id.strip():
+        # Normalize member_id by stripping whitespace
+        member_id = member_id.strip()
+
+        # Validate non-empty
+        if not member_id:
             raise ValueError("member_id cannot be empty")
+
+        # Validate enum types
+        if not isinstance(member_type, MemberType):
+            raise TypeError(
+                f"member_type must be MemberType, got {type(member_type).__name__}"
+            )
+        if not isinstance(role, WorkspaceRole):
+            raise TypeError(f"role must be WorkspaceRole, got {type(role).__name__}")
+
         if self.has_member(member_id, member_type):
             raise ValueError(
                 f"{member_type.value} {member_id} is already a member of this workspace"
@@ -238,9 +252,22 @@ class Workspace:
 
         Raises:
             ValueError: If member_id is empty or member is not in workspace
+            TypeError: If member_type is not the correct enum type
+            RuntimeError: If invariant is violated
         """
-        if not member_id or not member_id.strip():
+        # Normalize member_id by stripping whitespace
+        member_id = member_id.strip()
+
+        # Validate non-empty
+        if not member_id:
             raise ValueError("member_id cannot be empty")
+
+        # Validate enum type
+        if not isinstance(member_type, MemberType):
+            raise TypeError(
+                f"member_type must be MemberType, got {type(member_type).__name__}"
+            )
+
         if not self.has_member(member_id, member_type):
             raise ValueError(
                 f"{member_type.value} {member_id} is not a member of this workspace"
@@ -292,9 +319,26 @@ class Workspace:
 
         Raises:
             ValueError: If member_id is empty, member is not in workspace, or role unchanged
+            TypeError: If member_type or new_role are not the correct enum types
+            RuntimeError: If invariant is violated
         """
-        if not member_id or not member_id.strip():
+        # Normalize member_id by stripping whitespace
+        member_id = member_id.strip()
+
+        # Validate non-empty
+        if not member_id:
             raise ValueError("member_id cannot be empty")
+
+        # Validate enum types
+        if not isinstance(member_type, MemberType):
+            raise TypeError(
+                f"member_type must be MemberType, got {type(member_type).__name__}"
+            )
+        if not isinstance(new_role, WorkspaceRole):
+            raise TypeError(
+                f"new_role must be WorkspaceRole, got {type(new_role).__name__}"
+            )
+
         if not self.has_member(member_id, member_type):
             raise ValueError(
                 f"{member_type.value} {member_id} is not a member of this workspace"

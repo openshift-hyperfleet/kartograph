@@ -818,6 +818,197 @@ class TestMemberIdValidation:
             workspace.update_member_role("   ", MemberType.GROUP, WorkspaceRole.EDITOR)
 
 
+class TestMemberTypeValidation:
+    """Tests for enum type validation in workspace member operations."""
+
+    def test_add_member_rejects_invalid_member_type(self):
+        """Should raise TypeError if member_type is not MemberType enum."""
+        workspace = _make_workspace()
+
+        with pytest.raises(TypeError, match="member_type must be MemberType"):
+            workspace.add_member("user123", "user", WorkspaceRole.ADMIN)
+
+    def test_add_member_rejects_invalid_role(self):
+        """Should raise TypeError if role is not WorkspaceRole enum."""
+        workspace = _make_workspace()
+
+        with pytest.raises(TypeError, match="role must be WorkspaceRole"):
+            workspace.add_member("user123", MemberType.USER, "admin")
+
+    def test_remove_member_rejects_invalid_member_type(self):
+        """Should raise TypeError if member_type is not MemberType enum."""
+        workspace = _make_workspace()
+
+        with pytest.raises(TypeError, match="member_type must be MemberType"):
+            workspace.remove_member("user123", "user")
+
+    def test_update_member_role_rejects_invalid_member_type(self):
+        """Should raise TypeError if member_type is not MemberType enum."""
+        workspace = _make_workspace()
+
+        with pytest.raises(TypeError, match="member_type must be MemberType"):
+            workspace.update_member_role("user123", "user", WorkspaceRole.ADMIN)
+
+    def test_update_member_role_rejects_invalid_new_role(self):
+        """Should raise TypeError if new_role is not WorkspaceRole enum."""
+        workspace = _make_workspace()
+
+        with pytest.raises(TypeError, match="new_role must be WorkspaceRole"):
+            workspace.update_member_role("user123", MemberType.USER, "admin")
+
+
+class TestMemberIdNormalization:
+    """Tests for member_id normalization (whitespace stripping) in workspace member operations."""
+
+    def test_add_member_normalizes_member_id(self):
+        """Should strip whitespace from member_id when adding a member."""
+        workspace = _make_workspace()
+
+        workspace.add_member("  user123  ", MemberType.USER, WorkspaceRole.ADMIN)
+
+        assert workspace.has_member("user123", MemberType.USER)
+        assert (
+            workspace.get_member_role("user123", MemberType.USER) == WorkspaceRole.ADMIN
+        )
+
+    def test_add_member_stores_normalized_member_id(self):
+        """Should store the normalized (stripped) member_id in the members list."""
+        workspace = _make_workspace()
+
+        workspace.add_member("  user123  ", MemberType.USER, WorkspaceRole.EDITOR)
+
+        assert workspace.members[0].member_id == "user123"
+
+    def test_add_member_event_uses_normalized_member_id(self):
+        """WorkspaceMemberAdded event should use the normalized member_id."""
+        workspace = _make_workspace()
+
+        workspace.add_member("  user123  ", MemberType.USER, WorkspaceRole.ADMIN)
+        events = workspace.collect_events()
+
+        assert events[0].member_id == "user123"
+
+    def test_add_member_probe_uses_normalized_member_id(self):
+        """Probe emission should use the normalized member_id."""
+        probe = Mock()
+        workspace = Workspace.create(
+            name="Test",
+            tenant_id=TenantId.generate(),
+            parent_workspace_id=WorkspaceId.generate(),
+            probe=probe,
+        )
+
+        workspace.add_member("  user123  ", MemberType.USER, WorkspaceRole.EDITOR)
+
+        probe.member_added.assert_called_once_with(
+            workspace_id=workspace.id.value,
+            member_id="user123",
+            member_type="user",
+            role="editor",
+        )
+
+    def test_add_member_duplicate_check_uses_normalized_id(self):
+        """Duplicate check should use normalized member_id."""
+        workspace = _make_workspace()
+        workspace.add_member("user123", MemberType.USER, WorkspaceRole.MEMBER)
+
+        with pytest.raises(ValueError, match="already a member"):
+            workspace.add_member("  user123  ", MemberType.USER, WorkspaceRole.ADMIN)
+
+    def test_remove_member_normalizes_member_id(self):
+        """Should strip whitespace from member_id when removing a member."""
+        workspace = _make_workspace()
+        workspace.add_member("user123", MemberType.USER, WorkspaceRole.MEMBER)
+        workspace.collect_events()
+
+        workspace.remove_member("  user123  ", MemberType.USER)
+
+        assert not workspace.has_member("user123", MemberType.USER)
+
+    def test_remove_member_event_uses_normalized_member_id(self):
+        """WorkspaceMemberRemoved event should use the normalized member_id."""
+        workspace = _make_workspace()
+        workspace.add_member("user123", MemberType.USER, WorkspaceRole.EDITOR)
+        workspace.collect_events()
+
+        workspace.remove_member("  user123  ", MemberType.USER)
+        events = workspace.collect_events()
+
+        assert events[0].member_id == "user123"
+
+    def test_remove_member_probe_uses_normalized_member_id(self):
+        """Probe emission should use the normalized member_id on remove."""
+        probe = Mock()
+        workspace = Workspace.create(
+            name="Test",
+            tenant_id=TenantId.generate(),
+            parent_workspace_id=WorkspaceId.generate(),
+            probe=probe,
+        )
+        workspace.add_member("user123", MemberType.USER, WorkspaceRole.EDITOR)
+        probe.reset_mock()
+
+        workspace.remove_member("  user123  ", MemberType.USER)
+
+        probe.member_removed.assert_called_once_with(
+            workspace_id=workspace.id.value,
+            member_id="user123",
+            member_type="user",
+            role="editor",
+        )
+
+    def test_update_member_role_normalizes_member_id(self):
+        """Should strip whitespace from member_id when updating role."""
+        workspace = _make_workspace()
+        workspace.add_member("user123", MemberType.USER, WorkspaceRole.MEMBER)
+        workspace.collect_events()
+
+        workspace.update_member_role(
+            "  user123  ", MemberType.USER, WorkspaceRole.ADMIN
+        )
+
+        assert (
+            workspace.get_member_role("user123", MemberType.USER) == WorkspaceRole.ADMIN
+        )
+
+    def test_update_member_role_event_uses_normalized_member_id(self):
+        """WorkspaceMemberRoleChanged event should use the normalized member_id."""
+        workspace = _make_workspace()
+        workspace.add_member("user123", MemberType.USER, WorkspaceRole.MEMBER)
+        workspace.collect_events()
+
+        workspace.update_member_role(
+            "  user123  ", MemberType.USER, WorkspaceRole.ADMIN
+        )
+        events = workspace.collect_events()
+
+        assert events[0].member_id == "user123"
+
+    def test_update_member_role_probe_uses_normalized_member_id(self):
+        """Probe emission should use the normalized member_id on role update."""
+        probe = Mock()
+        workspace = Workspace.create(
+            name="Test",
+            tenant_id=TenantId.generate(),
+            parent_workspace_id=WorkspaceId.generate(),
+            probe=probe,
+        )
+        workspace.add_member("user123", MemberType.USER, WorkspaceRole.MEMBER)
+        probe.reset_mock()
+
+        workspace.update_member_role(
+            "  user123  ", MemberType.USER, WorkspaceRole.ADMIN
+        )
+
+        probe.member_role_changed.assert_called_once_with(
+            workspace_id=workspace.id.value,
+            member_id="user123",
+            member_type="user",
+            old_role="member",
+            new_role="admin",
+        )
+
+
 class TestWorkspaceProbes:
     """Tests for workspace domain probe emissions.
 

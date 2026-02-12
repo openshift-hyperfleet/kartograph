@@ -4,7 +4,7 @@ import { toast } from 'vue-sonner'
 import {
   Terminal, Play, Trash2, Loader2, Clock, Hash,
   ChevronRight, ChevronDown, Database, GitBranch,
-  Clipboard, X, Search,
+  Clipboard, X, Search, Info,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -97,9 +97,9 @@ const textareaRef = ref<HTMLTextAreaElement | null>()
 
 const exampleQueries = [
   { label: 'All Nodes', cypher: 'MATCH (n) RETURN n LIMIT 25' },
-  { label: 'Node Counts', cypher: 'MATCH (n) RETURN labels(n) as label, count(*) as count' },
-  { label: 'All Relationships', cypher: 'MATCH (n)-[r]->(m) RETURN n, type(r), m LIMIT 25' },
-  { label: 'Nodes with Slugs', cypher: 'MATCH (n) WHERE n.slug IS NOT NULL RETURN n.slug, labels(n) LIMIT 50' },
+  { label: 'Node Counts', cypher: 'MATCH (n) RETURN {label: labels(n), count: count(*)}' },
+  { label: 'All Relationships', cypher: 'MATCH (n)-[r]->(m) RETURN {source: n, rel: type(r), target: m} LIMIT 25' },
+  { label: 'Nodes with Slugs', cypher: 'MATCH (n) WHERE n.slug IS NOT NULL RETURN {slug: n.slug, labels: labels(n)} LIMIT 50' },
 ]
 
 // ── Computed ────────────────────────────────────────────────────────────────
@@ -138,7 +138,11 @@ async function executeQuery() {
     })
   } catch (err) {
     executionTime.value = Math.round(performance.now() - start)
-    const message = err instanceof Error ? err.message : 'An unexpected error occurred'
+    let message = err instanceof Error ? err.message : 'An unexpected error occurred'
+    // Detect the common multi-column error and add a helpful hint
+    if (message.includes('column definition list') || message.includes('return row and column')) {
+      message += '\n\nHint: Apache AGE requires a single RETURN column. Wrap multiple values in a map: RETURN {a: val1, b: val2}'
+    }
     error.value = message
     addToHistory(cypher, null)
     toast.error('Query failed', { description: message })
@@ -315,6 +319,16 @@ onUnmounted(() => {
               />
             </div>
 
+            <!-- Single-column requirement hint -->
+            <div class="flex items-start gap-2 rounded-md border border-blue-500/30 bg-blue-50/50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950/20 dark:text-blue-400">
+              <Info class="mt-0.5 size-3.5 flex-shrink-0" />
+              <div>
+                <span class="font-medium">Apache AGE requires a single RETURN column.</span>
+                Use map syntax for multiple values:
+                <code class="rounded bg-blue-100 px-1 py-0.5 dark:bg-blue-900/40">RETURN {name: n.name, label: labels(n)}</code>
+              </div>
+            </div>
+
             <!-- Controls bar -->
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-3">
@@ -387,7 +401,7 @@ onUnmounted(() => {
         <!-- Error display -->
         <Alert v-if="error" variant="destructive">
           <AlertTitle>Query Error</AlertTitle>
-          <AlertDescription class="font-mono text-xs">
+          <AlertDescription class="whitespace-pre-wrap font-mono text-xs">
             {{ error }}
           </AlertDescription>
         </Alert>

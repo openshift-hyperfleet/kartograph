@@ -14,12 +14,14 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import type { MutationResult } from '~/types'
 
 const { applyMutations } = useGraphApi()
+const { extractErrorMessage } = useErrorHandler()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
 const editorContent = ref('')
 const submitting = ref(false)
 const lastResult = ref<MutationResult | null>(null)
+const apiError = ref<string | null>(null)
 const validationErrors = ref<string[]>([])
 const isDragOver = ref(false)
 
@@ -40,12 +42,12 @@ const templates: MutationTemplate[] = [
   {
     name: 'Create Node',
     description: 'Create a new node instance',
-    content: '{"op": "CREATE", "type": "node", "label": "person", "id": "person:a1b2c3d4e5f67890", "set_properties": {"name": "Alice", "slug": "alice"}}',
+    content: '{"op": "CREATE", "type": "node", "label": "person", "id": "person:a1b2c3d4e5f67890", "set_properties": {"name": "Alice", "slug": "alice", "data_source_id": "dev-ui", "source_path": "manual"}}',
   },
   {
     name: 'Create Edge',
     description: 'Create a relationship between nodes',
-    content: '{"op": "CREATE", "type": "edge", "label": "knows", "id": "knows:a1b2c3d4e5f67890", "start_id": "person:a1b2c3d4e5f67890", "end_id": "person:f6e5d4c3b2a10987", "set_properties": {}}',
+    content: '{"op": "CREATE", "type": "edge", "label": "knows", "id": "knows:a1b2c3d4e5f67890", "start_id": "person:a1b2c3d4e5f67890", "end_id": "person:f6e5d4c3b2a10987", "set_properties": {"data_source_id": "dev-ui", "source_path": "manual"}}',
   },
   {
     name: 'Update Node',
@@ -111,6 +113,7 @@ function validateJsonl(): boolean {
 
 async function handleSubmit() {
   lastResult.value = null
+  apiError.value = null
   if (!validateJsonl()) return
 
   submitting.value = true
@@ -125,9 +128,9 @@ async function handleSubmit() {
       })
     }
   } catch (err) {
-    toast.error('Failed to apply mutations', {
-      description: err instanceof Error ? err.message : 'Unknown error',
-    })
+    const message = extractErrorMessage(err)
+    apiError.value = message
+    toast.error('Failed to apply mutations', { description: message })
   } finally {
     submitting.value = false
   }
@@ -136,6 +139,7 @@ async function handleSubmit() {
 function clearEditor() {
   editorContent.value = ''
   lastResult.value = null
+  apiError.value = null
   validationErrors.value = []
 }
 
@@ -301,6 +305,15 @@ function handleDragLeave() {
             <ul class="mt-1 list-inside list-disc space-y-0.5 text-sm">
               <li v-for="(error, idx) in validationErrors" :key="idx">{{ error }}</li>
             </ul>
+          </AlertDescription>
+        </Alert>
+
+        <!-- API error -->
+        <Alert v-if="apiError" variant="destructive">
+          <XCircle class="size-4" />
+          <AlertTitle>Request Failed</AlertTitle>
+          <AlertDescription class="font-mono text-xs">
+            {{ apiError }}
           </AlertDescription>
         </Alert>
 

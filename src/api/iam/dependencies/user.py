@@ -13,7 +13,7 @@ from iam.application.observability import (
 )
 from iam.application.services import UserService
 from iam.application.services.api_key_service import APIKeyService
-from iam.application.value_objects import CurrentUser
+from iam.application.value_objects import AuthenticatedUser, CurrentUser
 from iam.domain.value_objects import TenantId, UserId
 from iam.dependencies.authentication import (
     get_authentication_probe,
@@ -192,6 +192,88 @@ async def resolve_tenant_context(
     # Neither JWT nor API key - authentication will fail in
     # get_current_user_no_jit. Return a placeholder.
     return TenantContext(tenant_id="", source="header")
+
+
+async def get_authenticated_user(
+    validator: Annotated[JWTValidator, Depends(get_jwt_validator)],
+    api_key_service: Annotated[APIKeyService, Depends(get_api_key_service)],
+    auth_probe: Annotated[AuthenticationProbe, Depends(get_authentication_probe)],
+    token: Annotated[str | None, Depends(oauth2_scheme)] = None,
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+) -> AuthenticatedUser:
+    """Authenticate via JWT Bearer token or X-API-Key header without tenant context.
+
+    Returns an AuthenticatedUser with user_id and username only.
+    Does NOT resolve tenant context — use this for endpoints that need
+    authentication but not tenant scoping (e.g., listing or creating tenants).
+
+    Tries JWT first (if Authorization: Bearer present), then API Key.
+
+    Args:
+        validator: JWT validator for token validation
+        api_key_service: The API key service for validation
+        auth_probe: Authentication probe for observability
+        token: Bearer token from Authorization header
+        x_api_key: API key from X-API-Key header
+
+    Returns:
+        AuthenticatedUser with user_id and username (no tenant_id)
+
+    Raises:
+        HTTPException 401: If neither auth method succeeds
+    """
+    www_authenticate = "Bearer, API-Key"
+
+    # Try JWT first
+    if token is not None:
+        try:
+            claims = await validator.validate_token(token)
+            user_id = UserId(value=claims.sub)
+            username = claims.preferred_username or claims.sub
+
+            auth_probe.user_authenticated(user_id=claims.sub, username=username)
+
+            return AuthenticatedUser(
+                user_id=user_id,
+                username=username,
+            )
+
+        except InvalidTokenError as e:
+            auth_probe.authentication_failed(reason=str(e))
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=str(e),
+                headers={"WWW-Authenticate": www_authenticate},
+            ) from e
+
+    # Try API Key
+    if x_api_key is not None:
+        api_key = await api_key_service.validate_and_get_key(x_api_key)
+        if api_key is None:
+            auth_probe.api_key_authentication_failed(reason="invalid_or_expired")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired API key",
+                headers={"WWW-Authenticate": www_authenticate},
+            )
+
+        auth_probe.api_key_authentication_succeeded(
+            api_key_id=api_key.id.value,
+            user_id=api_key.created_by_user_id.value,
+        )
+
+        return AuthenticatedUser(
+            user_id=api_key.created_by_user_id,
+            username=f"api-key:{api_key.id}",
+        )
+
+    # Neither provided
+    auth_probe.authentication_failed(reason="Missing authorization")
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+        headers={"WWW-Authenticate": www_authenticate},
+    )
 
 
 async def get_current_user_no_jit(

@@ -18,8 +18,25 @@ from iam.domain.value_objects import (
 
 
 @dataclass(frozen=True)
+class AuthenticatedUser:
+    """Represents a user who has been authenticated but not yet scoped to a tenant.
+
+    Used for endpoints that need authentication but not tenant context,
+    such as listing available tenants or creating a new tenant. This solves
+    the chicken-and-egg problem where users need to interact with tenant
+    endpoints before they have a tenant context.
+
+    This is an application-layer concept (not domain) because it represents
+    the authentication context of the request, not a core business entity.
+    """
+
+    user_id: UserId
+    username: str
+
+
+@dataclass(frozen=True)
 class CurrentUser:
-    """Represents the currently authenticated user.
+    """Represents the currently authenticated user with tenant context.
 
     This is extracted from authentication headers and used throughout
     the request lifecycle. In production, this comes from JWT claims.

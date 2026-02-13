@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  Users, Plus, Trash2, Loader2, Search, Info,
-  UserPlus, X, Pencil, Check, Building2, UserCircle,
+  Users, Plus, Trash2, Loader2, Search,
+  UserPlus, UserCircle, X, Pencil, Check, Building2,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,7 +26,7 @@ import { CopyableText } from '@/components/ui/copyable-text'
 import type { GroupResponse, GroupMemberResponse, GroupRole } from '~/types'
 
 const {
-  listGroups, createGroup, getGroup, deleteGroup, updateGroup,
+  listGroups, createGroup, deleteGroup, updateGroup,
   listGroupMembers, addGroupMember, updateGroupMemberRole, removeGroupMember,
 } = useIamApi()
 const { extractErrorMessage } = useErrorHandler()
@@ -37,14 +37,13 @@ const { hasTenant, tenantVersion } = useTenant()
 const groups = ref<GroupResponse[]>([])
 const loading = ref(true)
 
+// Search / filter
+const searchQuery = ref('')
+
 // Create dialog
 const createDialogOpen = ref(false)
 const createFormName = ref('')
 const isCreating = ref(false)
-
-// Lookup
-const lookupId = ref('')
-const isLookingUp = ref(false)
 
 // Delete dialog
 const deleteDialogOpen = ref(false)
@@ -73,6 +72,16 @@ const updatingRoleFor = ref<string | null>(null)
 const showRemoveMemberDialog = ref(false)
 const memberToRemove = ref<GroupMemberResponse | null>(null)
 const removingMember = ref(false)
+
+// ── Search filtering ───────────────────────────────────────────────────────
+
+const filteredGroups = computed(() => {
+  const q = searchQuery.value.toLowerCase().trim()
+  if (!q) return groups.value
+  return groups.value.filter((group) =>
+    group.name.toLowerCase().includes(q),
+  )
+})
 
 // ── Data loading ───────────────────────────────────────────────────────────
 
@@ -109,6 +118,7 @@ function selectGroup(group: GroupResponse) {
   if (selectedGroup.value?.id === group.id) {
     selectedGroup.value = null
     members.value = []
+    editingName.value = false
     return
   }
   selectedGroup.value = group
@@ -116,7 +126,18 @@ function selectGroup(group: GroupResponse) {
   fetchMembers(group)
 }
 
+function closeDetails() {
+  selectedGroup.value = null
+  members.value = []
+  editingName.value = false
+}
+
 // ── Create ─────────────────────────────────────────────────────────────────
+
+function openCreateDialog() {
+  createFormName.value = ''
+  createDialogOpen.value = true
+}
 
 async function handleCreate() {
   if (!createFormName.value.trim()) {
@@ -136,33 +157,6 @@ async function handleCreate() {
   } finally {
     createDialogOpen.value = false
     isCreating.value = false
-  }
-}
-
-// ── Look Up ────────────────────────────────────────────────────────────────
-
-async function handleLookup() {
-  const id = lookupId.value.trim()
-  if (!id) {
-    toast.error('Please enter a Group ID')
-    return
-  }
-  if (groups.value.some((g) => g.id === id)) {
-    toast.info('Group is already displayed')
-    return
-  }
-  isLookingUp.value = true
-  try {
-    const group = await getGroup(id)
-    groups.value.unshift(group)
-    lookupId.value = ''
-    toast.success(`Found group "${group.name}"`)
-  } catch (err: unknown) {
-    toast.error('Group not found', {
-      description: extractErrorMessage(err),
-    })
-  } finally {
-    isLookingUp.value = false
   }
 }
 
@@ -327,45 +321,13 @@ watch(tenantVersion, () => {
         <Users class="size-6 text-muted-foreground" />
         <div>
           <h1 class="text-2xl font-bold tracking-tight">Groups</h1>
-          <p class="text-sm text-muted-foreground">Create and manage user groups</p>
+          <p class="text-sm text-muted-foreground">Create and manage user groups for permissions</p>
         </div>
       </div>
-
-      <!-- Create Group Dialog -->
-      <Dialog v-model:open="createDialogOpen">
-        <Button :disabled="!hasTenant" @click="createDialogOpen = true">
-          <Plus class="mr-2 size-4" />
-          Create Group
-        </Button>
-        <DialogContent class="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create Group</DialogTitle>
-            <DialogDescription>
-              Create a new group to organize users and manage permissions.
-            </DialogDescription>
-          </DialogHeader>
-          <form @submit.prevent="handleCreate" class="space-y-4">
-            <div class="space-y-2">
-              <Label for="group-name">Name <span class="text-destructive">*</span></Label>
-              <Input
-                id="group-name"
-                v-model="createFormName"
-                placeholder="e.g. Engineering Team"
-                :disabled="isCreating"
-                @keydown.enter="handleCreate"
-              />
-            </div>
-            <DialogFooter>
-              <DialogClose as-child>
-                <Button type="button" variant="outline" :disabled="isCreating">Cancel</Button>
-              </DialogClose>
-              <Button type="submit" :disabled="isCreating || !createFormName.trim()">
-                {{ isCreating ? 'Creating...' : 'Create' }}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <Button :disabled="!hasTenant" @click="openCreateDialog">
+        <Plus class="mr-2 size-4" />
+        Create Group
+      </Button>
     </div>
 
     <Separator />
@@ -374,259 +336,286 @@ watch(tenantVersion, () => {
     <div v-if="!hasTenant" class="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
       <Building2 class="size-10" />
       <p class="font-medium">No tenant selected</p>
-      <p class="text-sm">Select a tenant from the header to view groups.</p>
+      <p class="text-sm">Select a tenant from the sidebar to view groups.</p>
     </div>
 
     <template v-else>
 
-    <!-- Lookup by ID -->
-    <Card>
-      <CardHeader>
-        <CardTitle class="text-base">Look Up Group</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <form @submit.prevent="handleLookup" class="flex gap-3">
-          <Input
-            v-model="lookupId"
-            placeholder="Enter Group ID"
-            class="max-w-sm font-mono text-sm"
-            :disabled="isLookingUp"
-            @keydown.enter="handleLookup"
-          />
-          <Button type="submit" variant="secondary" :disabled="isLookingUp || !lookupId.trim()" @click="handleLookup">
-            <Search class="mr-2 size-4" />
-            {{ isLookingUp ? 'Searching...' : 'Look Up' }}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+    <!-- Search filter -->
+    <div v-if="!loading && groups.length > 0" class="relative">
+      <Search class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        v-model="searchQuery"
+        placeholder="Filter groups..."
+        class="pl-9"
+      />
+    </div>
 
-    <!-- Groups grid: list + details sidebar -->
-    <div class="grid gap-6" :class="selectedGroup ? 'lg:grid-cols-[1fr_320px]' : ''">
-      <!-- Group list -->
-      <div class="rounded-md border">
-        <!-- Loading -->
-        <div v-if="loading" class="flex items-center justify-center gap-2 py-12 text-muted-foreground">
-          <Loader2 class="size-4 animate-spin" />
-          Loading groups...
-        </div>
-
-        <!-- Empty -->
-        <div v-else-if="groups.length === 0" class="py-12 text-center text-muted-foreground">
-          <Users class="mx-auto size-12 text-muted-foreground/50" />
-          <h3 class="mt-4 text-lg font-semibold">No groups found</h3>
-          <p class="mt-1 text-sm">
-            Create a new group or look up an existing one by ID.
-          </p>
-          <Button variant="outline" size="sm" class="mt-4" @click="createDialogOpen = true">
-            <Plus class="mr-2 size-4" />
-            Create Group
-          </Button>
-        </div>
-
-        <!-- Group rows -->
-        <div v-else class="divide-y">
-          <div
-            v-for="group in groups"
-            :key="group.id"
-            class="flex items-center gap-2 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer"
-            :class="[
-              selectedGroup?.id === group.id ? 'bg-muted' : '',
-            ]"
-            @click="selectGroup(group)"
-          >
-            <Users class="size-4 shrink-0 text-muted-foreground" />
-            <span class="flex-1 text-sm font-medium">{{ group.name }}</span>
-            <Badge variant="secondary">
-              {{ group.members.length }} {{ group.members.length === 1 ? 'member' : 'members' }}
-            </Badge>
-            <Button
-              variant="ghost"
-              size="icon"
-              class="size-7 shrink-0 text-destructive hover:text-destructive"
-              title="Delete group"
-              :aria-label="`Delete group ${group.name}`"
-              @click.stop="confirmDelete(group)"
-            >
-              <Trash2 class="size-3.5" />
-            </Button>
-          </div>
-        </div>
+    <!-- Group list -->
+    <div class="rounded-md border">
+      <!-- Loading -->
+      <div v-if="loading" class="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+        <Loader2 class="size-4 animate-spin" />
+        Loading groups...
       </div>
 
-      <!-- Details sidebar -->
-      <Card v-if="selectedGroup" class="self-start">
-        <CardHeader class="pb-3">
-          <div class="flex items-center justify-between">
-            <CardTitle class="flex items-center gap-2 text-base">
-              <Info class="size-4" />
-              Group Details
-            </CardTitle>
-            <Button variant="ghost" size="icon" class="size-7" @click="selectedGroup = null; members = []">
+      <!-- Empty (no groups) -->
+      <div v-else-if="groups.length === 0" class="py-12 text-center text-muted-foreground">
+        <Users class="mx-auto size-12 text-muted-foreground/50" />
+        <h3 class="mt-4 text-lg font-semibold">No groups found</h3>
+        <p class="mt-1 text-sm">
+          Create a group to organize users and manage permissions.
+        </p>
+        <Button variant="outline" size="sm" class="mt-4" @click="openCreateDialog">
+          <Plus class="mr-2 size-4" />
+          Create Group
+        </Button>
+      </div>
+
+      <!-- Empty (search has no results) -->
+      <div v-else-if="filteredGroups.length === 0" class="py-12 text-center text-muted-foreground">
+        <Search class="mx-auto size-12 text-muted-foreground/50" />
+        <h3 class="mt-4 text-lg font-semibold">No matching groups</h3>
+        <p class="mt-1 text-sm">No groups match "{{ searchQuery }}".</p>
+      </div>
+
+      <!-- Group rows -->
+      <div v-else role="list" aria-label="Groups" class="divide-y">
+        <div
+          v-for="group in filteredGroups"
+          :key="group.id"
+          role="listitem"
+          class="flex items-center gap-2 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer"
+          :class="[
+            selectedGroup?.id === group.id ? 'bg-muted' : '',
+          ]"
+          :aria-label="`Select group ${group.name}`"
+          :aria-selected="selectedGroup?.id === group.id"
+          @click="selectGroup(group)"
+        >
+          <Users class="size-4 shrink-0 text-muted-foreground" />
+          <span class="flex-1 text-sm font-medium">{{ group.name }}</span>
+          <Badge variant="secondary">
+            {{ group.members.length }} {{ group.members.length === 1 ? 'member' : 'members' }}
+          </Badge>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="size-7 shrink-0 text-destructive hover:text-destructive"
+            title="Delete group"
+            :aria-label="`Delete group ${group.name}`"
+            @click.stop="confirmDelete(group)"
+          >
+            <Trash2 class="size-3.5" />
+          </Button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Selected group details + members (inline, below list) -->
+    <Card v-if="selectedGroup">
+      <CardHeader class="pb-3">
+        <div class="flex items-center justify-between">
+          <CardTitle class="flex items-center gap-2 text-base">
+            <Users class="size-4" />
+            {{ selectedGroup.name }}
+          </CardTitle>
+          <div class="flex items-center gap-1">
+            <Button
+              v-if="!editingName"
+              variant="ghost"
+              size="icon"
+              class="size-7 text-muted-foreground hover:text-foreground"
+              title="Rename group"
+              @click="startRename"
+            >
+              <Pencil class="size-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" class="size-7" @click="closeDetails">
               <X class="size-4" />
             </Button>
           </div>
-        </CardHeader>
-        <CardContent class="space-y-3 text-sm">
-          <div>
-            <span class="text-muted-foreground">Name</span>
-            <div v-if="editingName" class="mt-1 flex items-center gap-1.5">
-              <Input
-                v-model="editNameValue"
-                class="h-8 text-sm"
-                @keydown.enter="handleRename"
-                @keydown.escape="cancelRename"
-              />
-              <Button
-                variant="ghost"
-                size="icon"
-                class="size-7 shrink-0 text-green-600 hover:text-green-700"
-                :disabled="savingName || !editNameValue.trim()"
-                @click="handleRename"
-              >
-                <Loader2 v-if="savingName" class="size-3.5 animate-spin" />
-                <Check v-else class="size-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                class="size-7 shrink-0"
-                :disabled="savingName"
-                @click="cancelRename"
-              >
-                <X class="size-3.5" />
-              </Button>
-            </div>
-            <div v-else class="flex items-center gap-1.5">
-              <p class="font-medium">{{ selectedGroup.name }}</p>
-              <Button
-                variant="ghost"
-                size="icon"
-                class="size-6 shrink-0 text-muted-foreground hover:text-foreground"
-                title="Rename group"
-                @click="startRename"
-              >
-                <Pencil class="size-3" />
-              </Button>
-            </div>
-          </div>
+        </div>
+      </CardHeader>
+      <CardContent class="space-y-6">
+        <!-- Rename inline -->
+        <div v-if="editingName" class="flex items-center gap-2">
+          <Input
+            v-model="editNameValue"
+            class="h-8 max-w-xs text-sm"
+            @keydown.enter="handleRename"
+            @keydown.escape="cancelRename"
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            class="size-7 shrink-0 text-green-600 hover:text-green-700"
+            :disabled="savingName || !editNameValue.trim()"
+            @click="handleRename"
+          >
+            <Loader2 v-if="savingName" class="size-3.5 animate-spin" />
+            <Check v-else class="size-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="size-7 shrink-0"
+            :disabled="savingName"
+            @click="cancelRename"
+          >
+            <X class="size-3.5" />
+          </Button>
+        </div>
+
+        <!-- Metadata grid -->
+        <div class="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-3">
           <div>
             <span class="text-muted-foreground">ID</span>
             <CopyableText :text="selectedGroup.id" :truncate="false" label="Group ID copied" />
           </div>
-        </CardContent>
-      </Card>
-    </div>
-
-    <!-- Members panel (full-width, below grid) -->
-    <Card v-if="selectedGroup">
-      <CardHeader>
-        <div class="flex items-center justify-between">
-          <CardTitle class="flex items-center gap-2 text-lg">
-            <Users class="size-5" />
-            Members of "{{ selectedGroup.name }}"
-          </CardTitle>
-          <Badge v-if="members.length > 0" variant="secondary">
-            {{ members.length }} {{ members.length === 1 ? 'member' : 'members' }}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent class="space-y-4">
-        <!-- Add member form -->
-        <div class="flex items-end gap-3">
-          <div class="flex-1 space-y-1.5">
-            <Label for="grp-member-id">User ID <span class="text-destructive">*</span></Label>
-            <Input
-              id="grp-member-id"
-              v-model="newMemberId"
-              placeholder="Enter user ID..."
-            />
-          </div>
-          <div class="w-32 space-y-1.5">
-            <Label>Role</Label>
-            <Select v-model="newMemberRole">
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="admin">Admin</SelectItem>
-                <SelectItem value="member">Member</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <Button :disabled="addingMember || !newMemberId.trim()" @click="handleAddMember">
-            <Loader2 v-if="addingMember" class="mr-2 size-4 animate-spin" />
-            <UserPlus v-else class="mr-2 size-4" />
-            Add
-          </Button>
         </div>
 
         <Separator />
 
-        <!-- Members table -->
-        <div class="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>User ID</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead class="w-[80px] text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow v-if="membersLoading">
-                <TableCell colspan="3" class="h-16 text-center">
-                  <div class="flex items-center justify-center gap-2 text-muted-foreground">
-                    <Loader2 class="size-4 animate-spin" />
-                    Loading members...
-                  </div>
-                </TableCell>
-              </TableRow>
-              <TableEmpty v-else-if="members.length === 0" :colspan="3">
-                No members in this group.
-              </TableEmpty>
-              <TableRow v-for="member in members" v-else :key="member.user_id">
-                <TableCell>
-                  <div class="flex items-center gap-2">
-                    <UserCircle class="size-4 text-muted-foreground" />
-                    <CopyableText :text="member.user_id" label="User ID copied" :truncate="false" />
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Select
-                    :model-value="member.role"
-                    :disabled="updatingRoleFor === member.user_id"
-                    @update:model-value="(val: GroupRole) => handleRoleChange(member, val)"
-                  >
-                    <SelectTrigger class="h-8 w-[120px] text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="member">Member</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </TableCell>
-                <TableCell class="text-right">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    class="text-destructive hover:text-destructive"
-                    title="Remove member"
-                    :aria-label="`Remove user ${member.user_id}`"
-                    @click="confirmRemoveMember(member)"
-                  >
-                    <Trash2 class="size-4" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
+        <!-- Members section -->
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="flex items-center gap-2 text-sm font-semibold">
+              <Users class="size-4" />
+              Members
+            </h3>
+            <Badge v-if="members.length > 0" variant="secondary">
+              {{ members.length }} {{ members.length === 1 ? 'member' : 'members' }}
+            </Badge>
+          </div>
+
+          <!-- Add member form -->
+          <div class="flex items-end gap-3 mb-4">
+            <div class="flex-1 space-y-1.5">
+              <Label for="grp-member-id">User ID <span class="text-destructive">*</span></Label>
+              <Input
+                id="grp-member-id"
+                v-model="newMemberId"
+                placeholder="Enter user ID..."
+              />
+            </div>
+            <div class="w-32 space-y-1.5">
+              <Label>Role</Label>
+              <Select v-model="newMemberRole">
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="member">Member</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button :disabled="addingMember || !newMemberId.trim()" @click="handleAddMember">
+              <Loader2 v-if="addingMember" class="mr-2 size-4 animate-spin" />
+              <UserPlus v-else class="mr-2 size-4" />
+              Add
+            </Button>
+          </div>
+
+          <!-- Members table -->
+          <div class="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>User ID</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead class="w-[80px] text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow v-if="membersLoading">
+                  <TableCell colspan="3" class="h-16 text-center">
+                    <div class="flex items-center justify-center gap-2 text-muted-foreground">
+                      <Loader2 class="size-4 animate-spin" />
+                      Loading members...
+                    </div>
+                  </TableCell>
+                </TableRow>
+                <TableEmpty v-else-if="members.length === 0" :colspan="3">
+                  No members in this group.
+                </TableEmpty>
+                <TableRow v-for="member in members" v-else :key="member.user_id">
+                  <TableCell>
+                    <div class="flex items-center gap-2">
+                      <UserCircle class="size-4 text-muted-foreground" />
+                      <CopyableText :text="member.user_id" label="User ID copied" :truncate="false" />
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Select
+                      :model-value="member.role"
+                      :disabled="updatingRoleFor === member.user_id"
+                      @update:model-value="(val: GroupRole) => handleRoleChange(member, val)"
+                    >
+                      <SelectTrigger class="h-8 w-[120px] text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="admin">Admin</SelectItem>
+                        <SelectItem value="member">Member</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell class="text-right">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      class="text-destructive hover:text-destructive"
+                      title="Remove member"
+                      :aria-label="`Remove user ${member.user_id}`"
+                      @click="confirmRemoveMember(member)"
+                    >
+                      <Trash2 class="size-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
         </div>
       </CardContent>
     </Card>
 
     </template>
+
+    <!-- Create Group Dialog -->
+    <Dialog v-model:open="createDialogOpen">
+      <DialogContent class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Create Group</DialogTitle>
+          <DialogDescription>
+            Create a new group to organize users and manage permissions.
+          </DialogDescription>
+        </DialogHeader>
+        <form class="space-y-4" @submit.prevent="handleCreate">
+          <div class="space-y-2">
+            <Label for="group-name">Name <span class="text-destructive">*</span></Label>
+            <Input
+              id="group-name"
+              v-model="createFormName"
+              placeholder="e.g. Engineering Team"
+              :disabled="isCreating"
+              @keydown.enter="handleCreate"
+            />
+          </div>
+          <DialogFooter>
+            <DialogClose as-child>
+              <Button type="button" variant="outline" :disabled="isCreating">Cancel</Button>
+            </DialogClose>
+            <Button type="submit" :disabled="isCreating || !createFormName.trim()">
+              <Loader2 v-if="isCreating" class="mr-2 size-4 animate-spin" />
+              Create
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
 
     <!-- Delete Confirmation Dialog -->
     <Dialog v-model:open="deleteDialogOpen">
@@ -644,7 +633,8 @@ watch(tenantVersion, () => {
             <Button variant="outline" :disabled="isDeleting">Cancel</Button>
           </DialogClose>
           <Button variant="destructive" :disabled="isDeleting" @click="handleDelete">
-            {{ isDeleting ? 'Deleting...' : 'Delete' }}
+            <Loader2 v-if="isDeleting" class="mr-2 size-4 animate-spin" />
+            Delete
           </Button>
         </DialogFooter>
       </DialogContent>

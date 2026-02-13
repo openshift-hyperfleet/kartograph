@@ -2,8 +2,8 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  FolderTree, Plus, Trash2, Loader2, ChevronRight, ChevronDown, Info,
-  Users, UserPlus, X, Pencil, Check, Building2,
+  FolderTree, Plus, Trash2, Loader2, ChevronRight, ChevronDown,
+  Users, UserPlus, UserCircle, X, Pencil, Check, Building2, Search,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -37,6 +37,9 @@ const { hasTenant, tenantVersion } = useTenant()
 
 const workspaces = ref<WorkspaceResponse[]>([])
 const loading = ref(true)
+
+// Search / filter
+const searchQuery = ref('')
 
 // Create dialog
 const showCreateDialog = ref(false)
@@ -121,6 +124,16 @@ function flattenTree(nodes: WorkspaceNode[]): WorkspaceNode[] {
 }
 
 const flatNodes = computed(() => flattenTree(workspaceTree.value))
+
+// ── Search filtering ───────────────────────────────────────────────────────
+
+const filteredFlatNodes = computed(() => {
+  const q = searchQuery.value.toLowerCase().trim()
+  if (!q) return flatNodes.value
+  return flatNodes.value.filter((node) =>
+    node.workspace.name.toLowerCase().includes(q),
+  )
+})
 
 function toggleExpand(id: string) {
   if (expandedIds.value.has(id)) {
@@ -241,10 +254,18 @@ function selectWorkspace(ws: WorkspaceResponse) {
   if (selectedWorkspace.value?.id === ws.id) {
     selectedWorkspace.value = null
     members.value = []
+    editingName.value = false
     return
   }
   selectedWorkspace.value = ws
+  editingName.value = false
   fetchMembers(ws)
+}
+
+function closeDetails() {
+  selectedWorkspace.value = null
+  members.value = []
+  editingName.value = false
 }
 
 async function handleAddMember() {
@@ -380,7 +401,10 @@ watch(tenantVersion, () => {
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-3">
         <FolderTree class="size-6 text-muted-foreground" />
-        <h1 class="text-2xl font-bold tracking-tight">Workspaces</h1>
+        <div>
+          <h1 class="text-2xl font-bold tracking-tight">Workspaces</h1>
+          <p class="text-sm text-muted-foreground">Organize resources with hierarchical workspaces</p>
+        </div>
       </div>
       <Button :disabled="!hasTenant" @click="openCreateDialog">
         <Plus class="mr-2 size-4" />
@@ -388,137 +412,170 @@ watch(tenantVersion, () => {
       </Button>
     </div>
 
+    <Separator />
+
     <!-- No tenant selected -->
     <div v-if="!hasTenant" class="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
       <Building2 class="size-10" />
       <p class="font-medium">No tenant selected</p>
-      <p class="text-sm">Select a tenant from the header to view workspaces.</p>
+      <p class="text-sm">Select a tenant from the sidebar to view workspaces.</p>
     </div>
 
     <template v-else>
 
-    <div class="grid gap-6" :class="selectedWorkspace ? 'lg:grid-cols-[1fr_320px]' : ''">
-      <!-- Tree view -->
-      <div class="rounded-md border">
-        <!-- Loading -->
-        <div v-if="loading" class="flex items-center justify-center gap-2 py-12 text-muted-foreground">
-          <Loader2 class="size-4 animate-spin" />
-          Loading workspaces...
-        </div>
+    <!-- Search filter -->
+    <div v-if="!loading && workspaces.length > 0" class="relative">
+      <Search class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        v-model="searchQuery"
+        placeholder="Filter workspaces..."
+        class="pl-9"
+      />
+    </div>
 
-        <!-- Empty -->
-        <div v-else-if="workspaces.length === 0" class="py-12 text-center text-muted-foreground">
-          No workspaces found. Create one to get started.
-        </div>
-
-        <!-- Tree rows -->
-        <div v-else class="divide-y">
-          <div
-            v-for="node in flatNodes"
-            :key="node.workspace.id"
-            class="flex items-center gap-2 px-4 py-2.5 transition-colors hover:bg-muted/50"
-            :class="[
-              selectedWorkspace?.id === node.workspace.id ? 'bg-muted' : '',
-            ]"
-            :style="{ paddingLeft: `${node.depth * 24 + 16}px` }"
-          >
-            <!-- Expand/collapse toggle -->
-            <button
-              v-if="node.children.length > 0"
-              class="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-              :aria-label="expandedIds.has(node.workspace.id) ? `Collapse ${node.workspace.name}` : `Expand ${node.workspace.name}`"
-              @click="toggleExpand(node.workspace.id)"
-            >
-              <ChevronDown v-if="expandedIds.has(node.workspace.id)" class="size-4" />
-              <ChevronRight v-else class="size-4" />
-            </button>
-            <div v-else class="size-5 shrink-0" />
-
-            <!-- Workspace info -->
-            <button
-              class="flex flex-1 items-center gap-2 text-left"
-              :aria-label="`Select workspace ${node.workspace.name}`"
-              @click="selectWorkspace(node.workspace)"
-            >
-              <FolderTree class="size-4 shrink-0 text-muted-foreground" />
-              <span class="text-sm font-medium">{{ node.workspace.name }}</span>
-              <Badge v-if="node.workspace.is_root" variant="outline" class="text-[10px]">
-                Root
-              </Badge>
-            </button>
-
-            <!-- Actions -->
-            <Button
-              v-if="!node.workspace.is_root"
-              variant="ghost"
-              size="icon"
-              class="size-7 shrink-0 text-destructive hover:text-destructive"
-              title="Delete workspace"
-              :aria-label="`Delete workspace ${node.workspace.name}`"
-              @click.stop="confirmDelete(node.workspace)"
-            >
-              <Trash2 class="size-3.5" />
-            </Button>
-          </div>
-        </div>
+    <!-- Tree view -->
+    <div class="rounded-md border">
+      <!-- Loading -->
+      <div v-if="loading" class="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+        <Loader2 class="size-4 animate-spin" />
+        Loading workspaces...
       </div>
 
-      <!-- Details panel (sidebar) -->
-      <Card v-if="selectedWorkspace" class="self-start">
-        <CardHeader class="pb-3">
-          <div class="flex items-center justify-between">
-            <CardTitle class="flex items-center gap-2 text-base">
-              <Info class="size-4" />
-              Workspace Details
-            </CardTitle>
-            <Button variant="ghost" size="icon" class="size-7" @click="selectedWorkspace = null; members = []">
+      <!-- Empty (no workspaces) -->
+      <div v-else-if="workspaces.length === 0" class="py-12 text-center text-muted-foreground">
+        <FolderTree class="mx-auto size-12 text-muted-foreground/50" />
+        <h3 class="mt-4 text-lg font-semibold">No workspaces found</h3>
+        <p class="mt-1 text-sm">
+          Create a workspace to organize your resources.
+        </p>
+        <Button variant="outline" size="sm" class="mt-4" @click="openCreateDialog">
+          <Plus class="mr-2 size-4" />
+          Create Workspace
+        </Button>
+      </div>
+
+      <!-- Empty (search has no results) -->
+      <div v-else-if="filteredFlatNodes.length === 0" class="py-12 text-center text-muted-foreground">
+        <Search class="mx-auto size-12 text-muted-foreground/50" />
+        <h3 class="mt-4 text-lg font-semibold">No matching workspaces</h3>
+        <p class="mt-1 text-sm">No workspaces match "{{ searchQuery }}".</p>
+      </div>
+
+      <!-- Tree rows -->
+      <div v-else role="list" aria-label="Workspaces" class="divide-y">
+        <div
+          v-for="node in filteredFlatNodes"
+          :key="node.workspace.id"
+          role="listitem"
+          class="relative flex items-center gap-2 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer"
+          :class="[
+            selectedWorkspace?.id === node.workspace.id ? 'bg-muted' : '',
+          ]"
+          :style="{ paddingLeft: `${node.depth * 24 + 16}px` }"
+          :aria-label="`Select workspace ${node.workspace.name}`"
+          :aria-selected="selectedWorkspace?.id === node.workspace.id"
+          @click="selectWorkspace(node.workspace)"
+        >
+          <!-- Tree guide lines -->
+          <span
+            v-if="node.depth > 0"
+            class="absolute top-0 bottom-0 border-l border-border"
+            :style="{ left: `${(node.depth - 1) * 24 + 28}px` }"
+            aria-hidden="true"
+          />
+
+          <!-- Expand/collapse toggle -->
+          <button
+            v-if="node.children.length > 0"
+            class="relative z-10 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+            :aria-label="expandedIds.has(node.workspace.id) ? `Collapse ${node.workspace.name}` : `Expand ${node.workspace.name}`"
+            @click.stop="toggleExpand(node.workspace.id)"
+          >
+            <ChevronDown v-if="expandedIds.has(node.workspace.id)" class="size-4" />
+            <ChevronRight v-else class="size-4" />
+          </button>
+          <div v-else class="size-5 shrink-0" />
+
+          <!-- Workspace info -->
+          <FolderTree class="size-4 shrink-0 text-muted-foreground" />
+          <span class="flex-1 text-sm font-medium">{{ node.workspace.name }}</span>
+          <Badge v-if="node.workspace.is_root" variant="outline" class="text-[10px]">
+            Root
+          </Badge>
+
+          <!-- Actions -->
+          <Button
+            v-if="!node.workspace.is_root"
+            variant="ghost"
+            size="icon"
+            class="size-7 shrink-0 text-destructive hover:text-destructive"
+            title="Delete workspace"
+            :aria-label="`Delete workspace ${node.workspace.name}`"
+            @click.stop="confirmDelete(node.workspace)"
+          >
+            <Trash2 class="size-3.5" />
+          </Button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Selected workspace details + members (inline, below tree) -->
+    <Card v-if="selectedWorkspace">
+      <CardHeader class="pb-3">
+        <div class="flex items-center justify-between">
+          <CardTitle class="flex items-center gap-2 text-base">
+            <FolderTree class="size-4" />
+            {{ selectedWorkspace.name }}
+          </CardTitle>
+          <div class="flex items-center gap-1">
+            <Button
+              v-if="!editingName"
+              variant="ghost"
+              size="icon"
+              class="size-7 text-muted-foreground hover:text-foreground"
+              title="Rename workspace"
+              @click="startRename"
+            >
+              <Pencil class="size-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" class="size-7" @click="closeDetails">
               <X class="size-4" />
             </Button>
           </div>
-        </CardHeader>
-        <CardContent class="space-y-3 text-sm">
-          <div>
-            <span class="text-muted-foreground">Name</span>
-            <div v-if="editingName" class="mt-1 flex items-center gap-1.5">
-              <Input
-                v-model="editNameValue"
-                class="h-8 text-sm"
-                @keydown.enter="handleRename"
-                @keydown.escape="cancelRename"
-              />
-              <Button
-                variant="ghost"
-                size="icon"
-                class="size-7 shrink-0 text-green-600 hover:text-green-700"
-                :disabled="savingName || !editNameValue.trim()"
-                @click="handleRename"
-              >
-                <Loader2 v-if="savingName" class="size-3.5 animate-spin" />
-                <Check v-else class="size-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                class="size-7 shrink-0"
-                :disabled="savingName"
-                @click="cancelRename"
-              >
-                <X class="size-3.5" />
-              </Button>
-            </div>
-            <div v-else class="flex items-center gap-1.5">
-              <p class="font-medium">{{ selectedWorkspace.name }}</p>
-              <Button
-                variant="ghost"
-                size="icon"
-                class="size-6 shrink-0 text-muted-foreground hover:text-foreground"
-                title="Rename workspace"
-                @click="startRename"
-              >
-                <Pencil class="size-3" />
-              </Button>
-            </div>
-          </div>
+        </div>
+      </CardHeader>
+      <CardContent class="space-y-6">
+        <!-- Rename inline -->
+        <div v-if="editingName" class="flex items-center gap-2">
+          <Input
+            v-model="editNameValue"
+            class="h-8 max-w-xs text-sm"
+            @keydown.enter="handleRename"
+            @keydown.escape="cancelRename"
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            class="size-7 shrink-0 text-green-600 hover:text-green-700"
+            :disabled="savingName || !editNameValue.trim()"
+            @click="handleRename"
+          >
+            <Loader2 v-if="savingName" class="size-3.5 animate-spin" />
+            <Check v-else class="size-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="size-7 shrink-0"
+            :disabled="savingName"
+            @click="cancelRename"
+          >
+            <X class="size-3.5" />
+          </Button>
+        </div>
+
+        <!-- Metadata grid -->
+        <div class="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-3 lg:grid-cols-4">
           <div>
             <span class="text-muted-foreground">ID</span>
             <CopyableText :text="selectedWorkspace.id" :truncate="false" label="Workspace ID copied" />
@@ -548,131 +605,131 @@ watch(tenantVersion, () => {
             <span class="text-muted-foreground">Updated</span>
             <p>{{ formatDate(selectedWorkspace.updated_at) }}</p>
           </div>
-        </CardContent>
-      </Card>
-    </div>
-
-    <!-- Members panel (full-width, below grid) -->
-    <Card v-if="selectedWorkspace">
-      <CardHeader>
-        <div class="flex items-center justify-between">
-          <CardTitle class="flex items-center gap-2 text-lg">
-            <Users class="size-5" />
-            Members of "{{ selectedWorkspace.name }}"
-          </CardTitle>
-          <Badge v-if="members.length > 0" variant="secondary">
-            {{ members.length }} {{ members.length === 1 ? 'member' : 'members' }}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent class="space-y-4">
-        <!-- Add member form -->
-        <div class="flex items-end gap-3">
-          <div class="flex-1 space-y-1.5">
-            <Label for="ws-member-id">Member ID <span class="text-destructive">*</span></Label>
-            <Input
-              id="ws-member-id"
-              v-model="newMemberId"
-              placeholder="Enter user or group ID..."
-            />
-          </div>
-          <div class="w-32 space-y-1.5">
-            <Label>Type</Label>
-            <Select v-model="newMemberType">
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="user">User</SelectItem>
-                <SelectItem value="group">Group</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div class="w-32 space-y-1.5">
-            <Label>Role</Label>
-            <Select v-model="newMemberRole">
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="admin">Admin</SelectItem>
-                <SelectItem value="editor">Editor</SelectItem>
-                <SelectItem value="member">Member</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <Button :disabled="addingMember || !newMemberId.trim()" @click="handleAddMember">
-            <Loader2 v-if="addingMember" class="mr-2 size-4 animate-spin" />
-            <UserPlus v-else class="mr-2 size-4" />
-            Add
-          </Button>
         </div>
 
         <Separator />
 
-        <!-- Members table -->
-        <div class="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Member ID</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead class="w-[80px] text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow v-if="membersLoading">
-                <TableCell colspan="4" class="h-16 text-center">
-                  <div class="flex items-center justify-center gap-2 text-muted-foreground">
-                    <Loader2 class="size-4 animate-spin" />
-                    Loading members...
-                  </div>
-                </TableCell>
-              </TableRow>
-              <TableEmpty v-else-if="members.length === 0" :colspan="4">
-                No members in this workspace.
-              </TableEmpty>
-              <TableRow v-for="member in members" v-else :key="`${member.member_type}-${member.member_id}`">
-                <TableCell>
-                  <CopyableText :text="member.member_id" label="Member ID copied" />
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline">
-                    {{ member.member_type }}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <Select
-                    :model-value="member.role"
-                    :disabled="updatingRoleFor === member.member_id"
-                    @update:model-value="(val: WorkspaceRole) => handleRoleChange(member, val)"
-                  >
-                    <SelectTrigger class="h-8 w-[120px] text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="editor">Editor</SelectItem>
-                      <SelectItem value="member">Member</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </TableCell>
-                <TableCell class="text-right">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    class="text-destructive hover:text-destructive"
-                    title="Remove member"
-                    :aria-label="`Remove ${member.member_type} ${member.member_id}`"
-                    @click="confirmRemoveMember(member)"
-                  >
-                    <Trash2 class="size-4" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
+        <!-- Members section -->
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="flex items-center gap-2 text-sm font-semibold">
+              <Users class="size-4" />
+              Members
+            </h3>
+            <Badge v-if="members.length > 0" variant="secondary">
+              {{ members.length }} {{ members.length === 1 ? 'member' : 'members' }}
+            </Badge>
+          </div>
+
+          <!-- Add member form -->
+          <div class="flex items-end gap-3 mb-4">
+            <div class="flex-1 space-y-1.5">
+              <Label for="ws-member-id">Member ID <span class="text-destructive">*</span></Label>
+              <Input
+                id="ws-member-id"
+                v-model="newMemberId"
+                placeholder="Enter user or group ID..."
+              />
+            </div>
+            <div class="w-32 space-y-1.5">
+              <Label>Type</Label>
+              <Select v-model="newMemberType">
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="user">User</SelectItem>
+                  <SelectItem value="group">Group</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div class="w-32 space-y-1.5">
+              <Label>Role</Label>
+              <Select v-model="newMemberRole">
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="editor">Editor</SelectItem>
+                  <SelectItem value="member">Member</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button :disabled="addingMember || !newMemberId.trim()" @click="handleAddMember">
+              <Loader2 v-if="addingMember" class="mr-2 size-4 animate-spin" />
+              <UserPlus v-else class="mr-2 size-4" />
+              Add
+            </Button>
+          </div>
+
+          <!-- Members table -->
+          <div class="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Member ID</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead class="w-[80px] text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow v-if="membersLoading">
+                  <TableCell colspan="4" class="h-16 text-center">
+                    <div class="flex items-center justify-center gap-2 text-muted-foreground">
+                      <Loader2 class="size-4 animate-spin" />
+                      Loading members...
+                    </div>
+                  </TableCell>
+                </TableRow>
+                <TableEmpty v-else-if="members.length === 0" :colspan="4">
+                  No members in this workspace.
+                </TableEmpty>
+                <TableRow v-for="member in members" v-else :key="`${member.member_type}-${member.member_id}`">
+                  <TableCell>
+                    <div class="flex items-center gap-2">
+                      <UserCircle class="size-4 text-muted-foreground" />
+                      <CopyableText :text="member.member_id" label="Member ID copied" />
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">
+                      {{ member.member_type }}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Select
+                      :model-value="member.role"
+                      :disabled="updatingRoleFor === member.member_id"
+                      @update:model-value="(val: WorkspaceRole) => handleRoleChange(member, val)"
+                    >
+                      <SelectTrigger class="h-8 w-[120px] text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="admin">Admin</SelectItem>
+                        <SelectItem value="editor">Editor</SelectItem>
+                        <SelectItem value="member">Member</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell class="text-right">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      class="text-destructive hover:text-destructive"
+                      title="Remove member"
+                      :aria-label="`Remove ${member.member_type} ${member.member_id}`"
+                      @click="confirmRemoveMember(member)"
+                    >
+                      <Trash2 class="size-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
         </div>
       </CardContent>
     </Card>

@@ -223,17 +223,28 @@ function browseType(label: string) {
 
 // ── Neighbor Exploration ───────────────────────────────────────────────────
 
+/** Resolve the application-level ID from a node record.
+ * The API may return AGE-internal numeric IDs as node.id; the real
+ * application ID (e.g., "class:a1b2c3d4e5f67890") lives in properties.id.
+ */
+function resolveNodeId(node: NodeRecord): string {
+  const propId = node.properties?.id
+  if (typeof propId === 'string' && propId) return propId
+  return node.id
+}
+
 async function exploreNeighbors(node: NodeRecord) {
-  if (expandedNeighbors.value === node.id) {
+  const nodeId = resolveNodeId(node)
+  if (expandedNeighbors.value === nodeId) {
     clearNeighborState()
     return
   }
 
-  neighborsLoading.value = node.id
-  expandedNeighbors.value = node.id
+  neighborsLoading.value = nodeId
+  expandedNeighbors.value = nodeId
 
   try {
-    const result = await getNodeNeighbors(node.id)
+    const result = await getNodeNeighbors(nodeId)
     centralNode.value = result.central_node
     neighborNodes.value = result.nodes
     neighborEdges.value = result.edges

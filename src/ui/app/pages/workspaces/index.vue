@@ -428,7 +428,7 @@ watch(tenantVersion, () => {
     <!-- Main content: list + optional desktop detail panel -->
     <div
       class="grid gap-6"
-      :class="selectedWorkspace && isDesktop ? 'lg:grid-cols-[1fr_minmax(400px,480px)]' : ''"
+      :class="selectedWorkspace && isDesktop ? 'lg:grid-cols-[1fr_minmax(580px,640px)]' : ''"
     >
       <!-- Tree view -->
       <div class="min-w-0 rounded-md border">

@@ -353,7 +353,7 @@ watch(tenantVersion, () => {
     <!-- Main content: list + optional desktop detail panel -->
     <div
       class="grid gap-6"
-      :class="selectedGroup && isDesktop ? 'lg:grid-cols-[1fr_minmax(400px,480px)]' : ''"
+      :class="selectedGroup && isDesktop ? 'lg:grid-cols-[1fr_minmax(580px,640px)]' : ''"
     >
       <!-- Group list -->
       <div class="min-w-0 rounded-md border">

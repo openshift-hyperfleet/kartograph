@@ -24,6 +24,10 @@ import {
   AlertTriangle,
   Loader2,
   Copy,
+  LayoutDashboard,
+  Cable,
+  Plug,
+  Settings2,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'

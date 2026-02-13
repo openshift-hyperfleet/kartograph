@@ -451,11 +451,41 @@ class TestCreateTenant:
         """Test that create_tenant creates a tenant."""
         mock_tenant_repo.save = AsyncMock()
         mock_workspace_repo.save = AsyncMock()
+        creator_id = UserId.from_string("creator-user-1")
 
-        tenant = await tenant_service.create_tenant(name="Acme Corp")
+        tenant = await tenant_service.create_tenant(
+            name="Acme Corp", creator_id=creator_id
+        )
 
         assert tenant.name == "Acme Corp"
         mock_tenant_repo.save.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_grants_creator_admin_access(
+        self, tenant_service, mock_tenant_repo, mock_workspace_repo
+    ):
+        """Test that create_tenant grants the creator admin access."""
+        mock_tenant_repo.save = AsyncMock()
+        mock_workspace_repo.save = AsyncMock()
+        creator_id = UserId.from_string("creator-user-1")
+
+        await tenant_service.create_tenant(name="Acme Corp", creator_id=creator_id)
+
+        # Verify the saved tenant has both TenantCreated and TenantMemberAdded events
+        saved_tenant = mock_tenant_repo.save.call_args[0][0]
+        events = saved_tenant.collect_events()
+
+        # Should have TenantCreated + TenantMemberAdded
+        from iam.domain.events import TenantCreated, TenantMemberAdded
+
+        event_types = [type(e) for e in events]
+        assert TenantCreated in event_types
+        assert TenantMemberAdded in event_types
+
+        # Verify the member added event has the right data
+        member_event = next(e for e in events if isinstance(e, TenantMemberAdded))
+        assert member_event.user_id == creator_id.value
+        assert member_event.role == TenantRole.ADMIN.value
 
     @pytest.mark.asyncio
     async def test_creates_root_workspace_on_tenant_creation(
@@ -464,8 +494,11 @@ class TestCreateTenant:
         """Test that creating a tenant auto-creates a root workspace."""
         mock_tenant_repo.save = AsyncMock()
         mock_workspace_repo.save = AsyncMock()
+        creator_id = UserId.from_string("creator-user-1")
 
-        tenant = await tenant_service.create_tenant(name="Acme Corp")
+        tenant = await tenant_service.create_tenant(
+            name="Acme Corp", creator_id=creator_id
+        )
 
         # Verify workspace_repository.save was called once
         mock_workspace_repo.save.assert_called_once()
@@ -483,6 +516,7 @@ class TestCreateTenant:
         """Test that root workspace uses default_workspace_name from settings."""
         mock_tenant_repo.save = AsyncMock()
         mock_workspace_repo.save = AsyncMock()
+        creator_id = UserId.from_string("creator-user-1")
 
         # Patch settings to return a custom default workspace name
         mock_settings = Mock()
@@ -492,7 +526,7 @@ class TestCreateTenant:
             "iam.application.services.tenant_service.get_iam_settings",
             return_value=mock_settings,
         ):
-            await tenant_service.create_tenant(name="Acme Corp")
+            await tenant_service.create_tenant(name="Acme Corp", creator_id=creator_id)
 
         saved_workspace = mock_workspace_repo.save.call_args[0][0]
         assert saved_workspace.name == "My Default Workspace"
@@ -504,6 +538,7 @@ class TestCreateTenant:
         """Test that root workspace falls back to tenant name when no settings default."""
         mock_tenant_repo.save = AsyncMock()
         mock_workspace_repo.save = AsyncMock()
+        creator_id = UserId.from_string("creator-user-1")
 
         # Patch settings to return None for default_workspace_name
         mock_settings = Mock()
@@ -513,10 +548,176 @@ class TestCreateTenant:
             "iam.application.services.tenant_service.get_iam_settings",
             return_value=mock_settings,
         ):
-            await tenant_service.create_tenant(name="Acme Corp")
+            await tenant_service.create_tenant(name="Acme Corp", creator_id=creator_id)
 
         saved_workspace = mock_workspace_repo.save.call_args[0][0]
         assert saved_workspace.name == "Acme Corp"
+
+
+class TestGetTenant:
+    """Tests for TenantService.get_tenant() with VIEW permission check."""
+
+    @pytest.mark.asyncio
+    async def test_returns_tenant_when_user_has_view_permission(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that get_tenant returns tenant when user has VIEW permission."""
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("user-123")
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        result = await tenant_service.get_tenant(tenant_id, user_id=user_id)
+
+        assert result is not None
+        assert result.id == tenant_id
+        assert result.name == "Acme Corp"
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_tenant_not_found(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that get_tenant returns None when tenant doesn't exist."""
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("user-123")
+
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=None)
+
+        result = await tenant_service.get_tenant(tenant_id, user_id=user_id)
+
+        assert result is None
+        # Should not check permission if tenant doesn't exist
+        mock_authz.check_permission.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_user_lacks_view_permission(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that get_tenant returns None when user lacks VIEW permission.
+
+        Acts as if tenant doesn't exist to avoid leaking information about
+        tenants the user cannot access.
+        """
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("user-123")
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_authz.check_permission = AsyncMock(return_value=False)
+
+        result = await tenant_service.get_tenant(tenant_id, user_id=user_id)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_checks_view_permission_via_spicedb(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that get_tenant checks VIEW permission with correct SpiceDB args."""
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("user-123")
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        await tenant_service.get_tenant(tenant_id, user_id=user_id)
+
+        mock_authz.check_permission.assert_called_once_with(
+            resource=f"tenant:{tenant_id.value}",
+            permission="view",
+            subject=f"user:{user_id.value}",
+        )
+
+
+class TestListTenants:
+    """Tests for TenantService.list_tenants() with VIEW permission filtering."""
+
+    @pytest.mark.asyncio
+    async def test_returns_only_tenants_user_can_view(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that list_tenants filters to tenants user has VIEW permission on."""
+        user_id = UserId.from_string("user-123")
+
+        tenant_a = Tenant(id=TenantId.generate(), name="Acme Corp")
+        tenant_b = Tenant(id=TenantId.generate(), name="Wayne Enterprises")
+        tenant_c = Tenant(id=TenantId.generate(), name="Stark Industries")
+
+        mock_tenant_repo.list_all = AsyncMock(
+            return_value=[tenant_a, tenant_b, tenant_c]
+        )
+
+        # User can only view tenant_a and tenant_c
+        mock_authz.lookup_resources = AsyncMock(
+            return_value=[tenant_a.id.value, tenant_c.id.value]
+        )
+
+        result = await tenant_service.list_tenants(user_id=user_id)
+
+        assert len(result) == 2
+        result_ids = {t.id.value for t in result}
+        assert tenant_a.id.value in result_ids
+        assert tenant_c.id.value in result_ids
+        assert tenant_b.id.value not in result_ids
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_when_user_has_no_access(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that list_tenants returns empty list when user has no VIEW permission."""
+        user_id = UserId.from_string("user-123")
+
+        tenant_a = Tenant(id=TenantId.generate(), name="Acme Corp")
+        mock_tenant_repo.list_all = AsyncMock(return_value=[tenant_a])
+
+        # User has no access to any tenants
+        mock_authz.lookup_resources = AsyncMock(return_value=[])
+
+        result = await tenant_service.list_tenants(user_id=user_id)
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_calls_lookup_resources_with_correct_args(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that list_tenants calls lookup_resources with correct SpiceDB args."""
+        user_id = UserId.from_string("user-123")
+
+        mock_tenant_repo.list_all = AsyncMock(return_value=[])
+        mock_authz.lookup_resources = AsyncMock(return_value=[])
+
+        await tenant_service.list_tenants(user_id=user_id)
+
+        mock_authz.lookup_resources.assert_called_once_with(
+            resource_type="tenant",
+            permission="view",
+            subject=f"user:{user_id.value}",
+        )
+
+    @pytest.mark.asyncio
+    async def test_returns_all_accessible_tenants(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that list_tenants returns all tenants when user has VIEW on all."""
+        user_id = UserId.from_string("user-123")
+
+        tenant_a = Tenant(id=TenantId.generate(), name="Acme Corp")
+        tenant_b = Tenant(id=TenantId.generate(), name="Wayne Enterprises")
+
+        mock_tenant_repo.list_all = AsyncMock(return_value=[tenant_a, tenant_b])
+
+        # User can view both tenants
+        mock_authz.lookup_resources = AsyncMock(
+            return_value=[tenant_a.id.value, tenant_b.id.value]
+        )
+
+        result = await tenant_service.list_tenants(user_id=user_id)
+
+        assert len(result) == 2
 
 
 class TestDeleteTenant:
@@ -534,7 +735,11 @@ class TestDeleteTenant:
     ):
         """Test that delete_tenant deletes a tenant."""
         tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
         tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        # Mock authorization check - user has administrate permission
+        mock_authz.check_permission = AsyncMock(return_value=True)
 
         mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
         mock_tenant_repo.delete = AsyncMock(return_value=True)
@@ -543,7 +748,9 @@ class TestDeleteTenant:
         mock_api_key_repo.list = AsyncMock(return_value=[])
         mock_authz.lookup_subjects = AsyncMock(return_value=[])
 
-        result = await tenant_service.delete_tenant(tenant_id)
+        result = await tenant_service.delete_tenant(
+            tenant_id, requesting_user_id=admin_id
+        )
 
         assert result is True
         mock_tenant_repo.delete.assert_called_once()
@@ -562,7 +769,11 @@ class TestDeleteTenant:
         from datetime import UTC, datetime
 
         tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
         tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        # Mock authorization check
+        mock_authz.check_permission = AsyncMock(return_value=True)
 
         # Create test workspace
         workspace = Workspace(
@@ -583,20 +794,27 @@ class TestDeleteTenant:
         mock_api_key_repo.list = AsyncMock(return_value=[])
         mock_authz.lookup_subjects = AsyncMock(return_value=[])
 
-        await tenant_service.delete_tenant(tenant_id)
+        await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
 
         # Verify workspace was deleted
         mock_workspace_repo.delete.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_delete_tenant_returns_false_if_not_found(
-        self, tenant_service, mock_tenant_repo
+        self, tenant_service, mock_tenant_repo, mock_authz
     ):
         """Test that delete_tenant returns False if tenant doesn't exist."""
         tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
+
+        # Mock authorization check
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
         mock_tenant_repo.get_by_id = AsyncMock(return_value=None)
 
-        result = await tenant_service.delete_tenant(tenant_id)
+        result = await tenant_service.delete_tenant(
+            tenant_id, requesting_user_id=admin_id
+        )
 
         assert result is False
 
@@ -614,7 +832,11 @@ class TestDeleteTenant:
         from datetime import UTC, datetime
 
         tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
         tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        # Mock authorization check
+        mock_authz.check_permission = AsyncMock(return_value=True)
 
         # Create multiple test workspaces
         root_ws = Workspace(
@@ -644,7 +866,44 @@ class TestDeleteTenant:
         mock_api_key_repo.list = AsyncMock(return_value=[])
         mock_authz.lookup_subjects = AsyncMock(return_value=[])
 
-        await tenant_service.delete_tenant(tenant_id)
+        await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
 
         # Verify workspace_repository.delete was called for each workspace
         assert mock_workspace_repo.delete.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_delete_tenant_raises_unauthorized_if_no_permission(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that delete_tenant raises UnauthorizedError if user lacks permission."""
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("unprivileged-user")
+
+        # Mock authorization check to deny permission
+        mock_authz.check_permission = AsyncMock(return_value=False)
+
+        with pytest.raises(UnauthorizedError):
+            await tenant_service.delete_tenant(tenant_id, requesting_user_id=user_id)
+
+        # Verify repository was never called
+        mock_tenant_repo.get_by_id.assert_not_called()
+        mock_tenant_repo.delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_tenant_checks_administrate_permission(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that delete_tenant checks ADMINISTRATE permission via SpiceDB."""
+        tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
+
+        # Mock authorization check
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=None)
+
+        await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
+
+        # Verify check_permission was called with ADMINISTRATE
+        mock_authz.check_permission.assert_called_once()
+        call_kwargs = mock_authz.check_permission.call_args
+        assert "administrate" in str(call_kwargs).lower()

@@ -149,10 +149,10 @@ class TestAddTenantMember:
 
     @pytest.mark.asyncio
     async def test_returns_403_when_not_authorized(
-        self, async_client, clean_iam_data, tenant_auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers, bob_tenant_auth_headers
     ):
         """Should return 403 if caller is not tenant admin."""
-        # Create tenant (alice is NOT automatically an admin)
+        # Alice creates tenant (she becomes admin automatically)
         create_response = await async_client.post(
             "/iam/tenants",
             json={"name": "Acme Corp"},
@@ -160,11 +160,11 @@ class TestAddTenantMember:
         )
         tenant_id = create_response.json()["id"]
 
-        # Try to add member without being admin
+        # Bob tries to add member (he is NOT admin on this tenant)
         response = await async_client.post(
             f"/iam/tenants/{tenant_id}/members",
             json={"user_id": UserId.generate().value, "role": "member"},
-            headers=tenant_auth_headers,
+            headers=bob_tenant_auth_headers,
         )
 
         assert response.status_code == 403
@@ -312,10 +312,10 @@ class TestRemoveTenantMember:
 
     @pytest.mark.asyncio
     async def test_returns_403_when_not_authorized(
-        self, async_client, clean_iam_data, tenant_auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers, bob_tenant_auth_headers
     ):
         """Should return 403 if caller is not tenant admin."""
-        # Create tenant
+        # Alice creates tenant (she becomes admin automatically)
         create_response = await async_client.post(
             "/iam/tenants",
             json={"name": "Acme Corp"},
@@ -323,10 +323,10 @@ class TestRemoveTenantMember:
         )
         tenant_id = create_response.json()["id"]
 
-        # Try to remove member without being admin
+        # Bob tries to remove member (he is NOT admin on this tenant)
         response = await async_client.delete(
             f"/iam/tenants/{tenant_id}/members/{UserId.generate().value}",
-            headers=tenant_auth_headers,
+            headers=bob_tenant_auth_headers,
         )
 
         assert response.status_code == 403
@@ -421,10 +421,10 @@ class TestListTenantMembers:
 
     @pytest.mark.asyncio
     async def test_returns_403_when_not_authorized(
-        self, async_client, clean_iam_data, tenant_auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers, bob_tenant_auth_headers
     ):
         """Should return 403 if caller is not tenant admin."""
-        # Create tenant
+        # Alice creates tenant (she becomes admin automatically)
         create_response = await async_client.post(
             "/iam/tenants",
             json={"name": "Acme Corp"},
@@ -432,10 +432,10 @@ class TestListTenantMembers:
         )
         tenant_id = create_response.json()["id"]
 
-        # Try to list members without being admin
+        # Bob tries to list members (he is NOT admin on this tenant)
         response = await async_client.get(
             f"/iam/tenants/{tenant_id}/members",
-            headers=tenant_auth_headers,
+            headers=bob_tenant_auth_headers,
         )
 
         assert response.status_code == 403

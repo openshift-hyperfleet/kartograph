@@ -102,10 +102,10 @@ async def get_group(
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[GroupService, Depends(get_group_service)],
 ) -> GroupResponse:
-    """Get group by ID with tenant isolation.
+    """Get group by ID with tenant isolation and VIEW permission check.
 
     Requires authentication. Service verifies group belongs to authenticated
-    user's tenant via SpiceDB.
+    user's tenant and that the user has VIEW permission via SpiceDB.
 
     Args:
         group_id: Group ID (ULID format)
@@ -117,7 +117,7 @@ async def get_group(
 
     Raises:
         HTTPException: 400 if group ID is invalid
-        HTTPException: 404 if group not found or not accessible in tenant
+        HTTPException: 404 if group not found or not accessible
         HTTPException: 500 for unexpected errors
     """
     try:
@@ -129,7 +129,10 @@ async def get_group(
         )
 
     try:
-        group = await service.get_group(group_id=group_id_obj)
+        group = await service.get_group(
+            group_id=group_id_obj,
+            user_id=current_user.user_id,
+        )
         if group is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

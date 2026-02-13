@@ -1,147 +1,152 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: kartograph-spicedb-schema
+    name: kartograph-spicedb-schema
 data:
-  schema.zed: |
-    /**
-     * Kartograph Authorization Schema for SpiceDB
-     *
-     * This schema defines the authorization model for Kartograph using
-     * Relationship-Based Access Control (ReBAC). The hierarchy is:
-     *
-     * Tenant -> Workspace -> Group -> Users
-     *
-     * Design principles:
-     * - Groups (not Teams) for Red Hat terminology alignment
-     * - Workspaces provide resource organization within tenants
-     * - Groups can be owned by users or other groups (for shared ownership)
-     * - Knowledge graphs and data sources (future) belong to workspaces
-     */
+    schema.zed: |
+        /**
+         * Kartograph Authorization Schema for SpiceDB
+         *
+         * This schema defines the authorization model for Kartograph using
+         * Relationship-Based Access Control (ReBAC). The hierarchy is:
+         *
+         * Tenant -> Workspace -> Group -> Users
+         *
+         * Design principles:
+         * - Groups (not Teams) for Red Hat terminology alignment
+         * - Workspaces provide resource organization within tenants
+         * - Groups can be owned by users or other groups (for shared ownership)
+         * - Knowledge graphs and data sources (future) belong to workspaces
+         */
 
-    /**
-     * User represents a person in the system.
-     * Users are provisioned from SSO (Red Hat SSO).
-     */
-    definition user {}
+        /**
+         * User represents a person in the system.
+         * Users are provisioned from SSO (Red Hat SSO).
+         */
+        definition user {}
 
-    /**
-     * Group represents a collection of users working together.
-     * This aligns with Red Hat terminology (vs "team").
-     * Groups own workspaces and can have members.
-     */
-    definition group {
-        /** The tenant this group belongs to */
-        relation tenant: tenant
+        /**
+         * Group represents a collection of users working together.
+         * This aligns with Red Hat terminology (vs "team").
+         * Groups own workspaces and can have members.
+         */
+        definition group {
+            /** The tenant this group belongs to */
+            relation tenant: tenant
 
-        /** Users who can administer this group (manage members, delete group) */
-        relation admin: user
+            /** Users who can administer this group (manage members, delete group) */
+            relation admin: user
 
-        /** Users who are members of this group */
-        relation member: user
+            /** Users who are members of this group */
+            relation member: user
 
-        /** Permission to view group details (tenant members can discover groups) */
-        permission view = admin + member + tenant->member
+            /** Permission to view group details (tenant members can discover groups) */
+            permission view = admin + member + tenant->view
 
-        /** Permission to manage group membership and delete group */
-        permission manage = admin
-    }
+            /** Permission to manage group membership and delete group */
+            permission manage = admin
+        }
 
-    /**
-     * Workspace provides resource organization within a tenant.
-     * Each tenant has at least one root workspace.
-     * Workspaces can form hierarchies via parent references.
-     */
-    definition workspace {
-        /** The tenant this workspace belongs to (organizational ownership) */
-        relation tenant: tenant
+        /**
+         * Workspace provides resource organization within a tenant.
+         * Each tenant has at least one root workspace.
+         * Workspaces can form hierarchies via parent references.
+         */
+        definition workspace {
+            /** The tenant this workspace belongs to (organizational ownership) */
+            relation tenant: tenant
 
-        /** The parent workspace (for hierarchical structure, child workspaces only) */
-        relation parent: workspace
+            /** The parent workspace (for hierarchical structure, child workspaces only) */
+            relation parent: workspace
 
-        /** Users or groups who can administer this workspace */
-        relation admin: user | group#member
+            /** Users or groups who can administer this workspace */
+            relation admin: user | group#member
 
-        /** Users or groups who can edit resources in this workspace */
-        relation editor: user | group#member
+            /** Users or groups who can edit resources in this workspace */
+            relation editor: user | group#member
 
-        /** Users or groups who are members of this workspace */
-        relation member: user | group#member
+            /** Users or groups who are members of this workspace */
+            relation member: user | group#member
 
-        /** Permission to view workspace and its resources */
-        permission view = admin + editor + member
+            /**
+             * Permission to view workspace and its resources.
+             * Granted to:
+             * - Direct workspace members (admin, editor, member)
+             * - All tenant members (tenant->view) for organizational visibility
+             */
+            permission view = admin + editor + member + tenant->view
 
-        /** Permission to edit workspace configuration */
-        permission edit = admin + editor
+            /** Permission to edit workspace configuration */
+            permission edit = admin + editor
 
-        /** Permission to manage workspace (delete, modify members) */
-        permission manage = admin
-    }
+            /** Permission to manage workspace (delete, modify members) */
+            permission manage = admin
+        }
 
-    /**
-     * Tenant is the top-level organization boundary.
-     * Maps 1:1 with data isolation (separate graph database).
-     * Each tenant must have a root workspace.
-     */
-    definition tenant {
-        /** Users who can administer this tenant */
-        relation admin: user
+        /**
+         * Tenant is the top-level organization boundary.
+         * Maps 1:1 with data isolation (separate graph database).
+         * Each tenant must have a root workspace.
+         */
+        definition tenant {
+            /** Users who can administer this tenant */
+            relation admin: user
 
-        /** The mandatory root workspace for this tenant */
-        relation root_workspace: workspace
+            /** The mandatory root workspace for this tenant */
+            relation root_workspace: workspace
 
-        /** Members of this tenant */
-        relation member: user
+            /** Members of this tenant */
+            relation member: user
 
-        /** Permission to view tenant */
-        permission view = admin + member
+            /** Permission to view tenant */
+            permission view = admin + member
 
-        /** Permission to manage tenant configuration */
-        permission manage = admin
+            /** Permission to manage tenant configuration */
+            permission manage = admin
 
-        /** Permission to perform administrative actions on the tenant */
-        permission administrate = admin
-    }
+            /** Permission to perform administrative actions on the tenant */
+            permission administrate = admin
+        }
 
-    /**
-     * API Key represents a programmatic access credential.
-     * API keys are owned by users and scoped to tenants.
-     * Tenant admins can view and revoke any API key in their tenant.
-     */
-    definition api_key {
-        /** The user who owns this API key */
-        relation owner: user
+        /**
+         * API Key represents a programmatic access credential.
+         * API keys are owned by users and scoped to tenants.
+         * Tenant admins can view and revoke any API key in their tenant.
+         */
+        definition api_key {
+            /** The user who owns this API key */
+            relation owner: user
 
-        /** The tenant this API key belongs to */
-        relation tenant: tenant
+            /** The tenant this API key belongs to */
+            relation tenant: tenant
 
-        /** Permission to view API key metadata */
-        permission view = owner + tenant->administrate
+            /** Permission to view API key metadata */
+            permission view = owner + tenant->administrate
 
-        /** Permission to revoke this API key */
-        permission revoke = owner + tenant->administrate
-    }
+            /** Permission to revoke this API key */
+            permission revoke = owner + tenant->administrate
+        }
 
 
-    /**
-     * Future resource types (not yet implemented):
-     *
-     * definition knowledge_graph {
-     *     relation workspace: workspace
-     *     relation viewer: user | group#member
-     *     relation editor: user | group#member
-     *
-     *     permission view = viewer + editor + workspace->member
-     *     permission edit = editor + workspace->admin
-     *     permission delete = workspace->admin
-     * }
-     *
-     * definition data_source {
-     *     relation knowledge_graph: knowledge_graph
-     *     relation owner: user | group#member
-     *
-     *     permission view = owner + knowledge_graph->view
-     *     permission edit = owner + knowledge_graph->edit
-     *     permission delete = owner + knowledge_graph->delete
-     * }
-     */
+        /**
+         * Future resource types (not yet implemented):
+         *
+         * definition knowledge_graph {
+         *     relation workspace: workspace
+         *     relation viewer: user | group#member
+         *     relation editor: user | group#member
+         *
+         *     permission view = viewer + editor + workspace->member
+         *     permission edit = editor + workspace->admin
+         *     permission delete = workspace->admin
+         * }
+         *
+         * definition data_source {
+         *     relation knowledge_graph: knowledge_graph
+         *     relation owner: user | group#member
+         *
+         *     permission view = owner + knowledge_graph->view
+         *     permission edit = owner + knowledge_graph->edit
+         *     permission delete = owner + knowledge_graph->delete
+         * }
+         */

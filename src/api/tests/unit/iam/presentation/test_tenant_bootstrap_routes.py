@@ -105,7 +105,9 @@ class TestListTenantsWithoutTenantContext:
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == []
-        mock_tenant_service.list_tenants.assert_called_once()
+        mock_tenant_service.list_tenants.assert_called_once_with(
+            user_id=mock_authenticated_user.user_id,
+        )
 
     def test_list_tenants_returns_tenant_data(
         self,
@@ -159,4 +161,7 @@ class TestCreateTenantWithoutTenantContext:
 
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "Acme Corp"
-        mock_tenant_service.create_tenant.assert_called_once_with(name="Acme Corp")
+        mock_tenant_service.create_tenant.assert_called_once_with(
+            name="Acme Corp",
+            creator_id=mock_authenticated_user.user_id,
+        )

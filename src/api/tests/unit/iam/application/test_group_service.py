@@ -211,21 +211,22 @@ class TestGetGroup:
     """Tests for get_group method."""
 
     @pytest.mark.asyncio
-    async def test_returns_group_when_found_and_tenant_matches(
+    async def test_returns_group_when_found_and_user_has_view_permission(
         self, group_service: GroupService, mock_group_repository, mock_authz, tenant_id
     ):
-        """Should return group when found and tenant_id matches."""
+        """Should return group when found, tenant matches, and user has VIEW permission."""
         group_id = GroupId.generate()
+        user_id = UserId.generate()
         # Group has the same tenant_id
         group = Group(id=group_id, tenant_id=tenant_id, name="Engineering")
 
         mock_group_repository.get_by_id = AsyncMock(return_value=group)
+        mock_authz.check_permission = AsyncMock(return_value=True)
 
-        result = await group_service.get_group(group_id)
+        result = await group_service.get_group(group_id, user_id=user_id)
 
         assert result == group
         mock_group_repository.get_by_id.assert_called_once_with(group_id)
-
         mock_authz.check_permission.assert_called_once()
 
     @pytest.mark.asyncio
@@ -234,10 +235,11 @@ class TestGetGroup:
     ):
         """Should return None when group doesn't exist in repository."""
         group_id = GroupId.generate()
+        user_id = UserId.generate()
 
         mock_group_repository.get_by_id = AsyncMock(return_value=None)
 
-        result = await group_service.get_group(group_id)
+        result = await group_service.get_group(group_id, user_id=user_id)
 
         assert result is None
         mock_group_repository.get_by_id.assert_called_once_with(group_id)
@@ -249,18 +251,36 @@ class TestGetGroup:
     ):
         """Should return None when group exists but tenant_id doesn't match."""
         group_id = GroupId.generate()
+        user_id = UserId.generate()
         other_tenant_id = TenantId.generate()
         # Group has a different tenant_id
         group = Group(id=group_id, tenant_id=other_tenant_id, name="Engineering")
 
         mock_group_repository.get_by_id = AsyncMock(return_value=group)
-        mock_authz.check_permission = AsyncMock(return_value=False)
 
-        result = await group_service.get_group(group_id)
+        result = await group_service.get_group(group_id, user_id=user_id)
 
         # Returns None for security (don't leak group existence)
         assert result is None
+        # Should not even check SpiceDB permission if tenant doesn't match
+        mock_authz.check_permission.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_returns_none_when_user_lacks_view_permission(
+        self, group_service: GroupService, mock_group_repository, mock_authz, tenant_id
+    ):
+        """Should return None when user lacks VIEW permission on the group."""
+        group_id = GroupId.generate()
+        user_id = UserId.generate()
+        group = Group(id=group_id, tenant_id=tenant_id, name="Engineering")
+
+        mock_group_repository.get_by_id = AsyncMock(return_value=group)
+        mock_authz.check_permission = AsyncMock(return_value=False)
+
+        result = await group_service.get_group(group_id, user_id=user_id)
+
+        # User lacks VIEW permission - act as if not found
+        assert result is None
         mock_authz.check_permission.assert_called_once()
 
 

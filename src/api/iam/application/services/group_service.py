@@ -16,7 +16,6 @@ from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
-    RelationType,
     ResourceType,
     format_resource,
     format_subject,
@@ -161,13 +160,16 @@ class GroupService:
     async def get_group(
         self,
         group_id: GroupId,
+        user_id: UserId,
     ) -> Group | None:
-        """Get a group by ID with tenant isolation.
+        """Get a group by ID with tenant scoping and VIEW permission check.
 
-        Verifies the group belongs to the scoped tenant via SpiceDB.
+        Returns None if group doesn't exist, belongs to different tenant,
+        or user lacks VIEW permission.
 
         Args:
             group_id: The group ID to retrieve
+            user_id: The user requesting access (for permission check)
 
         Returns:
             The Group aggregate, or None if not found or not accessible
@@ -177,23 +179,20 @@ class GroupService:
         if group is None:
             return None
 
-        group_resource = format_resource(
-            resource_type=ResourceType.GROUP, resource_id=group_id.value
-        )
-        tenant_resource = format_resource(
-            resource_type=ResourceType.TENANT, resource_id=self._scope_to_tenant.value
+        # Verify group belongs to scoped tenant (database check)
+        if group.tenant_id != self._scope_to_tenant:
+            # Don't leak existence of groups in other tenants
+            return None
+
+        # Check user has VIEW permission (SpiceDB check)
+        has_view = await self._check_group_permission(
+            user_id=user_id,
+            group_id=group_id,
+            permission=Permission.VIEW,
         )
 
-        is_in_tenant = await self._authz.check_permission(
-            resource=group_resource,
-            permission=RelationType.TENANT,
-            subject=tenant_resource,
-        )
-
-        # Verify group belongs to the expected tenant
-        if not is_in_tenant:
-            # Group exists but doesn't belong to this tenant
-            # Return None (act as if not found) for security
+        if not has_view:
+            # User lacks VIEW permission - act as if not found
             return None
 
         return group

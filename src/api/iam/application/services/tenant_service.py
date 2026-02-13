@@ -63,14 +63,15 @@ class TenantService:
         self._probe = probe or DefaultTenantServiceProbe()
         self._session = session
 
-    async def create_tenant(self, name: str) -> Tenant:
+    async def create_tenant(self, name: str, creator_id: UserId) -> Tenant:
         """Create a new tenant with root workspace.
 
         Creates a tenant and automatically provisions a root workspace for it.
-        Uses default_workspace_name from settings, falling back to tenant name.
+        Grants the creator admin access to the tenant.
 
         Args:
             name: The name of the tenant
+            creator_id: User creating the tenant (will be granted admin access)
 
         Returns:
             The created Tenant aggregate
@@ -82,6 +83,10 @@ class TenantService:
             try:
                 # Create tenant
                 tenant = Tenant.create(name=name)
+
+                # Grant creator admin access (same pattern as groups/workspaces)
+                tenant.add_member(user_id=creator_id, role=TenantRole.ADMIN)
+
                 await self._tenant_repository.save(tenant)
 
                 # Create root workspace for tenant
@@ -104,34 +109,99 @@ class TenantService:
                 self._probe.duplicate_tenant_name(name=name)
                 raise
 
-    async def get_tenant(self, tenant_id: TenantId) -> Tenant | None:
-        """Retrieve a tenant by ID.
+    async def get_tenant(
+        self,
+        tenant_id: TenantId,
+        user_id: UserId,
+    ) -> Tenant | None:
+        """Retrieve a tenant by ID with VIEW permission check.
+
+        Returns None if tenant doesn't exist or user lacks VIEW permission.
 
         Args:
             tenant_id: The unique identifier of the tenant
+            user_id: The user requesting access (for permission check)
 
         Returns:
-            The Tenant aggregate, or None if not found
+            The Tenant aggregate, or None if not found or not accessible
         """
         tenant = await self._tenant_repository.get_by_id(tenant_id)
 
-        if tenant:
-            self._probe.tenant_retrieved(tenant_id=tenant_id.value)
-        else:
+        if tenant is None:
             self._probe.tenant_not_found(tenant_id=tenant_id.value)
+            return None
 
+        # Check user has VIEW permission
+        has_view = await self._check_tenant_permission(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            permission=Permission.VIEW,
+        )
+
+        if not has_view:
+            # User lacks VIEW permission - act as if not found
+            return None
+
+        self._probe.tenant_retrieved(tenant_id=tenant_id.value)
         return tenant
 
-    async def list_tenants(self) -> list[Tenant]:
-        """List all tenants in the system.
+    async def list_tenants(self, user_id: UserId) -> list[Tenant]:
+        """List tenants the user has VIEW permission on.
+
+        Filters tenants to only those where user has VIEW permission via
+        SpiceDB lookup_resources. This ensures users only see tenants they
+        are members of.
+
+        Args:
+            user_id: The user requesting the list (for permission filtering)
 
         Returns:
-            List of all Tenant aggregates
+            List of Tenant aggregates user can view
         """
-        tenants = await self._tenant_repository.list_all()
+        # Get all tenants from database
+        all_tenants = await self._tenant_repository.list_all()
 
-        self._probe.tenants_listed(count=len(tenants))
-        return tenants
+        # Use SpiceDB lookup_resources to filter by VIEW permission
+        subject = format_subject(ResourceType.USER, user_id.value)
+
+        accessible_ids = await self._authz.lookup_resources(
+            resource_type=ResourceType.TENANT,
+            permission=Permission.VIEW,
+            subject=subject,
+        )
+
+        # Convert to set for O(1) lookup
+        accessible_set = set(accessible_ids)
+
+        # Filter tenants to only accessible ones
+        accessible_tenants = [t for t in all_tenants if t.id.value in accessible_set]
+
+        self._probe.tenants_listed(count=len(accessible_tenants))
+        return accessible_tenants
+
+    async def _check_tenant_permission(
+        self,
+        tenant_id: TenantId,
+        user_id: UserId,
+        permission: Permission,
+    ) -> bool:
+        """Check if user has permission on tenant.
+
+        Args:
+            tenant_id: Tenant ID to check
+            user_id: User ID to check
+            permission: Permission to check (VIEW, ADMINISTRATE)
+
+        Returns:
+            True if user has permission, False otherwise
+        """
+        resource = format_resource(ResourceType.TENANT, tenant_id.value)
+        subject = format_subject(ResourceType.USER, user_id.value)
+        return await self._authz.check_permission(
+            resource=resource,
+            permission=permission.value,
+            subject=subject,
+        )
 
     async def _check_tenant_admin_permission(
         self, tenant_id: TenantId, requesting_user_id: UserId
@@ -145,12 +215,10 @@ class TenantService:
         Returns:
             True if user has administrate permission, False otherwise
         """
-        resource = format_resource(ResourceType.TENANT, tenant_id.value)
-        subject = format_subject(ResourceType.USER, requesting_user_id.value)
-        return await self._authz.check_permission(
-            resource=resource,
+        return await self._check_tenant_permission(
+            tenant_id=tenant_id,
+            user_id=requesting_user_id,
             permission=Permission.ADMINISTRATE,
-            subject=subject,
         )
 
     async def add_member(
@@ -315,8 +383,14 @@ class TenantService:
 
         return members
 
-    async def delete_tenant(self, tenant_id: TenantId) -> bool:
+    async def delete_tenant(
+        self,
+        tenant_id: TenantId,
+        requesting_user_id: UserId,
+    ) -> bool:
         """Delete a tenant and all its child resources.
+
+        Requires ADMINISTRATE permission on the tenant.
 
         Explicitly deletes all child aggregates (workspaces, groups, API keys)
         before deleting the tenant to ensure proper domain events are emitted
@@ -330,10 +404,21 @@ class TenantService:
 
         Args:
             tenant_id: The unique identifier of the tenant to delete
+            requesting_user_id: User requesting deletion (for authorization check)
 
         Returns:
             True if the tenant was deleted, False if not found
+
+        Raises:
+            UnauthorizedError: If user lacks ADMINISTRATE permission on tenant
         """
+        # Check authorization - user must have administrate permission
+        has_permission = await self._check_tenant_admin_permission(
+            tenant_id, requesting_user_id
+        )
+        if not has_permission:
+            raise UnauthorizedError("User does not have permission to delete tenant")
+
         async with self._session.begin():
             tenant = await self._tenant_repository.get_by_id(tenant_id)
 

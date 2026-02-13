@@ -217,6 +217,12 @@ def auth_headers(alice_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {alice_token}"}
 
 
+@pytest.fixture
+def bob_auth_headers(bob_token: str) -> dict[str, str]:
+    """Default auth headers using bob's token."""
+    return {"Authorization": f"Bearer {bob_token}"}
+
+
 @pytest_asyncio.fixture
 async def default_tenant_id(
     integration_db_settings: DatabaseSettings,
@@ -330,3 +336,52 @@ async def tenant_auth_headers(
         )
 
     return {**auth_headers, "X-Tenant-ID": default_tenant_id}
+
+
+@pytest_asyncio.fixture
+async def bob_tenant_auth_headers(
+    bob_auth_headers: dict[str, str],
+    default_tenant_id: str,
+    bob_token: str,
+    integration_db_settings: DatabaseSettings,
+) -> dict[str, str]:
+    """Auth headers with X-Tenant-ID for bob in integration tests.
+
+    Grants bob 'member' role on the default tenant (NOT admin) so that
+    bob can authenticate with a tenant context but will be denied admin
+    operations. This is used to test authorization denial scenarios.
+
+    Args:
+        bob_auth_headers: JWT Bearer auth headers for bob
+        default_tenant_id: The default tenant's ID
+        bob_token: Bob's JWT token (for extracting user_id)
+        integration_db_settings: Database settings for querying root workspace
+
+    Returns:
+        Headers dict with both Authorization and X-Tenant-ID for bob
+    """
+    from jose import jwt as jose_jwt
+
+    from infrastructure.authorization_dependencies import get_spicedb_client
+    from shared_kernel.authorization.types import (
+        ResourceType,
+        format_resource,
+        format_subject,
+    )
+
+    # Extract user_id from JWT claims
+    claims = jose_jwt.get_unverified_claims(bob_token)
+    user_id = claims["sub"]
+
+    # Ensure bob has 'member' relationship on the default tenant in SpiceDB
+    spicedb = get_spicedb_client()
+    tenant_resource = format_resource(ResourceType.TENANT, default_tenant_id)
+    user_subject = format_subject(ResourceType.USER, user_id)
+
+    await spicedb.write_relationship(
+        resource=tenant_resource,
+        relation="member",
+        subject=user_subject,
+    )
+
+    return {**bob_auth_headers, "X-Tenant-ID": default_tenant_id}

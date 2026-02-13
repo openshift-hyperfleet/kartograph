@@ -320,8 +320,14 @@ class TenantService:
 
         return members
 
-    async def delete_tenant(self, tenant_id: TenantId) -> bool:
+    async def delete_tenant(
+        self,
+        tenant_id: TenantId,
+        requesting_user_id: UserId,
+    ) -> bool:
         """Delete a tenant and all its child resources.
+
+        Requires ADMINISTRATE permission on the tenant.
 
         Explicitly deletes all child aggregates (workspaces, groups, API keys)
         before deleting the tenant to ensure proper domain events are emitted
@@ -335,10 +341,21 @@ class TenantService:
 
         Args:
             tenant_id: The unique identifier of the tenant to delete
+            requesting_user_id: User requesting deletion (for authorization check)
 
         Returns:
             True if the tenant was deleted, False if not found
+
+        Raises:
+            UnauthorizedError: If user lacks ADMINISTRATE permission on tenant
         """
+        # Check authorization - user must have administrate permission
+        has_permission = await self._check_tenant_admin_permission(
+            tenant_id, requesting_user_id
+        )
+        if not has_permission:
+            raise UnauthorizedError("User does not have permission to delete tenant")
+
         async with self._session.begin():
             tenant = await self._tenant_repository.get_by_id(tenant_id)
 

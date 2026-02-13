@@ -228,16 +228,23 @@ class TestDeleteTenant:
         assert get_response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_returns_404_for_nonexistent_tenant(
+    async def test_returns_403_for_nonexistent_tenant_without_permission(
         self, async_client, tenant_auth_headers
     ):
-        """Should return 404 if tenant doesn't exist."""
+        """Should return 403 if user lacks ADMINISTRATE permission.
+
+        When a user tries to delete a tenant they don't have ADMINISTRATE
+        permission on (including nonexistent ones), the authorization check
+        runs first and returns 403 rather than revealing whether the tenant
+        exists (security best practice).
+        """
         response = await async_client.delete(
             f"/iam/tenants/{TenantId.generate().value}",
             headers=tenant_auth_headers,
         )
 
-        assert response.status_code == 404
+        assert response.status_code == 403
+        assert "insufficient permissions" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_returns_400_for_invalid_id(

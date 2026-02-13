@@ -569,7 +569,11 @@ class TestDeleteTenant:
     ):
         """Test that delete_tenant deletes a tenant."""
         tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
         tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        # Mock authorization check - user has administrate permission
+        mock_authz.check_permission = AsyncMock(return_value=True)
 
         mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
         mock_tenant_repo.delete = AsyncMock(return_value=True)
@@ -578,7 +582,9 @@ class TestDeleteTenant:
         mock_api_key_repo.list = AsyncMock(return_value=[])
         mock_authz.lookup_subjects = AsyncMock(return_value=[])
 
-        result = await tenant_service.delete_tenant(tenant_id)
+        result = await tenant_service.delete_tenant(
+            tenant_id, requesting_user_id=admin_id
+        )
 
         assert result is True
         mock_tenant_repo.delete.assert_called_once()
@@ -597,7 +603,11 @@ class TestDeleteTenant:
         from datetime import UTC, datetime
 
         tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
         tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        # Mock authorization check
+        mock_authz.check_permission = AsyncMock(return_value=True)
 
         # Create test workspace
         workspace = Workspace(
@@ -618,20 +628,27 @@ class TestDeleteTenant:
         mock_api_key_repo.list = AsyncMock(return_value=[])
         mock_authz.lookup_subjects = AsyncMock(return_value=[])
 
-        await tenant_service.delete_tenant(tenant_id)
+        await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
 
         # Verify workspace was deleted
         mock_workspace_repo.delete.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_delete_tenant_returns_false_if_not_found(
-        self, tenant_service, mock_tenant_repo
+        self, tenant_service, mock_tenant_repo, mock_authz
     ):
         """Test that delete_tenant returns False if tenant doesn't exist."""
         tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
+
+        # Mock authorization check
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
         mock_tenant_repo.get_by_id = AsyncMock(return_value=None)
 
-        result = await tenant_service.delete_tenant(tenant_id)
+        result = await tenant_service.delete_tenant(
+            tenant_id, requesting_user_id=admin_id
+        )
 
         assert result is False
 
@@ -649,7 +666,11 @@ class TestDeleteTenant:
         from datetime import UTC, datetime
 
         tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
         tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        # Mock authorization check
+        mock_authz.check_permission = AsyncMock(return_value=True)
 
         # Create multiple test workspaces
         root_ws = Workspace(
@@ -679,7 +700,44 @@ class TestDeleteTenant:
         mock_api_key_repo.list = AsyncMock(return_value=[])
         mock_authz.lookup_subjects = AsyncMock(return_value=[])
 
-        await tenant_service.delete_tenant(tenant_id)
+        await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
 
         # Verify workspace_repository.delete was called for each workspace
         assert mock_workspace_repo.delete.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_delete_tenant_raises_unauthorized_if_no_permission(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that delete_tenant raises UnauthorizedError if user lacks permission."""
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("unprivileged-user")
+
+        # Mock authorization check to deny permission
+        mock_authz.check_permission = AsyncMock(return_value=False)
+
+        with pytest.raises(UnauthorizedError):
+            await tenant_service.delete_tenant(tenant_id, requesting_user_id=user_id)
+
+        # Verify repository was never called
+        mock_tenant_repo.get_by_id.assert_not_called()
+        mock_tenant_repo.delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_tenant_checks_administrate_permission(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that delete_tenant checks ADMINISTRATE permission via SpiceDB."""
+        tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
+
+        # Mock authorization check
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=None)
+
+        await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
+
+        # Verify check_permission was called with ADMINISTRATE
+        mock_authz.check_permission.assert_called_once()
+        call_kwargs = mock_authz.check_permission.call_args
+        assert "administrate" in str(call_kwargs).lower()

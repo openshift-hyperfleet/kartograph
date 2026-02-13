@@ -23,6 +23,7 @@ from iam.dependencies.tenant import get_tenant_service
 from iam.dependencies.user import get_authenticated_user, get_current_user
 from iam.domain.aggregates import Tenant
 from iam.domain.value_objects import TenantId, UserId
+from iam.ports.exceptions import UnauthorizedError
 from iam.presentation import router
 from infrastructure.authorization_dependencies import get_spicedb_client
 
@@ -231,6 +232,30 @@ class TestDeleteTenantBlockedInSingleTenantMode:
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         mock_tenant_service.delete_tenant.assert_called_once()
+
+    def test_returns_403_when_user_lacks_permission(
+        self,
+        mock_tenant_service: AsyncMock,
+        mock_authz: AsyncMock,
+        mock_current_user: CurrentUser,
+        valid_tenant_id: TenantId,
+    ) -> None:
+        """Should return 403 when user lacks ADMINISTRATE permission on tenant."""
+        mock_tenant_service.delete_tenant.side_effect = UnauthorizedError(
+            "User lacks administrate permission"
+        )
+
+        client = _create_test_client(
+            mock_tenant_service=mock_tenant_service,
+            mock_authz=mock_authz,
+            mock_current_user=mock_current_user,
+            single_tenant_mode=False,
+        )
+
+        response = client.delete(f"/iam/tenants/{valid_tenant_id.value}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "insufficient permissions" in response.json()["detail"].lower()
 
 
 class TestUnprotectedRoutesAccessibleInSingleTenantMode:

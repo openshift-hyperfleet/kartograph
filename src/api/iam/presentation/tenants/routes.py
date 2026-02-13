@@ -164,6 +164,13 @@ async def list_tenants(
     "/{tenant_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_multi_tenant_mode)],
+    responses={
+        204: {"description": "Tenant deleted successfully"},
+        400: {"description": "Invalid tenant ID format"},
+        403: {"description": "Insufficient permissions to delete tenant"},
+        404: {"description": "Tenant not found"},
+        500: {"description": "Internal server error"},
+    },
 )
 async def delete_tenant(
     tenant_id: str,
@@ -172,7 +179,7 @@ async def delete_tenant(
 ) -> None:
     """Delete a tenant.
 
-    TODO: In production, this should be restricted to system administrators.
+    Requires ADMINISTRATE permission on the tenant.
 
     Args:
         tenant_id: Tenant ID (ULID format)
@@ -184,6 +191,7 @@ async def delete_tenant(
 
     Raises:
         HTTPException: 400 if tenant ID is invalid
+        HTTPException: 403 if user lacks ADMINISTRATE permission
         HTTPException: 404 if tenant not found
         HTTPException: 500 for unexpected errors
     """
@@ -196,13 +204,21 @@ async def delete_tenant(
         ) from e
 
     try:
-        deleted = await service.delete_tenant(tenant_id_obj)
+        deleted = await service.delete_tenant(
+            tenant_id_obj,
+            requesting_user_id=current_user.user_id,
+        )
         if not deleted:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Tenant {tenant_id} not found",
             )
 
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions to delete tenant",
+        )
     except HTTPException:
         raise
     except Exception:

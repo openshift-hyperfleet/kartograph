@@ -131,17 +131,17 @@ class AddWorkspaceMemberRequest(BaseModel):
         ...,
         description="User ID or Group ID to add as member",
         min_length=1,
-        examples=["01HN3XQ7K2XYZ123456789ABCD", "engineering-group"],
+        examples=["01HN3XQ7K2XYZ123456789ABCD"],
     )
     member_type: MemberTypeEnum = Field(
         ...,
         description="Type of member being added",
-        examples=["user", "group"],
+        examples=[m.value for m in MemberTypeEnum],
     )
     role: WorkspaceRoleEnum = Field(
         ...,
         description="Role to assign to the member",
-        examples=["admin", "editor", "member"],
+        examples=[r.value for r in WorkspaceRoleEnum],
     )
 
     def to_domain_member_type(self) -> MemberType:

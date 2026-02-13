@@ -1,6 +1,7 @@
 """Unit tests for GroupService.list_groups().
 
-Tests the application service layer for listing groups in a tenant.
+Tests the application service layer for listing groups in a tenant
+with VIEW permission filtering via SpiceDB lookup_resources.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import pytest
 
 from iam.application.services.group_service import GroupService
 from iam.domain.aggregates import Group
-from iam.domain.value_objects import TenantId
+from iam.domain.value_objects import TenantId, UserId
 from iam.ports.repositories import IGroupRepository
 
 
@@ -72,21 +73,31 @@ def group_service(
 
 
 class TestListGroups:
-    """Tests for GroupService.list_groups()."""
+    """Tests for GroupService.list_groups() with VIEW permission filtering."""
 
     @pytest.mark.asyncio
-    async def test_returns_all_groups_in_tenant(
+    async def test_returns_view_filtered_groups(
         self,
         group_service: GroupService,
         mock_group_repository,
+        mock_authz,
         tenant_id,
     ):
-        """Test that list_groups returns all groups in the scoped tenant."""
+        """Test that list_groups filters by VIEW permission via SpiceDB."""
+        user_id = UserId.generate()
         group1 = Group.create(name="Engineering", tenant_id=tenant_id)
         group2 = Group.create(name="Marketing", tenant_id=tenant_id)
-        mock_group_repository.list_by_tenant = AsyncMock(return_value=[group1, group2])
+        group3 = Group.create(name="Secret", tenant_id=tenant_id)
 
-        groups = await group_service.list_groups()
+        mock_group_repository.list_by_tenant = AsyncMock(
+            return_value=[group1, group2, group3]
+        )
+        # User can only view group1 and group2
+        mock_authz.lookup_resources = AsyncMock(
+            return_value=[group1.id.value, group2.id.value]
+        )
+
+        groups = await group_service.list_groups(user_id=user_id)
 
         assert len(groups) == 2
         assert groups[0].name == "Engineering"
@@ -94,20 +105,43 @@ class TestListGroups:
         mock_group_repository.list_by_tenant.assert_called_once_with(
             tenant_id=tenant_id
         )
+        mock_authz.lookup_resources.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_returns_empty_list_when_no_groups(
         self,
         group_service: GroupService,
         mock_group_repository,
+        mock_authz,
         tenant_id,
     ):
         """Test that list_groups returns empty list when no groups exist."""
+        user_id = UserId.generate()
         mock_group_repository.list_by_tenant = AsyncMock(return_value=[])
+        mock_authz.lookup_resources = AsyncMock(return_value=[])
 
-        groups = await group_service.list_groups()
+        groups = await group_service.list_groups(user_id=user_id)
 
         assert groups == []
         mock_group_repository.list_by_tenant.assert_called_once_with(
             tenant_id=tenant_id
         )
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_user_has_no_view_access(
+        self,
+        group_service: GroupService,
+        mock_group_repository,
+        mock_authz,
+        tenant_id,
+    ):
+        """Test that list_groups returns empty when user has no VIEW on any group."""
+        user_id = UserId.generate()
+        group1 = Group.create(name="Engineering", tenant_id=tenant_id)
+        mock_group_repository.list_by_tenant = AsyncMock(return_value=[group1])
+        # User has no VIEW access to any groups
+        mock_authz.lookup_resources = AsyncMock(return_value=[])
+
+        groups = await group_service.list_groups(user_id=user_id)
+
+        assert groups == []

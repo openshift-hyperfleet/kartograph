@@ -8,7 +8,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from iam.domain.value_objects import MemberType, TenantId, UserId, WorkspaceRole
+from iam.domain.value_objects import (
+    GroupRole,
+    MemberType,
+    TenantId,
+    UserId,
+    WorkspaceRole,
+)
 
 
 @dataclass(frozen=True)
@@ -26,6 +32,22 @@ class CurrentUser:
     user_id: UserId
     username: str
     tenant_id: TenantId
+
+
+@dataclass(frozen=True)
+class GroupAccessGrant:
+    """Represents a member's access grant on a group.
+
+    This is a read-only view object returned from authorization queries.
+    It captures who has what level of access to a group.
+
+    Attributes:
+        user_id: The user ID
+        role: The group role (ADMIN or MEMBER)
+    """
+
+    user_id: str
+    role: GroupRole
 
 
 @dataclass(frozen=True)

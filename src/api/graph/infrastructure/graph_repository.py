@@ -247,22 +247,30 @@ LIMIT 100"""
             raise ValueError(
                 f"Invalid Nonetype for vertex.label (vertex: {repr(vertex)})"
             )
+        props = dict(vertex.properties) if vertex.properties else {}
+        # Prefer the application-level 'id' property over the AGE-internal numeric ID
+        node_id = str(props.get("id", vertex.id))
         return NodeRecord(
-            id=str(vertex.id),
+            id=node_id,
             label=vertex.label,
-            properties=dict(vertex.properties) if vertex.properties else {},
+            properties=props,
         )
 
     def _edge_to_edge_record(self, edge: AgeEdge) -> EdgeRecord:
         """Convert an AGE Edge to an EdgeRecord."""
         if edge.label is None:
             raise ValueError(f"Invalid Nonetype for edge.label (edge: {repr(edge)})")
+        props = dict(edge.properties) if edge.properties else {}
+        # Prefer application-level IDs from properties over AGE-internal numeric IDs
+        edge_id = str(props.get("id", edge.id))
+        start_id = str(props.get("start_id", edge.start_id))
+        end_id = str(props.get("end_id", edge.end_id))
         return EdgeRecord(
-            id=str(edge.id),
+            id=edge_id,
             label=edge.label,
-            start_id=str(edge.start_id),
-            end_id=str(edge.end_id),
-            properties=dict(edge.properties) if edge.properties else {},
+            start_id=start_id,
+            end_id=end_id,
+            properties=props,
         )
 
     def _row_to_dict(self, row: tuple) -> QueryResultRow:

@@ -30,12 +30,12 @@ router = APIRouter(
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_multi_tenant_mode)],
 )
 async def create_tenant(
     request: CreateTenantRequest,
     authenticated_user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
     service: Annotated[TenantService, Depends(get_tenant_service)],
+    _: Annotated[None, Depends(require_multi_tenant_mode)],
 ) -> TenantResponse:
     """Create a new tenant.
 
@@ -169,7 +169,6 @@ async def list_tenants(
 @router.delete(
     "/{tenant_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_multi_tenant_mode)],
     responses={
         204: {"description": "Tenant deleted successfully"},
         400: {"description": "Invalid tenant ID format"},
@@ -182,6 +181,7 @@ async def delete_tenant(
     tenant_id: str,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[TenantService, Depends(get_tenant_service)],
+    _: Annotated[None, Depends(require_multi_tenant_mode)],
 ) -> None:
     """Delete a tenant.
 

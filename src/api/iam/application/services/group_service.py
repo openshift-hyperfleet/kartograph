@@ -96,6 +96,20 @@ class GroupService:
             )
             raise
 
+    async def list_groups(self) -> list[Group]:
+        """List all groups in the scoped tenant.
+
+        Returns all groups within scope_to_tenant.
+
+        Returns:
+            List of Group aggregates in the scoped tenant
+        """
+        groups = await self._group_repository.list_by_tenant(
+            tenant_id=self._scope_to_tenant
+        )
+
+        return groups
+
     async def get_group(
         self,
         group_id: GroupId,

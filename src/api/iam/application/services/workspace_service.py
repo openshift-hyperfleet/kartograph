@@ -623,6 +623,135 @@ class WorkspaceService:
 
         return workspace
 
+    async def update_workspace(
+        self,
+        workspace_id: WorkspaceId,
+        user_id: UserId,
+        name: str,
+    ) -> Workspace:
+        """Update workspace metadata.
+
+        Args:
+            workspace_id: The workspace to update
+            user_id: User performing the action (must have MANAGE permission)
+            name: New workspace name
+
+        Returns:
+            Updated Workspace aggregate
+
+        Raises:
+            PermissionError: If user lacks MANAGE permission
+            ValueError: If workspace not found or name invalid
+            DuplicateWorkspaceNameError: If name already exists in tenant
+            UnauthorizedError: If workspace belongs to different tenant
+        """
+        # Check user has MANAGE permission
+        has_manage = await self._check_workspace_permission(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            permission=Permission.MANAGE,
+        )
+
+        if not has_manage:
+            raise PermissionError(
+                f"User {user_id.value} lacks manage permission on workspace "
+                f"{workspace_id.value}"
+            )
+
+        async with self._session.begin():
+            # Load workspace
+            workspace = await self._workspace_repository.get_by_id(workspace_id)
+            if workspace is None:
+                raise ValueError(f"Workspace {workspace_id.value} not found")
+
+            # Verify tenant ownership
+            if workspace.tenant_id != self._scope_to_tenant:
+                raise UnauthorizedError("Workspace belongs to different tenant")
+
+            # Check name uniqueness (if name is changing)
+            if name != workspace.name:
+                existing = await self._workspace_repository.get_by_name(
+                    tenant_id=self._scope_to_tenant,
+                    name=name,
+                )
+                if existing:
+                    raise DuplicateWorkspaceNameError(
+                        f"Workspace '{name}' already exists in tenant"
+                    )
+
+            # Update workspace
+            workspace.rename(name)
+
+            # Save
+            await self._workspace_repository.save(workspace)
+
+        return workspace
+
+    async def update_member_role(
+        self,
+        workspace_id: WorkspaceId,
+        acting_user_id: UserId,
+        member_id: str,
+        member_type: MemberType,
+        new_role: WorkspaceRole,
+    ) -> Workspace:
+        """Update a member's role in a workspace.
+
+        Args:
+            workspace_id: The workspace
+            acting_user_id: User performing the action (must have MANAGE permission)
+            member_id: ID of user or group to update
+            member_type: Whether updating a USER or GROUP
+            new_role: The new role to assign
+
+        Returns:
+            Updated Workspace aggregate
+
+        Raises:
+            PermissionError: If acting user lacks MANAGE permission
+            ValueError: If member doesn't exist, role unchanged, or workspace not found
+            UnauthorizedError: If workspace belongs to different tenant
+        """
+        # Check acting user has MANAGE permission
+        has_manage = await self._check_workspace_permission(
+            user_id=acting_user_id,
+            workspace_id=workspace_id,
+            permission=Permission.MANAGE,
+        )
+
+        if not has_manage:
+            raise PermissionError(
+                f"User {acting_user_id.value} lacks manage permission on workspace "
+                f"{workspace_id.value}"
+            )
+
+        async with self._session.begin():
+            # Load workspace
+            workspace = await self._workspace_repository.get_by_id(workspace_id)
+            if workspace is None:
+                raise ValueError(f"Workspace {workspace_id.value} not found")
+
+            # Verify tenant ownership
+            if workspace.tenant_id != self._scope_to_tenant:
+                raise UnauthorizedError("Workspace belongs to different tenant")
+
+            # Update member role (aggregate handles validation and events)
+            workspace.update_member_role(member_id, member_type, new_role)
+
+            # Save (persists events to outbox)
+            await self._workspace_repository.save(workspace)
+
+        # Emit probe
+        self._probe.workspace_member_role_changed(
+            workspace_id=workspace_id.value,
+            member_id=member_id,
+            member_type=member_type.value,
+            new_role=new_role.value,
+            acting_user_id=acting_user_id.value,
+        )
+
+        return workspace
+
     async def list_members(
         self,
         workspace_id: WorkspaceId,
@@ -672,8 +801,8 @@ class WorkspaceService:
                 members.append(
                     WorkspaceAccessGrant(
                         member_id=subject_relation.subject_id,
-                        member_type=MemberType.USER.value,
-                        role=role.value,
+                        member_type=MemberType.USER,
+                        role=role,
                     )
                 )
 
@@ -688,8 +817,8 @@ class WorkspaceService:
                 members.append(
                     WorkspaceAccessGrant(
                         member_id=subject_relation.subject_id,
-                        member_type=MemberType.GROUP.value,
-                        role=role.value,
+                        member_type=MemberType.GROUP,
+                        role=role,
                     )
                 )
 

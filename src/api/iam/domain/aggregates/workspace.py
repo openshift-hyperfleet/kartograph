@@ -398,6 +398,26 @@ class Workspace:
             new_role=new_role.value,
         )
 
+    def rename(self, new_name: str) -> None:
+        """Rename the workspace.
+
+        Args:
+            new_name: New workspace name (1-512 characters)
+
+        Raises:
+            ValueError: If name is invalid or unchanged
+        """
+        # Validate name
+        self._validate_name(new_name)
+
+        # Check if actually changing
+        if new_name == self.name:
+            raise ValueError("New name is the same as current name")
+
+        # Update name
+        self.name = new_name
+        self.updated_at = datetime.now(UTC)
+
     def has_member(self, member_id: str, member_type: MemberType) -> bool:
         """Check if a member exists in this workspace.
 

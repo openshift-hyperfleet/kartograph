@@ -162,6 +162,44 @@ class AddWorkspaceMemberRequest(BaseModel):
         return WorkspaceRole(self.role.value)
 
 
+class UpdateWorkspaceMemberRoleRequest(BaseModel):
+    """Request model for updating a workspace member's role.
+
+    Attributes:
+        role: The new role to assign
+    """
+
+    role: WorkspaceRoleEnum = Field(
+        ...,
+        description="New role to assign to the member",
+        examples=["admin", "editor", "member"],
+    )
+
+    def to_domain_role(self) -> WorkspaceRole:
+        """Convert API role to domain WorkspaceRole.
+
+        Returns:
+            WorkspaceRole domain value object
+        """
+        return WorkspaceRole(self.role.value)
+
+
+class UpdateWorkspaceRequest(BaseModel):
+    """Request model for updating workspace metadata.
+
+    Attributes:
+        name: New workspace name (1-512 characters)
+    """
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=512,
+        description="Workspace name",
+        examples=["Engineering", "Marketing"],
+    )
+
+
 class WorkspaceMemberResponse(BaseModel):
     """Response model for a workspace member.
 
@@ -183,10 +221,10 @@ class WorkspaceMemberResponse(BaseModel):
             grant: WorkspaceAccessGrant from service layer
 
         Returns:
-            WorkspaceMemberResponse
+            WorkspaceMemberResponse with string values for JSON serialization
         """
         return cls(
             member_id=grant.member_id,
-            member_type=grant.member_type,
-            role=grant.role,
+            member_type=grant.member_type.value,
+            role=grant.role.value,
         )

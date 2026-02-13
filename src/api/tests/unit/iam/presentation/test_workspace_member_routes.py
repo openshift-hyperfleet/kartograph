@@ -17,7 +17,13 @@ from fastapi.testclient import TestClient
 from iam.application.services import WorkspaceService
 from iam.application.value_objects import CurrentUser, WorkspaceAccessGrant
 from iam.domain.aggregates import Workspace
-from iam.domain.value_objects import TenantId, UserId, WorkspaceId
+from iam.domain.value_objects import (
+    MemberType,
+    TenantId,
+    UserId,
+    WorkspaceId,
+    WorkspaceRole,
+)
 from iam.ports.exceptions import UnauthorizedError
 
 
@@ -352,13 +358,19 @@ class TestListWorkspaceMembers:
         """Test GET returns 200 with list of members."""
         mock_workspace_service.list_members.return_value = [
             WorkspaceAccessGrant(
-                member_id="alice-user-id", member_type="user", role="admin"
+                member_id="alice-user-id",
+                member_type=MemberType.USER,
+                role=WorkspaceRole.ADMIN,
             ),
             WorkspaceAccessGrant(
-                member_id="bob-user-id", member_type="user", role="editor"
+                member_id="bob-user-id",
+                member_type=MemberType.USER,
+                role=WorkspaceRole.EDITOR,
             ),
             WorkspaceAccessGrant(
-                member_id="eng-group-id", member_type="group", role="member"
+                member_id="eng-group-id",
+                member_type=MemberType.GROUP,
+                role=WorkspaceRole.MEMBER,
             ),
         ]
 

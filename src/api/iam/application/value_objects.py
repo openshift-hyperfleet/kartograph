@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from iam.domain.value_objects import TenantId, UserId
+from iam.domain.value_objects import MemberType, TenantId, UserId, WorkspaceRole
 
 
 @dataclass(frozen=True)
@@ -42,5 +42,5 @@ class WorkspaceAccessGrant:
     """
 
     member_id: str
-    member_type: str  # "user" or "group"
-    role: str  # "admin", "editor", or "member"
+    member_type: MemberType
+    role: WorkspaceRole

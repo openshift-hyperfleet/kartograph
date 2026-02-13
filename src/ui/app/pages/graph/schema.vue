@@ -40,7 +40,7 @@ const edgeLabelsLoading = ref(false)
 
 // Unified search (covers type names + cached property names)
 const searchQuery = ref('')
-const searchInputRef = ref<HTMLInputElement | null>(null)
+const searchInputRef = ref<InstanceType<typeof Input> | null>(null)
 
 // Inline-expand schema detail
 const expandedLabels = reactive(new Set<string>())
@@ -195,7 +195,8 @@ function handleGlobalKeydown(e: KeyboardEvent) {
     || ((e.ctrlKey || e.metaKey) && e.key === 'k')
   ) {
     e.preventDefault()
-    searchInputRef.value?.focus()
+    const el = searchInputRef.value?.$el as HTMLInputElement | undefined
+    el?.focus()
   }
 }
 

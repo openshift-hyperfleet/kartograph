@@ -2,10 +2,18 @@
 
 Tests the workspace CRUD operations including the critical behavior
 that deleting a parent workspace with children should fail.
+
+Note: After creating workspaces via the API, tests must explicitly grant
+the creator admin permission in SpiceDB using the ``grant_workspace_admin``
+fixture. The WorkspaceCreated outbox event does NOT auto-grant creator
+admin (planned for AIHCM-158), so without this step, subsequent operations
+that require MANAGE permission (create children, delete) will fail with 403.
 """
 
 import pytest
 import pytest_asyncio
+from collections.abc import Callable, Coroutine
+from typing import Any
 from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
 
@@ -60,7 +68,11 @@ class TestWorkspaceDeletion:
 
     @pytest.mark.asyncio
     async def test_cannot_delete_parent_with_children(
-        self, async_client: AsyncClient, tenant_auth_headers: dict, clean_iam_data
+        self,
+        async_client: AsyncClient,
+        tenant_auth_headers: dict,
+        clean_iam_data,
+        grant_workspace_admin: Callable[[str], Coroutine[Any, Any, None]],
     ):
         """Test that deleting a parent workspace with children fails with 409.
 
@@ -84,6 +96,9 @@ class TestWorkspaceDeletion:
         assert resp.status_code == 201
         parent = resp.json()
 
+        # Grant admin on parent so Alice can create children under it and delete it
+        await grant_workspace_admin(parent["id"])
+
         # Create child workspace (child of parent)
         resp = await async_client.post(
             "/iam/workspaces",
@@ -92,6 +107,9 @@ class TestWorkspaceDeletion:
         )
         assert resp.status_code == 201
         child = resp.json()
+
+        # Grant admin on child so Alice can delete it during cleanup
+        await grant_workspace_admin(child["id"])
 
         # Attempt to delete parent - should fail with 409
         resp = await async_client.delete(
@@ -116,7 +134,11 @@ class TestWorkspaceDeletion:
 
     @pytest.mark.asyncio
     async def test_can_delete_workspace_without_children(
-        self, async_client: AsyncClient, tenant_auth_headers: dict, clean_iam_data
+        self,
+        async_client: AsyncClient,
+        tenant_auth_headers: dict,
+        clean_iam_data,
+        grant_workspace_admin: Callable[[str], Coroutine[Any, Any, None]],
     ):
         """Test that deleting a workspace without children succeeds."""
         # Get root workspace
@@ -133,6 +155,9 @@ class TestWorkspaceDeletion:
         )
         assert resp.status_code == 201
         workspace = resp.json()
+
+        # Grant admin on workspace so Alice can delete it
+        await grant_workspace_admin(workspace["id"])
 
         # Delete it - should succeed
         resp = await async_client.delete(

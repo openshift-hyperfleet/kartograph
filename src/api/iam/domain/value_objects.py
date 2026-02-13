@@ -147,6 +147,27 @@ class TenantRole(StrEnum):
     MEMBER = "member"
 
 
+class WorkspaceRole(StrEnum):
+    """Roles for workspace membership.
+
+    Defines the 3-tier permission hierarchy within a workspace.
+    """
+
+    ADMIN = "admin"  # Full control (view + edit + manage)
+    EDITOR = "editor"  # Read + write (view + edit)
+    MEMBER = "member"  # Read-only (view)
+
+
+class MemberType(StrEnum):
+    """Type of member in workspace membership.
+
+    Distinguishes between direct user grants and group-based grants.
+    """
+
+    USER = "user"  # Direct user grant: workspace#admin@user:alice
+    GROUP = "group"  # Group grant: workspace#admin@group:eng#member
+
+
 @dataclass(frozen=True)
 class GroupMember:
     """Represents a user's membership in a group with a specific role.
@@ -177,3 +198,33 @@ class TenantMember:
 
     user_id: UserId
     role: TenantRole
+
+
+@dataclass(frozen=True)
+class WorkspaceMember:
+    """Represents a member's (user or group) access to a workspace.
+
+    This is an immutable value object describing the relationship between
+    a member (user or group) and a workspace.
+
+    Attributes:
+        member_id: The user ID or group ID
+        member_type: Whether this is a USER or GROUP grant
+        role: The workspace role (ADMIN, EDITOR, or MEMBER)
+    """
+
+    member_id: str  # Can be user ID or group ID
+    member_type: MemberType
+    role: WorkspaceRole
+
+    def is_admin(self) -> bool:
+        """Check if this member has admin role."""
+        return self.role == WorkspaceRole.ADMIN
+
+    def is_editor(self) -> bool:
+        """Check if this member has editor role."""
+        return self.role == WorkspaceRole.EDITOR
+
+    def is_member(self) -> bool:
+        """Check if this member has member (viewer) role."""
+        return self.role == WorkspaceRole.MEMBER

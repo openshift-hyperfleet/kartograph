@@ -28,8 +28,11 @@ from iam.domain.events import (
     TenantMemberRemoved,
     WorkspaceCreated,
     WorkspaceDeleted,
+    WorkspaceMemberAdded,
+    WorkspaceMemberRemoved,
+    WorkspaceMemberRoleChanged,
 )
-from iam.domain.value_objects import GroupRole, TenantRole
+from iam.domain.value_objects import GroupRole, MemberType, TenantRole, WorkspaceRole
 from shared_kernel.authorization.types import RelationType, ResourceType
 from shared_kernel.outbox.operations import (
     DeleteRelationship,
@@ -40,6 +43,28 @@ from shared_kernel.outbox.operations import (
 
 # Build registry mapping event type names to classes
 _EVENT_REGISTRY: dict[str, type] = {cls.__name__: cls for cls in get_args(DomainEvent)}
+
+
+def validate_required_keys(payload: dict[str, Any], required_keys: list[str]) -> None:
+    """Validate that all required keys are present and are strings.
+
+    Args:
+        payload: The event payload to validate
+        required_keys: List of keys that must be present with string values
+
+    Raises:
+        ValueError: If any required keys are missing or have non-string values
+    """
+    missing = [key for key in required_keys if key not in payload]
+    if missing:
+        raise ValueError(f"Payload missing required keys: {sorted(missing)}")
+
+    for key in required_keys:
+        if not isinstance(payload[key], str):
+            raise ValueError(
+                f"Payload key '{key}' must be a string, "
+                f"got {type(payload[key]).__name__}"
+            )
 
 
 class IAMEventTranslator:
@@ -67,6 +92,9 @@ class IAMEventTranslator:
             TenantMemberRemoved: self._translate_tenant_member_removed,
             WorkspaceCreated: self._translate_workspace_created,
             WorkspaceDeleted: self._translate_workspace_deleted,
+            WorkspaceMemberAdded: self._translate_workspace_member_added,
+            WorkspaceMemberRemoved: self._translate_workspace_member_removed,
+            WorkspaceMemberRoleChanged: self._translate_workspace_member_role_changed,
             APIKeyCreated: self._translate_api_key_created,
             APIKeyRevoked: self._translate_api_key_revoked,
             APIKeyDeleted: self._translate_api_key_deleted,
@@ -414,12 +442,12 @@ class IAMEventTranslator:
     ) -> list[SpiceDBOperation]:
         """Translate WorkspaceDeleted event to SpiceDB relationship deletions.
 
-        Deletes the relationships that were created during workspace creation,
-        using the snapshot data captured in the event.
+        Deletes the relationships that were created during workspace creation
+        and membership management, using the snapshot data captured in the event.
 
         Args:
             payload: Event payload containing workspace_id, tenant_id,
-                     parent_workspace_id, and is_root (snapshot)
+                     parent_workspace_id, is_root, and members (snapshot)
 
         Returns:
             List of DeleteRelationship operations for SpiceDB
@@ -466,7 +494,118 @@ class IAMEventTranslator:
                 )
             )
 
+        # 4. Delete all member relationships from the snapshot
+        for member in payload.get("members", []):
+            role = WorkspaceRole(member["role"])
+            subject_type = self._resolve_subject_type(member["member_type"])
+
+            relationships.append(
+                DeleteRelationship(
+                    resource_type=ResourceType.WORKSPACE,
+                    resource_id=workspace_id,
+                    relation=role,
+                    subject_type=subject_type,
+                    subject_id=member["member_id"],
+                )
+            )
+
         return relationships
+
+    def _resolve_subject_type(self, member_type: str) -> ResourceType:
+        """Resolve the SpiceDB subject type from the member_type field.
+
+        Args:
+            member_type: The member type string ("user" or "group")
+
+        Returns:
+            ResourceType.USER for user grants, ResourceType.GROUP for group grants
+        """
+        resolved = MemberType(member_type)
+        if resolved == MemberType.USER:
+            return ResourceType.USER
+        return ResourceType.GROUP
+
+    def _translate_workspace_member_added(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate WorkspaceMemberAdded to role relationship write.
+
+        Creates a relationship: workspace#<role>@<member_type>:<member_id>
+        """
+        validate_required_keys(
+            payload, ["workspace_id", "member_id", "member_type", "role"]
+        )
+        role = WorkspaceRole(payload["role"])
+        subject_type = self._resolve_subject_type(payload["member_type"])
+
+        return [
+            WriteRelationship(
+                resource_type=ResourceType.WORKSPACE,
+                resource_id=payload["workspace_id"],
+                relation=role,
+                subject_type=subject_type,
+                subject_id=payload["member_id"],
+            )
+        ]
+
+    def _translate_workspace_member_removed(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate WorkspaceMemberRemoved to role relationship delete.
+
+        Deletes: workspace#<role>@<member_type>:<member_id>
+        """
+        validate_required_keys(
+            payload, ["workspace_id", "member_id", "member_type", "role"]
+        )
+        role = WorkspaceRole(payload["role"])
+        subject_type = self._resolve_subject_type(payload["member_type"])
+
+        return [
+            DeleteRelationship(
+                resource_type=ResourceType.WORKSPACE,
+                resource_id=payload["workspace_id"],
+                relation=role,
+                subject_type=subject_type,
+                subject_id=payload["member_id"],
+            )
+        ]
+
+    def _translate_workspace_member_role_changed(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate WorkspaceMemberRoleChanged to delete old + write new role.
+
+        Deletes: workspace#<old_role>@<member_type>:<member_id>
+        Writes:  workspace#<new_role>@<member_type>:<member_id>
+        """
+        validate_required_keys(
+            payload,
+            ["workspace_id", "member_id", "member_type", "old_role", "new_role"],
+        )
+        old_role = WorkspaceRole(payload["old_role"])
+        new_role = WorkspaceRole(payload["new_role"])
+        subject_type = self._resolve_subject_type(payload["member_type"])
+
+        return [
+            DeleteRelationship(
+                resource_type=ResourceType.WORKSPACE,
+                resource_id=payload["workspace_id"],
+                relation=old_role,
+                subject_type=subject_type,
+                subject_id=payload["member_id"],
+            ),
+            WriteRelationship(
+                resource_type=ResourceType.WORKSPACE,
+                resource_id=payload["workspace_id"],
+                relation=new_role,
+                subject_type=subject_type,
+                subject_id=payload["member_id"],
+            ),
+        ]
 
     def _translate_api_key_created(
         self,

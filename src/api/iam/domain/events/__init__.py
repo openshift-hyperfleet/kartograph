@@ -31,6 +31,12 @@ from iam.domain.events.workspace import (
     WorkspaceCreated,
     WorkspaceDeleted,
 )
+from iam.domain.events.workspace_member import (
+    WorkspaceMemberAdded,
+    WorkspaceMemberRemoved,
+    WorkspaceMemberRoleChanged,
+    WorkspaceMemberSnapshot,
+)
 
 # Type alias for all domain events in the IAM context
 DomainEvent = (
@@ -45,6 +51,9 @@ DomainEvent = (
     | MemberRoleChanged
     | WorkspaceCreated
     | WorkspaceDeleted
+    | WorkspaceMemberAdded
+    | WorkspaceMemberRemoved
+    | WorkspaceMemberRoleChanged
     | APIKeyCreated
     | APIKeyRevoked
     | APIKeyDeleted
@@ -66,6 +75,11 @@ __all__ = [
     # Workspace events
     "WorkspaceCreated",
     "WorkspaceDeleted",
+    # Workspace member events
+    "WorkspaceMemberAdded",
+    "WorkspaceMemberRemoved",
+    "WorkspaceMemberRoleChanged",
+    "WorkspaceMemberSnapshot",
     # API key events
     "APIKeyCreated",
     "APIKeyRevoked",

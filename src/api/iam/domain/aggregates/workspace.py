@@ -9,8 +9,22 @@ from typing import TYPE_CHECKING, Optional
 from iam.domain.events import (
     WorkspaceCreated,
     WorkspaceDeleted,
+    WorkspaceMemberAdded,
+    WorkspaceMemberRemoved,
+    WorkspaceMemberRoleChanged,
 )
-from iam.domain.value_objects import TenantId, WorkspaceId
+from iam.domain.events.workspace_member import WorkspaceMemberSnapshot
+from iam.domain.observability.workspace_probe import (
+    DefaultWorkspaceProbe,
+    WorkspaceProbe,
+)
+from iam.domain.value_objects import (
+    MemberType,
+    TenantId,
+    WorkspaceId,
+    WorkspaceMember,
+    WorkspaceRole,
+)
 
 if TYPE_CHECKING:
     from iam.domain.events import DomainEvent
@@ -29,6 +43,7 @@ class Workspace:
     - Cannot have both is_root=True and parent_workspace_id set
     - Root workspace must have is_root=True and parent_workspace_id=None
     - Cannot delete root workspace (enforced at service layer)
+    - A member (same member_id + member_type) cannot be added twice
 
     Event collection:
     - All mutating operations record domain events
@@ -42,7 +57,12 @@ class Workspace:
     is_root: bool
     created_at: datetime
     updated_at: datetime
+    members: list[WorkspaceMember] = field(default_factory=list)
     _pending_events: list[DomainEvent] = field(default_factory=list, repr=False)
+    _probe: WorkspaceProbe = field(
+        default_factory=DefaultWorkspaceProbe,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         """Validate business rules after initialization."""
@@ -68,6 +88,7 @@ class Workspace:
         name: str,
         tenant_id: TenantId,
         parent_workspace_id: WorkspaceId,
+        probe: WorkspaceProbe | None = None,
     ) -> "Workspace":
         """Factory method for creating a new child workspace.
 
@@ -81,6 +102,7 @@ class Workspace:
             name: The name of the workspace (1-512 characters)
             tenant_id: The tenant this workspace belongs to
             parent_workspace_id: The parent workspace in the hierarchy (required)
+            probe: Optional observability probe for domain events
 
         Returns:
             A new Workspace aggregate with WorkspaceCreated event recorded
@@ -97,6 +119,7 @@ class Workspace:
             is_root=False,
             created_at=now,
             updated_at=now,
+            _probe=probe or DefaultWorkspaceProbe(),
         )
         workspace._pending_events.append(
             WorkspaceCreated(
@@ -115,6 +138,7 @@ class Workspace:
         cls,
         name: str,
         tenant_id: TenantId,
+        probe: WorkspaceProbe | None = None,
     ) -> "Workspace":
         """Factory method for creating a root workspace.
 
@@ -124,6 +148,7 @@ class Workspace:
         Args:
             name: The name of the workspace (1-512 characters)
             tenant_id: The tenant this workspace belongs to
+            probe: Optional observability probe for domain events
 
         Returns:
             A new root Workspace aggregate with WorkspaceCreated event recorded
@@ -140,6 +165,7 @@ class Workspace:
             is_root=True,
             created_at=now,
             updated_at=now,
+            _probe=probe or DefaultWorkspaceProbe(),
         )
         workspace._pending_events.append(
             WorkspaceCreated(
@@ -153,15 +179,276 @@ class Workspace:
         )
         return workspace
 
+    def add_member(
+        self,
+        member_id: str,
+        member_type: MemberType,
+        role: WorkspaceRole,
+    ) -> None:
+        """Add a member (user or group) to the workspace.
+
+        Args:
+            member_id: The user ID or group ID
+            member_type: Whether this is a USER or GROUP
+            role: The role to assign (ADMIN, EDITOR, or MEMBER)
+
+        Raises:
+            TypeError: If member_id is not a string, or if member_type/role
+                are not the correct enum types
+            ValueError: If member_id is empty or member is already added
+        """
+        # Validate member_id type
+        if not isinstance(member_id, str):
+            raise TypeError(f"member_id must be str, got {type(member_id).__name__}")
+
+        # Normalize member_id by stripping whitespace
+        member_id = member_id.strip()
+
+        # Validate non-empty
+        if not member_id:
+            raise ValueError("member_id cannot be empty")
+
+        # Validate enum types
+        if not isinstance(member_type, MemberType):
+            raise TypeError(
+                f"member_type must be MemberType, got {type(member_type).__name__}"
+            )
+        if not isinstance(role, WorkspaceRole):
+            raise TypeError(f"role must be WorkspaceRole, got {type(role).__name__}")
+
+        if self.has_member(member_id, member_type):
+            raise ValueError(
+                f"{member_type.value} {member_id} is already a member of this workspace"
+            )
+
+        member = WorkspaceMember(
+            member_id=member_id,
+            member_type=member_type,
+            role=role,
+        )
+        self.members.append(member)
+
+        self._pending_events.append(
+            WorkspaceMemberAdded(
+                workspace_id=self.id.value,
+                member_id=member_id,
+                member_type=member_type.value,
+                role=role.value,
+                occurred_at=datetime.now(UTC),
+            )
+        )
+        self._probe.member_added(
+            workspace_id=self.id.value,
+            member_id=member_id,
+            member_type=member_type.value,
+            role=role.value,
+        )
+
+    def remove_member(
+        self,
+        member_id: str,
+        member_type: MemberType,
+    ) -> None:
+        """Remove a member from the workspace.
+
+        Args:
+            member_id: The user ID or group ID
+            member_type: Whether this is a USER or GROUP
+
+        Raises:
+            TypeError: If member_id is not a string, or if member_type is not
+                the correct enum type
+            ValueError: If member_id is empty or member is not in workspace
+            RuntimeError: If invariant is violated
+        """
+        # Validate member_id type
+        if not isinstance(member_id, str):
+            raise TypeError(f"member_id must be str, got {type(member_id).__name__}")
+
+        # Normalize member_id by stripping whitespace
+        member_id = member_id.strip()
+
+        # Validate non-empty
+        if not member_id:
+            raise ValueError("member_id cannot be empty")
+
+        # Validate enum type
+        if not isinstance(member_type, MemberType):
+            raise TypeError(
+                f"member_type must be MemberType, got {type(member_type).__name__}"
+            )
+
+        if not self.has_member(member_id, member_type):
+            raise ValueError(
+                f"{member_type.value} {member_id} is not a member of this workspace"
+            )
+
+        # Get role for event (need to know which relation to delete in SpiceDB)
+        member_role = self.get_member_role(member_id, member_type)
+        if member_role is None:
+            raise RuntimeError(
+                f"Invariant violated: member exists but role is None "
+                f"(member_id={member_id}, member_type={member_type})"
+            )
+
+        # Remove from list
+        self.members = [
+            m
+            for m in self.members
+            if not (m.member_id == member_id and m.member_type == member_type)
+        ]
+
+        self._pending_events.append(
+            WorkspaceMemberRemoved(
+                workspace_id=self.id.value,
+                member_id=member_id,
+                member_type=member_type.value,
+                role=member_role.value,
+                occurred_at=datetime.now(UTC),
+            )
+        )
+        self._probe.member_removed(
+            workspace_id=self.id.value,
+            member_id=member_id,
+            member_type=member_type.value,
+            role=member_role.value,
+        )
+
+    def update_member_role(
+        self,
+        member_id: str,
+        member_type: MemberType,
+        new_role: WorkspaceRole,
+    ) -> None:
+        """Update a member's role.
+
+        Args:
+            member_id: The user ID or group ID
+            member_type: Whether this is a USER or GROUP
+            new_role: The new role to assign
+
+        Raises:
+            TypeError: If member_id is not a string, or if member_type/new_role
+                are not the correct enum types
+            ValueError: If member_id is empty, member is not in workspace,
+                or role unchanged
+            RuntimeError: If invariant is violated
+        """
+        # Validate member_id type
+        if not isinstance(member_id, str):
+            raise TypeError(f"member_id must be str, got {type(member_id).__name__}")
+
+        # Normalize member_id by stripping whitespace
+        member_id = member_id.strip()
+
+        # Validate non-empty
+        if not member_id:
+            raise ValueError("member_id cannot be empty")
+
+        # Validate enum types
+        if not isinstance(member_type, MemberType):
+            raise TypeError(
+                f"member_type must be MemberType, got {type(member_type).__name__}"
+            )
+        if not isinstance(new_role, WorkspaceRole):
+            raise TypeError(
+                f"new_role must be WorkspaceRole, got {type(new_role).__name__}"
+            )
+
+        if not self.has_member(member_id, member_type):
+            raise ValueError(
+                f"{member_type.value} {member_id} is not a member of this workspace"
+            )
+
+        old_role = self.get_member_role(member_id, member_type)
+        if old_role is None:
+            raise RuntimeError(
+                f"Invariant violated: member exists but role is None "
+                f"(member_id={member_id}, member_type={member_type})"
+            )
+
+        if old_role == new_role:
+            raise ValueError(f"Member already has role {new_role.value}")
+
+        # Update in-memory member list
+        for i, member in enumerate(self.members):
+            if member.member_id == member_id and member.member_type == member_type:
+                self.members[i] = WorkspaceMember(
+                    member_id=member_id,
+                    member_type=member_type,
+                    role=new_role,
+                )
+                break
+
+        self._pending_events.append(
+            WorkspaceMemberRoleChanged(
+                workspace_id=self.id.value,
+                member_id=member_id,
+                member_type=member_type.value,
+                old_role=old_role.value,
+                new_role=new_role.value,
+                occurred_at=datetime.now(UTC),
+            )
+        )
+        self._probe.member_role_changed(
+            workspace_id=self.id.value,
+            member_id=member_id,
+            member_type=member_type.value,
+            old_role=old_role.value,
+            new_role=new_role.value,
+        )
+
+    def has_member(self, member_id: str, member_type: MemberType) -> bool:
+        """Check if a member exists in this workspace.
+
+        Args:
+            member_id: The user ID or group ID
+            member_type: Whether this is a USER or GROUP
+
+        Returns:
+            True if member exists, False otherwise
+        """
+        return any(
+            m.member_id == member_id and m.member_type == member_type
+            for m in self.members
+        )
+
+    def get_member_role(
+        self, member_id: str, member_type: MemberType
+    ) -> WorkspaceRole | None:
+        """Get a member's role.
+
+        Args:
+            member_id: The user ID or group ID
+            member_type: Whether this is a USER or GROUP
+
+        Returns:
+            The member's role, or None if not a member
+        """
+        for member in self.members:
+            if member.member_id == member_id and member.member_type == member_type:
+                return member.role
+        return None
+
     def mark_for_deletion(self) -> None:
         """Mark the workspace for deletion and record the WorkspaceDeleted event.
 
-        Captures a snapshot of the workspace's parent relationship and root status
-        to ensure proper cleanup of SpiceDB relationships.
+        Captures a snapshot of the workspace's parent relationship, root status,
+        and members to ensure proper cleanup of SpiceDB relationships.
 
         Note: Business rule enforcement (cannot delete root workspace,
         cannot delete workspace with children) is handled at the service layer.
         """
+        # Create member snapshot for SpiceDB cleanup
+        members_snapshot = tuple(
+            WorkspaceMemberSnapshot(
+                member_id=m.member_id,
+                member_type=m.member_type.value,
+                role=m.role.value,
+            )
+            for m in self.members
+        )
+
         self._pending_events.append(
             WorkspaceDeleted(
                 workspace_id=self.id.value,
@@ -170,6 +457,7 @@ class Workspace:
                 if self.parent_workspace_id
                 else None,
                 is_root=self.is_root,
+                members=members_snapshot,
                 occurred_at=datetime.now(UTC),
             )
         )

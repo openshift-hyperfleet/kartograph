@@ -51,7 +51,7 @@ class EdgeDict(TypedDict):
 # - {"value": scalar} for scalar returns
 # - {custom_key: NodeDict | EdgeDict | scalar} for map returns
 QueryResultRow: TypeAlias = dict[
-    str, NodeDict | EdgeDict | str | int | float | bool | list | None
+    str, NodeDict | EdgeDict | str | int | float | bool | list | dict | None
 ]
 
 

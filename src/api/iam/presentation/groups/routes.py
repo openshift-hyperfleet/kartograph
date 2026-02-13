@@ -20,6 +20,33 @@ router = APIRouter(
 )
 
 
+@router.get(
+    "",
+    response_model=list[GroupResponse],
+    summary="List groups",
+    description="List all groups in the authenticated user's tenant",
+    responses={
+        200: {"description": "Groups listed successfully"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Internal server error"},
+    },
+)
+async def list_groups(
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[GroupService, Depends(get_group_service)],
+) -> list[GroupResponse]:
+    """List all groups in user's tenant."""
+    try:
+        groups = await service.list_groups()
+        return [GroupResponse.from_domain(group) for group in groups]
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list groups",
+        )
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_group(
     request: CreateGroupRequest,

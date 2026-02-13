@@ -21,6 +21,8 @@ from iam.presentation.workspaces.models import (
     AddWorkspaceMemberRequest,
     CreateWorkspaceRequest,
     MemberTypeEnum,
+    UpdateWorkspaceMemberRoleRequest,
+    UpdateWorkspaceRequest,
     WorkspaceListResponse,
     WorkspaceMemberResponse,
     WorkspaceResponse,
@@ -59,8 +61,14 @@ async def create_workspace(
 ) -> WorkspaceResponse:
     """Create a new child workspace."""
     try:
-        parent_id = WorkspaceId(request.parent_workspace_id)
+        parent_id = WorkspaceId.from_string(request.parent_workspace_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid parent workspace ID format",
+        )
 
+    try:
         workspace = await service.create_workspace(
             name=request.name,
             parent_workspace_id=parent_id,
@@ -116,8 +124,14 @@ async def get_workspace(
 ) -> WorkspaceResponse:
     """Get workspace by ID."""
     try:
-        workspace_id_obj = WorkspaceId(workspace_id)
+        workspace_id_obj = WorkspaceId.from_string(workspace_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid workspace ID format",
+        )
 
+    try:
         workspace = await service.get_workspace(
             workspace_id_obj, user_id=current_user.user_id
         )
@@ -226,8 +240,14 @@ async def delete_workspace(
         409 Conflict: Cannot delete root workspace or workspace with children
     """
     try:
-        workspace_id_obj = WorkspaceId(workspace_id)
+        workspace_id_obj = WorkspaceId.from_string(workspace_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid workspace ID format",
+        )
 
+    try:
         result = await service.delete_workspace(
             workspace_id_obj, user_id=current_user.user_id
         )
@@ -476,4 +496,161 @@ async def remove_workspace_member(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to remove member from workspace",
+        )
+
+
+@router.patch(
+    "/{workspace_id}/members/{member_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=WorkspaceMemberResponse,
+    summary="Update workspace member role",
+    description="""
+Update a member's role in a workspace.
+
+Requires MANAGE permission on the workspace.
+
+Note: The member_type query parameter is required to distinguish between
+user and group members with the same ID.
+""",
+    response_description="Updated member details",
+    responses={
+        200: {"description": "Member role updated successfully"},
+        400: {"description": "Invalid workspace ID, member ID, or role unchanged"},
+        403: {"description": "Insufficient permissions to manage workspace members"},
+        404: {"description": "Workspace not found or member not found"},
+        422: {"description": "Validation error in request body"},
+        500: {"description": "Internal server error"},
+    },
+)
+async def update_workspace_member_role(
+    workspace_id: str,
+    member_id: str,
+    member_type: MemberTypeEnum,
+    request: UpdateWorkspaceMemberRoleRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[WorkspaceService, Depends(get_workspace_service)],
+) -> WorkspaceMemberResponse:
+    """Update a workspace member's role.
+
+    Requires MANAGE permission on the workspace.
+    """
+    # Validate workspace ID format
+    try:
+        workspace_id_obj = WorkspaceId.from_string(workspace_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid workspace ID format",
+        )
+
+    try:
+        domain_member_type = MemberType(member_type.value)
+
+        await service.update_member_role(
+            workspace_id=workspace_id_obj,
+            acting_user_id=current_user.user_id,
+            member_id=member_id,
+            member_type=domain_member_type,
+            new_role=request.to_domain_role(),
+        )
+
+        return WorkspaceMemberResponse(
+            member_id=member_id,
+            member_type=member_type.value,
+            role=request.role.value,
+        )
+
+    except PermissionError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions to manage workspace members",
+        )
+    except (ValueError, TypeError, RuntimeError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workspace belongs to different tenant",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update member role",
+        )
+
+
+@router.patch(
+    "/{workspace_id}",
+    response_model=WorkspaceResponse,
+    summary="Update workspace",
+    description="""
+Update workspace metadata (currently just name).
+
+Requires MANAGE permission on the workspace.
+""",
+    response_description="Updated workspace details",
+    responses={
+        200: {"description": "Workspace updated successfully"},
+        400: {"description": "Invalid workspace ID or name"},
+        403: {"description": "Insufficient permissions to manage workspace"},
+        404: {"description": "Workspace not found"},
+        409: {"description": "Workspace name already exists in tenant"},
+        500: {"description": "Internal server error"},
+    },
+)
+async def update_workspace(
+    workspace_id: str,
+    request: UpdateWorkspaceRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[WorkspaceService, Depends(get_workspace_service)],
+) -> WorkspaceResponse:
+    """Update a workspace's metadata."""
+    try:
+        workspace_id_obj = WorkspaceId.from_string(workspace_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid workspace ID format",
+        )
+
+    try:
+        workspace = await service.update_workspace(
+            workspace_id=workspace_id_obj,
+            user_id=current_user.user_id,
+            name=request.name,
+        )
+
+        return WorkspaceResponse.from_domain(workspace)
+
+    except PermissionError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions to manage workspace",
+        )
+    except DuplicateWorkspaceNameError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except (ValueError, TypeError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workspace belongs to different tenant",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update workspace",
         )

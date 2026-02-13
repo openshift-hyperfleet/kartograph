@@ -112,6 +112,17 @@ class WorkspaceServiceProbe(Protocol):
         """Record workspace member removal."""
         ...
 
+    def workspace_member_role_changed(
+        self,
+        workspace_id: str,
+        member_id: str,
+        member_type: str,
+        new_role: str,
+        acting_user_id: str,
+    ) -> None:
+        """Record workspace member role change."""
+        ...
+
     def with_context(self, context: ObservationContext) -> WorkspaceServiceProbe:
         """Return a new probe with additional context."""
         ...
@@ -336,6 +347,34 @@ class DefaultWorkspaceServiceProbe:
             workspace_id=workspace_id,
             member_id=member_id,
             member_type=member_type,
+            acting_user_id=acting_user_id,
+            **context_kwargs,
+        )
+
+    def workspace_member_role_changed(
+        self,
+        workspace_id: str,
+        member_id: str,
+        member_type: str,
+        new_role: str,
+        acting_user_id: str,
+    ) -> None:
+        """Record workspace member role change."""
+        context_kwargs = self._get_context_kwargs(
+            exclude={
+                "workspace_id",
+                "member_id",
+                "member_type",
+                "new_role",
+                "acting_user_id",
+            }
+        )
+        self._logger.info(
+            "workspace_member_role_changed",
+            workspace_id=workspace_id,
+            member_id=member_id,
+            member_type=member_type,
+            new_role=new_role,
             acting_user_id=acting_user_id,
             **context_kwargs,
         )

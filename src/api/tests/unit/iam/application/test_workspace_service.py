@@ -10,8 +10,14 @@ from sqlalchemy.exc import IntegrityError
 
 from iam.application.services.workspace_service import WorkspaceService
 from iam.domain.aggregates import Workspace
-from iam.domain.events import WorkspaceCreated, WorkspaceDeleted
-from iam.domain.value_objects import TenantId, UserId, WorkspaceId
+from iam.domain.events import WorkspaceCreated, WorkspaceDeleted, WorkspaceMemberAdded
+from iam.domain.value_objects import (
+    MemberType,
+    TenantId,
+    UserId,
+    WorkspaceId,
+    WorkspaceRole,
+)
 from iam.ports.exceptions import (
     CannotDeleteRootWorkspaceError,
     DuplicateWorkspaceNameError,
@@ -301,12 +307,13 @@ class TestCreateWorkspace:
             creator_id=creator_id,
         )
 
-        # Assert: The workspace aggregate was saved with a WorkspaceCreated event
-        # Since mock save doesn't call collect_events(), the events remain pending
+        # Assert: The workspace aggregate was saved with WorkspaceCreated and
+        # WorkspaceMemberAdded events (creator gets admin access)
         saved_workspace = mock_workspace_repository.save.call_args[0][0]
         events = saved_workspace.collect_events()
-        assert len(events) == 1
+        assert len(events) == 2
 
+        # First event: WorkspaceCreated
         event = events[0]
         assert isinstance(event, WorkspaceCreated)
         assert event.workspace_id == result.id.value
@@ -314,6 +321,12 @@ class TestCreateWorkspace:
         assert event.name == "Engineering"
         assert event.parent_workspace_id == root_workspace.id.value
         assert event.is_root is False
+
+        # Second event: WorkspaceMemberAdded (creator granted admin)
+        member_event = events[1]
+        assert isinstance(member_event, WorkspaceMemberAdded)
+        assert member_event.member_id == creator_id.value
+        assert member_event.role == "admin"
 
         # Assert: Probe was called for success
         mock_probe.workspace_created.assert_called_once()
@@ -324,6 +337,52 @@ class TestCreateWorkspace:
         assert probe_kwargs["parent_workspace_id"] == root_workspace.id.value
         assert probe_kwargs["is_root"] is False
         assert probe_kwargs["creator_id"] == creator_id.value
+
+    @pytest.mark.asyncio
+    async def test_create_workspace_grants_creator_admin_access(
+        self,
+        workspace_service: WorkspaceService,
+        mock_workspace_repository,
+        mock_authz,
+        tenant_id,
+        creator_id,
+        root_workspace,
+    ):
+        """Test that workspace creator is automatically granted admin access.
+
+        This prevents orphaned workspaces where the creator cannot see or
+        manage the workspace they just created. Follows the same pattern
+        as GroupService.create_group() which grants creator admin.
+        """
+        # Setup: User has MANAGE permission, no duplicate name, parent exists
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_workspace_repository.get_by_name = AsyncMock(return_value=None)
+        mock_workspace_repository.get_by_id = AsyncMock(return_value=root_workspace)
+        mock_workspace_repository.save = AsyncMock()
+
+        # Call
+        workspace = await workspace_service.create_workspace(
+            name="Test",
+            parent_workspace_id=root_workspace.id,
+            creator_id=creator_id,
+        )
+
+        # Verify creator was added as admin member on the workspace aggregate
+        assert workspace.has_member(creator_id.value, MemberType.USER)
+        assert (
+            workspace.get_member_role(creator_id.value, MemberType.USER)
+            == WorkspaceRole.ADMIN
+        )
+
+        # Verify WorkspaceMemberAdded event was recorded alongside WorkspaceCreated
+        saved_workspace = mock_workspace_repository.save.call_args[0][0]
+        events = saved_workspace.collect_events()
+        member_added_events = [e for e in events if isinstance(e, WorkspaceMemberAdded)]
+        assert len(member_added_events) == 1
+        assert member_added_events[0].member_id == creator_id.value
+        assert member_added_events[0].member_type == "user"
+        assert member_added_events[0].role == "admin"
+        assert member_added_events[0].workspace_id == workspace.id.value
 
 
 class TestCreateRootWorkspace:

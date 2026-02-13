@@ -26,6 +26,7 @@ from iam.presentation.workspaces.models import (
     WorkspaceListResponse,
     WorkspaceMemberResponse,
     WorkspaceResponse,
+    WorkspaceRoleEnum,
 )
 
 router = APIRouter(
@@ -338,8 +339,8 @@ async def add_workspace_member(
 
         return WorkspaceMemberResponse(
             member_id=request.member_id,
-            member_type=request.member_type.value,
-            role=request.role.value,
+            member_type=request.member_type,
+            role=request.role,
         )
 
     except PermissionError:
@@ -481,9 +482,16 @@ async def remove_workspace_member(
             detail="Insufficient permissions to manage workspace members",
         )
     except (ValueError, TypeError, RuntimeError) as e:
+        # Distinguish workspace not found (404) from member not found (400)
+        error_msg = str(e)
+        if "Workspace" in error_msg and "not found" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=error_msg,
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=error_msg,
         )
     except UnauthorizedError:
         raise HTTPException(
@@ -556,8 +564,8 @@ async def update_workspace_member_role(
 
         return WorkspaceMemberResponse(
             member_id=member_id,
-            member_type=member_type.value,
-            role=request.role.value,
+            member_type=MemberTypeEnum(member_type.value),
+            role=WorkspaceRoleEnum(request.role.value),
         )
 
     except PermissionError:

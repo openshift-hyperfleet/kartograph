@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from iam.dependencies.multi_tenant_mode import require_multi_tenant_mode
 from iam.dependencies.tenant import get_tenant_service
-from iam.dependencies.user import get_current_user
+from iam.dependencies.user import get_authenticated_user, get_current_user
 from iam.application.services import TenantService
-from iam.application.value_objects import CurrentUser
+from iam.application.value_objects import AuthenticatedUser, CurrentUser
 from iam.domain.exceptions import CannotRemoveLastAdminError
 from iam.domain.value_objects import TenantId, UserId
 from iam.ports.exceptions import DuplicateTenantNameError, UnauthorizedError
@@ -34,17 +34,18 @@ router = APIRouter(
 )
 async def create_tenant(
     request: CreateTenantRequest,
-    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    authenticated_user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
     service: Annotated[TenantService, Depends(get_tenant_service)],
 ) -> TenantResponse:
     """Create a new tenant.
 
-    For the walking skeleton, this uses header-based auth.
-    In production, this should be restricted to system administrators.
+    Uses get_authenticated_user (not get_current_user) because this is a
+    bootstrap endpoint — users need to create tenants before they have
+    tenant context. Only authentication is required, not tenant scoping.
 
     Args:
         request: Tenant creation request (name)
-        current_user: Current authenticated user (admin check would go here)
+        authenticated_user: Authenticated user (no tenant context required)
         service: Tenant service for orchestration
 
     Returns:
@@ -122,16 +123,17 @@ async def get_tenant(
 
 @router.get("")
 async def list_tenants(
-    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    authenticated_user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
     service: Annotated[TenantService, Depends(get_tenant_service)],
 ) -> list[TenantResponse]:
     """List all tenants.
 
-    Requires authentication. For the walking skeleton, this is open to
-    authenticated users. In production, this should be restricted to admins.
+    Uses get_authenticated_user (not get_current_user) because this is a
+    bootstrap endpoint — users need to list tenants before they have
+    tenant context. Only authentication is required, not tenant scoping.
 
     Args:
-        current_user: Current authenticated user
+        authenticated_user: Authenticated user (no tenant context required)
         service: Tenant service
 
     Returns:

@@ -210,8 +210,8 @@ class WorkspaceMemberResponse(BaseModel):
     """
 
     member_id: str = Field(..., description="User ID or Group ID")
-    member_type: str = Field(..., description="Type of member (user or group)")
-    role: str = Field(..., description="Member's role in the workspace")
+    member_type: MemberTypeEnum = Field(..., description="Type of member")
+    role: WorkspaceRoleEnum = Field(..., description="Member's role")
 
     @classmethod
     def from_grant(cls, grant: WorkspaceAccessGrant) -> WorkspaceMemberResponse:
@@ -221,10 +221,10 @@ class WorkspaceMemberResponse(BaseModel):
             grant: WorkspaceAccessGrant from service layer
 
         Returns:
-            WorkspaceMemberResponse with string values for JSON serialization
+            WorkspaceMemberResponse with enum values for OpenAPI schema
         """
         return cls(
             member_id=grant.member_id,
-            member_type=grant.member_type.value,
-            role=grant.role.value,
+            member_type=MemberTypeEnum(grant.member_type.value),
+            role=WorkspaceRoleEnum(grant.role.value),
         )

@@ -201,6 +201,23 @@ class Group:
             )
         )
 
+    def rename(self, new_name: str) -> None:
+        """Rename the group.
+
+        Args:
+            new_name: New group name (1-255 characters)
+
+        Raises:
+            ValueError: If name is invalid or unchanged
+        """
+        if not new_name or len(new_name) < 1 or len(new_name) > 255:
+            raise ValueError("Group name must be between 1 and 255 characters")
+
+        if new_name == self.name:
+            raise ValueError("New name is the same as current name")
+
+        self.name = new_name
+
     def has_member(self, user_id: UserId) -> bool:
         """Check if a user is a member of this group.
 

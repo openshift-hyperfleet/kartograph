@@ -168,7 +168,14 @@ class WorkspaceService:
                     parent_workspace_id=parent_workspace_id,
                 )
 
-                # Persist workspace
+                # Grant creator admin access (same pattern as GroupService.create_group)
+                workspace.add_member(
+                    member_id=creator_id.value,
+                    member_type=MemberType.USER,
+                    role=WorkspaceRole.ADMIN,
+                )
+
+                # Persist workspace (saves both WorkspaceCreated + WorkspaceMemberAdded events)
                 await self._workspace_repository.save(workspace)
 
             # Probe success (outside transaction - it's committed)

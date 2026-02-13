@@ -3,11 +3,13 @@
 Tests the workspace CRUD operations including the critical behavior
 that deleting a parent workspace with children should fail.
 
-Note: After creating workspaces via the API, tests must explicitly grant
-the creator admin permission in SpiceDB using the ``grant_workspace_admin``
-fixture. The WorkspaceCreated outbox event does NOT auto-grant creator
-admin (planned for AIHCM-158), so without this step, subsequent operations
-that require MANAGE permission (create children, delete) will fail with 403.
+Note: The workspace service now grants the creator admin access via a
+WorkspaceMemberAdded event written to the outbox. However, SpiceDB
+relationships are processed asynchronously by the outbox worker. In
+integration tests, the ``grant_workspace_admin`` fixture writes admin
+relationships to SpiceDB synchronously so that subsequent operations
+(create children, delete) succeed permission checks without waiting
+for outbox processing.
 """
 
 import pytest

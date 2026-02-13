@@ -8,6 +8,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, create_autospec
 
 from iam.application.services.workspace_service import WorkspaceService
+from iam.application.value_objects import WorkspaceAccessGrant
 from iam.domain.aggregates import Workspace
 from iam.domain.value_objects import (
     MemberType,
@@ -794,20 +795,29 @@ class TestWorkspaceMemberManagement:
 
         assert len(result) == 3
         assert (
-            "user-admin-1",
-            MemberType.USER.value,
-            WorkspaceRole.ADMIN.value,
-        ) in result
+            WorkspaceAccessGrant(
+                member_id="user-admin-1",
+                member_type=MemberType.USER.value,
+                role=WorkspaceRole.ADMIN.value,
+            )
+            in result
+        )
         assert (
-            "user-editor-1",
-            MemberType.USER.value,
-            WorkspaceRole.EDITOR.value,
-        ) in result
+            WorkspaceAccessGrant(
+                member_id="user-editor-1",
+                member_type=MemberType.USER.value,
+                role=WorkspaceRole.EDITOR.value,
+            )
+            in result
+        )
         assert (
-            "user-member-1",
-            MemberType.USER.value,
-            WorkspaceRole.MEMBER.value,
-        ) in result
+            WorkspaceAccessGrant(
+                member_id="user-member-1",
+                member_type=MemberType.USER.value,
+                role=WorkspaceRole.MEMBER.value,
+            )
+            in result
+        )
 
     @pytest.mark.asyncio
     async def test_list_members_includes_users_and_groups(
@@ -845,9 +855,19 @@ class TestWorkspaceMemberManagement:
         )
 
         assert len(result) == 2
-        assert ("user-1", MemberType.USER.value, WorkspaceRole.ADMIN.value) in result
         assert (
-            "group-eng",
-            MemberType.GROUP.value,
-            WorkspaceRole.ADMIN.value,
-        ) in result
+            WorkspaceAccessGrant(
+                member_id="user-1",
+                member_type=MemberType.USER.value,
+                role=WorkspaceRole.ADMIN.value,
+            )
+            in result
+        )
+        assert (
+            WorkspaceAccessGrant(
+                member_id="group-eng",
+                member_type=MemberType.GROUP.value,
+                role=WorkspaceRole.ADMIN.value,
+            )
+            in result
+        )

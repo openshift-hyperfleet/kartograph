@@ -388,7 +388,7 @@ async def list_workspace_members(
             user_id=current_user.user_id,
         )
 
-        return [WorkspaceMemberResponse.from_tuple(m) for m in members]
+        return [WorkspaceMemberResponse.from_grant(grant) for grant in members]
 
     except PermissionError:
         raise HTTPException(

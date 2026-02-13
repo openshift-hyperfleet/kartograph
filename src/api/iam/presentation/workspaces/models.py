@@ -7,6 +7,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from iam.application.value_objects import WorkspaceAccessGrant
 from iam.domain.aggregates import Workspace
 from iam.domain.value_objects import MemberType, WorkspaceRole
 
@@ -175,17 +176,17 @@ class WorkspaceMemberResponse(BaseModel):
     role: str = Field(..., description="Member's role in the workspace")
 
     @classmethod
-    def from_tuple(cls, member: tuple[str, str, str]) -> WorkspaceMemberResponse:
-        """Create from (member_id, member_type, role) tuple.
+    def from_grant(cls, grant: WorkspaceAccessGrant) -> WorkspaceMemberResponse:
+        """Create from WorkspaceAccessGrant.
 
         Args:
-            member: Tuple of (member_id, member_type, role) from service
+            grant: WorkspaceAccessGrant from service layer
 
         Returns:
             WorkspaceMemberResponse
         """
         return cls(
-            member_id=member[0],
-            member_type=member[1],
-            role=member[2],
+            member_id=grant.member_id,
+            member_type=grant.member_type,
+            role=grant.role,
         )

@@ -12,6 +12,7 @@ from iam.application.observability import (
     DefaultWorkspaceServiceProbe,
     WorkspaceServiceProbe,
 )
+from iam.application.value_objects import WorkspaceAccessGrant
 from iam.domain.aggregates import Workspace
 from iam.domain.value_objects import (
     MemberType,
@@ -626,10 +627,10 @@ class WorkspaceService:
         self,
         workspace_id: WorkspaceId,
         user_id: UserId,
-    ) -> list[tuple[str, str, str]]:
+    ) -> list[WorkspaceAccessGrant]:
         """List members of a workspace.
 
-        Returns list of (member_id, member_type, role) tuples from SpiceDB.
+        Returns list of WorkspaceAccessGrant objects from SpiceDB.
         User must have VIEW permission on workspace.
 
         Args:
@@ -637,7 +638,7 @@ class WorkspaceService:
             user_id: User requesting the list (must have VIEW permission)
 
         Returns:
-            List of (member_id, member_type, role) tuples
+            List of WorkspaceAccessGrant objects
 
         Raises:
             PermissionError: If user lacks VIEW permission
@@ -657,7 +658,7 @@ class WorkspaceService:
 
         # Query SpiceDB for all members across all three roles
         resource = format_resource(ResourceType.WORKSPACE, workspace_id.value)
-        members: list[tuple[str, str, str]] = []
+        members: list[WorkspaceAccessGrant] = []
 
         for role in WorkspaceRole:
             # Query users
@@ -669,7 +670,11 @@ class WorkspaceService:
 
             for subject_relation in user_subjects:
                 members.append(
-                    (subject_relation.subject_id, MemberType.USER.value, role.value)
+                    WorkspaceAccessGrant(
+                        member_id=subject_relation.subject_id,
+                        member_type=MemberType.USER.value,
+                        role=role.value,
+                    )
                 )
 
             # Query groups
@@ -681,7 +686,11 @@ class WorkspaceService:
 
             for subject_relation in group_subjects:
                 members.append(
-                    (subject_relation.subject_id, MemberType.GROUP.value, role.value)
+                    WorkspaceAccessGrant(
+                        member_id=subject_relation.subject_id,
+                        member_type=MemberType.GROUP.value,
+                        role=role.value,
+                    )
                 )
 
         return members

@@ -86,8 +86,7 @@ async def get_tenant(
 ) -> TenantResponse:
     """Get tenant by ID.
 
-    Requires authentication. For the walking skeleton, this is open to
-    authenticated users. In production, this should enforce proper access control.
+    Requires VIEW permission on the tenant.
 
     Args:
         tenant_id: Tenant ID (ULID format)
@@ -99,7 +98,7 @@ async def get_tenant(
 
     Raises:
         HTTPException: 400 if tenant ID is invalid
-        HTTPException: 404 if tenant not found
+        HTTPException: 404 if tenant not found or user lacks VIEW permission
         HTTPException: 500 for unexpected errors
     """
     try:
@@ -111,7 +110,10 @@ async def get_tenant(
         ) from e
 
     try:
-        tenant = await service.get_tenant(tenant_id_obj)
+        tenant = await service.get_tenant(
+            tenant_id_obj,
+            user_id=current_user.user_id,
+        )
         if tenant is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -133,10 +135,12 @@ async def list_tenants(
     authenticated_user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
     service: Annotated[TenantService, Depends(get_tenant_service)],
 ) -> list[TenantResponse]:
-    """List all tenants.
+    """List all tenants the user is a member of.
+
+    Filters tenants by VIEW permission via SpiceDB.
 
     Uses get_authenticated_user (not get_current_user) because this is a
-    bootstrap endpoint — users need to list tenants before they have
+    bootstrap endpoint -- users need to list tenants before they have
     tenant context. Only authentication is required, not tenant scoping.
 
     Args:
@@ -144,13 +148,15 @@ async def list_tenants(
         service: Tenant service
 
     Returns:
-        List of TenantResponse objects
+        List of TenantResponse objects for tenants user can view
 
     Raises:
         HTTPException: 500 for unexpected errors
     """
     try:
-        tenants = await service.list_tenants()
+        tenants = await service.list_tenants(
+            user_id=authenticated_user.user_id,
+        )
         return [TenantResponse.from_domain(t) for t in tenants]
 
     except Exception:

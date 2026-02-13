@@ -105,7 +105,9 @@ class TestListTenantsWithoutTenantContext:
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == []
-        mock_tenant_service.list_tenants.assert_called_once()
+        mock_tenant_service.list_tenants.assert_called_once_with(
+            user_id=mock_authenticated_user.user_id,
+        )
 
     def test_list_tenants_returns_tenant_data(
         self,

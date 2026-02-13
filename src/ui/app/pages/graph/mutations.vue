@@ -245,6 +245,13 @@ function handleCtrlEnter(e: KeyboardEvent) {
 
 onMounted(() => {
   document.addEventListener('keydown', handleCtrlEnter)
+
+  // Accept ?template= URL parameter for cross-page deep-linking (e.g., from Schema Browser)
+  const route = useRoute()
+  const templateParam = route.query.template
+  if (typeof templateParam === 'string' && templateParam.trim()) {
+    nextTick(() => insertTemplate(templateParam.trim()))
+  }
 })
 
 onBeforeUnmount(() => {

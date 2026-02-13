@@ -132,6 +132,13 @@ function togglePropExpansion(key: string) {
 
 onMounted(() => {
   if (hasTenant.value) loadNodeTypes()
+
+  // Accept ?type= URL parameter for cross-page deep-linking (e.g., from Schema Browser)
+  const route = useRoute()
+  const typeParam = route.query.type
+  if (typeof typeParam === 'string' && typeParam.trim()) {
+    nodeTypeFilter.value = typeParam.trim()
+  }
 })
 
 // Re-fetch when tenant changes

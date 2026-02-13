@@ -323,6 +323,13 @@ onMounted(() => {
   if (hasTenant.value) fetchSchema()
   document.addEventListener('keydown', handleCtrlEnter)
   window.addEventListener('resize', onWindowResize)
+
+  // Accept ?query= URL parameter for cross-page deep-linking
+  const route = useRoute()
+  const queryParam = route.query.query
+  if (typeof queryParam === 'string' && queryParam.trim()) {
+    query.value = queryParam.trim()
+  }
 })
 
 // Re-fetch schema when tenant changes

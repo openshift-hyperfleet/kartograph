@@ -7,6 +7,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from iam.application.value_objects import WorkspaceAccessGrant
 from iam.domain.aggregates import Workspace
 from iam.domain.value_objects import MemberType, WorkspaceRole
 
@@ -131,17 +132,17 @@ class AddWorkspaceMemberRequest(BaseModel):
         ...,
         description="User ID or Group ID to add as member",
         min_length=1,
-        examples=["01HN3XQ7K2XYZ123456789ABCD", "engineering-group"],
+        examples=["01HN3XQ7K2XYZ123456789ABCD"],
     )
     member_type: MemberTypeEnum = Field(
         ...,
         description="Type of member being added",
-        examples=["user", "group"],
+        examples=[m.value for m in MemberTypeEnum],
     )
     role: WorkspaceRoleEnum = Field(
         ...,
         description="Role to assign to the member",
-        examples=["admin", "editor", "member"],
+        examples=[r.value for r in WorkspaceRoleEnum],
     )
 
     def to_domain_member_type(self) -> MemberType:
@@ -175,17 +176,17 @@ class WorkspaceMemberResponse(BaseModel):
     role: str = Field(..., description="Member's role in the workspace")
 
     @classmethod
-    def from_tuple(cls, member: tuple[str, str, str]) -> WorkspaceMemberResponse:
-        """Create from (member_id, member_type, role) tuple.
+    def from_grant(cls, grant: WorkspaceAccessGrant) -> WorkspaceMemberResponse:
+        """Create from WorkspaceAccessGrant.
 
         Args:
-            member: Tuple of (member_id, member_type, role) from service
+            grant: WorkspaceAccessGrant from service layer
 
         Returns:
             WorkspaceMemberResponse
         """
         return cls(
-            member_id=member[0],
-            member_type=member[1],
-            role=member[2],
+            member_id=grant.member_id,
+            member_type=grant.member_type,
+            role=grant.role,
         )

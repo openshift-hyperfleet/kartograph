@@ -1,7 +1,7 @@
 """Application-layer value objects for IAM bounded context.
 
 These are value objects specific to the application layer, representing
-cross-cutting concerns like authentication context.
+cross-cutting concerns like authentication context and read-only view objects.
 """
 
 from __future__ import annotations
@@ -26,3 +26,21 @@ class CurrentUser:
     user_id: UserId
     username: str
     tenant_id: TenantId
+
+
+@dataclass(frozen=True)
+class WorkspaceAccessGrant:
+    """Represents a member's access grant on a workspace.
+
+    This is a read-only view object returned from authorization queries.
+    It captures who has what level of access to a workspace.
+
+    Attributes:
+        member_id: The user ID or group ID
+        member_type: Whether this is a USER or GROUP grant
+        role: The workspace role (ADMIN, EDITOR, or MEMBER)
+    """
+
+    member_id: str
+    member_type: str  # "user" or "group"
+    role: str  # "admin", "editor", or "member"

@@ -47,19 +47,34 @@ function resolveDisplayName(props: Record<string, unknown>, label: string): stri
 async function handleExpandNode(nodeId: string): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] } | null> {
   try {
     const result = await getNodeNeighbors(nodeId)
+
+    // Build an ID mapping: the API may return IDs that differ from what's
+    // already in the Cytoscape graph (e.g., application-level vs AGE numeric).
+    // The central node's API ID needs to map to the Cytoscape nodeId.
+    const centralApiId = result.central_node.id
+    const idMap = new Map<string, string>()
+    idMap.set(centralApiId, nodeId)
+
     const nodes: GraphNode[] = result.nodes.map(n => ({
       id: n.id,
       label: n.label,
       properties: n.properties,
       displayName: resolveDisplayName(n.properties, n.label),
     }))
+
+    // Register neighbor IDs in the map (identity mapping unless overridden)
+    for (const n of nodes) {
+      if (!idMap.has(n.id)) idMap.set(n.id, n.id)
+    }
+
     const edges: GraphEdge[] = result.edges.map(e => ({
       id: e.id,
       label: e.label,
-      source: e.start_id,
-      target: e.end_id,
+      source: idMap.get(e.start_id) ?? e.start_id,
+      target: idMap.get(e.end_id) ?? e.end_id,
       properties: e.properties,
     }))
+
     return { nodes, edges }
   } catch {
     return null

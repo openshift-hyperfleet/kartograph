@@ -23,10 +23,7 @@ import {
   Hexagon,
   AlertTriangle,
   Loader2,
-  LayoutDashboard,
-  Plug,
-  Cable,
-  Settings2,
+  Copy,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -83,6 +80,11 @@ const displayEmail = computed(() => {
   return user.value.profile?.email ?? ''
 })
 
+const userId = computed(() => {
+  if (!user.value) return ''
+  return user.value.profile?.sub ?? ''
+})
+
 const avatarInitials = computed(() => {
   const name = displayName.value
   const parts = name.split(/\s+/)
@@ -126,6 +128,16 @@ async function fetchTenants() {
     })
   } finally {
     tenantsLoading.value = false
+  }
+}
+
+async function copyUserId() {
+  if (!userId.value) return
+  try {
+    await navigator.clipboard.writeText(userId.value)
+    toast.success('User ID copied', { description: userId.value })
+  } catch {
+    toast.error('Failed to copy User ID')
   }
 }
 
@@ -750,6 +762,11 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem v-if="userId" @click="copyUserId">
+                  <Copy class="mr-2 size-4" />
+                  Copy User ID
+                </DropdownMenuItem>
+                <DropdownMenuSeparator v-if="userId" />
                 <DropdownMenuItem
                   class="text-destructive focus:text-destructive"
                   @click="handleLogout"

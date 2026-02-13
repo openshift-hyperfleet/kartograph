@@ -2,19 +2,27 @@
 
 Following TDD principles - tests verify repository behavior with mocked dependencies.
 Tests cover all IWorkspaceRepository protocol methods including outbox event emission,
-constraint enforcement, and edge cases.
+constraint enforcement, member hydration from SpiceDB, and edge cases.
 """
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, create_autospec
 
 import pytest
 
 from iam.domain.aggregates import Workspace
-from iam.domain.value_objects import TenantId, WorkspaceId
+from iam.domain.value_objects import (
+    MemberType,
+    TenantId,
+    WorkspaceId,
+    WorkspaceMember,
+    WorkspaceRole,
+)
 from iam.infrastructure.models import WorkspaceModel
 from iam.infrastructure.workspace_repository import WorkspaceRepository
 from iam.ports.repositories import IWorkspaceRepository
+from shared_kernel.authorization.protocols import AuthorizationProvider
+from shared_kernel.authorization.types import SubjectRelation
 
 
 @pytest.fixture
@@ -22,6 +30,21 @@ def mock_session():
     """Create mock async session."""
     session = AsyncMock()
     return session
+
+
+@pytest.fixture
+def mock_authz():
+    """Create mock authorization provider."""
+    authz = create_autospec(AuthorizationProvider, instance=True)
+    # Make all methods async
+    authz.write_relationship = AsyncMock()
+    authz.write_relationships = AsyncMock()
+    authz.delete_relationship = AsyncMock()
+    authz.delete_relationships = AsyncMock()
+    authz.lookup_subjects = AsyncMock(return_value=[])
+    authz.lookup_resources = AsyncMock(return_value=[])
+    authz.check_permission = AsyncMock(return_value=False)
+    return authz
 
 
 @pytest.fixture
@@ -48,10 +71,11 @@ def mock_serializer():
 
 
 @pytest.fixture
-def repository(mock_session, mock_probe, mock_outbox):
+def repository(mock_session, mock_authz, mock_probe, mock_outbox):
     """Create repository with mock dependencies."""
     return WorkspaceRepository(
         session=mock_session,
+        authz=mock_authz,
         outbox=mock_outbox,
         probe=mock_probe,
     )
@@ -226,6 +250,177 @@ class TestGetById:
         assert result.parent_workspace_id is None
 
     @pytest.mark.asyncio
+    async def test_get_by_id_returns_workspace_with_members_hydrated(
+        self, repository, mock_session, mock_authz, tenant_id, now
+    ):
+        """Should return workspace with members loaded from SpiceDB."""
+        workspace_id = WorkspaceId.generate()
+        user_id = "user-abc-123"
+
+        model = WorkspaceModel(
+            id=workspace_id.value,
+            tenant_id=tenant_id.value,
+            name="Engineering",
+            parent_workspace_id=None,
+            is_root=False,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        # Mock SpiceDB: user is an admin
+        async def mock_lookup(resource, relation, subject_type):
+            if relation == WorkspaceRole.ADMIN.value and subject_type == "user":
+                return [
+                    SubjectRelation(
+                        subject_id=user_id, relation=WorkspaceRole.ADMIN.value
+                    )
+                ]
+            return []
+
+        mock_authz.lookup_subjects.side_effect = mock_lookup
+
+        result = await repository.get_by_id(workspace_id)
+
+        assert result is not None
+        assert len(result.members) == 1
+        assert result.members[0].member_id == user_id
+        assert result.members[0].member_type == MemberType.USER
+        assert result.members[0].role == WorkspaceRole.ADMIN
+
+    @pytest.mark.asyncio
+    async def test_get_by_id_hydrates_group_members(
+        self, repository, mock_session, mock_authz, tenant_id, now
+    ):
+        """Should hydrate group members from SpiceDB (hybrid authorization)."""
+        workspace_id = WorkspaceId.generate()
+        group_id = "group-eng-456"
+
+        model = WorkspaceModel(
+            id=workspace_id.value,
+            tenant_id=tenant_id.value,
+            name="Engineering",
+            parent_workspace_id=None,
+            is_root=False,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        # Mock SpiceDB: group is a member
+        async def mock_lookup(resource, relation, subject_type):
+            if relation == WorkspaceRole.MEMBER.value and subject_type == "group":
+                return [
+                    SubjectRelation(
+                        subject_id=group_id, relation=WorkspaceRole.MEMBER.value
+                    )
+                ]
+            return []
+
+        mock_authz.lookup_subjects.side_effect = mock_lookup
+
+        result = await repository.get_by_id(workspace_id)
+
+        assert result is not None
+        assert len(result.members) == 1
+        assert result.members[0].member_id == group_id
+        assert result.members[0].member_type == MemberType.GROUP
+        assert result.members[0].role == WorkspaceRole.MEMBER
+
+    @pytest.mark.asyncio
+    async def test_get_by_id_hydrates_all_roles_and_types(
+        self, repository, mock_session, mock_authz, tenant_id, now
+    ):
+        """Should hydrate members across all 3 roles and both member types."""
+        workspace_id = WorkspaceId.generate()
+        admin_user = "user-admin-1"
+        editor_group = "group-editors"
+        member_user = "user-member-1"
+
+        model = WorkspaceModel(
+            id=workspace_id.value,
+            tenant_id=tenant_id.value,
+            name="Full Workspace",
+            parent_workspace_id=None,
+            is_root=False,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        # Mock SpiceDB: different members across roles and types
+        async def mock_lookup(resource, relation, subject_type):
+            if relation == WorkspaceRole.ADMIN.value and subject_type == "user":
+                return [
+                    SubjectRelation(
+                        subject_id=admin_user, relation=WorkspaceRole.ADMIN.value
+                    )
+                ]
+            if relation == WorkspaceRole.EDITOR.value and subject_type == "group":
+                return [
+                    SubjectRelation(
+                        subject_id=editor_group, relation=WorkspaceRole.EDITOR.value
+                    )
+                ]
+            if relation == WorkspaceRole.MEMBER.value and subject_type == "user":
+                return [
+                    SubjectRelation(
+                        subject_id=member_user, relation=WorkspaceRole.MEMBER.value
+                    )
+                ]
+            return []
+
+        mock_authz.lookup_subjects.side_effect = mock_lookup
+
+        result = await repository.get_by_id(workspace_id)
+
+        assert result is not None
+        assert len(result.members) == 3
+
+        # Verify each member
+        members_by_id = {m.member_id: m for m in result.members}
+        assert members_by_id[admin_user].role == WorkspaceRole.ADMIN
+        assert members_by_id[admin_user].member_type == MemberType.USER
+        assert members_by_id[editor_group].role == WorkspaceRole.EDITOR
+        assert members_by_id[editor_group].member_type == MemberType.GROUP
+        assert members_by_id[member_user].role == WorkspaceRole.MEMBER
+        assert members_by_id[member_user].member_type == MemberType.USER
+
+    @pytest.mark.asyncio
+    async def test_get_by_id_raises_on_hydration_failure(
+        self, repository, mock_session, mock_authz, mock_probe, tenant_id, now
+    ):
+        """Should raise and call probe on SpiceDB hydration failure."""
+        workspace_id = WorkspaceId.generate()
+        model = WorkspaceModel(
+            id=workspace_id.value,
+            tenant_id=tenant_id.value,
+            name="Failing",
+            parent_workspace_id=None,
+            is_root=False,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        mock_authz.lookup_subjects.side_effect = RuntimeError("SpiceDB unavailable")
+
+        with pytest.raises(RuntimeError, match="SpiceDB unavailable"):
+            await repository.get_by_id(workspace_id)
+
+        mock_probe.membership_hydration_failed.assert_called_once_with(
+            workspace_id.value, "SpiceDB unavailable"
+        )
+
+    @pytest.mark.asyncio
     async def test_get_by_id_returns_none_when_not_found(
         self, repository, mock_session
     ):
@@ -308,6 +503,74 @@ class TestGetByName:
 
         assert result is None
 
+    @pytest.mark.asyncio
+    async def test_get_by_name_hydrates_members(
+        self, repository, mock_session, mock_authz, tenant_id, now
+    ):
+        """Should hydrate members from SpiceDB when fetching by name."""
+        workspace_id = WorkspaceId.generate()
+        user_id = "user-editor-1"
+
+        model = WorkspaceModel(
+            id=workspace_id.value,
+            tenant_id=tenant_id.value,
+            name="Engineering",
+            parent_workspace_id=None,
+            is_root=False,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        async def mock_lookup(resource, relation, subject_type):
+            if relation == WorkspaceRole.EDITOR.value and subject_type == "user":
+                return [
+                    SubjectRelation(
+                        subject_id=user_id, relation=WorkspaceRole.EDITOR.value
+                    )
+                ]
+            return []
+
+        mock_authz.lookup_subjects.side_effect = mock_lookup
+
+        result = await repository.get_by_name(tenant_id, "Engineering")
+
+        assert result is not None
+        assert len(result.members) == 1
+        assert result.members[0].member_id == user_id
+        assert result.members[0].member_type == MemberType.USER
+        assert result.members[0].role == WorkspaceRole.EDITOR
+
+    @pytest.mark.asyncio
+    async def test_get_by_name_raises_on_hydration_failure(
+        self, repository, mock_session, mock_authz, mock_probe, tenant_id, now
+    ):
+        """Should raise and call probe on SpiceDB hydration failure."""
+        workspace_id = WorkspaceId.generate()
+        model = WorkspaceModel(
+            id=workspace_id.value,
+            tenant_id=tenant_id.value,
+            name="Failing",
+            parent_workspace_id=None,
+            is_root=False,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        mock_authz.lookup_subjects.side_effect = RuntimeError("SpiceDB error")
+
+        with pytest.raises(RuntimeError, match="SpiceDB error"):
+            await repository.get_by_name(tenant_id, "Failing")
+
+        mock_probe.membership_hydration_failed.assert_called_once_with(
+            workspace_id.value, "SpiceDB error"
+        )
+
 
 class TestGetRootWorkspace:
     """Tests for get_root_workspace method."""
@@ -349,6 +612,45 @@ class TestGetRootWorkspace:
         result = await repository.get_root_workspace(tenant_id)
 
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_root_workspace_hydrates_members(
+        self, repository, mock_session, mock_authz, tenant_id, now
+    ):
+        """Should hydrate members from SpiceDB when fetching root workspace."""
+        workspace_id = WorkspaceId.generate()
+        user_id = "user-root-admin"
+
+        model = WorkspaceModel(
+            id=workspace_id.value,
+            tenant_id=tenant_id.value,
+            name="Root",
+            parent_workspace_id=None,
+            is_root=True,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        async def mock_lookup(resource, relation, subject_type):
+            if relation == WorkspaceRole.ADMIN.value and subject_type == "user":
+                return [
+                    SubjectRelation(
+                        subject_id=user_id, relation=WorkspaceRole.ADMIN.value
+                    )
+                ]
+            return []
+
+        mock_authz.lookup_subjects.side_effect = mock_lookup
+
+        result = await repository.get_root_workspace(tenant_id)
+
+        assert result is not None
+        assert len(result.members) == 1
+        assert result.members[0].member_id == user_id
+        assert result.members[0].role == WorkspaceRole.ADMIN
 
 
 class TestListByTenant:
@@ -413,6 +715,111 @@ class TestListByTenant:
         result = await repository.list_by_tenant(tenant_id)
 
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_list_by_tenant_hydrates_members_for_each_workspace(
+        self, repository, mock_session, mock_authz, tenant_id, now
+    ):
+        """Should hydrate members from SpiceDB for each listed workspace."""
+        ws_id_1 = WorkspaceId.generate()
+        ws_id_2 = WorkspaceId.generate()
+        user_id = "user-shared"
+
+        models = [
+            WorkspaceModel(
+                id=ws_id_1.value,
+                tenant_id=tenant_id.value,
+                name="Root",
+                parent_workspace_id=None,
+                is_root=True,
+                created_at=now,
+                updated_at=now,
+            ),
+            WorkspaceModel(
+                id=ws_id_2.value,
+                tenant_id=tenant_id.value,
+                name="Child",
+                parent_workspace_id=None,
+                is_root=False,
+                created_at=now,
+                updated_at=now,
+            ),
+        ]
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = models
+        mock_session.execute.return_value = mock_result
+
+        # Mock SpiceDB: user is admin of both workspaces
+        async def mock_lookup(resource, relation, subject_type):
+            if relation == WorkspaceRole.ADMIN.value and subject_type == "user":
+                return [
+                    SubjectRelation(
+                        subject_id=user_id, relation=WorkspaceRole.ADMIN.value
+                    )
+                ]
+            return []
+
+        mock_authz.lookup_subjects.side_effect = mock_lookup
+
+        result = await repository.list_by_tenant(tenant_id)
+
+        assert len(result) == 2
+        # Both workspaces should have the admin member hydrated
+        for workspace in result:
+            assert len(workspace.members) == 1
+            assert workspace.members[0].member_id == user_id
+            assert workspace.members[0].role == WorkspaceRole.ADMIN
+
+    @pytest.mark.asyncio
+    async def test_list_by_tenant_continues_on_hydration_failure(
+        self, repository, mock_session, mock_authz, mock_probe, tenant_id, now
+    ):
+        """Should skip workspace and continue when hydration fails for one."""
+        ws_id_1 = WorkspaceId.generate()
+        ws_id_2 = WorkspaceId.generate()
+
+        models = [
+            WorkspaceModel(
+                id=ws_id_1.value,
+                tenant_id=tenant_id.value,
+                name="Failing",
+                parent_workspace_id=None,
+                is_root=True,
+                created_at=now,
+                updated_at=now,
+            ),
+            WorkspaceModel(
+                id=ws_id_2.value,
+                tenant_id=tenant_id.value,
+                name="Working",
+                parent_workspace_id=None,
+                is_root=False,
+                created_at=now,
+                updated_at=now,
+            ),
+        ]
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = models
+        mock_session.execute.return_value = mock_result
+
+        # First workspace hydration fails, second succeeds
+        failing_resource = f"workspace:{ws_id_1.value}"
+
+        async def mock_lookup(resource, relation, subject_type):
+            if resource == failing_resource:
+                raise RuntimeError("SpiceDB timeout")
+            return []
+
+        mock_authz.lookup_subjects.side_effect = mock_lookup
+
+        result = await repository.list_by_tenant(tenant_id)
+
+        # Only the second workspace should be returned
+        assert len(result) == 1
+        assert result[0].name == "Working"
+        mock_probe.membership_hydration_failed.assert_called_once()
 
 
 class TestDelete:
@@ -618,16 +1025,70 @@ class TestRootWorkspaceConstraint:
         assert child_model.is_root is False
 
 
+class TestHydrateMembers:
+    """Tests for _hydrate_members method."""
+
+    @pytest.mark.asyncio
+    async def test_queries_all_role_and_type_combinations(self, repository, mock_authz):
+        """Should query SpiceDB for all 6 combinations (3 roles x 2 member types)."""
+        mock_authz.lookup_subjects.return_value = []
+
+        await repository._hydrate_members("workspace-id")
+
+        # 3 roles (admin, editor, member) x 2 types (user, group) = 6 calls
+        assert mock_authz.lookup_subjects.call_count == 6
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_when_no_members(self, repository, mock_authz):
+        """Should return empty list when workspace has no members."""
+        mock_authz.lookup_subjects.return_value = []
+
+        members = await repository._hydrate_members("workspace-id")
+
+        assert members == []
+
+    @pytest.mark.asyncio
+    async def test_returns_correct_workspace_member_objects(
+        self, repository, mock_authz
+    ):
+        """Should return WorkspaceMember value objects with correct types."""
+        user_id = "user-alice"
+        group_id = "group-eng"
+
+        async def mock_lookup(resource, relation, subject_type):
+            if relation == "admin" and subject_type == "user":
+                return [SubjectRelation(subject_id=user_id, relation="admin")]
+            if relation == "editor" and subject_type == "group":
+                return [SubjectRelation(subject_id=group_id, relation="editor")]
+            return []
+
+        mock_authz.lookup_subjects.side_effect = mock_lookup
+
+        members = await repository._hydrate_members("workspace-id")
+
+        assert len(members) == 2
+        members_by_id = {m.member_id: m for m in members}
+
+        assert isinstance(members_by_id[user_id], WorkspaceMember)
+        assert members_by_id[user_id].member_type == MemberType.USER
+        assert members_by_id[user_id].role == WorkspaceRole.ADMIN
+
+        assert isinstance(members_by_id[group_id], WorkspaceMember)
+        assert members_by_id[group_id].member_type == MemberType.GROUP
+        assert members_by_id[group_id].role == WorkspaceRole.EDITOR
+
+
 class TestSerializerInjection:
     """Tests for serializer dependency injection."""
 
     @pytest.mark.asyncio
     async def test_uses_injected_serializer(
-        self, mock_session, mock_outbox, mock_probe, mock_serializer
+        self, mock_session, mock_authz, mock_outbox, mock_probe, mock_serializer
     ):
         """Should use injected serializer instead of creating default."""
         repository = WorkspaceRepository(
             session=mock_session,
+            authz=mock_authz,
             outbox=mock_outbox,
             probe=mock_probe,
             serializer=mock_serializer,
@@ -650,13 +1111,14 @@ class TestSerializerInjection:
         mock_serializer.serialize.assert_called()
 
     def test_uses_default_serializer_when_not_injected(
-        self, mock_session, mock_outbox, mock_probe
+        self, mock_session, mock_authz, mock_outbox, mock_probe
     ):
         """Should create default serializer when not injected."""
         from iam.infrastructure.outbox import IAMEventSerializer
 
         repository = WorkspaceRepository(
             session=mock_session,
+            authz=mock_authz,
             outbox=mock_outbox,
             probe=mock_probe,
         )
@@ -757,7 +1219,7 @@ class TestObservabilityProbe:
 
         await repository.get_by_id(workspace_id)
 
-        mock_probe.workspace_retrieved.assert_called_once_with(workspace_id.value)
+        mock_probe.workspace_retrieved.assert_called_once_with(workspace_id.value, 0)
 
     @pytest.mark.asyncio
     async def test_probe_called_on_delete(

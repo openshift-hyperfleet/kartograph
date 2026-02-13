@@ -77,10 +77,20 @@ async def kartograph_lifespan(app: FastAPI):
         iam_settings = get_iam_settings()
         startup_probe = DefaultStartupProbe()
 
+        spicedb_settings = get_spicedb_settings()
+        authz = SpiceDBClient(
+            endpoint=spicedb_settings.endpoint,
+            preshared_key=spicedb_settings.preshared_key.get_secret_value(),
+            use_tls=spicedb_settings.use_tls,
+            cert_path=spicedb_settings.cert_path,
+        )
+
         async with app.state.write_sessionmaker() as session:
             outbox = OutboxRepository(session=session)
             tenant_repo = TenantRepository(session=session, outbox=outbox)
-            workspace_repo = WorkspaceRepository(session=session, outbox=outbox)
+            workspace_repo = WorkspaceRepository(
+                session=session, authz=authz, outbox=outbox
+            )
 
             bootstrap_service = TenantBootstrapService(
                 tenant_repository=tenant_repo,

@@ -1,11 +1,11 @@
-"""PostgreSQL implementation of IWorkspaceRepository.
+"""PostgreSQL + SpiceDB implementation of IWorkspaceRepository.
 
-This repository manages workspace metadata storage in PostgreSQL.
-Unlike GroupRepository, it doesn't need SpiceDB for membership hydration
-since workspaces don't have members yet (Phase 3).
+This repository coordinates PostgreSQL (metadata storage) and SpiceDB
+(membership and authorization) to reconstitute complete Workspace aggregates.
 
 Write operations use the transactional outbox pattern - domain events are
-collected from the aggregate and appended to the outbox table.
+collected from the aggregate and appended to the outbox table, rather than
+writing directly to SpiceDB. This ensures atomicity and eventual consistency.
 """
 
 from __future__ import annotations
@@ -16,7 +16,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.domain.aggregates import Workspace
-from iam.domain.value_objects import TenantId, WorkspaceId
+from iam.domain.value_objects import (
+    MemberType,
+    TenantId,
+    WorkspaceId,
+    WorkspaceMember,
+    WorkspaceRole,
+)
 from iam.infrastructure.models import WorkspaceModel
 from iam.infrastructure.observability import (
     DefaultWorkspaceRepositoryProbe,
@@ -24,40 +30,48 @@ from iam.infrastructure.observability import (
 )
 from iam.infrastructure.outbox import IAMEventSerializer
 from iam.ports.repositories import IWorkspaceRepository
+from shared_kernel.authorization.protocols import AuthorizationProvider
+from shared_kernel.authorization.types import (
+    ResourceType,
+    format_resource,
+)
 
 if TYPE_CHECKING:
     from infrastructure.outbox.repository import OutboxRepository
 
 
 class WorkspaceRepository(IWorkspaceRepository):
-    """Repository managing PostgreSQL storage for Workspace aggregates.
+    """Repository coordinating PostgreSQL and SpiceDB for Workspace aggregates.
 
-    This implementation stores workspace metadata in PostgreSQL only.
-    Workspaces are simple aggregates with no complex relationships
-    requiring SpiceDB hydration (that comes in Phase 3).
+    This implementation stores workspace metadata in PostgreSQL and membership
+    relationships in SpiceDB. It ensures that Workspace aggregates are fully
+    hydrated when retrieved, following DDD principles.
 
     Write operations use the transactional outbox pattern:
     - Domain events are collected from the aggregate
     - Events are appended to the outbox table (same transaction as PostgreSQL)
-    - The outbox worker processes events if needed
+    - The outbox worker processes events and writes to SpiceDB
     """
 
     def __init__(
         self,
         session: AsyncSession,
+        authz: AuthorizationProvider,
         outbox: "OutboxRepository",
         probe: WorkspaceRepositoryProbe | None = None,
         serializer: IAMEventSerializer | None = None,
     ) -> None:
-        """Initialize repository with database session and outbox.
+        """Initialize repository with database session and authorization provider.
 
         Args:
             session: AsyncSession from FastAPI dependency injection
+            authz: Authorization provider (SpiceDB client) for reads
             outbox: Outbox repository for the transactional outbox pattern
             probe: Optional domain probe for observability
             serializer: Optional event serializer for testability
         """
         self._session = session
+        self._authz = authz
         self._outbox = outbox
         self._probe = probe or DefaultWorkspaceRepositoryProbe()
         self._serializer = serializer or IAMEventSerializer()
@@ -121,13 +135,13 @@ class WorkspaceRepository(IWorkspaceRepository):
         self._probe.workspace_saved(workspace.id.value, workspace.tenant_id.value)
 
     async def get_by_id(self, workspace_id: WorkspaceId) -> Workspace | None:
-        """Fetch workspace metadata from PostgreSQL.
+        """Fetch metadata from PostgreSQL, hydrate members from SpiceDB.
 
         Args:
             workspace_id: The unique identifier of the workspace
 
         Returns:
-            The Workspace aggregate, or None if not found
+            The Workspace aggregate with members loaded, or None if not found
         """
         stmt = select(WorkspaceModel).where(WorkspaceModel.id == workspace_id.value)
         result = await self._session.execute(stmt)
@@ -137,19 +151,25 @@ class WorkspaceRepository(IWorkspaceRepository):
             self._probe.workspace_not_found(workspace_id=workspace_id.value)
             return None
 
-        workspace = self._to_domain(model)
-        self._probe.workspace_retrieved(workspace.id.value)
-        return workspace
+        # Hydrate members from SpiceDB
+        try:
+            members = await self._hydrate_members(workspace_id.value)
+            self._probe.workspace_retrieved(workspace_id.value, len(members))
+
+            return self._to_domain(model, members)
+        except Exception as e:
+            self._probe.membership_hydration_failed(workspace_id.value, str(e))
+            raise
 
     async def get_by_name(self, tenant_id: TenantId, name: str) -> Workspace | None:
-        """Fetch workspace by name within a tenant.
+        """Retrieve a workspace by name within a tenant.
 
         Args:
             tenant_id: The tenant to search within
             name: The workspace name
 
         Returns:
-            The Workspace aggregate, or None if not found
+            The Workspace aggregate with members loaded, or None if not found
         """
         stmt = select(WorkspaceModel).where(
             WorkspaceModel.tenant_id == tenant_id.value,
@@ -165,9 +185,15 @@ class WorkspaceRepository(IWorkspaceRepository):
             )
             return None
 
-        workspace = self._to_domain(model)
-        self._probe.workspace_retrieved(workspace.id.value)
-        return workspace
+        # Hydrate members from SpiceDB
+        try:
+            members = await self._hydrate_members(model.id)
+            self._probe.workspace_retrieved(model.id, len(members))
+
+            return self._to_domain(model, members)
+        except Exception as e:
+            self._probe.membership_hydration_failed(model.id, str(e))
+            raise
 
     async def get_root_workspace(self, tenant_id: TenantId) -> Workspace | None:
         """Fetch the root workspace for a tenant.
@@ -176,7 +202,7 @@ class WorkspaceRepository(IWorkspaceRepository):
             tenant_id: The tenant to find the root workspace for
 
         Returns:
-            The root Workspace aggregate, or None if not found
+            The root Workspace aggregate with members loaded, or None if not found
         """
         stmt = select(WorkspaceModel).where(
             WorkspaceModel.tenant_id == tenant_id.value,
@@ -192,24 +218,41 @@ class WorkspaceRepository(IWorkspaceRepository):
             )
             return None
 
-        workspace = self._to_domain(model)
-        self._probe.workspace_retrieved(workspace.id.value)
-        return workspace
+        # Hydrate members from SpiceDB
+        try:
+            members = await self._hydrate_members(model.id)
+            self._probe.workspace_retrieved(model.id, len(members))
+
+            return self._to_domain(model, members)
+        except Exception as e:
+            self._probe.membership_hydration_failed(model.id, str(e))
+            raise
 
     async def list_by_tenant(self, tenant_id: TenantId) -> list[Workspace]:
-        """Fetch all workspaces in a tenant.
+        """List all workspaces in a tenant.
 
         Args:
             tenant_id: The tenant to list workspaces for
 
         Returns:
-            List of Workspace aggregates in the tenant
+            List of Workspace aggregates (with members loaded from SpiceDB)
         """
+        # Query PostgreSQL for all workspaces in tenant
         stmt = select(WorkspaceModel).where(WorkspaceModel.tenant_id == tenant_id.value)
         result = await self._session.execute(stmt)
         models = result.scalars().all()
 
-        workspaces = [self._to_domain(model) for model in models]
+        # Hydrate members for each workspace
+        workspaces = []
+        for model in models:
+            try:
+                members = await self._hydrate_members(model.id)
+                workspaces.append(self._to_domain(model, members))
+            except Exception as e:
+                self._probe.membership_hydration_failed(model.id, str(e))
+                # Continue with other workspaces
+                continue
+
         self._probe.workspaces_listed(tenant_id.value, len(workspaces))
         return workspaces
 
@@ -251,7 +294,11 @@ class WorkspaceRepository(IWorkspaceRepository):
         self._probe.workspace_deleted(workspace.id.value)
         return True
 
-    def _to_domain(self, model: WorkspaceModel) -> Workspace:
+    def _to_domain(
+        self,
+        model: WorkspaceModel,
+        members: list[WorkspaceMember] | None = None,
+    ) -> Workspace:
         """Convert a WorkspaceModel to a Workspace domain aggregate.
 
         Reconstitutes the aggregate from database state without generating
@@ -259,9 +306,10 @@ class WorkspaceRepository(IWorkspaceRepository):
 
         Args:
             model: The SQLAlchemy model to convert
+            members: Optional list of hydrated workspace members from SpiceDB
 
         Returns:
-            A Workspace domain aggregate
+            A Workspace domain aggregate with members populated
         """
         return Workspace(
             id=WorkspaceId(value=model.id),
@@ -275,4 +323,40 @@ class WorkspaceRepository(IWorkspaceRepository):
             is_root=model.is_root,
             created_at=model.created_at,
             updated_at=model.updated_at,
+            members=members or [],
         )
+
+    async def _hydrate_members(self, workspace_id: str) -> list[WorkspaceMember]:
+        """Fetch membership from SpiceDB and convert to domain objects.
+
+        Queries all combinations of roles (ADMIN, EDITOR, MEMBER) and member
+        types (USER, GROUP) to fully hydrate workspace membership.
+
+        Args:
+            workspace_id: The workspace ID to fetch members for
+
+        Returns:
+            List of WorkspaceMember value objects
+        """
+        members = []
+        workspace_resource = format_resource(ResourceType.WORKSPACE, workspace_id)
+
+        # Lookup all subjects with each role and member type combination
+        for role in [WorkspaceRole.ADMIN, WorkspaceRole.EDITOR, WorkspaceRole.MEMBER]:
+            for member_type in [MemberType.USER, MemberType.GROUP]:
+                subjects = await self._authz.lookup_subjects(
+                    resource=workspace_resource,
+                    relation=role.value,
+                    subject_type=member_type.value,
+                )
+
+                for subject_relation in subjects:
+                    members.append(
+                        WorkspaceMember(
+                            member_id=subject_relation.subject_id,
+                            member_type=member_type,
+                            role=WorkspaceRole(subject_relation.relation),
+                        )
+                    )
+
+        return members

@@ -16,9 +16,8 @@ from iam.domain.events.group import MemberSnapshot
 class TenantCreated:
     """Event raised when a new tenant is created.
 
-    This event captures the fact that a tenant has been created.
-    For the walking skeleton, no SpiceDB relationships are automatically
-    created (those will be set when assigning tenant admins).
+    This event captures the creation of a tenant entity.
+    The tenant admin relationship is created via TenantMemberAdded event.
 
     Attributes:
         tenant_id: The ULID of the created tenant

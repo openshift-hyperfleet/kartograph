@@ -159,4 +159,7 @@ class TestCreateTenantWithoutTenantContext:
 
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "Acme Corp"
-        mock_tenant_service.create_tenant.assert_called_once_with(name="Acme Corp")
+        mock_tenant_service.create_tenant.assert_called_once_with(
+            name="Acme Corp",
+            creator_id=mock_authenticated_user.user_id,
+        )

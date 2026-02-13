@@ -63,14 +63,15 @@ class TenantService:
         self._probe = probe or DefaultTenantServiceProbe()
         self._session = session
 
-    async def create_tenant(self, name: str) -> Tenant:
+    async def create_tenant(self, name: str, creator_id: UserId) -> Tenant:
         """Create a new tenant with root workspace.
 
         Creates a tenant and automatically provisions a root workspace for it.
-        Uses default_workspace_name from settings, falling back to tenant name.
+        Grants the creator admin access to the tenant.
 
         Args:
             name: The name of the tenant
+            creator_id: User creating the tenant (will be granted admin access)
 
         Returns:
             The created Tenant aggregate
@@ -82,6 +83,10 @@ class TenantService:
             try:
                 # Create tenant
                 tenant = Tenant.create(name=name)
+
+                # Grant creator admin access (same pattern as groups/workspaces)
+                tenant.add_member(user_id=creator_id, role=TenantRole.ADMIN)
+
                 await self._tenant_repository.save(tenant)
 
                 # Create root workspace for tenant

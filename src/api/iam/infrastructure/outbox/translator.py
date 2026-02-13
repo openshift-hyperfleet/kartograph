@@ -268,9 +268,9 @@ class IAMEventTranslator:
     ) -> list[SpiceDBOperation]:
         """Translate TenantCreated.
 
-        For the walking skeleton, tenants don't automatically get SpiceDB
-        relationships on creation. The SpiceDB tenant definition exists,
-        but relationships (like admin assignments) will be set separately.
+        TenantCreated only captures the tenant entity creation.
+        Tenant admin relationships are created via TenantMemberAdded events
+        which are emitted separately when members are added.
         """
         return []
 

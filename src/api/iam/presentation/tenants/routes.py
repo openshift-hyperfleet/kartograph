@@ -43,9 +43,13 @@ async def create_tenant(
     bootstrap endpoint — users need to create tenants before they have
     tenant context. Only authentication is required, not tenant scoping.
 
+    The authenticated user is automatically granted admin access to the
+    newly created tenant.
+
     Args:
         request: Tenant creation request (name)
-        authenticated_user: Authenticated user (no tenant context required)
+        authenticated_user: Authenticated user (no tenant context required).
+            Automatically granted admin access to the created tenant.
         service: Tenant service for orchestration
 
     Returns:
@@ -56,7 +60,10 @@ async def create_tenant(
         HTTPException: 500 for unexpected errors
     """
     try:
-        tenant = await service.create_tenant(name=request.name)
+        tenant = await service.create_tenant(
+            name=request.name,
+            creator_id=authenticated_user.user_id,
+        )
         return TenantResponse.from_domain(tenant)
 
     except DuplicateTenantNameError:

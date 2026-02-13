@@ -451,11 +451,41 @@ class TestCreateTenant:
         """Test that create_tenant creates a tenant."""
         mock_tenant_repo.save = AsyncMock()
         mock_workspace_repo.save = AsyncMock()
+        creator_id = UserId.from_string("creator-user-1")
 
-        tenant = await tenant_service.create_tenant(name="Acme Corp")
+        tenant = await tenant_service.create_tenant(
+            name="Acme Corp", creator_id=creator_id
+        )
 
         assert tenant.name == "Acme Corp"
         mock_tenant_repo.save.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_grants_creator_admin_access(
+        self, tenant_service, mock_tenant_repo, mock_workspace_repo
+    ):
+        """Test that create_tenant grants the creator admin access."""
+        mock_tenant_repo.save = AsyncMock()
+        mock_workspace_repo.save = AsyncMock()
+        creator_id = UserId.from_string("creator-user-1")
+
+        await tenant_service.create_tenant(name="Acme Corp", creator_id=creator_id)
+
+        # Verify the saved tenant has both TenantCreated and TenantMemberAdded events
+        saved_tenant = mock_tenant_repo.save.call_args[0][0]
+        events = saved_tenant.collect_events()
+
+        # Should have TenantCreated + TenantMemberAdded
+        from iam.domain.events import TenantCreated, TenantMemberAdded
+
+        event_types = [type(e) for e in events]
+        assert TenantCreated in event_types
+        assert TenantMemberAdded in event_types
+
+        # Verify the member added event has the right data
+        member_event = next(e for e in events if isinstance(e, TenantMemberAdded))
+        assert member_event.user_id == creator_id.value
+        assert member_event.role == TenantRole.ADMIN.value
 
     @pytest.mark.asyncio
     async def test_creates_root_workspace_on_tenant_creation(
@@ -464,8 +494,11 @@ class TestCreateTenant:
         """Test that creating a tenant auto-creates a root workspace."""
         mock_tenant_repo.save = AsyncMock()
         mock_workspace_repo.save = AsyncMock()
+        creator_id = UserId.from_string("creator-user-1")
 
-        tenant = await tenant_service.create_tenant(name="Acme Corp")
+        tenant = await tenant_service.create_tenant(
+            name="Acme Corp", creator_id=creator_id
+        )
 
         # Verify workspace_repository.save was called once
         mock_workspace_repo.save.assert_called_once()
@@ -483,6 +516,7 @@ class TestCreateTenant:
         """Test that root workspace uses default_workspace_name from settings."""
         mock_tenant_repo.save = AsyncMock()
         mock_workspace_repo.save = AsyncMock()
+        creator_id = UserId.from_string("creator-user-1")
 
         # Patch settings to return a custom default workspace name
         mock_settings = Mock()
@@ -492,7 +526,7 @@ class TestCreateTenant:
             "iam.application.services.tenant_service.get_iam_settings",
             return_value=mock_settings,
         ):
-            await tenant_service.create_tenant(name="Acme Corp")
+            await tenant_service.create_tenant(name="Acme Corp", creator_id=creator_id)
 
         saved_workspace = mock_workspace_repo.save.call_args[0][0]
         assert saved_workspace.name == "My Default Workspace"
@@ -504,6 +538,7 @@ class TestCreateTenant:
         """Test that root workspace falls back to tenant name when no settings default."""
         mock_tenant_repo.save = AsyncMock()
         mock_workspace_repo.save = AsyncMock()
+        creator_id = UserId.from_string("creator-user-1")
 
         # Patch settings to return None for default_workspace_name
         mock_settings = Mock()
@@ -513,7 +548,7 @@ class TestCreateTenant:
             "iam.application.services.tenant_service.get_iam_settings",
             return_value=mock_settings,
         ):
-            await tenant_service.create_tenant(name="Acme Corp")
+            await tenant_service.create_tenant(name="Acme Corp", creator_id=creator_id)
 
         saved_workspace = mock_workspace_repo.save.call_args[0][0]
         assert saved_workspace.name == "Acme Corp"

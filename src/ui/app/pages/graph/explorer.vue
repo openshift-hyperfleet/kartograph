@@ -148,7 +148,7 @@ async function handleSearch() {
 }
 
 async function browseByType(label: string): Promise<NodeRecord[]> {
-  const cypher = `MATCH (n:\`${label}\`) RETURN {id: id(n), label: label(n), props: properties(n)} LIMIT ${BROWSE_LIMIT}`
+  const cypher = `MATCH (n:\`${label}\`) RETURN n LIMIT ${BROWSE_LIMIT}`
   return await executeCypherSearch(cypher)
 }
 
@@ -163,7 +163,7 @@ async function searchWithinType(term: string, label: string): Promise<NodeRecord
 
   // Property-based Cypher search within the type
   const escaped = escapeCypherString(term)
-  const cypher = `MATCH (n:\`${label}\`) WHERE n.slug CONTAINS '${escaped}' OR n.name CONTAINS '${escaped}' OR n.title CONTAINS '${escaped}' RETURN {id: id(n), label: label(n), props: properties(n)} LIMIT ${SEARCH_LIMIT}`
+  const cypher = `MATCH (n:\`${label}\`) WHERE n.slug CONTAINS '${escaped}' OR n.name CONTAINS '${escaped}' OR n.title CONTAINS '${escaped}' RETURN n LIMIT ${SEARCH_LIMIT}`
   return await executeCypherSearch(cypher)
 }
 
@@ -178,7 +178,7 @@ async function searchAcrossTypes(term: string): Promise<NodeRecord[]> {
 
   // Property-based Cypher search across all types
   const escaped = escapeCypherString(term)
-  const cypher = `MATCH (n) WHERE n.slug CONTAINS '${escaped}' OR n.name CONTAINS '${escaped}' OR n.title CONTAINS '${escaped}' RETURN {id: id(n), label: label(n), props: properties(n)} LIMIT ${SEARCH_LIMIT}`
+  const cypher = `MATCH (n) WHERE n.slug CONTAINS '${escaped}' OR n.name CONTAINS '${escaped}' OR n.title CONTAINS '${escaped}' RETURN n LIMIT ${SEARCH_LIMIT}`
   return await executeCypherSearch(cypher)
 }
 
@@ -188,17 +188,18 @@ async function executeCypherSearch(cypher: string): Promise<NodeRecord[]> {
 }
 
 function transformCypherRow(row: Record<string, unknown>): NodeRecord {
-  // Each row has a single key whose value is {id, label, props}
+  // AGE returns raw node objects with {id, label, properties} as the row value.
+  // The row has a single key (the column alias, e.g. "n") whose value is the node.
   const values = Object.values(row)
   const data = values[0] as Record<string, unknown> | undefined
 
-  if (!data) {
+  if (!data || typeof data !== 'object') {
     return { id: 'unknown', label: 'Unknown', properties: {} }
   }
 
-  const props = (data.props as Record<string, unknown>) || {}
-  const nodeId = props.id as string
-    || String(data.id || 'unknown')
+  const props = (data.properties as Record<string, unknown>) ?? {}
+  // AGE id(n) returns a numeric graph ID; the application-level ID is in properties.id
+  const nodeId = (props.id as string) || String(data.id || 'unknown')
   const nodeLabel = String(data.label || 'Unknown')
 
   return {

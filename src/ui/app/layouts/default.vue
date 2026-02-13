@@ -17,14 +17,20 @@ import {
   Sun,
   LogOut,
   ChevronDown,
+  ChevronRight,
   ChevronsUpDown,
   Check,
   Hexagon,
   AlertTriangle,
   Loader2,
+  LayoutDashboard,
+  Plug,
+  Cable,
+  Settings2,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   DropdownMenu,
@@ -137,10 +143,14 @@ watch(isAuthenticated, (authenticated) => {
   }
 }, { immediate: true })
 
+// ── Navigation (Token 2 + Token 6) ────────────────────────────────────────
+
 interface NavItem {
   label: string
   icon: typeof Building2
   to: string
+  disabled?: boolean
+  badge?: string
 }
 
 interface NavSection {
@@ -148,36 +158,70 @@ interface NavSection {
   items: NavItem[]
 }
 
+const homeItem: NavItem = { label: 'Home', icon: LayoutDashboard, to: '/' }
+
 const navSections: NavSection[] = [
   {
-    title: 'Identity',
-    items: [
-      { label: 'Tenants', icon: Building2, to: '/tenants' },
-      { label: 'Workspaces', icon: FolderTree, to: '/workspaces' },
-      { label: 'Groups', icon: Users, to: '/groups' },
-      { label: 'API Keys', icon: KeyRound, to: '/api-keys' },
-    ],
-  },
-  {
-    title: 'Graph',
+    title: 'Knowledge',
     items: [
       { label: 'Schema Browser', icon: Database, to: '/graph/schema' },
       { label: 'Explorer', icon: Share2, to: '/graph/explorer' },
+      { label: 'Query Console', icon: Terminal, to: '/query' },
       { label: 'Mutations', icon: FileCode, to: '/graph/mutations' },
     ],
   },
   {
-    title: 'Query',
+    title: 'Connect',
     items: [
-      { label: 'Cypher Console', icon: Terminal, to: '/query' },
+      { label: 'Data Sources', icon: Cable, to: '#', disabled: true, badge: 'Soon' },
+    ],
+  },
+  {
+    title: 'Integrate',
+    items: [
+      { label: 'API Keys', icon: KeyRound, to: '/api-keys' },
+      { label: 'MCP Endpoints', icon: Plug, to: '/integrate/mcp' },
+    ],
+  },
+  {
+    title: 'Settings',
+    items: [
+      { label: 'Workspaces', icon: FolderTree, to: '/workspaces' },
+      { label: 'Groups', icon: Users, to: '/groups' },
     ],
   },
 ]
 
 function isActive(to: string): boolean {
   if (to === '/') return route.path === '/'
+  if (to === '#') return false
   return route.path === to || route.path.startsWith(to + '/')
 }
+
+// ── Breadcrumbs (Token 4) ──────────────────────────────────────────────────
+
+const breadcrumbs = computed(() => {
+  const path = route.path
+  const crumbs: Array<{ label: string; to?: string }> = [{ label: 'Home', to: '/' }]
+
+  const routeLabels: Record<string, string> = {
+    '/tenants': 'Tenants',
+    '/workspaces': 'Workspaces',
+    '/groups': 'Groups',
+    '/api-keys': 'API Keys',
+    '/graph/schema': 'Schema Browser',
+    '/graph/explorer': 'Explorer',
+    '/graph/mutations': 'Mutations',
+    '/query': 'Query Console',
+    '/integrate/mcp': 'MCP Integration',
+  }
+
+  if (path !== '/' && routeLabels[path]) {
+    crumbs.push({ label: routeLabels[path] })
+  }
+
+  return crumbs
+})
 
 const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
 </script>
@@ -282,7 +326,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
             </template>
           </div>
 
-          <!-- Multiple tenants: DropdownMenu-based picker -->
+          <!-- Multiple tenants: DropdownMenu-based picker (Token 5: "Manage Tenants" link) -->
           <DropdownMenu v-else>
             <Tooltip v-if="isCollapsed">
               <TooltipTrigger as-child>
@@ -335,12 +379,60 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
                   aria-hidden="true"
                 />
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem as-child>
+                <NuxtLink to="/tenants" class="flex items-center gap-2">
+                  <Settings2 class="size-4 shrink-0 text-muted-foreground" />
+                  <span>Manage Tenants</span>
+                </NuxtLink>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
 
         <!-- Navigation -->
         <nav class="flex-1 overflow-y-auto py-3" aria-label="Main navigation">
+          <!-- Home item (standalone, above sections) -->
+          <div class="mb-3 px-2">
+            <div class="space-y-0.5">
+              <template v-if="isCollapsed">
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <NuxtLink
+                      :to="homeItem.to"
+                      :class="[
+                        'flex items-center justify-center rounded-md p-2 transition-colors',
+                        isActive(homeItem.to)
+                          ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                          : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground',
+                      ]"
+                    >
+                      <component :is="homeItem.icon" class="size-4" />
+                    </NuxtLink>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" :side-offset="8">
+                    {{ homeItem.label }}
+                  </TooltipContent>
+                </Tooltip>
+              </template>
+
+              <NuxtLink
+                v-else
+                :to="homeItem.to"
+                :class="[
+                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
+                  isActive(homeItem.to)
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                    : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground',
+                ]"
+              >
+                <component :is="homeItem.icon" class="size-4 shrink-0" />
+                <span class="truncate">{{ homeItem.label }}</span>
+              </NuxtLink>
+            </div>
+          </div>
+
+          <!-- Nav sections -->
           <div v-for="section in navSections" :key="section.title" class="mb-3">
             <div
               v-if="!isCollapsed"
@@ -351,39 +443,66 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
             <Separator v-else class="mx-auto mb-2 w-8" />
 
             <div class="space-y-0.5 px-2">
-              <template v-for="item in section.items" :key="item.to">
-                <Tooltip v-if="isCollapsed">
-                  <TooltipTrigger as-child>
-                    <NuxtLink
-                      :to="item.to"
-                      :class="[
-                        'flex items-center justify-center rounded-md p-2 transition-colors',
-                        isActive(item.to)
-                          ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                          : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground',
-                      ]"
-                    >
-                      <component :is="item.icon" class="size-4" />
-                    </NuxtLink>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" :side-offset="8">
-                    {{ item.label }}
-                  </TooltipContent>
-                </Tooltip>
+              <template v-for="item in section.items" :key="item.to + item.label">
+                <!-- Collapsed sidebar -->
+                <template v-if="isCollapsed">
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <!-- Disabled item (collapsed) -->
+                      <div
+                        v-if="item.disabled"
+                        class="flex items-center justify-center rounded-md p-2 opacity-50 cursor-not-allowed text-sidebar-foreground/70"
+                      >
+                        <component :is="item.icon" class="size-4" />
+                      </div>
+                      <!-- Normal item (collapsed) -->
+                      <NuxtLink
+                        v-else
+                        :to="item.to"
+                        :class="[
+                          'flex items-center justify-center rounded-md p-2 transition-colors',
+                          isActive(item.to)
+                            ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                            : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground',
+                        ]"
+                      >
+                        <component :is="item.icon" class="size-4" />
+                      </NuxtLink>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" :side-offset="8">
+                      {{ item.label }}{{ item.disabled ? ' (Coming Soon)' : '' }}
+                    </TooltipContent>
+                  </Tooltip>
+                </template>
 
-                <NuxtLink
-                  v-else
-                  :to="item.to"
-                  :class="[
-                    'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
-                    isActive(item.to)
-                      ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                      : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground',
-                  ]"
-                >
-                  <component :is="item.icon" class="size-4 shrink-0" />
-                  <span class="truncate">{{ item.label }}</span>
-                </NuxtLink>
+                <!-- Expanded sidebar -->
+                <template v-else>
+                  <!-- Disabled item (expanded) -->
+                  <div
+                    v-if="item.disabled"
+                    class="flex items-center gap-3 rounded-md px-3 py-2 text-sm opacity-50 cursor-not-allowed text-sidebar-foreground/70"
+                  >
+                    <component :is="item.icon" class="size-4 shrink-0" />
+                    <span class="truncate">{{ item.label }}</span>
+                    <Badge v-if="item.badge" variant="secondary" class="ml-auto text-[10px] px-1.5 py-0">
+                      {{ item.badge }}
+                    </Badge>
+                  </div>
+                  <!-- Normal item (expanded) -->
+                  <NuxtLink
+                    v-else
+                    :to="item.to"
+                    :class="[
+                      'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
+                      isActive(item.to)
+                        ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                        : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground',
+                    ]"
+                  >
+                    <component :is="item.icon" class="size-4 shrink-0" />
+                    <span class="truncate">{{ item.label }}</span>
+                  </NuxtLink>
+                </template>
               </template>
             </div>
           </div>
@@ -453,7 +572,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
               <span class="text-sm font-medium text-sidebar-foreground truncate">{{ selectedTenantName }}</span>
             </div>
 
-            <!-- Multiple tenants: DropdownMenu-based picker -->
+            <!-- Multiple tenants: DropdownMenu-based picker (Token 5: "Manage Tenants" link) -->
             <DropdownMenu v-else>
               <DropdownMenuTrigger as-child>
                 <button
@@ -486,31 +605,71 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
                     aria-hidden="true"
                   />
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem as-child>
+                  <NuxtLink to="/tenants" class="flex items-center gap-2" @click="closeMobile">
+                    <Settings2 class="size-4 shrink-0 text-muted-foreground" />
+                    <span>Manage Tenants</span>
+                  </NuxtLink>
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
 
           <nav class="flex-1 overflow-y-auto py-3" aria-label="Main navigation">
-            <div v-for="section in navSections" :key="section.title" class="mb-3">
-              <div class="mb-1 px-4 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {{ section.title }}
-              </div>
-              <div class="space-y-0.5 px-2">
+            <!-- Home item (mobile) -->
+            <div class="mb-3 px-2">
+              <div class="space-y-0.5">
                 <NuxtLink
-                  v-for="item in section.items"
-                  :key="item.to"
-                  :to="item.to"
+                  :to="homeItem.to"
                   :class="[
                     'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
-                    isActive(item.to)
+                    isActive(homeItem.to)
                       ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
                       : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground',
                   ]"
                   @click="closeMobile"
                 >
-                  <component :is="item.icon" class="size-4 shrink-0" />
-                  <span>{{ item.label }}</span>
+                  <component :is="homeItem.icon" class="size-4 shrink-0" />
+                  <span>{{ homeItem.label }}</span>
                 </NuxtLink>
+              </div>
+            </div>
+
+            <!-- Nav sections (mobile) -->
+            <div v-for="section in navSections" :key="section.title" class="mb-3">
+              <div class="mb-1 px-4 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {{ section.title }}
+              </div>
+              <div class="space-y-0.5 px-2">
+                <template v-for="item in section.items" :key="item.to + item.label">
+                  <!-- Disabled item (mobile) -->
+                  <div
+                    v-if="item.disabled"
+                    class="flex items-center gap-3 rounded-md px-3 py-2 text-sm opacity-50 cursor-not-allowed text-sidebar-foreground/70"
+                  >
+                    <component :is="item.icon" class="size-4 shrink-0" />
+                    <span>{{ item.label }}</span>
+                    <Badge v-if="item.badge" variant="secondary" class="ml-auto text-[10px] px-1.5 py-0">
+                      {{ item.badge }}
+                    </Badge>
+                  </div>
+                  <!-- Normal item (mobile) -->
+                  <NuxtLink
+                    v-else
+                    :to="item.to"
+                    :class="[
+                      'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
+                      isActive(item.to)
+                        ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                        : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground',
+                    ]"
+                    @click="closeMobile"
+                  >
+                    <component :is="item.icon" class="size-4 shrink-0" />
+                    <span>{{ item.label }}</span>
+                  </NuxtLink>
+                </template>
               </div>
             </div>
           </nav>
@@ -543,6 +702,17 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
             <span v-else-if="selectedTenantName" class="text-sm font-medium truncate">{{ selectedTenantName }}</span>
             <span v-else-if="tenantsLoaded && tenants.length === 0" class="text-sm text-amber-600 dark:text-amber-400 truncate">No tenant</span>
           </div>
+
+          <!-- Breadcrumbs (Token 4) -->
+          <nav v-if="breadcrumbs.length > 1" class="hidden md:flex items-center gap-1.5 text-sm" aria-label="Breadcrumb">
+            <template v-for="(crumb, i) in breadcrumbs" :key="i">
+              <ChevronRight v-if="i > 0" class="size-3.5 text-muted-foreground" />
+              <NuxtLink v-if="crumb.to" :to="crumb.to" class="text-muted-foreground hover:text-foreground transition-colors">
+                {{ crumb.label }}
+              </NuxtLink>
+              <span v-else class="text-foreground font-medium">{{ crumb.label }}</span>
+            </template>
+          </nav>
 
           <div class="flex-1" />
 

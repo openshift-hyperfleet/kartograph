@@ -97,6 +97,10 @@ export function useTenant() {
       currentTenantId.value = first.id
       persistToStorage(first.id)
     }
+
+    // Bump version so tenant-scoped pages that are already mounted
+    // (or mount concurrently) pick up the initial tenant selection.
+    tenantVersion.value++
   }
 
   /**

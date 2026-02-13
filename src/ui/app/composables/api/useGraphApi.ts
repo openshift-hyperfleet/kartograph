@@ -20,7 +20,7 @@ export function useGraphApi() {
     return apiFetch<MutationResult>('/graph/mutations', {
       method: 'POST',
       body: jsonlContent,
-      headers: { 'Content-Type': 'application/x-ndjson' },
+      headers: { 'Content-Type': 'application/jsonlines' },
     })
   }
 

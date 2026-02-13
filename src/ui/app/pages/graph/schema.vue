@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import { Database, Search, Loader2, Info, ChevronRight } from 'lucide-vue-next'
+import { Database, Search, Loader2, Info, ChevronRight, Building2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -15,6 +15,7 @@ import type { TypeDefinition } from '~/types'
 
 const { listNodeLabels, listEdgeLabels, getNodeSchema, getEdgeSchema } = useGraphApi()
 const { extractErrorMessage } = useErrorHandler()
+const { hasTenant, tenantVersion } = useTenant()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -140,8 +141,27 @@ function onTabChange() {
 }
 
 onMounted(() => {
-  fetchNodeLabels()
-  fetchEdgeLabels()
+  if (hasTenant.value) {
+    fetchNodeLabels()
+    fetchEdgeLabels()
+  }
+})
+
+// Re-fetch when tenant changes
+watch(tenantVersion, () => {
+  if (hasTenant.value) {
+    nodeLabels.value = []
+    edgeLabels.value = []
+    nodeTotalCount.value = 0
+    edgeTotalCount.value = 0
+    nodeSearch.value = ''
+    edgeSearch.value = ''
+    selectedType.value = null
+    selectedLabel.value = null
+    detailDialogOpen.value = false
+    fetchNodeLabels()
+    fetchEdgeLabels()
+  }
 })
 
 onUnmounted(() => {
@@ -158,6 +178,15 @@ onUnmounted(() => {
       <h1 class="text-2xl font-bold tracking-tight">Schema Browser</h1>
     </div>
     <p class="text-muted-foreground">Browse and inspect the knowledge graph schema definitions.</p>
+
+    <!-- No tenant selected -->
+    <div v-if="!hasTenant" class="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
+      <Building2 class="size-10" />
+      <p class="font-medium">No tenant selected</p>
+      <p class="text-sm">Select a tenant from the header to browse the graph schema.</p>
+    </div>
+
+    <template v-else>
 
     <!-- Type list -->
     <Tabs v-model="activeTab" @update:model-value="onTabChange">
@@ -268,6 +297,8 @@ onUnmounted(() => {
         </ul>
       </TabsContent>
     </Tabs>
+
+    </template>
 
     <!-- Type detail dialog -->
     <Dialog :open="detailDialogOpen" @update:open="onDialogClose">

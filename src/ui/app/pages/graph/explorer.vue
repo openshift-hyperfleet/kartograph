@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  Share2, Search, Loader2, Info, ChevronDown, ChevronUp, ChevronsUpDown, Check, X,
+  Share2, Search, Loader2, Info, ChevronDown, ChevronUp, ChevronsUpDown, Check, X, Building2,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,6 +23,7 @@ import type { NodeRecord } from '~/types'
 
 const { findNodesBySlug, listNodeLabels } = useGraphApi()
 const { extractErrorMessage } = useErrorHandler()
+const { hasTenant, tenantVersion } = useTenant()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -129,7 +130,20 @@ function togglePropExpansion(key: string) {
   expandedProps.value = next
 }
 
-onMounted(loadNodeTypes)
+onMounted(() => {
+  if (hasTenant.value) loadNodeTypes()
+})
+
+// Re-fetch when tenant changes
+watch(tenantVersion, () => {
+  if (hasTenant.value) {
+    searchResults.value = []
+    hasSearched.value = false
+    slugQuery.value = ''
+    nodeTypeFilter.value = ''
+    loadNodeTypes()
+  }
+})
 </script>
 
 <template>
@@ -140,6 +154,17 @@ onMounted(loadNodeTypes)
       <h1 class="text-2xl font-bold tracking-tight">Graph Explorer</h1>
     </div>
     <p class="text-muted-foreground">Search for nodes in the knowledge graph.</p>
+
+    <!-- No tenant selected -->
+    <template v-if="!hasTenant">
+      <div class="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
+        <Building2 class="size-10" />
+        <p class="font-medium">No tenant selected</p>
+        <p class="text-sm">Select a tenant from the header to explore the graph.</p>
+      </div>
+    </template>
+
+    <template v-else>
 
     <!-- Search Section -->
     <Card>
@@ -300,5 +325,7 @@ onMounted(loadNodeTypes)
         <p class="text-sm">Enter a slug in the search bar above to find nodes in the graph.</p>
       </CardContent>
     </Card>
+
+    </template>
   </div>
 </template>

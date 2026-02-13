@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   Building2,
@@ -17,7 +17,11 @@ import {
   Sun,
   LogOut,
   ChevronDown,
+  ChevronsUpDown,
+  Check,
   Hexagon,
+  AlertTriangle,
+  Loader2,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -31,17 +35,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
   Sheet,
   SheetContent,
   SheetTitle,
-  SheetTrigger,
 } from '@/components/ui/sheet'
 import {
   Tooltip,
@@ -51,7 +47,6 @@ import {
 } from '@/components/ui/tooltip'
 import { useSidebar } from '@/composables/useSidebar'
 import { useColorMode } from '@/composables/useColorMode'
-import type { TenantResponse } from '~/types'
 
 const route = useRoute()
 const { isCollapsed, isMobileOpen, toggleCollapsed, closeMobile } = useSidebar()
@@ -60,12 +55,16 @@ const { isDark, toggle: toggleColorMode } = useColorMode()
 // ── Auth & Tenant state ────────────────────────────────────────────────────
 const { user, isAuthenticated, logout } = useAuth()
 const { listTenants } = useIamApi()
-const { currentTenantId } = useApiClient()
 const { extractErrorMessage } = useErrorHandler()
-
-const tenants = ref<TenantResponse[]>([])
-const tenantsLoading = ref(false)
-const selectedTenantId = ref<string>('')
+const {
+  currentTenantId,
+  tenants,
+  tenantsLoading,
+  tenantsLoaded,
+  hasTenant,
+  switchTenant,
+  reconcileAfterFetch,
+} = useTenant()
 
 const displayName = computed(() => {
   if (!user.value) return 'User'
@@ -85,19 +84,36 @@ const avatarInitials = computed(() => {
   return name.substring(0, 2).toUpperCase()
 })
 
-// Sync selected tenant to the API client's currentTenantId
-watch(selectedTenantId, (id) => {
-  currentTenantId.value = id || null
+// True when the user has exactly one tenant (show static display instead of dropdown)
+const isSingleTenant = computed(() => tenants.value.length === 1)
+
+// True when the user has multiple tenants
+const isMultiTenant = computed(() => tenants.value.length > 1)
+
+// The display name for the currently-selected tenant
+const selectedTenantName = computed(() => {
+  if (!currentTenantId.value) return null
+  return tenants.value.find((t) => t.id === currentTenantId.value)?.name ?? null
 })
+
+// Accessible label for the tenant context
+const tenantAriaLabel = computed(() => {
+  if (tenantsLoading.value) return 'Loading tenants'
+  if (tenantsLoaded.value && tenants.value.length === 0) return 'No tenants available. Navigate to create one.'
+  if (selectedTenantName.value) return `Current tenant: ${selectedTenantName.value}. ${isMultiTenant.value ? 'Click to switch tenants.' : ''}`
+  return 'Tenant selector'
+})
+
+function handleTenantChange(id: string) {
+  const tenant = tenants.value.find((t) => t.id === id)
+  switchTenant(id, tenant?.name)
+}
 
 async function fetchTenants() {
   tenantsLoading.value = true
   try {
-    tenants.value = await listTenants()
-    // Auto-select first tenant if none selected
-    if (tenants.value.length > 0 && !selectedTenantId.value) {
-      selectedTenantId.value = tenants.value[0].id
-    }
+    const fetched = await listTenants()
+    reconcileAfterFetch(fetched)
   } catch (err) {
     toast.error('Failed to load tenants', {
       description: extractErrorMessage(err),
@@ -187,8 +203,144 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
           </span>
         </div>
 
+        <!-- Tenant Selector (Desktop Sidebar) -->
+        <div
+          class="border-b border-sidebar-border px-2 py-2"
+          role="region"
+          :aria-label="tenantAriaLabel"
+        >
+          <!-- Loading state -->
+          <div
+            v-if="tenantsLoading"
+            class="flex items-center gap-2 rounded-md px-2 py-2"
+            :class="isCollapsed ? 'justify-center' : ''"
+            role="status"
+            aria-live="polite"
+          >
+            <Tooltip v-if="isCollapsed">
+              <TooltipTrigger as-child>
+                <div class="flex items-center justify-center">
+                  <Loader2 class="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="right" :side-offset="8">
+                Loading tenants...
+              </TooltipContent>
+            </Tooltip>
+            <template v-else>
+              <Loader2 class="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
+              <span class="text-sm text-muted-foreground truncate">Loading...</span>
+            </template>
+          </div>
+
+          <!-- Zero tenants -->
+          <NuxtLink
+            v-else-if="tenantsLoaded && tenants.length === 0"
+            to="/tenants"
+            class="group flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-2 transition-colors hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/50 dark:hover:bg-amber-950"
+            :class="isCollapsed ? 'justify-center' : ''"
+            role="link"
+            :aria-label="tenantAriaLabel"
+          >
+            <Tooltip v-if="isCollapsed">
+              <TooltipTrigger as-child>
+                <div class="flex items-center justify-center">
+                  <AlertTriangle class="size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="right" :side-offset="8">
+                No tenants — create one
+              </TooltipContent>
+            </Tooltip>
+            <template v-else>
+              <AlertTriangle class="size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+              <span class="text-sm font-medium text-amber-700 dark:text-amber-300 truncate">No tenants</span>
+            </template>
+          </NuxtLink>
+
+          <!-- Single tenant (static display with visual container) -->
+          <div
+            v-else-if="isSingleTenant"
+            class="flex items-center gap-2 rounded-md bg-sidebar-accent px-2 py-2"
+            :class="isCollapsed ? 'justify-center' : ''"
+            role="status"
+            :aria-label="tenantAriaLabel"
+          >
+            <Tooltip v-if="isCollapsed">
+              <TooltipTrigger as-child>
+                <div class="flex items-center justify-center">
+                  <Building2 class="size-4 shrink-0 text-sidebar-primary" aria-hidden="true" />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="right" :side-offset="8">
+                {{ selectedTenantName }}
+              </TooltipContent>
+            </Tooltip>
+            <template v-else>
+              <Building2 class="size-4 shrink-0 text-sidebar-primary" aria-hidden="true" />
+              <span class="text-sm font-medium text-sidebar-foreground truncate">{{ selectedTenantName }}</span>
+            </template>
+          </div>
+
+          <!-- Multiple tenants: DropdownMenu-based picker -->
+          <DropdownMenu v-else>
+            <Tooltip v-if="isCollapsed">
+              <TooltipTrigger as-child>
+                <DropdownMenuTrigger as-child>
+                  <button
+                    class="flex w-full items-center justify-center rounded-md bg-sidebar-accent p-2 transition-colors hover:bg-sidebar-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                    :aria-label="tenantAriaLabel"
+                  >
+                    <Building2 class="size-4 shrink-0 text-sidebar-primary" aria-hidden="true" />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="right" :side-offset="8">
+                {{ selectedTenantName ?? 'Select tenant' }}
+              </TooltipContent>
+            </Tooltip>
+            <DropdownMenuTrigger v-else as-child>
+              <button
+                class="flex w-full items-center gap-2 rounded-md bg-sidebar-accent px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                :aria-label="tenantAriaLabel"
+              >
+                <Building2 class="size-4 shrink-0 text-sidebar-primary" aria-hidden="true" />
+                <span class="flex-1 truncate text-sm font-medium text-sidebar-foreground">
+                  {{ selectedTenantName ?? 'Select tenant...' }}
+                </span>
+                <ChevronsUpDown class="size-4 shrink-0 text-sidebar-foreground/50" aria-hidden="true" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              class="w-56"
+              :side="isCollapsed ? 'right' : 'bottom'"
+              :align="isCollapsed ? 'start' : 'start'"
+              :side-offset="isCollapsed ? 8 : 4"
+            >
+              <DropdownMenuLabel class="text-xs text-muted-foreground">
+                Switch tenant
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                v-for="tenant in tenants"
+                :key="tenant.id"
+                class="flex items-center gap-2"
+                @click="handleTenantChange(tenant.id)"
+              >
+                <Building2 class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <span class="flex-1 truncate">{{ tenant.name }}</span>
+                <Check
+                  v-if="tenant.id === currentTenantId"
+                  class="size-4 shrink-0 text-sidebar-primary"
+                  aria-hidden="true"
+                />
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
         <!-- Navigation -->
-        <nav class="flex-1 overflow-y-auto py-3">
+        <nav class="flex-1 overflow-y-auto py-3" aria-label="Main navigation">
           <div v-for="section in navSections" :key="section.title" class="mb-3">
             <div
               v-if="!isCollapsed"
@@ -261,7 +413,84 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
             <span class="text-base font-semibold tracking-tight">Kartograph</span>
           </div>
 
-          <nav class="flex-1 overflow-y-auto py-3">
+          <!-- Tenant Selector (Mobile Sidebar) -->
+          <div
+            class="border-b border-sidebar-border px-2 py-2"
+            role="region"
+            :aria-label="tenantAriaLabel"
+          >
+            <!-- Loading state -->
+            <div
+              v-if="tenantsLoading"
+              class="flex items-center gap-2 rounded-md px-2 py-2"
+              role="status"
+              aria-live="polite"
+            >
+              <Loader2 class="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
+              <span class="text-sm text-muted-foreground">Loading...</span>
+            </div>
+
+            <!-- Zero tenants -->
+            <NuxtLink
+              v-else-if="tenantsLoaded && tenants.length === 0"
+              to="/tenants"
+              class="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-2 transition-colors hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/50 dark:hover:bg-amber-950"
+              :aria-label="tenantAriaLabel"
+              @click="closeMobile"
+            >
+              <AlertTriangle class="size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+              <span class="text-sm font-medium text-amber-700 dark:text-amber-300">No tenants — create one</span>
+            </NuxtLink>
+
+            <!-- Single tenant (static display) -->
+            <div
+              v-else-if="isSingleTenant"
+              class="flex items-center gap-2 rounded-md bg-sidebar-accent px-2 py-2"
+              role="status"
+              :aria-label="tenantAriaLabel"
+            >
+              <Building2 class="size-4 shrink-0 text-sidebar-primary" aria-hidden="true" />
+              <span class="text-sm font-medium text-sidebar-foreground truncate">{{ selectedTenantName }}</span>
+            </div>
+
+            <!-- Multiple tenants: DropdownMenu-based picker -->
+            <DropdownMenu v-else>
+              <DropdownMenuTrigger as-child>
+                <button
+                  class="flex w-full items-center gap-2 rounded-md bg-sidebar-accent px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                  :aria-label="tenantAriaLabel"
+                >
+                  <Building2 class="size-4 shrink-0 text-sidebar-primary" aria-hidden="true" />
+                  <span class="flex-1 truncate text-sm font-medium text-sidebar-foreground">
+                    {{ selectedTenantName ?? 'Select tenant...' }}
+                  </span>
+                  <ChevronsUpDown class="size-4 shrink-0 text-sidebar-foreground/50" aria-hidden="true" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent class="w-56" side="bottom" align="start" :side-offset="4">
+                <DropdownMenuLabel class="text-xs text-muted-foreground">
+                  Switch tenant
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  v-for="tenant in tenants"
+                  :key="tenant.id"
+                  class="flex items-center gap-2"
+                  @click="handleTenantChange(tenant.id)"
+                >
+                  <Building2 class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <span class="flex-1 truncate">{{ tenant.name }}</span>
+                  <Check
+                    v-if="tenant.id === currentTenantId"
+                    class="size-4 shrink-0 text-sidebar-primary"
+                    aria-hidden="true"
+                  />
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <nav class="flex-1 overflow-y-auto py-3" aria-label="Main navigation">
             <div v-for="section in navSections" :key="section.title" class="mb-3">
               <div class="mb-1 px-4 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 {{ section.title }}
@@ -303,29 +532,16 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
             <Menu class="size-5" />
           </Button>
 
-          <!-- Tenant selector -->
-          <div class="flex items-center gap-2">
-            <Select v-model="selectedTenantId" :disabled="tenantsLoading">
-              <SelectTrigger class="w-48">
-                <SelectValue :placeholder="tenantsLoading ? 'Loading...' : tenants.length === 0 ? 'No tenants' : 'Select tenant...'" />
-              </SelectTrigger>
-              <SelectContent>
-                <div v-if="tenantsLoading" class="px-2 py-1.5 text-sm text-muted-foreground">
-                  Loading tenants...
-                </div>
-                <div v-else-if="tenants.length === 0" class="px-2 py-1.5 text-sm text-muted-foreground">
-                  No tenants available
-                </div>
-                <SelectItem
-                  v-for="tenant in tenants"
-                  v-else
-                  :key="tenant.id"
-                  :value="tenant.id"
-                >
-                  {{ tenant.name }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
+          <!-- Mobile tenant indicator (visible only on mobile, shows current tenant inline) -->
+          <div
+            class="flex items-center gap-1.5 md:hidden min-w-0"
+            role="status"
+            :aria-label="tenantAriaLabel"
+          >
+            <Building2 class="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span v-if="tenantsLoading" class="text-sm text-muted-foreground truncate">Loading...</span>
+            <span v-else-if="selectedTenantName" class="text-sm font-medium truncate">{{ selectedTenantName }}</span>
+            <span v-else-if="tenantsLoaded && tenants.length === 0" class="text-sm text-amber-600 dark:text-amber-400 truncate">No tenant</span>
           </div>
 
           <div class="flex-1" />

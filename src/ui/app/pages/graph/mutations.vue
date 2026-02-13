@@ -1,20 +1,45 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { toast } from 'vue-sonner'
+import { keymap, lineNumbers } from '@codemirror/view'
+import { Prec, type Extension } from '@codemirror/state'
+import { json } from '@codemirror/lang-json'
+import { autocompletion } from '@codemirror/autocomplete'
+import { linter, lintGutter } from '@codemirror/lint'
 import {
   FileCode, Play, Trash2, Upload, Loader2,
-  FileUp, Plus, CheckCircle2, XCircle, AlertTriangle,
+  FileUp, CheckCircle2, XCircle, AlertTriangle, Building2, X,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Textarea } from '@/components/ui/textarea'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
+import {
+  Tooltip, TooltipContent, TooltipTrigger,
+} from '@/components/ui/tooltip'
 import type { MutationResult } from '~/types'
+
+// CodeMirror
+import { useCodemirror } from '@/composables/useCodemirror'
+import { kartographTheme, jsonHighlightStyle } from '@/lib/codemirror/theme'
+import { mutationAutocomplete } from '@/lib/codemirror/mutation-jsonl/autocomplete'
+import { mutationLinter } from '@/lib/codemirror/mutation-jsonl/linter'
+
+// Modifier keys
+import { useModifierKeys } from '@/composables/useModifierKeys'
+
+// Local components
+import MutationPreview from '@/components/graph/MutationPreview.vue'
+import MutationTemplates from '@/components/graph/MutationTemplates.vue'
+
+// Parser
+import { parseContent, toJsonl, type ParseResult } from '@/utils/mutationParser'
 
 const { applyMutations } = useGraphApi()
 const { extractErrorMessage } = useErrorHandler()
+const { hasTenant } = useTenant()
+const { ctrlHeld } = useModifierKeys()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -22,118 +47,109 @@ const editorContent = ref('')
 const submitting = ref(false)
 const lastResult = ref<MutationResult | null>(null)
 const apiError = ref<string | null>(null)
-const validationErrors = ref<string[]>([])
 const isDragOver = ref(false)
-const editorRef = ref<HTMLDivElement | null>(null)
-const lineNumberRef = ref<HTMLDivElement | null>(null)
+const editorContainer = ref<HTMLElement | null>(null)
 
-function syncScroll(event: Event) {
-  const target = event.target as HTMLElement
-  if (lineNumberRef.value) {
-    lineNumberRef.value.scrollTop = target.scrollTop
-  }
-}
+// ── CodeMirror Setup ───────────────────────────────────────────────────────
 
-// ── Templates ──────────────────────────────────────────────────────────────
-
-interface MutationTemplate {
-  name: string
-  description: string
-  content: string
-}
-
-const templates: MutationTemplate[] = [
-  {
-    name: 'Define Type',
-    description: 'Define a new node or edge type schema',
-    content: '{"op": "DEFINE", "type": "node", "label": "person", "description": "A person entity", "required_properties": ["name"], "optional_properties": ["email", "age"]}',
-  },
-  {
-    name: 'Create Node',
-    description: 'Create a new node instance',
-    content: '{"op": "CREATE", "type": "node", "label": "person", "id": "person:a1b2c3d4e5f67890", "set_properties": {"name": "Alice", "slug": "alice", "data_source_id": "dev-ui", "source_path": "manual"}}',
-  },
-  {
-    name: 'Create Edge',
-    description: 'Create a relationship between nodes',
-    content: '{"op": "CREATE", "type": "edge", "label": "knows", "id": "knows:a1b2c3d4e5f67890", "start_id": "person:a1b2c3d4e5f67890", "end_id": "person:f6e5d4c3b2a10987", "set_properties": {"data_source_id": "dev-ui", "source_path": "manual"}}',
-  },
-  {
-    name: 'Update Node',
-    description: 'Update properties on an existing node',
-    content: '{"op": "UPDATE", "type": "node", "id": "person:a1b2c3d4e5f67890", "set_properties": {"email": "alice@example.com"}}',
-  },
-  {
-    name: 'Delete Node',
-    description: 'Remove a node from the graph',
-    content: '{"op": "DELETE", "type": "node", "id": "person:a1b2c3d4e5f67890"}',
-  },
+const staticExtensions: Extension[] = [
+  kartographTheme,
+  jsonHighlightStyle,
+  json(),
+  lineNumbers(),
+  autocompletion({ override: [mutationAutocomplete] }),
+  linter(mutationLinter, { delay: 300 }),
+  lintGutter(),
+  Prec.highest(keymap.of([
+    {
+      key: 'Ctrl-Enter',
+      mac: 'Cmd-Enter',
+      run: () => {
+        handleSubmit()
+        return true
+      },
+    },
+  ])),
 ]
 
-// ── Computed ───────────────────────────────────────────────────────────────
+const cmExtensions = computed<Extension[]>(() => [...staticExtensions])
 
-const lineCount = computed(() => {
-  if (!editorContent.value.trim()) return 0
-  return editorContent.value.trim().split('\n').filter(line => line.trim()).length
-})
+const { view: editorView, focus: focusEditor } = useCodemirror(
+  editorContainer,
+  editorContent,
+  cmExtensions,
+)
 
-const lineNumbers = computed(() => {
-  if (!editorContent.value) return '1'
-  const lines = editorContent.value.split('\n')
-  return lines.map((_, i) => i + 1).join('\n')
-})
+// ── Live Preview ───────────────────────────────────────────────────────────
+
+const parseResult = computed<ParseResult>(() => parseContent(editorContent.value))
+
+const totalOps = computed(() => parseResult.value.operations.length)
+
+const hasValidationIssues = computed(() =>
+  parseResult.value.parseErrors.length > 0
+  || parseResult.value.operations.some(op => op.warnings.length > 0),
+)
 
 // ── Actions ────────────────────────────────────────────────────────────────
 
-function insertTemplate(template: MutationTemplate) {
-  if (editorContent.value.trim()) {
-    editorContent.value += '\n' + template.content
+function insertTemplate(content: string) {
+  const view = editorView.value
+  if (view) {
+    const currentDoc = view.state.doc.toString()
+    const trimmed = currentDoc.trim()
+    if (trimmed) {
+      // Append on a new line
+      const insert = '\n' + content
+      view.dispatch({
+        changes: { from: view.state.doc.length, insert },
+      })
+    } else {
+      // Replace empty content
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: content },
+      })
+    }
+    view.focus()
   } else {
-    editorContent.value = template.content
+    // Fallback: no CM view yet
+    if (editorContent.value.trim()) {
+      editorContent.value += '\n' + content
+    } else {
+      editorContent.value = content
+    }
   }
   lastResult.value = null
-  validationErrors.value = []
-}
-
-function validateJsonl(): boolean {
-  validationErrors.value = []
-  const content = editorContent.value.trim()
-  if (!content) {
-    validationErrors.value = ['Editor is empty. Add at least one mutation operation.']
-    return false
-  }
-
-  const lines = content.split('\n')
-  const errors: string[] = []
-
-  lines.forEach((line, index) => {
-    const trimmed = line.trim()
-    if (!trimmed) return // skip blank lines
-    try {
-      JSON.parse(trimmed)
-    } catch {
-      errors.push(`Line ${index + 1}: Invalid JSON`)
-    }
-  })
-
-  validationErrors.value = errors
-  return errors.length === 0
 }
 
 async function handleSubmit() {
-  lastResult.value = null
-  apiError.value = null
-  if (!validateJsonl()) return
+  if (submitting.value || !editorContent.value.trim()) return
 
+  const result = parseResult.value
+  if (result.parseErrors.length > 0) {
+    toast.error('Fix parse errors before submitting')
+    return
+  }
+
+  if (result.operations.length === 0) {
+    toast.error('No operations to submit')
+    return
+  }
+
+  // Convert parsed operations to clean JSONL for submission
+  const jsonlBody = toJsonl(result.operations)
+
+  apiError.value = null
   submitting.value = true
+
   try {
-    const result = await applyMutations(editorContent.value.trim())
-    lastResult.value = result
-    if (result.success) {
-      toast.success(`Applied ${result.operations_applied} mutation${result.operations_applied === 1 ? '' : 's'}`)
+    const mutationResult = await applyMutations(jsonlBody)
+    lastResult.value = mutationResult
+    if (mutationResult.success) {
+      toast.success(`Applied ${mutationResult.operations_applied} mutation${mutationResult.operations_applied === 1 ? '' : 's'}`)
     } else {
       toast.error('Some mutations failed', {
-        description: `${result.errors.length} error${result.errors.length === 1 ? '' : 's'} occurred`,
+        description: `${mutationResult.errors.length} error${mutationResult.errors.length === 1 ? '' : 's'} occurred`,
       })
     }
   } catch (err) {
@@ -149,10 +165,15 @@ function clearEditor() {
   editorContent.value = ''
   lastResult.value = null
   apiError.value = null
-  validationErrors.value = []
+  nextTick(focusEditor)
 }
 
-// ── File upload ────────────────────────────────────────────────────────────
+function clearResults() {
+  lastResult.value = null
+  apiError.value = null
+}
+
+// ── File Upload ────────────────────────────────────────────────────────────
 
 function handleFileUpload(event: Event) {
   const input = event.target as HTMLInputElement
@@ -175,13 +196,27 @@ function readFile(file: File) {
   const reader = new FileReader()
   reader.onload = (e) => {
     const text = e.target?.result as string
-    if (editorContent.value.trim()) {
-      editorContent.value += '\n' + text
+    const view = editorView.value
+    if (view) {
+      const currentDoc = view.state.doc.toString()
+      const trimmed = currentDoc.trim()
+      if (trimmed) {
+        view.dispatch({
+          changes: { from: view.state.doc.length, insert: '\n' + text },
+        })
+      } else {
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: text },
+        })
+      }
     } else {
-      editorContent.value = text
+      if (editorContent.value.trim()) {
+        editorContent.value += '\n' + text
+      } else {
+        editorContent.value = text
+      }
     }
     lastResult.value = null
-    validationErrors.value = []
     toast.success(`Loaded ${file.name}`)
   }
   reader.onerror = () => {
@@ -198,6 +233,23 @@ function handleDragOver(event: DragEvent) {
 function handleDragLeave() {
   isDragOver.value = false
 }
+
+// ── Keyboard Shortcut (global fallback) ────────────────────────────────────
+
+function handleCtrlEnter(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault()
+    handleSubmit()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', handleCtrlEnter)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleCtrlEnter)
+})
 </script>
 
 <template>
@@ -213,7 +265,14 @@ function handleDragLeave() {
       </div>
     </div>
 
-    <div class="grid gap-6 xl:grid-cols-[1fr_320px]">
+    <!-- No tenant selected -->
+    <div v-if="!hasTenant" class="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
+      <Building2 class="size-10" />
+      <p class="font-medium">No tenant selected</p>
+      <p class="text-sm">Select a tenant from the header to apply mutations.</p>
+    </div>
+
+    <div v-else class="grid gap-6 xl:grid-cols-[1fr_320px]">
       <!-- Left: Editor area -->
       <div class="space-y-4">
         <!-- Editor card -->
@@ -226,8 +285,8 @@ function handleDragLeave() {
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-3">
                 <CardTitle class="text-base">JSONL Editor</CardTitle>
-                <Badge v-if="lineCount > 0" variant="secondary">
-                  {{ lineCount }} operation{{ lineCount === 1 ? '' : 's' }}
+                <Badge v-if="totalOps > 0" variant="secondary">
+                  {{ totalOps }} operation{{ totalOps === 1 ? '' : 's' }}
                 </Badge>
               </div>
               <div class="flex items-center gap-2">
@@ -259,66 +318,75 @@ function handleDragLeave() {
           </CardHeader>
           <CardContent>
             <div
-              class="relative rounded-md border transition-colors"
-              :class="{ 'border-primary bg-primary/5': isDragOver }"
+              class="relative overflow-hidden rounded-md border transition-all duration-200"
+              :class="isDragOver
+                ? 'border-primary ring-2 ring-primary/20'
+                : 'border-input'"
             >
               <!-- Drop overlay -->
-              <div
-                v-if="isDragOver"
-                class="absolute inset-0 z-10 flex items-center justify-center rounded-md bg-primary/10"
+              <Transition
+                enter-active-class="transition-opacity duration-200"
+                enter-from-class="opacity-0"
+                enter-to-class="opacity-100"
+                leave-active-class="transition-opacity duration-150"
+                leave-from-class="opacity-100"
+                leave-to-class="opacity-0"
               >
-                <div class="flex items-center gap-2 text-primary">
-                  <FileUp class="size-6" />
-                  <span class="font-medium">Drop .jsonl file here</span>
-                </div>
-              </div>
-
-              <!-- Editor with line numbers -->
-              <div class="flex max-h-[500px]">
                 <div
-                  ref="lineNumberRef"
-                  class="select-none overflow-hidden border-r bg-muted/50 px-3 py-3 text-right font-mono text-xs leading-6 text-muted-foreground"
-                  aria-hidden="true"
+                  v-if="isDragOver"
+                  class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-md bg-primary/10 backdrop-blur-[2px]"
                 >
-                  <pre>{{ lineNumbers }}</pre>
+                  <div class="rounded-full bg-primary/20 p-4">
+                    <FileUp class="size-8 text-primary" />
+                  </div>
+                  <span class="text-sm font-medium text-primary">Drop .jsonl file here</span>
+                  <span class="text-xs text-muted-foreground">Supports .jsonl, .json, and .ndjson files</span>
                 </div>
-                <Textarea
-                  v-model="editorContent"
-                  placeholder='{"op": "CREATE", "type": "node", "label": "person", ...}'
-                  class="min-h-[300px] resize-none rounded-none border-0 font-mono text-xs leading-6 focus-visible:ring-0 focus-visible:ring-offset-0"
-                  spellcheck="false"
-                  @scroll="syncScroll"
-                />
-              </div>
+              </Transition>
+
+              <!-- CodeMirror Editor -->
+              <div
+                ref="editorContainer"
+                class="[&_.cm-editor]:min-h-[300px] [&_.cm-editor]:max-h-[500px] [&_.cm-editor]:overflow-auto [&_.cm-editor.cm-focused]:ring-1 [&_.cm-editor.cm-focused]:ring-ring"
+              />
             </div>
           </CardContent>
         </Card>
 
         <!-- Action bar -->
         <div class="flex items-center gap-3">
-          <Button
-            :disabled="submitting || !editorContent.trim()"
-            @click="handleSubmit"
-          >
-            <Loader2 v-if="submitting" class="mr-2 size-4 animate-spin" />
-            <Play v-else class="mr-2 size-4" />
-            Apply Mutations
-          </Button>
-          <span v-if="lineCount > 0" class="text-sm text-muted-foreground">
-            {{ lineCount }} operation{{ lineCount === 1 ? '' : 's' }} ready
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                :disabled="submitting || !editorContent.trim()"
+                :class="ctrlHeld && !submitting && editorContent.trim() ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''"
+                @click="handleSubmit"
+              >
+                <Loader2 v-if="submitting" class="mr-2 size-4 animate-spin" />
+                <Play v-else class="mr-2 size-4" />
+                Apply Mutations
+                <kbd
+                  v-if="ctrlHeld"
+                  class="ml-2 rounded bg-primary-foreground/20 px-1 py-0.5 font-mono text-[10px]"
+                >
+                  Enter
+                </kbd>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Ctrl+Enter / Cmd+Enter</p>
+            </TooltipContent>
+          </Tooltip>
+          <span v-if="totalOps > 0" class="text-sm text-muted-foreground">
+            {{ totalOps }} operation{{ totalOps === 1 ? '' : 's' }} ready
+            <span v-if="hasValidationIssues" class="text-yellow-600 dark:text-yellow-400">
+              (has warnings)
+            </span>
           </span>
         </div>
 
-        <!-- Validation errors -->
-        <Alert v-if="validationErrors.length > 0" variant="destructive">
-          <AlertTriangle class="size-4" />
-          <AlertTitle>Validation Errors</AlertTitle>
-          <AlertDescription>
-            <ul class="mt-1 list-inside list-disc space-y-0.5 text-sm">
-              <li v-for="(error, idx) in validationErrors" :key="idx">{{ error }}</li>
-            </ul>
-          </AlertDescription>
-        </Alert>
+        <!-- Live Preview Panel -->
+        <MutationPreview :parse-result="parseResult" />
 
         <!-- API error -->
         <Alert v-if="apiError" variant="destructive">
@@ -331,63 +399,64 @@ function handleDragLeave() {
 
         <!-- Result display -->
         <template v-if="lastResult">
-          <Alert v-if="lastResult.success" variant="success">
-            <CheckCircle2 class="size-4" />
-            <AlertTitle>Mutations Applied</AlertTitle>
-            <AlertDescription>
-              Successfully applied {{ lastResult.operations_applied }} operation{{ lastResult.operations_applied === 1 ? '' : 's' }}.
-            </AlertDescription>
-          </Alert>
+          <Card v-if="lastResult.success" class="border-green-500/30">
+            <CardContent class="flex items-start gap-3 p-4">
+              <CheckCircle2 class="mt-0.5 size-5 shrink-0 text-green-600 dark:text-green-400" />
+              <div class="min-w-0 flex-1 space-y-1">
+                <p class="text-sm font-medium text-green-600 dark:text-green-400">
+                  Mutations Applied Successfully
+                </p>
+                <p class="text-sm text-muted-foreground">
+                  {{ lastResult.operations_applied }} operation{{ lastResult.operations_applied === 1 ? '' : 's' }} applied to the graph.
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-7 shrink-0"
+                @click="clearResults"
+              >
+                <X class="size-3.5" />
+              </Button>
+            </CardContent>
+          </Card>
 
-          <Alert v-else variant="destructive">
-            <XCircle class="size-4" />
-            <AlertTitle>Mutations Failed</AlertTitle>
-            <AlertDescription>
-              <p>{{ lastResult.operations_applied }} operation{{ lastResult.operations_applied === 1 ? '' : 's' }} applied before failure.</p>
-              <ul v-if="lastResult.errors.length > 0" class="mt-2 list-inside list-disc space-y-0.5 text-sm">
-                <li v-for="(error, idx) in lastResult.errors" :key="idx">{{ error }}</li>
-              </ul>
-            </AlertDescription>
-          </Alert>
+          <Card v-else class="border-destructive/30">
+            <CardContent class="flex items-start gap-3 p-4">
+              <XCircle class="mt-0.5 size-5 shrink-0 text-destructive" />
+              <div class="min-w-0 flex-1 space-y-2">
+                <p class="text-sm font-medium text-destructive">
+                  Mutations Failed
+                </p>
+                <p class="text-sm text-muted-foreground">
+                  {{ lastResult.operations_applied }} operation{{ lastResult.operations_applied === 1 ? '' : 's' }} applied before failure.
+                </p>
+                <div v-if="lastResult.errors.length > 0" class="space-y-1">
+                  <div
+                    v-for="(error, idx) in lastResult.errors"
+                    :key="idx"
+                    class="flex items-start gap-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs"
+                  >
+                    <AlertTriangle class="mt-0.5 size-3 shrink-0 text-destructive" />
+                    <span class="font-mono">{{ error }}</span>
+                  </div>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-7 shrink-0"
+                @click="clearResults"
+              >
+                <X class="size-3.5" />
+              </Button>
+            </CardContent>
+          </Card>
         </template>
       </div>
 
       <!-- Right: Templates sidebar -->
-      <div class="space-y-3">
-        <h2 class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          <Plus class="size-4" />
-          Templates
-        </h2>
-
-        <div class="space-y-2">
-          <Card
-            v-for="template in templates"
-            :key="template.name"
-            class="cursor-pointer transition-colors hover:bg-accent/50"
-            @click="insertTemplate(template)"
-          >
-            <CardContent class="p-3">
-              <div class="space-y-1">
-                <div class="flex items-center justify-between">
-                  <span class="text-sm font-medium">{{ template.name }}</span>
-                  <Plus class="size-3.5 text-muted-foreground" />
-                </div>
-                <p class="text-xs text-muted-foreground">{{ template.description }}</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Separator />
-
-        <div class="space-y-2 text-xs text-muted-foreground">
-          <p class="font-medium">JSONL Format</p>
-          <p>Each line must be a valid JSON object representing a single mutation operation.</p>
-          <p>Required field: <code class="rounded bg-muted px-1 py-0.5">op</code> — one of <code class="rounded bg-muted px-1 py-0.5">DEFINE</code>, <code class="rounded bg-muted px-1 py-0.5">CREATE</code>, <code class="rounded bg-muted px-1 py-0.5">UPDATE</code>, <code class="rounded bg-muted px-1 py-0.5">DELETE</code></p>
-          <p>Other fields: <code class="rounded bg-muted px-1 py-0.5">type</code> (node/edge), <code class="rounded bg-muted px-1 py-0.5">label</code>, <code class="rounded bg-muted px-1 py-0.5">id</code>, <code class="rounded bg-muted px-1 py-0.5">set_properties</code></p>
-          <p>ID format: <code class="rounded bg-muted px-1 py-0.5">label:16hexchars</code> (lowercase)</p>
-        </div>
-      </div>
+      <MutationTemplates @insert="insertTemplate" />
     </div>
   </div>
 </template>

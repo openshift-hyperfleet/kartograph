@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Users, Plus, Search, Trash2, ChevronDown, ChevronRight, UserCircle } from 'lucide-vue-next'
+import { Users, Plus, Search, Trash2, ChevronDown, ChevronRight, UserCircle, Loader2, Building2 } from 'lucide-vue-next'
 import { CopyableText } from '@/components/ui/copyable-text'
 import { toast } from 'vue-sonner'
 import { ref, onMounted, watch } from 'vue'
@@ -31,12 +31,14 @@ import {
 } from '@/components/ui/table'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
-const { createGroup, getGroup, deleteGroup } = useIamApi()
+const { listGroups, createGroup, getGroup, deleteGroup } = useIamApi()
 const { extractErrorMessage } = useErrorHandler()
+const { hasTenant, tenantVersion } = useTenant()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
 const groups = ref<GroupResponse[]>([])
+const loading = ref(true)
 const expandedGroupIds = ref<Set<string>>(new Set())
 
 const createDialogOpen = ref(false)
@@ -50,23 +52,18 @@ const deleteDialogOpen = ref(false)
 const groupToDelete = ref<GroupResponse | null>(null)
 const isDeleting = ref(false)
 
-// ── localStorage cache ─────────────────────────────────────────────────────
-const GROUPS_CACHE_KEY = 'kartograph:groups-cache'
+// ── Data loading ───────────────────────────────────────────────────────────
 
-function saveGroupsCache() {
+async function fetchGroups() {
+  loading.value = true
   try {
-    localStorage.setItem(GROUPS_CACHE_KEY, JSON.stringify(groups.value))
-  } catch { /* storage full – ignore */ }
-}
-
-function loadGroupsCache() {
-  try {
-    const stored = localStorage.getItem(GROUPS_CACHE_KEY)
-    if (stored) {
-      groups.value = JSON.parse(stored)
-    }
-  } catch {
-    groups.value = []
+    groups.value = await listGroups()
+  } catch (err) {
+    toast.error('Failed to load groups', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    loading.value = false
   }
 }
 
@@ -94,9 +91,9 @@ async function handleCreate() {
   isCreating.value = true
   try {
     const group = await createGroup({ name: createFormName.value.trim() })
-    groups.value.unshift(group)
     createFormName.value = ''
     toast.success(`Group "${group.name}" created`)
+    await fetchGroups()
   } catch (err: unknown) {
     toast.error('Failed to create group', {
       description: extractErrorMessage(err),
@@ -147,9 +144,9 @@ async function handleDelete() {
   try {
     await deleteGroup(groupToDelete.value.id)
     const name = groupToDelete.value.name
-    groups.value = groups.value.filter((g) => g.id !== groupToDelete.value!.id)
     expandedGroupIds.value.delete(groupToDelete.value.id)
     toast.success(`Group "${name}" deleted`)
+    await fetchGroups()
   } catch (err: unknown) {
     toast.error('Failed to delete group', {
       description: extractErrorMessage(err),
@@ -175,9 +172,17 @@ async function refreshGroup(groupId: string) {
   }
 }
 
-watch(groups, saveGroupsCache, { deep: true })
+onMounted(() => {
+  if (hasTenant.value) fetchGroups()
+})
 
-onMounted(loadGroupsCache)
+// Re-fetch when tenant changes
+watch(tenantVersion, () => {
+  if (hasTenant.value) {
+    expandedGroupIds.value.clear()
+    fetchGroups()
+  }
+})
 </script>
 
 <template>
@@ -233,6 +238,15 @@ onMounted(loadGroupsCache)
 
     <Separator />
 
+    <!-- No tenant selected -->
+    <div v-if="!hasTenant" class="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
+      <Building2 class="size-10" />
+      <p class="font-medium">No tenant selected</p>
+      <p class="text-sm">Select a tenant from the header to view groups.</p>
+    </div>
+
+    <template v-else>
+
     <!-- Lookup by ID -->
     <Card>
       <CardHeader>
@@ -256,14 +270,16 @@ onMounted(loadGroupsCache)
     </Card>
 
     <!-- Groups List -->
-    <div v-if="groups.length === 0" class="py-12 text-center">
+    <div v-if="loading" class="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+      <Loader2 class="size-4 animate-spin" />
+      Loading groups...
+    </div>
+
+    <div v-else-if="groups.length === 0" class="py-12 text-center">
       <Users class="mx-auto size-12 text-muted-foreground/50" />
-      <h3 class="mt-4 text-lg font-semibold">No groups loaded</h3>
+      <h3 class="mt-4 text-lg font-semibold">No groups found</h3>
       <p class="mt-1 text-sm text-muted-foreground">
         Create a new group or look up an existing one by ID.
-      </p>
-      <p class="mt-2 text-xs text-muted-foreground/70">
-        The API does not provide a list endpoint for groups. Use the lookup above to fetch a group by its ID.
       </p>
       <Button variant="outline" size="sm" class="mt-4" @click="createDialogOpen = true">
         <Plus class="mr-2 size-4" />
@@ -339,6 +355,8 @@ onMounted(loadGroupsCache)
         </CardFooter>
       </Card>
     </div>
+
+    </template>
 
     <!-- Delete Confirmation Dialog -->
     <Dialog v-model:open="deleteDialogOpen">

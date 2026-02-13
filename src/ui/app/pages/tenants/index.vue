@@ -25,6 +25,13 @@ const {
   listTenantMembers, addTenantMember, removeTenantMember,
 } = useIamApi()
 const { extractErrorMessage } = useErrorHandler()
+const {
+  currentTenantId,
+  hasTenant,
+  syncTenantList,
+  switchTenant,
+  handleCurrentTenantDeleted,
+} = useTenant()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -61,6 +68,8 @@ async function fetchTenants() {
   loading.value = true
   try {
     tenants.value = await listTenants()
+    // Keep the shared tenant list (used by the header selector) in sync
+    syncTenantList(tenants.value)
   } catch (err) {
     toast.error('Failed to load tenants', {
       description: extractErrorMessage(err),
@@ -95,10 +104,14 @@ async function handleCreate() {
   createNameError.value = ''
   creating.value = true
   try {
-    await createTenant({ name: createName.value.trim() })
+    const created = await createTenant({ name: createName.value.trim() })
     toast.success('Tenant created')
     createName.value = ''
     await fetchTenants()
+    // Auto-select the newly created tenant if none is currently selected
+    if (!hasTenant.value) {
+      switchTenant(created.id, created.name)
+    }
   } catch (err) {
     toast.error('Failed to create tenant', {
       description: extractErrorMessage(err),
@@ -117,14 +130,20 @@ function confirmDelete(tenant: TenantResponse) {
 async function handleDelete() {
   if (!tenantToDelete.value) return
   deleting.value = true
+  const deletedId = tenantToDelete.value.id
+  const wasCurrentTenant = deletedId === currentTenantId.value
   try {
-    await deleteTenant(tenantToDelete.value.id)
+    await deleteTenant(deletedId)
     toast.success('Tenant deleted')
-    if (selectedTenant.value?.id === tenantToDelete.value?.id) {
+    if (selectedTenant.value?.id === deletedId) {
       selectedTenant.value = null
       members.value = []
     }
     await fetchTenants()
+    // If the deleted tenant was the currently-selected one, fall back
+    if (wasCurrentTenant) {
+      handleCurrentTenantDeleted()
+    }
   } catch (err) {
     toast.error('Failed to delete tenant', {
       description: extractErrorMessage(err),

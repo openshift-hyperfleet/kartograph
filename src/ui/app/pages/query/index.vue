@@ -6,7 +6,7 @@ import { Prec, type Extension } from '@codemirror/state'
 import { useLocalStorage } from '@vueuse/core'
 import {
   Terminal, Play, Trash2, Loader2, Clock, Hash,
-  PanelRight, PanelRightClose, Database, Sparkles, BookOpen,
+  PanelRight, PanelRightClose, Database, Sparkles, BookOpen, Building2,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -49,6 +49,7 @@ const { ctrlHeld } = useModifierKeys()
 const { queryGraph } = useQueryApi()
 const { listNodeLabels, listEdgeLabels } = useGraphApi()
 const { extractErrorMessage } = useErrorHandler()
+const { hasTenant, tenantVersion } = useTenant()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -319,9 +320,21 @@ function handleCtrlEnter(e: KeyboardEvent) {
 
 onMounted(() => {
   loadHistory()
-  fetchSchema()
+  if (hasTenant.value) fetchSchema()
   document.addEventListener('keydown', handleCtrlEnter)
   window.addEventListener('resize', onWindowResize)
+})
+
+// Re-fetch schema when tenant changes
+watch(tenantVersion, () => {
+  if (hasTenant.value) {
+    result.value = null
+    error.value = null
+    executionTime.value = null
+    nodeLabels.value = []
+    edgeLabels.value = []
+    fetchSchema()
+  }
 })
 
 onBeforeUnmount(() => {
@@ -403,6 +416,15 @@ onBeforeUnmount(() => {
         </Tooltip>
       </div>
     </div>
+
+    <!-- No tenant selected -->
+    <div v-if="!hasTenant" class="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
+      <Building2 class="size-10" />
+      <p class="font-medium">No tenant selected</p>
+      <p class="text-sm">Select a tenant from the header to query the graph.</p>
+    </div>
+
+    <template v-else>
 
     <!-- Main layout: Editor + Results on left, Sidebar on right -->
     <div class="flex items-start gap-4">
@@ -588,5 +610,7 @@ onBeforeUnmount(() => {
         </div>
       </SheetContent>
     </Sheet>
+
+    </template>
   </div>
 </template>

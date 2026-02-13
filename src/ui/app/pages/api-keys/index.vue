@@ -8,9 +8,10 @@ import {
   AlertTriangle,
   RefreshCw,
   Terminal,
+  Building2,
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import type { APIKeyResponse, APIKeyCreatedResponse } from '~/types'
 
 import { Button } from '@/components/ui/button'
@@ -43,6 +44,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 const { createApiKey, listApiKeys, revokeApiKey } = useIamApi()
 const { currentTenantId } = useApiClient()
 const { extractErrorMessage } = useErrorHandler()
+const { hasTenant, tenantVersion } = useTenant()
 const config = useRuntimeConfig()
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -135,7 +137,19 @@ async function loadKeys() {
   }
 }
 
-onMounted(loadKeys)
+onMounted(() => {
+  if (hasTenant.value) loadKeys()
+})
+
+// Re-fetch when tenant changes
+watch(tenantVersion, () => {
+  if (hasTenant.value) {
+    newlyCreatedKey.value = null
+    secretCopied.value = false
+    copiedConfigTab.value = null
+    loadKeys()
+  }
+})
 
 // ── Create ─────────────────────────────────────────────────────────────────
 
@@ -331,6 +345,15 @@ function keyStatus(key: APIKeyResponse): 'active' | 'revoked' | 'expired' {
     </div>
 
     <Separator />
+
+    <!-- No tenant selected -->
+    <div v-if="!hasTenant" class="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
+      <Building2 class="size-10" />
+      <p class="font-medium">No tenant selected</p>
+      <p class="text-sm">Select a tenant from the header to view API keys.</p>
+    </div>
+
+    <template v-else>
 
     <!-- Newly Created Key Alert -->
     <div v-if="newlyCreatedKey" class="space-y-4">
@@ -612,6 +635,8 @@ function keyStatus(key: APIKeyResponse): 'active' | 'revoked' | 'expired' {
           Create your first API key to get started with programmatic access.
         </p>
       </div>
+    </template>
+
     </template>
 
     <!-- Revoke Confirmation Dialog -->

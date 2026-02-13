@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
 import { toast } from 'vue-sonner'
 import {
-  Users, Plus, Trash2, Loader2, Search,
-  UserPlus, UserCircle, X, Pencil, Check, Building2,
+  Users, Plus, Trash2, Loader2, Search, Building2,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,17 +12,11 @@ import { Badge } from '@/components/ui/badge'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose,
 } from '@/components/ui/dialog'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
-import {
-  Card, CardContent, CardHeader, CardTitle,
-} from '@/components/ui/card'
-import {
-  Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty,
-} from '@/components/ui/table'
+import { Card, CardContent } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
-import { CopyableText } from '@/components/ui/copyable-text'
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
+} from '@/components/ui/sheet'
 import type { GroupResponse, GroupMemberResponse, GroupRole } from '~/types'
 
 const {
@@ -31,6 +25,10 @@ const {
 } = useIamApi()
 const { extractErrorMessage } = useErrorHandler()
 const { hasTenant, tenantVersion } = useTenant()
+
+// ── Responsive breakpoint ──────────────────────────────────────────────────
+
+const isDesktop = useMediaQuery('(min-width: 1024px)')
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -72,6 +70,14 @@ const updatingRoleFor = ref<string | null>(null)
 const showRemoveMemberDialog = ref(false)
 const memberToRemove = ref<GroupMemberResponse | null>(null)
 const removingMember = ref(false)
+
+// Mobile sheet open state (derived from selection on mobile)
+const sheetOpen = computed({
+  get: () => !isDesktop.value && selectedGroup.value !== null,
+  set: (val: boolean) => {
+    if (!val) closeDetails()
+  },
+})
 
 // ── Search filtering ───────────────────────────────────────────────────────
 
@@ -116,9 +122,7 @@ async function fetchMembers(group: GroupResponse) {
 
 function selectGroup(group: GroupResponse) {
   if (selectedGroup.value?.id === group.id) {
-    selectedGroup.value = null
-    members.value = []
-    editingName.value = false
+    closeDetails()
     return
   }
   selectedGroup.value = group
@@ -174,8 +178,7 @@ async function handleDelete() {
     await deleteGroup(groupToDelete.value.id)
     const name = groupToDelete.value.name
     if (selectedGroup.value?.id === groupToDelete.value.id) {
-      selectedGroup.value = null
-      members.value = []
+      closeDetails()
     }
     toast.success(`Group "${name}" deleted`)
     await fetchGroups()
@@ -215,7 +218,6 @@ async function handleRename() {
       name: editNameValue.value.trim(),
     })
     selectedGroup.value = updated
-    // Update in the list too
     const idx = groups.value.findIndex(g => g.id === updated.id)
     if (idx !== -1) groups.value[idx] = updated
     toast.success('Group renamed')
@@ -302,12 +304,9 @@ onMounted(() => {
   if (hasTenant.value) fetchGroups()
 })
 
-// Re-fetch when tenant changes
 watch(tenantVersion, () => {
   if (hasTenant.value) {
-    selectedGroup.value = null
-    members.value = []
-    editingName.value = false
+    closeDetails()
     fetchGroups()
   }
 })
@@ -351,236 +350,135 @@ watch(tenantVersion, () => {
       />
     </div>
 
-    <!-- Group list -->
-    <div class="rounded-md border">
-      <!-- Loading -->
-      <div v-if="loading" class="flex items-center justify-center gap-2 py-12 text-muted-foreground">
-        <Loader2 class="size-4 animate-spin" />
-        Loading groups...
-      </div>
+    <!-- Main content: list + optional desktop detail panel -->
+    <div
+      class="grid gap-6"
+      :class="selectedGroup && isDesktop ? 'lg:grid-cols-[1fr_minmax(400px,480px)]' : ''"
+    >
+      <!-- Group list -->
+      <div class="min-w-0 rounded-md border">
+        <!-- Loading -->
+        <div v-if="loading" class="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+          <Loader2 class="size-4 animate-spin" />
+          Loading groups...
+        </div>
 
-      <!-- Empty (no groups) -->
-      <div v-else-if="groups.length === 0" class="py-12 text-center text-muted-foreground">
-        <Users class="mx-auto size-12 text-muted-foreground/50" />
-        <h3 class="mt-4 text-lg font-semibold">No groups found</h3>
-        <p class="mt-1 text-sm">
-          Create a group to organize users and manage permissions.
-        </p>
-        <Button variant="outline" size="sm" class="mt-4" @click="openCreateDialog">
-          <Plus class="mr-2 size-4" />
-          Create Group
-        </Button>
-      </div>
-
-      <!-- Empty (search has no results) -->
-      <div v-else-if="filteredGroups.length === 0" class="py-12 text-center text-muted-foreground">
-        <Search class="mx-auto size-12 text-muted-foreground/50" />
-        <h3 class="mt-4 text-lg font-semibold">No matching groups</h3>
-        <p class="mt-1 text-sm">No groups match "{{ searchQuery }}".</p>
-      </div>
-
-      <!-- Group rows -->
-      <div v-else role="list" aria-label="Groups" class="divide-y">
-        <div
-          v-for="group in filteredGroups"
-          :key="group.id"
-          role="listitem"
-          class="flex items-center gap-2 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer"
-          :class="[
-            selectedGroup?.id === group.id ? 'bg-muted' : '',
-          ]"
-          :aria-label="`Select group ${group.name}`"
-          :aria-selected="selectedGroup?.id === group.id"
-          @click="selectGroup(group)"
-        >
-          <Users class="size-4 shrink-0 text-muted-foreground" />
-          <span class="flex-1 text-sm font-medium">{{ group.name }}</span>
-          <Badge variant="secondary">
-            {{ group.members.length }} {{ group.members.length === 1 ? 'member' : 'members' }}
-          </Badge>
-          <Button
-            variant="ghost"
-            size="icon"
-            class="size-7 shrink-0 text-destructive hover:text-destructive"
-            title="Delete group"
-            :aria-label="`Delete group ${group.name}`"
-            @click.stop="confirmDelete(group)"
-          >
-            <Trash2 class="size-3.5" />
+        <!-- Empty (no groups) -->
+        <div v-else-if="groups.length === 0" class="py-12 text-center text-muted-foreground">
+          <Users class="mx-auto size-12 text-muted-foreground/50" />
+          <h3 class="mt-4 text-lg font-semibold">No groups found</h3>
+          <p class="mt-1 text-sm">
+            Create a group to organize users and manage permissions.
+          </p>
+          <Button variant="outline" size="sm" class="mt-4" @click="openCreateDialog">
+            <Plus class="mr-2 size-4" />
+            Create Group
           </Button>
         </div>
-      </div>
-    </div>
 
-    <!-- Selected group details + members (inline, below list) -->
-    <Card v-if="selectedGroup">
-      <CardHeader class="pb-3">
-        <div class="flex items-center justify-between">
-          <CardTitle class="flex items-center gap-2 text-base">
-            <Users class="size-4" />
-            {{ selectedGroup.name }}
-          </CardTitle>
-          <div class="flex items-center gap-1">
+        <!-- Empty (search has no results) -->
+        <div v-else-if="filteredGroups.length === 0" class="py-12 text-center text-muted-foreground">
+          <Search class="mx-auto size-12 text-muted-foreground/50" />
+          <h3 class="mt-4 text-lg font-semibold">No matching groups</h3>
+          <p class="mt-1 text-sm">No groups match "{{ searchQuery }}".</p>
+        </div>
+
+        <!-- Group rows -->
+        <div v-else role="list" aria-label="Groups" class="divide-y">
+          <div
+            v-for="group in filteredGroups"
+            :key="group.id"
+            role="listitem"
+            class="flex items-center gap-2 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer"
+            :class="[
+              selectedGroup?.id === group.id ? 'bg-muted' : '',
+            ]"
+            :aria-label="`Select group ${group.name}`"
+            :aria-selected="selectedGroup?.id === group.id"
+            @click="selectGroup(group)"
+          >
+            <Users class="size-4 shrink-0 text-muted-foreground" />
+            <span class="flex-1 truncate text-sm font-medium">{{ group.name }}</span>
+            <Badge variant="secondary">
+              {{ group.members.length }} {{ group.members.length === 1 ? 'member' : 'members' }}
+            </Badge>
             <Button
-              v-if="!editingName"
               variant="ghost"
               size="icon"
-              class="size-7 text-muted-foreground hover:text-foreground"
-              title="Rename group"
-              @click="startRename"
+              class="size-7 shrink-0 text-destructive hover:text-destructive"
+              title="Delete group"
+              :aria-label="`Delete group ${group.name}`"
+              @click.stop="confirmDelete(group)"
             >
-              <Pencil class="size-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon" class="size-7" @click="closeDetails">
-              <X class="size-4" />
+              <Trash2 class="size-3.5" />
             </Button>
           </div>
         </div>
-      </CardHeader>
-      <CardContent class="space-y-6">
-        <!-- Rename inline -->
-        <div v-if="editingName" class="flex items-center gap-2">
-          <Input
-            v-model="editNameValue"
-            class="h-8 max-w-xs text-sm"
-            @keydown.enter="handleRename"
-            @keydown.escape="cancelRename"
+      </div>
+
+      <!-- Desktop detail panel (right side of grid) -->
+      <Card v-if="selectedGroup && isDesktop" class="sticky top-6 self-start overflow-y-auto max-h-[calc(100vh-8rem)]">
+        <CardContent class="pt-6">
+          <SettingsGroupDetailPanel
+            :group="selectedGroup"
+            :members="members"
+            :members-loading="membersLoading"
+            :editing-name="editingName"
+            :edit-name-value="editNameValue"
+            :saving-name="savingName"
+            :adding-member="addingMember"
+            :new-member-id="newMemberId"
+            :new-member-role="newMemberRole"
+            :updating-role-for="updatingRoleFor"
+            show-close
+            @close="closeDetails"
+            @start-rename="startRename"
+            @cancel-rename="cancelRename"
+            @update:edit-name-value="editNameValue = $event"
+            @rename="handleRename"
+            @update:new-member-id="newMemberId = $event"
+            @update:new-member-role="newMemberRole = $event"
+            @add-member="handleAddMember"
+            @remove-member="confirmRemoveMember"
+            @role-change="handleRoleChange"
           />
-          <Button
-            variant="ghost"
-            size="icon"
-            class="size-7 shrink-0 text-green-600 hover:text-green-700"
-            :disabled="savingName || !editNameValue.trim()"
-            @click="handleRename"
-          >
-            <Loader2 v-if="savingName" class="size-3.5 animate-spin" />
-            <Check v-else class="size-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            class="size-7 shrink-0"
-            :disabled="savingName"
-            @click="cancelRename"
-          >
-            <X class="size-3.5" />
-          </Button>
+        </CardContent>
+      </Card>
+    </div>
+
+    <!-- Mobile detail sheet -->
+    <Sheet v-model:open="sheetOpen">
+      <SheetContent side="right" class="w-full sm:max-w-lg overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle>Group Details</SheetTitle>
+          <SheetDescription>Manage group settings and members</SheetDescription>
+        </SheetHeader>
+        <div v-if="selectedGroup" class="mt-6">
+          <SettingsGroupDetailPanel
+            :group="selectedGroup"
+            :members="members"
+            :members-loading="membersLoading"
+            :editing-name="editingName"
+            :edit-name-value="editNameValue"
+            :saving-name="savingName"
+            :adding-member="addingMember"
+            :new-member-id="newMemberId"
+            :new-member-role="newMemberRole"
+            :updating-role-for="updatingRoleFor"
+            @close="closeDetails"
+            @start-rename="startRename"
+            @cancel-rename="cancelRename"
+            @update:edit-name-value="editNameValue = $event"
+            @rename="handleRename"
+            @update:new-member-id="newMemberId = $event"
+            @update:new-member-role="newMemberRole = $event"
+            @add-member="handleAddMember"
+            @remove-member="confirmRemoveMember"
+            @role-change="handleRoleChange"
+          />
         </div>
-
-        <!-- Metadata grid -->
-        <div class="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-3">
-          <div>
-            <span class="text-muted-foreground">ID</span>
-            <CopyableText :text="selectedGroup.id" :truncate="false" label="Group ID copied" />
-          </div>
-        </div>
-
-        <Separator />
-
-        <!-- Members section -->
-        <div>
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="flex items-center gap-2 text-sm font-semibold">
-              <Users class="size-4" />
-              Members
-            </h3>
-            <Badge v-if="members.length > 0" variant="secondary">
-              {{ members.length }} {{ members.length === 1 ? 'member' : 'members' }}
-            </Badge>
-          </div>
-
-          <!-- Add member form -->
-          <div class="flex items-end gap-3 mb-4">
-            <div class="flex-1 space-y-1.5">
-              <Label for="grp-member-id">User ID <span class="text-destructive">*</span></Label>
-              <Input
-                id="grp-member-id"
-                v-model="newMemberId"
-                placeholder="Enter user ID..."
-              />
-            </div>
-            <div class="w-32 space-y-1.5">
-              <Label>Role</Label>
-              <Select v-model="newMemberRole">
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="member">Member</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <Button :disabled="addingMember || !newMemberId.trim()" @click="handleAddMember">
-              <Loader2 v-if="addingMember" class="mr-2 size-4 animate-spin" />
-              <UserPlus v-else class="mr-2 size-4" />
-              Add
-            </Button>
-          </div>
-
-          <!-- Members table -->
-          <div class="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>User ID</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead class="w-[80px] text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow v-if="membersLoading">
-                  <TableCell colspan="3" class="h-16 text-center">
-                    <div class="flex items-center justify-center gap-2 text-muted-foreground">
-                      <Loader2 class="size-4 animate-spin" />
-                      Loading members...
-                    </div>
-                  </TableCell>
-                </TableRow>
-                <TableEmpty v-else-if="members.length === 0" :colspan="3">
-                  No members in this group.
-                </TableEmpty>
-                <TableRow v-for="member in members" v-else :key="member.user_id">
-                  <TableCell>
-                    <div class="flex items-center gap-2">
-                      <UserCircle class="size-4 text-muted-foreground" />
-                      <CopyableText :text="member.user_id" label="User ID copied" :truncate="false" />
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Select
-                      :model-value="member.role"
-                      :disabled="updatingRoleFor === member.user_id"
-                      @update:model-value="(val: GroupRole) => handleRoleChange(member, val)"
-                    >
-                      <SelectTrigger class="h-8 w-[120px] text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="admin">Admin</SelectItem>
-                        <SelectItem value="member">Member</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell class="text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      class="text-destructive hover:text-destructive"
-                      title="Remove member"
-                      :aria-label="`Remove user ${member.user_id}`"
-                      @click="confirmRemoveMember(member)"
-                    >
-                      <Trash2 class="size-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+      </SheetContent>
+    </Sheet>
 
     </template>
 

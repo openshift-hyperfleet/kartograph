@@ -183,10 +183,10 @@ class WorkspaceMemberResponse(BaseModel):
             grant: WorkspaceAccessGrant from service layer
 
         Returns:
-            WorkspaceMemberResponse
+            WorkspaceMemberResponse with string values for JSON serialization
         """
         return cls(
             member_id=grant.member_id,
-            member_type=grant.member_type,
-            role=grant.role,
+            member_type=grant.member_type.value,
+            role=grant.role.value,
         )

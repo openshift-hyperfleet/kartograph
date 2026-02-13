@@ -797,24 +797,24 @@ class TestWorkspaceMemberManagement:
         assert (
             WorkspaceAccessGrant(
                 member_id="user-admin-1",
-                member_type=MemberType.USER.value,
-                role=WorkspaceRole.ADMIN.value,
+                member_type=MemberType.USER,
+                role=WorkspaceRole.ADMIN,
             )
             in result
         )
         assert (
             WorkspaceAccessGrant(
                 member_id="user-editor-1",
-                member_type=MemberType.USER.value,
-                role=WorkspaceRole.EDITOR.value,
+                member_type=MemberType.USER,
+                role=WorkspaceRole.EDITOR,
             )
             in result
         )
         assert (
             WorkspaceAccessGrant(
                 member_id="user-member-1",
-                member_type=MemberType.USER.value,
-                role=WorkspaceRole.MEMBER.value,
+                member_type=MemberType.USER,
+                role=WorkspaceRole.MEMBER,
             )
             in result
         )
@@ -858,16 +858,16 @@ class TestWorkspaceMemberManagement:
         assert (
             WorkspaceAccessGrant(
                 member_id="user-1",
-                member_type=MemberType.USER.value,
-                role=WorkspaceRole.ADMIN.value,
+                member_type=MemberType.USER,
+                role=WorkspaceRole.ADMIN,
             )
             in result
         )
         assert (
             WorkspaceAccessGrant(
                 member_id="group-eng",
-                member_type=MemberType.GROUP.value,
-                role=WorkspaceRole.ADMIN.value,
+                member_type=MemberType.GROUP,
+                role=WorkspaceRole.ADMIN,
             )
             in result
         )

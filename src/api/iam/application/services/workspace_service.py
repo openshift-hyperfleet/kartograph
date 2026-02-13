@@ -672,8 +672,8 @@ class WorkspaceService:
                 members.append(
                     WorkspaceAccessGrant(
                         member_id=subject_relation.subject_id,
-                        member_type=MemberType.USER.value,
-                        role=role.value,
+                        member_type=MemberType.USER,
+                        role=role,
                     )
                 )
 
@@ -688,8 +688,8 @@ class WorkspaceService:
                 members.append(
                     WorkspaceAccessGrant(
                         member_id=subject_relation.subject_id,
-                        member_type=MemberType.GROUP.value,
-                        role=role.value,
+                        member_type=MemberType.GROUP,
+                        role=role,
                     )
                 )
 

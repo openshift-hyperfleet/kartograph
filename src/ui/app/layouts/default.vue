@@ -318,13 +318,13 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
             </template>
           </NuxtLink>
 
-          <!-- Single tenant (static display with visual container) -->
-          <div
+          <!-- Single tenant: clickable link to manage tenants -->
+          <NuxtLink
             v-else-if="isSingleTenant"
-            class="flex items-center gap-2 rounded-md bg-sidebar-accent px-2 py-2"
+            to="/tenants"
+            class="flex items-center gap-2 rounded-md bg-sidebar-accent px-2 py-2 transition-colors hover:bg-sidebar-accent/80"
             :class="isCollapsed ? 'justify-center' : ''"
-            role="status"
-            :aria-label="tenantAriaLabel"
+            :aria-label="`${selectedTenantName} — click to manage tenants`"
           >
             <Tooltip v-if="isCollapsed">
               <TooltipTrigger as-child>
@@ -333,14 +333,14 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
                 </div>
               </TooltipTrigger>
               <TooltipContent side="right" :side-offset="8">
-                {{ selectedTenantName }}
+                {{ selectedTenantName }} — Manage Tenants
               </TooltipContent>
             </Tooltip>
             <template v-else>
               <Building2 class="size-4 shrink-0 text-sidebar-primary" aria-hidden="true" />
               <span class="text-sm font-medium text-sidebar-foreground truncate">{{ selectedTenantName }}</span>
             </template>
-          </div>
+          </NuxtLink>
 
           <!-- Multiple tenants: DropdownMenu-based picker (Token 5: "Manage Tenants" link) -->
           <DropdownMenu v-else>

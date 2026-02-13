@@ -14,7 +14,10 @@ import {
 } from '@/components/ui/table'
 import { Separator } from '@/components/ui/separator'
 import { CopyableText } from '@/components/ui/copyable-text'
+import { UserIdDisplay } from '@/components/ui/user-id'
 import type { GroupResponse, GroupMemberResponse, GroupRole } from '~/types'
+
+const { userId: currentUserId } = useCurrentUser()
 
 const props = defineProps<{
   group: GroupResponse
@@ -131,7 +134,17 @@ const emit = defineEmits<{
       <!-- Add member form (stacked for panel width) -->
       <div class="space-y-2 mb-4">
         <div class="space-y-1.5">
-          <Label for="grp-panel-member-id">User ID <span class="text-destructive">*</span></Label>
+          <div class="flex items-center justify-between">
+            <Label for="grp-panel-member-id">User ID <span class="text-destructive">*</span></Label>
+            <button
+              v-if="currentUserId && newMemberId !== currentUserId"
+              type="button"
+              class="text-xs text-primary hover:underline"
+              @click="emit('update:newMemberId', currentUserId)"
+            >
+              Add myself
+            </button>
+          </div>
           <Input
             id="grp-panel-member-id"
             :model-value="newMemberId"
@@ -191,7 +204,7 @@ const emit = defineEmits<{
               <TableCell>
                 <div class="flex items-center gap-1.5 min-w-0">
                   <UserCircle class="size-4 shrink-0 text-muted-foreground" />
-                  <CopyableText :text="member.user_id" label="User ID copied" />
+                  <UserIdDisplay :user-id="member.user_id" label="User ID copied" />
                 </div>
               </TableCell>
               <TableCell>

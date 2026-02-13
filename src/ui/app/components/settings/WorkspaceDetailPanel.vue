@@ -14,7 +14,10 @@ import {
 } from '@/components/ui/table'
 import { Separator } from '@/components/ui/separator'
 import { CopyableText } from '@/components/ui/copyable-text'
+import { UserIdDisplay } from '@/components/ui/user-id'
 import type { WorkspaceResponse, WorkspaceMemberResponse, WorkspaceMemberType, WorkspaceRole } from '~/types'
+
+const { userId: currentUserId } = useCurrentUser()
 
 const props = defineProps<{
   workspace: WorkspaceResponse
@@ -164,7 +167,17 @@ function formatDate(iso: string): string {
       <!-- Add member form (stacked for panel width) -->
       <div class="space-y-2 mb-4">
         <div class="space-y-1.5">
-          <Label for="ws-panel-member-id">Member ID <span class="text-destructive">*</span></Label>
+          <div class="flex items-center justify-between">
+            <Label for="ws-panel-member-id">Member ID <span class="text-destructive">*</span></Label>
+            <button
+              v-if="currentUserId && newMemberId !== currentUserId"
+              type="button"
+              class="text-xs text-primary hover:underline"
+              @click="emit('update:newMemberId', currentUserId)"
+            >
+              Add myself
+            </button>
+          </div>
           <Input
             id="ws-panel-member-id"
             :model-value="newMemberId"
@@ -242,7 +255,7 @@ function formatDate(iso: string): string {
               <TableCell>
                 <div class="flex items-center gap-1.5 min-w-0">
                   <UserCircle class="size-4 shrink-0 text-muted-foreground" />
-                  <CopyableText :text="member.member_id" label="Member ID copied" />
+                  <UserIdDisplay :user-id="member.member_id" label="Member ID copied" />
                   <Badge variant="outline" class="shrink-0 text-[10px]">
                     {{ member.member_type }}
                   </Badge>

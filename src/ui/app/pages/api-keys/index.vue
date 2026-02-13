@@ -40,6 +40,7 @@ import {
 } from '@/components/ui/table'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { UserIdDisplay } from '@/components/ui/user-id'
 
 const { createApiKey, listApiKeys, revokeApiKey } = useIamApi()
 const { currentTenantId } = useApiClient()
@@ -530,6 +531,7 @@ function keyStatus(key: APIKeyResponse): 'active' | 'revoked' | 'expired' {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Prefix</TableHead>
+                <TableHead>Created By</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Expires</TableHead>
                 <TableHead>Last Used</TableHead>
@@ -544,6 +546,9 @@ function keyStatus(key: APIKeyResponse): 'active' | 'revoked' | 'expired' {
                   <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
                     {{ key.prefix }}...
                   </code>
+                </TableCell>
+                <TableCell>
+                  <UserIdDisplay :user-id="key.created_by_user_id" />
                 </TableCell>
                 <TableCell class="text-sm text-muted-foreground">
                   {{ formatDate(key.created_at) }}
@@ -592,6 +597,7 @@ function keyStatus(key: APIKeyResponse): 'active' | 'revoked' | 'expired' {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Prefix</TableHead>
+                <TableHead>Created By</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Expires</TableHead>
                 <TableHead>Last Used</TableHead>
@@ -605,6 +611,9 @@ function keyStatus(key: APIKeyResponse): 'active' | 'revoked' | 'expired' {
                   <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
                     {{ key.prefix }}...
                   </code>
+                </TableCell>
+                <TableCell>
+                  <UserIdDisplay :user-id="key.created_by_user_id" />
                 </TableCell>
                 <TableCell class="text-sm text-muted-foreground">
                   {{ formatDate(key.created_at) }}

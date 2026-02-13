@@ -108,6 +108,37 @@ def _parse_reference(ref: str, ref_type: str) -> tuple[str, str]:
     return (parts[0], parts[1])
 
 
+def _parse_subject_reference(ref: str) -> tuple[str, str, str | None]:
+    """Parse a subject reference string that may include a relation.
+
+    Handles both simple subjects (``user:alice``) and subjects with
+    relations (``group:eng-team#member``) as required by SpiceDB schemas
+    that define subject types like ``user | group#member``.
+
+    Args:
+        ref: Subject reference in format "type:id" or "type:id#relation"
+
+    Returns:
+        Tuple of (type, id, optional_relation)
+
+    Raises:
+        ValueError: If reference format is invalid
+    """
+    if ":" not in ref:
+        raise ValueError(
+            f"Invalid subject format: '{ref}'. Expected 'type:id' or "
+            "'type:id#relation' format."
+        )
+    type_part, id_part = ref.split(":", 1)
+
+    # Check if the id contains a #relation suffix
+    if "#" in id_part:
+        obj_id, relation = id_part.rsplit("#", 1)
+        return (type_part, obj_id, relation)
+
+    return (type_part, id_part, None)
+
+
 def _build_relationship_update(
     resource: str, relation: str, subject: str, operation: RelationshipOperation
 ) -> RelationshipUpdate:
@@ -116,14 +147,29 @@ def _build_relationship_update(
     Args:
         resource: Resource identifier (e.g., "group:abc123")
         relation: Relation name (e.g., "member")
-        subject: Subject identifier (e.g., "user:alice")
+        subject: Subject identifier (e.g., "user:alice" or "group:eng#member")
         operation: RelationshipOperation.WRITE or DELETE
 
     Returns:
         RelationshipUpdate object ready for WriteRelationshipsRequest
     """
     resource_type, resource_id = _parse_reference(resource, "resource")
-    subject_type, subject_id = _parse_reference(subject, "subject")
+    subject_type, subject_id, subject_relation = _parse_subject_reference(subject)
+
+    subject_ref = SubjectReference(
+        object=ObjectReference(
+            object_type=subject_type,
+            object_id=subject_id,
+        ),
+    )
+    if subject_relation:
+        subject_ref = SubjectReference(
+            object=ObjectReference(
+                object_type=subject_type,
+                object_id=subject_id,
+            ),
+            optional_relation=subject_relation,
+        )
 
     relationship = Relationship(
         resource=ObjectReference(
@@ -131,12 +177,7 @@ def _build_relationship_update(
             object_id=resource_id,
         ),
         relation=relation,
-        subject=SubjectReference(
-            object=ObjectReference(
-                object_type=subject_type,
-                object_id=subject_id,
-            ),
-        ),
+        subject=subject_ref,
     )
 
     return RelationshipUpdate(
@@ -222,7 +263,7 @@ class SpiceDBClient(AuthorizationProvider):
         Args:
             resource: Resource identifier (e.g., "group:abc123")
             relation: Relation name (e.g., "member", "owner")
-            subject: Subject identifier (e.g., "user:alice")
+            subject: Subject identifier (e.g., "user:alice" or "group:eng#member")
 
         Raises:
             SpiceDBPermissionError: If the write fails
@@ -232,9 +273,25 @@ class SpiceDBClient(AuthorizationProvider):
 
         # Parse resource and subject
         resource_type, resource_id = _parse_reference(resource, "resource")
-        subject_type, subject_id = _parse_reference(subject, "subject")
+        subject_type, subject_id, subject_relation = _parse_subject_reference(subject)
 
         try:
+            # Build subject reference with optional relation
+            subject_ref = SubjectReference(
+                object=ObjectReference(
+                    object_type=subject_type,
+                    object_id=subject_id,
+                ),
+            )
+            if subject_relation:
+                subject_ref = SubjectReference(
+                    object=ObjectReference(
+                        object_type=subject_type,
+                        object_id=subject_id,
+                    ),
+                    optional_relation=subject_relation,
+                )
+
             # Create relationship update
             relationship = Relationship(
                 resource=ObjectReference(
@@ -242,12 +299,7 @@ class SpiceDBClient(AuthorizationProvider):
                     object_id=resource_id,
                 ),
                 relation=relation,
-                subject=SubjectReference(
-                    object=ObjectReference(
-                        object_type=subject_type,
-                        object_id=subject_id,
-                    ),
-                ),
+                subject=subject_ref,
             )
 
             update = RelationshipUpdate(
@@ -466,7 +518,7 @@ class SpiceDBClient(AuthorizationProvider):
         Args:
             resource: Resource identifier (e.g., "group:abc123")
             relation: Relation name (e.g., "member", "owner")
-            subject: Subject identifier (e.g., "user:alice")
+            subject: Subject identifier (e.g., "user:alice" or "group:eng#member")
 
         Raises:
             SpiceDBPermissionError: If the delete fails
@@ -476,21 +528,32 @@ class SpiceDBClient(AuthorizationProvider):
 
         # Parse resource and subject
         resource_type, resource_id = _parse_reference(resource, "resource")
-        subject_type, subject_id = _parse_reference(subject, "subject")
+        subject_type, subject_id, subject_relation = _parse_subject_reference(subject)
 
         try:
+            # Build subject reference with optional relation
+            subject_ref = SubjectReference(
+                object=ObjectReference(
+                    object_type=subject_type,
+                    object_id=subject_id,
+                ),
+            )
+            if subject_relation:
+                subject_ref = SubjectReference(
+                    object=ObjectReference(
+                        object_type=subject_type,
+                        object_id=subject_id,
+                    ),
+                    optional_relation=subject_relation,
+                )
+
             relationship = Relationship(
                 resource=ObjectReference(
                     object_type=resource_type,
                     object_id=resource_id,
                 ),
                 relation=relation,
-                subject=SubjectReference(
-                    object=ObjectReference(
-                        object_type=subject_type,
-                        object_id=subject_id,
-                    ),
-                ),
+                subject=subject_ref,
             )
 
             update = RelationshipUpdate(

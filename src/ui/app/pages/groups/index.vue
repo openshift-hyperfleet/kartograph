@@ -1,37 +1,34 @@
 <script setup lang="ts">
-import { Users, Plus, Search, Trash2, ChevronDown, ChevronRight, UserCircle, Loader2, Building2 } from 'lucide-vue-next'
-import { CopyableText } from '@/components/ui/copyable-text'
-import { toast } from 'vue-sonner'
 import { ref, onMounted, watch } from 'vue'
-import type { GroupResponse } from '~/types'
-
+import { toast } from 'vue-sonner'
+import {
+  Users, Plus, Trash2, Loader2, Search, Info,
+  UserPlus, X, Pencil, Check, Building2, UserCircle,
+} from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogClose,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose,
 } from '@/components/ui/dialog'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import {
+  Card, CardContent, CardHeader, CardTitle,
+} from '@/components/ui/card'
+import {
+  Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty,
 } from '@/components/ui/table'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Separator } from '@/components/ui/separator'
+import { CopyableText } from '@/components/ui/copyable-text'
+import type { GroupResponse, GroupMemberResponse, GroupRole } from '~/types'
 
-const { listGroups, createGroup, getGroup, deleteGroup } = useIamApi()
+const {
+  listGroups, createGroup, getGroup, deleteGroup, updateGroup,
+  listGroupMembers, addGroupMember, updateGroupMemberRole, removeGroupMember,
+} = useIamApi()
 const { extractErrorMessage } = useErrorHandler()
 const { hasTenant, tenantVersion } = useTenant()
 
@@ -39,18 +36,43 @@ const { hasTenant, tenantVersion } = useTenant()
 
 const groups = ref<GroupResponse[]>([])
 const loading = ref(true)
-const expandedGroupIds = ref<Set<string>>(new Set())
 
+// Create dialog
 const createDialogOpen = ref(false)
 const createFormName = ref('')
 const isCreating = ref(false)
 
+// Lookup
 const lookupId = ref('')
 const isLookingUp = ref(false)
 
+// Delete dialog
 const deleteDialogOpen = ref(false)
 const groupToDelete = ref<GroupResponse | null>(null)
 const isDeleting = ref(false)
+
+// Details / selection
+const selectedGroup = ref<GroupResponse | null>(null)
+
+// Members
+const members = ref<GroupMemberResponse[]>([])
+const membersLoading = ref(false)
+const newMemberId = ref('')
+const newMemberRole = ref<GroupRole>('member')
+const addingMember = ref(false)
+
+// Rename
+const editingName = ref(false)
+const editNameValue = ref('')
+const savingName = ref(false)
+
+// Role editing
+const updatingRoleFor = ref<string | null>(null)
+
+// Remove member dialog
+const showRemoveMemberDialog = ref(false)
+const memberToRemove = ref<GroupMemberResponse | null>(null)
+const removingMember = ref(false)
 
 // ── Data loading ───────────────────────────────────────────────────────────
 
@@ -67,18 +89,31 @@ async function fetchGroups() {
   }
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function toggleExpand(groupId: string) {
-  if (expandedGroupIds.value.has(groupId)) {
-    expandedGroupIds.value.delete(groupId)
-  } else {
-    expandedGroupIds.value.add(groupId)
+async function fetchMembers(group: GroupResponse) {
+  membersLoading.value = true
+  try {
+    members.value = await listGroupMembers(group.id)
+  } catch (err) {
+    toast.error('Failed to load members', {
+      description: extractErrorMessage(err),
+    })
+    members.value = []
+  } finally {
+    membersLoading.value = false
   }
 }
 
-function isExpanded(groupId: string): boolean {
-  return expandedGroupIds.value.has(groupId)
+// ── Actions ────────────────────────────────────────────────────────────────
+
+function selectGroup(group: GroupResponse) {
+  if (selectedGroup.value?.id === group.id) {
+    selectedGroup.value = null
+    members.value = []
+    return
+  }
+  selectedGroup.value = group
+  editingName.value = false
+  fetchMembers(group)
 }
 
 // ── Create ─────────────────────────────────────────────────────────────────
@@ -144,7 +179,10 @@ async function handleDelete() {
   try {
     await deleteGroup(groupToDelete.value.id)
     const name = groupToDelete.value.name
-    expandedGroupIds.value.delete(groupToDelete.value.id)
+    if (selectedGroup.value?.id === groupToDelete.value.id) {
+      selectedGroup.value = null
+      members.value = []
+    }
     toast.success(`Group "${name}" deleted`)
     await fetchGroups()
   } catch (err: unknown) {
@@ -158,17 +196,111 @@ async function handleDelete() {
   }
 }
 
-// ── Refresh a single group ─────────────────────────────────────────────────
+// ── Rename ─────────────────────────────────────────────────────────────────
 
-async function refreshGroup(groupId: string) {
+function startRename() {
+  if (!selectedGroup.value) return
+  editNameValue.value = selectedGroup.value.name
+  editingName.value = true
+}
+
+function cancelRename() {
+  editingName.value = false
+  editNameValue.value = ''
+}
+
+async function handleRename() {
+  if (!selectedGroup.value || !editNameValue.value.trim()) return
+  if (editNameValue.value.trim() === selectedGroup.value.name) {
+    editingName.value = false
+    return
+  }
+  savingName.value = true
   try {
-    const updated = await getGroup(groupId)
-    const idx = groups.value.findIndex((g) => g.id === groupId)
-    if (idx !== -1) {
-      groups.value[idx] = updated
-    }
-  } catch {
-    toast.error('Failed to refresh group')
+    const updated = await updateGroup(selectedGroup.value.id, {
+      name: editNameValue.value.trim(),
+    })
+    selectedGroup.value = updated
+    // Update in the list too
+    const idx = groups.value.findIndex(g => g.id === updated.id)
+    if (idx !== -1) groups.value[idx] = updated
+    toast.success('Group renamed')
+    editingName.value = false
+  } catch (err) {
+    toast.error('Failed to rename group', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    savingName.value = false
+  }
+}
+
+// ── Members ────────────────────────────────────────────────────────────────
+
+async function handleAddMember() {
+  if (!selectedGroup.value || !newMemberId.value.trim()) return
+  addingMember.value = true
+  try {
+    await addGroupMember(selectedGroup.value.id, {
+      user_id: newMemberId.value.trim(),
+      role: newMemberRole.value,
+    })
+    toast.success('Member added')
+    newMemberId.value = ''
+    newMemberRole.value = 'member'
+    await fetchMembers(selectedGroup.value)
+  } catch (err) {
+    toast.error('Failed to add member', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    addingMember.value = false
+  }
+}
+
+function confirmRemoveMember(member: GroupMemberResponse) {
+  memberToRemove.value = member
+  showRemoveMemberDialog.value = true
+}
+
+async function handleRemoveMember() {
+  if (!selectedGroup.value || !memberToRemove.value) return
+  removingMember.value = true
+  try {
+    await removeGroupMember(
+      selectedGroup.value.id,
+      memberToRemove.value.user_id,
+    )
+    toast.success('Member removed')
+    await fetchMembers(selectedGroup.value)
+  } catch (err) {
+    toast.error('Failed to remove member', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    showRemoveMemberDialog.value = false
+    memberToRemove.value = null
+    removingMember.value = false
+  }
+}
+
+async function handleRoleChange(member: GroupMemberResponse, newRole: GroupRole) {
+  if (!selectedGroup.value || newRole === member.role) return
+  updatingRoleFor.value = member.user_id
+  try {
+    await updateGroupMemberRole(
+      selectedGroup.value.id,
+      member.user_id,
+      newRole,
+    )
+    toast.success('Role updated')
+    await fetchMembers(selectedGroup.value)
+  } catch (err) {
+    toast.error('Failed to update role', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    updatingRoleFor.value = null
   }
 }
 
@@ -179,7 +311,9 @@ onMounted(() => {
 // Re-fetch when tenant changes
 watch(tenantVersion, () => {
   if (hasTenant.value) {
-    expandedGroupIds.value.clear()
+    selectedGroup.value = null
+    members.value = []
+    editingName.value = false
     fetchGroups()
   }
 })
@@ -199,12 +333,10 @@ watch(tenantVersion, () => {
 
       <!-- Create Group Dialog -->
       <Dialog v-model:open="createDialogOpen">
-        <DialogTrigger as-child>
-          <Button>
-            <Plus class="mr-2 size-4" />
-            Create Group
-          </Button>
-        </DialogTrigger>
+        <Button :disabled="!hasTenant" @click="createDialogOpen = true">
+          <Plus class="mr-2 size-4" />
+          Create Group
+        </Button>
         <DialogContent class="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Create Group</DialogTitle>
@@ -269,69 +401,191 @@ watch(tenantVersion, () => {
       </CardContent>
     </Card>
 
-    <!-- Groups List -->
-    <div v-if="loading" class="flex items-center justify-center gap-2 py-12 text-muted-foreground">
-      <Loader2 class="size-4 animate-spin" />
-      Loading groups...
-    </div>
+    <!-- Groups grid: list + details sidebar -->
+    <div class="grid gap-6" :class="selectedGroup ? 'lg:grid-cols-[1fr_320px]' : ''">
+      <!-- Group list -->
+      <div class="rounded-md border">
+        <!-- Loading -->
+        <div v-if="loading" class="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+          <Loader2 class="size-4 animate-spin" />
+          Loading groups...
+        </div>
 
-    <div v-else-if="groups.length === 0" class="py-12 text-center">
-      <Users class="mx-auto size-12 text-muted-foreground/50" />
-      <h3 class="mt-4 text-lg font-semibold">No groups found</h3>
-      <p class="mt-1 text-sm text-muted-foreground">
-        Create a new group or look up an existing one by ID.
-      </p>
-      <Button variant="outline" size="sm" class="mt-4" @click="createDialogOpen = true">
-        <Plus class="mr-2 size-4" />
-        Create Group
-      </Button>
-    </div>
+        <!-- Empty -->
+        <div v-else-if="groups.length === 0" class="py-12 text-center text-muted-foreground">
+          <Users class="mx-auto size-12 text-muted-foreground/50" />
+          <h3 class="mt-4 text-lg font-semibold">No groups found</h3>
+          <p class="mt-1 text-sm">
+            Create a new group or look up an existing one by ID.
+          </p>
+          <Button variant="outline" size="sm" class="mt-4" @click="createDialogOpen = true">
+            <Plus class="mr-2 size-4" />
+            Create Group
+          </Button>
+        </div>
 
-    <div v-else class="space-y-4">
-      <Card v-for="group in groups" :key="group.id">
-        <CardHeader class="cursor-pointer" @click="toggleExpand(group.id)">
+        <!-- Group rows -->
+        <div v-else class="divide-y">
+          <div
+            v-for="group in groups"
+            :key="group.id"
+            class="flex items-center gap-2 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer"
+            :class="[
+              selectedGroup?.id === group.id ? 'bg-muted' : '',
+            ]"
+            @click="selectGroup(group)"
+          >
+            <Users class="size-4 shrink-0 text-muted-foreground" />
+            <span class="flex-1 text-sm font-medium">{{ group.name }}</span>
+            <Badge variant="secondary">
+              {{ group.members.length }} {{ group.members.length === 1 ? 'member' : 'members' }}
+            </Badge>
+            <Button
+              variant="ghost"
+              size="icon"
+              class="size-7 shrink-0 text-destructive hover:text-destructive"
+              title="Delete group"
+              :aria-label="`Delete group ${group.name}`"
+              @click.stop="confirmDelete(group)"
+            >
+              <Trash2 class="size-3.5" />
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Details sidebar -->
+      <Card v-if="selectedGroup" class="self-start">
+        <CardHeader class="pb-3">
           <div class="flex items-center justify-between">
-            <div class="flex items-center gap-3">
-              <component
-                :is="isExpanded(group.id) ? ChevronDown : ChevronRight"
-                class="size-4 text-muted-foreground"
+            <CardTitle class="flex items-center gap-2 text-base">
+              <Info class="size-4" />
+              Group Details
+            </CardTitle>
+            <Button variant="ghost" size="icon" class="size-7" @click="selectedGroup = null; members = []">
+              <X class="size-4" />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent class="space-y-3 text-sm">
+          <div>
+            <span class="text-muted-foreground">Name</span>
+            <div v-if="editingName" class="mt-1 flex items-center gap-1.5">
+              <Input
+                v-model="editNameValue"
+                class="h-8 text-sm"
+                @keydown.enter="handleRename"
+                @keydown.escape="cancelRename"
               />
-              <div>
-                <CardTitle class="text-base">{{ group.name }}</CardTitle>
-                <CopyableText :text="group.id" label="Group ID copied" class="mt-0.5" />
-              </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <Badge variant="secondary">
-                {{ group.members.length }} {{ group.members.length === 1 ? 'member' : 'members' }}
-              </Badge>
               <Button
                 variant="ghost"
                 size="icon"
-                class="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                :aria-label="`Delete group ${group.name}`"
-                @click.stop="confirmDelete(group)"
+                class="size-7 shrink-0 text-green-600 hover:text-green-700"
+                :disabled="savingName || !editNameValue.trim()"
+                @click="handleRename"
               >
-                <Trash2 class="size-4" />
+                <Loader2 v-if="savingName" class="size-3.5 animate-spin" />
+                <Check v-else class="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-7 shrink-0"
+                :disabled="savingName"
+                @click="cancelRename"
+              >
+                <X class="size-3.5" />
+              </Button>
+            </div>
+            <div v-else class="flex items-center gap-1.5">
+              <p class="font-medium">{{ selectedGroup.name }}</p>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-6 shrink-0 text-muted-foreground hover:text-foreground"
+                title="Rename group"
+                @click="startRename"
+              >
+                <Pencil class="size-3" />
               </Button>
             </div>
           </div>
-        </CardHeader>
-
-        <CardContent v-if="isExpanded(group.id)">
-          <Separator class="mb-4" />
-          <div v-if="group.members.length === 0" class="py-4 text-center text-sm text-muted-foreground">
-            No members in this group yet.
+          <div>
+            <span class="text-muted-foreground">ID</span>
+            <CopyableText :text="selectedGroup.id" :truncate="false" label="Group ID copied" />
           </div>
-          <Table v-else>
+        </CardContent>
+      </Card>
+    </div>
+
+    <!-- Members panel (full-width, below grid) -->
+    <Card v-if="selectedGroup">
+      <CardHeader>
+        <div class="flex items-center justify-between">
+          <CardTitle class="flex items-center gap-2 text-lg">
+            <Users class="size-5" />
+            Members of "{{ selectedGroup.name }}"
+          </CardTitle>
+          <Badge v-if="members.length > 0" variant="secondary">
+            {{ members.length }} {{ members.length === 1 ? 'member' : 'members' }}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <!-- Add member form -->
+        <div class="flex items-end gap-3">
+          <div class="flex-1 space-y-1.5">
+            <Label for="grp-member-id">User ID <span class="text-destructive">*</span></Label>
+            <Input
+              id="grp-member-id"
+              v-model="newMemberId"
+              placeholder="Enter user ID..."
+            />
+          </div>
+          <div class="w-32 space-y-1.5">
+            <Label>Role</Label>
+            <Select v-model="newMemberRole">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="member">Member</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Button :disabled="addingMember || !newMemberId.trim()" @click="handleAddMember">
+            <Loader2 v-if="addingMember" class="mr-2 size-4 animate-spin" />
+            <UserPlus v-else class="mr-2 size-4" />
+            Add
+          </Button>
+        </div>
+
+        <Separator />
+
+        <!-- Members table -->
+        <div class="rounded-md border">
+          <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>User ID</TableHead>
                 <TableHead>Role</TableHead>
+                <TableHead class="w-[80px] text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow v-for="member in group.members" :key="member.user_id">
+              <TableRow v-if="membersLoading">
+                <TableCell colspan="3" class="h-16 text-center">
+                  <div class="flex items-center justify-center gap-2 text-muted-foreground">
+                    <Loader2 class="size-4 animate-spin" />
+                    Loading members...
+                  </div>
+                </TableCell>
+              </TableRow>
+              <TableEmpty v-else-if="members.length === 0" :colspan="3">
+                No members in this group.
+              </TableEmpty>
+              <TableRow v-for="member in members" v-else :key="member.user_id">
                 <TableCell>
                   <div class="flex items-center gap-2">
                     <UserCircle class="size-4 text-muted-foreground" />
@@ -339,22 +593,38 @@ watch(tenantVersion, () => {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <Badge :variant="member.role === 'admin' ? 'default' : 'secondary'">
-                    {{ member.role }}
-                  </Badge>
+                  <Select
+                    :model-value="member.role"
+                    :disabled="updatingRoleFor === member.user_id"
+                    @update:model-value="(val: GroupRole) => handleRoleChange(member, val)"
+                  >
+                    <SelectTrigger class="h-8 w-[120px] text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="admin">Admin</SelectItem>
+                      <SelectItem value="member">Member</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </TableCell>
+                <TableCell class="text-right">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="text-destructive hover:text-destructive"
+                    title="Remove member"
+                    :aria-label="`Remove user ${member.user_id}`"
+                    @click="confirmRemoveMember(member)"
+                  >
+                    <Trash2 class="size-4" />
+                  </Button>
                 </TableCell>
               </TableRow>
             </TableBody>
           </Table>
-        </CardContent>
-
-        <CardFooter v-if="isExpanded(group.id)" class="justify-end">
-          <Button variant="ghost" size="sm" @click="refreshGroup(group.id)">
-            Refresh
-          </Button>
-        </CardFooter>
-      </Card>
-    </div>
+        </div>
+      </CardContent>
+    </Card>
 
     </template>
 
@@ -375,6 +645,27 @@ watch(tenantVersion, () => {
           </DialogClose>
           <Button variant="destructive" :disabled="isDeleting" @click="handleDelete">
             {{ isDeleting ? 'Deleting...' : 'Delete' }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Remove member confirmation dialog -->
+    <Dialog v-model:open="showRemoveMemberDialog">
+      <DialogContent class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Remove Member</DialogTitle>
+          <DialogDescription>
+            Are you sure you want to remove user "{{ memberToRemove?.user_id }}" from "{{ selectedGroup?.name }}"?
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose as-child>
+            <Button variant="outline">Cancel</Button>
+          </DialogClose>
+          <Button variant="destructive" :disabled="removingMember" @click="handleRemoveMember">
+            <Loader2 v-if="removingMember" class="mr-2 size-4 animate-spin" />
+            Remove
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -7,6 +7,8 @@ import type {
   WorkspaceMemberType,
   WorkspaceRole,
   GroupResponse,
+  GroupMemberResponse,
+  GroupRole,
   APIKeyResponse,
   APIKeyCreatedResponse,
 } from '~/types'
@@ -159,6 +161,44 @@ export function useIamApi() {
     })
   }
 
+  function updateGroup(groupId: string, data: { name: string }): Promise<GroupResponse> {
+    return apiFetch<GroupResponse>(`/iam/groups/${groupId}`, {
+      method: 'PATCH',
+      body: data,
+    })
+  }
+
+  function listGroupMembers(groupId: string): Promise<GroupMemberResponse[]> {
+    return apiFetch<GroupMemberResponse[]>(`/iam/groups/${groupId}/members`)
+  }
+
+  function addGroupMember(
+    groupId: string,
+    data: { user_id: string; role: GroupRole },
+  ): Promise<GroupMemberResponse> {
+    return apiFetch<GroupMemberResponse>(`/iam/groups/${groupId}/members`, {
+      method: 'POST',
+      body: data,
+    })
+  }
+
+  function updateGroupMemberRole(
+    groupId: string,
+    userId: string,
+    role: GroupRole,
+  ): Promise<GroupMemberResponse> {
+    return apiFetch<GroupMemberResponse>(`/iam/groups/${groupId}/members/${userId}`, {
+      method: 'PATCH',
+      body: { role },
+    })
+  }
+
+  function removeGroupMember(groupId: string, userId: string): Promise<void> {
+    return apiFetch<void>(`/iam/groups/${groupId}/members/${userId}`, {
+      method: 'DELETE',
+    })
+  }
+
   // ── API Keys ───────────────────────────────────────────────────────────
 
   function createApiKey(data: {
@@ -208,6 +248,11 @@ export function useIamApi() {
     createGroup,
     getGroup,
     deleteGroup,
+    updateGroup,
+    listGroupMembers,
+    addGroupMember,
+    updateGroupMemberRole,
+    removeGroupMember,
     // API Keys
     createApiKey,
     listApiKeys,

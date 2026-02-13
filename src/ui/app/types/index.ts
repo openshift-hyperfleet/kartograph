@@ -39,9 +39,11 @@ export interface WorkspaceMemberResponse {
   role: WorkspaceRole
 }
 
+export type GroupRole = 'admin' | 'member'
+
 export interface GroupMemberResponse {
   user_id: string
-  role: string
+  role: GroupRole
 }
 
 export interface GroupResponse {

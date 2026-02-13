@@ -2,9 +2,10 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { AlertTriangle, Loader2 } from 'lucide-vue-next'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
-import type { CypherResult, GraphData, GraphNode } from '~/types'
+import type { CypherResult, GraphData, GraphNode, GraphEdge } from '~/types'
 import { extractGraphData } from '@/composables/query/graph/useGraphExtraction'
 import { useCytoscape } from '@/composables/query/graph/useCytoscape'
+import { useGraphApi } from '@/composables/api/useGraphApi'
 
 import GraphNodeDetail from './GraphNodeDetail.vue'
 import GraphLegend from './GraphLegend.vue'
@@ -34,6 +35,37 @@ const disableAnimations = computed(() => nodeCount.value > 200)
 const canvasContainer = ref<HTMLElement | null>(null)
 const currentLayout = ref('fcose')
 
+const { getNodeNeighbors } = useGraphApi()
+
+function resolveDisplayName(props: Record<string, unknown>, label: string): string {
+  if (typeof props.name === 'string' && props.name) return props.name
+  if (typeof props.slug === 'string' && props.slug) return props.slug
+  if (typeof props.title === 'string' && props.title) return props.title
+  return label
+}
+
+async function handleExpandNode(nodeId: string): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] } | null> {
+  try {
+    const result = await getNodeNeighbors(nodeId)
+    const nodes: GraphNode[] = result.nodes.map(n => ({
+      id: n.id,
+      label: n.label,
+      properties: n.properties,
+      displayName: resolveDisplayName(n.properties, n.label),
+    }))
+    const edges: GraphEdge[] = result.edges.map(e => ({
+      id: e.id,
+      label: e.label,
+      source: e.start_id,
+      target: e.end_id,
+      properties: e.properties,
+    }))
+    return { nodes, edges }
+  } catch {
+    return null
+  }
+}
+
 const {
   cy,
   selectedNode,
@@ -46,6 +78,7 @@ const {
 } = useCytoscape(canvasContainer, graphData, {
   layout: currentLayout,
   disableAnimations: computed(() => disableAnimations.value),
+  onExpandNode: handleExpandNode,
 })
 
 // -- Detail panel ------------------------------------------------------------

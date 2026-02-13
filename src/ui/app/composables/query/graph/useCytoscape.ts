@@ -3,7 +3,7 @@ import cytoscape from 'cytoscape'
 import fcose from 'cytoscape-fcose'
 // @ts-ignore -- cytoscape-cise has no TypeScript declarations
 import cise from 'cytoscape-cise'
-import type { GraphData, GraphNode } from '~/types'
+import type { GraphData, GraphNode, GraphEdge } from '~/types'
 import { createGraphStylesheet, resetLabelColors, getLabelColors } from './graphStyles'
 import { layoutPresets, tuneLayout, selectDefaultLayout } from './graphLayouts'
 import { clusterByLabel, clusterByTopology } from './useClustering'
@@ -29,18 +29,24 @@ function getWheelSensitivity(nodeCount: number): number {
   return 0.4
 }
 
+/** Maximum node count beyond which expand is blocked to protect performance. */
+const MAX_NODES_FOR_EXPAND = 1000
+
 export function useCytoscape(
   container: Ref<HTMLElement | null>,
   graphData: Ref<GraphData | null>,
   options: {
     layout?: Ref<string>
     disableAnimations?: Ref<boolean>
+    onExpandNode?: (nodeId: string) => Promise<{ nodes: GraphNode[]; edges: GraphEdge[] } | null>
   } = {},
 ) {
   const cy = shallowRef<cytoscape.Core | null>(null)
   const selectedNode = ref<GraphNode | null>(null)
   const hoveredNodeId = ref<string | null>(null)
   const labelColors = ref<Map<string, string>>(new Map())
+  const expandedNodes = ref<Set<string>>(new Set())
+  const expandingNode = ref<string | null>(null)
   let resizeObserver: ResizeObserver | null = null
 
   function initialize() {
@@ -174,13 +180,147 @@ export function useCytoscape(
       cy.value?.elements().removeClass('hover neighbor')
     })
 
-    // Double-click → center + zoom
-    cy.value.on('dbltap', 'node', (evt) => {
-      cy.value?.animate({
-        center: { eles: evt.target },
-        zoom: 2.5,
-        duration: 300,
-      } as any)
+    // Double-click → expand / contract neighbors
+    cy.value.on('dbltap', 'node', async (evt) => {
+      const nodeId = evt.target.id()
+
+      if (expandedNodes.value.has(nodeId)) {
+        contractNode(nodeId)
+      } else {
+        await expandNode(nodeId)
+      }
+    })
+  }
+
+  // ── Expand / Contract ──────────────────────────────────────────────────
+
+  async function expandNode(nodeId: string) {
+    if (!cy.value || !options.onExpandNode || expandingNode.value) return
+
+    // Guard: block expansion on very large graphs
+    if (cy.value.nodes().length >= MAX_NODES_FOR_EXPAND) {
+      console.warn(`Graph has ${cy.value.nodes().length} nodes – expand blocked for performance.`)
+      return
+    }
+
+    expandingNode.value = nodeId
+    cy.value.$id(nodeId).addClass('expanding')
+
+    try {
+      // Resolve application-level ID from properties when available
+      const nodeData = cy.value.$id(nodeId).data()
+      const apiId = (nodeData._properties?.id as string) || nodeId
+
+      const result = await options.onExpandNode(apiId)
+      if (!result || !cy.value) return
+
+      const existingNodeIds = new Set(cy.value.nodes().map((n: cytoscape.NodeSingular) => n.id()))
+      const existingEdgeIds = new Set(cy.value.edges().map((e: cytoscape.EdgeSingular) => e.id()))
+
+      const newElements: cytoscape.ElementDefinition[] = []
+
+      for (const node of result.nodes) {
+        if (!existingNodeIds.has(node.id)) {
+          newElements.push({
+            group: 'nodes',
+            data: {
+              id: node.id,
+              label: node.label,
+              displayName: node.displayName,
+              _properties: node.properties,
+              _addedBy: nodeId,
+            },
+          })
+        }
+      }
+
+      for (const edge of result.edges) {
+        if (!existingEdgeIds.has(edge.id)) {
+          const sourceExists = existingNodeIds.has(edge.source) || result.nodes.some(n => n.id === edge.source)
+          const targetExists = existingNodeIds.has(edge.target) || result.nodes.some(n => n.id === edge.target)
+          if (sourceExists && targetExists) {
+            newElements.push({
+              group: 'edges',
+              data: {
+                id: edge.id,
+                source: edge.source,
+                target: edge.target,
+                label: edge.label,
+                _properties: edge.properties,
+              },
+            })
+          }
+        }
+      }
+
+      if (newElements.length > 0) {
+        const added = cy.value.add(newElements)
+
+        // Position new nodes in a circle around the expanded node
+        const expandedPos = cy.value.$id(nodeId).position()
+        const newNodes = added.nodes()
+        const count = newNodes.length
+        newNodes.forEach((node: cytoscape.NodeSingular, i: number) => {
+          const angle = (2 * Math.PI * i) / count
+          const radius = 120
+          node.position({
+            x: expandedPos.x + radius * Math.cos(angle),
+            y: expandedPos.y + radius * Math.sin(angle),
+          })
+        })
+
+        // Run a local layout on the neighborhood so it settles nicely
+        const neighborhood = cy.value.$id(nodeId).neighborhood().union(cy.value.$id(nodeId))
+        neighborhood.layout({
+          name: 'fcose',
+          randomize: false,
+          animate: true,
+          animationDuration: 400,
+          fit: false,
+          nodeDimensionsIncludeLabels: true,
+          nodeRepulsion: 4500,
+          idealEdgeLength: 80,
+        } as any).run()
+
+        nextTick(() => {
+          labelColors.value = getLabelColors()
+        })
+      }
+
+      expandedNodes.value.add(nodeId)
+      cy.value.$id(nodeId).addClass('expanded')
+    } catch (err) {
+      console.error('Failed to expand node:', err)
+    } finally {
+      expandingNode.value = null
+      cy.value?.$id(nodeId).removeClass('expanding')
+    }
+  }
+
+  function contractNode(nodeId: string) {
+    if (!cy.value) return
+
+    const addedByThis = cy.value.nodes().filter((n: cytoscape.NodeSingular) => n.data('_addedBy') === nodeId)
+
+    // Only remove nodes that don't have other connections to pre-existing nodes
+    // and haven't been expanded themselves
+    const toRemove = addedByThis.filter((n: cytoscape.NodeSingular) => {
+      const connectedToOthers = n.neighborhood('node').some((neighbor: cytoscape.NodeSingular) => {
+        return neighbor.id() !== nodeId && !addedByThis.contains(neighbor)
+      })
+      const isExpanded = expandedNodes.value.has(n.id())
+      return !connectedToOthers && !isExpanded
+    })
+
+    if (toRemove.length > 0) {
+      cy.value.remove(toRemove)
+    }
+
+    expandedNodes.value.delete(nodeId)
+    cy.value.$id(nodeId).removeClass('expanded')
+
+    nextTick(() => {
+      labelColors.value = getLabelColors()
     })
   }
 
@@ -258,6 +398,8 @@ export function useCytoscape(
   watch(graphData, () => {
     selectedNode.value = null
     hoveredNodeId.value = null
+    expandedNodes.value = new Set()
+    expandingNode.value = null
     nextTick(initialize)
   })
 
@@ -280,6 +422,8 @@ export function useCytoscape(
     selectedNode,
     hoveredNodeId,
     labelColors,
+    expandedNodes,
+    expandingNode,
     zoomToFit,
     searchNode,
     clearSearch,

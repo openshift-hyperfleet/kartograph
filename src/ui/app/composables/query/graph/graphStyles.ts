@@ -153,6 +153,23 @@ export function createGraphStylesheet(): Stylesheet[] {
         'display': 'none',
       } as any,
     },
+    // Expanded node indicator (thicker double border)
+    {
+      selector: 'node.expanded',
+      style: {
+        'border-width': 3,
+        'border-style': 'double',
+      } as any,
+    },
+    // Loading state while fetching neighbors
+    {
+      selector: 'node.expanding',
+      style: {
+        'border-width': 3,
+        'border-color': '#fbbf24',
+        'border-style': 'dashed',
+      } as any,
+    },
     // Large graph: hide labels until zoomed
     {
       selector: 'node.hide-label',

@@ -162,8 +162,11 @@ function toggleSearch() {
       </div>
     </div>
 
-    <!-- Stats -->
-    <div class="flex items-center gap-2">
+    <!-- Stats & hint -->
+    <div class="flex items-center gap-3">
+      <span class="hidden text-[10px] text-muted-foreground sm:inline">
+        Double-click node to expand neighbors
+      </span>
       <Badge variant="secondary" class="h-5 px-1.5 font-mono text-[10px]">
         {{ nodeCount.toLocaleString() }} nodes
       </Badge>

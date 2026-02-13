@@ -221,9 +221,9 @@ class ITenantRepository(Protocol):
 class IWorkspaceRepository(Protocol):
     """Repository for Workspace aggregate persistence.
 
-    Simple repository for workspace metadata. Workspaces organize knowledge
-    graphs within a tenant. Unlike GroupRepository, no SpiceDB member
-    hydration is needed (workspace members are managed in a later phase).
+    Coordinates PostgreSQL (metadata storage) and SpiceDB (membership
+    and authorization) to reconstitute complete Workspace aggregates.
+    Member hydration queries SpiceDB for all role/member-type combinations.
 
     Write operations use the transactional outbox pattern to emit domain
     events for SpiceDB relationship management.

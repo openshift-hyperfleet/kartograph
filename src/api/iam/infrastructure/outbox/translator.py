@@ -497,7 +497,9 @@ class IAMEventTranslator:
         # 4. Delete all member relationships from the snapshot
         for member in payload.get("members", []):
             role = WorkspaceRole(member["role"])
-            subject_type = self._resolve_subject_type(member["member_type"])
+            member_type = member["member_type"]
+            subject_type = self._resolve_subject_type(member_type)
+            subject_relation = self._resolve_subject_relation(member_type)
 
             relationships.append(
                 DeleteRelationship(
@@ -506,6 +508,7 @@ class IAMEventTranslator:
                     relation=role,
                     subject_type=subject_type,
                     subject_id=member["member_id"],
+                    subject_relation=subject_relation,
                 )
             )
 
@@ -525,6 +528,23 @@ class IAMEventTranslator:
             return ResourceType.USER
         return ResourceType.GROUP
 
+    def _resolve_subject_relation(self, member_type: str) -> str | None:
+        """Resolve the SpiceDB subject relation from the member_type field.
+
+        Groups require ``#member`` subject relation per the SpiceDB schema
+        (e.g., ``relation admin: user | group#member``).
+
+        Args:
+            member_type: The member type string ("user" or "group")
+
+        Returns:
+            ``"member"`` for group subjects, ``None`` for user subjects
+        """
+        resolved = MemberType(member_type)
+        if resolved == MemberType.GROUP:
+            return "member"
+        return None
+
     def _translate_workspace_member_added(
         self,
         payload: dict[str, Any],
@@ -532,12 +552,15 @@ class IAMEventTranslator:
         """Translate WorkspaceMemberAdded to role relationship write.
 
         Creates a relationship: workspace#<role>@<member_type>:<member_id>
+        Groups require #member subject relation per the SpiceDB schema.
         """
         validate_required_keys(
             payload, ["workspace_id", "member_id", "member_type", "role"]
         )
         role = WorkspaceRole(payload["role"])
-        subject_type = self._resolve_subject_type(payload["member_type"])
+        member_type = payload["member_type"]
+        subject_type = self._resolve_subject_type(member_type)
+        subject_relation = self._resolve_subject_relation(member_type)
 
         return [
             WriteRelationship(
@@ -546,6 +569,7 @@ class IAMEventTranslator:
                 relation=role,
                 subject_type=subject_type,
                 subject_id=payload["member_id"],
+                subject_relation=subject_relation,
             )
         ]
 
@@ -556,12 +580,15 @@ class IAMEventTranslator:
         """Translate WorkspaceMemberRemoved to role relationship delete.
 
         Deletes: workspace#<role>@<member_type>:<member_id>
+        Groups require #member subject relation per the SpiceDB schema.
         """
         validate_required_keys(
             payload, ["workspace_id", "member_id", "member_type", "role"]
         )
         role = WorkspaceRole(payload["role"])
-        subject_type = self._resolve_subject_type(payload["member_type"])
+        member_type = payload["member_type"]
+        subject_type = self._resolve_subject_type(member_type)
+        subject_relation = self._resolve_subject_relation(member_type)
 
         return [
             DeleteRelationship(
@@ -570,6 +597,7 @@ class IAMEventTranslator:
                 relation=role,
                 subject_type=subject_type,
                 subject_id=payload["member_id"],
+                subject_relation=subject_relation,
             )
         ]
 
@@ -581,6 +609,7 @@ class IAMEventTranslator:
 
         Deletes: workspace#<old_role>@<member_type>:<member_id>
         Writes:  workspace#<new_role>@<member_type>:<member_id>
+        Groups require #member subject relation per the SpiceDB schema.
         """
         validate_required_keys(
             payload,
@@ -588,7 +617,9 @@ class IAMEventTranslator:
         )
         old_role = WorkspaceRole(payload["old_role"])
         new_role = WorkspaceRole(payload["new_role"])
-        subject_type = self._resolve_subject_type(payload["member_type"])
+        member_type = payload["member_type"]
+        subject_type = self._resolve_subject_type(member_type)
+        subject_relation = self._resolve_subject_relation(member_type)
 
         return [
             DeleteRelationship(
@@ -597,6 +628,7 @@ class IAMEventTranslator:
                 relation=old_role,
                 subject_type=subject_type,
                 subject_id=payload["member_id"],
+                subject_relation=subject_relation,
             ),
             WriteRelationship(
                 resource_type=ResourceType.WORKSPACE,
@@ -604,6 +636,7 @@ class IAMEventTranslator:
                 relation=new_role,
                 subject_type=subject_type,
                 subject_id=payload["member_id"],
+                subject_relation=subject_relation,
             ),
         ]
 

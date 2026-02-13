@@ -102,6 +102,86 @@ class TestWriteRelationship:
             pass  # Expected
 
 
+class TestSubjectRelation:
+    """Tests for the optional subject_relation field and subject property."""
+
+    def test_subject_without_relation_returns_type_colon_id(self):
+        """Subject property should return 'type:id' when no subject_relation."""
+        op = WriteRelationship(
+            resource_type=ResourceType.WORKSPACE,
+            resource_id="01WORKSPACE_ABC",
+            relation=RelationType.MEMBER,
+            subject_type=ResourceType.USER,
+            subject_id="user-alice",
+        )
+        assert op.subject_relation is None
+        assert op.subject == "user:user-alice"
+
+    def test_subject_with_relation_returns_type_colon_id_hash_relation(self):
+        """Subject property should return 'type:id#relation' when subject_relation is set."""
+        op = WriteRelationship(
+            resource_type=ResourceType.WORKSPACE,
+            resource_id="01WORKSPACE_ABC",
+            relation=RelationType.MEMBER,
+            subject_type=ResourceType.GROUP,
+            subject_id="01GROUP_ENG",
+            subject_relation="member",
+        )
+        assert op.subject_relation == "member"
+        assert op.subject == "group:01GROUP_ENG#member"
+
+    def test_delete_relationship_subject_with_relation(self):
+        """DeleteRelationship should also support subject_relation."""
+        op = DeleteRelationship(
+            resource_type=ResourceType.WORKSPACE,
+            resource_id="01WORKSPACE_ABC",
+            relation=RelationType.MEMBER,
+            subject_type=ResourceType.GROUP,
+            subject_id="01GROUP_ENG",
+            subject_relation="member",
+        )
+        assert op.subject == "group:01GROUP_ENG#member"
+
+    def test_delete_relationship_subject_without_relation(self):
+        """DeleteRelationship without subject_relation returns 'type:id'."""
+        op = DeleteRelationship(
+            resource_type=ResourceType.WORKSPACE,
+            resource_id="01WORKSPACE_ABC",
+            relation=RelationType.MEMBER,
+            subject_type=ResourceType.USER,
+            subject_id="user-alice",
+        )
+        assert op.subject_relation is None
+        assert op.subject == "user:user-alice"
+
+    def test_subject_relation_defaults_to_none(self):
+        """subject_relation should default to None when not provided."""
+        op = WriteRelationship(
+            resource_type=ResourceType.GROUP,
+            resource_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+            relation=RelationType.TENANT,
+            subject_type=ResourceType.TENANT,
+            subject_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
+        )
+        assert op.subject_relation is None
+
+    def test_subject_relation_is_frozen(self):
+        """subject_relation should be immutable like other fields."""
+        op = WriteRelationship(
+            resource_type=ResourceType.WORKSPACE,
+            resource_id="01WORKSPACE_ABC",
+            relation=RelationType.MEMBER,
+            subject_type=ResourceType.GROUP,
+            subject_id="01GROUP_ENG",
+            subject_relation="member",
+        )
+        try:
+            op.subject_relation = "admin"  # type: ignore
+            assert False, "Should have raised FrozenInstanceError"
+        except Exception:
+            pass  # Expected
+
+
 class TestDeleteRelationship:
     """Tests for DeleteRelationship value object."""
 

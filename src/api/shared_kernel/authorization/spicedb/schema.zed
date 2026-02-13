@@ -63,8 +63,13 @@ definition workspace {
 	/** Users or groups who are members of this workspace */
 	relation member: user | group#member
 
-	/** Permission to view workspace and its resources */
-	permission view = admin + editor + member
+	/**
+	 * Permission to view workspace and its resources.
+	 * Granted to:
+	 * - Direct workspace members (admin, editor, member)
+	 * - All tenant members (tenant->member) for organizational visibility
+	 */
+	permission view = admin + editor + member + tenant->view
 
 	/** Permission to edit workspace configuration */
 	permission edit = admin + editor

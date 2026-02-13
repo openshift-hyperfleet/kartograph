@@ -3,6 +3,9 @@ import type {
   TenantMemberResponse,
   WorkspaceResponse,
   WorkspaceListResponse,
+  WorkspaceMemberResponse,
+  WorkspaceMemberType,
+  WorkspaceRole,
   GroupResponse,
   APIKeyResponse,
   APIKeyCreatedResponse,
@@ -85,7 +88,59 @@ export function useIamApi() {
     })
   }
 
+  function updateWorkspace(
+    workspaceId: string,
+    data: { name: string },
+  ): Promise<WorkspaceResponse> {
+    return apiFetch<WorkspaceResponse>(`/iam/workspaces/${workspaceId}`, {
+      method: 'PATCH',
+      body: data,
+    })
+  }
+
+  function listWorkspaceMembers(workspaceId: string): Promise<WorkspaceMemberResponse[]> {
+    return apiFetch<WorkspaceMemberResponse[]>(`/iam/workspaces/${workspaceId}/members`)
+  }
+
+  function addWorkspaceMember(
+    workspaceId: string,
+    data: { member_id: string; member_type: WorkspaceMemberType; role: WorkspaceRole },
+  ): Promise<WorkspaceMemberResponse> {
+    return apiFetch<WorkspaceMemberResponse>(`/iam/workspaces/${workspaceId}/members`, {
+      method: 'POST',
+      body: data,
+    })
+  }
+
+  function removeWorkspaceMember(
+    workspaceId: string,
+    memberId: string,
+    memberType: WorkspaceMemberType,
+  ): Promise<void> {
+    return apiFetch<void>(`/iam/workspaces/${workspaceId}/members/${memberId}`, {
+      method: 'DELETE',
+      query: { member_type: memberType },
+    })
+  }
+
+  function updateWorkspaceMemberRole(
+    workspaceId: string,
+    memberId: string,
+    memberType: WorkspaceMemberType,
+    role: WorkspaceRole,
+  ): Promise<WorkspaceMemberResponse> {
+    return apiFetch<WorkspaceMemberResponse>(`/iam/workspaces/${workspaceId}/members/${memberId}`, {
+      method: 'PATCH',
+      query: { member_type: memberType },
+      body: { role },
+    })
+  }
+
   // ── Groups ─────────────────────────────────────────────────────────────
+
+  function listGroups(): Promise<GroupResponse[]> {
+    return apiFetch<GroupResponse[]>('/iam/groups')
+  }
 
   function createGroup(data: { name: string }): Promise<GroupResponse> {
     return apiFetch<GroupResponse>('/iam/groups', {
@@ -143,7 +198,13 @@ export function useIamApi() {
     getWorkspace,
     createWorkspace,
     deleteWorkspace,
+    updateWorkspace,
+    listWorkspaceMembers,
+    addWorkspaceMember,
+    removeWorkspaceMember,
+    updateWorkspaceMemberRole,
     // Groups
+    listGroups,
     createGroup,
     getGroup,
     deleteGroup,

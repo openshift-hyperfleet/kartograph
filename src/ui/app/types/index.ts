@@ -30,6 +30,15 @@ export interface WorkspaceListResponse {
   count: number
 }
 
+export type WorkspaceMemberType = 'user' | 'group'
+export type WorkspaceRole = 'admin' | 'editor' | 'member'
+
+export interface WorkspaceMemberResponse {
+  member_id: string
+  member_type: WorkspaceMemberType
+  role: WorkspaceRole
+}
+
 export interface GroupMemberResponse {
   user_id: string
   role: string

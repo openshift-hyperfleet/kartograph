@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   FolderTree, Plus, Trash2, Loader2, ChevronRight, ChevronDown, Info,
+  Users, UserPlus, X, Pencil, Check, Building2,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,11 +18,20 @@ import {
 import {
   Card, CardContent, CardHeader, CardTitle,
 } from '@/components/ui/card'
-import { CopyableText } from '@/components/ui/copyable-text'
-import type { WorkspaceResponse } from '~/types'
 
-const { listWorkspaces, createWorkspace, deleteWorkspace } = useIamApi()
+import {
+  Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty,
+} from '@/components/ui/table'
+import { Separator } from '@/components/ui/separator'
+import { CopyableText } from '@/components/ui/copyable-text'
+import type { WorkspaceResponse, WorkspaceMemberResponse, WorkspaceMemberType, WorkspaceRole } from '~/types'
+
+const {
+  listWorkspaces, createWorkspace, deleteWorkspace, updateWorkspace,
+  listWorkspaceMembers, addWorkspaceMember, removeWorkspaceMember, updateWorkspaceMemberRole,
+} = useIamApi()
 const { extractErrorMessage } = useErrorHandler()
+const { hasTenant, tenantVersion } = useTenant()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -43,6 +53,27 @@ const deleting = ref(false)
 
 // Details
 const selectedWorkspace = ref<WorkspaceResponse | null>(null)
+
+// Members
+const members = ref<WorkspaceMemberResponse[]>([])
+const membersLoading = ref(false)
+const newMemberId = ref('')
+const newMemberType = ref<WorkspaceMemberType>('user')
+const newMemberRole = ref<WorkspaceRole>('member')
+const addingMember = ref(false)
+
+// Rename
+const editingName = ref(false)
+const editNameValue = ref('')
+const savingName = ref(false)
+
+// Role editing
+const updatingRoleFor = ref<string | null>(null)
+
+// Remove member dialog
+const showRemoveMemberDialog = ref(false)
+const memberToRemove = ref<WorkspaceMemberResponse | null>(null)
+const removingMember = ref(false)
 
 // Tree expand/collapse
 const expandedIds = ref<Set<string>>(new Set())
@@ -125,6 +156,20 @@ async function fetchWorkspaces() {
   }
 }
 
+async function fetchMembers(workspace: WorkspaceResponse) {
+  membersLoading.value = true
+  try {
+    members.value = await listWorkspaceMembers(workspace.id)
+  } catch (err) {
+    toast.error('Failed to load members', {
+      description: extractErrorMessage(err),
+    })
+    members.value = []
+  } finally {
+    membersLoading.value = false
+  }
+}
+
 // ── Actions ────────────────────────────────────────────────────────────────
 
 function openCreateDialog() {
@@ -178,6 +223,7 @@ async function handleDelete() {
     toast.success('Workspace deleted')
     if (selectedWorkspace.value?.id === workspaceToDelete.value.id) {
       selectedWorkspace.value = null
+      members.value = []
     }
     await fetchWorkspaces()
   } catch (err) {
@@ -192,14 +238,140 @@ async function handleDelete() {
 }
 
 function selectWorkspace(ws: WorkspaceResponse) {
-  selectedWorkspace.value = selectedWorkspace.value?.id === ws.id ? null : ws
+  if (selectedWorkspace.value?.id === ws.id) {
+    selectedWorkspace.value = null
+    members.value = []
+    return
+  }
+  selectedWorkspace.value = ws
+  fetchMembers(ws)
+}
+
+async function handleAddMember() {
+  if (!selectedWorkspace.value || !newMemberId.value.trim()) return
+  addingMember.value = true
+  try {
+    await addWorkspaceMember(selectedWorkspace.value.id, {
+      member_id: newMemberId.value.trim(),
+      member_type: newMemberType.value,
+      role: newMemberRole.value,
+    })
+    toast.success('Member added')
+    newMemberId.value = ''
+    newMemberType.value = 'user'
+    newMemberRole.value = 'member'
+    await fetchMembers(selectedWorkspace.value)
+  } catch (err) {
+    toast.error('Failed to add member', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    addingMember.value = false
+  }
+}
+
+function confirmRemoveMember(member: WorkspaceMemberResponse) {
+  memberToRemove.value = member
+  showRemoveMemberDialog.value = true
+}
+
+async function handleRemoveMember() {
+  if (!selectedWorkspace.value || !memberToRemove.value) return
+  removingMember.value = true
+  try {
+    await removeWorkspaceMember(
+      selectedWorkspace.value.id,
+      memberToRemove.value.member_id,
+      memberToRemove.value.member_type,
+    )
+    toast.success('Member removed')
+    await fetchMembers(selectedWorkspace.value)
+  } catch (err) {
+    toast.error('Failed to remove member', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    showRemoveMemberDialog.value = false
+    memberToRemove.value = null
+    removingMember.value = false
+  }
+}
+
+async function handleRename() {
+  if (!selectedWorkspace.value || !editNameValue.value.trim()) return
+  if (editNameValue.value.trim() === selectedWorkspace.value.name) {
+    editingName.value = false
+    return
+  }
+  savingName.value = true
+  try {
+    const updated = await updateWorkspace(selectedWorkspace.value.id, {
+      name: editNameValue.value.trim(),
+    })
+    selectedWorkspace.value = updated
+    // Update in the tree list too
+    const idx = workspaces.value.findIndex(ws => ws.id === updated.id)
+    if (idx !== -1) workspaces.value[idx] = updated
+    toast.success('Workspace renamed')
+    editingName.value = false
+  } catch (err) {
+    toast.error('Failed to rename workspace', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    savingName.value = false
+  }
+}
+
+function startRename() {
+  if (!selectedWorkspace.value) return
+  editNameValue.value = selectedWorkspace.value.name
+  editingName.value = true
+}
+
+function cancelRename() {
+  editingName.value = false
+  editNameValue.value = ''
+}
+
+async function handleRoleChange(member: WorkspaceMemberResponse, newRole: WorkspaceRole) {
+  if (!selectedWorkspace.value || newRole === member.role) return
+  updatingRoleFor.value = member.member_id
+  try {
+    await updateWorkspaceMemberRole(
+      selectedWorkspace.value.id,
+      member.member_id,
+      member.member_type,
+      newRole,
+    )
+    toast.success('Role updated')
+    await fetchMembers(selectedWorkspace.value)
+  } catch (err) {
+    toast.error('Failed to update role', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    updatingRoleFor.value = null
+  }
 }
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString()
 }
 
-onMounted(fetchWorkspaces)
+onMounted(() => {
+  if (hasTenant.value) fetchWorkspaces()
+})
+
+// Re-fetch when tenant changes
+watch(tenantVersion, () => {
+  if (hasTenant.value) {
+    selectedWorkspace.value = null
+    members.value = []
+    editingName.value = false
+    fetchWorkspaces()
+  }
+})
 </script>
 
 <template>
@@ -210,11 +382,20 @@ onMounted(fetchWorkspaces)
         <FolderTree class="size-6 text-muted-foreground" />
         <h1 class="text-2xl font-bold tracking-tight">Workspaces</h1>
       </div>
-      <Button @click="openCreateDialog">
+      <Button :disabled="!hasTenant" @click="openCreateDialog">
         <Plus class="mr-2 size-4" />
         Create Workspace
       </Button>
     </div>
+
+    <!-- No tenant selected -->
+    <div v-if="!hasTenant" class="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
+      <Building2 class="size-10" />
+      <p class="font-medium">No tenant selected</p>
+      <p class="text-sm">Select a tenant from the header to view workspaces.</p>
+    </div>
+
+    <template v-else>
 
     <div class="grid gap-6" :class="selectedWorkspace ? 'lg:grid-cols-[1fr_320px]' : ''">
       <!-- Tree view -->
@@ -282,18 +463,61 @@ onMounted(fetchWorkspaces)
         </div>
       </div>
 
-      <!-- Details panel -->
-      <Card v-if="selectedWorkspace">
-        <CardHeader>
-          <CardTitle class="flex items-center gap-2 text-base">
-            <Info class="size-4" />
-            Workspace Details
-          </CardTitle>
+      <!-- Details panel (sidebar) -->
+      <Card v-if="selectedWorkspace" class="self-start">
+        <CardHeader class="pb-3">
+          <div class="flex items-center justify-between">
+            <CardTitle class="flex items-center gap-2 text-base">
+              <Info class="size-4" />
+              Workspace Details
+            </CardTitle>
+            <Button variant="ghost" size="icon" class="size-7" @click="selectedWorkspace = null; members = []">
+              <X class="size-4" />
+            </Button>
+          </div>
         </CardHeader>
         <CardContent class="space-y-3 text-sm">
           <div>
             <span class="text-muted-foreground">Name</span>
-            <p class="font-medium">{{ selectedWorkspace.name }}</p>
+            <div v-if="editingName" class="mt-1 flex items-center gap-1.5">
+              <Input
+                v-model="editNameValue"
+                class="h-8 text-sm"
+                @keydown.enter="handleRename"
+                @keydown.escape="cancelRename"
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-7 shrink-0 text-green-600 hover:text-green-700"
+                :disabled="savingName || !editNameValue.trim()"
+                @click="handleRename"
+              >
+                <Loader2 v-if="savingName" class="size-3.5 animate-spin" />
+                <Check v-else class="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-7 shrink-0"
+                :disabled="savingName"
+                @click="cancelRename"
+              >
+                <X class="size-3.5" />
+              </Button>
+            </div>
+            <div v-else class="flex items-center gap-1.5">
+              <p class="font-medium">{{ selectedWorkspace.name }}</p>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-6 shrink-0 text-muted-foreground hover:text-foreground"
+                title="Rename workspace"
+                @click="startRename"
+              >
+                <Pencil class="size-3" />
+              </Button>
+            </div>
           </div>
           <div>
             <span class="text-muted-foreground">ID</span>
@@ -327,6 +551,133 @@ onMounted(fetchWorkspaces)
         </CardContent>
       </Card>
     </div>
+
+    <!-- Members panel (full-width, below grid) -->
+    <Card v-if="selectedWorkspace">
+      <CardHeader>
+        <div class="flex items-center justify-between">
+          <CardTitle class="flex items-center gap-2 text-lg">
+            <Users class="size-5" />
+            Members of "{{ selectedWorkspace.name }}"
+          </CardTitle>
+          <Badge v-if="members.length > 0" variant="secondary">
+            {{ members.length }} {{ members.length === 1 ? 'member' : 'members' }}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <!-- Add member form -->
+        <div class="flex items-end gap-3">
+          <div class="flex-1 space-y-1.5">
+            <Label for="ws-member-id">Member ID <span class="text-destructive">*</span></Label>
+            <Input
+              id="ws-member-id"
+              v-model="newMemberId"
+              placeholder="Enter user or group ID..."
+            />
+          </div>
+          <div class="w-32 space-y-1.5">
+            <Label>Type</Label>
+            <Select v-model="newMemberType">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="user">User</SelectItem>
+                <SelectItem value="group">Group</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div class="w-32 space-y-1.5">
+            <Label>Role</Label>
+            <Select v-model="newMemberRole">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="editor">Editor</SelectItem>
+                <SelectItem value="member">Member</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Button :disabled="addingMember || !newMemberId.trim()" @click="handleAddMember">
+            <Loader2 v-if="addingMember" class="mr-2 size-4 animate-spin" />
+            <UserPlus v-else class="mr-2 size-4" />
+            Add
+          </Button>
+        </div>
+
+        <Separator />
+
+        <!-- Members table -->
+        <div class="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Member ID</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead class="w-[80px] text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow v-if="membersLoading">
+                <TableCell colspan="4" class="h-16 text-center">
+                  <div class="flex items-center justify-center gap-2 text-muted-foreground">
+                    <Loader2 class="size-4 animate-spin" />
+                    Loading members...
+                  </div>
+                </TableCell>
+              </TableRow>
+              <TableEmpty v-else-if="members.length === 0" :colspan="4">
+                No members in this workspace.
+              </TableEmpty>
+              <TableRow v-for="member in members" v-else :key="`${member.member_type}-${member.member_id}`">
+                <TableCell>
+                  <CopyableText :text="member.member_id" label="Member ID copied" />
+                </TableCell>
+                <TableCell>
+                  <Badge variant="outline">
+                    {{ member.member_type }}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <Select
+                    :model-value="member.role"
+                    :disabled="updatingRoleFor === member.member_id"
+                    @update:model-value="(val: WorkspaceRole) => handleRoleChange(member, val)"
+                  >
+                    <SelectTrigger class="h-8 w-[120px] text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="admin">Admin</SelectItem>
+                      <SelectItem value="editor">Editor</SelectItem>
+                      <SelectItem value="member">Member</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </TableCell>
+                <TableCell class="text-right">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="text-destructive hover:text-destructive"
+                    title="Remove member"
+                    :aria-label="`Remove ${member.member_type} ${member.member_id}`"
+                    @click="confirmRemoveMember(member)"
+                  >
+                    <Trash2 class="size-4" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+
+    </template>
 
     <!-- Create workspace dialog -->
     <Dialog v-model:open="showCreateDialog">
@@ -383,7 +734,7 @@ onMounted(fetchWorkspaces)
       </DialogContent>
     </Dialog>
 
-    <!-- Delete confirmation dialog -->
+    <!-- Delete workspace dialog -->
     <Dialog v-model:open="showDeleteDialog">
       <DialogContent class="sm:max-w-md">
         <DialogHeader>
@@ -399,6 +750,27 @@ onMounted(fetchWorkspaces)
           <Button variant="destructive" :disabled="deleting" @click="handleDelete">
             <Loader2 v-if="deleting" class="mr-2 size-4 animate-spin" />
             Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Remove member confirmation dialog -->
+    <Dialog v-model:open="showRemoveMemberDialog">
+      <DialogContent class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Remove Member</DialogTitle>
+          <DialogDescription>
+            Are you sure you want to remove {{ memberToRemove?.member_type }} "{{ memberToRemove?.member_id }}" from "{{ selectedWorkspace?.name }}"?
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose as-child>
+            <Button variant="outline">Cancel</Button>
+          </DialogClose>
+          <Button variant="destructive" :disabled="removingMember" @click="handleRemoveMember">
+            <Loader2 v-if="removingMember" class="mr-2 size-4 animate-spin" />
+            Remove
           </Button>
         </DialogFooter>
       </DialogContent>

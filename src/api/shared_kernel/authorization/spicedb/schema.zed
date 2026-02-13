@@ -67,7 +67,7 @@ definition workspace {
 	 * Permission to view workspace and its resources.
 	 * Granted to:
 	 * - Direct workspace members (admin, editor, member)
-	 * - All tenant members (tenant->member) for organizational visibility
+	 * - All tenant members (tenant->view) for organizational visibility
 	 */
 	permission view = admin + editor + member + tenant->view
 

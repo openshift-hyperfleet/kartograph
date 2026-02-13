@@ -19,40 +19,61 @@ function resolveDisplayName(props: Record<string, unknown>, label: string): stri
   return label
 }
 
+/** Prefer the application-level ID from properties over the AGE numeric ID. */
+function resolveId(ageId: unknown, props: Record<string, unknown>, key = 'id'): string {
+  const appId = props[key]
+  if (typeof appId === 'string' && appId) return appId
+  return String(ageId)
+}
+
+// Raw edge data collected during scanning — edge endpoints reference AGE IDs
+// which must be remapped to application-level node IDs after all nodes are processed.
+interface RawEdge {
+  id: string
+  label: string
+  ageStartId: string
+  ageEndId: string
+  properties: Record<string, unknown>
+}
+
 function scanValue(
   value: unknown,
   nodeMap: Map<string, GraphNode>,
-  edgeMap: Map<string, GraphEdge>,
+  rawEdges: RawEdge[],
+  ageIdToAppId: Map<string, string>,
 ): void {
   if (!value || typeof value !== 'object') return
 
   if (Array.isArray(value)) {
-    for (const item of value) scanValue(item, nodeMap, edgeMap)
+    for (const item of value) scanValue(item, nodeMap, rawEdges, ageIdToAppId)
     return
   }
 
   // Check edge first (edges have all node fields plus start_id/end_id)
   if (isEdgeObject(value)) {
-    const id = String(value.id)
-    if (!edgeMap.has(id)) {
-      const props = (value.properties as Record<string, unknown>) ?? {}
-      edgeMap.set(id, {
-        id,
-        label: String(value.label),
-        source: String(value.start_id),
-        target: String(value.end_id),
-        properties: props,
-      })
-    }
+    const props = (value.properties as Record<string, unknown>) ?? {}
+    const id = resolveId(value.id, props)
+    rawEdges.push({
+      id,
+      label: String(value.label),
+      ageStartId: String(value.start_id),
+      ageEndId: String(value.end_id),
+      properties: props,
+    })
     return
   }
 
   if (isNodeObject(value)) {
-    const id = String(value.id)
-    if (!nodeMap.has(id)) {
-      const props = (value.properties as Record<string, unknown>) ?? {}
-      nodeMap.set(id, {
-        id,
+    const props = (value.properties as Record<string, unknown>) ?? {}
+    const ageId = String(value.id)
+    const appId = resolveId(value.id, props)
+
+    // Track AGE numeric ID → application ID mapping for edge resolution
+    ageIdToAppId.set(ageId, appId)
+
+    if (!nodeMap.has(appId)) {
+      nodeMap.set(appId, {
+        id: appId,
         label: String(value.label),
         properties: props,
         displayName: resolveDisplayName(props, String(value.label)),
@@ -63,30 +84,47 @@ function scanValue(
 
   // Recurse into map/object values
   for (const v of Object.values(value as Record<string, unknown>)) {
-    scanValue(v, nodeMap, edgeMap)
+    scanValue(v, nodeMap, rawEdges, ageIdToAppId)
   }
 }
 
 /**
  * Extract graph nodes and edges from a CypherResult.
  * Recursively scans all row values for AGE node/edge objects,
- * deduplicates by id, and filters edges with missing endpoints.
+ * deduplicates by id, remaps AGE numeric IDs to application-level IDs,
+ * and filters edges with missing endpoints.
  */
 export function extractGraphData(result: CypherResult): GraphData {
   const nodeMap = new Map<string, GraphNode>()
-  const edgeMap = new Map<string, GraphEdge>()
+  const rawEdges: RawEdge[] = []
+  const ageIdToAppId = new Map<string, string>()
 
   for (const row of result.rows) {
     for (const value of Object.values(row)) {
-      scanValue(value, nodeMap, edgeMap)
+      scanValue(value, nodeMap, rawEdges, ageIdToAppId)
     }
   }
 
-  const nodes = Array.from(nodeMap.values())
-  // Only include edges where both endpoints exist in our node set
-  const edges = Array.from(edgeMap.values()).filter(
-    e => nodeMap.has(e.source) && nodeMap.has(e.target),
-  )
+  // Remap edge endpoints from AGE numeric IDs to application-level IDs,
+  // then deduplicate and filter edges with missing endpoints.
+  const edgeMap = new Map<string, GraphEdge>()
+  for (const raw of rawEdges) {
+    if (edgeMap.has(raw.id)) continue
+    const source = ageIdToAppId.get(raw.ageStartId) ?? raw.ageStartId
+    const target = ageIdToAppId.get(raw.ageEndId) ?? raw.ageEndId
+    if (nodeMap.has(source) && nodeMap.has(target)) {
+      edgeMap.set(raw.id, {
+        id: raw.id,
+        label: raw.label,
+        source,
+        target,
+        properties: raw.properties,
+      })
+    }
+  }
 
-  return { nodes, edges }
+  return {
+    nodes: Array.from(nodeMap.values()),
+    edges: Array.from(edgeMap.values()),
+  }
 }

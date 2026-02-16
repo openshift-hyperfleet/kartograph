@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, nextTick, shallowRef, onBeforeUnmount } from 'vue'
+import { EditorState } from '@codemirror/state'
+import { EditorView, keymap } from '@codemirror/view'
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
+import { closeBrackets, closeBracketsKeymap, autocompletion } from '@codemirror/autocomplete'
+import { bracketMatching } from '@codemirror/language'
+import { json } from '@codemirror/lang-json'
+import { linter, lintGutter } from '@codemirror/lint'
+import { kartographTheme, jsonHighlightStyle } from '@/lib/codemirror/theme'
+import { mutationAutocomplete } from '@/lib/codemirror/mutation-jsonl/autocomplete'
+import { mutationLinter } from '@/lib/codemirror/mutation-jsonl/linter'
 import { AlertTriangle, Save, X } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -101,6 +111,58 @@ function cancelEdit() {
   editDialogOpen.value = false
   editingWarning.value = null
 }
+
+// ── CodeMirror line editor ───────────────────────────────────────────────────
+
+const lineEditorContainer = ref<HTMLElement | null>(null)
+const lineEditorView = shallowRef<EditorView | null>(null)
+
+watch(editDialogOpen, async (open) => {
+  if (open) {
+    // Wait for the dialog DOM to render
+    await nextTick()
+    await nextTick() // Double nextTick for dialog animation
+
+    if (!lineEditorContainer.value) return
+
+    const state = EditorState.create({
+      doc: editLineContent.value,
+      extensions: [
+        keymap.of([...defaultKeymap, ...historyKeymap, ...closeBracketsKeymap]),
+        history(),
+        closeBrackets(),
+        bracketMatching(),
+        EditorView.lineWrapping,
+        kartographTheme,
+        jsonHighlightStyle,
+        json(),
+        autocompletion({ override: [mutationAutocomplete] }),
+        linter(mutationLinter, { delay: 300 }),
+        lintGutter(),
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            editLineContent.value = update.state.doc.toString()
+          }
+        }),
+      ],
+    })
+
+    lineEditorView.value = new EditorView({
+      state,
+      parent: lineEditorContainer.value,
+    })
+    lineEditorView.value.focus()
+  } else {
+    // Destroy the CM instance when dialog closes
+    lineEditorView.value?.destroy()
+    lineEditorView.value = null
+  }
+})
+
+onBeforeUnmount(() => {
+  lineEditorView.value?.destroy()
+  lineEditorView.value = null
+})
 </script>
 
 <template>
@@ -175,10 +237,9 @@ function cancelEdit() {
 
       <div class="space-y-2">
         <label class="text-sm font-medium">Line content</label>
-        <textarea
-          v-model="editLineContent"
-          class="w-full min-h-[120px] rounded-md border border-input bg-background px-3 py-2 font-mono text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          spellcheck="false"
+        <div
+          ref="lineEditorContainer"
+          class="overflow-hidden rounded-md border border-input [&_.cm-editor]:min-h-[120px] [&_.cm-editor]:max-h-[300px] [&_.cm-editor]:overflow-auto [&_.cm-editor.cm-focused]:ring-1 [&_.cm-editor.cm-focused]:ring-ring"
         />
       </div>
 

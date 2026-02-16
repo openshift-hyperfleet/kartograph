@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import {
   Loader2, CheckCircle2, XCircle, Minus, Maximize2,
 } from 'lucide-vue-next'
@@ -14,6 +14,50 @@ const { state, dismiss } = useMutationSubmission()
 const minimized = ref(false)
 
 const isVisible = computed(() => state.value.status !== 'idle')
+
+// ── Local elapsed time (avoids mutating shared reactive state every second) ──
+
+const elapsedSeconds = ref(0)
+let elapsedInterval: ReturnType<typeof setInterval> | null = null
+
+function startLocalTimer() {
+  stopLocalTimer()
+  elapsedSeconds.value = state.value.startedAt
+    ? Math.floor((Date.now() - state.value.startedAt) / 1000)
+    : 0
+  elapsedInterval = setInterval(() => {
+    if (state.value.startedAt) {
+      elapsedSeconds.value = Math.floor((Date.now() - state.value.startedAt) / 1000)
+    }
+  }, 1000)
+}
+
+function stopLocalTimer() {
+  if (elapsedInterval) {
+    clearInterval(elapsedInterval)
+    elapsedInterval = null
+  }
+}
+
+// Compute final elapsed for completed states
+const finalElapsedSeconds = computed(() => {
+  const { startedAt, completedAt } = state.value
+  if (startedAt && completedAt) {
+    return Math.floor((completedAt - startedAt) / 1000)
+  }
+  return elapsedSeconds.value
+})
+
+// Start/stop the local timer based on submission status
+watch(() => state.value.status, (status) => {
+  if (status === 'submitting') {
+    startLocalTimer()
+  } else {
+    stopLocalTimer()
+  }
+}, { immediate: true })
+
+onBeforeUnmount(stopLocalTimer)
 
 const truncatedError = computed(() => {
   const err = state.value.error
@@ -152,7 +196,7 @@ const statusBorderClass = computed(() => {
           <template v-if="state.status === 'submitting'">
             <p class="text-xs text-muted-foreground">
               Applying {{ state.operationCount.toLocaleString() }} mutation{{ state.operationCount === 1 ? '' : 's' }}...
-              <span class="font-mono">{{ state.elapsedSeconds }}s</span>
+              <span class="font-mono">{{ elapsedSeconds }}s</span>
             </p>
           </template>
 
@@ -163,7 +207,7 @@ const statusBorderClass = computed(() => {
               operation{{ state.result.operations_applied === 1 ? '' : 's' }} applied successfully.
             </p>
             <p class="text-xs text-muted-foreground">
-              Completed in {{ state.elapsedSeconds }}s
+              Completed in {{ finalElapsedSeconds }}s
             </p>
           </template>
 

@@ -712,8 +712,8 @@ onBeforeUnmount(() => {
                 >
                   <Loader2 v-if="submitting" class="mr-2 size-4 animate-spin" />
                   <Play v-else class="mr-2 size-4" />
-                  <template v-if="submitting && submission.state.value.elapsedSeconds > 0">
-                    Applying mutations... {{ submission.state.value.elapsedSeconds }}s
+                  <template v-if="submitting">
+                    Applying mutations...
                   </template>
                   <template v-else>
                     Apply Mutations

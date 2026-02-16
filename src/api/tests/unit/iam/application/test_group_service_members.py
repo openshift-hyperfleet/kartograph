@@ -9,12 +9,62 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, create_autospec
 
 import pytest
+from pytest_archon import archrule
 
 from iam.application.services.group_service import GroupService
 from iam.domain.aggregates import Group
 from iam.domain.value_objects import GroupId, GroupRole, TenantId, UserId
 from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.types import RelationshipTuple
+
+
+class TestGroupServiceMemberArchitecturalBoundaries:
+    """IAM application member operations must not depend on other bounded contexts."""
+
+    def test_iam_application_does_not_import_graph(self):
+        """IAM application layer should not depend on Graph context."""
+        (
+            archrule("iam_app_members_no_graph")
+            .match("iam.application*")
+            .should_not_import("graph*")
+            .check("iam")
+        )
+
+    def test_iam_application_does_not_import_extraction(self):
+        """IAM application layer should not depend on Extraction context."""
+        (
+            archrule("iam_app_members_no_extraction")
+            .match("iam.application*")
+            .should_not_import("extraction*")
+            .check("iam")
+        )
+
+    def test_iam_application_does_not_import_management(self):
+        """IAM application layer should not depend on Management context."""
+        (
+            archrule("iam_app_members_no_management")
+            .match("iam.application*")
+            .should_not_import("management*")
+            .check("iam")
+        )
+
+    def test_iam_application_does_not_import_ingestion(self):
+        """IAM application layer should not depend on Ingestion context."""
+        (
+            archrule("iam_app_members_no_ingestion")
+            .match("iam.application*")
+            .should_not_import("ingestion*")
+            .check("iam")
+        )
+
+    def test_iam_application_does_not_import_querying(self):
+        """IAM application layer should not depend on Querying context."""
+        (
+            archrule("iam_app_members_no_querying")
+            .match("iam.application*")
+            .should_not_import("query*")
+            .check("iam")
+        )
 
 
 @pytest.fixture

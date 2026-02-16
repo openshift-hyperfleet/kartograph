@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import FastAPI, status
 from fastapi.testclient import TestClient
+from pytest_archon import archrule
 
 from iam.application.services import GroupService
 from iam.application.value_objects import CurrentUser
@@ -23,6 +24,73 @@ from iam.domain.value_objects import (
     UserId,
 )
 from iam.ports.exceptions import DuplicateGroupNameError
+
+
+class TestGroupRoutesArchitecturalBoundaries:
+    """IAM presentation layer must not depend on other bounded contexts."""
+
+    def test_iam_presentation_does_not_import_graph(self):
+        """IAM presentation layer should not depend on Graph context."""
+        (
+            archrule("iam_presentation_no_graph")
+            .match("iam.presentation*")
+            .should_not_import("graph*")
+            .check("iam")
+        )
+
+    def test_iam_presentation_does_not_import_extraction(self):
+        """IAM presentation layer should not depend on Extraction context."""
+        (
+            archrule("iam_presentation_no_extraction")
+            .match("iam.presentation*")
+            .should_not_import("extraction*")
+            .check("iam")
+        )
+
+    def test_iam_presentation_does_not_import_management(self):
+        """IAM presentation layer should not depend on Management context."""
+        (
+            archrule("iam_presentation_no_management")
+            .match("iam.presentation*")
+            .should_not_import("management*")
+            .check("iam")
+        )
+
+    def test_iam_presentation_does_not_import_ingestion(self):
+        """IAM presentation layer should not depend on Ingestion context."""
+        (
+            archrule("iam_presentation_no_ingestion")
+            .match("iam.presentation*")
+            .should_not_import("ingestion*")
+            .check("iam")
+        )
+
+    def test_iam_presentation_does_not_import_querying(self):
+        """IAM presentation layer should not depend on Querying context."""
+        (
+            archrule("iam_presentation_no_querying")
+            .match("iam.presentation*")
+            .should_not_import("query*")
+            .check("iam")
+        )
+
+    def test_iam_presentation_does_not_import_other_context_domain(self):
+        """IAM presentation should not import domain objects from other contexts."""
+        (
+            archrule("iam_presentation_no_other_domain")
+            .match("iam.presentation*")
+            .should_not_import("graph.domain*", "query.domain*")
+            .check("iam")
+        )
+
+    def test_iam_presentation_does_not_import_other_context_infrastructure(self):
+        """IAM presentation should not import infrastructure from other contexts."""
+        (
+            archrule("iam_presentation_no_other_infra")
+            .match("iam.presentation*")
+            .should_not_import("graph.infrastructure*", "query.infrastructure*")
+            .check("iam")
+        )
 
 
 @pytest.fixture

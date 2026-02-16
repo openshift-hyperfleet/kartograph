@@ -9,7 +9,7 @@ import { linter, lintGutter } from '@codemirror/lint'
 import { useMediaQuery } from '@vueuse/core'
 import {
   FileCode, Play, Trash2, Upload, Loader2,
-  FileUp, CheckCircle2, XCircle, AlertTriangle, Building2, X,
+  FileUp, XCircle, AlertTriangle, Building2,
   Plus, GitBranch, RefreshCw, Lightbulb, BookOpen,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -22,8 +22,6 @@ import {
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from '@/components/ui/sheet'
-import type { MutationResult } from '~/types'
-
 // CodeMirror
 import { useCodemirror } from '@/composables/useCodemirror'
 import { kartographTheme, jsonHighlightStyle } from '@/lib/codemirror/theme'
@@ -78,10 +76,9 @@ const quickStartTemplates = [
   },
 ]
 
-const { applyMutations } = useGraphApi()
-const { extractErrorMessage } = useErrorHandler()
 const { hasTenant } = useTenant()
 const { ctrlHeld } = useModifierKeys()
+const submission = useMutationSubmission()
 
 // ── Worker ─────────────────────────────────────────────────────────────────
 
@@ -94,31 +91,16 @@ const isDesktop = useMediaQuery('(min-width: 1024px)')
 // ── State ──────────────────────────────────────────────────────────────────
 
 const editorContent = ref('')
-const submitting = ref(false)
-const lastResult = ref<MutationResult | null>(null)
-const apiError = ref<string | null>(null)
 const isDragOver = ref(false)
 const editorContainer = ref<HTMLElement | null>(null)
 const showTemplateSheet = ref(false)
 const largeFileMode = ref(false)
 const uploadProgress = ref<number | null>(null)
 const uploadFileName = ref('')
-const elapsedSeconds = ref(0)
-let elapsedInterval: ReturnType<typeof setInterval> | null = null
 
-function startElapsedTimer() {
-  elapsedSeconds.value = 0
-  elapsedInterval = setInterval(() => {
-    elapsedSeconds.value++
-  }, 1000)
-}
-
-function stopElapsedTimer() {
-  if (elapsedInterval) {
-    clearInterval(elapsedInterval)
-    elapsedInterval = null
-  }
-}
+// Derived from the cross-app submission composable
+const submitting = computed(() => submission.state.value.status === 'submitting')
+const apiError = computed(() => submission.state.value.error)
 
 // ── Computed ───────────────────────────────────────────────────────────────
 
@@ -234,7 +216,7 @@ function insertTemplate(content: string) {
       editorContent.value = content
     }
   }
-  lastResult.value = null
+  submission.dismiss()
 }
 
 function showAllTemplates() {
@@ -246,41 +228,18 @@ function showAllTemplates() {
   }
 }
 
-async function handleSubmit() {
+function handleSubmit() {
   if (submitting.value || !editorContent.value.trim()) return
 
   // For large files, skip client-side re-parse and submit raw content directly
-  // (server validates anyway)
   if (isLargeFile.value) {
-    apiError.value = null
-    submitting.value = true
-    startElapsedTimer()
-    try {
-      // Strip comment lines and blank lines, submit raw JSONL
-      const lines = editorContent.value.split('\n')
-      const cleanLines = lines.filter((l) => {
-        const t = l.trim()
-        return t && !t.startsWith('//') && !t.startsWith('#')
-      })
-      const body = cleanLines.join('\n')
-
-      const mutationResult = await applyMutations(body)
-      lastResult.value = mutationResult
-      if (mutationResult.success) {
-        toast.success(`Applied ${mutationResult.operations_applied} mutation${mutationResult.operations_applied === 1 ? '' : 's'}`)
-      } else {
-        toast.error('Some mutations failed', {
-          description: `${mutationResult.errors.length} error${mutationResult.errors.length === 1 ? '' : 's'} occurred`,
-        })
-      }
-    } catch (err) {
-      const message = extractErrorMessage(err)
-      apiError.value = message
-      toast.error('Failed to apply mutations', { description: message })
-    } finally {
-      submitting.value = false
-      stopElapsedTimer()
-    }
+    const lines = editorContent.value.split('\n')
+    const cleanLines = lines.filter((l) => {
+      const t = l.trim()
+      return t && !t.startsWith('//') && !t.startsWith('#')
+    })
+    const body = cleanLines.join('\n')
+    submission.submit(body, totalOps.value)
     return
   }
 
@@ -298,42 +257,14 @@ async function handleSubmit() {
 
   // Convert parsed operations to clean JSONL for submission
   const jsonlBody = toJsonl(result.operations)
-
-  apiError.value = null
-  submitting.value = true
-  startElapsedTimer()
-
-  try {
-    const mutationResult = await applyMutations(jsonlBody)
-    lastResult.value = mutationResult
-    if (mutationResult.success) {
-      toast.success(`Applied ${mutationResult.operations_applied} mutation${mutationResult.operations_applied === 1 ? '' : 's'}`)
-    } else {
-      toast.error('Some mutations failed', {
-        description: `${mutationResult.errors.length} error${mutationResult.errors.length === 1 ? '' : 's'} occurred`,
-      })
-    }
-  } catch (err) {
-    const message = extractErrorMessage(err)
-    apiError.value = message
-    toast.error('Failed to apply mutations', { description: message })
-  } finally {
-    submitting.value = false
-    stopElapsedTimer()
-  }
+  submission.submit(jsonlBody, result.operations.length)
 }
 
 function clearEditor() {
   editorContent.value = ''
-  lastResult.value = null
-  apiError.value = null
+  submission.dismiss()
   largeFileMode.value = false
   nextTick(focusEditor)
-}
-
-function clearResults() {
-  lastResult.value = null
-  apiError.value = null
 }
 
 // ── File Upload ────────────────────────────────────────────────────────────
@@ -407,7 +338,7 @@ function readFile(file: File) {
       }
       toast.success(`Loaded ${file.name}`)
     }
-    lastResult.value = null
+    submission.dismiss()
   }
   reader.onerror = () => {
     uploadProgress.value = null
@@ -447,7 +378,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleCtrlEnter)
-  stopElapsedTimer()
 })
 </script>
 
@@ -760,8 +690,8 @@ onBeforeUnmount(() => {
                 >
                   <Loader2 v-if="submitting" class="mr-2 size-4 animate-spin" />
                   <Play v-else class="mr-2 size-4" />
-                  <template v-if="submitting && elapsedSeconds > 0">
-                    Applying mutations... {{ elapsedSeconds }}s
+                  <template v-if="submitting && submission.state.value.elapsedSeconds > 0">
+                    Applying mutations... {{ submission.state.value.elapsedSeconds }}s
                   </template>
                   <template v-else>
                     Apply Mutations
@@ -810,62 +740,7 @@ onBeforeUnmount(() => {
             </AlertDescription>
           </Alert>
 
-          <!-- Result display -->
-          <template v-if="lastResult">
-            <Card v-if="lastResult.success" class="border-green-500/30">
-              <CardContent class="flex items-start gap-3 p-4">
-                <CheckCircle2 class="mt-0.5 size-5 shrink-0 text-green-600 dark:text-green-400" />
-                <div class="min-w-0 flex-1 space-y-1">
-                  <p class="text-sm font-medium text-green-600 dark:text-green-400">
-                    Mutations Applied Successfully
-                  </p>
-                  <p class="text-sm text-muted-foreground">
-                    {{ lastResult.operations_applied }} operation{{ lastResult.operations_applied === 1 ? '' : 's' }} applied to the graph.
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  class="size-7 shrink-0"
-                  @click="clearResults"
-                >
-                  <X class="size-3.5" />
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card v-else class="border-destructive/30">
-              <CardContent class="flex items-start gap-3 p-4">
-                <XCircle class="mt-0.5 size-5 shrink-0 text-destructive" />
-                <div class="min-w-0 flex-1 space-y-2">
-                  <p class="text-sm font-medium text-destructive">
-                    Mutations Failed
-                  </p>
-                  <p class="text-sm text-muted-foreground">
-                    {{ lastResult.operations_applied }} operation{{ lastResult.operations_applied === 1 ? '' : 's' }} applied before failure.
-                  </p>
-                  <div v-if="lastResult.errors.length > 0" class="space-y-1">
-                    <div
-                      v-for="(error, idx) in lastResult.errors"
-                      :key="idx"
-                      class="flex items-start gap-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs"
-                    >
-                      <AlertTriangle class="mt-0.5 size-3 shrink-0 text-destructive" />
-                      <span class="font-mono">{{ error }}</span>
-                    </div>
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  class="size-7 shrink-0"
-                  @click="clearResults"
-                >
-                  <X class="size-3.5" />
-                </Button>
-              </CardContent>
-            </Card>
-          </template>
+          <!-- Result display is now handled by the floating MutationProgress indicator -->
         </div>
 
         <!-- Right panel (desktop only) -->

@@ -1117,6 +1117,38 @@ class TestHydrateMembers:
                     f"Expected optional_subject_relation=None for user lookup, got {kwargs.get('optional_subject_relation')}"
                 )
 
+    @pytest.mark.asyncio
+    async def test_deduplicates_subjects_from_spicedb(self, repository, mock_authz):
+        """Should deduplicate subjects when SpiceDB returns the same subject twice.
+
+        SpiceDB's LookupSubjects can return the same subject multiple times
+        when the subject relation (group#member) resolves through multiple
+        permission paths (e.g., member = admin + member_relation in the
+        group schema).
+        """
+        group_id = "group-eng"
+
+        async def mock_lookup(
+            resource, relation, subject_type, optional_subject_relation=None
+        ):
+            if relation == "admin" and subject_type == "group":
+                # Simulate SpiceDB returning the same group twice
+                return [
+                    SubjectRelation(subject_id=group_id, relation="admin"),
+                    SubjectRelation(subject_id=group_id, relation="admin"),
+                ]
+            return []
+
+        mock_authz.lookup_subjects.side_effect = mock_lookup
+
+        members = await repository._hydrate_members("workspace-id")
+
+        # Should have exactly 1 entry, not 2
+        assert len(members) == 1
+        assert members[0].member_id == group_id
+        assert members[0].member_type == MemberType.GROUP
+        assert members[0].role == WorkspaceRole.ADMIN
+
 
 class TestSerializerInjection:
     """Tests for serializer dependency injection."""

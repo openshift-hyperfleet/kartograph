@@ -332,13 +332,19 @@ class WorkspaceRepository(IWorkspaceRepository):
         Queries all combinations of roles (ADMIN, EDITOR, MEMBER) and member
         types (USER, GROUP) to fully hydrate workspace membership.
 
+        Uses set-based deduplication because SpiceDB's LookupSubjects can
+        return the same subject multiple times when subject relations resolve
+        through multiple permission paths (e.g., group#member is a permission
+        = admin + member_relation in the schema).
+
         Args:
             workspace_id: The workspace ID to fetch members for
 
         Returns:
-            List of WorkspaceMember value objects
+            List of WorkspaceMember value objects (deduplicated)
         """
-        members = []
+        seen: set[WorkspaceMember] = set()
+        members: list[WorkspaceMember] = []
         workspace_resource = format_resource(ResourceType.WORKSPACE, workspace_id)
 
         # Lookup all subjects with each role and member type combination
@@ -354,12 +360,13 @@ class WorkspaceRepository(IWorkspaceRepository):
                 )
 
                 for subject_relation in subjects:
-                    members.append(
-                        WorkspaceMember(
-                            member_id=subject_relation.subject_id,
-                            member_type=member_type,
-                            role=WorkspaceRole(subject_relation.relation),
-                        )
+                    workspace_member = WorkspaceMember(
+                        member_id=subject_relation.subject_id,
+                        member_type=member_type,
+                        role=WorkspaceRole(subject_relation.relation),
                     )
+                    if workspace_member not in seen:
+                        seen.add(workspace_member)
+                        members.append(workspace_member)
 
         return members

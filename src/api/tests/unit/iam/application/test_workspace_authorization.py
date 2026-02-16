@@ -871,3 +871,51 @@ class TestWorkspaceMemberManagement:
             )
             in result
         )
+
+    @pytest.mark.asyncio
+    async def test_list_members_deduplicates_groups(
+        self,
+        workspace_service: WorkspaceService,
+        mock_authz,
+        user_id,
+        child_workspace,
+    ):
+        """Test that list_members deduplicates groups returned by SpiceDB.
+
+        SpiceDB's LookupSubjects can return the same group multiple times
+        when the subject relation (group#member) resolves through multiple
+        permission paths (e.g., member = admin + member_relation). This
+        test verifies the deduplication logic.
+        """
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        # Simulate SpiceDB returning the same group twice for the admin role
+        # (due to member permission resolving through both admin and member_relation)
+        admin_groups_with_duplicates = [
+            SubjectRelation(subject_id="group-eng", relation="admin"),
+            SubjectRelation(subject_id="group-eng", relation="admin"),
+        ]
+
+        mock_authz.lookup_subjects = AsyncMock(
+            side_effect=[
+                [],  # admin + USER
+                admin_groups_with_duplicates,  # admin + GROUP (with duplicate)
+                [],  # editor + USER
+                [],  # editor + GROUP
+                [],  # member + USER
+                [],  # member + GROUP
+            ]
+        )
+
+        result = await workspace_service.list_members(
+            workspace_id=child_workspace.id,
+            user_id=user_id,
+        )
+
+        # Should have exactly 1 entry, not 2
+        assert len(result) == 1
+        assert result[0] == WorkspaceAccessGrant(
+            member_id="group-eng",
+            member_type=MemberType.GROUP,
+            role=WorkspaceRole.ADMIN,
+        )

@@ -792,8 +792,13 @@ class WorkspaceService:
                 f"{workspace_id.value}"
             )
 
-        # Query SpiceDB for all members across all three roles
+        # Query SpiceDB for all members across all three roles.
+        # Use a set for deduplication -- SpiceDB's LookupSubjects can
+        # return the same subject multiple times when subject relations
+        # resolve through multiple permission paths (e.g., group#member
+        # is a permission = admin + member_relation).
         resource = format_resource(ResourceType.WORKSPACE, workspace_id.value)
+        seen: set[WorkspaceAccessGrant] = set()
         members: list[WorkspaceAccessGrant] = []
 
         for role in WorkspaceRole:
@@ -805,13 +810,14 @@ class WorkspaceService:
             )
 
             for subject_relation in user_subjects:
-                members.append(
-                    WorkspaceAccessGrant(
-                        member_id=subject_relation.subject_id,
-                        member_type=MemberType.USER,
-                        role=role,
-                    )
+                grant = WorkspaceAccessGrant(
+                    member_id=subject_relation.subject_id,
+                    member_type=MemberType.USER,
+                    role=role,
                 )
+                if grant not in seen:
+                    seen.add(grant)
+                    members.append(grant)
 
             # Query groups
             group_subjects = await self._authz.lookup_subjects(
@@ -822,12 +828,13 @@ class WorkspaceService:
             )
 
             for subject_relation in group_subjects:
-                members.append(
-                    WorkspaceAccessGrant(
-                        member_id=subject_relation.subject_id,
-                        member_type=MemberType.GROUP,
-                        role=role,
-                    )
+                grant = WorkspaceAccessGrant(
+                    member_id=subject_relation.subject_id,
+                    member_type=MemberType.GROUP,
+                    role=role,
                 )
+                if grant not in seen:
+                    seen.add(grant)
+                    members.append(grant)
 
         return members

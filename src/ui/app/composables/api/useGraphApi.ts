@@ -16,16 +16,56 @@ export function useGraphApi() {
 
   // ── Mutations ──────────────────────────────────────────────────────────
 
-  function applyMutations(
+  /**
+   * Apply JSONL mutations to the graph.
+   *
+   * Uses native `fetch` instead of `$fetch`/ofetch because large mutation
+   * payloads can take 30+ seconds to process. `$fetch` and browser-level
+   * CORS preflight caching can cause spurious "NetworkError" / CORS failures
+   * on long-running requests. Native `fetch` with explicit signal handling
+   * is more reliable for these cases.
+   */
+  async function applyMutations(
     jsonlContent: string,
     options?: { signal?: AbortSignal },
   ): Promise<MutationResult> {
-    return apiFetch<MutationResult>('/graph/mutations', {
-      method: 'POST',
-      body: jsonlContent,
-      headers: { 'Content-Type': 'application/jsonlines' },
-      signal: options?.signal,
-    })
+    const config = useRuntimeConfig()
+    const { accessToken } = useAuth()
+    const currentTenantId = useState<string | null>('tenant:current', () => null)
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/jsonlines',
+    }
+    if (accessToken.value) {
+      headers['Authorization'] = `Bearer ${accessToken.value}`
+    }
+    if (currentTenantId.value) {
+      headers['X-Tenant-ID'] = currentTenantId.value
+    }
+
+    const response = await fetch(
+      `${config.public.apiBaseUrl}/graph/mutations`,
+      {
+        method: 'POST',
+        headers,
+        body: jsonlContent,
+        signal: options?.signal,
+      },
+    )
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '')
+      let message = `Request failed with status ${response.status}`
+      try {
+        const parsed = JSON.parse(errorBody)
+        if (parsed.detail) message = typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail)
+      } catch {
+        if (errorBody) message = errorBody
+      }
+      throw new Error(message)
+    }
+
+    return response.json() as Promise<MutationResult>
   }
 
   // ── Nodes ──────────────────────────────────────────────────────────────

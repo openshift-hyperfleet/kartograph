@@ -241,18 +241,31 @@ function showAllTemplates() {
   }
 }
 
-function handleSubmit() {
-  if (submitting.value || !editorContent.value.trim()) return
+// Local flag for immediate visual feedback while preparing large file submissions
+const preparing = ref(false)
+
+async function handleSubmit() {
+  if (submitting.value || preparing.value || !editorContent.value.trim()) return
 
   // For large files, skip client-side re-parse and submit raw content directly
   if (isLargeFile.value) {
+    // Show loading state immediately before expensive string processing
+    preparing.value = true
+    const opCount = totalOps.value
+
+    // Yield to let Vue render the loading state on the button
+    await nextTick()
+    await new Promise(resolve => requestAnimationFrame(resolve))
+
+    // Now do the expensive line filtering
     const lines = editorContent.value.split('\n')
     const cleanLines = lines.filter((l) => {
       const t = l.trim()
       return t && !t.startsWith('//') && !t.startsWith('#')
     })
     const body = cleanLines.join('\n')
-    submission.submit(body, totalOps.value)
+    preparing.value = false
+    submission.submit(body, opCount)
     return
   }
 
@@ -706,13 +719,16 @@ onBeforeUnmount(() => {
             <Tooltip>
               <TooltipTrigger as-child>
                 <Button
-                  :disabled="submitting || (!editorContent.trim() && !largeFileMode)"
-                  :class="ctrlHeld && !submitting && (editorContent.trim() || largeFileMode) ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''"
+                  :disabled="submitting || preparing || (!editorContent.trim() && !largeFileMode)"
+                  :class="ctrlHeld && !submitting && !preparing && (editorContent.trim() || largeFileMode) ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''"
                   @click="handleSubmit"
                 >
-                  <Loader2 v-if="submitting" class="mr-2 size-4 animate-spin" />
+                  <Loader2 v-if="submitting || preparing" class="mr-2 size-4 animate-spin" />
                   <Play v-else class="mr-2 size-4" />
-                  <template v-if="submitting">
+                  <template v-if="preparing">
+                    Preparing...
+                  </template>
+                  <template v-else-if="submitting">
                     Applying mutations...
                   </template>
                   <template v-else>

@@ -137,7 +137,7 @@ const statusBorderClass = computed(() => {
       >
         <!-- Indeterminate progress bar during submission -->
         <div v-if="state.status === 'submitting'" class="h-0.5 w-full overflow-hidden bg-primary/20">
-          <div class="h-full w-1/3 animate-[indeterminate_1.5s_ease-in-out_infinite] bg-primary rounded-full" />
+          <div class="h-full w-1/3 bg-primary rounded-full indeterminate-bar" />
         </div>
 
         <!-- Header bar -->
@@ -240,7 +240,11 @@ const statusBorderClass = computed(() => {
 </template>
 
 <style scoped>
-@keyframes indeterminate {
+.indeterminate-bar {
+  animation: indeterminate-slide 1.5s ease-in-out infinite;
+}
+
+@keyframes indeterminate-slide {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(400%); }
 }

@@ -5,9 +5,6 @@ import {
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import {
-  Tooltip, TooltipContent, TooltipTrigger,
-} from '@/components/ui/tooltip'
 
 const { state, dismiss } = useMutationSubmission()
 
@@ -226,16 +223,12 @@ const statusBorderClass = computed(() => {
 
           <!-- Failed state -->
           <template v-else-if="state.status === 'failed'">
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <p class="text-xs text-destructive cursor-default truncate">
-                  {{ truncatedError }}
-                </p>
-              </TooltipTrigger>
-              <TooltipContent side="top" class="max-w-sm">
-                <p class="text-xs break-all">{{ state.error }}</p>
-              </TooltipContent>
-            </Tooltip>
+            <p
+              class="text-xs text-destructive cursor-default truncate"
+              :title="state.error ?? ''"
+            >
+              {{ truncatedError }}
+            </p>
             <p v-if="state.result" class="text-xs text-muted-foreground">
               {{ state.result.operations_applied }} applied before failure
             </p>

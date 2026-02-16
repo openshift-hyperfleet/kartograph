@@ -7,8 +7,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
-import type { LightParsedOperation, WorkerParseResult } from '@/composables/useMutationWorker'
-import type { ParseResult, ParsedOperation } from '@/utils/mutationParser'
+import type { WorkerParseResult, WorkerWarningEntry } from '@/composables/useMutationWorker'
+import type { ParseResult } from '@/utils/mutationParser'
 
 const props = defineProps<{
   workerResult?: WorkerParseResult | null
@@ -29,21 +29,18 @@ interface WarningEntry {
   message: string
 }
 
-const warnings = computed<WarningEntry[]>(() => {
-  const entries: WarningEntry[] = []
+const MAX_DISPLAYED_WARNINGS = 500
 
+const warnings = computed<WarningEntry[]>(() => {
+  // For worker results: use the dedicated warningEntries array which
+  // collects warnings from ALL operations (not just the first 200 preview ops)
   if (props.workerResult) {
-    for (const op of props.workerResult.previewOps) {
-      for (const msg of op.warnings) {
-        entries.push({
-          opIndex: op.index,
-          op: op.op ?? '??',
-          lineStart: op.lineStart,
-          message: msg,
-        })
-      }
-    }
-  } else if (props.parseResult) {
+    return props.workerResult.warningEntries.slice(0, MAX_DISPLAYED_WARNINGS)
+  }
+
+  // For sync parse results: build from operations
+  if (props.parseResult) {
+    const entries: WarningEntry[] = []
     for (const op of props.parseResult.operations) {
       for (const msg of op.warnings) {
         entries.push({
@@ -52,22 +49,22 @@ const warnings = computed<WarningEntry[]>(() => {
           lineStart: op.lineStart,
           message: msg,
         })
+        if (entries.length >= MAX_DISPLAYED_WARNINGS) return entries
       }
     }
+    return entries
   }
 
-  return entries
+  return []
 })
-
-const previewWarningCount = computed(() => warnings.value.length)
 
 const totalWarningCount = computed(() => {
   if (props.workerResult) return props.workerResult.warningCount
-  return previewWarningCount.value
+  return props.parseResult?.operations.reduce((sum, op) => sum + op.warnings.length, 0) ?? 0
 })
 
 const remainingWarnings = computed(() => {
-  return totalWarningCount.value - previewWarningCount.value
+  return totalWarningCount.value - warnings.value.length
 })
 
 // ── Line editor dialog ──────────────────────────────────────────────────────
@@ -145,11 +142,11 @@ function cancelEdit() {
       class="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-2 text-xs text-muted-foreground"
     >
       <AlertTriangle class="size-3 shrink-0" />
-      {{ remainingWarnings.toLocaleString() }} more warning{{ remainingWarnings === 1 ? '' : 's' }} in remaining operations (beyond preview window)
+      Showing {{ warnings.length.toLocaleString() }} of {{ totalWarningCount.toLocaleString() }} warnings
     </div>
 
-    <p v-if="warnings.length === 0" class="text-xs text-muted-foreground py-2 text-center">
-      No warnings found in preview operations.
+    <p v-if="warnings.length === 0 && totalWarningCount === 0" class="text-xs text-muted-foreground py-2 text-center">
+      No warnings found.
     </p>
   </div>
 

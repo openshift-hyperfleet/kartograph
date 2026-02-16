@@ -21,6 +21,14 @@ export interface LightParsedOperation {
   lineStart: number
 }
 
+/** A single warning entry with enough context to locate and edit it */
+export interface WorkerWarningEntry {
+  opIndex: number
+  op: string
+  lineStart: number
+  message: string
+}
+
 export interface WorkerParseResult {
   totalOps: number
   breakdown: { DEFINE: number; CREATE: number; UPDATE: number; DELETE: number; unknown: number }
@@ -29,6 +37,8 @@ export interface WorkerParseResult {
   previewOps: LightParsedOperation[]
   warningCount: number
   hasWarnings: boolean
+  /** All collected warnings (capped at MAX_WARNING_ENTRIES) */
+  warningEntries: WorkerWarningEntry[]
 }
 
 export interface WorkerMessage {
@@ -48,6 +58,7 @@ export interface WorkerResponse {
 
 const VALID_OPS = new Set(['DEFINE', 'CREATE', 'UPDATE', 'DELETE'])
 const ID_PATTERN = /^[0-9a-z_]+:[0-9a-f]{16}$/
+const MAX_WARNING_ENTRIES = 1000
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -126,6 +137,7 @@ function parseAndSummarize(content: string, maxPreview: number = 200): WorkerPar
   const breakdown = { DEFINE: 0, CREATE: 0, UPDATE: 0, DELETE: 0, unknown: 0 }
   const parseErrors: string[] = []
   const previewOps: LightParsedOperation[] = []
+  const warningEntries: WorkerWarningEntry[] = []
   let totalOps = 0
   let warningCount = 0
 
@@ -144,11 +156,21 @@ function parseAndSummarize(content: string, maxPreview: number = 200): WorkerPar
 
     const warnings = validateOperation(obj)
     warningCount += warnings.length
+    const opIndex = totalOps
     totalOps++
+
+    // Collect warning entries (capped) — independently of preview ops
+    if (warnings.length > 0 && warningEntries.length < MAX_WARNING_ENTRIES) {
+      const opStr = VALID_OPS.has(op ?? '') ? (op as string) : (op ?? '??')
+      for (const msg of warnings) {
+        if (warningEntries.length >= MAX_WARNING_ENTRIES) break
+        warningEntries.push({ opIndex, op: opStr, lineStart, message: msg })
+      }
+    }
 
     if (previewOps.length < maxPreview) {
       previewOps.push({
-        index: totalOps - 1,
+        index: opIndex,
         op: VALID_OPS.has(op ?? '') ? (op as OpType) : undefined,
         type: typeof obj.type === 'string' ? (obj.type as EntityType) : undefined,
         label: typeof obj.label === 'string' ? obj.label : undefined,
@@ -194,7 +216,7 @@ function parseAndSummarize(content: string, maxPreview: number = 200): WorkerPar
             processObj(item as Record<string, unknown>, 0)
           }
         })
-        return { totalOps, breakdown, parseErrors, previewOps, warningCount, hasWarnings: warningCount > 0 }
+        return { totalOps, breakdown, parseErrors, previewOps, warningCount, hasWarnings: warningCount > 0, warningEntries }
       }
     }
     catch {
@@ -233,7 +255,7 @@ function parseAndSummarize(content: string, maxPreview: number = 200): WorkerPar
 
   if (accumulator.trim()) flushAccumulator(lines.length - 1)
 
-  return { totalOps, breakdown, parseErrors, previewOps, warningCount, hasWarnings: warningCount > 0 }
+  return { totalOps, breakdown, parseErrors, previewOps, warningCount, hasWarnings: warningCount > 0, warningEntries }
 }
 
 // ── Worker Message Handler ─────────────────────────────────────────────────

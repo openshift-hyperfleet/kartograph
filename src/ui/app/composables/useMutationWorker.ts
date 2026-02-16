@@ -12,6 +12,14 @@ export interface LightParsedOperation {
   lineStart: number
 }
 
+/** A single warning entry with enough context to locate and edit it */
+export interface WorkerWarningEntry {
+  opIndex: number
+  op: string
+  lineStart: number
+  message: string
+}
+
 export interface WorkerParseResult {
   totalOps: number
   breakdown: { DEFINE: number; CREATE: number; UPDATE: number; DELETE: number; unknown: number }
@@ -19,6 +27,8 @@ export interface WorkerParseResult {
   previewOps: LightParsedOperation[]
   warningCount: number
   hasWarnings: boolean
+  /** All collected warnings (capped at 1000) */
+  warningEntries: WorkerWarningEntry[]
 }
 
 /** Content size threshold: above this, use the worker for parsing */

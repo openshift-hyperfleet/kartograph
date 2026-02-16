@@ -723,16 +723,18 @@ class SpiceDBClient(AuthorizationProvider):
         resource_type, resource_id = _parse_reference(resource, "resource")
 
         try:
-            request = LookupSubjectsRequest(
-                consistency=Consistency(fully_consistent=True),
-                resource=ObjectReference(
+            request_kwargs: dict = {
+                "consistency": Consistency(fully_consistent=True),
+                "resource": ObjectReference(
                     object_type=resource_type,
                     object_id=resource_id,
                 ),
-                permission=relation,
-                subject_object_type=subject_type,
-                optional_subject_relation=optional_subject_relation or "",
-            )
+                "permission": relation,
+                "subject_object_type": subject_type,
+            }
+            if optional_subject_relation:
+                request_kwargs["optional_subject_relation"] = optional_subject_relation
+            request = LookupSubjectsRequest(**request_kwargs)
 
             subjects = []
             async for response in self._client.LookupSubjects(request):
@@ -741,7 +743,7 @@ class SpiceDBClient(AuthorizationProvider):
                 subjects.append(
                     SubjectRelation(
                         subject_id=response.subject_object_id,
-                        relation=relation,
+                        relation=optional_subject_relation or relation,
                     )
                 )
 

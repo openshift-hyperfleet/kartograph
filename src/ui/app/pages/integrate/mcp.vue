@@ -45,6 +45,7 @@ const { createApiKey, listApiKeys } = useIamApi()
 const { currentTenantId } = useApiClient()
 const { extractErrorMessage } = useErrorHandler()
 const { hasTenant, tenantVersion } = useTenant()
+const transientSecret = useTransientSecret()
 const config = useRuntimeConfig()
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -172,6 +173,26 @@ async function loadKeys() {
 }
 
 onMounted(() => {
+  // If a secret was passed from the API Keys page, consume it and
+  // populate newlyCreatedKey so the config blocks show the real secret.
+  const transferred = transientSecret.consume()
+  if (transferred) {
+    // Build a synthetic APIKeyCreatedResponse with the fields the
+    // template actually uses (name + secret). The remaining fields
+    // are placeholders — they are not rendered on this page.
+    newlyCreatedKey.value = {
+      id: '',
+      name: transferred.keyName ?? 'Transferred Key',
+      prefix: '',
+      created_by_user_id: '',
+      created_at: new Date().toISOString(),
+      expires_at: new Date().toISOString(),
+      last_used_at: null,
+      is_revoked: false,
+      secret: transferred.secret,
+    }
+  }
+
   if (hasTenant.value) loadKeys()
 })
 

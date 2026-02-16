@@ -151,23 +151,23 @@ const { view: editorView, focus: focusEditor } = useCodemirror(
 // Also handles the persisted-content case: when the page loads with content
 // from useState, isEmpty is already false so no transition happens.
 // We watch editorView being created and trigger a delayed re-measure.
-function scheduleRemeasure() {
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      editorView.value?.requestMeasure()
-      // Retry after a short delay — browser may not have painted yet
-      setTimeout(() => editorView.value?.requestMeasure(), 100)
-    })
-  })
-}
-
+// When the editor transitions from invisible (h-0) to visible, CM needs to
+// re-measure because it was laid out inside a height:0 container.
 watch(isEmpty, (newVal, oldVal) => {
-  if (oldVal && !newVal) scheduleRemeasure()
+  if (oldVal && !newVal && editorView.value) {
+    nextTick(() => {
+      editorView.value?.requestMeasure()
+    })
+  }
 })
 
-// When CM view is created with existing content, schedule a re-measure
+// When CM view is created with existing content (persisted state), re-measure
 watch(editorView, (view) => {
-  if (view && editorContent.value.trim()) scheduleRemeasure()
+  if (view && editorContent.value.trim()) {
+    nextTick(() => {
+      view.requestMeasure()
+    })
+  }
 })
 
 // ── Live Preview (hybrid: sync for small, worker for large) ────────────────
@@ -530,8 +530,16 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Active state (editor has content) — always rendered so CodeMirror mounts -->
-    <div v-if="hasTenant" v-show="!isEmpty || largeFileMode" class="space-y-4">
+    <!-- Active state (editor has content) — uses off-screen positioning instead of
+         display:none so CodeMirror always has a fully-dimensioned layout box.
+         When empty, the div is positioned absolutely off-screen with 0 opacity. -->
+    <div
+      v-if="hasTenant"
+      class="space-y-4"
+      :class="isEmpty && !largeFileMode
+        ? 'absolute -left-[9999px] opacity-0 pointer-events-none w-full'
+        : 'relative'"
+    >
       <!-- Upload progress bar -->
       <Card v-if="uploadProgress !== null" class="border-primary/30">
         <CardContent class="p-4 space-y-2">

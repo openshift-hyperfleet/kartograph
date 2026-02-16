@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { toast } from 'vue-sonner'
+import { useVirtualizer } from '@tanstack/vue-virtual'
 import {
   Database, GitBranch, Search, Loader2, Info, ChevronRight, ChevronDown,
   Building2, Terminal, Share2, FileCode, Plus,
@@ -46,6 +47,10 @@ const searchInputRef = ref<InstanceType<typeof Input> | null>(null)
 const expandedLabels = reactive(new Set<string>())
 const schemaCache = reactive(new Map<string, TypeDefinition>())
 const schemaLoadingLabels = reactive(new Set<string>())
+
+// Virtual scroll container refs (virtualizers defined after filtered computeds)
+const nodeScrollRef = ref<HTMLElement | null>(null)
+const edgeScrollRef = ref<HTMLElement | null>(null)
 
 // ── Data loading ───────────────────────────────────────────────────────────
 
@@ -115,18 +120,38 @@ const filteredEdgeLabels = computed(() => {
   })
 })
 
+// ── Virtual scrolling (must come after filtered computeds) ──────────────────
+
+const nodeVirtualizer = useVirtualizer(computed(() => ({
+  count: filteredNodeLabels.value.length,
+  getScrollElement: () => nodeScrollRef.value,
+  estimateSize: () => 44,
+  overscan: 10,
+})))
+
+const edgeVirtualizer = useVirtualizer(computed(() => ({
+  count: filteredEdgeLabels.value.length,
+  getScrollElement: () => edgeScrollRef.value,
+  estimateSize: () => 44,
+  overscan: 10,
+})))
+
 // ── Inline Expand ──────────────────────────────────────────────────────────
 
 function toggleExpand(label: string, entityType: 'node' | 'edge') {
   if (expandedLabels.has(label)) {
     expandedLabels.delete(label)
-    return
+  } else {
+    expandedLabels.add(label)
+    if (!schemaCache.has(label)) {
+      fetchLabelSchema(label, entityType)
+    }
   }
-
-  expandedLabels.add(label)
-  if (!schemaCache.has(label)) {
-    fetchLabelSchema(label, entityType)
-  }
+  // Force re-measurement after DOM update for variable-height rows
+  nextTick(() => {
+    nodeVirtualizer.value.measure()
+    edgeVirtualizer.value.measure()
+  })
 }
 
 async function fetchLabelSchema(label: string, entityType: 'node' | 'edge') {
@@ -143,6 +168,11 @@ async function fetchLabelSchema(label: string, entityType: 'node' | 'edge') {
     expandedLabels.delete(label)
   } finally {
     schemaLoadingLabels.delete(label)
+    // Re-measure after schema content loads
+    nextTick(() => {
+      nodeVirtualizer.value.measure()
+      edgeVirtualizer.value.measure()
+    })
   }
 }
 
@@ -323,139 +353,162 @@ onUnmounted(() => {
             </CardContent>
           </Card>
 
-          <!-- Label list -->
-          <div v-else role="list" aria-label="Node types" class="max-h-[calc(100vh-16rem)] space-y-1 overflow-y-auto">
-            <div v-for="label in filteredNodeLabels" :key="label" role="listitem">
-              <!-- Type row -->
+          <!-- Label list (virtualized) -->
+          <div
+            v-else
+            ref="nodeScrollRef"
+            role="list"
+            aria-label="Node types"
+            class="max-h-[calc(100vh-16rem)] overflow-y-auto"
+          >
+            <div
+              :style="{ height: `${nodeVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }"
+            >
               <div
-                class="group flex w-full items-center gap-1 rounded-md border px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent"
+                v-for="virtualRow in nodeVirtualizer.getVirtualItems()"
+                :key="filteredNodeLabels[virtualRow.index]"
+                :ref="(el) => nodeVirtualizer.measureElement(el as Element)"
+                :data-index="virtualRow.index"
+                role="listitem"
+                :style="{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualRow.start}px)`,
+                }"
               >
-                <!-- Expand chevron -->
-                <button
-                  class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-                  :aria-expanded="expandedLabels.has(label)"
-                  :aria-label="`Expand properties for ${label}`"
-                  @click="toggleExpand(label, 'node')"
+                <!-- Type row -->
+                <div
+                  class="group flex w-full items-center gap-1 rounded-md border px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent"
                 >
-                  <Loader2 v-if="schemaLoadingLabels.has(label)" class="size-3.5 animate-spin" />
-                  <ChevronDown v-else-if="expandedLabels.has(label)" class="size-3.5" />
-                  <ChevronRight v-else class="size-3.5" />
-                </button>
-
-                <!-- Label name (clickable to expand) -->
-                <button
-                  class="flex min-w-0 flex-1 items-center gap-2"
-                  @click="toggleExpand(label, 'node')"
-                >
-                  <Badge variant="default" class="shrink-0">Node</Badge>
-                  <CopyableText :text="label" label="Type label copied" :truncate="false" />
-                </button>
-
-                <!-- Contextual action buttons -->
-                <div class="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        class="size-7"
-                        @click.stop="navigateToQuery(label, 'node')"
-                      >
-                        <Terminal class="size-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent><p>Query instances</p></TooltipContent>
-                  </Tooltip>
-
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        class="size-7"
-                        @click.stop="navigateToExplorer(label)"
-                      >
-                        <Share2 class="size-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent><p>Explore instances</p></TooltipContent>
-                  </Tooltip>
-
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        class="size-7"
-                        @click.stop="navigateToMutations(label, 'node')"
-                      >
-                        <FileCode class="size-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent><p>Edit type definition</p></TooltipContent>
-                  </Tooltip>
-                </div>
-              </div>
-
-              <!-- Expanded properties (inline) -->
-              <div
-                v-if="expandedLabels.has(label)"
-                class="ml-7 mt-1 mb-2 rounded-md border bg-muted/30 p-3"
-              >
-                <div v-if="schemaLoadingLabels.has(label)" class="flex items-center gap-2 py-2">
-                  <Loader2 class="size-3.5 animate-spin text-muted-foreground" />
-                  <span class="text-sm text-muted-foreground">Loading properties...</span>
-                </div>
-                <template v-else-if="schemaCache.has(label)">
-                  <!-- Description -->
-                  <p
-                    v-if="schemaCache.get(label)!.description"
-                    class="mb-3 text-sm text-muted-foreground"
+                  <!-- Expand chevron -->
+                  <button
+                    class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                    :aria-expanded="expandedLabels.has(filteredNodeLabels[virtualRow.index])"
+                    :aria-label="`Expand properties for ${filteredNodeLabels[virtualRow.index]}`"
+                    @click="toggleExpand(filteredNodeLabels[virtualRow.index], 'node')"
                   >
-                    {{ schemaCache.get(label)!.description }}
-                  </p>
+                    <Loader2 v-if="schemaLoadingLabels.has(filteredNodeLabels[virtualRow.index])" class="size-3.5 animate-spin" />
+                    <ChevronDown v-else-if="expandedLabels.has(filteredNodeLabels[virtualRow.index])" class="size-3.5" />
+                    <ChevronRight v-else class="size-3.5" />
+                  </button>
 
-                  <!-- No properties -->
-                  <p
-                    v-if="schemaCache.get(label)!.required_properties.length === 0 && schemaCache.get(label)!.optional_properties.length === 0"
-                    class="text-sm text-muted-foreground"
+                  <!-- Label name (clickable to expand) -->
+                  <button
+                    class="flex min-w-0 flex-1 items-center gap-2"
+                    @click="toggleExpand(filteredNodeLabels[virtualRow.index], 'node')"
                   >
-                    No properties defined.
-                  </p>
+                    <Badge variant="default" class="shrink-0">Node</Badge>
+                    <CopyableText :text="filteredNodeLabels[virtualRow.index]" label="Type label copied" :truncate="false" />
+                  </button>
 
-                  <!-- Properties table -->
-                  <div
-                    v-else
-                    class="rounded-md border"
-                  >
-                    <Table>
-                      <TableBody>
-                        <TableRow
-                          v-for="prop in schemaCache.get(label)!.required_properties"
-                          :key="`req-${prop}`"
+                  <!-- Contextual action buttons -->
+                  <div class="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          class="size-7"
+                          @click.stop="navigateToQuery(filteredNodeLabels[virtualRow.index], 'node')"
                         >
-                          <TableCell class="py-1.5 font-mono text-xs">
-                            {{ prop }}
-                          </TableCell>
-                          <TableCell class="w-24 py-1.5 text-right">
-                            <Badge variant="default" class="text-[10px]">Required</Badge>
-                          </TableCell>
-                        </TableRow>
-                        <TableRow
-                          v-for="prop in schemaCache.get(label)!.optional_properties"
-                          :key="`opt-${prop}`"
+                          <Terminal class="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent><p>Query instances</p></TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          class="size-7"
+                          @click.stop="navigateToExplorer(filteredNodeLabels[virtualRow.index])"
                         >
-                          <TableCell class="py-1.5 font-mono text-xs">
-                            {{ prop }}
-                          </TableCell>
-                          <TableCell class="w-24 py-1.5 text-right">
-                            <Badge variant="secondary" class="text-[10px]">Optional</Badge>
-                          </TableCell>
-                        </TableRow>
-                      </TableBody>
-                    </Table>
+                          <Share2 class="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent><p>Explore instances</p></TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          class="size-7"
+                          @click.stop="navigateToMutations(filteredNodeLabels[virtualRow.index], 'node')"
+                        >
+                          <FileCode class="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent><p>Edit type definition</p></TooltipContent>
+                    </Tooltip>
                   </div>
-                </template>
+                </div>
+
+                <!-- Expanded properties (inline) -->
+                <div
+                  v-if="expandedLabels.has(filteredNodeLabels[virtualRow.index])"
+                  class="ml-7 mt-1 mb-2 rounded-md border bg-muted/30 p-3"
+                >
+                  <div v-if="schemaLoadingLabels.has(filteredNodeLabels[virtualRow.index])" class="flex items-center gap-2 py-2">
+                    <Loader2 class="size-3.5 animate-spin text-muted-foreground" />
+                    <span class="text-sm text-muted-foreground">Loading properties...</span>
+                  </div>
+                  <template v-else-if="schemaCache.has(filteredNodeLabels[virtualRow.index])">
+                    <!-- Description -->
+                    <p
+                      v-if="schemaCache.get(filteredNodeLabels[virtualRow.index])!.description"
+                      class="mb-3 text-sm text-muted-foreground"
+                    >
+                      {{ schemaCache.get(filteredNodeLabels[virtualRow.index])!.description }}
+                    </p>
+
+                    <!-- No properties -->
+                    <p
+                      v-if="schemaCache.get(filteredNodeLabels[virtualRow.index])!.required_properties.length === 0 && schemaCache.get(filteredNodeLabels[virtualRow.index])!.optional_properties.length === 0"
+                      class="text-sm text-muted-foreground"
+                    >
+                      No properties defined.
+                    </p>
+
+                    <!-- Properties table -->
+                    <div
+                      v-else
+                      class="rounded-md border"
+                    >
+                      <Table>
+                        <TableBody>
+                          <TableRow
+                            v-for="prop in schemaCache.get(filteredNodeLabels[virtualRow.index])!.required_properties"
+                            :key="`req-${prop}`"
+                          >
+                            <TableCell class="py-1.5 font-mono text-xs">
+                              {{ prop }}
+                            </TableCell>
+                            <TableCell class="w-24 py-1.5 text-right">
+                              <Badge variant="default" class="text-[10px]">Required</Badge>
+                            </TableCell>
+                          </TableRow>
+                          <TableRow
+                            v-for="prop in schemaCache.get(filteredNodeLabels[virtualRow.index])!.optional_properties"
+                            :key="`opt-${prop}`"
+                          >
+                            <TableCell class="py-1.5 font-mono text-xs">
+                              {{ prop }}
+                            </TableCell>
+                            <TableCell class="w-24 py-1.5 text-right">
+                              <Badge variant="secondary" class="text-[10px]">Optional</Badge>
+                            </TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </template>
+                </div>
               </div>
             </div>
           </div>
@@ -495,125 +548,148 @@ onUnmounted(() => {
             </CardContent>
           </Card>
 
-          <!-- Label list -->
-          <div v-else role="list" aria-label="Edge types" class="max-h-[calc(100vh-16rem)] space-y-1 overflow-y-auto">
-            <div v-for="label in filteredEdgeLabels" :key="label" role="listitem">
-              <!-- Type row -->
+          <!-- Label list (virtualized) -->
+          <div
+            v-else
+            ref="edgeScrollRef"
+            role="list"
+            aria-label="Edge types"
+            class="max-h-[calc(100vh-16rem)] overflow-y-auto"
+          >
+            <div
+              :style="{ height: `${edgeVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }"
+            >
               <div
-                class="group flex w-full items-center gap-1 rounded-md border px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent"
+                v-for="virtualRow in edgeVirtualizer.getVirtualItems()"
+                :key="filteredEdgeLabels[virtualRow.index]"
+                :ref="(el) => edgeVirtualizer.measureElement(el as Element)"
+                :data-index="virtualRow.index"
+                role="listitem"
+                :style="{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualRow.start}px)`,
+                }"
               >
-                <!-- Expand chevron -->
-                <button
-                  class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-                  :aria-expanded="expandedLabels.has(label)"
-                  :aria-label="`Expand properties for ${label}`"
-                  @click="toggleExpand(label, 'edge')"
+                <!-- Type row -->
+                <div
+                  class="group flex w-full items-center gap-1 rounded-md border px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent"
                 >
-                  <Loader2 v-if="schemaLoadingLabels.has(label)" class="size-3.5 animate-spin" />
-                  <ChevronDown v-else-if="expandedLabels.has(label)" class="size-3.5" />
-                  <ChevronRight v-else class="size-3.5" />
-                </button>
-
-                <!-- Label name (clickable to expand) -->
-                <button
-                  class="flex min-w-0 flex-1 items-center gap-2"
-                  @click="toggleExpand(label, 'edge')"
-                >
-                  <Badge variant="outline" class="shrink-0">Edge</Badge>
-                  <CopyableText :text="label" label="Type label copied" :truncate="false" />
-                </button>
-
-                <!-- Contextual action buttons -->
-                <div class="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        class="size-7"
-                        @click.stop="navigateToQuery(label, 'edge')"
-                      >
-                        <Terminal class="size-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent><p>Query instances</p></TooltipContent>
-                  </Tooltip>
-
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        class="size-7"
-                        @click.stop="navigateToMutations(label, 'edge')"
-                      >
-                        <FileCode class="size-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent><p>Edit type definition</p></TooltipContent>
-                  </Tooltip>
-                </div>
-              </div>
-
-              <!-- Expanded properties (inline) -->
-              <div
-                v-if="expandedLabels.has(label)"
-                class="ml-7 mt-1 mb-2 rounded-md border bg-muted/30 p-3"
-              >
-                <div v-if="schemaLoadingLabels.has(label)" class="flex items-center gap-2 py-2">
-                  <Loader2 class="size-3.5 animate-spin text-muted-foreground" />
-                  <span class="text-sm text-muted-foreground">Loading properties...</span>
-                </div>
-                <template v-else-if="schemaCache.has(label)">
-                  <!-- Description -->
-                  <p
-                    v-if="schemaCache.get(label)!.description"
-                    class="mb-3 text-sm text-muted-foreground"
+                  <!-- Expand chevron -->
+                  <button
+                    class="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                    :aria-expanded="expandedLabels.has(filteredEdgeLabels[virtualRow.index])"
+                    :aria-label="`Expand properties for ${filteredEdgeLabels[virtualRow.index]}`"
+                    @click="toggleExpand(filteredEdgeLabels[virtualRow.index], 'edge')"
                   >
-                    {{ schemaCache.get(label)!.description }}
-                  </p>
+                    <Loader2 v-if="schemaLoadingLabels.has(filteredEdgeLabels[virtualRow.index])" class="size-3.5 animate-spin" />
+                    <ChevronDown v-else-if="expandedLabels.has(filteredEdgeLabels[virtualRow.index])" class="size-3.5" />
+                    <ChevronRight v-else class="size-3.5" />
+                  </button>
 
-                  <!-- No properties -->
-                  <p
-                    v-if="schemaCache.get(label)!.required_properties.length === 0 && schemaCache.get(label)!.optional_properties.length === 0"
-                    class="text-sm text-muted-foreground"
+                  <!-- Label name (clickable to expand) -->
+                  <button
+                    class="flex min-w-0 flex-1 items-center gap-2"
+                    @click="toggleExpand(filteredEdgeLabels[virtualRow.index], 'edge')"
                   >
-                    No properties defined.
-                  </p>
+                    <Badge variant="outline" class="shrink-0">Edge</Badge>
+                    <CopyableText :text="filteredEdgeLabels[virtualRow.index]" label="Type label copied" :truncate="false" />
+                  </button>
 
-                  <!-- Properties table -->
-                  <div
-                    v-else
-                    class="rounded-md border"
-                  >
-                    <Table>
-                      <TableBody>
-                        <TableRow
-                          v-for="prop in schemaCache.get(label)!.required_properties"
-                          :key="`req-${prop}`"
+                  <!-- Contextual action buttons -->
+                  <div class="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          class="size-7"
+                          @click.stop="navigateToQuery(filteredEdgeLabels[virtualRow.index], 'edge')"
                         >
-                          <TableCell class="py-1.5 font-mono text-xs">
-                            {{ prop }}
-                          </TableCell>
-                          <TableCell class="w-24 py-1.5 text-right">
-                            <Badge variant="default" class="text-[10px]">Required</Badge>
-                          </TableCell>
-                        </TableRow>
-                        <TableRow
-                          v-for="prop in schemaCache.get(label)!.optional_properties"
-                          :key="`opt-${prop}`"
+                          <Terminal class="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent><p>Query instances</p></TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          class="size-7"
+                          @click.stop="navigateToMutations(filteredEdgeLabels[virtualRow.index], 'edge')"
                         >
-                          <TableCell class="py-1.5 font-mono text-xs">
-                            {{ prop }}
-                          </TableCell>
-                          <TableCell class="w-24 py-1.5 text-right">
-                            <Badge variant="secondary" class="text-[10px]">Optional</Badge>
-                          </TableCell>
-                        </TableRow>
-                      </TableBody>
-                    </Table>
+                          <FileCode class="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent><p>Edit type definition</p></TooltipContent>
+                    </Tooltip>
                   </div>
-                </template>
+                </div>
+
+                <!-- Expanded properties (inline) -->
+                <div
+                  v-if="expandedLabels.has(filteredEdgeLabels[virtualRow.index])"
+                  class="ml-7 mt-1 mb-2 rounded-md border bg-muted/30 p-3"
+                >
+                  <div v-if="schemaLoadingLabels.has(filteredEdgeLabels[virtualRow.index])" class="flex items-center gap-2 py-2">
+                    <Loader2 class="size-3.5 animate-spin text-muted-foreground" />
+                    <span class="text-sm text-muted-foreground">Loading properties...</span>
+                  </div>
+                  <template v-else-if="schemaCache.has(filteredEdgeLabels[virtualRow.index])">
+                    <!-- Description -->
+                    <p
+                      v-if="schemaCache.get(filteredEdgeLabels[virtualRow.index])!.description"
+                      class="mb-3 text-sm text-muted-foreground"
+                    >
+                      {{ schemaCache.get(filteredEdgeLabels[virtualRow.index])!.description }}
+                    </p>
+
+                    <!-- No properties -->
+                    <p
+                      v-if="schemaCache.get(filteredEdgeLabels[virtualRow.index])!.required_properties.length === 0 && schemaCache.get(filteredEdgeLabels[virtualRow.index])!.optional_properties.length === 0"
+                      class="text-sm text-muted-foreground"
+                    >
+                      No properties defined.
+                    </p>
+
+                    <!-- Properties table -->
+                    <div
+                      v-else
+                      class="rounded-md border"
+                    >
+                      <Table>
+                        <TableBody>
+                          <TableRow
+                            v-for="prop in schemaCache.get(filteredEdgeLabels[virtualRow.index])!.required_properties"
+                            :key="`req-${prop}`"
+                          >
+                            <TableCell class="py-1.5 font-mono text-xs">
+                              {{ prop }}
+                            </TableCell>
+                            <TableCell class="w-24 py-1.5 text-right">
+                              <Badge variant="default" class="text-[10px]">Required</Badge>
+                            </TableCell>
+                          </TableRow>
+                          <TableRow
+                            v-for="prop in schemaCache.get(filteredEdgeLabels[virtualRow.index])!.optional_properties"
+                            :key="`opt-${prop}`"
+                          >
+                            <TableCell class="py-1.5 font-mono text-xs">
+                              {{ prop }}
+                            </TableCell>
+                            <TableCell class="w-24 py-1.5 text-right">
+                              <Badge variant="secondary" class="text-[10px]">Optional</Badge>
+                            </TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </template>
+                </div>
               </div>
             </div>
           </div>

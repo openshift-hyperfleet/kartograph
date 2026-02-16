@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { keymap, lineNumbers } from '@codemirror/view'
 import { Prec, type Extension } from '@codemirror/state'
@@ -121,6 +121,20 @@ const { view: editorView, focus: focusEditor } = useCodemirror(
   editorContent,
   cmExtensions,
 )
+
+// Force CodeMirror to re-measure when the editor container becomes visible.
+// The active-state div uses v-show="!isEmpty", so CodeMirror mounts inside a
+// display:none container and calculates zero dimensions. When isEmpty flips to
+// false the container becomes visible but CM doesn't know — we must tell it.
+watch(isEmpty, (newVal, oldVal) => {
+  if (oldVal && !newVal) {
+    nextTick(() => {
+      requestAnimationFrame(() => {
+        editorView.value?.requestMeasure()
+      })
+    })
+  }
+})
 
 // ── Live Preview ───────────────────────────────────────────────────────────
 

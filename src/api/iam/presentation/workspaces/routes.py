@@ -349,9 +349,15 @@ async def add_workspace_member(
             detail="Insufficient permissions to manage workspace members",
         )
     except (ValueError, TypeError) as e:
+        error_msg = str(e)
+        if "not found" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=error_msg,
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=error_msg,
         )
     except UnauthorizedError:
         raise HTTPException(
@@ -574,9 +580,15 @@ async def update_workspace_member_role(
             detail="Insufficient permissions to manage workspace members",
         )
     except (ValueError, TypeError, RuntimeError) as e:
+        error_msg = str(e)
+        if "not found" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=error_msg,
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=error_msg,
         )
     except UnauthorizedError:
         raise HTTPException(
@@ -646,9 +658,15 @@ async def update_workspace(
             detail=str(e),
         )
     except (ValueError, TypeError) as e:
+        error_msg = str(e)
+        if "not found" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=error_msg,
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=error_msg,
         )
     except UnauthorizedError:
         raise HTTPException(

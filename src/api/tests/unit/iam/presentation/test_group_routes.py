@@ -437,7 +437,7 @@ class TestUpdateGroupRoute:
         test_client: TestClient,
         mock_group_service: AsyncMock,
     ) -> None:
-        """Test PATCH /groups/{id} returns 400 on ValueError."""
+        """Test PATCH /groups/{id} returns 404 when group not found."""
         group_id = GroupId.generate()
         mock_group_service.update_group.side_effect = ValueError("Group not found")
 
@@ -446,7 +446,7 @@ class TestUpdateGroupRoute:
             json={"name": "New Name"},
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_update_group_returns_400_for_invalid_group_id(
         self,

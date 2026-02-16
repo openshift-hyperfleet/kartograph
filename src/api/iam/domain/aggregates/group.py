@@ -231,7 +231,7 @@ class Group:
         Raises:
             ValueError: If name is invalid or unchanged
         """
-        if not new_name or len(new_name) < 1 or len(new_name) > 255:
+        if not new_name or len(new_name) > 255:
             raise ValueError("Group name must be between 1 and 255 characters")
 
         if new_name == self.name:

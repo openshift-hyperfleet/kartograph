@@ -222,7 +222,7 @@ class TestAddWorkspaceMember:
         mock_workspace_service: AsyncMock,
         workspace: Workspace,
     ) -> None:
-        """Test POST returns 400 when service raises ValueError (e.g., workspace not found)."""
+        """Test POST returns 404 when service raises ValueError for workspace not found."""
         mock_workspace_service.add_member.side_effect = ValueError(
             f"Workspace {workspace.id.value} not found"
         )
@@ -236,7 +236,7 @@ class TestAddWorkspaceMember:
             },
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_404_NOT_FOUND
         assert "not found" in response.json()["detail"].lower()
 
     def test_returns_422_for_invalid_member_type(

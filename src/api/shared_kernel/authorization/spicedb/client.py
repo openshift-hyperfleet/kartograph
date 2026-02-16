@@ -144,6 +144,31 @@ def _parse_subject_reference(ref: str) -> tuple[str, str, str | None]:
     return (type_part, id_part, None)
 
 
+def _build_subject_reference(
+    subject_type: str, subject_id: str, subject_relation: str | None = None
+) -> SubjectReference:
+    """Build a SubjectReference with optional relation.
+
+    Args:
+        subject_type: Type of the subject (e.g., "user", "group")
+        subject_id: ID of the subject
+        subject_relation: Optional relation suffix (e.g., "member" for group#member)
+
+    Returns:
+        SubjectReference object for SpiceDB API calls
+    """
+    obj_ref = ObjectReference(
+        object_type=subject_type,
+        object_id=subject_id,
+    )
+    if subject_relation:
+        return SubjectReference(
+            object=obj_ref,
+            optional_relation=subject_relation,
+        )
+    return SubjectReference(object=obj_ref)
+
+
 def _build_relationship_update(
     resource: str, relation: str, subject: str, operation: RelationshipOperation
 ) -> RelationshipUpdate:
@@ -161,20 +186,7 @@ def _build_relationship_update(
     resource_type, resource_id = _parse_reference(resource, "resource")
     subject_type, subject_id, subject_relation = _parse_subject_reference(subject)
 
-    subject_ref = SubjectReference(
-        object=ObjectReference(
-            object_type=subject_type,
-            object_id=subject_id,
-        ),
-    )
-    if subject_relation:
-        subject_ref = SubjectReference(
-            object=ObjectReference(
-                object_type=subject_type,
-                object_id=subject_id,
-            ),
-            optional_relation=subject_relation,
-        )
+    subject_ref = _build_subject_reference(subject_type, subject_id, subject_relation)
 
     relationship = Relationship(
         resource=ObjectReference(
@@ -281,23 +293,10 @@ class SpiceDBClient(AuthorizationProvider):
         subject_type, subject_id, subject_relation = _parse_subject_reference(subject)
 
         try:
-            # Build subject reference with optional relation
-            subject_ref = SubjectReference(
-                object=ObjectReference(
-                    object_type=subject_type,
-                    object_id=subject_id,
-                ),
+            subject_ref = _build_subject_reference(
+                subject_type, subject_id, subject_relation
             )
-            if subject_relation:
-                subject_ref = SubjectReference(
-                    object=ObjectReference(
-                        object_type=subject_type,
-                        object_id=subject_id,
-                    ),
-                    optional_relation=subject_relation,
-                )
 
-            # Create relationship update
             relationship = Relationship(
                 resource=ObjectReference(
                     object_type=resource_type,
@@ -536,21 +535,9 @@ class SpiceDBClient(AuthorizationProvider):
         subject_type, subject_id, subject_relation = _parse_subject_reference(subject)
 
         try:
-            # Build subject reference with optional relation
-            subject_ref = SubjectReference(
-                object=ObjectReference(
-                    object_type=subject_type,
-                    object_id=subject_id,
-                ),
+            subject_ref = _build_subject_reference(
+                subject_type, subject_id, subject_relation
             )
-            if subject_relation:
-                subject_ref = SubjectReference(
-                    object=ObjectReference(
-                        object_type=subject_type,
-                        object_id=subject_id,
-                    ),
-                    optional_relation=subject_relation,
-                )
 
             relationship = Relationship(
                 resource=ObjectReference(

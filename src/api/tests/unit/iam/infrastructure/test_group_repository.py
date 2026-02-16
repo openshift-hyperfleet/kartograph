@@ -13,7 +13,7 @@ from iam.infrastructure.models import GroupModel
 from iam.ports.exceptions import DuplicateGroupNameError
 from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
-from shared_kernel.authorization.types import SubjectRelation
+from shared_kernel.authorization.types import RelationshipTuple
 
 
 @pytest.fixture
@@ -35,6 +35,7 @@ def mock_authz():
     authz.lookup_subjects = AsyncMock(return_value=[])
     authz.lookup_resources = AsyncMock(return_value=[])
     authz.check_permission = AsyncMock(return_value=False)
+    authz.read_relationships = AsyncMock(return_value=[])
     return authz
 
 
@@ -203,8 +204,8 @@ class TestGetById:
     ):
         """Should return group with members loaded from SpiceDB.
 
-        The repository queries SpiceDB for ``admin`` and ``member_relation``
-        relations (not ``member`` which is now a permission in the schema).
+        The repository uses read_relationships to fetch explicit tuples,
+        not lookup_subjects which computes permissions.
         """
         group_id = GroupId.generate()
         tenant_id = TenantId.generate()
@@ -218,17 +219,16 @@ class TestGetById:
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        # Mock SpiceDB members - return members only for ADMIN relation, empty for others
-        async def mock_lookup(resource, relation, subject_type):
-            if relation == GroupRole.ADMIN.value:
-                return [
-                    SubjectRelation(
-                        subject_id=user_id.value, relation=GroupRole.ADMIN.value
-                    )
-                ]
-            return []
-
-        mock_authz.lookup_subjects.side_effect = mock_lookup
+        # Mock SpiceDB ReadRelationships: user is an admin
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=f"group:{group_id.value}",
+                    relation="admin",
+                    subject=f"user:{user_id.value}",
+                )
+            ]
+        )
 
         result = await repository.get_by_id(group_id)
 
@@ -403,3 +403,107 @@ class TestSerializerInjection:
         )
 
         assert isinstance(repository._serializer, IAMEventSerializer)
+
+
+class TestHydrateMembers:
+    """Tests for _hydrate_members method using read_relationships."""
+
+    @pytest.mark.asyncio
+    async def test_calls_read_relationships_once(self, repository, mock_authz):
+        """Should call read_relationships once with the group resource."""
+        mock_authz.read_relationships.return_value = []
+
+        await repository._hydrate_members("group-id")
+
+        # Single call to read_relationships (replaces 2 lookup_subjects calls)
+        mock_authz.read_relationships.assert_called_once_with(
+            resource_type="group",
+            resource_id="group-id",
+        )
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_when_no_members(self, repository, mock_authz):
+        """Should return empty list when group has no members."""
+        mock_authz.read_relationships.return_value = []
+
+        members = await repository._hydrate_members("group-id")
+
+        assert members == []
+
+    @pytest.mark.asyncio
+    async def test_returns_correct_group_member_objects(self, repository, mock_authz):
+        """Should return GroupMember value objects with correct roles."""
+        admin_user_id = "user-alice"
+        member_user_id = "user-bob"
+
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource="group:group-id",
+                    relation="admin",
+                    subject=f"user:{admin_user_id}",
+                ),
+                RelationshipTuple(
+                    resource="group:group-id",
+                    relation="member_relation",
+                    subject=f"user:{member_user_id}",
+                ),
+            ]
+        )
+
+        members = await repository._hydrate_members("group-id")
+
+        assert len(members) == 2
+        members_by_id = {m.user_id.value: m for m in members}
+
+        assert members_by_id[admin_user_id].role == GroupRole.ADMIN
+        assert members_by_id[member_user_id].role == GroupRole.MEMBER
+
+    @pytest.mark.asyncio
+    async def test_filters_non_role_relations(self, repository, mock_authz):
+        """Should only include tuples with group role relations (admin, member_relation)."""
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource="group:group-id",
+                    relation="admin",
+                    subject="user:user-1",
+                ),
+                RelationshipTuple(
+                    resource="group:group-id",
+                    relation="tenant",
+                    subject="tenant:tenant-1",
+                ),
+            ]
+        )
+
+        members = await repository._hydrate_members("group-id")
+
+        # Only the admin tuple should be included
+        assert len(members) == 1
+        assert members[0].user_id.value == "user-1"
+        assert members[0].role == GroupRole.ADMIN
+
+    @pytest.mark.asyncio
+    async def test_filters_non_user_subjects(self, repository, mock_authz):
+        """Should only process user subjects, ignoring non-user subject types."""
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource="group:group-id",
+                    relation="admin",
+                    subject="user:user-1",
+                ),
+                RelationshipTuple(
+                    resource="group:group-id",
+                    relation="admin",
+                    subject="tenant:tenant-1",
+                ),
+            ]
+        )
+
+        members = await repository._hydrate_members("group-id")
+
+        # Only the user subject should be included
+        assert len(members) == 1
+        assert members[0].user_id.value == "user-1"

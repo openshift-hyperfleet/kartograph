@@ -29,7 +29,6 @@ from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     ResourceType,
-    format_resource,
 )
 
 if TYPE_CHECKING:
@@ -294,11 +293,11 @@ class GroupRepository(IGroupRepository):
     }
 
     async def _hydrate_members(self, group_id: str) -> list[GroupMember]:
-        """Fetch membership from SpiceDB and convert to domain objects.
+        """Fetch membership from SpiceDB (explicit tuples only).
 
-        Queries SpiceDB for both ``admin`` and ``member_relation`` relations
-        (not the ``member`` permission, which combines both). Maps results
-        back to domain ``GroupRole`` values.
+        Returns only explicit relationship tuples via ReadRelationships,
+        not computed permissions. This ensures the aggregate's members
+        list reflects actual grants, not expanded permission computation.
 
         Args:
             group_id: The group ID to fetch members for
@@ -306,26 +305,34 @@ class GroupRepository(IGroupRepository):
         Returns:
             List of GroupMember value objects
         """
-        members = []
-        group_resource = format_resource(ResourceType.GROUP, group_id)
+        # Read all explicit tuples for this group
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.GROUP.value,
+            resource_id=group_id,
+        )
 
-        # Lookup all subjects with each role type
-        for role in [GroupRole.ADMIN, GroupRole.MEMBER]:
-            spicedb_relation = self._GROUP_ROLE_TO_SPICEDB_RELATION[role]
-            subjects = await self._authz.lookup_subjects(
-                resource=group_resource,
-                relation=spicedb_relation,
-                subject_type=ResourceType.USER.value,
-            )
+        members: list[GroupMember] = []
 
-            for subject_relation in subjects:
-                # Map the SpiceDB relation name back to the domain role
+        for rel_tuple in tuples:
+            # Parse subject (format: "user:ID")
+            subject_parts = rel_tuple.subject.split(":")
+            if len(subject_parts) < 2:
+                continue
+
+            subject_type_str = subject_parts[0]
+            user_id_str = ":".join(subject_parts[1:])
+
+            # Only process user subjects with role relations
+            if subject_type_str == "user":
                 domain_role = self._SPICEDB_RELATION_TO_GROUP_ROLE.get(
-                    subject_relation.relation, role
+                    rel_tuple.relation
                 )
+                if domain_role is None:
+                    continue  # Skip non-role relations (tenant, etc.)
+
                 members.append(
                     GroupMember(
-                        user_id=UserId(value=subject_relation.subject_id),
+                        user_id=UserId(value=user_id_str),
                         role=domain_role,
                     )
                 )

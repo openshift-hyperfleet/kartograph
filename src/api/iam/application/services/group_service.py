@@ -432,21 +432,38 @@ class GroupService:
                 f"User {user_id.value} lacks view permission on group {group_id.value}"
             )
 
-        # Query SpiceDB for all members across both roles
-        resource = format_resource(ResourceType.GROUP, group_id.value)
+        # Read explicit tuples from SpiceDB (not computed permissions).
+        # Unlike LookupSubjects which expands groups and computes permissions,
+        # ReadRelationships returns only the explicitly stored tuples.
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.GROUP.value,
+            resource_id=group_id.value,
+        )
+
         members: list[GroupAccessGrant] = []
 
-        for role in GroupRole:
-            subjects = await self._authz.lookup_subjects(
-                resource=resource,
-                relation=role.value,
-                subject_type=ResourceType.USER,
-            )
+        for rel_tuple in tuples:
+            # Parse subject (format: "user:ID")
+            subject_parts = rel_tuple.subject.split(":")
+            if len(subject_parts) < 2:
+                continue
 
-            for subject_relation in subjects:
+            subject_type_str = subject_parts[0]
+            user_id_str = ":".join(subject_parts[1:])
+
+            # Only process user subjects with group role relations
+            if subject_type_str == "user":
+                # Map SpiceDB relation to domain role
+                if rel_tuple.relation == "admin":
+                    role = GroupRole.ADMIN
+                elif rel_tuple.relation == "member_relation":
+                    role = GroupRole.MEMBER
+                else:
+                    continue  # Skip non-role relations (tenant, etc.)
+
                 members.append(
                     GroupAccessGrant(
-                        user_id=subject_relation.subject_id,
+                        user_id=user_id_str,
                         role=role,
                     )
                 )

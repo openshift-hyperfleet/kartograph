@@ -86,38 +86,51 @@ const statusBorderClass = computed(() => {
   >
     <div v-if="isVisible" class="fixed bottom-4 right-4 z-[90]">
       <!-- Minimized: compact pill -->
-      <NuxtLink
+      <div
         v-if="minimized"
-        to="/graph/mutations"
-        class="flex items-center gap-2 rounded-full border px-3 py-1.5 bg-card shadow-lg cursor-pointer hover:opacity-80 transition-opacity"
+        class="flex items-center gap-1.5 rounded-full border px-3 py-1.5 bg-card shadow-lg"
         :class="statusBorderClass"
       >
-        <Loader2
-          v-if="state.status === 'submitting'"
-          class="size-4 shrink-0 animate-spin text-primary"
-        />
-        <CheckCircle2
-          v-else-if="state.status === 'success'"
-          class="size-4 shrink-0 text-green-600 dark:text-green-400"
-        />
-        <XCircle
-          v-else-if="state.status === 'failed'"
-          class="size-4 shrink-0 text-destructive"
-        />
+        <NuxtLink
+          to="/graph/mutations"
+          class="flex items-center gap-2 hover:opacity-80 transition-opacity"
+        >
+          <Loader2
+            v-if="state.status === 'submitting'"
+            class="size-4 shrink-0 animate-spin text-primary"
+          />
+          <CheckCircle2
+            v-else-if="state.status === 'success'"
+            class="size-4 shrink-0 text-green-600 dark:text-green-400"
+          />
+          <XCircle
+            v-else-if="state.status === 'failed'"
+            class="size-4 shrink-0 text-destructive"
+          />
 
-        <Badge variant="secondary" class="shrink-0 text-[10px]">
-          {{ state.operationCount.toLocaleString() }}
-        </Badge>
+          <Badge variant="secondary" class="shrink-0 text-[10px]">
+            {{ state.operationCount.toLocaleString() }}
+          </Badge>
+        </NuxtLink>
 
         <Button
           variant="ghost"
           size="icon"
-          class="size-5 ml-1"
-          @click.prevent.stop="minimized = false"
+          class="size-5"
+          @click.stop="minimized = false"
         >
           <Maximize2 class="size-3" />
         </Button>
-      </NuxtLink>
+        <Button
+          v-if="state.status !== 'submitting'"
+          variant="ghost"
+          size="icon"
+          class="size-5"
+          @click.stop="dismiss"
+        >
+          <XCircle class="size-3" />
+        </Button>
+      </div>
 
       <!-- Expanded: full card -->
       <div

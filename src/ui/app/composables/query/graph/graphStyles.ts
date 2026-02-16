@@ -2,9 +2,9 @@ import type { Stylesheet } from 'cytoscape'
 
 // 12 distinct colors for node labels, assigned deterministically
 const PALETTE = [
-  '#ee0000', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6',
-  '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
-  '#14b8a6', '#e11d48',
+  '#ee0000', '#37a3a3', '#5e40be', '#f5921b', '#63993d',
+  '#0066cc', '#f0561d', '#ffcc17', '#a60000', '#f56e6e',
+  '#b1380b', '#4394e5',
 ]
 
 const labelColorMap = new Map<string, string>()

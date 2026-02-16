@@ -20,6 +20,15 @@ const truncatedError = computed(() => {
   if (!err) return ''
   return err.length > 120 ? err.slice(0, 120) + '...' : err
 })
+
+const statusBorderClass = computed(() => {
+  switch (state.value.status) {
+    case 'submitting': return 'border-primary/50'
+    case 'success': return 'border-green-500/50'
+    case 'failed': return 'border-destructive/50'
+    default: return ''
+  }
+})
 </script>
 
 <template>
@@ -31,114 +40,158 @@ const truncatedError = computed(() => {
     leave-from-class="translate-y-0 opacity-100 scale-100"
     leave-to-class="translate-y-4 opacity-0 scale-95"
   >
-    <div
-      v-if="isVisible"
-      class="fixed bottom-4 right-4 z-[90] w-80 rounded-lg border bg-card shadow-lg"
-      :class="{
-        'animate-pulse border-primary/50': state.status === 'submitting',
-        'border-green-500/50': state.status === 'success',
-        'border-destructive/50': state.status === 'failed',
-      }"
-    >
-      <!-- Header bar — always visible -->
-      <div
-        class="flex items-center justify-between px-3 py-2"
-        :class="minimized ? 'rounded-lg' : 'rounded-t-lg border-b'"
+    <div v-if="isVisible" class="fixed bottom-4 right-4 z-[90]">
+      <!-- Minimized: compact pill -->
+      <NuxtLink
+        v-if="minimized"
+        to="/graph/mutations"
+        class="flex items-center gap-2 rounded-full border px-3 py-1.5 bg-card shadow-lg cursor-pointer hover:opacity-80 transition-opacity"
+        :class="statusBorderClass"
       >
-        <div class="flex items-center gap-2 min-w-0">
-          <!-- Status icon -->
-          <Loader2
-            v-if="state.status === 'submitting'"
-            class="size-4 shrink-0 animate-spin text-primary"
-          />
-          <CheckCircle2
-            v-else-if="state.status === 'success'"
-            class="size-4 shrink-0 text-green-600 dark:text-green-400"
-          />
-          <XCircle
-            v-else-if="state.status === 'failed'"
-            class="size-4 shrink-0 text-destructive"
-          />
+        <Loader2
+          v-if="state.status === 'submitting'"
+          class="size-4 shrink-0 animate-spin text-primary"
+        />
+        <CheckCircle2
+          v-else-if="state.status === 'success'"
+          class="size-4 shrink-0 text-green-600 dark:text-green-400"
+        />
+        <XCircle
+          v-else-if="state.status === 'failed'"
+          class="size-4 shrink-0 text-destructive"
+        />
 
-          <!-- Title -->
-          <span class="text-sm font-medium truncate">
-            <template v-if="state.status === 'submitting'">
-              Applying mutations...
-            </template>
-            <template v-else-if="state.status === 'success'">
-              Mutations applied
-            </template>
-            <template v-else-if="state.status === 'failed'">
-              Mutations failed
-            </template>
-          </span>
+        <Badge variant="secondary" class="shrink-0 text-[10px]">
+          {{ state.operationCount.toLocaleString() }}
+        </Badge>
 
-          <!-- Count badge -->
-          <Badge variant="secondary" class="shrink-0 text-[10px]">
-            {{ state.operationCount.toLocaleString() }}
-          </Badge>
+        <Button
+          variant="ghost"
+          size="icon"
+          class="size-5 ml-1"
+          @click.prevent.stop="minimized = false"
+        >
+          <Maximize2 class="size-3" />
+        </Button>
+      </NuxtLink>
+
+      <!-- Expanded: full card -->
+      <div
+        v-else
+        class="w-80 rounded-lg border bg-card shadow-lg overflow-hidden"
+        :class="statusBorderClass"
+      >
+        <!-- Indeterminate progress bar during submission -->
+        <div v-if="state.status === 'submitting'" class="h-0.5 w-full overflow-hidden bg-primary/20">
+          <div class="h-full w-1/3 animate-[indeterminate_1.5s_ease-in-out_infinite] bg-primary rounded-full" />
         </div>
 
-        <div class="flex items-center gap-1 shrink-0">
-          <Button
-            variant="ghost"
-            size="icon"
-            class="size-6"
-            @click="minimized = !minimized"
+        <!-- Header bar -->
+        <div class="flex items-center justify-between px-3 py-2 border-b">
+          <NuxtLink
+            to="/graph/mutations"
+            class="flex items-center gap-2 min-w-0 hover:opacity-80 transition-opacity"
           >
-            <Minus v-if="!minimized" class="size-3" />
-            <Maximize2 v-else class="size-3" />
-          </Button>
-          <Button
-            v-if="state.status !== 'submitting'"
-            variant="ghost"
-            size="icon"
-            class="size-6"
-            @click="dismiss"
-          >
-            <XCircle class="size-3" />
-          </Button>
+            <!-- Status icon -->
+            <Loader2
+              v-if="state.status === 'submitting'"
+              class="size-4 shrink-0 animate-spin text-primary"
+            />
+            <CheckCircle2
+              v-else-if="state.status === 'success'"
+              class="size-4 shrink-0 text-green-600 dark:text-green-400"
+            />
+            <XCircle
+              v-else-if="state.status === 'failed'"
+              class="size-4 shrink-0 text-destructive"
+            />
+
+            <!-- Title -->
+            <span class="text-sm font-medium truncate">
+              <template v-if="state.status === 'submitting'">
+                Applying mutations...
+              </template>
+              <template v-else-if="state.status === 'success'">
+                Mutations applied
+              </template>
+              <template v-else-if="state.status === 'failed'">
+                Mutations failed
+              </template>
+            </span>
+
+            <!-- Count badge -->
+            <Badge variant="secondary" class="shrink-0 text-[10px]">
+              {{ state.operationCount.toLocaleString() }}
+            </Badge>
+          </NuxtLink>
+
+          <div class="flex items-center gap-1 shrink-0">
+            <Button
+              variant="ghost"
+              size="icon"
+              class="size-6"
+              @click.stop="minimized = true"
+            >
+              <Minus class="size-3" />
+            </Button>
+            <Button
+              v-if="state.status !== 'submitting'"
+              variant="ghost"
+              size="icon"
+              class="size-6"
+              @click.stop="dismiss"
+            >
+              <XCircle class="size-3" />
+            </Button>
+          </div>
         </div>
-      </div>
 
-      <!-- Body — hidden when minimized -->
-      <div v-if="!minimized" class="px-3 py-2 space-y-1">
-        <!-- Submitting state -->
-        <template v-if="state.status === 'submitting'">
-          <p class="text-xs text-muted-foreground">
-            Applying {{ state.operationCount.toLocaleString() }} mutation{{ state.operationCount === 1 ? '' : 's' }}...
-            <span class="font-mono">{{ state.elapsedSeconds }}s</span>
-          </p>
-        </template>
+        <!-- Body -->
+        <div class="px-3 py-2 space-y-1">
+          <!-- Submitting state -->
+          <template v-if="state.status === 'submitting'">
+            <p class="text-xs text-muted-foreground">
+              Applying {{ state.operationCount.toLocaleString() }} mutation{{ state.operationCount === 1 ? '' : 's' }}...
+              <span class="font-mono">{{ state.elapsedSeconds }}s</span>
+            </p>
+          </template>
 
-        <!-- Success state -->
-        <template v-else-if="state.status === 'success' && state.result">
-          <p class="text-xs text-green-600 dark:text-green-400">
-            {{ state.result.operations_applied.toLocaleString() }}
-            operation{{ state.result.operations_applied === 1 ? '' : 's' }} applied successfully.
-          </p>
-          <p class="text-xs text-muted-foreground">
-            Completed in {{ state.elapsedSeconds }}s
-          </p>
-        </template>
+          <!-- Success state -->
+          <template v-else-if="state.status === 'success' && state.result">
+            <p class="text-xs text-green-600 dark:text-green-400">
+              {{ state.result.operations_applied.toLocaleString() }}
+              operation{{ state.result.operations_applied === 1 ? '' : 's' }} applied successfully.
+            </p>
+            <p class="text-xs text-muted-foreground">
+              Completed in {{ state.elapsedSeconds }}s
+            </p>
+          </template>
 
-        <!-- Failed state -->
-        <template v-else-if="state.status === 'failed'">
-          <Tooltip>
-            <TooltipTrigger as-child>
-              <p class="text-xs text-destructive cursor-default truncate">
-                {{ truncatedError }}
-              </p>
-            </TooltipTrigger>
-            <TooltipContent side="top" class="max-w-sm">
-              <p class="text-xs break-all">{{ state.error }}</p>
-            </TooltipContent>
-          </Tooltip>
-          <p v-if="state.result" class="text-xs text-muted-foreground">
-            {{ state.result.operations_applied }} applied before failure
-          </p>
-        </template>
+          <!-- Failed state -->
+          <template v-else-if="state.status === 'failed'">
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <p class="text-xs text-destructive cursor-default truncate">
+                  {{ truncatedError }}
+                </p>
+              </TooltipTrigger>
+              <TooltipContent side="top" class="max-w-sm">
+                <p class="text-xs break-all">{{ state.error }}</p>
+              </TooltipContent>
+            </Tooltip>
+            <p v-if="state.result" class="text-xs text-muted-foreground">
+              {{ state.result.operations_applied }} applied before failure
+            </p>
+          </template>
+        </div>
       </div>
     </div>
   </Transition>
 </template>
+
+<style scoped>
+@keyframes indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+</style>

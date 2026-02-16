@@ -44,14 +44,10 @@ export function useApiClient() {
       headers['X-Tenant-ID'] = currentTenantId.value
     }
 
-    // Extract timeout from opts so it's passed through to ofetch
-    const { timeout, ...restOpts } = opts as NitroFetchOptions<string> & { timeout?: number }
-
     return $fetch<T>(path, {
       baseURL: config.public.apiBaseUrl as string,
-      ...restOpts,
+      ...opts,
       headers,
-      ...(timeout !== undefined && { timeout }),
     })
   }
 

@@ -61,8 +61,12 @@ export function useMutationSubmission() {
     }
     startTimer()
 
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 300_000) // 5 min
+
     try {
-      const result = await applyMutations(jsonlContent, { timeout: 300_000 })
+      const result = await applyMutations(jsonlContent, { signal: controller.signal })
+      clearTimeout(timeoutId)
       stopTimer()
       state.value.result = result
       state.value.status = result.success ? 'success' : 'failed'
@@ -70,9 +74,14 @@ export function useMutationSubmission() {
         state.value.error = result.errors.join('; ')
       }
     } catch (err) {
+      clearTimeout(timeoutId)
       stopTimer()
       state.value.status = 'failed'
-      state.value.error = extractErrorMessage(err)
+      if (err instanceof Error && err.name === 'AbortError') {
+        state.value.error = 'Request timed out after 5 minutes'
+      } else {
+        state.value.error = extractErrorMessage(err)
+      }
     }
   }
 

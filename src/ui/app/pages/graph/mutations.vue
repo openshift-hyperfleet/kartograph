@@ -147,14 +147,27 @@ const { view: editorView, focus: focusEditor } = useCodemirror(
 // The active-state div uses v-show="!isEmpty", so CodeMirror mounts inside a
 // display:none container and calculates zero dimensions. When isEmpty flips to
 // false the container becomes visible but CM doesn't know — we must tell it.
-watch(isEmpty, (newVal, oldVal) => {
-  if (oldVal && !newVal) {
-    nextTick(() => {
-      requestAnimationFrame(() => {
-        editorView.value?.requestMeasure()
-      })
+//
+// Also handles the persisted-content case: when the page loads with content
+// from useState, isEmpty is already false so no transition happens.
+// We watch editorView being created and trigger a delayed re-measure.
+function scheduleRemeasure() {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      editorView.value?.requestMeasure()
+      // Retry after a short delay — browser may not have painted yet
+      setTimeout(() => editorView.value?.requestMeasure(), 100)
     })
-  }
+  })
+}
+
+watch(isEmpty, (newVal, oldVal) => {
+  if (oldVal && !newVal) scheduleRemeasure()
+})
+
+// When CM view is created with existing content, schedule a re-measure
+watch(editorView, (view) => {
+  if (view && editorContent.value.trim()) scheduleRemeasure()
 })
 
 // ── Live Preview (hybrid: sync for small, worker for large) ────────────────
@@ -367,14 +380,7 @@ function handleCtrlEnter(e: KeyboardEvent) {
 onMounted(() => {
   document.addEventListener('keydown', handleCtrlEnter)
 
-  // If we have persisted content, ensure CodeMirror measures correctly
-  if (editorContent.value.trim()) {
-    nextTick(() => {
-      requestAnimationFrame(() => {
-        editorView.value?.requestMeasure()
-      })
-    })
-  }
+  // Persisted content re-measure is handled by the watch(editorView) above
 
   // Accept ?template= URL parameter for cross-page deep-linking (e.g., from Schema Browser)
   const route = useRoute()

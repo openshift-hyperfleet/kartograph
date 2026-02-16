@@ -201,7 +201,11 @@ class TestGetById:
     async def test_returns_group_with_members_hydrated(
         self, repository, mock_session, mock_authz
     ):
-        """Should return group with members loaded from SpiceDB."""
+        """Should return group with members loaded from SpiceDB.
+
+        The repository queries SpiceDB for ``admin`` and ``member_relation``
+        relations (not ``member`` which is now a permission in the schema).
+        """
         group_id = GroupId.generate()
         tenant_id = TenantId.generate()
         user_id = UserId.generate()
@@ -214,7 +218,7 @@ class TestGetById:
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        # Mock SpiceDB members - return members only for ADMIN role, empty for others
+        # Mock SpiceDB members - return members only for ADMIN relation, empty for others
         async def mock_lookup(resource, relation, subject_type):
             if relation == GroupRole.ADMIN.value:
                 return [

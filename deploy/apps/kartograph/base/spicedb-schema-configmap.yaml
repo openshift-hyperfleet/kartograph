@@ -37,11 +37,14 @@ data:
             /** Users who can administer this group (manage members, delete group) */
             relation admin: user
 
-            /** Users who are members of this group */
-            relation member: user
+            /** Users who are regular members of this group (non-admin) */
+            relation member_relation: user
+
+            /** Permission representing all group participants (admins + members) */
+            permission member = admin + member_relation
 
             /** Permission to view group details (tenant members can discover groups) */
-            permission view = admin + member + tenant->view
+            permission view = admin + member_relation + tenant->view
 
             /** Permission to manage group membership and delete group */
             permission manage = admin

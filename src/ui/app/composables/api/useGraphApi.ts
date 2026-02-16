@@ -16,12 +16,16 @@ export function useGraphApi() {
 
   // ── Mutations ──────────────────────────────────────────────────────────
 
-  function applyMutations(jsonlContent: string): Promise<MutationResult> {
+  function applyMutations(
+    jsonlContent: string,
+    options?: { timeout?: number },
+  ): Promise<MutationResult> {
     return apiFetch<MutationResult>('/graph/mutations', {
       method: 'POST',
       body: jsonlContent,
       headers: { 'Content-Type': 'application/jsonlines' },
-    })
+      timeout: options?.timeout ?? 300_000, // 5 minutes default
+    } as any)
   }
 
   // ── Nodes ──────────────────────────────────────────────────────────────

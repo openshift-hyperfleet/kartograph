@@ -103,6 +103,22 @@ const showTemplateSheet = ref(false)
 const largeFileMode = ref(false)
 const uploadProgress = ref<number | null>(null)
 const uploadFileName = ref('')
+const elapsedSeconds = ref(0)
+let elapsedInterval: ReturnType<typeof setInterval> | null = null
+
+function startElapsedTimer() {
+  elapsedSeconds.value = 0
+  elapsedInterval = setInterval(() => {
+    elapsedSeconds.value++
+  }, 1000)
+}
+
+function stopElapsedTimer() {
+  if (elapsedInterval) {
+    clearInterval(elapsedInterval)
+    elapsedInterval = null
+  }
+}
 
 // ── Computed ───────────────────────────────────────────────────────────────
 
@@ -238,6 +254,7 @@ async function handleSubmit() {
   if (isLargeFile.value) {
     apiError.value = null
     submitting.value = true
+    startElapsedTimer()
     try {
       // Strip comment lines and blank lines, submit raw JSONL
       const lines = editorContent.value.split('\n')
@@ -262,6 +279,7 @@ async function handleSubmit() {
       toast.error('Failed to apply mutations', { description: message })
     } finally {
       submitting.value = false
+      stopElapsedTimer()
     }
     return
   }
@@ -283,6 +301,7 @@ async function handleSubmit() {
 
   apiError.value = null
   submitting.value = true
+  startElapsedTimer()
 
   try {
     const mutationResult = await applyMutations(jsonlBody)
@@ -300,6 +319,7 @@ async function handleSubmit() {
     toast.error('Failed to apply mutations', { description: message })
   } finally {
     submitting.value = false
+    stopElapsedTimer()
   }
 }
 
@@ -427,6 +447,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleCtrlEnter)
+  stopElapsedTimer()
 })
 </script>
 
@@ -739,7 +760,12 @@ onBeforeUnmount(() => {
                 >
                   <Loader2 v-if="submitting" class="mr-2 size-4 animate-spin" />
                   <Play v-else class="mr-2 size-4" />
-                  Apply Mutations
+                  <template v-if="submitting && elapsedSeconds > 0">
+                    Applying mutations... {{ elapsedSeconds }}s
+                  </template>
+                  <template v-else>
+                    Apply Mutations
+                  </template>
                   <kbd
                     v-if="ctrlHeld"
                     class="ml-2 rounded bg-primary-foreground/20 px-1 py-0.5 font-mono text-[10px]"

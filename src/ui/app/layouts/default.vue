@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { toast } from 'vue-sonner'
+import kartographLogo from '~/assets/kartograph-logo.png'
 import {
   Building2,
   FolderTree,
@@ -20,7 +21,6 @@ import {
   ChevronRight,
   ChevronsUpDown,
   Check,
-  Hexagon,
   AlertTriangle,
   Loader2,
   Copy,
@@ -254,7 +254,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
       >
         <!-- Logo -->
         <div class="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
-          <Hexagon class="size-6 shrink-0 text-sidebar-primary" />
+          <img :src="kartographLogo" alt="Kartograph" class="size-6 shrink-0 rounded-sm" />
           <span
             v-if="!isCollapsed"
             class="text-base font-semibold tracking-tight text-sidebar-foreground truncate"
@@ -544,7 +544,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
         <SheetContent side="left" class="w-72 p-0">
           <SheetTitle class="sr-only">Navigation</SheetTitle>
           <div class="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
-            <Hexagon class="size-6 text-sidebar-primary" />
+            <img :src="kartographLogo" alt="Kartograph" class="size-6 rounded-sm" />
             <span class="text-base font-semibold tracking-tight">Kartograph</span>
           </div>
 

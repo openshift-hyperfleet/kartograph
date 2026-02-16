@@ -217,6 +217,36 @@ class TestAddMemberRoleReplacement:
         assert len(events) == 1
         assert isinstance(events[0], MemberAdded)
 
+    def test_prevents_demoting_last_admin_via_role_replacement(self):
+        """Test that replacing ADMIN with MEMBER role is blocked when last admin."""
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+        admin_id = UserId.generate()
+        group.add_member(admin_id, GroupRole.ADMIN)
+
+        with pytest.raises(ValueError, match="last admin"):
+            group.add_member(admin_id, GroupRole.MEMBER, current_role=GroupRole.ADMIN)
+
+    def test_allows_demoting_admin_via_replacement_when_multiple_admins(self):
+        """Test that replacing ADMIN with MEMBER role is allowed when other admins exist."""
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+        admin1 = UserId.generate()
+        admin2 = UserId.generate()
+        group.add_member(admin1, GroupRole.ADMIN)
+        group.add_member(admin2, GroupRole.ADMIN)
+
+        group.add_member(admin1, GroupRole.MEMBER, current_role=GroupRole.ADMIN)
+
+        assert group.get_member_role(admin1) == GroupRole.MEMBER
+        assert group.get_member_role(admin2) == GroupRole.ADMIN
+
 
 class TestHasMember:
     """Tests for Group.has_member() method."""

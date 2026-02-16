@@ -117,3 +117,31 @@ class TestDeleteRelationshipsByFilterValidation:
                 resource_id="123",
                 subject_id="abc",
             )
+
+
+class TestReadRelationshipsValidation:
+    """Tests for read_relationships input validation."""
+
+    @pytest.fixture
+    def client(self) -> SpiceDBClient:
+        """Create a SpiceDBClient instance for testing (no real connection needed)."""
+        return SpiceDBClient(
+            endpoint="localhost:50051",
+            preshared_key="test_key",
+            use_tls=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_raises_error_when_subject_id_provided_without_subject_type(
+        self, client: SpiceDBClient
+    ):
+        """Test that subject_id without subject_type raises ValueError."""
+        with pytest.raises(
+            ValueError,
+            match="subject_type must be provided when subject_id is specified",
+        ):
+            await client.read_relationships(
+                resource_type="workspace",
+                resource_id="123",
+                subject_id="abc",
+            )

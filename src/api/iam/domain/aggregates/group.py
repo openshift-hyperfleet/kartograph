@@ -98,6 +98,14 @@ class Group:
         """
         # If user already has a different role, remove it first (role replacement)
         if current_role is not None and current_role != role:
+            # Guard: prevent demoting the last admin
+            if current_role == GroupRole.ADMIN and role != GroupRole.ADMIN:
+                admin_count = sum(1 for m in self.members if m.role == GroupRole.ADMIN)
+                if admin_count == 1:
+                    raise ValueError(
+                        "Cannot demote the last admin. Promote another member first."
+                    )
+
             # Remove from in-memory list
             self.members = [m for m in self.members if m.user_id != user_id]
 
@@ -226,18 +234,20 @@ class Group:
         """Rename the group.
 
         Args:
-            new_name: New group name (1-255 characters)
+            new_name: New group name (1-255 characters after trimming whitespace)
 
         Raises:
             ValueError: If name is invalid or unchanged
         """
-        if not new_name or len(new_name) < 1 or len(new_name) > 255:
+        trimmed = new_name.strip()
+
+        if not trimmed or len(trimmed) > 255:
             raise ValueError("Group name must be between 1 and 255 characters")
 
-        if new_name == self.name:
+        if trimmed == self.name:
             raise ValueError("New name is the same as current name")
 
-        self.name = new_name
+        self.name = trimmed
 
     def has_member(self, user_id: UserId) -> bool:
         """Check if a user is a member of this group.

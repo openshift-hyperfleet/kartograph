@@ -58,3 +58,48 @@ class TestGroupRename:
 
         with pytest.raises(ValueError, match="same"):
             group.rename("Engineering")
+
+    def test_trims_whitespace_from_name(self):
+        """Should strip leading/trailing whitespace and store trimmed name."""
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+
+        group.rename("  Platform Engineering  ")
+
+        assert group.name == "Platform Engineering"
+
+    def test_raises_value_error_for_whitespace_only_name(self):
+        """Should raise ValueError when name is only whitespace."""
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+
+        with pytest.raises(ValueError, match="between 1 and 255"):
+            group.rename("   ")
+
+    def test_raises_value_error_when_trimmed_name_matches_current(self):
+        """Should raise ValueError when trimmed name equals current name."""
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+
+        with pytest.raises(ValueError, match="same"):
+            group.rename("  Engineering  ")
+
+    def test_raises_value_error_when_trimmed_name_exceeds_255(self):
+        """Should validate length after trimming whitespace."""
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+
+        with pytest.raises(ValueError, match="between 1 and 255"):
+            group.rename("  " + "x" * 256 + "  ")

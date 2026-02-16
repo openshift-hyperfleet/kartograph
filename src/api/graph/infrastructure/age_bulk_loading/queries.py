@@ -311,8 +311,12 @@ class AgeQueryBuilder:
     # =========================================================================
 
     @staticmethod
-    def delete_nodes_with_detach(cursor: Any, graph_name: str, ids: list[str]) -> int:
-        """Delete nodes and their connected edges (DETACH DELETE semantics).
+    def delete_node_with_detach(cursor: Any, graph_name: str, id: str) -> int:
+        """Delete a single node and its connected edges (DETACH DELETE semantics).
+
+        Uses scalar ``= %s`` subqueries instead of ``= ANY(%s)`` to avoid
+        catastrophic query plans in AGE with large graphs (53K+ vertices,
+        218K+ edges across thousands of label tables).
 
         WARNING: This directly manipulates AGE's internal parent tables
         (_ag_label_vertex, _ag_label_edge). It relies on PostgreSQL table
@@ -321,25 +325,25 @@ class AgeQueryBuilder:
         Args:
             cursor: Database cursor
             graph_name: Graph name
-            ids: List of logical node IDs to delete
+            id: Logical node ID to delete
 
         Returns:
-            Number of nodes deleted
+            Number of nodes deleted (0 or 1)
         """
-        # First delete connected edges
+        # First delete connected edges using scalar subqueries
         query = sql.SQL(
             """
             DELETE FROM {}._ag_label_edge
-            WHERE start_id IN (
+            WHERE start_id = (
                 SELECT id FROM {}._ag_label_vertex
                 WHERE ag_catalog.agtype_object_field_text_agtype(
                     properties, '"id"'::ag_catalog.agtype
-                ) = ANY(%s)
-            ) OR end_id IN (
+                ) = %s
+            ) OR end_id = (
                 SELECT id FROM {}._ag_label_vertex
                 WHERE ag_catalog.agtype_object_field_text_agtype(
                     properties, '"id"'::ag_catalog.agtype
-                ) = ANY(%s)
+                ) = %s
             )
             """
         ).format(
@@ -347,41 +351,44 @@ class AgeQueryBuilder:
             sql.Identifier(graph_name),
             sql.Identifier(graph_name),
         )
-        cursor.execute(query, (ids, ids))
+        cursor.execute(query, (id, id))
 
-        # Then delete the nodes
+        # Then delete the node
         query = sql.SQL(
             """
             DELETE FROM {}._ag_label_vertex
             WHERE ag_catalog.agtype_object_field_text_agtype(
                 properties, '"id"'::ag_catalog.agtype
-            ) = ANY(%s)
+            ) = %s
             """
         ).format(sql.Identifier(graph_name))
-        cursor.execute(query, (ids,))
+        cursor.execute(query, (id,))
         return cursor.rowcount
 
     @staticmethod
-    def delete_edges(cursor: Any, graph_name: str, ids: list[str]) -> int:
-        """Delete edges by their logical IDs.
+    def delete_edge(cursor: Any, graph_name: str, id: str) -> int:
+        """Delete a single edge by its logical ID.
+
+        Uses scalar ``= %s`` instead of ``= ANY(%s)`` to avoid
+        catastrophic query plans in AGE with large graphs.
 
         Args:
             cursor: Database cursor
             graph_name: Graph name
-            ids: List of logical edge IDs to delete
+            id: Logical edge ID to delete
 
         Returns:
-            Number of edges deleted
+            Number of edges deleted (0 or 1)
         """
         query = sql.SQL(
             """
             DELETE FROM {}._ag_label_edge
             WHERE ag_catalog.agtype_object_field_text_agtype(
                 properties, '"id"'::ag_catalog.agtype
-            ) = ANY(%s)
+            ) = %s
             """
         ).format(sql.Identifier(graph_name))
-        cursor.execute(query, (ids,))
+        cursor.execute(query, (id,))
         return cursor.rowcount
 
     # =========================================================================

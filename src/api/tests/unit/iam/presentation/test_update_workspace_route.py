@@ -190,7 +190,7 @@ class TestUpdateWorkspace:
         mock_workspace_service: AsyncMock,
         workspace: Workspace,
     ) -> None:
-        """Test PATCH returns 400 when workspace not found or name invalid."""
+        """Test PATCH returns 404 when workspace not found."""
         mock_workspace_service.update_workspace.side_effect = ValueError(
             f"Workspace {workspace.id.value} not found"
         )
@@ -200,7 +200,7 @@ class TestUpdateWorkspace:
             json={"name": "New Name"},
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_404_NOT_FOUND
         assert "not found" in response.json()["detail"].lower()
 
     def test_returns_403_on_unauthorized_error(

@@ -65,6 +65,15 @@ async def kartograph_lifespan(app: FastAPI):
     # Startup: initialize database engines
     init_database_engines(app)
 
+    # Startup: create shared SpiceDB client for bootstrap and outbox worker
+    spicedb_settings = get_spicedb_settings()
+    authz = SpiceDBClient(
+        endpoint=spicedb_settings.endpoint,
+        preshared_key=spicedb_settings.preshared_key.get_secret_value(),
+        use_tls=spicedb_settings.use_tls,
+        cert_path=spicedb_settings.cert_path,
+    )
+
     # Startup: ensure default tenant and root workspace exist (single-tenant mode)
     if hasattr(app.state, "write_sessionmaker"):
         from iam.application.services import TenantBootstrapService
@@ -76,14 +85,6 @@ async def kartograph_lifespan(app: FastAPI):
 
         iam_settings = get_iam_settings()
         startup_probe = DefaultStartupProbe()
-
-        spicedb_settings = get_spicedb_settings()
-        authz = SpiceDBClient(
-            endpoint=spicedb_settings.endpoint,
-            preshared_key=spicedb_settings.preshared_key.get_secret_value(),
-            use_tls=spicedb_settings.use_tls,
-            cert_path=spicedb_settings.cert_path,
-        )
 
         async with app.state.write_sessionmaker() as session:
             outbox = OutboxRepository(session=session)
@@ -113,21 +114,12 @@ async def kartograph_lifespan(app: FastAPI):
     outbox_settings = get_outbox_worker_settings()
     if outbox_settings.enabled and hasattr(app.state, "write_sessionmaker"):
         db_settings = get_database_settings()
-        spicedb_settings = get_spicedb_settings()
 
         # Build database URL for LISTEN
         db_url = (
             f"postgresql://{db_settings.username}:"
             f"{db_settings.password.get_secret_value()}@"
             f"{db_settings.host}:{db_settings.port}/{db_settings.database}"
-        )
-
-        # Create SpiceDB client
-        authz = SpiceDBClient(
-            endpoint=spicedb_settings.endpoint,
-            preshared_key=spicedb_settings.preshared_key.get_secret_value(),
-            use_tls=spicedb_settings.use_tls,
-            cert_path=spicedb_settings.cert_path,
         )
 
         # Create observability probe

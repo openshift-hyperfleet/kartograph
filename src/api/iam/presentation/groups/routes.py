@@ -197,9 +197,15 @@ async def update_group(
             detail=str(e),
         )
     except (ValueError, TypeError) as e:
+        error_msg = str(e)
+        if "not found" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=error_msg,
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=error_msg,
         )
     except HTTPException:
         raise
@@ -321,9 +327,15 @@ async def add_group_member(
             detail="Insufficient permissions to manage group members",
         )
     except (ValueError, TypeError) as e:
+        error_msg = str(e)
+        if "not found" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=error_msg,
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=error_msg,
         )
     except HTTPException:
         raise
@@ -451,9 +463,15 @@ async def update_group_member_role(
             detail="Insufficient permissions to manage group members",
         )
     except (ValueError, TypeError) as e:
+        error_msg = str(e)
+        if "not found" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=error_msg,
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=error_msg,
         )
     except HTTPException:
         raise
@@ -515,9 +533,15 @@ async def remove_group_member(
             detail="Insufficient permissions to manage group members",
         )
     except (ValueError, TypeError) as e:
+        error_msg = str(e)
+        if "not found" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=error_msg,
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=error_msg,
         )
     except HTTPException:
         raise

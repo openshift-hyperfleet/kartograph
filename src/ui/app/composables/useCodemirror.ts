@@ -1,4 +1,4 @@
-import { onMounted, onUnmounted, watch, shallowRef, type Ref } from 'vue'
+import { onMounted, onUnmounted, watch, shallowRef, nextTick, type Ref } from 'vue'
 import { EditorState, Compartment, type Extension } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
@@ -23,12 +23,22 @@ export function useCodemirror(
   let updateGeneration = 0
   let watcherGeneration = 0
 
-  onMounted(() => {
-    if (!container.value) return
+  function createView(el: HTMLElement) {
+    if (view.value) return // already created
 
     const state = EditorState.create({
       doc: doc.value,
       extensions: [
+        // Ensure CM always has height even with an empty document.
+        // The outer min-h CSS class only sizes .cm-editor; CM's internal
+        // scroller/content still measures 0 when the doc is empty.  Setting
+        // min-height via EditorView.theme targets the internal elements so
+        // CM's viewport calculation always has non-zero dimensions.
+        EditorView.theme({
+          '&': { minHeight: '300px' },
+          '.cm-scroller': { minHeight: '300px' },
+        }),
+
         // Base extensions that don't change
         keymap.of([
           ...defaultKeymap,
@@ -60,9 +70,30 @@ export function useCodemirror(
 
     view.value = new EditorView({
       state,
-      parent: container.value,
+      parent: el,
     })
+
+    // Force a re-measure after the browser has had a chance to layout.
+    // This prevents zero-height editors when the container appears via v-if
+    // or is rendered during the first paint (onMounted).
+    nextTick(() => {
+      requestAnimationFrame(() => {
+        view.value?.requestMeasure()
+      })
+    })
+  }
+
+  onMounted(() => {
+    if (container.value) createView(container.value)
   })
+
+  // Handle late mounting: when the container ref appears via v-if after
+  // onMounted has already fired, create the EditorView at that point.
+  // Uses flush: 'post' to ensure the DOM element is fully mounted and has
+  // correct dimensions before we create the EditorView (prevents zero-height).
+  watch(container, (el) => {
+    if (el && !view.value) createView(el)
+  }, { flush: 'post' })
 
   // Watch for external doc changes (e.g., setting query from history/examples).
   // Skip dispatching to CM for very large docs to avoid freezing.

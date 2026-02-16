@@ -233,7 +233,13 @@ const breadcrumbs = computed(() => {
   }
 
   if (path !== '/' && routeLabels[path]) {
-    crumbs.push({ label: routeLabels[path] })
+    // Check if the route has sub-views via query params
+    if (path === '/graph/mutations' && route.query.view === 'editor') {
+      crumbs.push({ label: routeLabels[path], to: path })
+      crumbs.push({ label: 'Editor' })
+    } else {
+      crumbs.push({ label: routeLabels[path] })
+    }
   }
 
   return crumbs

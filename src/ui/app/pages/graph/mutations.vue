@@ -10,12 +10,13 @@ import { useMediaQuery } from '@vueuse/core'
 import {
   FileCode, Play, Trash2, Upload, Loader2,
   FileUp, XCircle, AlertTriangle, Building2,
-  Plus, GitBranch, RefreshCw, Lightbulb, BookOpen,
+  Plus, GitBranch, RefreshCw, BookOpen,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
+import { Separator } from '@/components/ui/separator'
 import {
   Tooltip, TooltipContent, TooltipTrigger,
 } from '@/components/ui/tooltip'
@@ -80,6 +81,8 @@ const quickStartTemplates = [
 const { hasTenant } = useTenant()
 const { ctrlHeld } = useModifierKeys()
 const submission = useMutationSubmission()
+const router = useRouter()
+const route = useRoute()
 
 // ── Worker ─────────────────────────────────────────────────────────────────
 
@@ -98,13 +101,45 @@ const showTemplateSheet = ref(false)
 const uploadProgress = ref<number | null>(null)
 const showWarningBrowser = ref(false)
 
+// Initialize showEditor from URL query or persisted state
+const showEditor = ref(
+  route.query.view === 'editor' || !!editorContent.value.trim() || largeFileMode.value,
+)
+
+// ── Editor state ↔ URL sync ────────────────────────────────────────────────
+
+function activateEditor() {
+  if (!showEditor.value) {
+    showEditor.value = true
+  }
+  if (route.query.view !== 'editor') {
+    router.push({ query: { ...route.query, view: 'editor' } })
+  }
+}
+
+function deactivateEditor() {
+  showEditor.value = false
+  clearEditorState()
+  submission.dismiss()
+  const { view: _view, ...rest } = route.query
+  router.push({ query: Object.keys(rest).length ? rest : undefined })
+}
+
+// Handle browser back/forward button
+watch(() => route.query.view, (newView) => {
+  if (newView === 'editor') {
+    showEditor.value = true
+  } else {
+    // Only deactivate if there's no content to preserve
+    if (!editorContent.value.trim() && !largeFileMode.value) {
+      showEditor.value = false
+    }
+  }
+})
+
 // Derived from the cross-app submission composable
 const submitting = computed(() => submission.state.value.status === 'submitting')
 const apiError = computed(() => submission.state.value.error)
-
-// ── Computed ───────────────────────────────────────────────────────────────
-
-const isEmpty = computed(() => !editorContent.value.trim())
 
 // ── CodeMirror Setup ───────────────────────────────────────────────────────
 
@@ -137,38 +172,11 @@ const cmExtensions = computed<Extension[]>(() => {
   ]
 })
 
-const { view: editorView, focus: focusEditor } = useCodemirror(
+const { view: editorView } = useCodemirror(
   editorContainer,
   editorContent,
   cmExtensions,
 )
-
-// Force CodeMirror to re-measure when the editor container becomes visible.
-// The active-state div uses v-show="!isEmpty", so CodeMirror mounts inside a
-// display:none container and calculates zero dimensions. When isEmpty flips to
-// false the container becomes visible but CM doesn't know — we must tell it.
-//
-// Also handles the persisted-content case: when the page loads with content
-// from useState, isEmpty is already false so no transition happens.
-// We watch editorView being created and trigger a delayed re-measure.
-// When the editor transitions from invisible (h-0) to visible, CM needs to
-// re-measure because it was laid out inside a height:0 container.
-watch(isEmpty, (newVal, oldVal) => {
-  if (oldVal && !newVal && editorView.value) {
-    nextTick(() => {
-      editorView.value?.requestMeasure()
-    })
-  }
-})
-
-// When CM view is created with existing content (persisted state), re-measure
-watch(editorView, (view) => {
-  if (view && editorContent.value.trim()) {
-    nextTick(() => {
-      view.requestMeasure()
-    })
-  }
-})
 
 // ── Live Preview (hybrid: sync for small, worker for large) ────────────────
 
@@ -203,26 +211,25 @@ const breakdown = computed(() => {
 
 // ── Actions ────────────────────────────────────────────────────────────────
 
-function insertTemplate(content: string) {
+async function insertTemplate(content: string) {
+  activateEditor()
+
+  // Wait for Vue to render the editor container
+  await nextTick()
+  // Wait one more tick for the watch(container) to fire and create CM
+  await nextTick()
+
   const view = editorView.value
   if (view) {
     const currentDoc = view.state.doc.toString()
-    const trimmed = currentDoc.trim()
-    if (trimmed) {
-      // Append on a new line
-      const insert = '\n' + content
-      view.dispatch({
-        changes: { from: view.state.doc.length, insert },
-      })
+    if (currentDoc.trim()) {
+      view.dispatch({ changes: { from: view.state.doc.length, insert: '\n' + content } })
     } else {
-      // Replace empty content
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: content },
-      })
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: content } })
     }
     view.focus()
   } else {
-    // Fallback: no CM view yet
+    // CM still not ready — set content on the ref, CM will pick it up when it initializes
     if (editorContent.value.trim()) {
       editorContent.value += '\n' + content
     } else {
@@ -234,8 +241,7 @@ function insertTemplate(content: string) {
 
 function showAllTemplates() {
   if (isDesktop.value) {
-    // Insert a comment to transition to the active state where the sidebar is visible
-    insertTemplate('// Choose a template from the sidebar, or start typing JSONL here')
+    activateEditor()
   } else {
     showTemplateSheet.value = true
   }
@@ -287,9 +293,7 @@ async function handleSubmit() {
 }
 
 function clearEditor() {
-  clearEditorState()
-  submission.dismiss()
-  nextTick(focusEditor)
+  deactivateEditor()
 }
 
 // ── File Upload ────────────────────────────────────────────────────────────
@@ -325,6 +329,7 @@ function readFile(file: File) {
   reader.onload = (e) => {
     const text = e.target?.result as string
     uploadProgress.value = null
+    activateEditor()
 
     // For large files, set content directly and enable large-file mode
     if (text.length > LARGE_FILE_THRESHOLD) {
@@ -340,26 +345,11 @@ function readFile(file: File) {
         toast.success(`Loaded ${file.name}`)
       }
     } else {
-      // Small file: insert into CM normally
-      const view = editorView.value
-      if (view) {
-        const currentDoc = view.state.doc.toString()
-        const trimmed = currentDoc.trim()
-        if (trimmed) {
-          view.dispatch({
-            changes: { from: view.state.doc.length, insert: '\n' + text },
-          })
-        } else {
-          view.dispatch({
-            changes: { from: 0, to: view.state.doc.length, insert: text },
-          })
-        }
+      // Small file: set content directly — CM will pick it up via reactivity
+      if (editorContent.value.trim()) {
+        editorContent.value += '\n' + text
       } else {
-        if (editorContent.value.trim()) {
-          editorContent.value += '\n' + text
-        } else {
-          editorContent.value = text
-        }
+        editorContent.value = text
       }
       toast.success(`Loaded ${file.name}`)
     }
@@ -393,10 +383,6 @@ function handleCtrlEnter(e: KeyboardEvent) {
 onMounted(() => {
   document.addEventListener('keydown', handleCtrlEnter)
 
-  // Persisted content re-measure is handled by the watch(editorView) above
-
-  // Accept ?template= URL parameter for cross-page deep-linking (e.g., from Schema Browser)
-  const route = useRoute()
   const templateParam = route.query.template
   if (typeof templateParam === 'string' && templateParam.trim()) {
     nextTick(() => insertTemplate(templateParam.trim()))
@@ -428,10 +414,10 @@ onBeforeUnmount(() => {
       <p class="text-sm">Select a tenant from the header to apply mutations.</p>
     </div>
 
-    <!-- Empty state -->
+    <!-- Empty state — shown when editor is not active -->
     <div
-      v-else-if="isEmpty && hasTenant && !largeFileMode"
-      class="flex flex-col items-center text-center py-12 space-y-8"
+      v-if="!showEditor && hasTenant && !largeFileMode"
+      class="py-12"
       @drop.prevent="handleDrop"
       @dragover="handleDragOver"
       @dragleave="handleDragLeave"
@@ -457,22 +443,57 @@ onBeforeUnmount(() => {
         </div>
       </Transition>
 
-      <div class="space-y-3">
-        <div class="mx-auto flex size-16 items-center justify-center rounded-full bg-muted">
-          <FileCode class="size-8 text-muted-foreground" />
-        </div>
-        <h2 class="text-xl font-semibold">Mutation Console</h2>
-        <p class="mx-auto max-w-md text-sm text-muted-foreground">
-          Create, update, and delete nodes and edges in your knowledge graph using JSONL mutation operations.
+      <div class="mx-auto max-w-2xl space-y-8">
+        <p class="text-center text-muted-foreground">
+          Get started by uploading a file, opening the editor, or choosing a template.
         </p>
-      </div>
 
-      <!-- Quick start grid -->
-      <div class="w-full max-w-2xl space-y-4">
-        <h3 class="text-sm font-medium text-muted-foreground flex items-center justify-center gap-2">
-          <Lightbulb class="size-4" />
-          Quick Start — Choose a template
-        </h3>
+        <!-- Primary actions -->
+        <div class="grid gap-4 sm:grid-cols-2">
+          <label>
+            <input
+              type="file"
+              accept=".jsonl,.json,.ndjson"
+              class="hidden"
+              aria-label="Upload JSONL mutation file"
+              @change="handleFileUpload"
+            >
+            <Card class="cursor-pointer transition-colors hover:bg-muted/50 h-full">
+              <CardContent class="flex flex-col items-center gap-3 p-6 text-center">
+                <div class="rounded-full bg-muted p-3">
+                  <Upload class="size-5 text-muted-foreground" />
+                </div>
+                <div>
+                  <p class="text-sm font-medium">Upload File</p>
+                  <p class="text-xs text-muted-foreground">.jsonl, .json, or .ndjson</p>
+                </div>
+              </CardContent>
+            </Card>
+          </label>
+          <Card
+            class="cursor-pointer transition-colors hover:bg-muted/50"
+            @click="activateEditor()"
+          >
+            <CardContent class="flex flex-col items-center gap-3 p-6 text-center">
+              <div class="rounded-full bg-muted p-3">
+                <FileCode class="size-5 text-muted-foreground" />
+              </div>
+              <div>
+                <p class="text-sm font-medium">Open Editor</p>
+                <p class="text-xs text-muted-foreground">Start with an empty JSONL editor</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <!-- Separator -->
+        <div class="flex items-center gap-4">
+          <Separator class="flex-1" />
+          <span class="text-xs text-muted-foreground">or start from a template</span>
+          <Separator class="flex-1" />
+        </div>
+
+        <!-- Template cards -->
         <div class="grid gap-3 sm:grid-cols-2">
           <Card
             v-for="template in quickStartTemplates"
@@ -480,7 +501,7 @@ onBeforeUnmount(() => {
             class="cursor-pointer transition-colors hover:bg-muted/50 text-left"
             @click="insertTemplate(template.content)"
           >
-            <CardContent class="p-4 space-y-1.5">
+            <CardContent class="p-4 space-y-1">
               <div class="flex items-center gap-2">
                 <component :is="template.icon" class="size-4 text-primary" />
                 <span class="text-sm font-medium">{{ template.name }}</span>
@@ -489,57 +510,16 @@ onBeforeUnmount(() => {
             </CardContent>
           </Card>
         </div>
-      </div>
 
-      <!-- Additional options row -->
-      <div class="flex flex-wrap items-center justify-center gap-3">
-        <label>
-          <input
-            type="file"
-            accept=".jsonl,.json,.ndjson"
-            class="hidden"
-            aria-label="Upload JSONL mutation file"
-            @change="handleFileUpload"
-          >
-          <Button variant="outline" size="sm" as="span" class="cursor-pointer gap-2">
-            <Upload class="size-4" />
-            Upload File
-          </Button>
-        </label>
-        <Button variant="outline" size="sm" class="gap-2" @click="showAllTemplates">
-          <BookOpen class="size-4" />
-          All Templates
-        </Button>
-      </div>
-
-      <!-- Workflow hint -->
-      <div class="mx-auto max-w-lg space-y-3 rounded-lg border bg-muted/30 p-4 text-left">
-        <p class="text-xs font-medium">How it works</p>
-        <ol class="space-y-1.5 text-xs text-muted-foreground list-decimal list-inside">
-          <li><code class="rounded bg-muted px-1 py-0.5">DEFINE</code> — Declare a type schema (required before first CREATE, idempotent)</li>
-          <li><code class="rounded bg-muted px-1 py-0.5">CREATE</code> — Add a node or edge (idempotent, uses MERGE)</li>
-          <li><code class="rounded bg-muted px-1 py-0.5">UPDATE</code> — Set or remove properties on an existing entity</li>
-          <li><code class="rounded bg-muted px-1 py-0.5">DELETE</code> — Remove an entity (nodes cascade-delete connected edges)</li>
-        </ol>
-        <p class="text-xs text-muted-foreground">
-          Each line is one JSON operation. Operations auto-sort: DEFINE runs first regardless of order.
-          Submit with
-          <kbd class="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">Ctrl</kbd> +
-          <kbd class="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">Enter</kbd>
+        <!-- Drag & drop hint -->
+        <p class="text-center text-xs text-muted-foreground">
+          Tip: You can also drag &amp; drop a .jsonl file anywhere on this page
         </p>
       </div>
     </div>
 
-    <!-- Active state (editor has content) — uses off-screen positioning instead of
-         display:none so CodeMirror always has a fully-dimensioned layout box.
-         When empty, the div is positioned absolutely off-screen with 0 opacity. -->
-    <div
-      v-if="hasTenant"
-      class="space-y-4"
-      :class="isEmpty && !largeFileMode
-        ? 'absolute -left-[9999px] opacity-0 pointer-events-none w-full'
-        : 'relative'"
-    >
+    <!-- Active state (editor + panels) — mutually exclusive with the empty state above -->
+    <div v-if="hasTenant && (showEditor || largeFileMode)" class="space-y-4">
       <!-- Upload progress bar -->
       <Card v-if="uploadProgress !== null" class="border-primary/30">
         <CardContent class="p-4 space-y-2">

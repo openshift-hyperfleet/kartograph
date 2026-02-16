@@ -243,6 +243,24 @@ function validateDefine(obj: Record<string, unknown>, warnings: string[]) {
   if (!obj.label) {
     warnings.push('DEFINE: missing required field "label"')
   }
+  if (!obj.description) {
+    warnings.push('DEFINE: missing required field "description"')
+  }
+  if (!obj.required_properties) {
+    warnings.push('DEFINE: missing required field "required_properties"')
+  } else if (!Array.isArray(obj.required_properties)) {
+    warnings.push('DEFINE: "required_properties" must be an array')
+  }
+  // DEFINE must not have id, set_properties, remove_properties
+  if (obj.id) {
+    warnings.push('DEFINE: cannot include "id" field')
+  }
+  if (obj.set_properties) {
+    warnings.push('DEFINE: cannot include "set_properties" field')
+  }
+  if (obj.remove_properties) {
+    warnings.push('DEFINE: cannot include "remove_properties" field')
+  }
 }
 
 function validateCreate(obj: Record<string, unknown>, warnings: string[]) {

@@ -45,39 +45,39 @@ const templates: MutationTemplate[] = [
       { name: 'op', required: true, description: 'Always "DEFINE"' },
       { name: 'type', required: true, description: '"node" or "edge"' },
       { name: 'label', required: true, description: 'Type name (e.g. "person")' },
-      { name: 'description', required: false, description: 'Human-readable description' },
-      { name: 'required_properties', required: false, description: 'Array of required property names' },
+      { name: 'description', required: true, description: 'Human-readable description' },
+      { name: 'required_properties', required: true, description: 'Array of required property names' },
       { name: 'optional_properties', required: false, description: 'Array of optional property names' },
     ],
   },
   {
     name: 'Create Node',
-    description: 'Create a new node instance',
-    content: '{"op": "CREATE", "type": "node", "label": "person", "id": "person:a1b2c3d4e5f67890", "set_properties": {"name": "Alice", "slug": "alice", "data_source_id": "dev-ui", "source_path": "manual"}}',
+    description: 'Define a type and create a node (DEFINE + CREATE)',
+    content: '{"op": "DEFINE", "type": "node", "label": "person", "description": "A person entity", "required_properties": ["name"]}\n{"op": "CREATE", "type": "node", "label": "person", "id": "person:' + generateHexId() + '", "set_properties": {"name": "Alice", "slug": "alice", "data_source_id": "dev-ui", "source_path": "manual"}}',
     fields: [
-      { name: 'op', required: true, description: 'Always "CREATE"' },
+      { name: 'op', required: true, description: 'DEFINE then CREATE (two lines)' },
       { name: 'type', required: true, description: '"node"' },
       { name: 'label', required: true, description: 'Type name (e.g. "person")' },
-      { name: 'id', required: true, description: 'Format: label:16hexchars' },
-      { name: 'set_properties', required: true, description: 'Object with properties to set' },
-      { name: 'slug', required: true, description: 'Required in set_properties for nodes' },
-      { name: 'data_source_id', required: true, description: 'Required in set_properties' },
-      { name: 'source_path', required: true, description: 'Required in set_properties' },
+      { name: 'description', required: true, description: 'Human-readable type description (DEFINE)' },
+      { name: 'required_properties', required: true, description: 'Properties required on CREATE (DEFINE)' },
+      { name: 'id', required: true, description: 'Format: label:16hexchars (CREATE)' },
+      { name: 'set_properties', required: true, description: 'Must include slug, data_source_id, source_path (CREATE)' },
     ],
   },
   {
     name: 'Create Edge',
-    description: 'Create a relationship between nodes',
-    content: '{"op": "CREATE", "type": "edge", "label": "knows", "id": "knows:a1b2c3d4e5f67890", "start_id": "person:a1b2c3d4e5f67890", "end_id": "person:f6e5d4c3b2a10987", "set_properties": {"data_source_id": "dev-ui", "source_path": "manual"}}',
+    description: 'Define a relationship type and create an edge (DEFINE + CREATE)',
+    content: '{"op": "DEFINE", "type": "edge", "label": "knows", "description": "Indicates two entities know each other", "required_properties": []}\n{"op": "CREATE", "type": "edge", "label": "knows", "id": "knows:' + generateHexId() + '", "start_id": "person:a1b2c3d4e5f67890", "end_id": "person:f6e5d4c3b2a10987", "set_properties": {"data_source_id": "dev-ui", "source_path": "manual"}}',
     fields: [
-      { name: 'op', required: true, description: 'Always "CREATE"' },
+      { name: 'op', required: true, description: 'DEFINE then CREATE (two lines)' },
       { name: 'type', required: true, description: '"edge"' },
       { name: 'label', required: true, description: 'Relationship type (e.g. "knows")' },
-      { name: 'id', required: true, description: 'Format: label:16hexchars' },
-      { name: 'start_id', required: true, description: 'Source node ID (same format)' },
-      { name: 'end_id', required: true, description: 'Target node ID (same format)' },
-      { name: 'data_source_id', required: true, description: 'Required in set_properties' },
-      { name: 'source_path', required: true, description: 'Required in set_properties' },
+      { name: 'description', required: true, description: 'Human-readable type description (DEFINE)' },
+      { name: 'required_properties', required: true, description: 'Properties required on CREATE (DEFINE)' },
+      { name: 'id', required: true, description: 'Format: label:16hexchars (CREATE)' },
+      { name: 'start_id', required: true, description: 'Source node ID (CREATE)' },
+      { name: 'end_id', required: true, description: 'Target node ID (CREATE)' },
+      { name: 'set_properties', required: true, description: 'Must include data_source_id, source_path (CREATE)' },
     ],
   },
   {
@@ -217,10 +217,9 @@ function copyGeneratedId() {
     <Separator />
 
     <div class="space-y-2 text-xs text-muted-foreground">
-      <p class="font-medium">JSONL Format</p>
-      <p>Each line must be a valid JSON object representing a single mutation operation. You can also paste a JSON array.</p>
-      <p>Required field: <code class="rounded bg-muted px-1 py-0.5">op</code> — one of <code class="rounded bg-muted px-1 py-0.5">DEFINE</code>, <code class="rounded bg-muted px-1 py-0.5">CREATE</code>, <code class="rounded bg-muted px-1 py-0.5">UPDATE</code>, <code class="rounded bg-muted px-1 py-0.5">DELETE</code></p>
-      <p>Other fields: <code class="rounded bg-muted px-1 py-0.5">type</code> (node/edge), <code class="rounded bg-muted px-1 py-0.5">label</code>, <code class="rounded bg-muted px-1 py-0.5">id</code>, <code class="rounded bg-muted px-1 py-0.5">set_properties</code></p>
+      <p class="font-medium">Workflow</p>
+      <p><code class="rounded bg-muted px-1 py-0.5">DEFINE</code> a type before the first <code class="rounded bg-muted px-1 py-0.5">CREATE</code>. DEFINE is idempotent — safe to include every time.</p>
+      <p>Operations auto-sort: DEFINE always runs first regardless of order in the file.</p>
       <p>ID format: <code class="rounded bg-muted px-1 py-0.5">label:16hexchars</code> (lowercase hex, exactly 16 chars)</p>
     </div>
   </div>

@@ -871,6 +871,12 @@ class SpiceDBClient(AuthorizationProvider):
                 subject="group:xyz#member"
             ), ...]
         """
+        # Validate subject_id requires subject_type
+        if subject_id and not subject_type:
+            raise ValueError(
+                "subject_type must be provided when subject_id is specified"
+            )
+
         await self._ensure_client()
         assert self._client is not None  # For mypy
 
@@ -885,10 +891,10 @@ class SpiceDBClient(AuthorizationProvider):
                 filter_kwargs["optional_relation"] = relation
 
             # Build optional subject filter
-            if subject_type or subject_id:
-                subject_filter_kwargs: dict[str, str] = {}
-                if subject_type:
-                    subject_filter_kwargs["subject_type"] = subject_type
+            if subject_type:
+                subject_filter_kwargs: dict[str, str] = {
+                    "subject_type": subject_type,
+                }
                 if subject_id:
                     subject_filter_kwargs["optional_subject_id"] = subject_id
                 filter_kwargs["optional_subject_filter"] = SubjectFilter(

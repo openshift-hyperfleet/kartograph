@@ -91,13 +91,11 @@ const isDesktop = useMediaQuery('(min-width: 1024px)')
 
 // ── State ──────────────────────────────────────────────────────────────────
 
-const editorContent = ref('')
+const { editorContent, largeFileMode, uploadFileName, clearState: clearEditorState } = useMutationEditorState()
 const isDragOver = ref(false)
 const editorContainer = ref<HTMLElement | null>(null)
 const showTemplateSheet = ref(false)
-const largeFileMode = ref(false)
 const uploadProgress = ref<number | null>(null)
-const uploadFileName = ref('')
 const showWarningBrowser = ref(false)
 
 // Derived from the cross-app submission composable
@@ -263,9 +261,8 @@ function handleSubmit() {
 }
 
 function clearEditor() {
-  editorContent.value = ''
+  clearEditorState()
   submission.dismiss()
-  largeFileMode.value = false
   nextTick(focusEditor)
 }
 
@@ -369,6 +366,15 @@ function handleCtrlEnter(e: KeyboardEvent) {
 
 onMounted(() => {
   document.addEventListener('keydown', handleCtrlEnter)
+
+  // If we have persisted content, ensure CodeMirror measures correctly
+  if (editorContent.value.trim()) {
+    nextTick(() => {
+      requestAnimationFrame(() => {
+        editorView.value?.requestMeasure()
+      })
+    })
+  }
 
   // Accept ?template= URL parameter for cross-page deep-linking (e.g., from Schema Browser)
   const route = useRoute()

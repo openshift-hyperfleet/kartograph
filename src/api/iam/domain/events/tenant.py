@@ -75,11 +75,13 @@ class TenantMemberRemoved:
     Attributes:
         tenant_id: The ID of the tenant from which the member was removed
         user_id: The user removed as a member from the tenant
-        removed_by: The ID of the user that initiated this action
         occurred_at: When this event occurred (UTC)
+        removed_by: The ID of the user that initiated this action (None for system/role replacement)
+        role: The role being removed (None for legacy events that delete all roles)
     """
 
     tenant_id: str
     user_id: str
     occurred_at: datetime
-    removed_by: str
+    removed_by: Optional[str] = None
+    role: Optional[str] = None

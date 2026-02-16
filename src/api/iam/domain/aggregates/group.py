@@ -78,17 +78,38 @@ class Group:
         )
         return group
 
-    def add_member(self, user_id: UserId, role: GroupRole) -> None:
+    def add_member(
+        self, user_id: UserId, role: GroupRole, current_role: GroupRole | None = None
+    ) -> None:
         """Add a member to the group with a specific role.
+
+        If the user already has a different role (via current_role parameter),
+        the old role is removed first (role replacement pattern). This ensures
+        users can only have one role per group.
 
         Args:
             user_id: The user to add
             role: The role to assign (ADMIN or MEMBER)
+            current_role: User's current role (if any). If different from new role,
+                the old role will be removed first (role replacement).
 
         Raises:
-            ValueError: If user is already a member
+            ValueError: If user already has the same role
         """
-        if self.has_member(user_id):
+        # If user already has a different role, remove it first (role replacement)
+        if current_role is not None and current_role != role:
+            # Remove from in-memory list
+            self.members = [m for m in self.members if m.user_id != user_id]
+
+            self._pending_events.append(
+                MemberRemoved(
+                    group_id=self.id.value,
+                    user_id=user_id.value,
+                    role=current_role.value,
+                    occurred_at=datetime.now(UTC),
+                )
+            )
+        elif self.has_member(user_id):
             raise ValueError(f"User {user_id} is already a member of this group")
 
         member = GroupMember(user_id=user_id, role=role)

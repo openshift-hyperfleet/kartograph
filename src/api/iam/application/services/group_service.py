@@ -243,6 +243,25 @@ class GroupService:
 
             return await self._group_repository.delete(group)
 
+    async def _get_user_group_role(
+        self, group_id: GroupId, user_id: UserId
+    ) -> GroupRole | None:
+        """Get user's current role in group, or None if not a member."""
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.GROUP.value,
+            resource_id=group_id.value,
+            subject_type=ResourceType.USER.value,
+            subject_id=user_id.value,
+        )
+
+        for rel_tuple in tuples:
+            if rel_tuple.relation == "admin":
+                return GroupRole.ADMIN
+            elif rel_tuple.relation == "member_relation":
+                return GroupRole.MEMBER
+
+        return None
+
     async def add_member(
         self,
         group_id: GroupId,
@@ -251,6 +270,10 @@ class GroupService:
         role: GroupRole,
     ) -> Group:
         """Add a member to a group.
+
+        If the user already has a different role, the old role is automatically
+        removed first (role replacement pattern). This ensures users can only
+        have one role per group.
 
         Args:
             group_id: The group to add member to
@@ -263,7 +286,7 @@ class GroupService:
 
         Raises:
             PermissionError: If acting user lacks MANAGE permission
-            ValueError: If member already exists, group not found, or tenant mismatch
+            ValueError: If member already has the same role, group not found, or tenant mismatch
         """
         # Check acting user has MANAGE permission
         has_manage = await self._check_group_permission(
@@ -288,8 +311,11 @@ class GroupService:
             if group.tenant_id.value != self._scope_to_tenant.value:
                 raise ValueError("Group belongs to different tenant")
 
-            # Add member (aggregate handles validation and events)
-            group.add_member(user_id, role)
+            # Check if user already has a role (query SpiceDB)
+            current_role = await self._get_user_group_role(group_id, user_id)
+
+            # Add member (will replace role if different)
+            group.add_member(user_id, role, current_role=current_role)
 
             # Save (persists events to outbox)
             await self._group_repository.save(group)

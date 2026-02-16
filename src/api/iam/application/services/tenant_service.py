@@ -221,6 +221,23 @@ class TenantService:
             permission=Permission.ADMINISTRATE,
         )
 
+    async def _get_user_tenant_role(
+        self, tenant_id: TenantId, user_id: UserId
+    ) -> TenantRole | None:
+        """Get user's current role in tenant, or None if not a member."""
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.TENANT.value,
+            resource_id=tenant_id.value,
+            subject_type=ResourceType.USER.value,
+            subject_id=user_id.value,
+        )
+
+        for rel_tuple in tuples:
+            if rel_tuple.relation in ["admin", "member"]:
+                return TenantRole(rel_tuple.relation)
+
+        return None
+
     async def add_member(
         self,
         tenant_id: TenantId,
@@ -229,6 +246,10 @@ class TenantService:
         requesting_user_id: UserId,
     ) -> None:
         """Add a member to a tenant.
+
+        If the user already has a different role, the old role is automatically
+        removed first (role replacement pattern). This ensures users can only
+        have one role per tenant.
 
         Args:
             tenant_id: The tenant to add the member to
@@ -256,7 +277,16 @@ class TenantService:
                 self._probe.tenant_not_found(tenant_id=tenant_id.value)
                 raise ValueError("Tenant not found")
 
-            tenant.add_member(user_id=user_id, role=role, added_by=requesting_user_id)
+            # Check if user already has a role (query SpiceDB)
+            current_role = await self._get_user_tenant_role(tenant_id, user_id)
+
+            # Add member (will replace role if different)
+            tenant.add_member(
+                user_id=user_id,
+                role=role,
+                added_by=requesting_user_id,
+                current_role=current_role,
+            )
             await self._tenant_repository.save(tenant)
 
             self._probe.tenant_member_added(
@@ -323,20 +353,34 @@ class TenantService:
     ) -> list[tuple[str, str]]:
         """List all users and their roles for a given tenant.
 
+        Uses read_relationships to return only explicit tuples (not computed
+        permissions), consistent with workspace and group member listing.
+
         Returns: list[tuple[user_id, user_role]]
         """
-        members = [
-            (subject.subject_id, role.value)
-            for role in TenantRole
-            for subject in await self._authz.lookup_subjects(
-                resource=format_resource(
-                    resource_type=ResourceType.TENANT,
-                    resource_id=tenant_id.value,
-                ),
-                relation=role.value,
-                subject_type=ResourceType.USER,
-            )
-        ]
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.TENANT.value,
+            resource_id=tenant_id.value,
+            subject_type=ResourceType.USER.value,
+        )
+
+        members: list[tuple[str, str]] = []
+        for rel_tuple in tuples:
+            # Map SpiceDB relations to domain roles
+            if rel_tuple.relation == "admin":
+                role = TenantRole.ADMIN
+            elif rel_tuple.relation == "member":
+                role = TenantRole.MEMBER
+            else:
+                continue  # Skip non-role relations
+
+            # Parse subject (format: "user:ID")
+            subject_parts = rel_tuple.subject.split(":")
+            if len(subject_parts) < 2:
+                continue
+            user_id = ":".join(subject_parts[1:])
+
+            members.append((user_id, role.value))
 
         return members
 

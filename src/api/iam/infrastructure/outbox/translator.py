@@ -366,17 +366,16 @@ class IAMEventTranslator:
     ) -> list[SpiceDBOperation]:
         """Translate TenantMemberRemoved to DeleteRelationship operations.
 
-        Unlike _translate_member_removed which receives a specific role in the
-        payload, TenantMemberRemoved events do not include a role. Therefore,
-        this method deletes all TenantRole relations (member, admin) for the
-        given user from the tenant, ensuring complete removal regardless of
-        which roles the user held.
+        If the event payload includes a specific ``role``, only that role's
+        relationship is deleted (used during role replacement in add_member).
+        Otherwise, all TenantRole relations (member, admin) are deleted for
+        the user, ensuring complete removal regardless of which roles were held.
 
         Args:
-            payload: Event payload containing tenant_id and user_id
+            payload: Event payload containing tenant_id, user_id, and optional role
 
         Returns:
-            List of DeleteRelationship operations for each TenantRole
+            List of DeleteRelationship operations
 
         Raises:
             ValueError: If required keys tenant_id or user_id are missing
@@ -388,6 +387,20 @@ class IAMEventTranslator:
                 f"_translate_tenant_member_removed missing required keys: {missing_keys}"
             )
 
+        # If a specific role is provided, only delete that role's relationship
+        specific_role = payload.get("role")
+        if specific_role:
+            return [
+                DeleteRelationship(
+                    subject_type=ResourceType.USER,
+                    subject_id=payload["user_id"],
+                    relation=TenantRole(specific_role),
+                    resource_type=ResourceType.TENANT,
+                    resource_id=payload["tenant_id"],
+                )
+            ]
+
+        # No specific role: delete all TenantRole relations
         return [
             DeleteRelationship(
                 subject_type=ResourceType.USER,

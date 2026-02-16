@@ -545,6 +545,85 @@ class TestWorkspaceAddMember:
         assert len(workspace.members) == 2
 
 
+class TestWorkspaceAddMemberRoleReplacement:
+    """Tests for role replacement in Workspace.add_member()."""
+
+    def test_replaces_role_when_current_role_differs(self):
+        """Test that add_member emits MemberRemoved + MemberAdded when replacing role."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.MEMBER)
+        workspace.collect_events()  # Clear
+
+        workspace.add_member(
+            "user-alice",
+            MemberType.USER,
+            WorkspaceRole.ADMIN,
+            current_role=WorkspaceRole.MEMBER,
+        )
+
+        events = workspace.collect_events()
+        assert len(events) == 2
+        assert isinstance(events[0], WorkspaceMemberRemoved)
+        assert events[0].role == "member"
+        assert events[0].member_id == "user-alice"
+        assert isinstance(events[1], WorkspaceMemberAdded)
+        assert events[1].role == "admin"
+
+    def test_replacement_updates_in_memory_members(self):
+        """Test that role replacement updates the in-memory members list."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.MEMBER)
+
+        workspace.add_member(
+            "user-alice",
+            MemberType.USER,
+            WorkspaceRole.ADMIN,
+            current_role=WorkspaceRole.MEMBER,
+        )
+
+        assert len(workspace.members) == 1
+        assert (
+            workspace.get_member_role("user-alice", MemberType.USER)
+            == WorkspaceRole.ADMIN
+        )
+
+    def test_no_removal_when_current_role_is_same(self):
+        """Test that add_member raises ValueError when role is the same."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+
+        # Same role with current_role specified - should still just add (no removal)
+        workspace.add_member(
+            "user-bob",
+            MemberType.USER,
+            WorkspaceRole.ADMIN,
+            current_role=WorkspaceRole.ADMIN,
+        )
+
+        # Only MemberAdded for bob
+        events = workspace.collect_events()
+        added_events = [e for e in events if isinstance(e, WorkspaceMemberAdded)]
+        removed_events = [e for e in events if isinstance(e, WorkspaceMemberRemoved)]
+        # alice add + bob add, no removals for bob
+        assert len(added_events) == 2
+        assert len(removed_events) == 0
+
+    def test_no_removal_when_no_current_role(self):
+        """Test that add_member does NOT emit MemberRemoved for new members."""
+        workspace = _make_workspace()
+
+        workspace.add_member(
+            "user-alice",
+            MemberType.USER,
+            WorkspaceRole.MEMBER,
+            current_role=None,
+        )
+
+        events = workspace.collect_events()
+        assert len(events) == 1
+        assert isinstance(events[0], WorkspaceMemberAdded)
+
+
 class TestWorkspaceRemoveMember:
     """Tests for Workspace.remove_member() business logic."""
 

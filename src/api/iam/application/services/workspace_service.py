@@ -503,6 +503,31 @@ class WorkspaceService:
 
             return result
 
+    async def _get_member_workspace_role(
+        self,
+        workspace_id: WorkspaceId,
+        member_id: str,
+        member_type: MemberType,
+    ) -> WorkspaceRole | None:
+        """Get a member's current role in a workspace, or None if not a member."""
+        subject_type = (
+            ResourceType.GROUP.value
+            if member_type == MemberType.GROUP
+            else ResourceType.USER.value
+        )
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.WORKSPACE.value,
+            resource_id=workspace_id.value,
+            subject_type=subject_type,
+            subject_id=member_id,
+        )
+
+        for rel_tuple in tuples:
+            if rel_tuple.relation in ["admin", "editor", "member"]:
+                return WorkspaceRole(rel_tuple.relation)
+
+        return None
+
     async def add_member(
         self,
         workspace_id: WorkspaceId,
@@ -512,6 +537,10 @@ class WorkspaceService:
         role: WorkspaceRole,
     ) -> Workspace:
         """Add a member to a workspace.
+
+        If the member already has a different role, the old role is automatically
+        removed first (role replacement pattern). This ensures members can only
+        have one role per workspace.
 
         Args:
             workspace_id: The workspace to add member to
@@ -525,7 +554,7 @@ class WorkspaceService:
 
         Raises:
             PermissionError: If acting user lacks MANAGE permission
-            ValueError: If member already exists or workspace not found
+            ValueError: If member already has the same role or workspace not found
             UnauthorizedError: If workspace belongs to different tenant
         """
         # Check acting user has MANAGE permission
@@ -551,8 +580,15 @@ class WorkspaceService:
             if workspace.tenant_id != self._scope_to_tenant:
                 raise UnauthorizedError("Workspace belongs to different tenant")
 
-            # Add member (aggregate handles validation and events)
-            workspace.add_member(member_id, member_type, role)
+            # Check if member already has a role (query SpiceDB)
+            current_role = await self._get_member_workspace_role(
+                workspace_id, member_id, member_type
+            )
+
+            # Add member (will replace role if different)
+            workspace.add_member(
+                member_id, member_type, role, current_role=current_role
+            )
 
             # Save (persists events to outbox)
             await self._workspace_repository.save(workspace)

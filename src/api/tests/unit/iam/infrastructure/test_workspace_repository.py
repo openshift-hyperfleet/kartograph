@@ -22,7 +22,7 @@ from iam.infrastructure.models import WorkspaceModel
 from iam.infrastructure.workspace_repository import WorkspaceRepository
 from iam.ports.repositories import IWorkspaceRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
-from shared_kernel.authorization.types import SubjectRelation
+from shared_kernel.authorization.types import RelationshipTuple
 
 
 @pytest.fixture
@@ -44,6 +44,7 @@ def mock_authz():
     authz.lookup_subjects = AsyncMock(return_value=[])
     authz.lookup_resources = AsyncMock(return_value=[])
     authz.check_permission = AsyncMock(return_value=False)
+    authz.read_relationships = AsyncMock(return_value=[])
     return authz
 
 
@@ -270,17 +271,16 @@ class TestGetById:
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        # Mock SpiceDB: user is an admin
-        async def mock_lookup(resource, relation, subject_type):
-            if relation == WorkspaceRole.ADMIN.value and subject_type == "user":
-                return [
-                    SubjectRelation(
-                        subject_id=user_id, relation=WorkspaceRole.ADMIN.value
-                    )
-                ]
-            return []
-
-        mock_authz.lookup_subjects.side_effect = mock_lookup
+        # Mock SpiceDB ReadRelationships: user is an admin
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=f"workspace:{workspace_id.value}",
+                    relation="admin",
+                    subject=f"user:{user_id}",
+                )
+            ]
+        )
 
         result = await repository.get_by_id(workspace_id)
 
@@ -311,17 +311,16 @@ class TestGetById:
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        # Mock SpiceDB: group is a member
-        async def mock_lookup(resource, relation, subject_type):
-            if relation == WorkspaceRole.MEMBER.value and subject_type == "group":
-                return [
-                    SubjectRelation(
-                        subject_id=group_id, relation=WorkspaceRole.MEMBER.value
-                    )
-                ]
-            return []
-
-        mock_authz.lookup_subjects.side_effect = mock_lookup
+        # Mock SpiceDB ReadRelationships: group is a member
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=f"workspace:{workspace_id.value}",
+                    relation="member",
+                    subject=f"group:{group_id}#member",
+                )
+            ]
+        )
 
         result = await repository.get_by_id(workspace_id)
 
@@ -354,29 +353,27 @@ class TestGetById:
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        # Mock SpiceDB: different members across roles and types
-        async def mock_lookup(resource, relation, subject_type):
-            if relation == WorkspaceRole.ADMIN.value and subject_type == "user":
-                return [
-                    SubjectRelation(
-                        subject_id=admin_user, relation=WorkspaceRole.ADMIN.value
-                    )
-                ]
-            if relation == WorkspaceRole.EDITOR.value and subject_type == "group":
-                return [
-                    SubjectRelation(
-                        subject_id=editor_group, relation=WorkspaceRole.EDITOR.value
-                    )
-                ]
-            if relation == WorkspaceRole.MEMBER.value and subject_type == "user":
-                return [
-                    SubjectRelation(
-                        subject_id=member_user, relation=WorkspaceRole.MEMBER.value
-                    )
-                ]
-            return []
-
-        mock_authz.lookup_subjects.side_effect = mock_lookup
+        # Mock SpiceDB ReadRelationships: different members across roles and types
+        ws_resource = f"workspace:{workspace_id.value}"
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=ws_resource,
+                    relation="admin",
+                    subject=f"user:{admin_user}",
+                ),
+                RelationshipTuple(
+                    resource=ws_resource,
+                    relation="editor",
+                    subject=f"group:{editor_group}#member",
+                ),
+                RelationshipTuple(
+                    resource=ws_resource,
+                    relation="member",
+                    subject=f"user:{member_user}",
+                ),
+            ]
+        )
 
         result = await repository.get_by_id(workspace_id)
 
@@ -411,7 +408,7 @@ class TestGetById:
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        mock_authz.lookup_subjects.side_effect = RuntimeError("SpiceDB unavailable")
+        mock_authz.read_relationships.side_effect = RuntimeError("SpiceDB unavailable")
 
         with pytest.raises(RuntimeError, match="SpiceDB unavailable"):
             await repository.get_by_id(workspace_id)
@@ -524,16 +521,16 @@ class TestGetByName:
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        async def mock_lookup(resource, relation, subject_type):
-            if relation == WorkspaceRole.EDITOR.value and subject_type == "user":
-                return [
-                    SubjectRelation(
-                        subject_id=user_id, relation=WorkspaceRole.EDITOR.value
-                    )
-                ]
-            return []
-
-        mock_authz.lookup_subjects.side_effect = mock_lookup
+        # Mock SpiceDB ReadRelationships: user is an editor
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=f"workspace:{workspace_id.value}",
+                    relation="editor",
+                    subject=f"user:{user_id}",
+                )
+            ]
+        )
 
         result = await repository.get_by_name(tenant_id, "Engineering")
 
@@ -562,7 +559,7 @@ class TestGetByName:
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        mock_authz.lookup_subjects.side_effect = RuntimeError("SpiceDB error")
+        mock_authz.read_relationships.side_effect = RuntimeError("SpiceDB error")
 
         with pytest.raises(RuntimeError, match="SpiceDB error"):
             await repository.get_by_name(tenant_id, "Failing")
@@ -634,16 +631,16 @@ class TestGetRootWorkspace:
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        async def mock_lookup(resource, relation, subject_type):
-            if relation == WorkspaceRole.ADMIN.value and subject_type == "user":
-                return [
-                    SubjectRelation(
-                        subject_id=user_id, relation=WorkspaceRole.ADMIN.value
-                    )
-                ]
-            return []
-
-        mock_authz.lookup_subjects.side_effect = mock_lookup
+        # Mock SpiceDB ReadRelationships: user is an admin
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=f"workspace:{workspace_id.value}",
+                    relation="admin",
+                    subject=f"user:{user_id}",
+                )
+            ]
+        )
 
         result = await repository.get_root_workspace(tenant_id)
 
@@ -750,17 +747,17 @@ class TestListByTenant:
         mock_result.scalars.return_value.all.return_value = models
         mock_session.execute.return_value = mock_result
 
-        # Mock SpiceDB: user is admin of both workspaces
-        async def mock_lookup(resource, relation, subject_type):
-            if relation == WorkspaceRole.ADMIN.value and subject_type == "user":
-                return [
-                    SubjectRelation(
-                        subject_id=user_id, relation=WorkspaceRole.ADMIN.value
-                    )
-                ]
-            return []
+        # Mock SpiceDB ReadRelationships: user is admin of each workspace
+        async def mock_read_relationships(resource_type, resource_id=None, **kwargs):
+            return [
+                RelationshipTuple(
+                    resource=f"workspace:{resource_id}",
+                    relation="admin",
+                    subject=f"user:{user_id}",
+                )
+            ]
 
-        mock_authz.lookup_subjects.side_effect = mock_lookup
+        mock_authz.read_relationships.side_effect = mock_read_relationships
 
         result = await repository.list_by_tenant(tenant_id)
 
@@ -805,14 +802,12 @@ class TestListByTenant:
         mock_session.execute.return_value = mock_result
 
         # First workspace hydration fails, second succeeds
-        failing_resource = f"workspace:{ws_id_1.value}"
-
-        async def mock_lookup(resource, relation, subject_type):
-            if resource == failing_resource:
+        async def mock_read_relationships(resource_type, resource_id=None, **kwargs):
+            if resource_id == ws_id_1.value:
                 raise RuntimeError("SpiceDB timeout")
             return []
 
-        mock_authz.lookup_subjects.side_effect = mock_lookup
+        mock_authz.read_relationships.side_effect = mock_read_relationships
 
         result = await repository.list_by_tenant(tenant_id)
 
@@ -1029,19 +1024,22 @@ class TestHydrateMembers:
     """Tests for _hydrate_members method."""
 
     @pytest.mark.asyncio
-    async def test_queries_all_role_and_type_combinations(self, repository, mock_authz):
-        """Should query SpiceDB for all 6 combinations (3 roles x 2 member types)."""
-        mock_authz.lookup_subjects.return_value = []
+    async def test_calls_read_relationships_once(self, repository, mock_authz):
+        """Should call read_relationships once with the workspace resource."""
+        mock_authz.read_relationships.return_value = []
 
         await repository._hydrate_members("workspace-id")
 
-        # 3 roles (admin, editor, member) x 2 types (user, group) = 6 calls
-        assert mock_authz.lookup_subjects.call_count == 6
+        # Single call to read_relationships (replaces 6 lookup_subjects calls)
+        mock_authz.read_relationships.assert_called_once_with(
+            resource_type="workspace",
+            resource_id="workspace-id",
+        )
 
     @pytest.mark.asyncio
     async def test_returns_empty_list_when_no_members(self, repository, mock_authz):
         """Should return empty list when workspace has no members."""
-        mock_authz.lookup_subjects.return_value = []
+        mock_authz.read_relationships.return_value = []
 
         members = await repository._hydrate_members("workspace-id")
 
@@ -1055,14 +1053,20 @@ class TestHydrateMembers:
         user_id = "user-alice"
         group_id = "group-eng"
 
-        async def mock_lookup(resource, relation, subject_type):
-            if relation == "admin" and subject_type == "user":
-                return [SubjectRelation(subject_id=user_id, relation="admin")]
-            if relation == "editor" and subject_type == "group":
-                return [SubjectRelation(subject_id=group_id, relation="editor")]
-            return []
-
-        mock_authz.lookup_subjects.side_effect = mock_lookup
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource="workspace:workspace-id",
+                    relation="admin",
+                    subject=f"user:{user_id}",
+                ),
+                RelationshipTuple(
+                    resource="workspace:workspace-id",
+                    relation="editor",
+                    subject=f"group:{group_id}#member",
+                ),
+            ]
+        )
 
         members = await repository._hydrate_members("workspace-id")
 
@@ -1076,6 +1080,68 @@ class TestHydrateMembers:
         assert isinstance(members_by_id[group_id], WorkspaceMember)
         assert members_by_id[group_id].member_type == MemberType.GROUP
         assert members_by_id[group_id].role == WorkspaceRole.EDITOR
+
+    @pytest.mark.asyncio
+    async def test_filters_non_role_relations(self, repository, mock_authz):
+        """Should only include tuples with workspace role relations (admin, editor, member)."""
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource="workspace:workspace-id",
+                    relation="admin",
+                    subject="user:user-1",
+                ),
+                RelationshipTuple(
+                    resource="workspace:workspace-id",
+                    relation="parent",
+                    subject="workspace:parent-ws",
+                ),
+                RelationshipTuple(
+                    resource="workspace:workspace-id",
+                    relation="tenant",
+                    subject="tenant:tenant-1",
+                ),
+            ]
+        )
+
+        members = await repository._hydrate_members("workspace-id")
+
+        # Only the admin tuple should be included
+        assert len(members) == 1
+        assert members[0].member_id == "user-1"
+        assert members[0].role == WorkspaceRole.ADMIN
+
+    @pytest.mark.asyncio
+    async def test_deduplicates_tuples_from_spicedb(self, repository, mock_authz):
+        """Should deduplicate tuples defensively.
+
+        ReadRelationships should not normally return duplicates, but the
+        deduplication logic guards against edge cases.
+        """
+        group_id = "group-eng"
+
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource="workspace:workspace-id",
+                    relation="admin",
+                    subject=f"group:{group_id}#member",
+                ),
+                RelationshipTuple(
+                    resource="workspace:workspace-id",
+                    relation="admin",
+                    subject=f"group:{group_id}#member",
+                ),
+            ]
+        )
+
+        members = await repository._hydrate_members("workspace-id")
+
+        # Should have exactly 1 entry, not 2
+        assert len(members) == 1
+        assert members[0].member_id == group_id
+        assert members[0].member_type == MemberType.GROUP
+        assert members[0].role == WorkspaceRole.ADMIN
 
 
 class TestSerializerInjection:

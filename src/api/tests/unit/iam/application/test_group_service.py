@@ -11,6 +11,12 @@ from iam.domain.aggregates import Group, User
 from iam.domain.value_objects import GroupId, GroupRole, TenantId, UserId
 from iam.ports.exceptions import DuplicateGroupNameError
 from iam.ports.repositories import IGroupRepository
+from shared_kernel.authorization.types import (
+    RelationshipTuple,
+    ResourceType,
+    format_resource,
+    format_subject,
+)
 
 
 @pytest.fixture
@@ -361,3 +367,215 @@ class TestDeleteGroup:
 
         assert result is False
         mock_group_repository.delete.assert_not_called()
+
+
+class TestListMembers:
+    """Tests for list_members method using read_relationships."""
+
+    @pytest.mark.asyncio
+    async def test_list_members_checks_view_permission(
+        self,
+        group_service: GroupService,
+        mock_authz,
+    ):
+        """Test that list_members checks VIEW permission before returning members."""
+        group_id = GroupId.generate()
+        user_id = UserId.generate()
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
+        result = await group_service.list_members(
+            group_id=group_id,
+            user_id=user_id,
+        )
+
+        assert result == []
+
+        # Verify VIEW permission was checked
+        mock_authz.check_permission.assert_called_once_with(
+            resource=format_resource(ResourceType.GROUP, group_id.value),
+            permission="view",
+            subject=format_subject(ResourceType.USER, user_id.value),
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_members_raises_when_user_lacks_view_permission(
+        self,
+        group_service: GroupService,
+        mock_authz,
+    ):
+        """Test that list_members raises PermissionError without VIEW permission."""
+        group_id = GroupId.generate()
+        user_id = UserId.generate()
+
+        mock_authz.check_permission = AsyncMock(return_value=False)
+
+        with pytest.raises(PermissionError, match="lacks view permission"):
+            await group_service.list_members(
+                group_id=group_id,
+                user_id=user_id,
+            )
+
+    @pytest.mark.asyncio
+    async def test_list_members_returns_admin_and_member_roles(
+        self,
+        group_service: GroupService,
+        mock_authz,
+    ):
+        """Test that list_members returns members across admin and member roles."""
+        group_id = GroupId.generate()
+        user_id = UserId.generate()
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        group_resource = f"group:{group_id.value}"
+
+        # Simulate SpiceDB ReadRelationships returning explicit tuples
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=group_resource,
+                    relation="admin",
+                    subject="user:user-admin-1",
+                ),
+                RelationshipTuple(
+                    resource=group_resource,
+                    relation="member_relation",
+                    subject="user:user-member-1",
+                ),
+            ]
+        )
+
+        result = await group_service.list_members(
+            group_id=group_id,
+            user_id=user_id,
+        )
+
+        assert len(result) == 2
+
+        # Check admin
+        admin_grants = [g for g in result if g.role == GroupRole.ADMIN]
+        assert len(admin_grants) == 1
+        assert admin_grants[0].user_id == "user-admin-1"
+
+        # Check member
+        member_grants = [g for g in result if g.role == GroupRole.MEMBER]
+        assert len(member_grants) == 1
+        assert member_grants[0].user_id == "user-member-1"
+
+    @pytest.mark.asyncio
+    async def test_list_members_filters_non_role_relations(
+        self,
+        group_service: GroupService,
+        mock_authz,
+    ):
+        """Test that list_members ignores tuples with non-role relations.
+
+        ReadRelationships may return tuples for relations like 'tenant'
+        that are not group membership roles. These should be filtered out.
+        """
+        group_id = GroupId.generate()
+        user_id = UserId.generate()
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        group_resource = f"group:{group_id.value}"
+
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=group_resource,
+                    relation="admin",
+                    subject="user:user-1",
+                ),
+                RelationshipTuple(
+                    resource=group_resource,
+                    relation="tenant",
+                    subject="tenant:tenant-1",
+                ),
+            ]
+        )
+
+        result = await group_service.list_members(
+            group_id=group_id,
+            user_id=user_id,
+        )
+
+        # Only the admin tuple should be included
+        assert len(result) == 1
+        assert result[0].user_id == "user-1"
+        assert result[0].role == GroupRole.ADMIN
+
+    @pytest.mark.asyncio
+    async def test_list_members_no_duplicate_for_admin(
+        self,
+        group_service: GroupService,
+        mock_authz,
+    ):
+        """Test that admins appear only once (not duplicated via permission computation).
+
+        This is the core bug fix: previously, lookup_subjects on the 'member'
+        permission would also return admins because 'member = admin + member_relation'.
+        Using read_relationships returns only explicit tuples.
+        """
+        group_id = GroupId.generate()
+        user_id = UserId.generate()
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        group_resource = f"group:{group_id.value}"
+
+        # With read_relationships, alice only appears as admin (explicit tuple)
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=group_resource,
+                    relation="admin",
+                    subject="user:alice",
+                ),
+                RelationshipTuple(
+                    resource=group_resource,
+                    relation="member_relation",
+                    subject="user:bob",
+                ),
+            ]
+        )
+
+        result = await group_service.list_members(
+            group_id=group_id,
+            user_id=user_id,
+        )
+
+        # Alice should appear once as admin, Bob once as member
+        assert len(result) == 2
+        user_roles = {g.user_id: g.role for g in result}
+        assert user_roles["alice"] == GroupRole.ADMIN
+        assert user_roles["bob"] == GroupRole.MEMBER
+
+    @pytest.mark.asyncio
+    async def test_list_members_calls_read_relationships_once(
+        self,
+        group_service: GroupService,
+        mock_authz,
+    ):
+        """Test that list_members makes a single read_relationships call.
+
+        Performance improvement: 1 API call instead of 2 lookup_subjects calls.
+        """
+        group_id = GroupId.generate()
+        user_id = UserId.generate()
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
+        await group_service.list_members(
+            group_id=group_id,
+            user_id=user_id,
+        )
+
+        # Single call to read_relationships
+        mock_authz.read_relationships.assert_called_once_with(
+            resource_type=ResourceType.GROUP.value,
+            resource_id=group_id.value,
+        )

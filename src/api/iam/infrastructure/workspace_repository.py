@@ -31,10 +31,7 @@ from iam.infrastructure.observability import (
 from iam.infrastructure.outbox import IAMEventSerializer
 from iam.ports.repositories import IWorkspaceRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
-from shared_kernel.authorization.types import (
-    ResourceType,
-    format_resource,
-)
+from shared_kernel.authorization.types import ResourceType
 
 if TYPE_CHECKING:
     from infrastructure.outbox.repository import OutboxRepository
@@ -327,36 +324,55 @@ class WorkspaceRepository(IWorkspaceRepository):
         )
 
     async def _hydrate_members(self, workspace_id: str) -> list[WorkspaceMember]:
-        """Fetch membership from SpiceDB and convert to domain objects.
+        """Fetch membership from SpiceDB (explicit tuples only).
 
-        Queries all combinations of roles (ADMIN, EDITOR, MEMBER) and member
-        types (USER, GROUP) to fully hydrate workspace membership.
+        Returns only explicit relationship tuples via ReadRelationships,
+        not computed permissions. This ensures the aggregate's members
+        list reflects actual grants, not expanded group membership.
 
         Args:
             workspace_id: The workspace ID to fetch members for
 
         Returns:
-            List of WorkspaceMember value objects
+            List of WorkspaceMember value objects (deduplicated)
         """
-        members = []
-        workspace_resource = format_resource(ResourceType.WORKSPACE, workspace_id)
+        # Read all explicit tuples for this workspace
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.WORKSPACE.value,
+            resource_id=workspace_id,
+        )
 
-        # Lookup all subjects with each role and member type combination
-        for role in [WorkspaceRole.ADMIN, WorkspaceRole.EDITOR, WorkspaceRole.MEMBER]:
-            for member_type in [MemberType.USER, MemberType.GROUP]:
-                subjects = await self._authz.lookup_subjects(
-                    resource=workspace_resource,
-                    relation=role.value,
-                    subject_type=member_type.value,
+        members: list[WorkspaceMember] = []
+        seen: set[WorkspaceMember] = set()
+        valid_roles = {role.value for role in WorkspaceRole}
+
+        for rel_tuple in tuples:
+            # Parse subject
+            subject_parts = rel_tuple.subject.split(":")
+            subject_type_str = subject_parts[0]
+            subject_rest = ":".join(subject_parts[1:])
+
+            if "#" in subject_rest:
+                member_id, _ = subject_rest.split("#", 1)
+            else:
+                member_id = subject_rest
+
+            member_type = (
+                MemberType.GROUP
+                if subject_type_str == ResourceType.GROUP.value
+                else MemberType.USER
+            )
+
+            # Only process workspace role relations
+            if rel_tuple.relation in valid_roles:
+                workspace_member = WorkspaceMember(
+                    member_id=member_id,
+                    member_type=member_type,
+                    role=WorkspaceRole(rel_tuple.relation),
                 )
 
-                for subject_relation in subjects:
-                    members.append(
-                        WorkspaceMember(
-                            member_id=subject_relation.subject_id,
-                            member_type=member_type,
-                            role=WorkspaceRole(subject_relation.relation),
-                        )
-                    )
+                if workspace_member not in seen:
+                    seen.add(workspace_member)
+                    members.append(workspace_member)
 
         return members

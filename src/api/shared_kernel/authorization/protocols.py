@@ -10,7 +10,11 @@ from dataclasses import dataclass
 from typing import Protocol, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from shared_kernel.authorization.types import RelationshipSpec, SubjectRelation
+    from shared_kernel.authorization.types import (
+        RelationshipSpec,
+        RelationshipTuple,
+        SubjectRelation,
+    )
 
 
 @dataclass(frozen=True)
@@ -173,6 +177,7 @@ class AuthorizationProvider(Protocol):
         resource: str,
         relation: str,
         subject_type: str,
+        optional_subject_relation: str | None = None,
     ) -> list[SubjectRelation]:
         """Find all subjects with a relationship to a resource.
 
@@ -180,6 +185,9 @@ class AuthorizationProvider(Protocol):
             resource: Resource identifier (e.g., "group:abc123")
             relation: Relation name to look up (e.g., "member")
             subject_type: Type of subjects to find (e.g., "user")
+            optional_subject_relation: Optional subject relation filter (e.g., "member"
+                for group#member subjects). Required when subjects were written with
+                a subject relation per the SpiceDB schema.
 
         Returns:
             List of SubjectRelation objects with subject IDs and their relations
@@ -207,5 +215,34 @@ class AuthorizationProvider(Protocol):
 
         Raises:
             AuthorizationError: If the lookup fails
+        """
+        ...
+
+    async def read_relationships(
+        self,
+        resource_type: str,
+        resource_id: str | None = None,
+        relation: str | None = None,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+    ) -> list[RelationshipTuple]:
+        """Read explicit relationship tuples from the authorization system.
+
+        Unlike lookup_subjects which computes permissions by expanding
+        groups and other indirections, this returns only the explicit
+        tuples stored in the authorization system.
+
+        Args:
+            resource_type: Type of resource (required)
+            resource_id: Optional resource ID filter
+            relation: Optional relation filter
+            subject_type: Optional subject type filter
+            subject_id: Optional subject ID filter
+
+        Returns:
+            List of RelationshipTuple objects with resource, relation, subject
+
+        Raises:
+            AuthorizationError: If the read fails
         """
         ...

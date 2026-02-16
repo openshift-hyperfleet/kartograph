@@ -14,7 +14,7 @@ from iam.application.services.group_service import GroupService
 from iam.domain.aggregates import Group
 from iam.domain.value_objects import GroupId, GroupRole, TenantId, UserId
 from iam.ports.repositories import IGroupRepository
-from shared_kernel.authorization.types import SubjectRelation
+from shared_kernel.authorization.types import RelationshipTuple
 
 
 @pytest.fixture
@@ -333,17 +333,29 @@ class TestListMembers:
         mock_authz,
         tenant_id,
     ):
-        """Should list members from SpiceDB when user has VIEW permission."""
+        """Should list members from SpiceDB when user has VIEW permission.
+
+        Uses read_relationships to fetch explicit tuples, avoiding
+        duplicate entries caused by permission computation.
+        """
         group_id = GroupId.generate()
         user_id = UserId.generate()
 
         mock_authz.check_permission = AsyncMock(return_value=True)
-        mock_authz.lookup_subjects = AsyncMock(
-            side_effect=[
-                # admin subjects
-                [SubjectRelation(subject_id="admin-user-1", relation="admin")],
-                # member subjects
-                [SubjectRelation(subject_id="member-user-1", relation="member")],
+
+        group_resource = f"group:{group_id.value}"
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=group_resource,
+                    relation="admin",
+                    subject="user:admin-user-1",
+                ),
+                RelationshipTuple(
+                    resource=group_resource,
+                    relation="member_relation",
+                    subject="user:member-user-1",
+                ),
             ]
         )
 
@@ -353,10 +365,10 @@ class TestListMembers:
         )
 
         assert len(members) == 2
-        assert members[0].user_id == "admin-user-1"
-        assert members[0].role == GroupRole.ADMIN
-        assert members[1].user_id == "member-user-1"
-        assert members[1].role == GroupRole.MEMBER
+        # Find members by user_id
+        members_by_id = {m.user_id: m for m in members}
+        assert members_by_id["admin-user-1"].role == GroupRole.ADMIN
+        assert members_by_id["member-user-1"].role == GroupRole.MEMBER
 
     @pytest.mark.asyncio
     async def test_raises_permission_error_without_view(
@@ -387,7 +399,7 @@ class TestListMembers:
         user_id = UserId.generate()
 
         mock_authz.check_permission = AsyncMock(return_value=True)
-        mock_authz.lookup_subjects = AsyncMock(return_value=[])
+        mock_authz.read_relationships = AsyncMock(return_value=[])
 
         members = await group_service.list_members(
             group_id=group_id,

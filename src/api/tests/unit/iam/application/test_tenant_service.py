@@ -20,7 +20,7 @@ from iam.ports.repositories import (
     IWorkspaceRepository,
 )
 from shared_kernel.authorization.protocols import AuthorizationProvider
-from shared_kernel.authorization.types import SubjectRelation
+from shared_kernel.authorization.types import RelationshipTuple
 
 
 @pytest.fixture
@@ -107,6 +107,9 @@ class TestAddMember:
         mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
         mock_tenant_repo.save = AsyncMock()
 
+        # Mock SpiceDB: user has no current role
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
         # Execute
         await tenant_service.add_member(
             tenant_id=tenant_id,
@@ -141,6 +144,9 @@ class TestAddMember:
         mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
         mock_tenant_repo.save = AsyncMock()
 
+        # Mock SpiceDB: user has no current role
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
         await tenant_service.add_member(
             tenant_id=tenant_id,
             user_id=user_id,
@@ -152,6 +158,95 @@ class TestAddMember:
         saved_tenant = mock_tenant_repo.save.call_args[0][0]
         events = saved_tenant.collect_events()
         assert events[0].role == TenantRole.ADMIN.value
+
+    @pytest.mark.asyncio
+    async def test_replaces_role_when_user_has_different_role(
+        self, tenant_service, mock_tenant_repo, mock_authz, mock_session
+    ):
+        """Test that adding user with different role removes old role first."""
+        from iam.domain.events import TenantMemberAdded, TenantMemberRemoved
+
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.save = AsyncMock()
+
+        # Mock SpiceDB: user currently has admin role
+        tenant_resource = f"tenant:{tenant_id.value}"
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=tenant_resource,
+                    relation="admin",
+                    subject=f"user:{user_id.value}",
+                ),
+            ]
+        )
+
+        # Add user as member (should replace admin role)
+        await tenant_service.add_member(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            role=TenantRole.MEMBER,
+            requesting_user_id=admin_id,
+        )
+
+        # Verify events: should have MemberRemoved (admin) + MemberAdded (member)
+        saved_tenant = mock_tenant_repo.save.call_args[0][0]
+        events = saved_tenant.collect_events()
+        assert len(events) == 2
+        assert isinstance(events[0], TenantMemberRemoved)
+        assert events[0].role == TenantRole.ADMIN.value
+        assert isinstance(events[1], TenantMemberAdded)
+        assert events[1].role == TenantRole.MEMBER.value
+
+    @pytest.mark.asyncio
+    async def test_no_replacement_when_same_role(
+        self, tenant_service, mock_tenant_repo, mock_authz, mock_session
+    ):
+        """Test that adding user with same role does not emit remove event."""
+        from iam.domain.events import TenantMemberAdded
+
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.save = AsyncMock()
+
+        # Mock SpiceDB: user currently has member role
+        tenant_resource = f"tenant:{tenant_id.value}"
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=tenant_resource,
+                    relation="member",
+                    subject=f"user:{user_id.value}",
+                ),
+            ]
+        )
+
+        # Add user as member again (same role)
+        await tenant_service.add_member(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            role=TenantRole.MEMBER,
+            requesting_user_id=admin_id,
+        )
+
+        # Only MemberAdded event, no MemberRemoved
+        saved_tenant = mock_tenant_repo.save.call_args[0][0]
+        events = saved_tenant.collect_events()
+        assert len(events) == 1
+        assert isinstance(events[0], TenantMemberAdded)
 
     @pytest.mark.asyncio
     async def test_raises_error_if_tenant_not_found(
@@ -335,13 +430,13 @@ class TestRemoveMember:
 
 
 class TestListMembers:
-    """Tests for TenantService.list_members()."""
+    """Tests for TenantService.list_members() using read_relationships."""
 
     @pytest.mark.asyncio
     async def test_lists_members_from_spicedb(
         self, tenant_service, mock_tenant_repo, mock_authz
     ):
-        """Test that list_members queries SpiceDB for tenant members."""
+        """Test that list_members queries SpiceDB using read_relationships."""
         tenant_id = TenantId.generate()
         requesting_user_id = UserId.from_string("admin-456")
 
@@ -352,23 +447,27 @@ class TestListMembers:
         tenant = Tenant(id=tenant_id, name="Acme Corp")
         mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
 
-        # Mock SpiceDB responses
-        admin_subjects = [
-            SubjectRelation(subject_id="user-admin-1", relation="admin"),
-            SubjectRelation(subject_id="user-admin-2", relation="admin"),
-        ]
-        member_subjects = [
-            SubjectRelation(subject_id="user-member-1", relation="member"),
-        ]
-
-        async def mock_lookup_subjects(resource, relation, subject_type):
-            if relation == "admin":
-                return admin_subjects
-            elif relation == "member":
-                return member_subjects
-            return []
-
-        mock_authz.lookup_subjects = AsyncMock(side_effect=mock_lookup_subjects)
+        # Mock SpiceDB read_relationships response
+        tenant_resource = f"tenant:{tenant_id.value}"
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=tenant_resource,
+                    relation="admin",
+                    subject="user:user-admin-1",
+                ),
+                RelationshipTuple(
+                    resource=tenant_resource,
+                    relation="admin",
+                    subject="user:user-admin-2",
+                ),
+                RelationshipTuple(
+                    resource=tenant_resource,
+                    relation="member",
+                    subject="user:user-member-1",
+                ),
+            ]
+        )
 
         # Execute
         members = await tenant_service.list_members(
@@ -394,7 +493,7 @@ class TestListMembers:
 
         tenant = Tenant(id=tenant_id, name="Acme Corp")
         mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
-        mock_authz.lookup_subjects = AsyncMock(return_value=[])
+        mock_authz.read_relationships = AsyncMock(return_value=[])
 
         members = await tenant_service.list_members(
             tenant_id=tenant_id, requesting_user_id=requesting_user_id
@@ -439,6 +538,68 @@ class TestListMembers:
 
         # Verify repository was never called
         mock_tenant_repo.get_by_id.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_filters_non_role_relations(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that list_members ignores tuples with non-role relations."""
+        tenant_id = TenantId.generate()
+        requesting_user_id = UserId.from_string("admin-456")
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+
+        tenant_resource = f"tenant:{tenant_id.value}"
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=tenant_resource,
+                    relation="admin",
+                    subject="user:user-1",
+                ),
+                RelationshipTuple(
+                    resource=tenant_resource,
+                    relation="root_workspace",
+                    subject="workspace:ws-1",
+                ),
+            ]
+        )
+
+        members = await tenant_service.list_members(
+            tenant_id=tenant_id, requesting_user_id=requesting_user_id
+        )
+
+        # Only the admin tuple should be included
+        assert len(members) == 1
+        assert ("user-1", "admin") in members
+
+    @pytest.mark.asyncio
+    async def test_uses_read_relationships_not_lookup_subjects(
+        self, tenant_service, mock_tenant_repo, mock_authz
+    ):
+        """Test that list_members uses read_relationships (single call)."""
+        tenant_id = TenantId.generate()
+        requesting_user_id = UserId.from_string("admin-456")
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
+        await tenant_service.list_members(
+            tenant_id=tenant_id, requesting_user_id=requesting_user_id
+        )
+
+        # Single call to read_relationships with subject_type filter
+        mock_authz.read_relationships.assert_called_once_with(
+            resource_type="tenant",
+            resource_id=tenant_id.value,
+            subject_type="user",
+        )
 
 
 class TestCreateTenant:
@@ -746,7 +907,7 @@ class TestDeleteTenant:
         mock_workspace_repo.list_by_tenant = AsyncMock(return_value=[])
         mock_group_repo.list_by_tenant = AsyncMock(return_value=[])
         mock_api_key_repo.list = AsyncMock(return_value=[])
-        mock_authz.lookup_subjects = AsyncMock(return_value=[])
+        mock_authz.read_relationships = AsyncMock(return_value=[])
 
         result = await tenant_service.delete_tenant(
             tenant_id, requesting_user_id=admin_id
@@ -792,7 +953,7 @@ class TestDeleteTenant:
         mock_workspace_repo.delete = AsyncMock(return_value=True)
         mock_group_repo.list_by_tenant = AsyncMock(return_value=[])
         mock_api_key_repo.list = AsyncMock(return_value=[])
-        mock_authz.lookup_subjects = AsyncMock(return_value=[])
+        mock_authz.read_relationships = AsyncMock(return_value=[])
 
         await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
 
@@ -864,7 +1025,7 @@ class TestDeleteTenant:
         mock_workspace_repo.delete = AsyncMock(return_value=True)
         mock_group_repo.list_by_tenant = AsyncMock(return_value=[])
         mock_api_key_repo.list = AsyncMock(return_value=[])
-        mock_authz.lookup_subjects = AsyncMock(return_value=[])
+        mock_authz.read_relationships = AsyncMock(return_value=[])
 
         await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
 

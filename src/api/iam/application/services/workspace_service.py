@@ -503,6 +503,32 @@ class WorkspaceService:
 
             return result
 
+    async def _get_member_workspace_role(
+        self,
+        workspace_id: WorkspaceId,
+        member_id: str,
+        member_type: MemberType,
+    ) -> WorkspaceRole | None:
+        """Get a member's current role in a workspace, or None if not a member."""
+        subject_type = (
+            ResourceType.GROUP.value
+            if member_type == MemberType.GROUP
+            else ResourceType.USER.value
+        )
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.WORKSPACE.value,
+            resource_id=workspace_id.value,
+            subject_type=subject_type,
+            subject_id=member_id,
+        )
+
+        valid_roles = {role.value for role in WorkspaceRole}
+        for rel_tuple in tuples:
+            if rel_tuple.relation in valid_roles:
+                return WorkspaceRole(rel_tuple.relation)
+
+        return None
+
     async def add_member(
         self,
         workspace_id: WorkspaceId,
@@ -512,6 +538,10 @@ class WorkspaceService:
         role: WorkspaceRole,
     ) -> Workspace:
         """Add a member to a workspace.
+
+        If the member already has a different role, the old role is automatically
+        removed first (role replacement pattern). This ensures members can only
+        have one role per workspace.
 
         Args:
             workspace_id: The workspace to add member to
@@ -525,7 +555,7 @@ class WorkspaceService:
 
         Raises:
             PermissionError: If acting user lacks MANAGE permission
-            ValueError: If member already exists or workspace not found
+            ValueError: If member already has the same role or workspace not found
             UnauthorizedError: If workspace belongs to different tenant
         """
         # Check acting user has MANAGE permission
@@ -551,8 +581,15 @@ class WorkspaceService:
             if workspace.tenant_id != self._scope_to_tenant:
                 raise UnauthorizedError("Workspace belongs to different tenant")
 
-            # Add member (aggregate handles validation and events)
-            workspace.add_member(member_id, member_type, role)
+            # Check if member already has a role (query SpiceDB)
+            current_role = await self._get_member_workspace_role(
+                workspace_id, member_id, member_type
+            )
+
+            # Add member (will replace role if different)
+            workspace.add_member(
+                member_id, member_type, role, current_role=current_role
+            )
 
             # Save (persists events to outbox)
             await self._workspace_repository.save(workspace)
@@ -792,41 +829,48 @@ class WorkspaceService:
                 f"{workspace_id.value}"
             )
 
-        # Query SpiceDB for all members across all three roles
-        resource = format_resource(ResourceType.WORKSPACE, workspace_id.value)
+        # Read explicit tuples from SpiceDB (not computed permissions).
+        # Unlike LookupSubjects which expands groups and computes permissions,
+        # ReadRelationships returns only the explicitly stored tuples.
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.WORKSPACE.value,
+            resource_id=workspace_id.value,
+        )
+
         members: list[WorkspaceAccessGrant] = []
+        seen: set[WorkspaceAccessGrant] = set()
+        valid_roles = {role.value for role in WorkspaceRole}
 
-        for role in WorkspaceRole:
-            # Query users
-            user_subjects = await self._authz.lookup_subjects(
-                resource=resource,
-                relation=role.value,
-                subject_type=ResourceType.USER,
+        for rel_tuple in tuples:
+            # Parse subject to extract type and ID
+            # Subject format: "user:ID" or "group:ID#member"
+            subject_parts = rel_tuple.subject.split(":")
+            subject_type_str = subject_parts[0]
+            subject_rest = ":".join(subject_parts[1:])
+
+            # Extract ID (strip off #relation if present)
+            if "#" in subject_rest:
+                member_id, _ = subject_rest.split("#", 1)
+            else:
+                member_id = subject_rest
+
+            # Determine member type
+            member_type = (
+                MemberType.GROUP
+                if subject_type_str == ResourceType.GROUP.value
+                else MemberType.USER
             )
 
-            for subject_relation in user_subjects:
-                members.append(
-                    WorkspaceAccessGrant(
-                        member_id=subject_relation.subject_id,
-                        member_type=MemberType.USER,
-                        role=role,
-                    )
+            # Only include tuples with workspace admin/editor/member relations
+            if rel_tuple.relation in valid_roles:
+                grant = WorkspaceAccessGrant(
+                    member_id=member_id,
+                    member_type=member_type,
+                    role=WorkspaceRole(rel_tuple.relation),
                 )
 
-            # Query groups
-            group_subjects = await self._authz.lookup_subjects(
-                resource=resource,
-                relation=role.value,
-                subject_type=ResourceType.GROUP,
-            )
-
-            for subject_relation in group_subjects:
-                members.append(
-                    WorkspaceAccessGrant(
-                        member_id=subject_relation.subject_id,
-                        member_type=MemberType.GROUP,
-                        role=role,
-                    )
-                )
+                if grant not in seen:
+                    seen.add(grant)
+                    members.append(grant)
 
         return members

@@ -16,6 +16,7 @@ from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
+    RelationType,
     ResourceType,
     format_resource,
     format_subject,
@@ -243,6 +244,25 @@ class GroupService:
 
             return await self._group_repository.delete(group)
 
+    async def _get_user_group_role(
+        self, group_id: GroupId, user_id: UserId
+    ) -> GroupRole | None:
+        """Get user's current role in group, or None if not a member."""
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.GROUP.value,
+            resource_id=group_id.value,
+            subject_type=ResourceType.USER.value,
+            subject_id=user_id.value,
+        )
+
+        for rel_tuple in tuples:
+            if rel_tuple.relation == RelationType.ADMIN.value:
+                return GroupRole.ADMIN
+            elif rel_tuple.relation == RelationType.MEMBER_RELATION.value:
+                return GroupRole.MEMBER
+
+        return None
+
     async def add_member(
         self,
         group_id: GroupId,
@@ -251,6 +271,10 @@ class GroupService:
         role: GroupRole,
     ) -> Group:
         """Add a member to a group.
+
+        If the user already has a different role, the old role is automatically
+        removed first (role replacement pattern). This ensures users can only
+        have one role per group.
 
         Args:
             group_id: The group to add member to
@@ -263,7 +287,7 @@ class GroupService:
 
         Raises:
             PermissionError: If acting user lacks MANAGE permission
-            ValueError: If member already exists, group not found, or tenant mismatch
+            ValueError: If member already has the same role, group not found, or tenant mismatch
         """
         # Check acting user has MANAGE permission
         has_manage = await self._check_group_permission(
@@ -288,8 +312,11 @@ class GroupService:
             if group.tenant_id.value != self._scope_to_tenant.value:
                 raise ValueError("Group belongs to different tenant")
 
-            # Add member (aggregate handles validation and events)
-            group.add_member(user_id, role)
+            # Check if user already has a role (query SpiceDB)
+            current_role = await self._get_user_group_role(group_id, user_id)
+
+            # Add member (will replace role if different)
+            group.add_member(user_id, role, current_role=current_role)
 
             # Save (persists events to outbox)
             await self._group_repository.save(group)
@@ -432,21 +459,38 @@ class GroupService:
                 f"User {user_id.value} lacks view permission on group {group_id.value}"
             )
 
-        # Query SpiceDB for all members across both roles
-        resource = format_resource(ResourceType.GROUP, group_id.value)
+        # Read explicit tuples from SpiceDB (not computed permissions).
+        # Unlike LookupSubjects which expands groups and computes permissions,
+        # ReadRelationships returns only the explicitly stored tuples.
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.GROUP.value,
+            resource_id=group_id.value,
+        )
+
         members: list[GroupAccessGrant] = []
 
-        for role in GroupRole:
-            subjects = await self._authz.lookup_subjects(
-                resource=resource,
-                relation=role.value,
-                subject_type=ResourceType.USER,
-            )
+        for rel_tuple in tuples:
+            # Parse subject (format: "user:ID")
+            subject_parts = rel_tuple.subject.split(":")
+            if len(subject_parts) < 2:
+                continue
 
-            for subject_relation in subjects:
+            subject_type_str = subject_parts[0]
+            user_id_str = ":".join(subject_parts[1:])
+
+            # Only process user subjects with group role relations
+            if subject_type_str == ResourceType.USER.value:
+                # Map SpiceDB relation to domain role
+                if rel_tuple.relation == RelationType.ADMIN.value:
+                    role = GroupRole.ADMIN
+                elif rel_tuple.relation == RelationType.MEMBER_RELATION.value:
+                    role = GroupRole.MEMBER
+                else:
+                    continue  # Skip non-role relations (tenant, etc.)
+
                 members.append(
                     GroupAccessGrant(
-                        user_id=subject_relation.subject_id,
+                        user_id=user_id_str,
                         role=role,
                     )
                 )

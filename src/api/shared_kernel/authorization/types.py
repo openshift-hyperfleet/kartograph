@@ -9,6 +9,32 @@ from enum import StrEnum
 
 
 @dataclass(frozen=True)
+class RelationshipTuple:
+    """An explicit relationship tuple from SpiceDB.
+
+    Represents a stored relationship as returned by ReadRelationships.
+    Unlike LookupSubjects which computes permissions, RelationshipTuple
+    only contains explicitly written tuples.
+
+    Attributes:
+        resource: Resource identifier (e.g., "workspace:abc123")
+        relation: Relation name (e.g., "admin")
+        subject: Subject identifier (e.g., "group:xyz#member" or "user:bob")
+
+    Example:
+        >>> RelationshipTuple(
+        ...     resource="workspace:abc123",
+        ...     relation="admin",
+        ...     subject="group:xyz#member"
+        ... )
+    """
+
+    resource: str
+    relation: str
+    subject: str
+
+
+@dataclass(frozen=True)
 class RelationshipSpec:
     """Specification for a relationship between a resource and subject.
 
@@ -75,6 +101,7 @@ class RelationType(StrEnum):
     ADMIN = "admin"
     EDITOR = "editor"
     MEMBER = "member"
+    MEMBER_RELATION = "member_relation"
     OWNER = "owner"
     PARENT = "parent"
     ROOT_WORKSPACE = "root_workspace"

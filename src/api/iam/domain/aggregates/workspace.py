@@ -184,18 +184,25 @@ class Workspace:
         member_id: str,
         member_type: MemberType,
         role: WorkspaceRole,
+        current_role: Optional[WorkspaceRole] = None,
     ) -> None:
         """Add a member (user or group) to the workspace.
+
+        If the member already exists with a different role (via current_role
+        parameter), the old role is removed first (role replacement pattern).
+        This ensures members can only have one role per workspace.
 
         Args:
             member_id: The user ID or group ID
             member_type: Whether this is a USER or GROUP
             role: The role to assign (ADMIN, EDITOR, or MEMBER)
+            current_role: Member's current role (if any). If different from new role,
+                the old role will be removed first (role replacement).
 
         Raises:
             TypeError: If member_id is not a string, or if member_type/role
                 are not the correct enum types
-            ValueError: If member_id is empty or member is already added
+            ValueError: If member_id is empty or member already has the same role
         """
         # Validate member_id type
         if not isinstance(member_id, str):
@@ -216,7 +223,25 @@ class Workspace:
         if not isinstance(role, WorkspaceRole):
             raise TypeError(f"role must be WorkspaceRole, got {type(role).__name__}")
 
-        if self.has_member(member_id, member_type):
+        # If user already has a different role, remove it first (role replacement)
+        if current_role is not None and current_role != role:
+            # Remove from in-memory list
+            self.members = [
+                m
+                for m in self.members
+                if not (m.member_id == member_id and m.member_type == member_type)
+            ]
+
+            self._pending_events.append(
+                WorkspaceMemberRemoved(
+                    workspace_id=self.id.value,
+                    member_id=member_id,
+                    member_type=member_type.value,
+                    role=current_role.value,
+                    occurred_at=datetime.now(UTC),
+                )
+            )
+        elif self.has_member(member_id, member_type):
             raise ValueError(
                 f"{member_type.value} {member_id} is already a member of this workspace"
             )

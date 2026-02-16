@@ -332,7 +332,7 @@ onBeforeUnmount(() => {
 
     <!-- Empty state -->
     <div
-      v-else-if="isEmpty"
+      v-else-if="isEmpty && hasTenant"
       class="flex flex-col items-center text-center py-12 space-y-8"
       @drop.prevent="handleDrop"
       @dragover="handleDragOver"
@@ -432,8 +432,8 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Active state (editor has content) -->
-    <div v-else-if="hasTenant" class="space-y-4">
+    <!-- Active state (editor has content) — always rendered so CodeMirror mounts -->
+    <div v-if="hasTenant" v-show="!isEmpty" class="space-y-4">
       <!-- Editor + right panel grid -->
       <div class="grid gap-6" :class="isDesktop ? 'lg:grid-cols-[1fr_400px]' : ''">
         <!-- Left: Editor area -->

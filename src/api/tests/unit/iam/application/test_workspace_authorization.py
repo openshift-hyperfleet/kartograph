@@ -22,8 +22,8 @@ from iam.ports.repositories import IWorkspaceRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
+    RelationshipTuple,
     ResourceType,
-    SubjectRelation,
     format_resource,
     format_subject,
 )
@@ -271,8 +271,8 @@ class TestWorkspaceViewPermission:
     ):
         """Test that list_members checks VIEW permission before returning members."""
         mock_authz.check_permission = AsyncMock(return_value=True)
-        # Return empty for all role lookups
-        mock_authz.lookup_subjects = AsyncMock(return_value=[])
+        # Return empty for read_relationships
+        mock_authz.read_relationships = AsyncMock(return_value=[])
 
         result = await workspace_service.list_members(
             workspace_id=child_workspace.id,
@@ -762,29 +762,26 @@ class TestWorkspaceMemberManagement:
         """Test that list_members returns members across all three workspace roles."""
         mock_authz.check_permission = AsyncMock(return_value=True)
 
-        # Simulate SpiceDB responses for each role
-        admin_users = [
-            SubjectRelation(subject_id="user-admin-1", relation="admin"),
-        ]
-        admin_groups: list[SubjectRelation] = []
-        editor_users = [
-            SubjectRelation(subject_id="user-editor-1", relation="editor"),
-        ]
-        editor_groups: list[SubjectRelation] = []
-        member_users = [
-            SubjectRelation(subject_id="user-member-1", relation="member"),
-        ]
-        member_groups: list[SubjectRelation] = []
+        ws_resource = f"workspace:{child_workspace.id.value}"
 
-        # lookup_subjects is called 6 times: for each of 3 roles x 2 subject types
-        mock_authz.lookup_subjects = AsyncMock(
-            side_effect=[
-                admin_users,  # admin + USER
-                admin_groups,  # admin + GROUP
-                editor_users,  # editor + USER
-                editor_groups,  # editor + GROUP
-                member_users,  # member + USER
-                member_groups,  # member + GROUP
+        # Simulate SpiceDB ReadRelationships returning explicit tuples
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=ws_resource,
+                    relation="admin",
+                    subject="user:user-admin-1",
+                ),
+                RelationshipTuple(
+                    resource=ws_resource,
+                    relation="editor",
+                    subject="user:user-editor-1",
+                ),
+                RelationshipTuple(
+                    resource=ws_resource,
+                    relation="member",
+                    subject="user:user-member-1",
+                ),
             ]
         )
 
@@ -830,22 +827,22 @@ class TestWorkspaceMemberManagement:
         """Test that list_members returns both user and group members."""
         mock_authz.check_permission = AsyncMock(return_value=True)
 
-        admin_users = [
-            SubjectRelation(subject_id="user-1", relation="admin"),
-        ]
-        admin_groups = [
-            SubjectRelation(subject_id="group-eng", relation="admin"),
-        ]
+        ws_resource = f"workspace:{child_workspace.id.value}"
 
-        # All other role lookups return empty
-        mock_authz.lookup_subjects = AsyncMock(
-            side_effect=[
-                admin_users,  # admin + USER
-                admin_groups,  # admin + GROUP
-                [],  # editor + USER
-                [],  # editor + GROUP
-                [],  # member + USER
-                [],  # member + GROUP
+        # Simulate SpiceDB ReadRelationships returning explicit tuples
+        # Groups are stored with #member subject relation in SpiceDB
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=ws_resource,
+                    relation="admin",
+                    subject="user:user-1",
+                ),
+                RelationshipTuple(
+                    resource=ws_resource,
+                    relation="admin",
+                    subject="group:group-eng#member",
+                ),
             ]
         )
 
@@ -873,37 +870,35 @@ class TestWorkspaceMemberManagement:
         )
 
     @pytest.mark.asyncio
-    async def test_list_members_deduplicates_groups(
+    async def test_list_members_deduplicates_tuples(
         self,
         workspace_service: WorkspaceService,
         mock_authz,
         user_id,
         child_workspace,
     ):
-        """Test that list_members deduplicates groups returned by SpiceDB.
+        """Test that list_members deduplicates tuples returned by SpiceDB.
 
-        SpiceDB's LookupSubjects can return the same group multiple times
-        when the subject relation (group#member) resolves through multiple
-        permission paths (e.g., member = admin + member_relation). This
-        test verifies the deduplication logic.
+        ReadRelationships should not normally return duplicates, but the
+        deduplication logic guards against it defensively.
         """
         mock_authz.check_permission = AsyncMock(return_value=True)
 
-        # Simulate SpiceDB returning the same group twice for the admin role
-        # (due to member permission resolving through both admin and member_relation)
-        admin_groups_with_duplicates = [
-            SubjectRelation(subject_id="group-eng", relation="admin"),
-            SubjectRelation(subject_id="group-eng", relation="admin"),
-        ]
+        ws_resource = f"workspace:{child_workspace.id.value}"
 
-        mock_authz.lookup_subjects = AsyncMock(
-            side_effect=[
-                [],  # admin + USER
-                admin_groups_with_duplicates,  # admin + GROUP (with duplicate)
-                [],  # editor + USER
-                [],  # editor + GROUP
-                [],  # member + USER
-                [],  # member + GROUP
+        # Simulate SpiceDB returning the same tuple twice (defensive case)
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=ws_resource,
+                    relation="admin",
+                    subject="group:group-eng#member",
+                ),
+                RelationshipTuple(
+                    resource=ws_resource,
+                    relation="admin",
+                    subject="group:group-eng#member",
+                ),
             ]
         )
 
@@ -917,5 +912,51 @@ class TestWorkspaceMemberManagement:
         assert result[0] == WorkspaceAccessGrant(
             member_id="group-eng",
             member_type=MemberType.GROUP,
+            role=WorkspaceRole.ADMIN,
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_members_ignores_non_role_relations(
+        self,
+        workspace_service: WorkspaceService,
+        mock_authz,
+        user_id,
+        child_workspace,
+    ):
+        """Test that list_members ignores tuples with non-role relations.
+
+        ReadRelationships may return tuples for relations like 'parent' or
+        'tenant' that are not workspace membership roles. These should be
+        filtered out.
+        """
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        ws_resource = f"workspace:{child_workspace.id.value}"
+
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=ws_resource,
+                    relation="admin",
+                    subject="user:user-1",
+                ),
+                RelationshipTuple(
+                    resource=ws_resource,
+                    relation="parent",
+                    subject="workspace:parent-ws",
+                ),
+            ]
+        )
+
+        result = await workspace_service.list_members(
+            workspace_id=child_workspace.id,
+            user_id=user_id,
+        )
+
+        # Should only include the admin tuple, not the parent relation
+        assert len(result) == 1
+        assert result[0] == WorkspaceAccessGrant(
+            member_id="user-1",
+            member_type=MemberType.USER,
             role=WorkspaceRole.ADMIN,
         )

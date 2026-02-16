@@ -792,47 +792,43 @@ class WorkspaceService:
                 f"{workspace_id.value}"
             )
 
-        # Query SpiceDB for all members across all three roles.
-        # Use a set for deduplication -- SpiceDB's LookupSubjects can
-        # return the same subject multiple times when subject relations
-        # resolve through multiple permission paths (e.g., group#member
-        # is a permission = admin + member_relation).
-        resource = format_resource(ResourceType.WORKSPACE, workspace_id.value)
-        seen: set[WorkspaceAccessGrant] = set()
+        # Read explicit tuples from SpiceDB (not computed permissions).
+        # Unlike LookupSubjects which expands groups and computes permissions,
+        # ReadRelationships returns only the explicitly stored tuples.
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.WORKSPACE.value,
+            resource_id=workspace_id.value,
+        )
+
         members: list[WorkspaceAccessGrant] = []
+        seen: set[WorkspaceAccessGrant] = set()
 
-        for role in WorkspaceRole:
-            # Query users
-            user_subjects = await self._authz.lookup_subjects(
-                resource=resource,
-                relation=role.value,
-                subject_type=ResourceType.USER,
+        for rel_tuple in tuples:
+            # Parse subject to extract type and ID
+            # Subject format: "user:ID" or "group:ID#member"
+            subject_parts = rel_tuple.subject.split(":")
+            subject_type_str = subject_parts[0]
+            subject_rest = ":".join(subject_parts[1:])
+
+            # Extract ID (strip off #relation if present)
+            if "#" in subject_rest:
+                member_id, _ = subject_rest.split("#", 1)
+            else:
+                member_id = subject_rest
+
+            # Determine member type
+            member_type = (
+                MemberType.GROUP if subject_type_str == "group" else MemberType.USER
             )
 
-            for subject_relation in user_subjects:
+            # Only include tuples with workspace admin/editor/member relations
+            if rel_tuple.relation in ["admin", "editor", "member"]:
                 grant = WorkspaceAccessGrant(
-                    member_id=subject_relation.subject_id,
-                    member_type=MemberType.USER,
-                    role=role,
+                    member_id=member_id,
+                    member_type=member_type,
+                    role=WorkspaceRole(rel_tuple.relation),
                 )
-                if grant not in seen:
-                    seen.add(grant)
-                    members.append(grant)
 
-            # Query groups
-            group_subjects = await self._authz.lookup_subjects(
-                resource=resource,
-                relation=role.value,
-                subject_type=ResourceType.GROUP,
-                optional_subject_relation="member",
-            )
-
-            for subject_relation in group_subjects:
-                grant = WorkspaceAccessGrant(
-                    member_id=subject_relation.subject_id,
-                    member_type=MemberType.GROUP,
-                    role=role,
-                )
                 if grant not in seen:
                     seen.add(grant)
                     members.append(grant)

@@ -1,31 +1,61 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import {
-  AlertTriangle, CheckCircle2, Info,
+  AlertTriangle, CheckCircle2, Info, Loader2,
 } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import type { ParsedOperation, ParseResult, OperationBreakdown } from '@/utils/mutationParser'
 import { getBreakdown, operationSummary } from '@/utils/mutationParser'
+import type { WorkerParseResult, LightParsedOperation } from '@/composables/useMutationWorker'
+
+const MAX_PREVIEW_OPS = 200
 
 const props = defineProps<{
-  parseResult: ParseResult
+  parseResult?: ParseResult
+  workerResult?: WorkerParseResult | null
+  parsing?: boolean
+  parseTimeMs?: number
 }>()
 
-const breakdown = computed<OperationBreakdown>(() =>
-  getBreakdown(props.parseResult.operations),
-)
+// ── Unified computed properties ────────────────────────────────────────────
 
-const totalOps = computed(() => props.parseResult.operations.length)
+const breakdown = computed<OperationBreakdown>(() => {
+  if (props.workerResult) return props.workerResult.breakdown
+  return props.parseResult ? getBreakdown(props.parseResult.operations) : { DEFINE: 0, CREATE: 0, UPDATE: 0, DELETE: 0, unknown: 0 }
+})
 
-const hasWarnings = computed(() =>
-  props.parseResult.operations.some(op => op.warnings.length > 0),
-)
+const totalOps = computed(() => {
+  if (props.workerResult) return props.workerResult.totalOps
+  return props.parseResult?.operations.length ?? 0
+})
 
-const totalWarnings = computed(() =>
-  props.parseResult.operations.reduce((sum, op) => sum + op.warnings.length, 0),
-)
+const displayOps = computed<Array<ParsedOperation | LightParsedOperation>>(() => {
+  if (props.workerResult) return props.workerResult.previewOps
+  const ops = props.parseResult?.operations ?? []
+  return ops.slice(0, MAX_PREVIEW_OPS)
+})
+
+const isPreviewCapped = computed(() => {
+  if (props.workerResult) return props.workerResult.totalOps > props.workerResult.previewOps.length
+  return (props.parseResult?.operations.length ?? 0) > MAX_PREVIEW_OPS
+})
+
+const parseErrors = computed(() => {
+  if (props.workerResult) return props.workerResult.parseErrors
+  return props.parseResult?.parseErrors ?? []
+})
+
+const hasWarnings = computed(() => {
+  if (props.workerResult) return props.workerResult.hasWarnings
+  return props.parseResult?.operations.some(op => op.warnings.length > 0) ?? false
+})
+
+const totalWarnings = computed(() => {
+  if (props.workerResult) return props.workerResult.warningCount
+  return props.parseResult?.operations.reduce((sum, op) => sum + op.warnings.length, 0) ?? 0
+})
 
 const opBadgeVariant: Record<string, string> = {
   DEFINE: 'outline',
@@ -33,29 +63,48 @@ const opBadgeVariant: Record<string, string> = {
   UPDATE: 'secondary',
   DELETE: 'destructive',
 }
+
+/**
+ * Compact summary for an operation — works for both ParsedOperation
+ * and LightParsedOperation (which lacks operationSummary compatibility).
+ */
+function opSummary(op: ParsedOperation | LightParsedOperation): string {
+  if ('raw' in op) return operationSummary(op as ParsedOperation)
+  const parts: string[] = []
+  if (op.type) parts.push(op.type)
+  if (op.label) parts.push(`"${op.label}"`)
+  if (op.id) parts.push(op.id)
+  return parts.join(' ') || 'unknown'
+}
 </script>
 
 <template>
-  <Card v-if="totalOps > 0 || parseResult.parseErrors.length > 0">
+  <Card v-if="totalOps > 0 || parseErrors.length > 0 || parsing">
     <CardHeader class="pb-3">
       <div class="flex items-center justify-between">
         <CardTitle class="text-sm font-medium">Operation Preview</CardTitle>
         <div class="flex items-center gap-2">
-          <Badge variant="secondary">
-            {{ totalOps }} op{{ totalOps === 1 ? '' : 's' }}
-          </Badge>
-          <Badge v-if="totalWarnings > 0" variant="destructive" class="gap-1">
-            <AlertTriangle class="size-3" />
-            {{ totalWarnings }}
-          </Badge>
-          <Badge
-            v-else-if="totalOps > 0 && parseResult.parseErrors.length === 0"
-            variant="outline"
-            class="gap-1 border-green-500/30 text-green-600 dark:text-green-400"
-          >
-            <CheckCircle2 class="size-3" />
-            Valid
-          </Badge>
+          <div v-if="parsing" class="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 class="size-3 animate-spin" />
+            Parsing...
+          </div>
+          <template v-else>
+            <Badge variant="secondary">
+              {{ totalOps.toLocaleString() }} op{{ totalOps === 1 ? '' : 's' }}
+            </Badge>
+            <Badge v-if="totalWarnings > 0" variant="destructive" class="gap-1">
+              <AlertTriangle class="size-3" />
+              {{ totalWarnings.toLocaleString() }}
+            </Badge>
+            <Badge
+              v-else-if="totalOps > 0 && parseErrors.length === 0"
+              variant="outline"
+              class="gap-1 border-green-500/30 text-green-600 dark:text-green-400"
+            >
+              <CheckCircle2 class="size-3" />
+              Valid
+            </Badge>
+          </template>
         </div>
       </div>
     </CardHeader>
@@ -71,14 +120,14 @@ const opBadgeVariant: Record<string, string> = {
           class="gap-1"
         >
           DEFINE
-          <span class="font-mono">{{ breakdown.DEFINE }}</span>
+          <span class="font-mono">{{ breakdown.DEFINE.toLocaleString() }}</span>
         </Badge>
         <Badge
           v-if="breakdown.CREATE > 0"
           class="gap-1"
         >
           CREATE
-          <span class="font-mono">{{ breakdown.CREATE }}</span>
+          <span class="font-mono">{{ breakdown.CREATE.toLocaleString() }}</span>
         </Badge>
         <Badge
           v-if="breakdown.UPDATE > 0"
@@ -86,7 +135,7 @@ const opBadgeVariant: Record<string, string> = {
           class="gap-1"
         >
           UPDATE
-          <span class="font-mono">{{ breakdown.UPDATE }}</span>
+          <span class="font-mono">{{ breakdown.UPDATE.toLocaleString() }}</span>
         </Badge>
         <Badge
           v-if="breakdown.DELETE > 0"
@@ -94,7 +143,7 @@ const opBadgeVariant: Record<string, string> = {
           class="gap-1"
         >
           DELETE
-          <span class="font-mono">{{ breakdown.DELETE }}</span>
+          <span class="font-mono">{{ breakdown.DELETE.toLocaleString() }}</span>
         </Badge>
         <Badge
           v-if="breakdown.unknown > 0"
@@ -102,31 +151,34 @@ const opBadgeVariant: Record<string, string> = {
           class="gap-1"
         >
           UNKNOWN
-          <span class="font-mono">{{ breakdown.unknown }}</span>
+          <span class="font-mono">{{ breakdown.unknown.toLocaleString() }}</span>
         </Badge>
       </div>
 
       <!-- Parse errors -->
-      <div v-if="parseResult.parseErrors.length > 0" class="space-y-1">
+      <div v-if="parseErrors.length > 0" class="space-y-1">
         <div
-          v-for="(error, idx) in parseResult.parseErrors"
+          v-for="(error, idx) in parseErrors.slice(0, 20)"
           :key="'pe-' + idx"
           class="flex items-start gap-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive"
         >
           <AlertTriangle class="mt-0.5 size-3 shrink-0" />
           <span>{{ error }}</span>
         </div>
+        <p v-if="parseErrors.length > 20" class="text-xs text-muted-foreground">
+          ...and {{ parseErrors.length - 20 }} more errors
+        </p>
       </div>
 
       <Separator v-if="totalOps > 0" />
 
       <!-- Operation summary rows -->
       <div
-        v-if="totalOps > 0"
+        v-if="displayOps.length > 0"
         class="max-h-[240px] space-y-1 overflow-y-auto"
       >
         <div
-          v-for="op in parseResult.operations"
+          v-for="op in displayOps"
           :key="op.index"
           class="flex items-start gap-2 rounded-md px-2 py-1.5 text-xs"
           :class="op.warnings.length > 0 ? 'bg-yellow-500/10' : 'bg-muted/50'"
@@ -141,7 +193,7 @@ const opBadgeVariant: Record<string, string> = {
 
           <!-- Summary -->
           <div class="min-w-0 flex-1">
-            <span class="font-mono text-muted-foreground">{{ operationSummary(op) }}</span>
+            <span class="font-mono text-muted-foreground">{{ opSummary(op) }}</span>
             <!-- Warnings -->
             <div
               v-if="op.warnings.length > 0"
@@ -158,7 +210,21 @@ const opBadgeVariant: Record<string, string> = {
             </div>
           </div>
         </div>
+
+        <!-- Capped preview notice -->
+        <div
+          v-if="isPreviewCapped"
+          class="flex items-center justify-center gap-2 rounded-md bg-muted/50 px-2 py-2 text-xs text-muted-foreground"
+        >
+          <Info class="size-3 shrink-0" />
+          Showing {{ displayOps.length.toLocaleString() }} of {{ totalOps.toLocaleString() }} operations
+        </div>
       </div>
+
+      <!-- Parse time (worker mode only) -->
+      <p v-if="parseTimeMs && !parsing" class="text-xs text-muted-foreground">
+        Analyzed in {{ parseTimeMs.toFixed(0) }}ms
+      </p>
     </CardContent>
   </Card>
 </template>

@@ -45,10 +45,13 @@ export function useCodemirror(
         // Dynamic extensions (language, theme, etc.)
         dynamicCompartment.of(extensions.value),
 
-        // Sync doc changes back to the ref
+        // Sync doc changes back to the ref.
+        // For very large documents (>5 MB), skip syncing to avoid freezing
+        // the main thread with a full doc.toString() on every keystroke.
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             updateGeneration++
+            if (update.state.doc.length > 5_000_000) return
             doc.value = update.state.doc.toString()
           }
         }),
@@ -61,7 +64,8 @@ export function useCodemirror(
     })
   })
 
-  // Watch for external doc changes (e.g., setting query from history/examples)
+  // Watch for external doc changes (e.g., setting query from history/examples).
+  // Skip dispatching to CM for very large docs to avoid freezing.
   watch(doc, (newDoc) => {
     if (!view.value) return
     // If this change originated from the editor itself, skip the dispatch
@@ -69,6 +73,9 @@ export function useCodemirror(
       watcherGeneration = updateGeneration
       return
     }
+    // Don't sync very large content back into CM — it will be handled
+    // via large-file mode in the mutations page.
+    if (newDoc.length > 5_000_000) return
     const currentDoc = view.value.state.doc.toString()
     if (newDoc !== currentDoc) {
       updateGeneration++ // prevent the listener from echoing back

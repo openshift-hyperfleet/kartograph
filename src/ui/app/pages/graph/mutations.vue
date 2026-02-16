@@ -38,32 +38,41 @@ import MutationPreview from '@/components/graph/MutationPreview.vue'
 import MutationTemplates from '@/components/graph/MutationTemplates.vue'
 
 // Parser
-import { parseContent, toJsonl, generateHexId, type ParseResult } from '@/utils/mutationParser'
+import { parseContent, toJsonl, generateHexId, getBreakdown, type ParseResult } from '@/utils/mutationParser'
+
+// Worker-based parsing for large files
+import { useMutationWorker, LARGE_FILE_THRESHOLD } from '@/composables/useMutationWorker'
 
 // ── Quick Start Templates ───────────────────────────────────────────────────
 
 const quickStartTemplates = [
   {
-    name: 'Create Node',
-    description: 'Add a new entity to the knowledge graph',
+    name: 'Create a Node',
+    description: 'Define a type and create a node in one batch',
     icon: Plus,
-    content: `{"op": "CREATE", "type": "node", "label": "person", "id": "person:${generateHexId()}", "set_properties": {"name": "Alice", "slug": "alice", "data_source_id": "dev-ui", "source_path": "manual"}}`,
+    content: [
+      `{"op": "DEFINE", "type": "node", "label": "person", "description": "A person entity", "required_properties": ["name"]}`,
+      `{"op": "CREATE", "type": "node", "label": "person", "id": "person:${generateHexId()}", "set_properties": {"name": "Alice", "slug": "alice", "data_source_id": "dev-ui", "source_path": "manual"}}`,
+    ].join('\n'),
   },
   {
-    name: 'Create Edge',
-    description: 'Connect two nodes with a relationship',
+    name: 'Create an Edge',
+    description: 'Define a relationship type and connect two nodes',
     icon: GitBranch,
-    content: `{"op": "CREATE", "type": "edge", "label": "knows", "id": "knows:${generateHexId()}", "start_id": "person:a1b2c3d4e5f67890", "end_id": "person:f6e5d4c3b2a10987", "set_properties": {"data_source_id": "dev-ui", "source_path": "manual"}}`,
+    content: [
+      `{"op": "DEFINE", "type": "edge", "label": "knows", "description": "Indicates two people know each other", "required_properties": []}`,
+      `{"op": "CREATE", "type": "edge", "label": "knows", "id": "knows:${generateHexId()}", "start_id": "person:a1b2c3d4e5f67890", "end_id": "person:f6e5d4c3b2a10987", "set_properties": {"data_source_id": "dev-ui", "source_path": "manual"}}`,
+    ].join('\n'),
   },
   {
-    name: 'Update Node',
-    description: 'Modify properties on an existing node',
+    name: 'Update Properties',
+    description: 'Modify properties on an existing entity',
     icon: RefreshCw,
     content: '{"op": "UPDATE", "type": "node", "id": "person:a1b2c3d4e5f67890", "set_properties": {"email": "alice@example.com"}}',
   },
   {
-    name: 'Delete Node',
-    description: 'Remove a node from the graph',
+    name: 'Delete an Entity',
+    description: 'Remove a node or edge (nodes cascade-delete edges)',
     icon: Trash2,
     content: '{"op": "DELETE", "type": "node", "id": "person:a1b2c3d4e5f67890"}',
   },
@@ -73,6 +82,10 @@ const { applyMutations } = useGraphApi()
 const { extractErrorMessage } = useErrorHandler()
 const { hasTenant } = useTenant()
 const { ctrlHeld } = useModifierKeys()
+
+// ── Worker ─────────────────────────────────────────────────────────────────
+
+const { workerResult, parsing, parseTimeMs, isLargeFile, requestParse } = useMutationWorker()
 
 // ── Responsive ─────────────────────────────────────────────────────────────
 
@@ -87,6 +100,9 @@ const apiError = ref<string | null>(null)
 const isDragOver = ref(false)
 const editorContainer = ref<HTMLElement | null>(null)
 const showTemplateSheet = ref(false)
+const largeFileMode = ref(false)
+const uploadProgress = ref<number | null>(null)
+const uploadFileName = ref('')
 
 // ── Computed ───────────────────────────────────────────────────────────────
 
@@ -94,14 +110,12 @@ const isEmpty = computed(() => !editorContent.value.trim())
 
 // ── CodeMirror Setup ───────────────────────────────────────────────────────
 
-const staticExtensions: Extension[] = [
+// Base extensions that are always present
+const staticBaseExtensions: Extension[] = [
   kartographTheme,
   jsonHighlightStyle,
   json(),
   lineNumbers(),
-  autocompletion({ override: [mutationAutocomplete] }),
-  linter(mutationLinter, { delay: 300 }),
-  lintGutter(),
   Prec.highest(keymap.of([
     {
       key: 'Ctrl-Enter',
@@ -114,7 +128,16 @@ const staticExtensions: Extension[] = [
   ])),
 ]
 
-const cmExtensions = computed<Extension[]>(() => [...staticExtensions])
+// Full extensions including linter/autocomplete (disabled for large files)
+const cmExtensions = computed<Extension[]>(() => {
+  if (largeFileMode.value) return staticBaseExtensions
+  return [
+    ...staticBaseExtensions,
+    autocompletion({ override: [mutationAutocomplete] }),
+    linter(mutationLinter, { delay: 300 }),
+    lintGutter(),
+  ]
+})
 
 const { view: editorView, focus: focusEditor } = useCodemirror(
   editorContainer,
@@ -136,16 +159,36 @@ watch(isEmpty, (newVal, oldVal) => {
   }
 })
 
-// ── Live Preview ───────────────────────────────────────────────────────────
+// ── Live Preview (hybrid: sync for small, worker for large) ────────────────
 
-const parseResult = computed<ParseResult>(() => parseContent(editorContent.value))
+// For small files: synchronous parsing (instant feedback)
+const syncParseResult = computed<ParseResult | null>(() => {
+  if (isLargeFile.value) return null
+  return parseContent(editorContent.value)
+})
 
-const totalOps = computed(() => parseResult.value.operations.length)
+// Watch content changes and dispatch to worker for large files
+watch(editorContent, (content) => {
+  requestParse(content)
+})
 
-const hasValidationIssues = computed(() =>
-  parseResult.value.parseErrors.length > 0
-  || parseResult.value.operations.some(op => op.warnings.length > 0),
-)
+// Unified accessors that work for both small and large files
+const totalOps = computed(() => {
+  if (isLargeFile.value) return workerResult.value?.totalOps ?? 0
+  return syncParseResult.value?.operations.length ?? 0
+})
+
+const hasValidationIssues = computed(() => {
+  if (isLargeFile.value) return workerResult.value?.hasWarnings ?? false
+  const r = syncParseResult.value
+  return r ? (r.parseErrors.length > 0 || r.operations.some(op => op.warnings.length > 0)) : false
+})
+
+const breakdown = computed(() => {
+  if (isLargeFile.value && workerResult.value) return workerResult.value.breakdown
+  if (syncParseResult.value) return getBreakdown(syncParseResult.value.operations)
+  return { DEFINE: 0, CREATE: 0, UPDATE: 0, DELETE: 0, unknown: 0 }
+})
 
 // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -190,8 +233,42 @@ function showAllTemplates() {
 async function handleSubmit() {
   if (submitting.value || !editorContent.value.trim()) return
 
-  const result = parseResult.value
-  if (result.parseErrors.length > 0) {
+  // For large files, skip client-side re-parse and submit raw content directly
+  // (server validates anyway)
+  if (isLargeFile.value) {
+    apiError.value = null
+    submitting.value = true
+    try {
+      // Strip comment lines and blank lines, submit raw JSONL
+      const lines = editorContent.value.split('\n')
+      const cleanLines = lines.filter((l) => {
+        const t = l.trim()
+        return t && !t.startsWith('//') && !t.startsWith('#')
+      })
+      const body = cleanLines.join('\n')
+
+      const mutationResult = await applyMutations(body)
+      lastResult.value = mutationResult
+      if (mutationResult.success) {
+        toast.success(`Applied ${mutationResult.operations_applied} mutation${mutationResult.operations_applied === 1 ? '' : 's'}`)
+      } else {
+        toast.error('Some mutations failed', {
+          description: `${mutationResult.errors.length} error${mutationResult.errors.length === 1 ? '' : 's'} occurred`,
+        })
+      }
+    } catch (err) {
+      const message = extractErrorMessage(err)
+      apiError.value = message
+      toast.error('Failed to apply mutations', { description: message })
+    } finally {
+      submitting.value = false
+    }
+    return
+  }
+
+  // Small file: use full parse result (existing behavior)
+  const result = syncParseResult.value
+  if (!result || result.parseErrors.length > 0) {
     toast.error('Fix parse errors before submitting')
     return
   }
@@ -230,6 +307,7 @@ function clearEditor() {
   editorContent.value = ''
   lastResult.value = null
   apiError.value = null
+  largeFileMode.value = false
   nextTick(focusEditor)
 }
 
@@ -258,33 +336,61 @@ function readFile(file: File) {
     toast.error('Invalid file type', { description: 'Please upload a .jsonl, .json, or .ndjson file.' })
     return
   }
+
+  uploadFileName.value = file.name
+  uploadProgress.value = 0
+
   const reader = new FileReader()
+  reader.onprogress = (e) => {
+    if (e.lengthComputable) {
+      uploadProgress.value = Math.round((e.loaded / e.total) * 100)
+    }
+  }
   reader.onload = (e) => {
     const text = e.target?.result as string
-    const view = editorView.value
-    if (view) {
-      const currentDoc = view.state.doc.toString()
-      const trimmed = currentDoc.trim()
-      if (trimmed) {
-        view.dispatch({
-          changes: { from: view.state.doc.length, insert: '\n' + text },
+    uploadProgress.value = null
+
+    // For large files, set content directly and enable large-file mode
+    if (text.length > LARGE_FILE_THRESHOLD) {
+      editorContent.value = text
+
+      if (text.length > 5_000_000) {
+        // For files > 5MB, disable CM editing and use read-only summary mode
+        largeFileMode.value = true
+        toast.success(`Loaded ${file.name}`, {
+          description: `${(text.length / 1_000_000).toFixed(1)} MB — preview mode enabled`,
         })
       } else {
-        view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: text },
-        })
+        toast.success(`Loaded ${file.name}`)
       }
     } else {
-      if (editorContent.value.trim()) {
-        editorContent.value += '\n' + text
+      // Small file: insert into CM normally
+      const view = editorView.value
+      if (view) {
+        const currentDoc = view.state.doc.toString()
+        const trimmed = currentDoc.trim()
+        if (trimmed) {
+          view.dispatch({
+            changes: { from: view.state.doc.length, insert: '\n' + text },
+          })
+        } else {
+          view.dispatch({
+            changes: { from: 0, to: view.state.doc.length, insert: text },
+          })
+        }
       } else {
-        editorContent.value = text
+        if (editorContent.value.trim()) {
+          editorContent.value += '\n' + text
+        } else {
+          editorContent.value = text
+        }
       }
+      toast.success(`Loaded ${file.name}`)
     }
     lastResult.value = null
-    toast.success(`Loaded ${file.name}`)
   }
   reader.onerror = () => {
+    uploadProgress.value = null
     toast.error('Failed to read file')
   }
   reader.readAsText(file)
@@ -346,7 +452,7 @@ onBeforeUnmount(() => {
 
     <!-- Empty state -->
     <div
-      v-else-if="isEmpty && hasTenant"
+      v-else-if="isEmpty && hasTenant && !largeFileMode"
       class="flex flex-col items-center text-center py-12 space-y-8"
       @drop.prevent="handleDrop"
       @dragover="handleDragOver"
@@ -428,17 +534,17 @@ onBeforeUnmount(() => {
         </Button>
       </div>
 
-      <!-- Format hint -->
-      <div class="mx-auto max-w-md space-y-2 rounded-lg border bg-muted/30 p-4 text-left">
-        <p class="text-xs font-medium">JSONL Format</p>
+      <!-- Workflow hint -->
+      <div class="mx-auto max-w-lg space-y-3 rounded-lg border bg-muted/30 p-4 text-left">
+        <p class="text-xs font-medium">How it works</p>
+        <ol class="space-y-1.5 text-xs text-muted-foreground list-decimal list-inside">
+          <li><code class="rounded bg-muted px-1 py-0.5">DEFINE</code> — Declare a type schema (required before first CREATE, idempotent)</li>
+          <li><code class="rounded bg-muted px-1 py-0.5">CREATE</code> — Add a node or edge (idempotent, uses MERGE)</li>
+          <li><code class="rounded bg-muted px-1 py-0.5">UPDATE</code> — Set or remove properties on an existing entity</li>
+          <li><code class="rounded bg-muted px-1 py-0.5">DELETE</code> — Remove an entity (nodes cascade-delete connected edges)</li>
+        </ol>
         <p class="text-xs text-muted-foreground">
-          Each line is a JSON object representing one mutation. Operations:
-          <code class="rounded bg-muted px-1 py-0.5">CREATE</code>,
-          <code class="rounded bg-muted px-1 py-0.5">UPDATE</code>,
-          <code class="rounded bg-muted px-1 py-0.5">DELETE</code>,
-          <code class="rounded bg-muted px-1 py-0.5">DEFINE</code>
-        </p>
-        <p class="text-xs text-muted-foreground">
+          Each line is one JSON operation. Operations auto-sort: DEFINE runs first regardless of order.
           Submit with
           <kbd class="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">Ctrl</kbd> +
           <kbd class="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">Enter</kbd>
@@ -447,13 +553,105 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Active state (editor has content) — always rendered so CodeMirror mounts -->
-    <div v-if="hasTenant" v-show="!isEmpty" class="space-y-4">
+    <div v-if="hasTenant" v-show="!isEmpty || largeFileMode" class="space-y-4">
+      <!-- Upload progress bar -->
+      <Card v-if="uploadProgress !== null" class="border-primary/30">
+        <CardContent class="p-4 space-y-2">
+          <div class="flex items-center justify-between text-sm">
+            <span class="flex items-center gap-2">
+              <Loader2 class="size-4 animate-spin" />
+              Loading {{ uploadFileName }}...
+            </span>
+            <span class="text-muted-foreground">{{ uploadProgress }}%</span>
+          </div>
+          <div class="h-2 w-full rounded-full bg-muted overflow-hidden">
+            <div
+              class="h-full rounded-full bg-primary transition-all duration-300"
+              :style="{ width: `${uploadProgress}%` }"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
       <!-- Editor + right panel grid -->
       <div class="grid gap-6" :class="isDesktop ? 'lg:grid-cols-[1fr_400px]' : ''">
         <!-- Left: Editor area -->
         <div class="space-y-4">
-          <!-- Editor card -->
+          <!-- Large file mode: summary instead of editor -->
+          <Card v-if="largeFileMode">
+            <CardHeader class="pb-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <CardTitle class="text-base">Large File Mode</CardTitle>
+                  <Badge variant="secondary">
+                    {{ (editorContent.length / 1_000_000).toFixed(1) }} MB
+                  </Badge>
+                </div>
+                <Button variant="ghost" size="sm" @click="clearEditor">
+                  <Trash2 class="mr-2 size-4" />
+                  Clear
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent class="space-y-3">
+              <p class="text-sm text-muted-foreground">
+                File too large for interactive editing. Review the summary below and submit directly.
+              </p>
+
+              <!-- Parsing indicator -->
+              <div v-if="parsing" class="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 class="size-4 animate-spin" />
+                Analyzing operations...
+              </div>
+
+              <!-- Breakdown badges -->
+              <div v-else-if="workerResult" class="space-y-2">
+                <div class="flex flex-wrap gap-2">
+                  <Badge variant="secondary">
+                    {{ workerResult.totalOps.toLocaleString() }} operations
+                  </Badge>
+                  <Badge v-if="workerResult.breakdown.DEFINE > 0" variant="outline" class="gap-1">
+                    DEFINE <span class="font-mono">{{ workerResult.breakdown.DEFINE.toLocaleString() }}</span>
+                  </Badge>
+                  <Badge v-if="workerResult.breakdown.CREATE > 0" class="gap-1">
+                    CREATE <span class="font-mono">{{ workerResult.breakdown.CREATE.toLocaleString() }}</span>
+                  </Badge>
+                  <Badge v-if="workerResult.breakdown.UPDATE > 0" variant="secondary" class="gap-1">
+                    UPDATE <span class="font-mono">{{ workerResult.breakdown.UPDATE.toLocaleString() }}</span>
+                  </Badge>
+                  <Badge v-if="workerResult.breakdown.DELETE > 0" variant="destructive" class="gap-1">
+                    DELETE <span class="font-mono">{{ workerResult.breakdown.DELETE.toLocaleString() }}</span>
+                  </Badge>
+                </div>
+
+                <p v-if="workerResult.warningCount > 0" class="text-sm text-yellow-600 dark:text-yellow-400">
+                  {{ workerResult.warningCount.toLocaleString() }} warnings found
+                </p>
+
+                <div v-if="workerResult.parseErrors.length > 0" class="space-y-1">
+                  <div
+                    v-for="(error, idx) in workerResult.parseErrors.slice(0, 10)"
+                    :key="idx"
+                    class="flex items-start gap-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs"
+                  >
+                    <AlertTriangle class="mt-0.5 size-3 shrink-0 text-destructive" />
+                    <span class="font-mono">{{ error }}</span>
+                  </div>
+                  <p v-if="workerResult.parseErrors.length > 10" class="text-xs text-muted-foreground">
+                    ...and {{ workerResult.parseErrors.length - 10 }} more errors
+                  </p>
+                </div>
+
+                <p class="text-xs text-muted-foreground">
+                  Analyzed in {{ parseTimeMs.toFixed(0) }}ms
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <!-- Normal editor card -->
           <Card
+            v-if="!largeFileMode"
             @drop.prevent="handleDrop"
             @dragover="handleDragOver"
             @dragleave="handleDragLeave"
@@ -535,8 +733,8 @@ onBeforeUnmount(() => {
             <Tooltip>
               <TooltipTrigger as-child>
                 <Button
-                  :disabled="submitting || !editorContent.trim()"
-                  :class="ctrlHeld && !submitting && editorContent.trim() ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''"
+                  :disabled="submitting || (!editorContent.trim() && !largeFileMode)"
+                  :class="ctrlHeld && !submitting && (editorContent.trim() || largeFileMode) ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''"
                   @click="handleSubmit"
                 >
                   <Loader2 v-if="submitting" class="mr-2 size-4 animate-spin" />
@@ -555,14 +753,18 @@ onBeforeUnmount(() => {
               </TooltipContent>
             </Tooltip>
             <span v-if="totalOps > 0" class="text-sm text-muted-foreground">
-              {{ totalOps }} operation{{ totalOps === 1 ? '' : 's' }} ready
+              {{ totalOps.toLocaleString() }} operation{{ totalOps === 1 ? '' : 's' }} ready
               <span v-if="hasValidationIssues" class="text-yellow-600 dark:text-yellow-400">
                 (has warnings)
               </span>
             </span>
+            <span v-if="parsing" class="text-sm text-muted-foreground flex items-center gap-1.5">
+              <Loader2 class="size-3 animate-spin" />
+              Analyzing...
+            </span>
             <!-- Mobile: Templates button -->
             <Button
-              v-if="!isDesktop"
+              v-if="!isDesktop && !largeFileMode"
               variant="outline"
               size="sm"
               class="ml-auto gap-2"
@@ -643,10 +845,15 @@ onBeforeUnmount(() => {
         <!-- Right panel (desktop only) -->
         <div v-if="isDesktop" class="space-y-4">
           <!-- Live preview -->
-          <MutationPreview :parse-result="parseResult" />
+          <MutationPreview
+            :parse-result="syncParseResult ?? undefined"
+            :worker-result="isLargeFile ? workerResult : undefined"
+            :parsing="parsing"
+            :parse-time-ms="isLargeFile ? parseTimeMs : undefined"
+          />
 
-          <!-- Templates in a collapsible card -->
-          <Card>
+          <!-- Templates in a collapsible card (hidden in large file mode) -->
+          <Card v-if="!largeFileMode">
             <CardHeader class="pb-3">
               <CardTitle class="text-sm font-medium flex items-center gap-2">
                 <BookOpen class="size-4" />
@@ -661,7 +868,13 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- Mobile: Preview below editor (always visible when there's content) -->
-      <MutationPreview v-if="!isDesktop" :parse-result="parseResult" />
+      <MutationPreview
+        v-if="!isDesktop"
+        :parse-result="syncParseResult ?? undefined"
+        :worker-result="isLargeFile ? workerResult : undefined"
+        :parsing="parsing"
+        :parse-time-ms="isLargeFile ? parseTimeMs : undefined"
+      />
 
       <!-- Mobile: Template sheet -->
       <Sheet v-model:open="showTemplateSheet">

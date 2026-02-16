@@ -271,7 +271,9 @@ class TestGetById:
         mock_session.execute.return_value = mock_result
 
         # Mock SpiceDB: user is an admin
-        async def mock_lookup(resource, relation, subject_type):
+        async def mock_lookup(
+            resource, relation, subject_type, optional_subject_relation=None
+        ):
             if relation == WorkspaceRole.ADMIN.value and subject_type == "user":
                 return [
                     SubjectRelation(
@@ -312,7 +314,9 @@ class TestGetById:
         mock_session.execute.return_value = mock_result
 
         # Mock SpiceDB: group is a member
-        async def mock_lookup(resource, relation, subject_type):
+        async def mock_lookup(
+            resource, relation, subject_type, optional_subject_relation=None
+        ):
             if relation == WorkspaceRole.MEMBER.value and subject_type == "group":
                 return [
                     SubjectRelation(
@@ -355,7 +359,9 @@ class TestGetById:
         mock_session.execute.return_value = mock_result
 
         # Mock SpiceDB: different members across roles and types
-        async def mock_lookup(resource, relation, subject_type):
+        async def mock_lookup(
+            resource, relation, subject_type, optional_subject_relation=None
+        ):
             if relation == WorkspaceRole.ADMIN.value and subject_type == "user":
                 return [
                     SubjectRelation(
@@ -524,7 +530,9 @@ class TestGetByName:
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        async def mock_lookup(resource, relation, subject_type):
+        async def mock_lookup(
+            resource, relation, subject_type, optional_subject_relation=None
+        ):
             if relation == WorkspaceRole.EDITOR.value and subject_type == "user":
                 return [
                     SubjectRelation(
@@ -634,7 +642,9 @@ class TestGetRootWorkspace:
         mock_result.scalar_one_or_none.return_value = model
         mock_session.execute.return_value = mock_result
 
-        async def mock_lookup(resource, relation, subject_type):
+        async def mock_lookup(
+            resource, relation, subject_type, optional_subject_relation=None
+        ):
             if relation == WorkspaceRole.ADMIN.value and subject_type == "user":
                 return [
                     SubjectRelation(
@@ -751,7 +761,9 @@ class TestListByTenant:
         mock_session.execute.return_value = mock_result
 
         # Mock SpiceDB: user is admin of both workspaces
-        async def mock_lookup(resource, relation, subject_type):
+        async def mock_lookup(
+            resource, relation, subject_type, optional_subject_relation=None
+        ):
             if relation == WorkspaceRole.ADMIN.value and subject_type == "user":
                 return [
                     SubjectRelation(
@@ -807,7 +819,9 @@ class TestListByTenant:
         # First workspace hydration fails, second succeeds
         failing_resource = f"workspace:{ws_id_1.value}"
 
-        async def mock_lookup(resource, relation, subject_type):
+        async def mock_lookup(
+            resource, relation, subject_type, optional_subject_relation=None
+        ):
             if resource == failing_resource:
                 raise RuntimeError("SpiceDB timeout")
             return []
@@ -1055,7 +1069,9 @@ class TestHydrateMembers:
         user_id = "user-alice"
         group_id = "group-eng"
 
-        async def mock_lookup(resource, relation, subject_type):
+        async def mock_lookup(
+            resource, relation, subject_type, optional_subject_relation=None
+        ):
             if relation == "admin" and subject_type == "user":
                 return [SubjectRelation(subject_id=user_id, relation="admin")]
             if relation == "editor" and subject_type == "group":
@@ -1076,6 +1092,30 @@ class TestHydrateMembers:
         assert isinstance(members_by_id[group_id], WorkspaceMember)
         assert members_by_id[group_id].member_type == MemberType.GROUP
         assert members_by_id[group_id].role == WorkspaceRole.EDITOR
+
+    @pytest.mark.asyncio
+    async def test_passes_optional_subject_relation_for_groups(
+        self, repository, mock_authz
+    ):
+        """Should pass optional_subject_relation='member' when looking up group subjects."""
+        mock_authz.lookup_subjects.return_value = []
+
+        await repository._hydrate_members("workspace-id")
+
+        # Verify all 6 calls were made
+        assert mock_authz.lookup_subjects.call_count == 6
+
+        # Check each call's optional_subject_relation argument
+        for call in mock_authz.lookup_subjects.call_args_list:
+            kwargs = call.kwargs
+            if kwargs.get("subject_type") == "group":
+                assert kwargs.get("optional_subject_relation") == "member", (
+                    f"Expected optional_subject_relation='member' for group lookup, got {kwargs.get('optional_subject_relation')}"
+                )
+            elif kwargs.get("subject_type") == "user":
+                assert kwargs.get("optional_subject_relation") is None, (
+                    f"Expected optional_subject_relation=None for user lookup, got {kwargs.get('optional_subject_relation')}"
+                )
 
 
 class TestSerializerInjection:

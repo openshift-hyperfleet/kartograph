@@ -275,8 +275,30 @@ class GroupRepository(IGroupRepository):
         self._probe.group_deleted(group.id.value)
         return True
 
+    # Map SpiceDB relation names back to domain GroupRole values.
+    # In the SpiceDB schema, ``member_relation`` is the relation for
+    # regular group members, while ``member`` is a permission
+    # (admin + member_relation). This map reverses the mapping so
+    # hydrated members get the correct domain role.
+    _SPICEDB_RELATION_TO_GROUP_ROLE: dict[str, GroupRole] = {
+        "admin": GroupRole.ADMIN,
+        "member_relation": GroupRole.MEMBER,
+    }
+
+    # The SpiceDB relation names to query for each GroupRole.
+    # GroupRole.ADMIN  -> "admin" (relation)
+    # GroupRole.MEMBER -> "member_relation" (relation, not "member" which is a permission)
+    _GROUP_ROLE_TO_SPICEDB_RELATION: dict[GroupRole, str] = {
+        GroupRole.ADMIN: "admin",
+        GroupRole.MEMBER: "member_relation",
+    }
+
     async def _hydrate_members(self, group_id: str) -> list[GroupMember]:
         """Fetch membership from SpiceDB and convert to domain objects.
+
+        Queries SpiceDB for both ``admin`` and ``member_relation`` relations
+        (not the ``member`` permission, which combines both). Maps results
+        back to domain ``GroupRole`` values.
 
         Args:
             group_id: The group ID to fetch members for
@@ -289,17 +311,22 @@ class GroupRepository(IGroupRepository):
 
         # Lookup all subjects with each role type
         for role in [GroupRole.ADMIN, GroupRole.MEMBER]:
+            spicedb_relation = self._GROUP_ROLE_TO_SPICEDB_RELATION[role]
             subjects = await self._authz.lookup_subjects(
                 resource=group_resource,
-                relation=role.value,
+                relation=spicedb_relation,
                 subject_type=ResourceType.USER.value,
             )
 
             for subject_relation in subjects:
+                # Map the SpiceDB relation name back to the domain role
+                domain_role = self._SPICEDB_RELATION_TO_GROUP_ROLE.get(
+                    subject_relation.relation, role
+                )
                 members.append(
                     GroupMember(
                         user_id=UserId(value=subject_relation.subject_id),
-                        role=GroupRole(subject_relation.relation),
+                        role=domain_role,
                     )
                 )
 

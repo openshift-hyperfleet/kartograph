@@ -75,6 +75,7 @@ class RelationType(StrEnum):
     ADMIN = "admin"
     EDITOR = "editor"
     MEMBER = "member"
+    MEMBER_RELATION = "member_relation"
     OWNER = "owner"
     PARENT = "parent"
     ROOT_WORKSPACE = "root_workspace"

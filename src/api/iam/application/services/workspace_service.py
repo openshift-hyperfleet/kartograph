@@ -818,6 +818,7 @@ class WorkspaceService:
                 resource=resource,
                 relation=role.value,
                 subject_type=ResourceType.GROUP,
+                optional_subject_relation="member",
             )
 
             for subject_relation in group_subjects:

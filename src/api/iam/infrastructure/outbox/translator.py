@@ -170,6 +170,26 @@ class IAMEventTranslator:
             )
         ]
 
+    @staticmethod
+    def _group_role_to_spicedb_relation(role: GroupRole) -> GroupRole | RelationType:
+        """Map a GroupRole to the corresponding SpiceDB relation name.
+
+        In the SpiceDB schema, the group definition uses ``member_relation``
+        as the relation name for regular members, while ``member`` is a
+        permission that combines ``admin + member_relation``. This mapping
+        ensures the correct relation name is used in SpiceDB operations.
+
+        Args:
+            role: The domain GroupRole
+
+        Returns:
+            The SpiceDB relation: GroupRole.ADMIN for admins,
+            RelationType.MEMBER_RELATION for members.
+        """
+        if role == GroupRole.MEMBER:
+            return RelationType.MEMBER_RELATION
+        return role
+
     def _translate_group_deleted(
         self,
         payload: dict[str, Any],
@@ -191,11 +211,12 @@ class IAMEventTranslator:
         # Delete all member relationships from the snapshot
         for member in payload["members"]:
             role = GroupRole(member["role"])
+            spicedb_relation = self._group_role_to_spicedb_relation(role)
             operations.append(
                 DeleteRelationship(
                     resource_type=ResourceType.GROUP,
                     resource_id=payload["group_id"],
-                    relation=role,
+                    relation=spicedb_relation,
                     subject_type=ResourceType.USER,
                     subject_id=member["user_id"],
                 )
@@ -209,11 +230,12 @@ class IAMEventTranslator:
     ) -> list[SpiceDBOperation]:
         """Translate MemberAdded to role relationship write."""
         role = GroupRole(payload["role"])
+        spicedb_relation = self._group_role_to_spicedb_relation(role)
         return [
             WriteRelationship(
                 resource_type=ResourceType.GROUP,
                 resource_id=payload["group_id"],
-                relation=role,
+                relation=spicedb_relation,
                 subject_type=ResourceType.USER,
                 subject_id=payload["user_id"],
             )
@@ -225,11 +247,12 @@ class IAMEventTranslator:
     ) -> list[SpiceDBOperation]:
         """Translate MemberRemoved to role relationship delete."""
         role = GroupRole(payload["role"])
+        spicedb_relation = self._group_role_to_spicedb_relation(role)
         return [
             DeleteRelationship(
                 resource_type=ResourceType.GROUP,
                 resource_id=payload["group_id"],
-                relation=role,
+                relation=spicedb_relation,
                 subject_type=ResourceType.USER,
                 subject_id=payload["user_id"],
             )
@@ -242,13 +265,15 @@ class IAMEventTranslator:
         """Translate MemberRoleChanged to delete old + write new role."""
         old_role = GroupRole(payload["old_role"])
         new_role = GroupRole(payload["new_role"])
+        old_spicedb_relation = self._group_role_to_spicedb_relation(old_role)
+        new_spicedb_relation = self._group_role_to_spicedb_relation(new_role)
 
         return [
             # First delete the old role relationship
             DeleteRelationship(
                 resource_type=ResourceType.GROUP,
                 resource_id=payload["group_id"],
-                relation=old_role,
+                relation=old_spicedb_relation,
                 subject_type=ResourceType.USER,
                 subject_id=payload["user_id"],
             ),
@@ -256,7 +281,7 @@ class IAMEventTranslator:
             WriteRelationship(
                 resource_type=ResourceType.GROUP,
                 resource_id=payload["group_id"],
-                relation=new_role,
+                relation=new_spicedb_relation,
                 subject_type=ResourceType.USER,
                 subject_id=payload["user_id"],
             ),

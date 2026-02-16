@@ -348,6 +348,9 @@ class WorkspaceRepository(IWorkspaceRepository):
                     resource=workspace_resource,
                     relation=role.value,
                     subject_type=member_type.value,
+                    optional_subject_relation=(
+                        "member" if member_type == MemberType.GROUP else None
+                    ),
                 )
 
                 for subject_relation in subjects:

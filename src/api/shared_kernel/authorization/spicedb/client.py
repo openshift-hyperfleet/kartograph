@@ -702,6 +702,7 @@ class SpiceDBClient(AuthorizationProvider):
         resource: str,
         relation: str,
         subject_type: str,
+        optional_subject_relation: str | None = None,
     ) -> list[SubjectRelation]:
         """Find all subjects with a relationship to a resource.
 
@@ -709,6 +710,9 @@ class SpiceDBClient(AuthorizationProvider):
             resource: Resource identifier (e.g., "group:01ARZ3...")
             relation: Relation name to look up (e.g., "member")
             subject_type: Type of subjects to find (e.g., "user")
+            optional_subject_relation: Optional subject relation filter (e.g., "member"
+                for group#member subjects). Required when subjects were written with
+                a subject relation per the SpiceDB schema.
 
         Returns:
             List of SubjectRelation objects with subject IDs and their relations
@@ -735,6 +739,7 @@ class SpiceDBClient(AuthorizationProvider):
                 ),
                 permission=relation,
                 subject_object_type=subject_type,
+                optional_subject_relation=optional_subject_relation or "",
             )
 
             subjects = []

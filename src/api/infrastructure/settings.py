@@ -111,6 +111,14 @@ class CORSSettings(BaseSettings):
         default_factory=lambda: ["*"],
         description="Allowed headers for CORS",
     )
+    expose_headers: list[str] = Field(
+        default_factory=lambda: ["Content-Length", "Content-Type"],
+        description="Headers exposed to the browser in CORS responses",
+    )
+    max_age: int = Field(
+        default=600,
+        description="Max age in seconds for CORS preflight cache (default: 10 minutes)",
+    )
 
     @property
     def is_enabled(self) -> bool:

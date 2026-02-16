@@ -201,6 +201,8 @@ if cors_settings.is_enabled:
         allow_credentials=cors_settings.allow_credentials,
         allow_methods=cors_settings.allow_methods,
         allow_headers=cors_settings.allow_headers,
+        expose_headers=cors_settings.expose_headers,
+        max_age=cors_settings.max_age,
     )
 
 app.mount(path="/query", app=query_mcp_app)

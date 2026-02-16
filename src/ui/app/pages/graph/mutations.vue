@@ -34,6 +34,7 @@ import { useModifierKeys } from '@/composables/useModifierKeys'
 // Local components
 import MutationPreview from '@/components/graph/MutationPreview.vue'
 import MutationTemplates from '@/components/graph/MutationTemplates.vue'
+import WarningBrowser from '@/components/graph/WarningBrowser.vue'
 
 // Parser
 import { parseContent, toJsonl, generateHexId, getBreakdown, type ParseResult } from '@/utils/mutationParser'
@@ -97,6 +98,7 @@ const showTemplateSheet = ref(false)
 const largeFileMode = ref(false)
 const uploadProgress = ref<number | null>(null)
 const uploadFileName = ref('')
+const showWarningBrowser = ref(false)
 
 // Derived from the cross-app submission composable
 const submitting = computed(() => submission.state.value.status === 'submitting')
@@ -575,9 +577,17 @@ onBeforeUnmount(() => {
                   </Badge>
                 </div>
 
-                <p v-if="workerResult.warningCount > 0" class="text-sm text-yellow-600 dark:text-yellow-400">
-                  {{ workerResult.warningCount.toLocaleString() }} warnings found
-                </p>
+                <div v-if="workerResult.warningCount > 0" class="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class="gap-2 border-yellow-500/30 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/10"
+                    @click="showWarningBrowser = true"
+                  >
+                    <AlertTriangle class="size-3.5" />
+                    Browse {{ workerResult.warningCount.toLocaleString() }} Warning{{ workerResult.warningCount === 1 ? '' : 's' }}
+                  </Button>
+                </div>
 
                 <div v-if="workerResult.parseErrors.length > 0" class="space-y-1">
                   <div
@@ -751,6 +761,7 @@ onBeforeUnmount(() => {
             :worker-result="isLargeFile ? workerResult : undefined"
             :parsing="parsing"
             :parse-time-ms="isLargeFile ? parseTimeMs : undefined"
+            @browse-warnings="showWarningBrowser = true"
           />
 
           <!-- Templates in a collapsible card (hidden in large file mode) -->
@@ -775,6 +786,7 @@ onBeforeUnmount(() => {
         :worker-result="isLargeFile ? workerResult : undefined"
         :parsing="parsing"
         :parse-time-ms="isLargeFile ? parseTimeMs : undefined"
+        @browse-warnings="showWarningBrowser = true"
       />
 
       <!-- Mobile: Template sheet -->
@@ -786,6 +798,29 @@ onBeforeUnmount(() => {
           </SheetHeader>
           <div class="mt-6">
             <MutationTemplates @insert="(content: string) => { insertTemplate(content); showTemplateSheet = false }" />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <!-- Warning Browser sheet -->
+      <Sheet v-model:open="showWarningBrowser">
+        <SheetContent side="right" class="w-full sm:max-w-2xl overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle class="flex items-center gap-2">
+              <AlertTriangle class="size-4 text-yellow-600 dark:text-yellow-400" />
+              Warning Browser
+            </SheetTitle>
+            <SheetDescription>
+              Click a warning to edit the corresponding line.
+            </SheetDescription>
+          </SheetHeader>
+          <div class="mt-4">
+            <WarningBrowser
+              :worker-result="isLargeFile ? workerResult : undefined"
+              :parse-result="!isLargeFile ? syncParseResult ?? undefined : undefined"
+              :editor-content="editorContent"
+              @update:editor-content="editorContent = $event"
+            />
           </div>
         </SheetContent>
       </Sheet>

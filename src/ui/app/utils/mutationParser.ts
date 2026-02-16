@@ -31,6 +31,8 @@ export interface ParsedOperation {
   id?: string
   /** Validation warnings for this operation */
   warnings: string[]
+  /** Line offset in the original content for this operation */
+  lineStart: number
 }
 
 export interface ParseResult {
@@ -111,10 +113,10 @@ function parseJsonl(content: string): ParseResult {
       const parsed = JSON.parse(accumulator)
       if (Array.isArray(parsed)) {
         parsed.forEach((item, i) => {
-          operations.push(buildOperation(item, operations.length))
+          operations.push(buildOperation(item, operations.length, accStartLine))
         })
       } else {
-        operations.push(buildOperation(parsed, operations.length))
+        operations.push(buildOperation(parsed, operations.length, accStartLine))
       }
     } catch {
       parseErrors.push(
@@ -147,10 +149,10 @@ function parseJsonl(content: string): ParseResult {
       }
       if (Array.isArray(parsed)) {
         parsed.forEach((item) => {
-          operations.push(buildOperation(item, operations.length))
+          operations.push(buildOperation(item, operations.length, i))
         })
       } else {
-        operations.push(buildOperation(parsed, operations.length))
+        operations.push(buildOperation(parsed, operations.length, i))
       }
     } catch {
       // Accumulate: this line might be part of a multi-line JSON object
@@ -171,12 +173,13 @@ function parseJsonl(content: string): ParseResult {
 
 // ── Operation Building ─────────────────────────────────────────────────────
 
-function buildOperation(raw: unknown, index: number): ParsedOperation {
+function buildOperation(raw: unknown, index: number, lineStart: number = 0): ParsedOperation {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     return {
       index,
       raw: {},
       warnings: ['Operation must be a JSON object'],
+      lineStart,
     }
   }
 
@@ -194,6 +197,7 @@ function buildOperation(raw: unknown, index: number): ParsedOperation {
     label,
     id,
     warnings: validateOperation(obj),
+    lineStart,
   }
 }
 

@@ -4,6 +4,7 @@ import {
   AlertTriangle, CheckCircle2, Info, Loader2,
 } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import type { ParsedOperation, ParseResult, OperationBreakdown } from '@/utils/mutationParser'
@@ -17,6 +18,10 @@ const props = defineProps<{
   workerResult?: WorkerParseResult | null
   parsing?: boolean
   parseTimeMs?: number
+}>()
+
+const emit = defineEmits<{
+  (e: 'browseWarnings'): void
 }>()
 
 // ── Unified computed properties ────────────────────────────────────────────
@@ -92,7 +97,12 @@ function opSummary(op: ParsedOperation | LightParsedOperation): string {
             <Badge variant="secondary">
               {{ totalOps.toLocaleString() }} op{{ totalOps === 1 ? '' : 's' }}
             </Badge>
-            <Badge v-if="totalWarnings > 0" variant="destructive" class="gap-1">
+            <Badge
+              v-if="totalWarnings > 0"
+              variant="destructive"
+              class="gap-1 cursor-pointer hover:opacity-80"
+              @click="emit('browseWarnings')"
+            >
               <AlertTriangle class="size-3" />
               {{ totalWarnings.toLocaleString() }}
             </Badge>

@@ -161,6 +161,26 @@ class AuthorizationProbe(Protocol):
         """Record that deleting relationships by filter failed."""
         ...
 
+    def relationships_read(
+        self,
+        resource_type: str,
+        resource_id: str | None,
+        relation: str | None,
+        count: int,
+    ) -> None:
+        """Record that relationships were read."""
+        ...
+
+    def relationships_read_failed(
+        self,
+        resource_type: str,
+        resource_id: str | None,
+        relation: str | None,
+        error: Exception,
+    ) -> None:
+        """Record that reading relationships failed."""
+        ...
+
     def with_context(self, context: ObservationContext) -> AuthorizationProbe:
         """Create a new probe with observation context bound."""
         ...
@@ -433,6 +453,41 @@ class DefaultAuthorizationProbe:
             relation=relation,
             subject_type=subject_type,
             subject_id=subject_id,
+            error=str(error),
+            error_type=type(error).__name__,
+            **self._get_context_kwargs(),
+        )
+
+    def relationships_read(
+        self,
+        resource_type: str,
+        resource_id: str | None,
+        relation: str | None,
+        count: int,
+    ) -> None:
+        """Record that relationships were read."""
+        self._logger.info(
+            "authorization_relationships_read",
+            resource_type=resource_type,
+            resource_id=resource_id,
+            relation=relation,
+            count=count,
+            **self._get_context_kwargs(),
+        )
+
+    def relationships_read_failed(
+        self,
+        resource_type: str,
+        resource_id: str | None,
+        relation: str | None,
+        error: Exception,
+    ) -> None:
+        """Record that reading relationships failed."""
+        self._logger.error(
+            "authorization_relationships_read_failed",
+            resource_type=resource_type,
+            resource_id=resource_id,
+            relation=relation,
             error=str(error),
             error_type=type(error).__name__,
             **self._get_context_kwargs(),

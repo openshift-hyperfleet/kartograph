@@ -28,6 +28,7 @@ from iam.ports.exceptions import DuplicateGroupNameError
 from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
+    RelationType,
     ResourceType,
 )
 
@@ -280,16 +281,16 @@ class GroupRepository(IGroupRepository):
     # (admin + member_relation). This map reverses the mapping so
     # hydrated members get the correct domain role.
     _SPICEDB_RELATION_TO_GROUP_ROLE: dict[str, GroupRole] = {
-        "admin": GroupRole.ADMIN,
-        "member_relation": GroupRole.MEMBER,
+        RelationType.ADMIN.value: GroupRole.ADMIN,
+        RelationType.MEMBER_RELATION.value: GroupRole.MEMBER,
     }
 
     # The SpiceDB relation names to query for each GroupRole.
-    # GroupRole.ADMIN  -> "admin" (relation)
-    # GroupRole.MEMBER -> "member_relation" (relation, not "member" which is a permission)
+    # GroupRole.ADMIN  -> RelationType.ADMIN (relation)
+    # GroupRole.MEMBER -> RelationType.MEMBER_RELATION (relation, not "member" which is a permission)
     _GROUP_ROLE_TO_SPICEDB_RELATION: dict[GroupRole, str] = {
-        GroupRole.ADMIN: "admin",
-        GroupRole.MEMBER: "member_relation",
+        GroupRole.ADMIN: RelationType.ADMIN.value,
+        GroupRole.MEMBER: RelationType.MEMBER_RELATION.value,
     }
 
     async def _hydrate_members(self, group_id: str) -> list[GroupMember]:
@@ -323,7 +324,7 @@ class GroupRepository(IGroupRepository):
             user_id_str = ":".join(subject_parts[1:])
 
             # Only process user subjects with role relations
-            if subject_type_str == "user":
+            if subject_type_str == ResourceType.USER.value:
                 domain_role = self._SPICEDB_RELATION_TO_GROUP_ROLE.get(
                     rel_tuple.relation
                 )

@@ -16,6 +16,7 @@ from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
+    RelationType,
     ResourceType,
     format_resource,
     format_subject,
@@ -255,9 +256,9 @@ class GroupService:
         )
 
         for rel_tuple in tuples:
-            if rel_tuple.relation == "admin":
+            if rel_tuple.relation == RelationType.ADMIN.value:
                 return GroupRole.ADMIN
-            elif rel_tuple.relation == "member_relation":
+            elif rel_tuple.relation == RelationType.MEMBER_RELATION.value:
                 return GroupRole.MEMBER
 
         return None
@@ -478,11 +479,11 @@ class GroupService:
             user_id_str = ":".join(subject_parts[1:])
 
             # Only process user subjects with group role relations
-            if subject_type_str == "user":
+            if subject_type_str == ResourceType.USER.value:
                 # Map SpiceDB relation to domain role
-                if rel_tuple.relation == "admin":
+                if rel_tuple.relation == RelationType.ADMIN.value:
                     role = GroupRole.ADMIN
-                elif rel_tuple.relation == "member_relation":
+                elif rel_tuple.relation == RelationType.MEMBER_RELATION.value:
                     role = GroupRole.MEMBER
                 else:
                     continue  # Skip non-role relations (tenant, etc.)

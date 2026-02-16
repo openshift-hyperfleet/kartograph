@@ -522,8 +522,9 @@ class WorkspaceService:
             subject_id=member_id,
         )
 
+        valid_roles = {role.value for role in WorkspaceRole}
         for rel_tuple in tuples:
-            if rel_tuple.relation in ["admin", "editor", "member"]:
+            if rel_tuple.relation in valid_roles:
                 return WorkspaceRole(rel_tuple.relation)
 
         return None
@@ -838,6 +839,7 @@ class WorkspaceService:
 
         members: list[WorkspaceAccessGrant] = []
         seen: set[WorkspaceAccessGrant] = set()
+        valid_roles = {role.value for role in WorkspaceRole}
 
         for rel_tuple in tuples:
             # Parse subject to extract type and ID
@@ -854,11 +856,13 @@ class WorkspaceService:
 
             # Determine member type
             member_type = (
-                MemberType.GROUP if subject_type_str == "group" else MemberType.USER
+                MemberType.GROUP
+                if subject_type_str == ResourceType.GROUP.value
+                else MemberType.USER
             )
 
             # Only include tuples with workspace admin/editor/member relations
-            if rel_tuple.relation in ["admin", "editor", "member"]:
+            if rel_tuple.relation in valid_roles:
                 grant = WorkspaceAccessGrant(
                     member_id=member_id,
                     member_type=member_type,

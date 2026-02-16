@@ -344,6 +344,7 @@ class WorkspaceRepository(IWorkspaceRepository):
 
         members: list[WorkspaceMember] = []
         seen: set[WorkspaceMember] = set()
+        valid_roles = {role.value for role in WorkspaceRole}
 
         for rel_tuple in tuples:
             # Parse subject
@@ -357,11 +358,13 @@ class WorkspaceRepository(IWorkspaceRepository):
                 member_id = subject_rest
 
             member_type = (
-                MemberType.GROUP if subject_type_str == "group" else MemberType.USER
+                MemberType.GROUP
+                if subject_type_str == ResourceType.GROUP.value
+                else MemberType.USER
             )
 
             # Only process workspace role relations
-            if rel_tuple.relation in ["admin", "editor", "member"]:
+            if rel_tuple.relation in valid_roles:
                 workspace_member = WorkspaceMember(
                     member_id=member_id,
                     member_type=member_type,

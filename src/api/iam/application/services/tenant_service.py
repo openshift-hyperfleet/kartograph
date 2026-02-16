@@ -232,8 +232,9 @@ class TenantService:
             subject_id=user_id.value,
         )
 
+        valid_roles = {role.value for role in TenantRole}
         for rel_tuple in tuples:
-            if rel_tuple.relation in ["admin", "member"]:
+            if rel_tuple.relation in valid_roles:
                 return TenantRole(rel_tuple.relation)
 
         return None
@@ -367,9 +368,9 @@ class TenantService:
         members: list[tuple[str, str]] = []
         for rel_tuple in tuples:
             # Map SpiceDB relations to domain roles
-            if rel_tuple.relation == "admin":
+            if rel_tuple.relation == TenantRole.ADMIN.value:
                 role = TenantRole.ADMIN
-            elif rel_tuple.relation == "member":
+            elif rel_tuple.relation == TenantRole.MEMBER.value:
                 role = TenantRole.MEMBER
             else:
                 continue  # Skip non-role relations

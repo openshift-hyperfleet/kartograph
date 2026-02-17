@@ -10,7 +10,12 @@ from sqlalchemy.exc import IntegrityError
 
 from iam.application.services.workspace_service import WorkspaceService
 from iam.domain.aggregates import Workspace
-from iam.domain.events import WorkspaceCreated, WorkspaceDeleted, WorkspaceMemberAdded
+from iam.domain.events import (
+    WorkspaceCreated,
+    WorkspaceCreatorTenantSet,
+    WorkspaceDeleted,
+    WorkspaceMemberAdded,
+)
 from iam.domain.value_objects import (
     MemberType,
     TenantId,
@@ -522,10 +527,10 @@ class TestCreateRootWorkspace:
         # Call
         await service.create_root_workspace(name="Root")
 
-        # Assert: The workspace aggregate was saved with a WorkspaceCreated event
+        # Assert: The workspace aggregate was saved with WorkspaceCreated + WorkspaceCreatorTenantSet
         saved_workspace = mock_workspace_repository.save.call_args[0][0]
         events = saved_workspace.collect_events()
-        assert len(events) == 1
+        assert len(events) == 2
 
         event = events[0]
         assert isinstance(event, WorkspaceCreated)
@@ -533,6 +538,12 @@ class TestCreateRootWorkspace:
         assert event.parent_workspace_id is None
         assert event.name == "Root"
         assert event.tenant_id == tenant_id.value
+
+        # Second event: WorkspaceCreatorTenantSet
+        creator_event = events[1]
+        assert isinstance(creator_event, WorkspaceCreatorTenantSet)
+        assert creator_event.workspace_id == event.workspace_id
+        assert creator_event.tenant_id == tenant_id.value
 
         # Assert: Probe was called for success
         mock_probe.workspace_created.assert_called_once()

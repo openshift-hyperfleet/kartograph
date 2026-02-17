@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Optional
 
 from iam.domain.events import (
     WorkspaceCreated,
+    WorkspaceCreatorTenantSet,
     WorkspaceDeleted,
     WorkspaceMemberAdded,
     WorkspaceMemberRemoved,
@@ -174,6 +175,13 @@ class Workspace:
                 name=name,
                 parent_workspace_id=None,
                 is_root=True,
+                occurred_at=now,
+            )
+        )
+        workspace._pending_events.append(
+            WorkspaceCreatorTenantSet(
+                workspace_id=workspace.id.value,
+                tenant_id=tenant_id.value,
                 occurred_at=now,
             )
         )

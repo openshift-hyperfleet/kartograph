@@ -6,7 +6,6 @@ for MCP clients, in contrast to the scoped GraphExtractionReadOnlyRepository.
 
 from __future__ import annotations
 
-from typing import Any
 
 from age.models import Edge as AgeEdge  # type: ignore
 from age.models import Vertex as AgeVertex
@@ -133,10 +132,7 @@ class QueryGraphRepository(IQueryGraphRepository):
                 return {"edge": self._edge_to_dict(item)}
             elif isinstance(item, dict):
                 # Handle map returns - explicitly type the result dict
-                result: dict[
-                    str,
-                    NodeDict | EdgeDict | str | int | float | bool | list[Any] | None,
-                ] = {}
+                result: QueryResultRow = {}
                 for key, value in item.items():
                     if isinstance(value, AgeVertex):
                         result[key] = self._vertex_to_dict(value)

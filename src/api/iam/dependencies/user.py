@@ -1,11 +1,9 @@
+from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from iam.dependencies.api_key import get_api_key_service
-from iam.dependencies.authentication import oauth2_scheme
-from iam.dependencies.tenant_context import get_tenant_context
 from iam.application.observability import (
     AuthenticationProbe,
     DefaultUserServiceProbe,
@@ -13,13 +11,17 @@ from iam.application.observability import (
 )
 from iam.application.services import UserService
 from iam.application.services.api_key_service import APIKeyService
-from iam.application.value_objects import CurrentUser
-from iam.domain.value_objects import TenantId, UserId
+from iam.application.value_objects import AuthenticatedUser, CurrentUser
+from iam.dependencies.api_key import get_api_key_service
 from iam.dependencies.authentication import (
+    JWTValidator,
     get_authentication_probe,
     get_jwt_validator,
-    JWTValidator,
+    oauth2_scheme,
 )
+from iam.dependencies.tenant_context import get_tenant_context
+from iam.domain.aggregates import User
+from iam.domain.value_objects import TenantId, UserId
 from iam.infrastructure.tenant_repository import TenantRepository
 from iam.infrastructure.user_repository import UserRepository
 from infrastructure.authorization_dependencies import get_spicedb_client
@@ -36,6 +38,188 @@ from shared_kernel.middleware.observability.tenant_context_probe import (
     TenantContextProbe,
 )
 from shared_kernel.middleware.tenant_context import TenantContext
+
+
+# ---------------------------------------------------------------------------
+# Internal types
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _AuthResult:
+    """Internal result from the core authentication dependency.
+
+    Carries user identity and auth-method metadata so that downstream
+    dependencies can compose without re-validating credentials.
+    """
+
+    user_id: UserId
+    username: str
+    api_key_tenant_id: TenantId | None
+    is_api_key: bool
+
+
+# ---------------------------------------------------------------------------
+# Core authentication (single source of truth)
+# ---------------------------------------------------------------------------
+
+
+async def _authenticate(
+    validator: Annotated[JWTValidator, Depends(get_jwt_validator)],
+    api_key_service: Annotated[APIKeyService, Depends(get_api_key_service)],
+    auth_probe: Annotated[AuthenticationProbe, Depends(get_authentication_probe)],
+    token: Annotated[str | None, Depends(oauth2_scheme)] = None,
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+) -> _AuthResult:
+    """Authenticate via JWT Bearer token or X-API-Key header.
+
+    This is the single source of truth for credential validation.
+    FastAPI caches the result per-request, so downstream dependencies
+    that depend on ``_authenticate`` share the same result without
+    re-validating.
+
+    Tries JWT first (if Authorization: Bearer present), then API Key.
+
+    Args:
+        validator: JWT validator for token validation
+        api_key_service: The API key service for validation
+        auth_probe: Authentication probe for observability
+        token: Bearer token from Authorization header
+        x_api_key: API key from X-API-Key header
+
+    Returns:
+        _AuthResult with user identity and auth-method metadata
+
+    Raises:
+        HTTPException 401: If neither auth method succeeds
+    """
+    www_authenticate = "Bearer, API-Key"
+
+    # Try JWT first
+    if token is not None:
+        try:
+            claims = await validator.validate_token(token)
+            user_id = UserId(value=claims.sub)
+            username = claims.preferred_username or claims.sub
+
+            auth_probe.user_authenticated(user_id=claims.sub, username=username)
+
+            return _AuthResult(
+                user_id=user_id,
+                username=username,
+                api_key_tenant_id=None,
+                is_api_key=False,
+            )
+
+        except InvalidTokenError as e:
+            auth_probe.authentication_failed(reason=str(e))
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=str(e),
+                headers={"WWW-Authenticate": www_authenticate},
+            ) from e
+
+    # Try API Key
+    if x_api_key is not None:
+        api_key = await api_key_service.validate_and_get_key(x_api_key)
+        if api_key is None:
+            auth_probe.api_key_authentication_failed(reason="invalid_or_expired")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired API key",
+                headers={"WWW-Authenticate": www_authenticate},
+            )
+
+        auth_probe.api_key_authentication_succeeded(
+            api_key_id=api_key.id.value,
+            user_id=api_key.created_by_user_id.value,
+        )
+
+        return _AuthResult(
+            user_id=api_key.created_by_user_id,
+            username=f"api-key:{api_key.id}",
+            api_key_tenant_id=api_key.tenant_id,
+            is_api_key=True,
+        )
+
+    # Neither provided
+    auth_probe.authentication_failed(reason="Missing authorization")
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+        headers={"WWW-Authenticate": www_authenticate},
+    )
+
+
+# ---------------------------------------------------------------------------
+# JIT user provisioning helper
+# ---------------------------------------------------------------------------
+
+
+async def _ensure_user_exists(
+    user_id: UserId,
+    username: str,
+    user_repo: UserRepository,
+    session: AsyncSession,
+    probe: UserServiceProbe,
+) -> None:
+    """Ensure user exists in database (find-or-create with SSO username sync).
+
+    This is a lightweight JIT provisioning helper that does not require
+    tenant scoping. It mirrors the logic in ``UserService.ensure_user``
+    but can be used in contexts where no tenant is available (e.g.
+    ``get_authenticated_user``).
+
+    Args:
+        user_id: The user's ID (from SSO)
+        username: The user's username (from SSO)
+        user_repo: Repository for user persistence
+        session: Database session for transaction management
+        probe: Domain probe for observability
+    """
+    try:
+        async with session.begin():
+            existing = await user_repo.get_by_id(user_id)
+            if existing:
+                if existing.username != username:
+                    user = User(id=user_id, username=username)
+                    await user_repo.save(user)
+                    probe.user_ensured(
+                        user_id=user_id.value,
+                        username=username,
+                        was_created=False,
+                        was_updated=True,
+                    )
+                else:
+                    probe.user_ensured(
+                        user_id=user_id.value,
+                        username=username,
+                        was_created=False,
+                        was_updated=False,
+                    )
+                return
+
+            user = User(id=user_id, username=username)
+            await user_repo.save(user)
+            probe.user_ensured(
+                user_id=user_id.value,
+                username=username,
+                was_created=True,
+                was_updated=False,
+            )
+
+    except Exception as e:
+        probe.user_provision_failed(
+            user_id=user_id.value,
+            username=username,
+            error=str(e),
+        )
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Dependency providers
+# ---------------------------------------------------------------------------
 
 
 def get_user_service_probe() -> UserServiceProbe:
@@ -107,9 +291,13 @@ def _get_tenant_repository_for_context(
     return TenantRepository(session=session, outbox=outbox)
 
 
+# ---------------------------------------------------------------------------
+# Tenant context resolution
+# ---------------------------------------------------------------------------
+
+
 async def resolve_tenant_context(
-    validator: Annotated[JWTValidator, Depends(get_jwt_validator)],
-    auth_probe: Annotated[AuthenticationProbe, Depends(get_authentication_probe)],
+    auth_result: Annotated[_AuthResult, Depends(_authenticate)],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
     tenant_context_probe: Annotated[
         TenantContextProbe, Depends(get_tenant_context_probe)
@@ -120,36 +308,30 @@ async def resolve_tenant_context(
     tenant_context_session: Annotated[
         AsyncSession, Depends(get_tenant_context_session)
     ],
-    token: Annotated[str | None, Depends(oauth2_scheme)] = None,
     x_tenant_id: Annotated[str | None, Header(alias="X-Tenant-ID")] = None,
-    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
 ) -> TenantContext:
     """Resolve tenant context for the current request.
 
-    Extracts user identity from authentication credentials (JWT or API key)
-    and resolves the tenant context via get_tenant_context. This bridges the
-    gap between authentication (which provides user_id/username) and tenant
-    resolution (which needs them for SpiceDB checks and auto-provisioning).
+    Uses the cached ``_authenticate`` result to obtain user identity,
+    eliminating the redundant JWT validation that previously occurred here.
 
-    For JWT-authenticated requests, user identity comes from token claims.
-    For API key requests, tenant context is skipped here because the API key
-    already carries its own tenant_id (handled in get_current_user_no_jit).
+    For JWT-authenticated requests, resolves tenant via ``get_tenant_context``
+    (which handles X-Tenant-ID header validation, SpiceDB authorization
+    checks, and single-tenant mode auto-provisioning).
 
-    In the API key case, a sentinel TenantContext is returned since the
-    actual tenant_id will come from the API key itself.
+    For API key requests, returns a sentinel TenantContext since the
+    actual tenant_id comes from the API key itself (via
+    ``_AuthResult.api_key_tenant_id``).
 
     Args:
-        validator: JWT validator for token validation
-        auth_probe: Authentication probe for observability
+        auth_result: Cached authentication result from ``_authenticate``
         authz: Authorization provider for SpiceDB permission checks
         tenant_context_probe: Domain probe for tenant context observability
         tenant_repo: Repository for looking up tenants
         tenant_context_session: Dedicated database session for tenant context
             resolution. Passed to get_tenant_context so that auto-add member
             writes are followed by an explicit ``await session.commit()`` call.
-        token: Bearer token from Authorization header
         x_tenant_id: Optional X-Tenant-ID header value
-        x_api_key: Optional X-API-Key header value
 
     Returns:
         TenantContext with the resolved tenant ID and source
@@ -157,135 +339,101 @@ async def resolve_tenant_context(
     Raises:
         HTTPException: If tenant resolution fails (400/403/500)
     """
-    iam_settings = get_iam_settings()
-
-    # For JWT-authenticated requests, extract user identity from claims
-    if token is not None:
-        try:
-            claims = await validator.validate_token(token)
-            user_id = claims.sub
-            username = claims.preferred_username or claims.sub
-        except InvalidTokenError:
-            # JWT validation failed - let get_current_user_no_jit handle the
-            # 401 response. Return a placeholder that won't be used.
-            return TenantContext(tenant_id="", source="header")
-
-        return await get_tenant_context(
-            x_tenant_id=x_tenant_id,
-            user_id=user_id,
-            username=username,
-            authz=authz,
-            probe=tenant_context_probe,
-            single_tenant_mode=iam_settings.single_tenant_mode,
-            tenant_repository=tenant_repo,
-            default_tenant_name=iam_settings.default_tenant_name,
-            bootstrap_admin_usernames=iam_settings.bootstrap_admin_usernames,
-            session=tenant_context_session,
-        )
-
-    # For API key requests, the tenant comes from the API key itself.
+    # For API key auth, the tenant comes from the key itself.
     # Return a sentinel that get_current_user_no_jit will ignore in favor
-    # of api_key.tenant_id.
-    if x_api_key is not None:
+    # of auth_result.api_key_tenant_id.
+    if auth_result.is_api_key:
         return TenantContext(tenant_id="", source="header")
 
-    # Neither JWT nor API key - authentication will fail in
-    # get_current_user_no_jit. Return a placeholder.
-    return TenantContext(tenant_id="", source="header")
+    iam_settings = get_iam_settings()
+
+    return await get_tenant_context(
+        x_tenant_id=x_tenant_id,
+        user_id=auth_result.user_id.value,
+        username=auth_result.username,
+        authz=authz,
+        probe=tenant_context_probe,
+        single_tenant_mode=iam_settings.single_tenant_mode,
+        tenant_repository=tenant_repo,
+        default_tenant_name=iam_settings.default_tenant_name,
+        bootstrap_admin_usernames=iam_settings.bootstrap_admin_usernames,
+        session=tenant_context_session,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public authentication dependencies
+# ---------------------------------------------------------------------------
+
+
+async def get_authenticated_user(
+    auth_result: Annotated[_AuthResult, Depends(_authenticate)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    probe: Annotated[UserServiceProbe, Depends(get_user_service_probe)],
+) -> AuthenticatedUser:
+    """Authenticate via JWT Bearer token or X-API-Key header without tenant context.
+
+    Returns an AuthenticatedUser with user_id and username only.
+    Does NOT resolve tenant context — use this for endpoints that need
+    authentication but not tenant scoping (e.g., listing or creating tenants).
+
+    JIT provisions the user in the database for JWT-authenticated requests
+    so that the user record exists before any tenant operations.
+
+    Args:
+        auth_result: Cached authentication result from ``_authenticate``
+        user_repo: Repository for JIT user provisioning
+        session: Database session for JIT user provisioning
+        probe: Domain probe for JIT provisioning observability
+
+    Returns:
+        AuthenticatedUser with user_id and username (no tenant_id)
+    """
+    if not auth_result.is_api_key:
+        await _ensure_user_exists(
+            auth_result.user_id,
+            auth_result.username,
+            user_repo,
+            session,
+            probe,
+        )
+
+    return AuthenticatedUser(
+        user_id=auth_result.user_id,
+        username=auth_result.username,
+    )
 
 
 async def get_current_user_no_jit(
-    validator: Annotated[JWTValidator, Depends(get_jwt_validator)],
-    api_key_service: Annotated[APIKeyService, Depends(get_api_key_service)],
-    auth_probe: Annotated[AuthenticationProbe, Depends(get_authentication_probe)],
+    auth_result: Annotated[_AuthResult, Depends(_authenticate)],
     tenant_context: Annotated[TenantContext, Depends(resolve_tenant_context)],
-    token: Annotated[str | None, Depends(oauth2_scheme)] = None,
-    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
 ) -> CurrentUser:
-    """Authenticate via JWT Bearer token or X-API-Key header.
+    """Authenticate and resolve tenant context without JIT provisioning.
 
-    Tries JWT first (if Authorization: Bearer present), then API Key.
-    Returns CurrentUser on success, raises HTTPException(401) on failure.
+    Composes ``_authenticate`` with ``resolve_tenant_context`` to produce
+    a ``CurrentUser`` with tenant scoping. Does NOT JIT provision the user
+    — use ``get_current_user`` if JIT provisioning is desired.
 
-    Does _NOT_ JIT provision the user. Use `get_current_user` if JIT provisioning is desired.
-
-    Tenant context is resolved via the get_tenant_context dependency, which
-    handles X-Tenant-ID header validation, SpiceDB authorization checks,
-    and single-tenant mode auto-provisioning.
+    For API key auth, the tenant_id comes from the API key itself
+    (``_AuthResult.api_key_tenant_id``). For JWT auth, it comes from
+    the resolved ``TenantContext``.
 
     Args:
-        token: Bearer token from Authorization header (via OAuth2AuthorizationCodeBearer)
-        x_api_key: API key from X-API-Key header
-        tenant_context: Resolved tenant context from get_tenant_context dependency.
-            For JWT auth, this contains the validated tenant ID.
-            For API key auth, the tenant comes from the API key itself.
-        validator: JWT validator for token validation
-        api_key_service: The API key service for validation
-        auth_probe: Authentication probe for observability
+        auth_result: Cached authentication result from ``_authenticate``
+        tenant_context: Resolved tenant context from ``resolve_tenant_context``
 
     Returns:
         CurrentUser with user_id, username, and tenant_id
-
-    Raises:
-        HTTPException 401: If neither auth method succeeds
     """
-    # WWW-Authenticate header for 401 responses showing supported auth methods
-    www_authenticate = "Bearer, API-Key"
+    tenant_id = auth_result.api_key_tenant_id or TenantId(
+        value=tenant_context.tenant_id
+    )
 
-    # Try JWT first (existing flow)
-    if token is not None:
-        try:
-            claims = await validator.validate_token(token)
-
-            # Map claims to user
-            user_id = UserId(value=claims.sub)
-            username = claims.preferred_username or claims.sub
-
-            auth_probe.user_authenticated(user_id=claims.sub, username=username)
-
-            return CurrentUser(
-                user_id=user_id,
-                username=username,
-                tenant_id=TenantId(value=tenant_context.tenant_id),
-            )
-
-        except InvalidTokenError as e:
-            auth_probe.authentication_failed(reason=str(e))
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=str(e),
-                headers={"WWW-Authenticate": www_authenticate},
-            ) from e
-
-    # Try API Key
-    if x_api_key is not None:
-        api_key = await api_key_service.validate_and_get_key(x_api_key)
-        if api_key is None:
-            auth_probe.api_key_authentication_failed(reason="invalid_or_expired")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired API key",
-                headers={"WWW-Authenticate": www_authenticate},
-            )
-
-        # API key is valid - user already exists (they created the key)
-        auth_probe.api_key_authentication_succeeded(
-            api_key_id=api_key.id.value,
-            user_id=api_key.created_by_user_id.value,
-        )
-
-        return CurrentUser(
-            user_id=api_key.created_by_user_id,
-            username=f"api-key:{api_key.id}",
-            tenant_id=api_key.tenant_id,
-        )
-
-    # Neither provided
-    auth_probe.authentication_failed(reason="Missing authorization")
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Not authenticated",
-        headers={"WWW-Authenticate": www_authenticate},
+    return CurrentUser(
+        user_id=auth_result.user_id,
+        username=auth_result.username,
+        tenant_id=tenant_id,
     )
 
 
@@ -316,33 +464,36 @@ def get_user_service(
 
 async def get_current_user(
     current_user: Annotated[CurrentUser, Depends(get_current_user_no_jit)],
-    user_service: Annotated[UserService, Depends(get_user_service)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    probe: Annotated[UserServiceProbe, Depends(get_user_service_probe)],
     token: Annotated[str | None, Depends(oauth2_scheme)] = None,
 ) -> CurrentUser:
-    """Authenticate via JWT Bearer token or X-API-Key header.
+    """Authenticate with tenant context and JIT user provisioning.
 
-    Tries JWT first (if Authorization: Bearer present), then API Key.
-    Returns CurrentUser on success, raises HTTPException(401) on failure.
+    Wraps ``get_current_user_no_jit`` and adds JIT provisioning for
+    JWT-authenticated users via ``_ensure_user_exists``.
+
+    For API key authentication, JIT provisioning is skipped because
+    the user who created the API key already exists.
 
     Args:
-        token: Bearer token from Authorization header (via OAuth2AuthorizationCodeBearer)
-        user_service: The user service for JIT provisioning
-        current_user: The current authenticated user
+        current_user: Authenticated user with tenant context
+        user_repo: Repository for JIT user provisioning
+        session: Database session for JIT user provisioning
+        probe: Domain probe for JIT provisioning observability
+        token: Bearer token (present for JWT auth, None for API key auth)
 
     Returns:
         CurrentUser with user_id, username, and tenant_id
-
-    Raises:
-        HTTPException 401: If neither auth method succeeds
     """
-    # If the user is authenticated via a bearer token (i.e. actual user identity)
     if token is not None:
-        # JIT user provisioning
-        await user_service.ensure_user(
-            user_id=current_user.user_id, username=current_user.username
+        await _ensure_user_exists(
+            current_user.user_id,
+            current_user.username,
+            user_repo,
+            session,
+            probe,
         )
 
-        return current_user
-
-    # If the user is authenticated via an API key (no need to provision a user)
     return current_user

@@ -329,13 +329,14 @@ def grant_workspace_admin(
 ) -> Callable[[str], Coroutine[Any, Any, None]]:
     """Provide a function to grant Alice admin on a workspace in SpiceDB.
 
-    After creating a workspace via the API, the outbox pattern means
-    SpiceDB relationships are written asynchronously. Additionally, the
-    WorkspaceCreated event does NOT auto-grant creator admin (AIHCM-158).
+    The workspace service now emits a WorkspaceMemberAdded event granting
+    the creator admin access. However, outbox events are processed
+    asynchronously, so SpiceDB relationships are not available immediately
+    after the API call returns.
 
-    This fixture provides a callable to manually grant the admin
-    relationship so that subsequent operations (create children, delete)
-    succeed permission checks.
+    This fixture writes the admin relationship to SpiceDB synchronously
+    so that subsequent operations (create children, delete) succeed
+    permission checks without waiting for outbox processing.
 
     Usage:
         workspace = resp.json()

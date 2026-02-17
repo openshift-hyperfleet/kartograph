@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from iam.application.value_objects import WorkspaceAccessGrant
 from iam.domain.aggregates import Workspace
+from iam.domain.value_objects import MemberType, WorkspaceRole
 
 
 class CreateWorkspaceRequest(BaseModel):
@@ -93,3 +96,135 @@ class WorkspaceListResponse(BaseModel):
         ..., description="List of workspace details"
     )
     count: int = Field(..., description="Number of workspaces returned")
+
+
+class MemberTypeEnum(StrEnum):
+    """API-level enum for member types.
+
+    Maps to domain MemberType values for validation.
+    """
+
+    USER = "user"
+    GROUP = "group"
+
+
+class WorkspaceRoleEnum(StrEnum):
+    """API-level enum for workspace roles.
+
+    Maps to domain WorkspaceRole values for validation.
+    """
+
+    ADMIN = "admin"
+    EDITOR = "editor"
+    MEMBER = "member"
+
+
+class AddWorkspaceMemberRequest(BaseModel):
+    """Request model for adding a member to a workspace.
+
+    Attributes:
+        member_id: User ID or Group ID to add
+        member_type: Type of member (user or group)
+        role: Role to assign (admin, editor, or member)
+    """
+
+    member_id: str = Field(
+        ...,
+        description="User ID or Group ID to add as member",
+        min_length=1,
+        examples=["01HN3XQ7K2XYZ123456789ABCD"],
+    )
+    member_type: MemberTypeEnum = Field(
+        ...,
+        description="Type of member being added",
+        examples=[m.value for m in MemberTypeEnum],
+    )
+    role: WorkspaceRoleEnum = Field(
+        ...,
+        description="Role to assign to the member",
+        examples=[r.value for r in WorkspaceRoleEnum],
+    )
+
+    def to_domain_member_type(self) -> MemberType:
+        """Convert API member_type to domain MemberType.
+
+        Returns:
+            MemberType domain value object
+        """
+        return MemberType(self.member_type.value)
+
+    def to_domain_role(self) -> WorkspaceRole:
+        """Convert API role to domain WorkspaceRole.
+
+        Returns:
+            WorkspaceRole domain value object
+        """
+        return WorkspaceRole(self.role.value)
+
+
+class UpdateWorkspaceMemberRoleRequest(BaseModel):
+    """Request model for updating a workspace member's role.
+
+    Attributes:
+        role: The new role to assign
+    """
+
+    role: WorkspaceRoleEnum = Field(
+        ...,
+        description="New role to assign to the member",
+        examples=["admin", "editor", "member"],
+    )
+
+    def to_domain_role(self) -> WorkspaceRole:
+        """Convert API role to domain WorkspaceRole.
+
+        Returns:
+            WorkspaceRole domain value object
+        """
+        return WorkspaceRole(self.role.value)
+
+
+class UpdateWorkspaceRequest(BaseModel):
+    """Request model for updating workspace metadata.
+
+    Attributes:
+        name: New workspace name (1-512 characters)
+    """
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=512,
+        description="Workspace name",
+        examples=["Engineering", "Marketing"],
+    )
+
+
+class WorkspaceMemberResponse(BaseModel):
+    """Response model for a workspace member.
+
+    Attributes:
+        member_id: User ID or Group ID
+        member_type: Type of member (user or group)
+        role: Member's role in the workspace
+    """
+
+    member_id: str = Field(..., description="User ID or Group ID")
+    member_type: MemberTypeEnum = Field(..., description="Type of member")
+    role: WorkspaceRoleEnum = Field(..., description="Member's role")
+
+    @classmethod
+    def from_grant(cls, grant: WorkspaceAccessGrant) -> WorkspaceMemberResponse:
+        """Create from WorkspaceAccessGrant.
+
+        Args:
+            grant: WorkspaceAccessGrant from service layer
+
+        Returns:
+            WorkspaceMemberResponse with enum values for OpenAPI schema
+        """
+        return cls(
+            member_id=grant.member_id,
+            member_type=MemberTypeEnum(grant.member_type.value),
+            role=WorkspaceRoleEnum(grant.role.value),
+        )

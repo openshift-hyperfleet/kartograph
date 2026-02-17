@@ -30,11 +30,14 @@ definition group {
 	/** Users who can administer this group (manage members, delete group) */
 	relation admin: user
 
-	/** Users who are members of this group */
-	relation member: user
+	/** Users who are regular members of this group (non-admin) */
+	relation member_relation: user
 
-	/** Permission to view group details */
-	permission view = admin + member
+	/** Permission representing all group participants (admins + members) */
+	permission member = admin + member_relation
+
+	/** Permission to view group details (tenant members can discover groups) */
+	permission view = admin + member_relation + tenant->view
 
 	/** Permission to manage group membership and delete group */
 	permission manage = admin
@@ -49,7 +52,9 @@ definition workspace {
 	/** The tenant this workspace belongs to (organizational ownership) */
 	relation tenant: tenant
 
-	/** The parent workspace (for hierarchical structure, child workspaces only) */
+	/**
+	 * The parent workspace (for hierarchical structure, child workspaces only)
+	 */
 	relation parent: workspace
 
 	/** Users or groups who can administer this workspace */
@@ -61,8 +66,13 @@ definition workspace {
 	/** Users or groups who are members of this workspace */
 	relation member: user | group#member
 
-	/** Permission to view workspace and its resources */
-	permission view = admin + editor + member
+	/**
+	 * Permission to view workspace and its resources.
+	 * Granted to:
+	 * - Direct workspace members (admin, editor, member)
+	 * - All tenant members (tenant->view) for organizational visibility
+	 */
+	permission view = admin + editor + member + tenant->view
 
 	/** Permission to edit workspace configuration */
 	permission edit = admin + editor
@@ -114,27 +124,3 @@ definition api_key {
 	/** Permission to revoke this API key */
 	permission revoke = owner + tenant->administrate
 }
-
-
-/**
- * Future resource types (not yet implemented):
- *
- * definition knowledge_graph {
- *     relation workspace: workspace
- *     relation viewer: user | group#member
- *     relation editor: user | group#member
- *
- *     permission view = viewer + editor + workspace->member
- *     permission edit = editor + workspace->admin
- *     permission delete = workspace->admin
- * }
- *
- * definition data_source {
- *     relation knowledge_graph: knowledge_graph
- *     relation owner: user | group#member
- *
- *     permission view = owner + knowledge_graph->view
- *     permission edit = owner + knowledge_graph->edit
- *     permission delete = owner + knowledge_graph->delete
- * }
- */

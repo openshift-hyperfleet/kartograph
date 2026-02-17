@@ -65,6 +65,15 @@ async def kartograph_lifespan(app: FastAPI):
     # Startup: initialize database engines
     init_database_engines(app)
 
+    # Startup: create shared SpiceDB client for bootstrap and outbox worker
+    spicedb_settings = get_spicedb_settings()
+    authz = SpiceDBClient(
+        endpoint=spicedb_settings.endpoint,
+        preshared_key=spicedb_settings.preshared_key.get_secret_value(),
+        use_tls=spicedb_settings.use_tls,
+        cert_path=spicedb_settings.cert_path,
+    )
+
     # Startup: ensure default tenant and root workspace exist (single-tenant mode)
     if hasattr(app.state, "write_sessionmaker"):
         from iam.application.services import TenantBootstrapService
@@ -80,7 +89,9 @@ async def kartograph_lifespan(app: FastAPI):
         async with app.state.write_sessionmaker() as session:
             outbox = OutboxRepository(session=session)
             tenant_repo = TenantRepository(session=session, outbox=outbox)
-            workspace_repo = WorkspaceRepository(session=session, outbox=outbox)
+            workspace_repo = WorkspaceRepository(
+                session=session, authz=authz, outbox=outbox
+            )
 
             bootstrap_service = TenantBootstrapService(
                 tenant_repository=tenant_repo,
@@ -103,21 +114,12 @@ async def kartograph_lifespan(app: FastAPI):
     outbox_settings = get_outbox_worker_settings()
     if outbox_settings.enabled and hasattr(app.state, "write_sessionmaker"):
         db_settings = get_database_settings()
-        spicedb_settings = get_spicedb_settings()
 
         # Build database URL for LISTEN
         db_url = (
             f"postgresql://{db_settings.username}:"
             f"{db_settings.password.get_secret_value()}@"
             f"{db_settings.host}:{db_settings.port}/{db_settings.database}"
-        )
-
-        # Create SpiceDB client
-        authz = SpiceDBClient(
-            endpoint=spicedb_settings.endpoint,
-            preshared_key=spicedb_settings.preshared_key.get_secret_value(),
-            use_tls=spicedb_settings.use_tls,
-            cert_path=spicedb_settings.cert_path,
         )
 
         # Create observability probe
@@ -191,6 +193,8 @@ if cors_settings.is_enabled:
         allow_credentials=cors_settings.allow_credentials,
         allow_methods=cors_settings.allow_methods,
         allow_headers=cors_settings.allow_headers,
+        expose_headers=cors_settings.expose_headers,
+        max_age=cors_settings.max_age,
     )
 
 app.mount(path="/query", app=query_mcp_app)

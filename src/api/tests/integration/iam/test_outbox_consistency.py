@@ -351,9 +351,10 @@ class TestOutboxWorkerProcessing:
             relation=RelationType.TENANT,
             subject=tenant_resource,
         )
+        # Use MEMBER_RELATION (the actual relation) not MEMBER (which is a permission)
         await spicedb_client.delete_relationship(
             resource=group_resource,
-            relation=GroupRole.MEMBER.value,
+            relation=RelationType.MEMBER_RELATION.value,
             subject=user_subject,
         )
         await async_session.execute(

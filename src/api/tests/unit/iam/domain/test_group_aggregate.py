@@ -144,6 +144,109 @@ class TestAddMember:
             group.add_member(user_id, GroupRole.ADMIN)
 
 
+class TestAddMemberRoleReplacement:
+    """Tests for role replacement in Group.add_member()."""
+
+    def test_replaces_role_when_current_role_differs(self):
+        """Test that add_member emits MemberRemoved + MemberAdded when replacing role."""
+        from iam.domain.events import MemberAdded, MemberRemoved
+
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+        user_id = UserId.generate()
+        group.add_member(user_id, GroupRole.MEMBER)
+        group.collect_events()  # Clear
+
+        group.add_member(user_id, GroupRole.ADMIN, current_role=GroupRole.MEMBER)
+
+        events = group.collect_events()
+        assert len(events) == 2
+        assert isinstance(events[0], MemberRemoved)
+        assert events[0].role == GroupRole.MEMBER.value
+        assert isinstance(events[1], MemberAdded)
+        assert events[1].role == GroupRole.ADMIN.value
+
+    def test_replacement_updates_in_memory_members(self):
+        """Test that role replacement updates the in-memory members list."""
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+        user_id = UserId.generate()
+        group.add_member(user_id, GroupRole.MEMBER)
+
+        group.add_member(user_id, GroupRole.ADMIN, current_role=GroupRole.MEMBER)
+
+        assert len(group.members) == 1
+        assert group.get_member_role(user_id) == GroupRole.ADMIN
+
+    def test_no_removal_when_current_role_is_same(self):
+        """Test that add_member raises ValueError when trying to add with same role."""
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+        user_id = UserId.generate()
+        group.add_member(user_id, GroupRole.ADMIN)
+
+        # Same role with current_role == role skips removal, then hits
+        # the has_member check which raises ValueError
+        with pytest.raises(ValueError, match="already a member"):
+            group.add_member(user_id, GroupRole.ADMIN, current_role=GroupRole.ADMIN)
+
+    def test_no_removal_when_no_current_role(self):
+        """Test that add_member does NOT emit MemberRemoved for new members."""
+        from iam.domain.events import MemberAdded
+
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+        user_id = UserId.generate()
+
+        group.add_member(user_id, GroupRole.MEMBER, current_role=None)
+
+        events = group.collect_events()
+        assert len(events) == 1
+        assert isinstance(events[0], MemberAdded)
+
+    def test_prevents_demoting_last_admin_via_role_replacement(self):
+        """Test that replacing ADMIN with MEMBER role is blocked when last admin."""
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+        admin_id = UserId.generate()
+        group.add_member(admin_id, GroupRole.ADMIN)
+
+        with pytest.raises(ValueError, match="last admin"):
+            group.add_member(admin_id, GroupRole.MEMBER, current_role=GroupRole.ADMIN)
+
+    def test_allows_demoting_admin_via_replacement_when_multiple_admins(self):
+        """Test that replacing ADMIN with MEMBER role is allowed when other admins exist."""
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=TenantId.generate(),
+            name="Engineering",
+        )
+        admin1 = UserId.generate()
+        admin2 = UserId.generate()
+        group.add_member(admin1, GroupRole.ADMIN)
+        group.add_member(admin2, GroupRole.ADMIN)
+
+        group.add_member(admin1, GroupRole.MEMBER, current_role=GroupRole.ADMIN)
+
+        assert group.get_member_role(admin1) == GroupRole.MEMBER
+        assert group.get_member_role(admin2) == GroupRole.ADMIN
+
+
 class TestHasMember:
     """Tests for Group.has_member() method."""
 
@@ -362,7 +465,7 @@ class TestEventCollection:
         assert isinstance(events[0], MemberAdded)
         assert events[0].group_id == group.id.value
         assert events[0].user_id == user_id.value
-        assert events[0].role == GroupRole.MEMBER
+        assert events[0].role == GroupRole.MEMBER.value
 
     def test_remove_member_records_member_removed_event(self):
         """Test that remove_member records a MemberRemoved event."""
@@ -386,7 +489,7 @@ class TestEventCollection:
         assert isinstance(events[0], MemberRemoved)
         assert events[0].group_id == group.id.value
         assert events[0].user_id == user_id.value
-        assert events[0].role == GroupRole.MEMBER
+        assert events[0].role == GroupRole.MEMBER.value
 
     def test_update_member_role_records_member_role_changed_event(self):
         """Test that update_member_role records a MemberRoleChanged event."""

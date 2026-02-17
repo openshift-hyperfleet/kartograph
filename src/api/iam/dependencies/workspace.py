@@ -35,18 +35,20 @@ def get_workspace_service_probe() -> WorkspaceServiceProbe:
 
 def get_workspace_repository(
     session: Annotated[AsyncSession, Depends(get_write_session)],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
     outbox: Annotated[OutboxRepository, Depends(get_outbox_repository)],
 ) -> WorkspaceRepository:
     """Get WorkspaceRepository instance.
 
     Args:
         session: Async database session
+        authz: Authorization provider (SpiceDB client) for member hydration
         outbox: Outbox repository for transactional outbox pattern
 
     Returns:
         WorkspaceRepository instance with outbox pattern enabled
     """
-    return WorkspaceRepository(session=session, outbox=outbox)
+    return WorkspaceRepository(session=session, authz=authz, outbox=outbox)
 
 
 def get_workspace_service(

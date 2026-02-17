@@ -201,6 +201,23 @@
         ],
         "required": false,
         "description": "Allowed headers for CORS"
+      },
+      {
+        "env_var": "KARTOGRAPH_CORS_EXPOSE_HEADERS",
+        "type": "list",
+        "default": [
+          "Content-Length",
+          "Content-Type"
+        ],
+        "required": false,
+        "description": "Headers exposed to the browser in CORS responses"
+      },
+      {
+        "env_var": "KARTOGRAPH_CORS_MAX_AGE",
+        "type": "int",
+        "default": "600",
+        "required": false,
+        "description": "Max age in seconds for CORS preflight cache (default: 10 minutes)"
       }
     ]
   },

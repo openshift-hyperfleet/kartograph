@@ -5,11 +5,13 @@ This script:
 - Loads config from env/api.env
 - Caches Keycloak tokens in ~/.kartograph/token.json
 - Prompts for credentials only when token expires
-- Posts JSONL file to graph mutations endpoint
+- Fetches available tenants and presents an interactive picker
+- Posts JSONL file to graph mutations endpoint with X-Tenant-ID header
 
 Usage:
     ./scripts/load_jsonl.py <file.jsonl>
     ./scripts/load_jsonl.py <file.jsonl> --force-auth  # Ignore cached token
+    ./scripts/load_jsonl.py <file.jsonl> --tenant-id <ULID>  # Skip tenant picker
     ./scripts/load_jsonl.py <file.jsonl> --api-url http://staging:8000
 """
 
@@ -44,6 +46,7 @@ def parse_args():
 Examples:
   %(prog)s data.jsonl
   %(prog)s data.jsonl --force-auth
+  %(prog)s data.jsonl --tenant-id 01HXYZ...
   %(prog)s data.jsonl --api-url http://staging:8000
   %(prog)s data.jsonl --keycloak-url http://keycloak:8080/realms/prod
         """,
@@ -73,6 +76,13 @@ Examples:
         "--client-secret",
         default=os.getenv("KARTOGRAPH_OIDC_CLIENT_SECRET", "kartograph-api-secret"),
         help="OIDC client secret (default: from env or kartograph-api-secret)",
+    )
+
+    # Tenant selection
+    parser.add_argument(
+        "--tenant-id",
+        default=None,
+        help="Tenant ID to use (skips interactive picker)",
     )
 
     # Auth options
@@ -166,7 +176,90 @@ def get_token(
     return fetch_new_token(keycloak_url, client_id, client_secret)
 
 
-def post_jsonl(file_path: Path, token: str, api_url: str) -> None:
+def fetch_tenants(token: str, api_url: str) -> list[dict]:
+    """Fetch tenants the authenticated user has access to."""
+    endpoint = f"{api_url}/iam/tenants"
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        progress.add_task("Fetching tenants...", total=None)
+
+        response = requests.get(
+            endpoint,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+
+    if response.status_code >= 400:
+        console.print(
+            f"[bold red]Failed to fetch tenants:[/bold red] {response.status_code}"
+        )
+        console.print(response.text)
+        sys.exit(1)
+
+    return response.json()
+
+
+def pick_tenant(tenants: list[dict], tenant_id_override: str | None) -> str:
+    """Select a tenant, either from CLI arg or interactive picker.
+
+    Returns the selected tenant ID.
+    """
+    if not tenants:
+        console.print("[bold red]Error:[/bold red] No tenants available for your user")
+        sys.exit(1)
+
+    # If --tenant-id was provided, validate it exists in the user's tenants
+    if tenant_id_override:
+        matching = [t for t in tenants if t["id"] == tenant_id_override]
+        if not matching:
+            console.print(
+                f"[bold red]Error:[/bold red] Tenant '{tenant_id_override}' "
+                "not found or you don't have access"
+            )
+            sys.exit(1)
+        tenant = matching[0]
+        console.print(
+            f"[green]✓[/green] Using tenant: [bold]{tenant['name']}[/bold] ({tenant['id']})"
+        )
+        return tenant["id"]
+
+    # Single tenant — auto-select
+    if len(tenants) == 1:
+        tenant = tenants[0]
+        console.print(
+            f"[green]✓[/green] Using tenant: [bold]{tenant['name']}[/bold] ({tenant['id']})"
+        )
+        return tenant["id"]
+
+    # Multiple tenants — interactive picker
+    console.print("\n[bold cyan]Select a Tenant[/bold cyan]")
+    for i, tenant in enumerate(tenants, 1):
+        console.print(
+            f"  [bold]{i}.[/bold] {tenant['name']} [dim]({tenant['id']})[/dim]"
+        )
+
+    while True:
+        choice = console.input(f"\n[bold]Tenant [1-{len(tenants)}]:[/bold] ").strip()
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(tenants):
+                selected = tenants[idx]
+                console.print(
+                    f"[green]✓[/green] Selected: [bold]{selected['name']}[/bold] ({selected['id']})"
+                )
+                return selected["id"]
+        except ValueError:
+            pass
+        console.print(
+            f"[yellow]Please enter a number between 1 and {len(tenants)}[/yellow]"
+        )
+
+
+def post_jsonl(file_path: Path, token: str, api_url: str, tenant_id: str) -> None:
     """Post JSONL file to graph mutations endpoint."""
     if not file_path.exists():
         console.print(f"[bold red]Error:[/bold red] File not found: {file_path}")
@@ -191,6 +284,7 @@ def post_jsonl(file_path: Path, token: str, api_url: str) -> None:
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Content-Type": "application/jsonlines",
+                    "X-Tenant-ID": tenant_id,
                 },
                 data=f,
                 timeout=300,
@@ -222,7 +316,10 @@ def main():
         client_secret=args.client_secret,
         force_auth=args.force_auth,
     )
-    post_jsonl(args.file, token, args.api_url)
+
+    tenants = fetch_tenants(token, args.api_url)
+    tenant_id = pick_tenant(tenants, args.tenant_id)
+    post_jsonl(args.file, token, args.api_url, tenant_id)
 
 
 if __name__ == "__main__":

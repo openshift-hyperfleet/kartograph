@@ -57,6 +57,14 @@ definition workspace {
 	 */
 	relation parent: workspace
 
+	/**
+	 * The tenant whose members can create child workspaces here.
+	 * Only set on root workspaces. This delegates create_child permission
+	 * to all tenant members (via creator_tenant->view), enabling any tenant
+	 * member to create workspaces under root without being a workspace admin.
+	 */
+	relation creator_tenant: tenant
+
 	/** Users or groups who can administer this workspace */
 	relation admin: user | group#member
 
@@ -79,6 +87,15 @@ definition workspace {
 
 	/** Permission to manage workspace (delete, modify members) */
 	permission manage = admin
+
+	/**
+	 * Permission to create child workspaces under this workspace.
+	 * Granted to:
+	 * - Workspace admins and editors (direct grants)
+	 * - All tenant members (via creator_tenant->view) on root workspaces only
+	 * Child workspaces don't have creator_tenant set, so only admin/editor can create children.
+	 */
+	permission create_child = admin + editor + creator_tenant->view
 }
 
 /**

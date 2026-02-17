@@ -103,6 +103,14 @@ class TenantService:
                     name=workspace_name,
                     tenant_id=tenant.id,
                 )
+
+                # Grant creator admin access to root workspace
+                workspace.add_member(
+                    member_id=creator_id.value,
+                    member_type=MemberType.USER,
+                    role=WorkspaceRole.ADMIN,
+                )
+
                 await self._workspace_repository.save(workspace)
 
                 self._probe.tenant_created(

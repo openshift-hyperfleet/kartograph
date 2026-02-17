@@ -11,7 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.application.services import TenantService
 from iam.domain.aggregates import Tenant, Workspace
-from iam.domain.value_objects import TenantId, TenantRole, UserId, WorkspaceId
+from iam.domain.value_objects import (
+    MemberType,
+    TenantId,
+    TenantRole,
+    UserId,
+    WorkspaceId,
+    WorkspaceRole,
+)
 from iam.ports.exceptions import UnauthorizedError
 from iam.ports.repositories import (
     IAPIKeyRepository,
@@ -966,7 +973,7 @@ class TestCreateTenant:
     async def test_creates_root_workspace_on_tenant_creation(
         self, tenant_service, mock_tenant_repo, mock_workspace_repo
     ):
-        """Test that creating a tenant auto-creates a root workspace."""
+        """Test that creating a tenant auto-creates a root workspace and grants creator admin."""
         mock_tenant_repo.save = AsyncMock()
         mock_workspace_repo.save = AsyncMock()
         creator_id = UserId.from_string("creator-user-1")
@@ -983,6 +990,20 @@ class TestCreateTenant:
         assert saved_workspace.is_root is True
         assert saved_workspace.tenant_id == tenant.id
         assert saved_workspace.parent_workspace_id is None
+
+        # Verify creator was granted admin access to root workspace
+        from iam.domain.events import WorkspaceMemberAdded
+
+        workspace_events = saved_workspace.collect_events()
+        member_events = [
+            e for e in workspace_events if isinstance(e, WorkspaceMemberAdded)
+        ]
+        assert len(member_events) == 1
+
+        member_event = member_events[0]
+        assert member_event.member_id == creator_id.value
+        assert member_event.member_type == MemberType.USER.value
+        assert member_event.role == WorkspaceRole.ADMIN.value
 
     @pytest.mark.asyncio
     async def test_root_workspace_uses_settings_default_name(

@@ -35,8 +35,13 @@ const emit = defineEmits<{
 }>()
 
 // ── Templates ──────────────────────────────────────────────────────────────
+// Content uses factory functions so that each insert generates fresh IDs.
 
-const templates: MutationTemplate[] = [
+interface TemplateDefinition extends Omit<MutationTemplate, 'content'> {
+  content: string | (() => string)
+}
+
+const templateDefinitions: TemplateDefinition[] = [
   {
     name: 'Define Type',
     description: 'Define a new node or edge type schema',
@@ -53,7 +58,7 @@ const templates: MutationTemplate[] = [
   {
     name: 'Create Node',
     description: 'Define a type and create a node (DEFINE + CREATE)',
-    content: '{"op": "DEFINE", "type": "node", "label": "person", "description": "A person entity", "required_properties": ["name"]}\n{"op": "CREATE", "type": "node", "label": "person", "id": "person:' + generateHexId() + '", "set_properties": {"name": "Alice", "slug": "alice", "data_source_id": "dev-ui", "source_path": "manual"}}',
+    content: () => '{"op": "DEFINE", "type": "node", "label": "person", "description": "A person entity", "required_properties": ["name"]}\n{"op": "CREATE", "type": "node", "label": "person", "id": "person:' + generateHexId() + '", "set_properties": {"name": "Alice", "slug": "alice", "data_source_id": "dev-ui", "source_path": "manual"}}',
     fields: [
       { name: 'op', required: true, description: 'DEFINE then CREATE (two lines)' },
       { name: 'type', required: true, description: '"node"' },
@@ -67,7 +72,7 @@ const templates: MutationTemplate[] = [
   {
     name: 'Create Edge',
     description: 'Define a relationship type and create an edge (DEFINE + CREATE)',
-    content: '{"op": "DEFINE", "type": "edge", "label": "knows", "description": "Indicates two entities know each other", "required_properties": []}\n{"op": "CREATE", "type": "edge", "label": "knows", "id": "knows:' + generateHexId() + '", "start_id": "person:a1b2c3d4e5f67890", "end_id": "person:f6e5d4c3b2a10987", "set_properties": {"data_source_id": "dev-ui", "source_path": "manual"}}',
+    content: () => '{"op": "DEFINE", "type": "edge", "label": "knows", "description": "Indicates two entities know each other", "required_properties": []}\n{"op": "CREATE", "type": "edge", "label": "knows", "id": "knows:' + generateHexId() + '", "start_id": "person:a1b2c3d4e5f67890", "end_id": "person:f6e5d4c3b2a10987", "set_properties": {"data_source_id": "dev-ui", "source_path": "manual"}}',
     fields: [
       { name: 'op', required: true, description: 'DEFINE then CREATE (two lines)' },
       { name: 'type', required: true, description: '"edge"' },
@@ -104,6 +109,17 @@ const templates: MutationTemplate[] = [
   },
 ]
 
+// Resolve static content for display purposes (field help, descriptions).
+// The actual content emitted on insert uses resolveContent() for fresh IDs.
+const templates: MutationTemplate[] = templateDefinitions.map(t => ({
+  ...t,
+  content: typeof t.content === 'function' ? t.content() : t.content,
+}))
+
+function resolveContent(template: TemplateDefinition): string {
+  return typeof template.content === 'function' ? template.content() : template.content
+}
+
 // ── State ──────────────────────────────────────────────────────────────────
 
 const expandedTemplate = ref<string | null>(null)
@@ -113,7 +129,9 @@ function toggleFieldHelp(name: string) {
 }
 
 function handleInsert(template: MutationTemplate) {
-  emit('insert', template.content)
+  // Resolve content at insert time so IDs are freshly generated
+  const def = templateDefinitions.find(t => t.name === template.name)
+  emit('insert', def ? resolveContent(def) : template.content)
 }
 
 function copyGeneratedId() {

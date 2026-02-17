@@ -115,7 +115,7 @@ export interface CypherResult {
   row_count: number
 }
 
-// ── Query History Types ─────────────────────────────────────────────────────
+// ── Query History Types (client-side only, not API response types) ──────────
 
 export interface HistoryEntry {
   query: string

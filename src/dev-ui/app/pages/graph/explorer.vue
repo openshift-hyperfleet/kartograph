@@ -148,7 +148,7 @@ async function handleSearch() {
 }
 
 async function browseByType(label: string): Promise<NodeRecord[]> {
-  const cypher = `MATCH (n:\`${label}\`) RETURN n LIMIT ${BROWSE_LIMIT}`
+  const cypher = `MATCH (n:\`${sanitizeCypherLabel(label)}\`) RETURN n LIMIT ${BROWSE_LIMIT}`
   return await executeCypherSearch(cypher)
 }
 
@@ -163,7 +163,7 @@ async function searchWithinType(term: string, label: string): Promise<NodeRecord
 
   // Property-based Cypher search within the type
   const escaped = escapeCypherString(term)
-  const cypher = `MATCH (n:\`${label}\`) WHERE n.slug CONTAINS '${escaped}' OR n.name CONTAINS '${escaped}' OR n.title CONTAINS '${escaped}' RETURN n LIMIT ${SEARCH_LIMIT}`
+  const cypher = `MATCH (n:\`${sanitizeCypherLabel(label)}\`) WHERE n.slug CONTAINS '${escaped}' OR n.name CONTAINS '${escaped}' OR n.title CONTAINS '${escaped}' RETURN n LIMIT ${SEARCH_LIMIT}`
   return await executeCypherSearch(cypher)
 }
 
@@ -211,6 +211,12 @@ function transformCypherRow(row: Record<string, unknown>): NodeRecord {
 
 function escapeCypherString(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+}
+
+/** Sanitize a label for safe use inside backtick-quoted Cypher identifiers. */
+function sanitizeCypherLabel(label: string): string {
+  // Remove backticks to prevent breaking out of `label` quoting
+  return label.replace(/`/g, '')
 }
 
 // ── Quick Browse from Type Badge ───────────────────────────────────────────
@@ -305,7 +311,7 @@ function getEdgeLabelForNeighbor(neighborId: string): { label: string; direction
 // ── Cross-Page Navigation ──────────────────────────────────────────────────
 
 function navigateToQuery(node: NodeRecord) {
-  const cypher = `MATCH (n:\`${node.label}\`) WHERE n.id = '${escapeCypherString(node.id)}' RETURN n`
+  const cypher = `MATCH (n:\`${sanitizeCypherLabel(node.label)}\`) WHERE n.id = '${escapeCypherString(node.id)}' RETURN n`
   navigateTo({
     path: '/query',
     query: { query: cypher },

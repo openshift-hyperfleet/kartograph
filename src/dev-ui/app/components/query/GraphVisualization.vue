@@ -55,12 +55,17 @@ async function handleExpandNode(nodeId: string): Promise<{ nodes: GraphNode[]; e
     const idMap = new Map<string, string>()
     idMap.set(centralApiId, nodeId)
 
-    const nodes: GraphNode[] = result.nodes.map(n => ({
-      id: n.id,
-      label: n.label,
-      properties: n.properties,
-      displayName: resolveDisplayName(n.properties, n.label),
-    }))
+    // Filter out the central node — it already exists in the graph.
+    // The API may return it with a different ID format, so compare
+    // against the canonical API ID we resolved above.
+    const nodes: GraphNode[] = result.nodes
+      .filter(n => n.id !== centralApiId)
+      .map(n => ({
+        id: n.id,
+        label: n.label,
+        properties: n.properties,
+        displayName: resolveDisplayName(n.properties, n.label),
+      }))
 
     // Register neighbor IDs in the map (identity mapping unless overridden)
     for (const n of nodes) {

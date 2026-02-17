@@ -105,15 +105,23 @@ async function fetchTenants() {
 
 async function fetchMembers(tenant: TenantResponse) {
   membersLoading.value = true
+  const tenantId = tenant.id
   try {
-    members.value = await listTenantMembers(tenant.id)
+    const result = await listTenantMembers(tenantId)
+    // Guard: if the user switched tenants while this request was in-flight,
+    // discard the result to avoid showing stale members.
+    if (selectedTenant.value?.id !== tenantId) return
+    members.value = result
   } catch (err) {
+    if (selectedTenant.value?.id !== tenantId) return
     toast.error('Failed to load members', {
       description: extractErrorMessage(err),
     })
     members.value = []
   } finally {
-    membersLoading.value = false
+    if (selectedTenant.value?.id === tenantId) {
+      membersLoading.value = false
+    }
   }
 }
 
@@ -321,13 +329,16 @@ onMounted(fetchTenants)
             v-for="tenant in filteredTenants"
             :key="tenant.id"
             role="listitem"
-            class="flex items-center gap-2 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer"
+            tabindex="0"
+            class="flex items-center gap-2 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
             :class="[
               selectedTenant?.id === tenant.id ? 'bg-muted' : '',
             ]"
             :aria-label="`Select tenant ${tenant.name}`"
             :aria-selected="selectedTenant?.id === tenant.id"
             @click="selectTenant(tenant)"
+            @keydown.enter="selectTenant(tenant)"
+            @keydown.space.prevent="selectTenant(tenant)"
           >
             <Building2 class="size-4 shrink-0 text-muted-foreground" />
             <span class="flex-1 truncate text-sm font-medium">{{ tenant.name }}</span>

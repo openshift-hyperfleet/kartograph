@@ -135,6 +135,13 @@ function toggleTemplate(id: string) {
   expandedTemplate.value = expandedTemplate.value === id ? null : id
 }
 
+/**
+ * Build the final Cypher query by substituting template parameters.
+ *
+ * Note: Values are interpolated directly into the query string without
+ * escaping. This is acceptable because the dev UI is a trusted environment
+ * where the user already has full Cypher query access via the console.
+ */
 function generateQuery(template: QueryTemplate): string {
   let query = template.template
   for (const param of template.params) {

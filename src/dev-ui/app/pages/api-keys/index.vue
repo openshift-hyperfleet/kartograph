@@ -218,16 +218,26 @@ function dismissCreatedKey() {
 
 // ── Navigate to MCP with secret ────────────────────────────────────────────
 
+// Guard flag: when true, onUnmounted should NOT clear the transient secret
+// because we intentionally set it for the MCP page to consume.
+const navigatingToMcp = ref(false)
+
 function navigateToMcpWithSecret() {
   if (newlyCreatedKey.value) {
     transientSecret.set(newlyCreatedKey.value.secret, newlyCreatedKey.value.name)
   }
+  navigatingToMcp.value = true
   navigateTo('/integrate/mcp')
 }
 
-// Clear transient secret if user navigates away without going to MCP page
+// Clear transient secret if user navigates away without going to MCP page.
+// Skip the clear when we're intentionally navigating to MCP — in Nuxt SPA
+// mode, onUnmounted fires before the target page's onMounted, so clearing
+// here would race with the MCP page's consume() call.
 onUnmounted(() => {
-  transientSecret.clear()
+  if (!navigatingToMcp.value) {
+    transientSecret.clear()
+  }
 })
 
 // ── Format helpers ─────────────────────────────────────────────────────────

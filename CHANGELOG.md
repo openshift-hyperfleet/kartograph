@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.20.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.19.0...v3.20.0) (2026-02-17)
+
+
+### Features
+
+* **api.iam:** aihcm 158 root workspace creation permission ([#231](https://github.com/openshift-hyperfleet/kartograph/issues/231)) ([099e2ac](https://github.com/openshift-hyperfleet/kartograph/commit/099e2ac93049b63ce937447b3c4815fb00d1b809))
+
 ## [3.19.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.18.0...v3.19.0) (2026-02-17)
 
 

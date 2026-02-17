@@ -153,6 +153,95 @@ class TestAddMember:
         assert all(isinstance(e, TenantMemberAdded) for e in events)
 
 
+class TestAddMemberRoleReplacement:
+    """Tests for role replacement in Tenant.add_member()."""
+
+    def test_replaces_role_when_current_role_differs(self):
+        """Test that add_member emits MemberRemoved + MemberAdded when replacing role."""
+        tenant = Tenant(id=TenantId.generate(), name="Acme Corp")
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        tenant.add_member(
+            user_id, TenantRole.MEMBER, added_by=admin_id, current_role=TenantRole.ADMIN
+        )
+
+        events = tenant.collect_events()
+        assert len(events) == 2
+        assert isinstance(events[0], TenantMemberRemoved)
+        assert events[0].role == TenantRole.ADMIN.value
+        assert events[0].user_id == user_id.value
+        assert isinstance(events[1], TenantMemberAdded)
+        assert events[1].role == TenantRole.MEMBER.value
+
+    def test_no_removal_when_current_role_is_same(self):
+        """Test that add_member does NOT emit MemberRemoved when role is the same."""
+        tenant = Tenant(id=TenantId.generate(), name="Acme Corp")
+        user_id = UserId.from_string("user-123")
+
+        tenant.add_member(user_id, TenantRole.ADMIN, current_role=TenantRole.ADMIN)
+
+        events = tenant.collect_events()
+        assert len(events) == 1
+        assert isinstance(events[0], TenantMemberAdded)
+
+    def test_no_removal_when_no_current_role(self):
+        """Test that add_member does NOT emit MemberRemoved for new members."""
+        tenant = Tenant(id=TenantId.generate(), name="Acme Corp")
+        user_id = UserId.from_string("user-123")
+
+        tenant.add_member(user_id, TenantRole.MEMBER, current_role=None)
+
+        events = tenant.collect_events()
+        assert len(events) == 1
+        assert isinstance(events[0], TenantMemberAdded)
+
+    def test_replacement_event_carries_removed_by(self):
+        """Test that the removal event during role replacement carries removed_by."""
+        tenant = Tenant(id=TenantId.generate(), name="Acme Corp")
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        tenant.add_member(
+            user_id, TenantRole.MEMBER, added_by=admin_id, current_role=TenantRole.ADMIN
+        )
+
+        events = tenant.collect_events()
+        removed_event = events[0]
+        assert removed_event.removed_by == admin_id.value
+
+
+class TestGetMemberRole:
+    """Tests for Tenant.get_member_role() helper."""
+
+    def test_returns_role_from_pending_events(self):
+        """Test that get_member_role reads from pending events."""
+        tenant = Tenant(id=TenantId.generate(), name="Acme Corp")
+        user_id = UserId.from_string("user-123")
+
+        tenant.add_member(user_id, TenantRole.ADMIN)
+
+        assert tenant.get_member_role(user_id) == TenantRole.ADMIN
+
+    def test_returns_none_for_unknown_user(self):
+        """Test that get_member_role returns None for unknown users."""
+        tenant = Tenant(id=TenantId.generate(), name="Acme Corp")
+        user_id = UserId.from_string("user-123")
+
+        assert tenant.get_member_role(user_id) is None
+
+    def test_returns_none_after_removal(self):
+        """Test that get_member_role returns None after user is removed."""
+        tenant = Tenant(id=TenantId.generate(), name="Acme Corp")
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        tenant.add_member(user_id, TenantRole.ADMIN)
+        tenant.remove_member(user_id, removed_by=admin_id, is_last_admin=False)
+
+        assert tenant.get_member_role(user_id) is None
+
+
 class TestRemoveMember:
     """Tests for Tenant.remove_member() business logic."""
 

@@ -25,6 +25,9 @@ class SpiceDBRelationshipBase:
         relation: The relation type (e.g., RelationType.TENANT or Role.ADMIN)
         subject_type: The type of the subject (e.g., ResourceType.USER)
         subject_id: The ULID of the subject
+        subject_relation: Optional relation on the subject (e.g., "member"
+            for group#member). Required by SpiceDB when the schema defines
+            subject types with relations like ``user | group#member``.
     """
 
     resource_type: ResourceType
@@ -32,6 +35,7 @@ class SpiceDBRelationshipBase:
     relation: RelationType | str  # str for Role values
     subject_type: ResourceType
     subject_id: str
+    subject_relation: str | None = None
 
     @property
     def resource(self) -> str:
@@ -40,8 +44,11 @@ class SpiceDBRelationshipBase:
 
     @property
     def subject(self) -> str:
-        """Format subject as 'type:id' string."""
-        return f"{self.subject_type}:{self.subject_id}"
+        """Format subject as 'type:id' or 'type:id#relation' string."""
+        base = f"{self.subject_type}:{self.subject_id}"
+        if self.subject_relation:
+            return f"{base}#{self.subject_relation}"
+        return base
 
     @property
     def relation_name(self) -> str:

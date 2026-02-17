@@ -67,8 +67,31 @@ class Tenant:
         )
         return tenant
 
+    def get_member_role(self, user_id: UserId) -> TenantRole | None:
+        """Get the current role of a user, or None if not a member.
+
+        NOTE: This queries the in-memory state (pending events), not SpiceDB.
+        For definitive answers, query SpiceDB directly.
+        """
+        # Check pending events for role assignments (latest wins)
+        result: TenantRole | None = None
+        for event in self._pending_events:
+            if isinstance(event, TenantMemberAdded) and event.user_id == user_id.value:
+                result = TenantRole(event.role)
+            elif (
+                isinstance(event, TenantMemberRemoved)
+                and event.user_id == user_id.value
+            ):
+                result = None
+
+        return result
+
     def add_member(
-        self, user_id: UserId, role: TenantRole, added_by: Optional[UserId] = None
+        self,
+        user_id: UserId,
+        role: TenantRole,
+        added_by: Optional[UserId] = None,
+        current_role: Optional[TenantRole] = None,
     ):
         """Add a user as a member to this tenant.
 
@@ -76,7 +99,21 @@ class Tenant:
             user_id: User being added
             role: Their role in the tenant
             added_by: Admin who added them (None for system/migration)
+            current_role: User's current role (if any). If different from new role,
+                the old role will be removed first (role replacement).
         """
+        # If user already has a different role, remove it first
+        if current_role is not None and current_role != role:
+            self._pending_events.append(
+                TenantMemberRemoved(
+                    tenant_id=self.id.value,
+                    user_id=user_id.value,
+                    role=current_role.value,
+                    removed_by=added_by.value if added_by else None,
+                    occurred_at=datetime.now(UTC),
+                )
+            )
+
         self._pending_events.append(
             TenantMemberAdded(
                 tenant_id=self.id.value,
@@ -103,8 +140,8 @@ class Tenant:
             TenantMemberRemoved(
                 tenant_id=self.id.value,
                 user_id=user_id.value,
-                removed_by=removed_by.value,
                 occurred_at=datetime.now(UTC),
+                removed_by=removed_by.value,
             )
         )
 

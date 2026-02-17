@@ -2,19 +2,27 @@
 
 Following TDD principles - tests verify repository behavior with mocked dependencies.
 Tests cover all IWorkspaceRepository protocol methods including outbox event emission,
-constraint enforcement, and edge cases.
+constraint enforcement, member hydration from SpiceDB, and edge cases.
 """
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, create_autospec
 
 import pytest
 
 from iam.domain.aggregates import Workspace
-from iam.domain.value_objects import TenantId, WorkspaceId
+from iam.domain.value_objects import (
+    MemberType,
+    TenantId,
+    WorkspaceId,
+    WorkspaceMember,
+    WorkspaceRole,
+)
 from iam.infrastructure.models import WorkspaceModel
 from iam.infrastructure.workspace_repository import WorkspaceRepository
 from iam.ports.repositories import IWorkspaceRepository
+from shared_kernel.authorization.protocols import AuthorizationProvider
+from shared_kernel.authorization.types import RelationshipTuple
 
 
 @pytest.fixture
@@ -22,6 +30,22 @@ def mock_session():
     """Create mock async session."""
     session = AsyncMock()
     return session
+
+
+@pytest.fixture
+def mock_authz():
+    """Create mock authorization provider."""
+    authz = create_autospec(AuthorizationProvider, instance=True)
+    # Make all methods async
+    authz.write_relationship = AsyncMock()
+    authz.write_relationships = AsyncMock()
+    authz.delete_relationship = AsyncMock()
+    authz.delete_relationships = AsyncMock()
+    authz.lookup_subjects = AsyncMock(return_value=[])
+    authz.lookup_resources = AsyncMock(return_value=[])
+    authz.check_permission = AsyncMock(return_value=False)
+    authz.read_relationships = AsyncMock(return_value=[])
+    return authz
 
 
 @pytest.fixture
@@ -48,10 +72,11 @@ def mock_serializer():
 
 
 @pytest.fixture
-def repository(mock_session, mock_probe, mock_outbox):
+def repository(mock_session, mock_authz, mock_probe, mock_outbox):
     """Create repository with mock dependencies."""
     return WorkspaceRepository(
         session=mock_session,
+        authz=mock_authz,
         outbox=mock_outbox,
         probe=mock_probe,
     )
@@ -226,6 +251,173 @@ class TestGetById:
         assert result.parent_workspace_id is None
 
     @pytest.mark.asyncio
+    async def test_get_by_id_returns_workspace_with_members_hydrated(
+        self, repository, mock_session, mock_authz, tenant_id, now
+    ):
+        """Should return workspace with members loaded from SpiceDB."""
+        workspace_id = WorkspaceId.generate()
+        user_id = "user-abc-123"
+
+        model = WorkspaceModel(
+            id=workspace_id.value,
+            tenant_id=tenant_id.value,
+            name="Engineering",
+            parent_workspace_id=None,
+            is_root=False,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        # Mock SpiceDB ReadRelationships: user is an admin
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=f"workspace:{workspace_id.value}",
+                    relation="admin",
+                    subject=f"user:{user_id}",
+                )
+            ]
+        )
+
+        result = await repository.get_by_id(workspace_id)
+
+        assert result is not None
+        assert len(result.members) == 1
+        assert result.members[0].member_id == user_id
+        assert result.members[0].member_type == MemberType.USER
+        assert result.members[0].role == WorkspaceRole.ADMIN
+
+    @pytest.mark.asyncio
+    async def test_get_by_id_hydrates_group_members(
+        self, repository, mock_session, mock_authz, tenant_id, now
+    ):
+        """Should hydrate group members from SpiceDB (hybrid authorization)."""
+        workspace_id = WorkspaceId.generate()
+        group_id = "group-eng-456"
+
+        model = WorkspaceModel(
+            id=workspace_id.value,
+            tenant_id=tenant_id.value,
+            name="Engineering",
+            parent_workspace_id=None,
+            is_root=False,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        # Mock SpiceDB ReadRelationships: group is a member
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=f"workspace:{workspace_id.value}",
+                    relation="member",
+                    subject=f"group:{group_id}#member",
+                )
+            ]
+        )
+
+        result = await repository.get_by_id(workspace_id)
+
+        assert result is not None
+        assert len(result.members) == 1
+        assert result.members[0].member_id == group_id
+        assert result.members[0].member_type == MemberType.GROUP
+        assert result.members[0].role == WorkspaceRole.MEMBER
+
+    @pytest.mark.asyncio
+    async def test_get_by_id_hydrates_all_roles_and_types(
+        self, repository, mock_session, mock_authz, tenant_id, now
+    ):
+        """Should hydrate members across all 3 roles and both member types."""
+        workspace_id = WorkspaceId.generate()
+        admin_user = "user-admin-1"
+        editor_group = "group-editors"
+        member_user = "user-member-1"
+
+        model = WorkspaceModel(
+            id=workspace_id.value,
+            tenant_id=tenant_id.value,
+            name="Full Workspace",
+            parent_workspace_id=None,
+            is_root=False,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        # Mock SpiceDB ReadRelationships: different members across roles and types
+        ws_resource = f"workspace:{workspace_id.value}"
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=ws_resource,
+                    relation="admin",
+                    subject=f"user:{admin_user}",
+                ),
+                RelationshipTuple(
+                    resource=ws_resource,
+                    relation="editor",
+                    subject=f"group:{editor_group}#member",
+                ),
+                RelationshipTuple(
+                    resource=ws_resource,
+                    relation="member",
+                    subject=f"user:{member_user}",
+                ),
+            ]
+        )
+
+        result = await repository.get_by_id(workspace_id)
+
+        assert result is not None
+        assert len(result.members) == 3
+
+        # Verify each member
+        members_by_id = {m.member_id: m for m in result.members}
+        assert members_by_id[admin_user].role == WorkspaceRole.ADMIN
+        assert members_by_id[admin_user].member_type == MemberType.USER
+        assert members_by_id[editor_group].role == WorkspaceRole.EDITOR
+        assert members_by_id[editor_group].member_type == MemberType.GROUP
+        assert members_by_id[member_user].role == WorkspaceRole.MEMBER
+        assert members_by_id[member_user].member_type == MemberType.USER
+
+    @pytest.mark.asyncio
+    async def test_get_by_id_raises_on_hydration_failure(
+        self, repository, mock_session, mock_authz, mock_probe, tenant_id, now
+    ):
+        """Should raise and call probe on SpiceDB hydration failure."""
+        workspace_id = WorkspaceId.generate()
+        model = WorkspaceModel(
+            id=workspace_id.value,
+            tenant_id=tenant_id.value,
+            name="Failing",
+            parent_workspace_id=None,
+            is_root=False,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        mock_authz.read_relationships.side_effect = RuntimeError("SpiceDB unavailable")
+
+        with pytest.raises(RuntimeError, match="SpiceDB unavailable"):
+            await repository.get_by_id(workspace_id)
+
+        mock_probe.membership_hydration_failed.assert_called_once_with(
+            workspace_id.value, "SpiceDB unavailable"
+        )
+
+    @pytest.mark.asyncio
     async def test_get_by_id_returns_none_when_not_found(
         self, repository, mock_session
     ):
@@ -308,6 +500,74 @@ class TestGetByName:
 
         assert result is None
 
+    @pytest.mark.asyncio
+    async def test_get_by_name_hydrates_members(
+        self, repository, mock_session, mock_authz, tenant_id, now
+    ):
+        """Should hydrate members from SpiceDB when fetching by name."""
+        workspace_id = WorkspaceId.generate()
+        user_id = "user-editor-1"
+
+        model = WorkspaceModel(
+            id=workspace_id.value,
+            tenant_id=tenant_id.value,
+            name="Engineering",
+            parent_workspace_id=None,
+            is_root=False,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        # Mock SpiceDB ReadRelationships: user is an editor
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=f"workspace:{workspace_id.value}",
+                    relation="editor",
+                    subject=f"user:{user_id}",
+                )
+            ]
+        )
+
+        result = await repository.get_by_name(tenant_id, "Engineering")
+
+        assert result is not None
+        assert len(result.members) == 1
+        assert result.members[0].member_id == user_id
+        assert result.members[0].member_type == MemberType.USER
+        assert result.members[0].role == WorkspaceRole.EDITOR
+
+    @pytest.mark.asyncio
+    async def test_get_by_name_raises_on_hydration_failure(
+        self, repository, mock_session, mock_authz, mock_probe, tenant_id, now
+    ):
+        """Should raise and call probe on SpiceDB hydration failure."""
+        workspace_id = WorkspaceId.generate()
+        model = WorkspaceModel(
+            id=workspace_id.value,
+            tenant_id=tenant_id.value,
+            name="Failing",
+            parent_workspace_id=None,
+            is_root=False,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        mock_authz.read_relationships.side_effect = RuntimeError("SpiceDB error")
+
+        with pytest.raises(RuntimeError, match="SpiceDB error"):
+            await repository.get_by_name(tenant_id, "Failing")
+
+        mock_probe.membership_hydration_failed.assert_called_once_with(
+            workspace_id.value, "SpiceDB error"
+        )
+
 
 class TestGetRootWorkspace:
     """Tests for get_root_workspace method."""
@@ -349,6 +609,45 @@ class TestGetRootWorkspace:
         result = await repository.get_root_workspace(tenant_id)
 
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_root_workspace_hydrates_members(
+        self, repository, mock_session, mock_authz, tenant_id, now
+    ):
+        """Should hydrate members from SpiceDB when fetching root workspace."""
+        workspace_id = WorkspaceId.generate()
+        user_id = "user-root-admin"
+
+        model = WorkspaceModel(
+            id=workspace_id.value,
+            tenant_id=tenant_id.value,
+            name="Root",
+            parent_workspace_id=None,
+            is_root=True,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        # Mock SpiceDB ReadRelationships: user is an admin
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=f"workspace:{workspace_id.value}",
+                    relation="admin",
+                    subject=f"user:{user_id}",
+                )
+            ]
+        )
+
+        result = await repository.get_root_workspace(tenant_id)
+
+        assert result is not None
+        assert len(result.members) == 1
+        assert result.members[0].member_id == user_id
+        assert result.members[0].role == WorkspaceRole.ADMIN
 
 
 class TestListByTenant:
@@ -413,6 +712,109 @@ class TestListByTenant:
         result = await repository.list_by_tenant(tenant_id)
 
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_list_by_tenant_hydrates_members_for_each_workspace(
+        self, repository, mock_session, mock_authz, tenant_id, now
+    ):
+        """Should hydrate members from SpiceDB for each listed workspace."""
+        ws_id_1 = WorkspaceId.generate()
+        ws_id_2 = WorkspaceId.generate()
+        user_id = "user-shared"
+
+        models = [
+            WorkspaceModel(
+                id=ws_id_1.value,
+                tenant_id=tenant_id.value,
+                name="Root",
+                parent_workspace_id=None,
+                is_root=True,
+                created_at=now,
+                updated_at=now,
+            ),
+            WorkspaceModel(
+                id=ws_id_2.value,
+                tenant_id=tenant_id.value,
+                name="Child",
+                parent_workspace_id=None,
+                is_root=False,
+                created_at=now,
+                updated_at=now,
+            ),
+        ]
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = models
+        mock_session.execute.return_value = mock_result
+
+        # Mock SpiceDB ReadRelationships: user is admin of each workspace
+        async def mock_read_relationships(resource_type, resource_id=None, **kwargs):
+            return [
+                RelationshipTuple(
+                    resource=f"workspace:{resource_id}",
+                    relation="admin",
+                    subject=f"user:{user_id}",
+                )
+            ]
+
+        mock_authz.read_relationships.side_effect = mock_read_relationships
+
+        result = await repository.list_by_tenant(tenant_id)
+
+        assert len(result) == 2
+        # Both workspaces should have the admin member hydrated
+        for workspace in result:
+            assert len(workspace.members) == 1
+            assert workspace.members[0].member_id == user_id
+            assert workspace.members[0].role == WorkspaceRole.ADMIN
+
+    @pytest.mark.asyncio
+    async def test_list_by_tenant_continues_on_hydration_failure(
+        self, repository, mock_session, mock_authz, mock_probe, tenant_id, now
+    ):
+        """Should skip workspace and continue when hydration fails for one."""
+        ws_id_1 = WorkspaceId.generate()
+        ws_id_2 = WorkspaceId.generate()
+
+        models = [
+            WorkspaceModel(
+                id=ws_id_1.value,
+                tenant_id=tenant_id.value,
+                name="Failing",
+                parent_workspace_id=None,
+                is_root=True,
+                created_at=now,
+                updated_at=now,
+            ),
+            WorkspaceModel(
+                id=ws_id_2.value,
+                tenant_id=tenant_id.value,
+                name="Working",
+                parent_workspace_id=None,
+                is_root=False,
+                created_at=now,
+                updated_at=now,
+            ),
+        ]
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = models
+        mock_session.execute.return_value = mock_result
+
+        # First workspace hydration fails, second succeeds
+        async def mock_read_relationships(resource_type, resource_id=None, **kwargs):
+            if resource_id == ws_id_1.value:
+                raise RuntimeError("SpiceDB timeout")
+            return []
+
+        mock_authz.read_relationships.side_effect = mock_read_relationships
+
+        result = await repository.list_by_tenant(tenant_id)
+
+        # Only the second workspace should be returned
+        assert len(result) == 1
+        assert result[0].name == "Working"
+        mock_probe.membership_hydration_failed.assert_called_once()
 
 
 class TestDelete:
@@ -618,16 +1020,141 @@ class TestRootWorkspaceConstraint:
         assert child_model.is_root is False
 
 
+class TestHydrateMembers:
+    """Tests for _hydrate_members method."""
+
+    @pytest.mark.asyncio
+    async def test_calls_read_relationships_once(self, repository, mock_authz):
+        """Should call read_relationships once with the workspace resource."""
+        mock_authz.read_relationships.return_value = []
+
+        await repository._hydrate_members("workspace-id")
+
+        # Single call to read_relationships (replaces 6 lookup_subjects calls)
+        mock_authz.read_relationships.assert_called_once_with(
+            resource_type="workspace",
+            resource_id="workspace-id",
+        )
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_when_no_members(self, repository, mock_authz):
+        """Should return empty list when workspace has no members."""
+        mock_authz.read_relationships.return_value = []
+
+        members = await repository._hydrate_members("workspace-id")
+
+        assert members == []
+
+    @pytest.mark.asyncio
+    async def test_returns_correct_workspace_member_objects(
+        self, repository, mock_authz
+    ):
+        """Should return WorkspaceMember value objects with correct types."""
+        user_id = "user-alice"
+        group_id = "group-eng"
+
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource="workspace:workspace-id",
+                    relation="admin",
+                    subject=f"user:{user_id}",
+                ),
+                RelationshipTuple(
+                    resource="workspace:workspace-id",
+                    relation="editor",
+                    subject=f"group:{group_id}#member",
+                ),
+            ]
+        )
+
+        members = await repository._hydrate_members("workspace-id")
+
+        assert len(members) == 2
+        members_by_id = {m.member_id: m for m in members}
+
+        assert isinstance(members_by_id[user_id], WorkspaceMember)
+        assert members_by_id[user_id].member_type == MemberType.USER
+        assert members_by_id[user_id].role == WorkspaceRole.ADMIN
+
+        assert isinstance(members_by_id[group_id], WorkspaceMember)
+        assert members_by_id[group_id].member_type == MemberType.GROUP
+        assert members_by_id[group_id].role == WorkspaceRole.EDITOR
+
+    @pytest.mark.asyncio
+    async def test_filters_non_role_relations(self, repository, mock_authz):
+        """Should only include tuples with workspace role relations (admin, editor, member)."""
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource="workspace:workspace-id",
+                    relation="admin",
+                    subject="user:user-1",
+                ),
+                RelationshipTuple(
+                    resource="workspace:workspace-id",
+                    relation="parent",
+                    subject="workspace:parent-ws",
+                ),
+                RelationshipTuple(
+                    resource="workspace:workspace-id",
+                    relation="tenant",
+                    subject="tenant:tenant-1",
+                ),
+            ]
+        )
+
+        members = await repository._hydrate_members("workspace-id")
+
+        # Only the admin tuple should be included
+        assert len(members) == 1
+        assert members[0].member_id == "user-1"
+        assert members[0].role == WorkspaceRole.ADMIN
+
+    @pytest.mark.asyncio
+    async def test_deduplicates_tuples_from_spicedb(self, repository, mock_authz):
+        """Should deduplicate tuples defensively.
+
+        ReadRelationships should not normally return duplicates, but the
+        deduplication logic guards against edge cases.
+        """
+        group_id = "group-eng"
+
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource="workspace:workspace-id",
+                    relation="admin",
+                    subject=f"group:{group_id}#member",
+                ),
+                RelationshipTuple(
+                    resource="workspace:workspace-id",
+                    relation="admin",
+                    subject=f"group:{group_id}#member",
+                ),
+            ]
+        )
+
+        members = await repository._hydrate_members("workspace-id")
+
+        # Should have exactly 1 entry, not 2
+        assert len(members) == 1
+        assert members[0].member_id == group_id
+        assert members[0].member_type == MemberType.GROUP
+        assert members[0].role == WorkspaceRole.ADMIN
+
+
 class TestSerializerInjection:
     """Tests for serializer dependency injection."""
 
     @pytest.mark.asyncio
     async def test_uses_injected_serializer(
-        self, mock_session, mock_outbox, mock_probe, mock_serializer
+        self, mock_session, mock_authz, mock_outbox, mock_probe, mock_serializer
     ):
         """Should use injected serializer instead of creating default."""
         repository = WorkspaceRepository(
             session=mock_session,
+            authz=mock_authz,
             outbox=mock_outbox,
             probe=mock_probe,
             serializer=mock_serializer,
@@ -650,13 +1177,14 @@ class TestSerializerInjection:
         mock_serializer.serialize.assert_called()
 
     def test_uses_default_serializer_when_not_injected(
-        self, mock_session, mock_outbox, mock_probe
+        self, mock_session, mock_authz, mock_outbox, mock_probe
     ):
         """Should create default serializer when not injected."""
         from iam.infrastructure.outbox import IAMEventSerializer
 
         repository = WorkspaceRepository(
             session=mock_session,
+            authz=mock_authz,
             outbox=mock_outbox,
             probe=mock_probe,
         )
@@ -757,7 +1285,7 @@ class TestObservabilityProbe:
 
         await repository.get_by_id(workspace_id)
 
-        mock_probe.workspace_retrieved.assert_called_once_with(workspace_id.value)
+        mock_probe.workspace_retrieved.assert_called_once_with(workspace_id.value, 0)
 
     @pytest.mark.asyncio
     async def test_probe_called_on_delete(

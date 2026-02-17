@@ -78,17 +78,46 @@ class Group:
         )
         return group
 
-    def add_member(self, user_id: UserId, role: GroupRole) -> None:
+    def add_member(
+        self, user_id: UserId, role: GroupRole, current_role: GroupRole | None = None
+    ) -> None:
         """Add a member to the group with a specific role.
+
+        If the user already has a different role (via current_role parameter),
+        the old role is removed first (role replacement pattern). This ensures
+        users can only have one role per group.
 
         Args:
             user_id: The user to add
             role: The role to assign (ADMIN or MEMBER)
+            current_role: User's current role (if any). If different from new role,
+                the old role will be removed first (role replacement).
 
         Raises:
-            ValueError: If user is already a member
+            ValueError: If user already has the same role
         """
-        if self.has_member(user_id):
+        # If user already has a different role, remove it first (role replacement)
+        if current_role is not None and current_role != role:
+            # Guard: prevent demoting the last admin
+            if current_role == GroupRole.ADMIN and role != GroupRole.ADMIN:
+                admin_count = sum(1 for m in self.members if m.role == GroupRole.ADMIN)
+                if admin_count == 1:
+                    raise ValueError(
+                        "Cannot demote the last admin. Promote another member first."
+                    )
+
+            # Remove from in-memory list
+            self.members = [m for m in self.members if m.user_id != user_id]
+
+            self._pending_events.append(
+                MemberRemoved(
+                    group_id=self.id.value,
+                    user_id=user_id.value,
+                    role=current_role.value,
+                    occurred_at=datetime.now(UTC),
+                )
+            )
+        elif self.has_member(user_id):
             raise ValueError(f"User {user_id} is already a member of this group")
 
         member = GroupMember(user_id=user_id, role=role)
@@ -200,6 +229,25 @@ class Group:
                 occurred_at=datetime.now(UTC),
             )
         )
+
+    def rename(self, new_name: str) -> None:
+        """Rename the group.
+
+        Args:
+            new_name: New group name (1-255 characters after trimming whitespace)
+
+        Raises:
+            ValueError: If name is invalid or unchanged
+        """
+        trimmed = new_name.strip()
+
+        if not trimmed or len(trimmed) > 255:
+            raise ValueError("Group name must be between 1 and 255 characters")
+
+        if trimmed == self.name:
+            raise ValueError("New name is the same as current name")
+
+        self.name = trimmed
 
     def has_member(self, user_id: UserId) -> bool:
         """Check if a user is a member of this group.

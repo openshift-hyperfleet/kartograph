@@ -338,25 +338,27 @@ class AgeBulkLoadingStrategy(BulkLoadingStrategy):
         probe: MutationProbe,
         graph_name: str,
     ) -> int:
-        """Execute DELETE operations in batches."""
+        """Execute DELETE operations one ID at a time.
+
+        Uses per-ID scalar subqueries instead of batch ``= ANY(%s)`` to
+        avoid catastrophic query plans in AGE with large graphs.
+        """
         batches = 0
-        for i in range(0, len(operations), self._batch_size):
-            batch = operations[i : i + self._batch_size]
-            batch_start = time.perf_counter()
 
-            ids = [op.id for op in batch if op.id is not None]
-
-            if len(ids) != len(batch):
+        for op in operations:
+            if op.id is None:
                 raise ValueError(
                     "Detected malformed DELETE operation. At least one operation missing an ID."
                 )
 
+            batch_start = time.perf_counter()
+
             if entity_type == EntityType.NODE:
-                deleted = self._queries.delete_nodes_with_detach(
-                    cursor, graph_name, ids
+                deleted = self._queries.delete_node_with_detach(
+                    cursor, graph_name, op.id
                 )
             else:
-                deleted = self._queries.delete_edges(cursor, graph_name, ids)
+                deleted = self._queries.delete_edge(cursor, graph_name, op.id)
 
             probe.batch_applied(
                 operation=MutationOperationType.DELETE,

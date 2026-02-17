@@ -97,7 +97,11 @@ class TestIAMEventTranslatorGroupDeleted:
         assert op.relation == RelationType.TENANT
 
     def test_translates_group_deleted_with_members(self):
-        """GroupDeleted should delete tenant and all member relationships."""
+        """GroupDeleted should delete tenant and all member relationships.
+
+        Member role maps to ``member_relation`` in SpiceDB (not ``member``
+        which is now a permission).
+        """
         translator = IAMEventTranslator()
         payload = {
             "group_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
@@ -118,18 +122,22 @@ class TestIAMEventTranslatorGroupDeleted:
         # First should be tenant relationship
         assert operations[0].relation == RelationType.TENANT
 
-        # Members should be deleted with their roles
+        # Members should be deleted with their SpiceDB relation names
         member_ops = operations[1:]
         roles = [str(op.relation) for op in member_ops]
         assert "admin" in roles
-        assert "member" in roles
+        assert "member_relation" in roles
 
 
 class TestIAMEventTranslatorMemberAdded:
     """Tests for MemberAdded translation."""
 
     def test_translates_member_added_with_member_role(self):
-        """MemberAdded with MEMBER role should produce member relationship."""
+        """MemberAdded with MEMBER role should produce member_relation relationship.
+
+        In the SpiceDB schema, ``member`` is a permission (admin + member_relation),
+        so the relation written for regular members is ``member_relation``.
+        """
         translator = IAMEventTranslator()
         payload = {
             "group_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
@@ -145,7 +153,7 @@ class TestIAMEventTranslatorMemberAdded:
         assert isinstance(op, WriteRelationship)
         assert op.resource_type == ResourceType.GROUP
         assert op.resource_id == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
-        assert op.relation == GroupRole.MEMBER
+        assert op.relation == RelationType.MEMBER_RELATION
         assert op.subject_type == ResourceType.USER
         assert op.subject_id == "01ARZCX0P0HZGQP3MZXQQ0NNWW"
 
@@ -169,7 +177,11 @@ class TestIAMEventTranslatorMemberRemoved:
     """Tests for MemberRemoved translation."""
 
     def test_translates_member_removed(self):
-        """MemberRemoved should produce delete relationship operation."""
+        """MemberRemoved should produce delete relationship operation.
+
+        Uses ``member_relation`` as the SpiceDB relation (not ``member``
+        which is now a permission in the group schema).
+        """
         translator = IAMEventTranslator()
         payload = {
             "group_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
@@ -184,7 +196,7 @@ class TestIAMEventTranslatorMemberRemoved:
         op = operations[0]
         assert isinstance(op, DeleteRelationship)
         assert op.resource == "group:01ARZCX0P0HZGQP3MZXQQ0NNZZ"
-        assert op.relation_name == "member"
+        assert op.relation_name == "member_relation"
         assert op.subject == "user:01ARZCX0P0HZGQP3MZXQQ0NNWW"
 
 
@@ -192,7 +204,11 @@ class TestIAMEventTranslatorMemberRoleChanged:
     """Tests for MemberRoleChanged translation."""
 
     def test_translates_member_role_changed(self):
-        """MemberRoleChanged should produce delete old + write new operations."""
+        """MemberRoleChanged should produce delete old + write new operations.
+
+        When old_role is ``member``, the SpiceDB relation deleted is
+        ``member_relation`` (the actual relation, not the permission).
+        """
         translator = IAMEventTranslator()
         payload = {
             "group_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
@@ -206,10 +222,10 @@ class TestIAMEventTranslatorMemberRoleChanged:
 
         assert len(operations) == 2
 
-        # First should delete old role
+        # First should delete old role (member -> member_relation in SpiceDB)
         delete_op = operations[0]
         assert isinstance(delete_op, DeleteRelationship)
-        assert delete_op.relation_name == "member"
+        assert delete_op.relation_name == "member_relation"
 
         # Second should write new role
         write_op = operations[1]
@@ -647,6 +663,7 @@ class TestIAMEventTranslatorWorkspaceMemberAdded:
         assert op.relation == WorkspaceRole.EDITOR
         assert op.subject_type == ResourceType.USER
         assert op.subject_id == "user-alice"
+        assert op.subject_relation is None
 
     def test_translates_group_member_added_to_workspace(self):
         """WorkspaceMemberAdded with GROUP type should write group role relationship."""
@@ -669,6 +686,35 @@ class TestIAMEventTranslatorWorkspaceMemberAdded:
         assert op.relation == WorkspaceRole.ADMIN
         assert op.subject_type == ResourceType.GROUP
         assert op.subject_id == "01GROUP_ENG"
+        assert op.subject_relation == "member"
+
+    def test_user_member_added_subject_format(self):
+        """User member subject should format as 'user:id' without relation."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "member_id": "user-alice",
+            "member_type": "user",
+            "role": "editor",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceMemberAdded", payload)
+        assert operations[0].subject == "user:user-alice"
+
+    def test_group_member_added_subject_format(self):
+        """Group member subject should format as 'group:id#member' per SpiceDB schema."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ABC",
+            "member_id": "01GROUP_ENG",
+            "member_type": "group",
+            "role": "admin",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceMemberAdded", payload)
+        assert operations[0].subject == "group:01GROUP_ENG#member"
 
 
 class TestIAMEventTranslatorWorkspaceMemberRemoved:
@@ -695,6 +741,7 @@ class TestIAMEventTranslatorWorkspaceMemberRemoved:
         assert op.relation == WorkspaceRole.MEMBER
         assert op.subject_type == ResourceType.USER
         assert op.subject_id == "user-alice"
+        assert op.subject_relation is None
 
     def test_translates_group_member_removed_from_workspace(self):
         """WorkspaceMemberRemoved with GROUP type should delete group role relationship."""
@@ -717,6 +764,7 @@ class TestIAMEventTranslatorWorkspaceMemberRemoved:
         assert op.relation == WorkspaceRole.EDITOR
         assert op.subject_type == ResourceType.GROUP
         assert op.subject_id == "01GROUP_ENG"
+        assert op.subject_relation == "member"
 
 
 class TestIAMEventTranslatorWorkspaceMemberRoleChanged:
@@ -746,6 +794,7 @@ class TestIAMEventTranslatorWorkspaceMemberRoleChanged:
         assert delete_op.relation == WorkspaceRole.MEMBER
         assert delete_op.subject_type == ResourceType.USER
         assert delete_op.subject_id == "user-alice"
+        assert delete_op.subject_relation is None
 
         # Second should write new role
         write_op = operations[1]
@@ -755,6 +804,7 @@ class TestIAMEventTranslatorWorkspaceMemberRoleChanged:
         assert write_op.relation == WorkspaceRole.ADMIN
         assert write_op.subject_type == ResourceType.USER
         assert write_op.subject_id == "user-alice"
+        assert write_op.subject_relation is None
 
     def test_translates_group_workspace_member_role_changed(self):
         """WorkspaceMemberRoleChanged with GROUP type should use group subject type."""
@@ -772,10 +822,11 @@ class TestIAMEventTranslatorWorkspaceMemberRoleChanged:
 
         assert len(operations) == 2
 
-        # Both should use GROUP subject type
+        # Both should use GROUP subject type with member relation
         for op in operations:
             assert op.subject_type == ResourceType.GROUP
             assert op.subject_id == "01GROUP_ENG"
+            assert op.subject_relation == "member"
 
 
 class TestIAMEventTranslatorWorkspaceMemberValidation:
@@ -946,6 +997,7 @@ class TestIAMEventTranslatorWorkspaceDeletedWithMembers:
         ]
         assert len(user_op) == 1
         assert user_op[0].subject_type == ResourceType.USER
+        assert user_op[0].subject_relation is None
 
         # Find group member operation
         group_op = [
@@ -953,6 +1005,7 @@ class TestIAMEventTranslatorWorkspaceDeletedWithMembers:
         ]
         assert len(group_op) == 1
         assert group_op[0].subject_type == ResourceType.GROUP
+        assert group_op[0].subject_relation == "member"
 
     def test_handles_all_three_roles(self):
         """WorkspaceDeleted should handle admin, editor, and member roles."""

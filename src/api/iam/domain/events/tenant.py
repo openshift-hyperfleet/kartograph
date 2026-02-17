@@ -16,9 +16,8 @@ from iam.domain.events.group import MemberSnapshot
 class TenantCreated:
     """Event raised when a new tenant is created.
 
-    This event captures the fact that a tenant has been created.
-    For the walking skeleton, no SpiceDB relationships are automatically
-    created (those will be set when assigning tenant admins).
+    This event captures the creation of a tenant entity.
+    The tenant admin relationship is created via TenantMemberAdded event.
 
     Attributes:
         tenant_id: The ULID of the created tenant
@@ -76,11 +75,13 @@ class TenantMemberRemoved:
     Attributes:
         tenant_id: The ID of the tenant from which the member was removed
         user_id: The user removed as a member from the tenant
-        removed_by: The ID of the user that initiated this action
         occurred_at: When this event occurred (UTC)
+        removed_by: The ID of the user that initiated this action (None for system/role replacement)
+        role: The role being removed (None for legacy events that delete all roles)
     """
 
     tenant_id: str
     user_id: str
     occurred_at: datetime
-    removed_by: str
+    removed_by: Optional[str] = None
+    role: Optional[str] = None

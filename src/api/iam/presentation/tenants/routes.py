@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from iam.dependencies.multi_tenant_mode import require_multi_tenant_mode
 from iam.dependencies.tenant import get_tenant_service
-from iam.dependencies.user import get_current_user
+from iam.dependencies.user import get_authenticated_user, get_current_user
 from iam.application.services import TenantService
-from iam.application.value_objects import CurrentUser
+from iam.application.value_objects import AuthenticatedUser, CurrentUser
 from iam.domain.exceptions import CannotRemoveLastAdminError
 from iam.domain.value_objects import TenantId, UserId
 from iam.ports.exceptions import DuplicateTenantNameError, UnauthorizedError
@@ -30,21 +30,26 @@ router = APIRouter(
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_multi_tenant_mode)],
 )
 async def create_tenant(
     request: CreateTenantRequest,
-    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    authenticated_user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
     service: Annotated[TenantService, Depends(get_tenant_service)],
+    _: Annotated[None, Depends(require_multi_tenant_mode)],
 ) -> TenantResponse:
     """Create a new tenant.
 
-    For the walking skeleton, this uses header-based auth.
-    In production, this should be restricted to system administrators.
+    Uses get_authenticated_user (not get_current_user) because this is a
+    bootstrap endpoint — users need to create tenants before they have
+    tenant context. Only authentication is required, not tenant scoping.
+
+    The authenticated user is automatically granted admin access to the
+    newly created tenant.
 
     Args:
         request: Tenant creation request (name)
-        current_user: Current authenticated user (admin check would go here)
+        authenticated_user: Authenticated user (no tenant context required).
+            Automatically granted admin access to the created tenant.
         service: Tenant service for orchestration
 
     Returns:
@@ -55,7 +60,10 @@ async def create_tenant(
         HTTPException: 500 for unexpected errors
     """
     try:
-        tenant = await service.create_tenant(name=request.name)
+        tenant = await service.create_tenant(
+            name=request.name,
+            creator_id=authenticated_user.user_id,
+        )
         return TenantResponse.from_domain(tenant)
 
     except DuplicateTenantNameError:
@@ -78,8 +86,7 @@ async def get_tenant(
 ) -> TenantResponse:
     """Get tenant by ID.
 
-    Requires authentication. For the walking skeleton, this is open to
-    authenticated users. In production, this should enforce proper access control.
+    Requires VIEW permission on the tenant.
 
     Args:
         tenant_id: Tenant ID (ULID format)
@@ -91,7 +98,7 @@ async def get_tenant(
 
     Raises:
         HTTPException: 400 if tenant ID is invalid
-        HTTPException: 404 if tenant not found
+        HTTPException: 404 if tenant not found or user lacks VIEW permission
         HTTPException: 500 for unexpected errors
     """
     try:
@@ -103,7 +110,10 @@ async def get_tenant(
         ) from e
 
     try:
-        tenant = await service.get_tenant(tenant_id_obj)
+        tenant = await service.get_tenant(
+            tenant_id_obj,
+            user_id=current_user.user_id,
+        )
         if tenant is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -122,26 +132,31 @@ async def get_tenant(
 
 @router.get("")
 async def list_tenants(
-    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    authenticated_user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
     service: Annotated[TenantService, Depends(get_tenant_service)],
 ) -> list[TenantResponse]:
-    """List all tenants.
+    """List all tenants the user is a member of.
 
-    Requires authentication. For the walking skeleton, this is open to
-    authenticated users. In production, this should be restricted to admins.
+    Filters tenants by VIEW permission via SpiceDB.
+
+    Uses get_authenticated_user (not get_current_user) because this is a
+    bootstrap endpoint -- users need to list tenants before they have
+    tenant context. Only authentication is required, not tenant scoping.
 
     Args:
-        current_user: Current authenticated user
+        authenticated_user: Authenticated user (no tenant context required)
         service: Tenant service
 
     Returns:
-        List of TenantResponse objects
+        List of TenantResponse objects for tenants user can view
 
     Raises:
         HTTPException: 500 for unexpected errors
     """
     try:
-        tenants = await service.list_tenants()
+        tenants = await service.list_tenants(
+            user_id=authenticated_user.user_id,
+        )
         return [TenantResponse.from_domain(t) for t in tenants]
 
     except Exception:
@@ -154,16 +169,23 @@ async def list_tenants(
 @router.delete(
     "/{tenant_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_multi_tenant_mode)],
+    responses={
+        204: {"description": "Tenant deleted successfully"},
+        400: {"description": "Invalid tenant ID format"},
+        403: {"description": "Insufficient permissions to delete tenant"},
+        404: {"description": "Tenant not found"},
+        500: {"description": "Internal server error"},
+    },
 )
 async def delete_tenant(
     tenant_id: str,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[TenantService, Depends(get_tenant_service)],
+    _: Annotated[None, Depends(require_multi_tenant_mode)],
 ) -> None:
     """Delete a tenant.
 
-    TODO: In production, this should be restricted to system administrators.
+    Requires ADMINISTRATE permission on the tenant.
 
     Args:
         tenant_id: Tenant ID (ULID format)
@@ -175,6 +197,7 @@ async def delete_tenant(
 
     Raises:
         HTTPException: 400 if tenant ID is invalid
+        HTTPException: 403 if user lacks ADMINISTRATE permission
         HTTPException: 404 if tenant not found
         HTTPException: 500 for unexpected errors
     """
@@ -187,13 +210,21 @@ async def delete_tenant(
         ) from e
 
     try:
-        deleted = await service.delete_tenant(tenant_id_obj)
+        deleted = await service.delete_tenant(
+            tenant_id_obj,
+            requesting_user_id=current_user.user_id,
+        )
         if not deleted:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Tenant {tenant_id} not found",
             )
 
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions to delete tenant",
+        )
     except HTTPException:
         raise
     except Exception:

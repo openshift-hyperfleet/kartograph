@@ -7,16 +7,17 @@ its own routes and models.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
-from iam.dependencies.user import get_current_user
 from iam.presentation import api_keys, groups, tenants, workspaces
 
-# Create main IAM router with common configuration
+# Create main IAM router with common configuration.
+# Auth is enforced per-endpoint (each handler declares its own Depends),
+# not at the router level, to allow tenant-bootstrap endpoints (list/create
+# tenants) to use get_authenticated_user instead of get_current_user.
 router = APIRouter(
     prefix="/iam",
     tags=["iam"],
-    dependencies=[Depends(get_current_user)],
 )
 
 # Include all aggregate routers

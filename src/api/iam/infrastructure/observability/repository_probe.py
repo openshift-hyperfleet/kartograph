@@ -314,15 +314,16 @@ class DefaultTenantRepositoryProbe:
 class WorkspaceRepositoryProbe(Protocol):
     """Domain probe for workspace repository operations.
 
-    Records domain events during workspace persistence operations.
+    Records domain events during workspace persistence operations,
+    including member hydration from SpiceDB.
     """
 
     def workspace_saved(self, workspace_id: str, tenant_id: str) -> None:
         """Record that a workspace was successfully saved."""
         ...
 
-    def workspace_retrieved(self, workspace_id: str) -> None:
-        """Record that a workspace was retrieved."""
+    def workspace_retrieved(self, workspace_id: str, member_count: int = 0) -> None:
+        """Record that a workspace was retrieved with members hydrated."""
         ...
 
     def workspace_not_found(self, **kwargs: Any) -> None:
@@ -335,6 +336,10 @@ class WorkspaceRepositoryProbe(Protocol):
 
     def workspaces_listed(self, tenant_id: str, count: int) -> None:
         """Record that workspaces were listed for a tenant."""
+        ...
+
+    def membership_hydration_failed(self, workspace_id: str, error: str) -> None:
+        """Record that hydrating members from SpiceDB failed."""
         ...
 
     def with_context(self, context: ObservationContext) -> WorkspaceRepositoryProbe:
@@ -374,11 +379,12 @@ class DefaultWorkspaceRepositoryProbe:
             **self._get_context_kwargs(),
         )
 
-    def workspace_retrieved(self, workspace_id: str) -> None:
-        """Record that a workspace was retrieved."""
+    def workspace_retrieved(self, workspace_id: str, member_count: int = 0) -> None:
+        """Record that a workspace was retrieved with members hydrated."""
         self._logger.debug(
             "workspace_retrieved",
             workspace_id=workspace_id,
+            member_count=member_count,
             **self._get_context_kwargs(),
         )
 
@@ -404,5 +410,14 @@ class DefaultWorkspaceRepositoryProbe:
             "workspaces_listed",
             tenant_id=tenant_id,
             count=count,
+            **self._get_context_kwargs(),
+        )
+
+    def membership_hydration_failed(self, workspace_id: str, error: str) -> None:
+        """Record that hydrating members from SpiceDB failed."""
+        self._logger.error(
+            "membership_hydration_failed",
+            workspace_id=workspace_id,
+            error=error,
             **self._get_context_kwargs(),
         )

@@ -15,14 +15,15 @@ from fastapi import FastAPI, status
 from fastapi.testclient import TestClient
 
 from iam.application.services import TenantService
-from iam.application.value_objects import CurrentUser
+from iam.application.value_objects import AuthenticatedUser, CurrentUser
 from iam.dependencies.multi_tenant_mode import (
     _get_single_tenant_mode,
 )
 from iam.dependencies.tenant import get_tenant_service
-from iam.dependencies.user import get_current_user
+from iam.dependencies.user import get_authenticated_user, get_current_user
 from iam.domain.aggregates import Tenant
 from iam.domain.value_objects import TenantId, UserId
+from iam.ports.exceptions import UnauthorizedError
 from iam.presentation import router
 from infrastructure.authorization_dependencies import get_spicedb_client
 
@@ -52,6 +53,15 @@ def mock_current_user() -> CurrentUser:
 
 
 @pytest.fixture
+def mock_authenticated_user() -> AuthenticatedUser:
+    """Mock AuthenticatedUser for tenant-bootstrap endpoints (no tenant_id)."""
+    return AuthenticatedUser(
+        user_id=UserId(value="test-user-123"),
+        username="testuser",
+    )
+
+
+@pytest.fixture
 def valid_tenant_id() -> TenantId:
     """A valid tenant ID for use in URL paths."""
     return TenantId.generate()
@@ -62,6 +72,7 @@ def _create_test_client(
     mock_tenant_service: AsyncMock,
     mock_authz: AsyncMock,
     mock_current_user: CurrentUser,
+    mock_authenticated_user: AuthenticatedUser | None = None,
     single_tenant_mode: bool,
 ) -> TestClient:
     """Create a TestClient with the given single_tenant_mode override.
@@ -69,7 +80,9 @@ def _create_test_client(
     Args:
         mock_tenant_service: Mock for TenantService dependency.
         mock_authz: Mock for AuthorizationProvider dependency.
-        mock_current_user: Mock for authenticated user dependency.
+        mock_current_user: Mock for tenant-scoped user dependency.
+        mock_authenticated_user: Mock for tenant-bootstrap user dependency.
+            If None, a default is created from mock_current_user fields.
         single_tenant_mode: Whether to simulate single-tenant mode.
 
     Returns:
@@ -77,8 +90,15 @@ def _create_test_client(
     """
     app = FastAPI()
 
+    if mock_authenticated_user is None:
+        mock_authenticated_user = AuthenticatedUser(
+            user_id=mock_current_user.user_id,
+            username=mock_current_user.username,
+        )
+
     app.dependency_overrides[get_tenant_service] = lambda: mock_tenant_service
     app.dependency_overrides[get_current_user] = lambda: mock_current_user
+    app.dependency_overrides[get_authenticated_user] = lambda: mock_authenticated_user
     app.dependency_overrides[get_spicedb_client] = lambda: mock_authz
     app.dependency_overrides[_get_single_tenant_mode] = lambda: single_tenant_mode
 
@@ -212,6 +232,30 @@ class TestDeleteTenantBlockedInSingleTenantMode:
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         mock_tenant_service.delete_tenant.assert_called_once()
+
+    def test_returns_403_when_user_lacks_permission(
+        self,
+        mock_tenant_service: AsyncMock,
+        mock_authz: AsyncMock,
+        mock_current_user: CurrentUser,
+        valid_tenant_id: TenantId,
+    ) -> None:
+        """Should return 403 when user lacks ADMINISTRATE permission on tenant."""
+        mock_tenant_service.delete_tenant.side_effect = UnauthorizedError(
+            "User lacks administrate permission"
+        )
+
+        client = _create_test_client(
+            mock_tenant_service=mock_tenant_service,
+            mock_authz=mock_authz,
+            mock_current_user=mock_current_user,
+            single_tenant_mode=False,
+        )
+
+        response = client.delete(f"/iam/tenants/{valid_tenant_id.value}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "insufficient permissions" in response.json()["detail"].lower()
 
 
 class TestUnprotectedRoutesAccessibleInSingleTenantMode:

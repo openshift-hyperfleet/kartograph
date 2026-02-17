@@ -9,6 +9,32 @@ from enum import StrEnum
 
 
 @dataclass(frozen=True)
+class RelationshipTuple:
+    """An explicit relationship tuple from SpiceDB.
+
+    Represents a stored relationship as returned by ReadRelationships.
+    Unlike LookupSubjects which computes permissions, RelationshipTuple
+    only contains explicitly written tuples.
+
+    Attributes:
+        resource: Resource identifier (e.g., "workspace:abc123")
+        relation: Relation name (e.g., "admin")
+        subject: Subject identifier (e.g., "group:xyz#member" or "user:bob")
+
+    Example:
+        >>> RelationshipTuple(
+        ...     resource="workspace:abc123",
+        ...     relation="admin",
+        ...     subject="group:xyz#member"
+        ... )
+    """
+
+    resource: str
+    relation: str
+    subject: str
+
+
+@dataclass(frozen=True)
 class RelationshipSpec:
     """Specification for a relationship between a resource and subject.
 
@@ -40,12 +66,28 @@ class SubjectRelation:
     Returned by lookup_subjects() to represent subjects that have
     a specific relationship to a resource in SpiceDB.
 
+    IMPORTANT: The `relation` field has context-dependent semantics:
+    - When lookup_subjects() is called WITH optional_subject_relation (e.g., "member"),
+      the relation field contains the subject's relation (e.g., "member" from "group:id#member")
+    - When lookup_subjects() is called WITHOUT optional_subject_relation,
+      the relation field contains the resource's permission/relation being queried (e.g., "admin")
+
+    This inconsistency exists because SpiceDB's LookupSubjects API returns subject IDs
+    without relation metadata, so we populate the field with context from the call.
+
     Attributes:
         subject_id: The ID of the subject (e.g., user ID without type prefix)
-        relation: The relation type (e.g., "member", "owner", "admin")
+        relation: The relation type - semantics depend on optional_subject_relation usage
+                  (see IMPORTANT note above)
 
-    Example:
-        >>> SubjectRelation(subject_id="01ARZ3...", relation="owner")
+    Examples:
+        >>> # Case 1: With optional_subject_relation
+        >>> # lookup_subjects("workspace:abc", "admin", "group", "member")
+        >>> SubjectRelation(subject_id="grp123", relation="member")  # subject relation
+
+        >>> # Case 2: Without optional_subject_relation
+        >>> # lookup_subjects("workspace:abc", "admin", "user")
+        >>> SubjectRelation(subject_id="usr456", relation="admin")  # resource permission
     """
 
     subject_id: str
@@ -75,6 +117,7 @@ class RelationType(StrEnum):
     ADMIN = "admin"
     EDITOR = "editor"
     MEMBER = "member"
+    MEMBER_RELATION = "member_relation"
     OWNER = "owner"
     PARENT = "parent"
     ROOT_WORKSPACE = "root_workspace"

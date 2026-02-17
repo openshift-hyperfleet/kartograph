@@ -12,6 +12,7 @@ from iam.application.observability import (
     DefaultWorkspaceServiceProbe,
     WorkspaceServiceProbe,
 )
+from iam.application.value_objects import WorkspaceAccessGrant
 from iam.domain.aggregates import Workspace
 from iam.domain.value_objects import (
     MemberType,
@@ -167,7 +168,14 @@ class WorkspaceService:
                     parent_workspace_id=parent_workspace_id,
                 )
 
-                # Persist workspace
+                # Grant creator admin access (same pattern as GroupService.create_group)
+                workspace.add_member(
+                    member_id=creator_id.value,
+                    member_type=MemberType.USER,
+                    role=WorkspaceRole.ADMIN,
+                )
+
+                # Persist workspace (saves both WorkspaceCreated + WorkspaceMemberAdded events)
                 await self._workspace_repository.save(workspace)
 
             # Probe success (outside transaction - it's committed)
@@ -495,6 +503,32 @@ class WorkspaceService:
 
             return result
 
+    async def _get_member_workspace_role(
+        self,
+        workspace_id: WorkspaceId,
+        member_id: str,
+        member_type: MemberType,
+    ) -> WorkspaceRole | None:
+        """Get a member's current role in a workspace, or None if not a member."""
+        subject_type = (
+            ResourceType.GROUP.value
+            if member_type == MemberType.GROUP
+            else ResourceType.USER.value
+        )
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.WORKSPACE.value,
+            resource_id=workspace_id.value,
+            subject_type=subject_type,
+            subject_id=member_id,
+        )
+
+        valid_roles = {role.value for role in WorkspaceRole}
+        for rel_tuple in tuples:
+            if rel_tuple.relation in valid_roles:
+                return WorkspaceRole(rel_tuple.relation)
+
+        return None
+
     async def add_member(
         self,
         workspace_id: WorkspaceId,
@@ -504,6 +538,10 @@ class WorkspaceService:
         role: WorkspaceRole,
     ) -> Workspace:
         """Add a member to a workspace.
+
+        If the member already has a different role, the old role is automatically
+        removed first (role replacement pattern). This ensures members can only
+        have one role per workspace.
 
         Args:
             workspace_id: The workspace to add member to
@@ -517,7 +555,7 @@ class WorkspaceService:
 
         Raises:
             PermissionError: If acting user lacks MANAGE permission
-            ValueError: If member already exists or workspace not found
+            ValueError: If member already has the same role or workspace not found
             UnauthorizedError: If workspace belongs to different tenant
         """
         # Check acting user has MANAGE permission
@@ -543,8 +581,15 @@ class WorkspaceService:
             if workspace.tenant_id != self._scope_to_tenant:
                 raise UnauthorizedError("Workspace belongs to different tenant")
 
-            # Add member (aggregate handles validation and events)
-            workspace.add_member(member_id, member_type, role)
+            # Check if member already has a role (query SpiceDB)
+            current_role = await self._get_member_workspace_role(
+                workspace_id, member_id, member_type
+            )
+
+            # Add member (will replace role if different)
+            workspace.add_member(
+                member_id, member_type, role, current_role=current_role
+            )
 
             # Save (persists events to outbox)
             await self._workspace_repository.save(workspace)
@@ -622,14 +667,143 @@ class WorkspaceService:
 
         return workspace
 
+    async def update_workspace(
+        self,
+        workspace_id: WorkspaceId,
+        user_id: UserId,
+        name: str,
+    ) -> Workspace:
+        """Update workspace metadata.
+
+        Args:
+            workspace_id: The workspace to update
+            user_id: User performing the action (must have MANAGE permission)
+            name: New workspace name
+
+        Returns:
+            Updated Workspace aggregate
+
+        Raises:
+            PermissionError: If user lacks MANAGE permission
+            ValueError: If workspace not found or name invalid
+            DuplicateWorkspaceNameError: If name already exists in tenant
+            UnauthorizedError: If workspace belongs to different tenant
+        """
+        # Check user has MANAGE permission
+        has_manage = await self._check_workspace_permission(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            permission=Permission.MANAGE,
+        )
+
+        if not has_manage:
+            raise PermissionError(
+                f"User {user_id.value} lacks manage permission on workspace "
+                f"{workspace_id.value}"
+            )
+
+        async with self._session.begin():
+            # Load workspace
+            workspace = await self._workspace_repository.get_by_id(workspace_id)
+            if workspace is None:
+                raise ValueError(f"Workspace {workspace_id.value} not found")
+
+            # Verify tenant ownership
+            if workspace.tenant_id != self._scope_to_tenant:
+                raise UnauthorizedError("Workspace belongs to different tenant")
+
+            # Check name uniqueness (if name is changing)
+            if name != workspace.name:
+                existing = await self._workspace_repository.get_by_name(
+                    tenant_id=self._scope_to_tenant,
+                    name=name,
+                )
+                if existing:
+                    raise DuplicateWorkspaceNameError(
+                        f"Workspace '{name}' already exists in tenant"
+                    )
+
+            # Update workspace
+            workspace.rename(name)
+
+            # Save
+            await self._workspace_repository.save(workspace)
+
+        return workspace
+
+    async def update_member_role(
+        self,
+        workspace_id: WorkspaceId,
+        acting_user_id: UserId,
+        member_id: str,
+        member_type: MemberType,
+        new_role: WorkspaceRole,
+    ) -> Workspace:
+        """Update a member's role in a workspace.
+
+        Args:
+            workspace_id: The workspace
+            acting_user_id: User performing the action (must have MANAGE permission)
+            member_id: ID of user or group to update
+            member_type: Whether updating a USER or GROUP
+            new_role: The new role to assign
+
+        Returns:
+            Updated Workspace aggregate
+
+        Raises:
+            PermissionError: If acting user lacks MANAGE permission
+            ValueError: If member doesn't exist, role unchanged, or workspace not found
+            UnauthorizedError: If workspace belongs to different tenant
+        """
+        # Check acting user has MANAGE permission
+        has_manage = await self._check_workspace_permission(
+            user_id=acting_user_id,
+            workspace_id=workspace_id,
+            permission=Permission.MANAGE,
+        )
+
+        if not has_manage:
+            raise PermissionError(
+                f"User {acting_user_id.value} lacks manage permission on workspace "
+                f"{workspace_id.value}"
+            )
+
+        async with self._session.begin():
+            # Load workspace
+            workspace = await self._workspace_repository.get_by_id(workspace_id)
+            if workspace is None:
+                raise ValueError(f"Workspace {workspace_id.value} not found")
+
+            # Verify tenant ownership
+            if workspace.tenant_id != self._scope_to_tenant:
+                raise UnauthorizedError("Workspace belongs to different tenant")
+
+            # Update member role (aggregate handles validation and events)
+            workspace.update_member_role(member_id, member_type, new_role)
+
+            # Save (persists events to outbox)
+            await self._workspace_repository.save(workspace)
+
+        # Emit probe
+        self._probe.workspace_member_role_changed(
+            workspace_id=workspace_id.value,
+            member_id=member_id,
+            member_type=member_type.value,
+            new_role=new_role.value,
+            acting_user_id=acting_user_id.value,
+        )
+
+        return workspace
+
     async def list_members(
         self,
         workspace_id: WorkspaceId,
         user_id: UserId,
-    ) -> list[tuple[str, str, str]]:
+    ) -> list[WorkspaceAccessGrant]:
         """List members of a workspace.
 
-        Returns list of (member_id, member_type, role) tuples from SpiceDB.
+        Returns list of WorkspaceAccessGrant objects from SpiceDB.
         User must have VIEW permission on workspace.
 
         Args:
@@ -637,7 +811,7 @@ class WorkspaceService:
             user_id: User requesting the list (must have VIEW permission)
 
         Returns:
-            List of (member_id, member_type, role) tuples
+            List of WorkspaceAccessGrant objects
 
         Raises:
             PermissionError: If user lacks VIEW permission
@@ -655,33 +829,48 @@ class WorkspaceService:
                 f"{workspace_id.value}"
             )
 
-        # Query SpiceDB for all members across all three roles
-        resource = format_resource(ResourceType.WORKSPACE, workspace_id.value)
-        members: list[tuple[str, str, str]] = []
+        # Read explicit tuples from SpiceDB (not computed permissions).
+        # Unlike LookupSubjects which expands groups and computes permissions,
+        # ReadRelationships returns only the explicitly stored tuples.
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.WORKSPACE.value,
+            resource_id=workspace_id.value,
+        )
 
-        for role in WorkspaceRole:
-            # Query users
-            user_subjects = await self._authz.lookup_subjects(
-                resource=resource,
-                relation=role.value,
-                subject_type=ResourceType.USER,
+        members: list[WorkspaceAccessGrant] = []
+        seen: set[WorkspaceAccessGrant] = set()
+        valid_roles = {role.value for role in WorkspaceRole}
+
+        for rel_tuple in tuples:
+            # Parse subject to extract type and ID
+            # Subject format: "user:ID" or "group:ID#member"
+            subject_parts = rel_tuple.subject.split(":")
+            subject_type_str = subject_parts[0]
+            subject_rest = ":".join(subject_parts[1:])
+
+            # Extract ID (strip off #relation if present)
+            if "#" in subject_rest:
+                member_id, _ = subject_rest.split("#", 1)
+            else:
+                member_id = subject_rest
+
+            # Determine member type
+            member_type = (
+                MemberType.GROUP
+                if subject_type_str == ResourceType.GROUP.value
+                else MemberType.USER
             )
 
-            for subject_relation in user_subjects:
-                members.append(
-                    (subject_relation.subject_id, MemberType.USER.value, role.value)
+            # Only include tuples with workspace admin/editor/member relations
+            if rel_tuple.relation in valid_roles:
+                grant = WorkspaceAccessGrant(
+                    member_id=member_id,
+                    member_type=member_type,
+                    role=WorkspaceRole(rel_tuple.relation),
                 )
 
-            # Query groups
-            group_subjects = await self._authz.lookup_subjects(
-                resource=resource,
-                relation=role.value,
-                subject_type=ResourceType.GROUP,
-            )
-
-            for subject_relation in group_subjects:
-                members.append(
-                    (subject_relation.subject_id, MemberType.GROUP.value, role.value)
-                )
+                if grant not in seen:
+                    seen.add(grant)
+                    members.append(grant)
 
         return members

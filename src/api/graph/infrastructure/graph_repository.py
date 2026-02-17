@@ -133,8 +133,11 @@ RETURN {{central_node: n, neighbor: m, relationship: r}}\
         result = self._client.execute_cypher(query)
 
         nodes: list[NodeRecord] = []
-        edges: list[EdgeRecord] = []
+        raw_edges: list[AgeEdge] = []
         central_node: NodeRecord | None = None
+        # Map AGE numeric vertex IDs → application-level IDs so we can
+        # remap edge start_id/end_id (which AGE stores as numeric graphids).
+        age_id_to_app_id: dict[str, str] = {}
 
         for row in result.rows:
             # row[0] is a dict: {"central_node": Vertex, "neighbor": Vertex | null, "relationship": Edge | null}
@@ -146,23 +149,43 @@ RETURN {{central_node: n, neighbor: m, relationship: r}}\
                     "central_node" in result_map
                     and result_map["central_node"] is not None
                 ):
-                    central_node = self._vertex_to_node_record(
-                        result_map["central_node"]
-                    )
+                    vertex = result_map["central_node"]
+                    central_node = self._vertex_to_node_record(vertex)
+                    age_id_to_app_id[str(vertex.id)] = central_node.id
 
                 # Extract neighbor (may be null if no neighbors)
                 if "neighbor" in result_map and result_map["neighbor"] is not None:
-                    nodes.append(self._vertex_to_node_record(result_map["neighbor"]))
+                    vertex = result_map["neighbor"]
+                    node_record = self._vertex_to_node_record(vertex)
+                    nodes.append(node_record)
+                    age_id_to_app_id[str(vertex.id)] = node_record.id
 
-                # Extract relationship (may be null if no neighbors)
+                # Collect raw edges for remapping after all vertices are processed
                 if (
                     "relationship" in result_map
                     and result_map["relationship"] is not None
                 ):
-                    edges.append(self._edge_to_edge_record(result_map["relationship"]))
+                    raw_edges.append(result_map["relationship"])
 
         if central_node is None:
             raise GraphQueryError("Cannot find central node details.", query=query)
+
+        # Convert edges with remapped start_id/end_id
+        edges: list[EdgeRecord] = []
+        for age_edge in raw_edges:
+            edge = self._edge_to_edge_record(age_edge)
+            # Remap AGE numeric start/end IDs to application-level IDs
+            remapped_start = age_id_to_app_id.get(str(age_edge.start_id), edge.start_id)
+            remapped_end = age_id_to_app_id.get(str(age_edge.end_id), edge.end_id)
+            if remapped_start != edge.start_id or remapped_end != edge.end_id:
+                edge = EdgeRecord(
+                    id=edge.id,
+                    label=edge.label,
+                    start_id=remapped_start,
+                    end_id=remapped_end,
+                    properties=edge.properties,
+                )
+            edges.append(edge)
 
         return NodeNeighborsResult(central_node=central_node, edges=edges, nodes=nodes)
 
@@ -247,22 +270,30 @@ LIMIT 100"""
             raise ValueError(
                 f"Invalid Nonetype for vertex.label (vertex: {repr(vertex)})"
             )
+        props = dict(vertex.properties) if vertex.properties else {}
+        # Prefer the application-level 'id' property over the AGE-internal numeric ID
+        node_id = str(props.get("id", vertex.id))
         return NodeRecord(
-            id=str(vertex.id),
+            id=node_id,
             label=vertex.label,
-            properties=dict(vertex.properties) if vertex.properties else {},
+            properties=props,
         )
 
     def _edge_to_edge_record(self, edge: AgeEdge) -> EdgeRecord:
         """Convert an AGE Edge to an EdgeRecord."""
         if edge.label is None:
             raise ValueError(f"Invalid Nonetype for edge.label (edge: {repr(edge)})")
+        props = dict(edge.properties) if edge.properties else {}
+        # Prefer application-level IDs from properties over AGE-internal numeric IDs
+        edge_id = str(props.get("id", edge.id))
+        start_id = str(props.get("start_id", edge.start_id))
+        end_id = str(props.get("end_id", edge.end_id))
         return EdgeRecord(
-            id=str(edge.id),
+            id=edge_id,
             label=edge.label,
-            start_id=str(edge.start_id),
-            end_id=str(edge.end_id),
-            properties=dict(edge.properties) if edge.properties else {},
+            start_id=start_id,
+            end_id=end_id,
+            properties=props,
         )
 
     def _row_to_dict(self, row: tuple) -> QueryResultRow:

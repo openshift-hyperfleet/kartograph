@@ -8,8 +8,10 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.application.observability import DefaultGroupServiceProbe, GroupServiceProbe
+from iam.application.value_objects import GroupAccessGrant
 from iam.domain.aggregates import Group
 from iam.domain.value_objects import GroupId, GroupRole, TenantId, UserId
+from iam.ports.exceptions import DuplicateGroupNameError
 from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
@@ -17,6 +19,7 @@ from shared_kernel.authorization.types import (
     RelationType,
     ResourceType,
     format_resource,
+    format_subject,
 )
 
 
@@ -49,6 +52,31 @@ class GroupService:
         self._authz = authz
         self._probe = probe or DefaultGroupServiceProbe()
         self._scope_to_tenant = scope_to_tenant
+
+    async def _check_group_permission(
+        self,
+        user_id: UserId,
+        group_id: GroupId,
+        permission: Permission,
+    ) -> bool:
+        """Check if user has permission on group.
+
+        Args:
+            user_id: The user to check
+            group_id: The group resource
+            permission: The permission to check (VIEW, MANAGE)
+
+        Returns:
+            True if user has permission, False otherwise
+        """
+        resource = format_resource(ResourceType.GROUP, group_id.value)
+        subject = format_subject(ResourceType.USER, user_id.value)
+
+        return await self._authz.check_permission(
+            resource=resource,
+            permission=permission.value,
+            subject=subject,
+        )
 
     async def create_group(
         self,
@@ -96,16 +124,53 @@ class GroupService:
             )
             raise
 
+    async def list_groups(self, user_id: UserId) -> list[Group]:
+        """List groups the user has VIEW permission on.
+
+        Filters groups in scoped tenant to only those where user has
+        VIEW permission via SpiceDB lookup_resources.
+
+        Args:
+            user_id: The user requesting the list (for permission filtering)
+
+        Returns:
+            List of Group aggregates user can view
+        """
+        # Get all groups in tenant from database
+        all_groups = await self._group_repository.list_by_tenant(
+            tenant_id=self._scope_to_tenant
+        )
+
+        # Use SpiceDB lookup_resources to filter by VIEW permission
+        subject = format_subject(ResourceType.USER, user_id.value)
+
+        accessible_ids = await self._authz.lookup_resources(
+            resource_type=ResourceType.GROUP,
+            permission=Permission.VIEW,
+            subject=subject,
+        )
+
+        # Convert to set for O(1) lookup
+        accessible_set = set(accessible_ids)
+
+        # Filter groups to only accessible ones
+        accessible_groups = [g for g in all_groups if g.id.value in accessible_set]
+
+        return accessible_groups
+
     async def get_group(
         self,
         group_id: GroupId,
+        user_id: UserId,
     ) -> Group | None:
-        """Get a group by ID with tenant isolation.
+        """Get a group by ID with tenant scoping and VIEW permission check.
 
-        Verifies the group belongs to the scoped tenant via SpiceDB.
+        Returns None if group doesn't exist, belongs to different tenant,
+        or user lacks VIEW permission.
 
         Args:
             group_id: The group ID to retrieve
+            user_id: The user requesting access (for permission check)
 
         Returns:
             The Group aggregate, or None if not found or not accessible
@@ -115,23 +180,20 @@ class GroupService:
         if group is None:
             return None
 
-        group_resource = format_resource(
-            resource_type=ResourceType.GROUP, resource_id=group_id.value
-        )
-        tenant_resource = format_resource(
-            resource_type=ResourceType.TENANT, resource_id=self._scope_to_tenant.value
+        # Verify group belongs to scoped tenant (database check)
+        if group.tenant_id != self._scope_to_tenant:
+            # Don't leak existence of groups in other tenants
+            return None
+
+        # Check user has VIEW permission (SpiceDB check)
+        has_view = await self._check_group_permission(
+            user_id=user_id,
+            group_id=group_id,
+            permission=Permission.VIEW,
         )
 
-        is_in_tenant = await self._authz.check_permission(
-            resource=group_resource,
-            permission=RelationType.TENANT,
-            subject=tenant_resource,
-        )
-
-        # Verify group belongs to the expected tenant
-        if not is_in_tenant:
-            # Group exists but doesn't belong to this tenant
-            # Return None (act as if not found) for security
+        if not has_view:
+            # User lacks VIEW permission - act as if not found
             return None
 
         return group
@@ -181,3 +243,319 @@ class GroupService:
             group.mark_for_deletion()
 
             return await self._group_repository.delete(group)
+
+    async def _get_user_group_role(
+        self, group_id: GroupId, user_id: UserId
+    ) -> GroupRole | None:
+        """Get user's current role in group, or None if not a member."""
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.GROUP.value,
+            resource_id=group_id.value,
+            subject_type=ResourceType.USER.value,
+            subject_id=user_id.value,
+        )
+
+        for rel_tuple in tuples:
+            if rel_tuple.relation == RelationType.ADMIN.value:
+                return GroupRole.ADMIN
+            elif rel_tuple.relation == RelationType.MEMBER_RELATION.value:
+                return GroupRole.MEMBER
+
+        return None
+
+    async def add_member(
+        self,
+        group_id: GroupId,
+        acting_user_id: UserId,
+        user_id: UserId,
+        role: GroupRole,
+    ) -> Group:
+        """Add a member to a group.
+
+        If the user already has a different role, the old role is automatically
+        removed first (role replacement pattern). This ensures users can only
+        have one role per group.
+
+        Args:
+            group_id: The group to add member to
+            acting_user_id: User performing the action (must have MANAGE permission)
+            user_id: ID of user to add
+            role: The role to assign (ADMIN or MEMBER)
+
+        Returns:
+            Updated Group aggregate
+
+        Raises:
+            PermissionError: If acting user lacks MANAGE permission
+            ValueError: If member already has the same role, group not found, or tenant mismatch
+        """
+        # Check acting user has MANAGE permission
+        has_manage = await self._check_group_permission(
+            user_id=acting_user_id,
+            group_id=group_id,
+            permission=Permission.MANAGE,
+        )
+
+        if not has_manage:
+            raise PermissionError(
+                f"User {acting_user_id.value} lacks manage permission on group "
+                f"{group_id.value}"
+            )
+
+        async with self._session.begin():
+            # Load group
+            group = await self._group_repository.get_by_id(group_id)
+            if group is None:
+                raise ValueError(f"Group {group_id.value} not found")
+
+            # Verify tenant ownership
+            if group.tenant_id.value != self._scope_to_tenant.value:
+                raise ValueError("Group belongs to different tenant")
+
+            # Check if user already has a role (query SpiceDB)
+            current_role = await self._get_user_group_role(group_id, user_id)
+
+            # Add member (will replace role if different)
+            group.add_member(user_id, role, current_role=current_role)
+
+            # Save (persists events to outbox)
+            await self._group_repository.save(group)
+
+        return group
+
+    async def remove_member(
+        self,
+        group_id: GroupId,
+        acting_user_id: UserId,
+        user_id: UserId,
+    ) -> Group:
+        """Remove a member from a group.
+
+        Args:
+            group_id: The group to remove member from
+            acting_user_id: User performing the action (must have MANAGE permission)
+            user_id: ID of user to remove
+
+        Returns:
+            Updated Group aggregate
+
+        Raises:
+            PermissionError: If acting user lacks MANAGE permission
+            ValueError: If member doesn't exist, group not found, or tenant mismatch
+        """
+        # Check acting user has MANAGE permission
+        has_manage = await self._check_group_permission(
+            user_id=acting_user_id,
+            group_id=group_id,
+            permission=Permission.MANAGE,
+        )
+
+        if not has_manage:
+            raise PermissionError(
+                f"User {acting_user_id.value} lacks manage permission on group "
+                f"{group_id.value}"
+            )
+
+        async with self._session.begin():
+            # Load group
+            group = await self._group_repository.get_by_id(group_id)
+            if group is None:
+                raise ValueError(f"Group {group_id.value} not found")
+
+            # Verify tenant ownership
+            if group.tenant_id.value != self._scope_to_tenant.value:
+                raise ValueError("Group belongs to different tenant")
+
+            # Remove member (aggregate handles validation and events)
+            group.remove_member(user_id)
+
+            # Save (persists events to outbox)
+            await self._group_repository.save(group)
+
+        return group
+
+    async def update_member_role(
+        self,
+        group_id: GroupId,
+        acting_user_id: UserId,
+        user_id: UserId,
+        new_role: GroupRole,
+    ) -> Group:
+        """Update a member's role in a group.
+
+        Args:
+            group_id: The group
+            acting_user_id: User performing the action (must have MANAGE permission)
+            user_id: ID of user to update
+            new_role: The new role to assign
+
+        Returns:
+            Updated Group aggregate
+
+        Raises:
+            PermissionError: If acting user lacks MANAGE permission
+            ValueError: If member doesn't exist, group not found, or tenant mismatch
+        """
+        # Check acting user has MANAGE permission
+        has_manage = await self._check_group_permission(
+            user_id=acting_user_id,
+            group_id=group_id,
+            permission=Permission.MANAGE,
+        )
+
+        if not has_manage:
+            raise PermissionError(
+                f"User {acting_user_id.value} lacks manage permission on group "
+                f"{group_id.value}"
+            )
+
+        async with self._session.begin():
+            # Load group
+            group = await self._group_repository.get_by_id(group_id)
+            if group is None:
+                raise ValueError(f"Group {group_id.value} not found")
+
+            # Verify tenant ownership
+            if group.tenant_id.value != self._scope_to_tenant.value:
+                raise ValueError("Group belongs to different tenant")
+
+            # Update member role (aggregate handles validation and events)
+            group.update_member_role(user_id, new_role)
+
+            # Save (persists events to outbox)
+            await self._group_repository.save(group)
+
+        return group
+
+    async def list_members(
+        self,
+        group_id: GroupId,
+        user_id: UserId,
+    ) -> list[GroupAccessGrant]:
+        """List members of a group.
+
+        Returns list of GroupAccessGrant objects from SpiceDB.
+        User must have VIEW permission on group.
+
+        Args:
+            group_id: The group to list members for
+            user_id: User requesting the list (must have VIEW permission)
+
+        Returns:
+            List of GroupAccessGrant objects
+
+        Raises:
+            PermissionError: If user lacks VIEW permission
+        """
+        # Check user has VIEW permission
+        has_view = await self._check_group_permission(
+            user_id=user_id,
+            group_id=group_id,
+            permission=Permission.VIEW,
+        )
+
+        if not has_view:
+            raise PermissionError(
+                f"User {user_id.value} lacks view permission on group {group_id.value}"
+            )
+
+        # Read explicit tuples from SpiceDB (not computed permissions).
+        # Unlike LookupSubjects which expands groups and computes permissions,
+        # ReadRelationships returns only the explicitly stored tuples.
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.GROUP.value,
+            resource_id=group_id.value,
+        )
+
+        members: list[GroupAccessGrant] = []
+
+        for rel_tuple in tuples:
+            # Parse subject (format: "user:ID")
+            subject_parts = rel_tuple.subject.split(":")
+            if len(subject_parts) < 2:
+                continue
+
+            subject_type_str = subject_parts[0]
+            user_id_str = ":".join(subject_parts[1:])
+
+            # Only process user subjects with group role relations
+            if subject_type_str == ResourceType.USER.value:
+                # Map SpiceDB relation to domain role
+                if rel_tuple.relation == RelationType.ADMIN.value:
+                    role = GroupRole.ADMIN
+                elif rel_tuple.relation == RelationType.MEMBER_RELATION.value:
+                    role = GroupRole.MEMBER
+                else:
+                    continue  # Skip non-role relations (tenant, etc.)
+
+                members.append(
+                    GroupAccessGrant(
+                        user_id=user_id_str,
+                        role=role,
+                    )
+                )
+
+        return members
+
+    async def update_group(
+        self,
+        group_id: GroupId,
+        user_id: UserId,
+        name: str,
+    ) -> Group:
+        """Update group metadata (rename).
+
+        Args:
+            group_id: The group to update
+            user_id: User performing the action (must have MANAGE permission)
+            name: New group name
+
+        Returns:
+            Updated Group aggregate
+
+        Raises:
+            PermissionError: If user lacks MANAGE permission
+            ValueError: If group not found, tenant mismatch, or name invalid
+            DuplicateGroupNameError: If name already exists in tenant
+        """
+        # Check user has MANAGE permission
+        has_manage = await self._check_group_permission(
+            user_id=user_id,
+            group_id=group_id,
+            permission=Permission.MANAGE,
+        )
+
+        if not has_manage:
+            raise PermissionError(
+                f"User {user_id.value} lacks manage permission on group "
+                f"{group_id.value}"
+            )
+
+        async with self._session.begin():
+            # Load group
+            group = await self._group_repository.get_by_id(group_id)
+            if group is None:
+                raise ValueError(f"Group {group_id.value} not found")
+
+            # Verify tenant ownership
+            if group.tenant_id.value != self._scope_to_tenant.value:
+                raise ValueError("Group belongs to different tenant")
+
+            # Check name uniqueness (if name is changing)
+            if name != group.name:
+                existing = await self._group_repository.get_by_name(
+                    name=name,
+                    tenant_id=self._scope_to_tenant,
+                )
+                if existing:
+                    raise DuplicateGroupNameError(
+                        f"Group '{name}' already exists in tenant"
+                    )
+
+                # Rename via aggregate method
+                group.rename(name)
+
+            # Save
+            await self._group_repository.save(group)
+
+        return group

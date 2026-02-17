@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.18.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.17.0...v3.18.0) (2026-02-17)
+
+
+### Features
+
+* **api.iam:** aihcm 157 workspace member routes ([#226](https://github.com/openshift-hyperfleet/kartograph/issues/226)) ([9bc8851](https://github.com/openshift-hyperfleet/kartograph/commit/9bc8851be679ef6f082e7cbc364c8f0f6d0572e9))
+
 ## [3.17.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.16.0...v3.17.0) (2026-02-12)
 
 

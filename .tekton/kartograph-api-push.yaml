@@ -696,7 +696,20 @@ spec:
                   }" \
                   "https://api.github.com/repos/${REPO}/pulls" 2>&1) || true
 
-                echo "PR created: $(echo "$PR_RESPONSE" | grep -o '"html_url":"[^"]*"' | head -1 | cut -d'"' -f4)"
+                PR_URL=$(echo "$PR_RESPONSE" | grep -o '"html_url":"[^"]*"' | head -1 | cut -d'"' -f4)
+                echo "PR created: $PR_URL"
+
+                # Enable auto-merge (squash) via GitHub GraphQL API
+                PR_NODE_ID=$(echo "$PR_RESPONSE" | grep -o '"node_id":"[^"]*"' | head -1 | cut -d'"' -f4)
+                if [ -n "$PR_NODE_ID" ]; then
+                  wget -q -O - --header="Authorization: token ${TOKEN}" \
+                    --header="Content-Type: application/json" \
+                    --post-data="{
+                      \"query\": \"mutation { enablePullRequestAutoMerge(input: { pullRequestId: \\\"${PR_NODE_ID}\\\", mergeMethod: SQUASH }) { pullRequest { autoMergeRequest { enabledAt } } } }\"
+                    }" \
+                    "https://api.github.com/graphql" > /dev/null 2>&1 || true
+                  echo "Auto-merge enabled"
+                fi
     workspaces:
       - name: git-auth
         optional: true

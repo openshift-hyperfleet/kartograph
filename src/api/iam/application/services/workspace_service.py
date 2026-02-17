@@ -121,16 +121,19 @@ class WorkspaceService:
             ValueError: If parent workspace doesn't exist or belongs to different tenant
             Exception: If workspace creation fails
         """
-        # Check user has MANAGE permission on parent (before transaction)
-        has_manage = await self._check_workspace_permission(
+        # Check user has CREATE_CHILD permission on parent (before transaction)
+        # CREATE_CHILD = admin + editor + creator_tenant->view
+        # Root workspaces have creator_tenant set, so all tenant members can create children.
+        # Child workspaces don't, so only admin/editor can create sub-children.
+        has_create_child = await self._check_workspace_permission(
             user_id=creator_id,
             workspace_id=parent_workspace_id,
-            permission=Permission.MANAGE,
+            permission=Permission.CREATE_CHILD,
         )
 
-        if not has_manage:
+        if not has_create_child:
             raise PermissionError(
-                f"User {creator_id.value} lacks manage permission on parent workspace "
+                f"User {creator_id.value} lacks create_child permission on parent workspace "
                 f"{parent_workspace_id.value}"
             )
 

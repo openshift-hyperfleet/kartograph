@@ -389,6 +389,73 @@ class TestCreateWorkspace:
         assert member_added_events[0].role == "admin"
         assert member_added_events[0].workspace_id == workspace.id.value
 
+    @pytest.mark.asyncio
+    async def test_create_workspace_checks_create_child_permission(
+        self,
+        workspace_service: WorkspaceService,
+        mock_workspace_repository,
+        mock_authz,
+        tenant_id,
+        creator_id,
+        root_workspace,
+    ):
+        """Test that create_workspace checks CREATE_CHILD permission (not MANAGE).
+
+        The create_child permission allows tenant members to create workspaces
+        under root (via creator_tenant->view), while restricting child workspace
+        creation to workspace admins/editors.
+        """
+        from shared_kernel.authorization.types import Permission
+
+        # Setup: User does NOT have create_child permission
+        mock_authz.check_permission = AsyncMock(return_value=False)
+
+        # Call and Assert: Should raise PermissionError
+        with pytest.raises(PermissionError):
+            await workspace_service.create_workspace(
+                name="Engineering",
+                parent_workspace_id=root_workspace.id,
+                creator_id=creator_id,
+            )
+
+        # Verify check_permission was called with CREATE_CHILD
+        mock_authz.check_permission.assert_called_once()
+        call_kwargs = mock_authz.check_permission.call_args
+        assert call_kwargs.kwargs["permission"] == Permission.CREATE_CHILD.value
+
+    @pytest.mark.asyncio
+    async def test_create_workspace_succeeds_with_create_child_permission(
+        self,
+        workspace_service: WorkspaceService,
+        mock_workspace_repository,
+        mock_authz,
+        tenant_id,
+        creator_id,
+        root_workspace,
+    ):
+        """Test that create_workspace succeeds when user has CREATE_CHILD permission."""
+        from shared_kernel.authorization.types import Permission
+
+        # Setup: User has create_child permission
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_workspace_repository.get_by_name = AsyncMock(return_value=None)
+        mock_workspace_repository.get_by_id = AsyncMock(return_value=root_workspace)
+        mock_workspace_repository.save = AsyncMock()
+
+        # Call
+        result = await workspace_service.create_workspace(
+            name="Engineering",
+            parent_workspace_id=root_workspace.id,
+            creator_id=creator_id,
+        )
+
+        assert isinstance(result, Workspace)
+
+        # Verify check_permission was called with CREATE_CHILD
+        mock_authz.check_permission.assert_called_once()
+        call_kwargs = mock_authz.check_permission.call_args
+        assert call_kwargs.kwargs["permission"] == Permission.CREATE_CHILD.value
+
 
 class TestCreateRootWorkspace:
     """Tests for create_root_workspace method."""

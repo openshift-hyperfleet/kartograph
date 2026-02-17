@@ -186,12 +186,14 @@ class TestSave:
 
         await repository.save(workspace)
 
-        # Should have appended WorkspaceCreated event to outbox
-        assert mock_outbox.append.call_count == 1
-        call_kwargs = mock_outbox.append.call_args.kwargs
-        assert call_kwargs["event_type"] == "WorkspaceCreated"
-        assert call_kwargs["aggregate_type"] == "workspace"
-        assert call_kwargs["aggregate_id"] == workspace.id.value
+        # Should have appended WorkspaceCreated + WorkspaceCreatorTenantSet events to outbox
+        assert mock_outbox.append.call_count == 2
+        first_call_kwargs = mock_outbox.append.call_args_list[0].kwargs
+        assert first_call_kwargs["event_type"] == "WorkspaceCreated"
+        assert first_call_kwargs["aggregate_type"] == "workspace"
+        assert first_call_kwargs["aggregate_id"] == workspace.id.value
+        second_call_kwargs = mock_outbox.append.call_args_list[1].kwargs
+        assert second_call_kwargs["event_type"] == "WorkspaceCreatorTenantSet"
 
     @pytest.mark.asyncio
     async def test_save_child_workspace_with_parent(

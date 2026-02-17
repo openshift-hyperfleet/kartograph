@@ -7,7 +7,13 @@ from __future__ import annotations
 
 from iam.application.observability import DefaultTenantServiceProbe, TenantServiceProbe
 from iam.domain.aggregates import Tenant, Workspace
-from iam.domain.value_objects import TenantId, TenantRole, UserId
+from iam.domain.value_objects import (
+    MemberType,
+    TenantId,
+    TenantRole,
+    UserId,
+    WorkspaceRole,
+)
 from iam.ports.exceptions import DuplicateTenantNameError, UnauthorizedError
 from iam.ports.repositories import (
     IAPIKeyRepository,
@@ -290,6 +296,14 @@ class TenantService:
             )
             await self._tenant_repository.save(tenant)
 
+            # Auto-grant/revoke root workspace access based on tenant role
+            await self._sync_root_workspace_access(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                new_tenant_role=role,
+                old_tenant_role=current_role,
+            )
+
             self._probe.tenant_member_added(
                 tenant_id=tenant_id.value,
                 user_id=user_id.value,
@@ -343,11 +357,102 @@ class TenantService:
             )
             await self._tenant_repository.save(tenant)
 
+            # Revoke root workspace access when removing member entirely
+            await self._revoke_root_workspace_access(
+                tenant_id=tenant_id,
+                user_id=user_id,
+            )
+
             self._probe.tenant_member_removed(
                 tenant_id=tenant_id.value,
                 user_id=user_id.value,
                 removed_by=requesting_user_id.value,
             )
+
+    async def _sync_root_workspace_access(
+        self,
+        tenant_id: TenantId,
+        user_id: UserId,
+        new_tenant_role: TenantRole,
+        old_tenant_role: TenantRole | None,
+    ) -> None:
+        """Synchronize root workspace access based on tenant role changes.
+
+        When a user is added as tenant ADMIN, they get auto-granted ADMIN
+        on the root workspace. When downgraded from ADMIN to MEMBER, their
+        root workspace admin is revoked.
+
+        Regular MEMBER additions do not grant workspace access - they
+        get create_child permission via the creator_tenant relation in SpiceDB.
+
+        Args:
+            tenant_id: The tenant
+            user_id: The user whose access is being synchronized
+            new_tenant_role: The new tenant role being assigned
+            old_tenant_role: The user's previous tenant role (None if new member)
+        """
+        if new_tenant_role == TenantRole.ADMIN:
+            # Grant root workspace admin for new tenant admins
+            root_workspace = await self._workspace_repository.get_root_workspace(
+                tenant_id
+            )
+            if not root_workspace:
+                self._probe.tenant_not_found(tenant_id=tenant_id.value)
+                return
+
+            # Check if user already has a workspace role
+            current_ws_role: WorkspaceRole | None = None
+            if root_workspace.has_member(user_id.value, MemberType.USER):
+                current_ws_role = root_workspace.get_member_role(
+                    user_id.value, MemberType.USER
+                )
+
+            root_workspace.add_member(
+                member_id=user_id.value,
+                member_type=MemberType.USER,
+                role=WorkspaceRole.ADMIN,
+                current_role=current_ws_role,
+            )
+            await self._workspace_repository.save(root_workspace)
+
+        elif (
+            new_tenant_role == TenantRole.MEMBER and old_tenant_role == TenantRole.ADMIN
+        ):
+            # Downgrade: revoke workspace admin when demoted from tenant admin
+            root_workspace = await self._workspace_repository.get_root_workspace(
+                tenant_id
+            )
+            if not root_workspace:
+                return
+
+            if root_workspace.has_member(user_id.value, MemberType.USER):
+                root_workspace.remove_member(
+                    member_id=user_id.value,
+                    member_type=MemberType.USER,
+                )
+                await self._workspace_repository.save(root_workspace)
+
+    async def _revoke_root_workspace_access(
+        self,
+        tenant_id: TenantId,
+        user_id: UserId,
+    ) -> None:
+        """Revoke root workspace access when removing a member from tenant.
+
+        Args:
+            tenant_id: The tenant the user is being removed from
+            user_id: The user being removed
+        """
+        root_workspace = await self._workspace_repository.get_root_workspace(tenant_id)
+        if not root_workspace:
+            return
+
+        if root_workspace.has_member(user_id.value, MemberType.USER):
+            root_workspace.remove_member(
+                member_id=user_id.value,
+                member_type=MemberType.USER,
+            )
+            await self._workspace_repository.save(root_workspace)
 
     async def _list_tenant_members_from_authorization(
         self, tenant_id: TenantId

@@ -32,7 +32,11 @@ def mock_tenant_repo():
 @pytest.fixture
 def mock_workspace_repo():
     """Mock WorkspaceRepository."""
-    return Mock(spec=IWorkspaceRepository)
+    repo = Mock(spec=IWorkspaceRepository)
+    # Default: no root workspace (async mock required for new methods)
+    repo.get_root_workspace = AsyncMock(return_value=None)
+    repo.save = AsyncMock()
+    return repo
 
 
 @pytest.fixture
@@ -296,6 +300,193 @@ class TestAddMember:
         mock_tenant_repo.get_by_id.assert_not_called()
         mock_tenant_repo.save.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_add_admin_grants_root_workspace_admin(
+        self, tenant_service, mock_tenant_repo, mock_workspace_repo, mock_authz
+    ):
+        """Test that adding a tenant admin auto-grants root workspace admin.
+
+        When a user is added as tenant ADMIN, they should automatically be
+        granted ADMIN role on the tenant's root workspace.
+        """
+        from iam.domain.events import WorkspaceMemberAdded
+
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        # Mock authorization check
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        # Mock tenant retrieval
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.save = AsyncMock()
+
+        # Mock SpiceDB: user has no current tenant role
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
+        # Mock root workspace exists
+        root_workspace = Workspace.create_root(name="Root", tenant_id=tenant_id)
+        root_workspace.collect_events()  # clear creation events
+        mock_workspace_repo.get_root_workspace = AsyncMock(return_value=root_workspace)
+        mock_workspace_repo.save = AsyncMock()
+
+        # Execute
+        await tenant_service.add_member(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            role=TenantRole.ADMIN,
+            requesting_user_id=admin_id,
+        )
+
+        # Verify workspace was saved with member added
+        mock_workspace_repo.save.assert_called_once()
+        saved_workspace = mock_workspace_repo.save.call_args[0][0]
+        events = saved_workspace.collect_events()
+
+        member_added_events = [e for e in events if isinstance(e, WorkspaceMemberAdded)]
+        assert len(member_added_events) == 1
+        assert member_added_events[0].member_id == user_id.value
+        assert member_added_events[0].role == "admin"
+
+    @pytest.mark.asyncio
+    async def test_add_member_does_not_grant_root_workspace_access(
+        self, tenant_service, mock_tenant_repo, mock_workspace_repo, mock_authz
+    ):
+        """Test that adding a regular MEMBER does not auto-grant workspace access.
+
+        Only tenant ADMIN should get auto-granted root workspace admin.
+        Regular members get create_child via the creator_tenant relation in SpiceDB.
+        """
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.save = AsyncMock()
+
+        # Mock SpiceDB: user has no current role
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
+        await tenant_service.add_member(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            role=TenantRole.MEMBER,
+            requesting_user_id=admin_id,
+        )
+
+        # Verify workspace_repo.save was NOT called (no workspace grant)
+        mock_workspace_repo.save.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_downgrade_admin_to_member_revokes_root_workspace_admin(
+        self, tenant_service, mock_tenant_repo, mock_workspace_repo, mock_authz
+    ):
+        """Test that downgrading tenant ADMIN to MEMBER revokes root workspace admin.
+
+        When a user's tenant role is changed from ADMIN to MEMBER, their
+        root workspace admin access should be revoked.
+        """
+        from iam.domain.events import WorkspaceMemberRemoved
+
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.save = AsyncMock()
+
+        # Mock SpiceDB: user currently has admin tenant role
+        tenant_resource = f"tenant:{tenant_id.value}"
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=tenant_resource,
+                    relation="admin",
+                    subject=f"user:{user_id.value}",
+                ),
+            ]
+        )
+
+        # Mock root workspace exists with user as admin member
+        root_workspace = Workspace.create_root(name="Root", tenant_id=tenant_id)
+        root_workspace.collect_events()
+        from iam.domain.value_objects import MemberType, WorkspaceRole
+
+        root_workspace.add_member(
+            member_id=user_id.value,
+            member_type=MemberType.USER,
+            role=WorkspaceRole.ADMIN,
+        )
+        root_workspace.collect_events()  # clear add events
+        mock_workspace_repo.get_root_workspace = AsyncMock(return_value=root_workspace)
+        mock_workspace_repo.save = AsyncMock()
+
+        # Downgrade: add as MEMBER (should replace ADMIN->MEMBER)
+        await tenant_service.add_member(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            role=TenantRole.MEMBER,
+            requesting_user_id=admin_id,
+        )
+
+        # Verify workspace was saved with member removed (revoke admin)
+        mock_workspace_repo.save.assert_called_once()
+        saved_workspace = mock_workspace_repo.save.call_args[0][0]
+        events = saved_workspace.collect_events()
+
+        member_removed_events = [
+            e for e in events if isinstance(e, WorkspaceMemberRemoved)
+        ]
+        assert len(member_removed_events) == 1
+        assert member_removed_events[0].member_id == user_id.value
+        assert member_removed_events[0].role == "admin"
+
+    @pytest.mark.asyncio
+    async def test_add_admin_handles_missing_root_workspace(
+        self, tenant_service, mock_tenant_repo, mock_workspace_repo, mock_authz
+    ):
+        """Test that add_member handles missing root workspace gracefully.
+
+        Root workspace might not exist yet (e.g., during migration).
+        The service should log a warning but not fail.
+        """
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.save = AsyncMock()
+
+        # Mock SpiceDB: user has no current role
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
+        # Mock root workspace does NOT exist
+        mock_workspace_repo.get_root_workspace = AsyncMock(return_value=None)
+
+        # Should not raise - graceful handling
+        await tenant_service.add_member(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            role=TenantRole.ADMIN,
+            requesting_user_id=admin_id,
+        )
+
+        # Tenant should still be saved
+        mock_tenant_repo.save.assert_called_once()
+        # Workspace should NOT be saved (no root workspace)
+        mock_workspace_repo.save.assert_not_called()
+
 
 class TestRemoveMember:
     """Tests for TenantService.remove_member()."""
@@ -427,6 +618,129 @@ class TestRemoveMember:
         # Verify repository was never called
         mock_tenant_repo.get_by_id.assert_not_called()
         mock_tenant_repo.save.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_remove_admin_revokes_root_workspace_admin(
+        self,
+        tenant_service,
+        mock_tenant_repo,
+        mock_workspace_repo,
+        mock_authz,
+    ):
+        """Test that removing a tenant admin revokes their root workspace admin access."""
+        from iam.domain.events import WorkspaceMemberRemoved
+        from iam.domain.value_objects import MemberType, WorkspaceRole
+
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.save = AsyncMock()
+        mock_tenant_repo.is_last_admin = AsyncMock(return_value=False)
+
+        # Mock root workspace with user as admin
+        root_workspace = Workspace.create_root(name="Root", tenant_id=tenant_id)
+        root_workspace.collect_events()
+        root_workspace.add_member(
+            member_id=user_id.value,
+            member_type=MemberType.USER,
+            role=WorkspaceRole.ADMIN,
+        )
+        root_workspace.collect_events()  # clear events
+        mock_workspace_repo.get_root_workspace = AsyncMock(return_value=root_workspace)
+        mock_workspace_repo.save = AsyncMock()
+
+        await tenant_service.remove_member(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            requesting_user_id=admin_id,
+        )
+
+        # Verify workspace was saved with member removed
+        mock_workspace_repo.save.assert_called_once()
+        saved_workspace = mock_workspace_repo.save.call_args[0][0]
+        events = saved_workspace.collect_events()
+
+        member_removed_events = [
+            e for e in events if isinstance(e, WorkspaceMemberRemoved)
+        ]
+        assert len(member_removed_events) == 1
+        assert member_removed_events[0].member_id == user_id.value
+
+    @pytest.mark.asyncio
+    async def test_remove_member_revokes_root_workspace_access(
+        self,
+        tenant_service,
+        mock_tenant_repo,
+        mock_workspace_repo,
+        mock_authz,
+    ):
+        """Test that removing a regular member also revokes any root workspace access."""
+
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.save = AsyncMock()
+        mock_tenant_repo.is_last_admin = AsyncMock(return_value=False)
+
+        # Mock root workspace - user is NOT a member
+        root_workspace = Workspace.create_root(name="Root", tenant_id=tenant_id)
+        root_workspace.collect_events()
+        mock_workspace_repo.get_root_workspace = AsyncMock(return_value=root_workspace)
+        mock_workspace_repo.save = AsyncMock()
+
+        await tenant_service.remove_member(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            requesting_user_id=admin_id,
+        )
+
+        # Workspace should NOT be saved since user is not a workspace member
+        mock_workspace_repo.save.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_remove_member_handles_missing_root_workspace(
+        self,
+        tenant_service,
+        mock_tenant_repo,
+        mock_workspace_repo,
+        mock_authz,
+    ):
+        """Test that remove_member handles missing root workspace gracefully."""
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.save = AsyncMock()
+        mock_tenant_repo.is_last_admin = AsyncMock(return_value=False)
+
+        # Mock root workspace does NOT exist
+        mock_workspace_repo.get_root_workspace = AsyncMock(return_value=None)
+
+        # Should not raise
+        await tenant_service.remove_member(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            requesting_user_id=admin_id,
+        )
+
+        # Tenant was saved
+        mock_tenant_repo.save.assert_called_once()
+        # Workspace was NOT saved (no root workspace)
+        mock_workspace_repo.save.assert_not_called()
 
 
 class TestListMembers:

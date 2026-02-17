@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.19.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.18.0...v3.19.0) (2026-02-17)
+
+
+### Features
+
+* **dev-ui:** add development UI & fix deploy image bump ([#228](https://github.com/openshift-hyperfleet/kartograph/issues/228)) ([ec9b27d](https://github.com/openshift-hyperfleet/kartograph/commit/ec9b27d15a59b899ab7ea69340ce95125e50c82a))
+
+
+### Bug Fixes
+
+* **cd:** fix konflux image bump process ([#232](https://github.com/openshift-hyperfleet/kartograph/issues/232)) ([e33effc](https://github.com/openshift-hyperfleet/kartograph/commit/e33effc8b28a42de633550e5a597e8870f0a0e3c))
+
 ## [3.18.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.17.0...v3.18.0) (2026-02-17)
 
 

@@ -624,6 +624,7 @@ spec:
               type: string
           workspaces:
             - name: basic-auth
+              optional: true
           steps:
             - name: update-and-push
               image: alpine/git:latest

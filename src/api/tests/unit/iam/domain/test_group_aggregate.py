@@ -194,9 +194,8 @@ class TestAddMemberRoleReplacement:
         user_id = UserId.generate()
         group.add_member(user_id, GroupRole.ADMIN)
 
-        # Same role with current_role -- should still pass (idempotent add)
-        # It won't remove and will re-add (but member already exists in list)
-        # Actually, since current_role == role, it falls through to has_member check
+        # Same role with current_role == role skips removal, then hits
+        # the has_member check which raises ValueError
         with pytest.raises(ValueError, match="already a member"):
             group.add_member(user_id, GroupRole.ADMIN, current_role=GroupRole.ADMIN)
 
@@ -466,7 +465,7 @@ class TestEventCollection:
         assert isinstance(events[0], MemberAdded)
         assert events[0].group_id == group.id.value
         assert events[0].user_id == user_id.value
-        assert events[0].role == GroupRole.MEMBER
+        assert events[0].role == GroupRole.MEMBER.value
 
     def test_remove_member_records_member_removed_event(self):
         """Test that remove_member records a MemberRemoved event."""
@@ -490,7 +489,7 @@ class TestEventCollection:
         assert isinstance(events[0], MemberRemoved)
         assert events[0].group_id == group.id.value
         assert events[0].user_id == user_id.value
-        assert events[0].role == GroupRole.MEMBER
+        assert events[0].role == GroupRole.MEMBER.value
 
     def test_update_member_role_records_member_role_changed_event(self):
         """Test that update_member_role records a MemberRoleChanged event."""

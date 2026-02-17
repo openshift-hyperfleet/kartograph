@@ -405,7 +405,8 @@ class TenantService:
                 tenant_id
             )
             if not root_workspace:
-                self._probe.tenant_not_found(tenant_id=tenant_id.value)
+                # Root workspace doesn't exist yet - skip workspace access grant
+                # This can happen if add_member is called during tenant bootstrap
                 return
 
             # Check if user already has a workspace role

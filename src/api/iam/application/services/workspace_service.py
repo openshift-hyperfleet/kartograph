@@ -102,7 +102,7 @@ class WorkspaceService:
         """Create a child workspace.
 
         Business rules:
-        - User must have MANAGE permission on parent workspace
+        - User must have CREATE_CHILD permission on parent workspace
         - Name must be unique within tenant
         - Parent workspace must exist and belong to tenant
         - Service is scoped to tenant boundary
@@ -116,7 +116,7 @@ class WorkspaceService:
             The created Workspace aggregate
 
         Raises:
-            PermissionError: If user lacks MANAGE permission on parent
+            PermissionError: If user lacks CREATE_CHILD permission on parent
             DuplicateWorkspaceNameError: If workspace name already exists in tenant
             ValueError: If parent workspace doesn't exist or belongs to different tenant
             Exception: If workspace creation fails

@@ -152,7 +152,11 @@ class Workspace:
             probe: Optional observability probe for domain events
 
         Returns:
-            A new root Workspace aggregate with WorkspaceCreated event recorded
+            A new root Workspace aggregate with events recorded
+
+        Events recorded:
+            - WorkspaceCreated: Announces workspace creation
+            - WorkspaceCreatorTenantSet: Delegates creation rights to tenant members
 
         Raises:
             ValueError: If name is empty or exceeds 512 characters

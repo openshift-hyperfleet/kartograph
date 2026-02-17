@@ -31,6 +31,7 @@ class TestIAMEventTranslatorSupportedEvents:
         assert "MemberRoleChanged" in supported
         assert "APIKeyCreated" in supported
         assert "APIKeyRevoked" in supported
+        assert "WorkspaceCreatorTenantSet" in supported
         assert "WorkspaceMemberAdded" in supported
         assert "WorkspaceMemberRemoved" in supported
         assert "WorkspaceMemberRoleChanged" in supported
@@ -569,11 +570,35 @@ class TestIAMEventTranslatorWorkspaceCreated:
         assert parent_op.subject_id == "01WORKSPACE_ROOT"
 
 
+class TestIAMEventTranslatorWorkspaceCreatorTenantSet:
+    """Tests for WorkspaceCreatorTenantSet translation."""
+
+    def test_translate_workspace_creator_tenant_set(self):
+        """WorkspaceCreatorTenantSet should write workspace#creator_tenant@tenant."""
+        translator = IAMEventTranslator()
+        payload = {
+            "workspace_id": "01WORKSPACE_ROOT",
+            "tenant_id": "01TENANT_ABC",
+            "occurred_at": "2026-01-08T12:00:00+00:00",
+        }
+
+        operations = translator.translate("WorkspaceCreatorTenantSet", payload)
+
+        assert len(operations) == 1
+        op = operations[0]
+        assert isinstance(op, WriteRelationship)
+        assert op.resource_type == ResourceType.WORKSPACE
+        assert op.resource_id == "01WORKSPACE_ROOT"
+        assert op.relation == RelationType.CREATOR_TENANT
+        assert op.subject_type == ResourceType.TENANT
+        assert op.subject_id == "01TENANT_ABC"
+
+
 class TestIAMEventTranslatorWorkspaceDeleted:
     """Tests for WorkspaceDeleted translation."""
 
     def test_translate_workspace_deleted_root_workspace(self):
-        """Root workspace deletion should delete tenant and root_workspace relationships."""
+        """Root workspace deletion should delete tenant, root_workspace, and creator_tenant relationships."""
         translator = IAMEventTranslator()
         payload = {
             "workspace_id": "01WORKSPACE_ROOT",
@@ -585,7 +610,7 @@ class TestIAMEventTranslatorWorkspaceDeleted:
 
         operations = translator.translate("WorkspaceDeleted", payload)
 
-        assert len(operations) == 2
+        assert len(operations) == 3
 
         # First: delete workspace#tenant@tenant
         tenant_op = operations[0]
@@ -604,6 +629,15 @@ class TestIAMEventTranslatorWorkspaceDeleted:
         assert root_op.relation == RelationType.ROOT_WORKSPACE
         assert root_op.subject_type == ResourceType.WORKSPACE
         assert root_op.subject_id == "01WORKSPACE_ROOT"
+
+        # Third: delete workspace#creator_tenant@tenant
+        creator_op = operations[2]
+        assert isinstance(creator_op, DeleteRelationship)
+        assert creator_op.resource_type == ResourceType.WORKSPACE
+        assert creator_op.resource_id == "01WORKSPACE_ROOT"
+        assert creator_op.relation == RelationType.CREATOR_TENANT
+        assert creator_op.subject_type == ResourceType.TENANT
+        assert creator_op.subject_id == "01TENANT_ABC"
 
     def test_translate_workspace_deleted_child_workspace(self):
         """Child workspace deletion should delete tenant and parent relationships."""

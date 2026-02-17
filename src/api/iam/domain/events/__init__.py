@@ -29,6 +29,7 @@ from iam.domain.events.tenant import (
 )
 from iam.domain.events.workspace import (
     WorkspaceCreated,
+    WorkspaceCreatorTenantSet,
     WorkspaceDeleted,
 )
 from iam.domain.events.workspace_member import (
@@ -50,6 +51,7 @@ DomainEvent = (
     | MemberRemoved
     | MemberRoleChanged
     | WorkspaceCreated
+    | WorkspaceCreatorTenantSet
     | WorkspaceDeleted
     | WorkspaceMemberAdded
     | WorkspaceMemberRemoved
@@ -74,6 +76,7 @@ __all__ = [
     "MemberSnapshot",
     # Workspace events
     "WorkspaceCreated",
+    "WorkspaceCreatorTenantSet",
     "WorkspaceDeleted",
     # Workspace member events
     "WorkspaceMemberAdded",

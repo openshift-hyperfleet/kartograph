@@ -15,6 +15,7 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       apiBaseUrl: 'http://localhost:8000',
+      mcpEndpointUrl: 'http://localhost:8000/query/mcp',
       keycloak: {
         url: 'http://localhost:8080',
         realm: 'kartograph',

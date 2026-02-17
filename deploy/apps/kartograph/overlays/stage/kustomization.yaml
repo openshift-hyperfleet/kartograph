@@ -4,9 +4,12 @@ namespace: kartograph-stage
 resources:
   - ../../base
   - route.yaml
+  - dev-ui-route.yaml
 patches:
   - path: configmap-patch.yaml
   - path: resources-patch.yaml
 images:
   - name: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-api
     newTag: 20537154d73b5b8f8ced3cfabc56f6a841068e99
+  - name: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-dev-ui
+    newTag: latest

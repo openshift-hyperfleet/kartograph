@@ -4,5 +4,10 @@ metadata:
   name: kartograph-config
 data:
   # Stage-specific overrides (merged with base)
-  # TODO: Update with actual cluster hostname
-  KARTOGRAPH_CORS_ORIGINS: "https://kartograph-stage.devshift.net"
+  KARTOGRAPH_CORS_ORIGINS: "https://kartograph-stage.devshift.net,https://kartograph-dev-ui-kartograph-stage.apps.rosa.appsres09ue1.24ep.p3.openshiftapps.com"
+  # Dev UI
+  DEV_UI_API_BASE_URL: "https://kartograph-api-kartograph-stage.apps.rosa.appsres09ue1.24ep.p3.openshiftapps.com"
+  DEV_UI_MCP_ENDPOINT_URL: "https://kartograph-api-kartograph-stage.apps.rosa.appsres09ue1.24ep.p3.openshiftapps.com/query/mcp"
+  DEV_UI_KEYCLOAK_URL: "https://keycloak.example.com"
+  DEV_UI_KEYCLOAK_REALM: "kartograph"
+  DEV_UI_KEYCLOAK_CLIENT_ID: "kartograph-ui"

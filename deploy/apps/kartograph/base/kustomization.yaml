@@ -20,6 +20,9 @@ resources:
   - job-spicedb-migrate.yaml
   - job-db-migrate.yaml
   - job-spicedb-schema.yaml
+  # Dev UI
+  - dev-ui-deployment.yaml
+  - dev-ui-service.yaml
   # Config
   - configmap.yaml
   - spicedb-schema-configmap.yaml

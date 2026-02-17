@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kartograph-dev-ui
+  labels:
+    app.kubernetes.io/component: dev-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: dev-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: dev-ui
+    spec:
+      containers:
+        - name: dev-ui
+          image: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-dev-ui:latest
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: NUXT_PUBLIC_API_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: kartograph-config
+                  key: DEV_UI_API_BASE_URL
+            - name: NUXT_PUBLIC_MCP_ENDPOINT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: kartograph-config
+                  key: DEV_UI_MCP_ENDPOINT_URL
+            - name: NUXT_PUBLIC_KEYCLOAK_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: kartograph-config
+                  key: DEV_UI_KEYCLOAK_URL
+            - name: NUXT_PUBLIC_KEYCLOAK_REALM
+              valueFrom:
+                configMapKeyRef:
+                  name: kartograph-config
+                  key: DEV_UI_KEYCLOAK_REALM
+            - name: NUXT_PUBLIC_KEYCLOAK_CLIENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: kartograph-config
+                  key: DEV_UI_KEYCLOAK_CLIENT_ID
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi

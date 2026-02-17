@@ -740,6 +740,11 @@ class SpiceDBClient(AuthorizationProvider):
             async for response in self._client.LookupSubjects(request):
                 # Extract subject ID from the response
                 # The subject_object_id contains the ID without the type prefix
+
+                # NOTE: relation field has context-dependent semantics:
+                # - If optional_subject_relation provided: contains subject's relation (e.g., "member")
+                # - If optional_subject_relation omitted: contains resource's permission (e.g., "admin")
+                # See SubjectRelation docstring for full explanation.
                 subjects.append(
                     SubjectRelation(
                         subject_id=response.subject_object_id,

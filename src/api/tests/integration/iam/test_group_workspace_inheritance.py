@@ -22,7 +22,7 @@ from shared_kernel.authorization.types import (
     format_resource,
     format_subject,
 )
-from tests.integration.iam.conftest import wait_for_permission
+from tests.integration.iam.conftest import create_child_workspace, wait_for_permission
 
 pytestmark = [pytest.mark.integration, pytest.mark.keycloak]
 
@@ -34,38 +34,6 @@ async def async_client():
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             yield client
-
-
-async def _create_child_workspace(
-    async_client: AsyncClient,
-    tenant_auth_headers: dict,
-    spicedb_client: AuthorizationProvider,
-    alice_user_id: str,
-    name: str = "test_ws",
-) -> str:
-    """Helper: Create a child workspace and wait for admin permission."""
-    ws_list = await async_client.get("/iam/workspaces", headers=tenant_auth_headers)
-    root = next(w for w in ws_list.json()["workspaces"] if w["is_root"])
-
-    create_resp = await async_client.post(
-        "/iam/workspaces",
-        headers=tenant_auth_headers,
-        json={"name": name, "parent_workspace_id": root["id"]},
-    )
-    assert create_resp.status_code == 201
-    ws_id = create_resp.json()["id"]
-
-    ws_resource = format_resource(ResourceType.WORKSPACE, ws_id)
-    alice_subject = format_subject(ResourceType.USER, alice_user_id)
-    admin_ready = await wait_for_permission(
-        spicedb_client,
-        ws_resource,
-        Permission.MANAGE,
-        alice_subject,
-        timeout=5.0,
-    )
-    assert admin_ready, "Timed out waiting for workspace admin permission"
-    return ws_id
 
 
 async def _create_group_with_member(
@@ -141,7 +109,7 @@ class TestGroupWorkspaceInheritance:
         group#member_relation@user:{bob_id} => bob has EDIT on workspace.
         """
         # 1. Create workspace (alice is admin)
-        ws_id = await _create_child_workspace(
+        ws_id = await create_child_workspace(
             async_client,
             tenant_auth_headers,
             spicedb_client,
@@ -221,7 +189,7 @@ class TestGroupWorkspaceInheritance:
         So group admins are also group members and should inherit workspace access.
         """
         # Create workspace
-        ws_id = await _create_child_workspace(
+        ws_id = await create_child_workspace(
             async_client,
             tenant_auth_headers,
             spicedb_client,
@@ -293,7 +261,7 @@ class TestGroupWorkspaceInheritance:
         access only via group membership should lose that access.
         """
         # Create workspace
-        ws_id = await _create_child_workspace(
+        ws_id = await create_child_workspace(
             async_client,
             tenant_auth_headers,
             spicedb_client,
@@ -373,7 +341,7 @@ class TestGroupWorkspaceInheritance:
         that was granted via the group membership.
         """
         # Create workspace
-        ws_id = await _create_child_workspace(
+        ws_id = await create_child_workspace(
             async_client,
             tenant_auth_headers,
             spicedb_client,
@@ -457,7 +425,7 @@ class TestExplicitTupleListing:
         the group with member_type='group', not expand it to individual users.
         """
         # Create workspace
-        ws_id = await _create_child_workspace(
+        ws_id = await create_child_workspace(
             async_client,
             tenant_auth_headers,
             spicedb_client,

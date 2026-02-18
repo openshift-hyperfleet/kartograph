@@ -224,25 +224,21 @@ class TestTenantCreationAutoGrant:
         workspaces = ws_resp.json()["workspaces"]
         root_workspaces = [w for w in workspaces if w["is_root"]]
 
-        if len(root_workspaces) > 0:
-            root_ws_id = root_workspaces[0]["id"]
-            ws_resource = format_resource(ResourceType.WORKSPACE, root_ws_id)
+        assert len(root_workspaces) > 0, (
+            "Root workspace should be returned in workspace listing for tenant admin"
+        )
+        root_ws_id = root_workspaces[0]["id"]
+        ws_resource = format_resource(ResourceType.WORKSPACE, root_ws_id)
 
-            # Check alice has MANAGE on root workspace
-            manage_ready = await wait_for_permission(
-                spicedb_client,
-                ws_resource,
-                Permission.MANAGE,
-                alice_subject,
-                timeout=5.0,
-            )
-            assert manage_ready, (
-                "Creator should have MANAGE permission on root workspace"
-            )
-        else:
-            # If listing doesn't return root workspace, verify via SpiceDB
-            # This may happen if the workspace listing is filtered
-            pass
+        # Check alice has MANAGE on root workspace
+        manage_ready = await wait_for_permission(
+            spicedb_client,
+            ws_resource,
+            Permission.MANAGE,
+            alice_subject,
+            timeout=5.0,
+        )
+        assert manage_ready, "Creator should have MANAGE permission on root workspace"
 
     @pytest.mark.asyncio
     async def test_tenant_creation_creates_root_workspace(
@@ -363,21 +359,23 @@ class TestAutoGrantRootWorkspaceAccess:
         assert ws_resp.status_code == 200
         root_workspaces = [w for w in ws_resp.json()["workspaces"] if w["is_root"]]
 
-        if len(root_workspaces) > 0:
-            root_ws_id = root_workspaces[0]["id"]
-            ws_resource = format_resource(ResourceType.WORKSPACE, root_ws_id)
+        assert len(root_workspaces) > 0, (
+            "Root workspace should be returned in workspace listing for tenant admin"
+        )
+        root_ws_id = root_workspaces[0]["id"]
+        ws_resource = format_resource(ResourceType.WORKSPACE, root_ws_id)
 
-            # Verify bob has MANAGE on root workspace
-            manage_ready = await wait_for_permission(
-                spicedb_client,
-                ws_resource,
-                Permission.MANAGE,
-                bob_subject,
-                timeout=5.0,
-            )
-            assert manage_ready, (
-                "Tenant admin should have MANAGE permission on root workspace"
-            )
+        # Verify bob has MANAGE on root workspace
+        manage_ready = await wait_for_permission(
+            spicedb_client,
+            ws_resource,
+            Permission.MANAGE,
+            bob_subject,
+            timeout=5.0,
+        )
+        assert manage_ready, (
+            "Tenant admin should have MANAGE permission on root workspace"
+        )
 
     @pytest.mark.asyncio
     async def test_adding_tenant_member_does_not_grant_root_workspace_admin(
@@ -443,33 +441,35 @@ class TestAutoGrantRootWorkspaceAccess:
         assert ws_resp.status_code == 200
         root_workspaces = [w for w in ws_resp.json()["workspaces"] if w["is_root"]]
 
-        if len(root_workspaces) > 0:
-            root_ws_id = root_workspaces[0]["id"]
-            ws_resource = format_resource(ResourceType.WORKSPACE, root_ws_id)
+        assert len(root_workspaces) > 0, (
+            "Root workspace should be returned in workspace listing for tenant admin"
+        )
+        root_ws_id = root_workspaces[0]["id"]
+        ws_resource = format_resource(ResourceType.WORKSPACE, root_ws_id)
 
-            # Allow time for any potential auto-grant to propagate
-            await asyncio.sleep(0.5)
+        # Allow time for any potential auto-grant to propagate
+        await asyncio.sleep(0.5)
 
-            # Verify bob does NOT have MANAGE on root workspace
-            has_manage = await spicedb_client.check_permission(
-                ws_resource,
-                Permission.MANAGE,
-                bob_subject,
-            )
-            assert has_manage is False, (
-                "Regular tenant member should NOT have MANAGE permission on root workspace"
-            )
+        # Verify bob does NOT have MANAGE on root workspace
+        has_manage = await spicedb_client.check_permission(
+            ws_resource,
+            Permission.MANAGE,
+            bob_subject,
+        )
+        assert has_manage is False, (
+            "Regular tenant member should NOT have MANAGE permission on root workspace"
+        )
 
-            # But bob should have VIEW via tenant->view
-            has_view = await spicedb_client.check_permission(
-                ws_resource,
-                Permission.VIEW,
-                bob_subject,
-            )
-            assert has_view is True, (
-                "Regular tenant member should have VIEW permission on root workspace "
-                "via tenant->view"
-            )
+        # But bob should have VIEW via tenant->view
+        has_view = await spicedb_client.check_permission(
+            ws_resource,
+            Permission.VIEW,
+            bob_subject,
+        )
+        assert has_view is True, (
+            "Regular tenant member should have VIEW permission on root workspace "
+            "via tenant->view"
+        )
 
     @pytest.mark.asyncio
     async def test_downgrading_tenant_admin_to_member_revokes_root_workspace_admin(

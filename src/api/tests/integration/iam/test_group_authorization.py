@@ -20,7 +20,7 @@ from shared_kernel.authorization.types import (
     format_resource,
     format_subject,
 )
-from tests.integration.iam.conftest import wait_for_permission
+from tests.integration.iam.conftest import create_group, wait_for_permission
 
 pytestmark = [pytest.mark.integration, pytest.mark.keycloak]
 
@@ -32,35 +32,6 @@ async def async_client():
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             yield client
-
-
-async def _create_group(
-    async_client: AsyncClient,
-    tenant_auth_headers: dict,
-    spicedb_client: AuthorizationProvider,
-    alice_user_id: str,
-    name: str = "test_group",
-) -> str:
-    """Helper: Create a group and wait for admin permission."""
-    create_resp = await async_client.post(
-        "/iam/groups",
-        headers=tenant_auth_headers,
-        json={"name": name},
-    )
-    assert create_resp.status_code == 201
-    group_id = create_resp.json()["id"]
-
-    group_resource = format_resource(ResourceType.GROUP, group_id)
-    alice_subject = format_subject(ResourceType.USER, alice_user_id)
-    admin_ready = await wait_for_permission(
-        spicedb_client,
-        group_resource,
-        Permission.MANAGE,
-        alice_subject,
-        timeout=5.0,
-    )
-    assert admin_ready, "Timed out waiting for group admin permission"
-    return group_id
 
 
 class TestGroupRoleEnforcement:
@@ -76,7 +47,7 @@ class TestGroupRoleEnforcement:
         clean_iam_data,
     ):
         """Group admin should be able to delete group (requires MANAGE)."""
-        group_id = await _create_group(
+        group_id = await create_group(
             async_client,
             tenant_auth_headers,
             spicedb_client,
@@ -104,7 +75,7 @@ class TestGroupRoleEnforcement:
         clean_iam_data,
     ):
         """Group member (not admin) should NOT be able to delete group."""
-        group_id = await _create_group(
+        group_id = await create_group(
             async_client,
             tenant_auth_headers,
             spicedb_client,
@@ -149,7 +120,7 @@ class TestGroupRoleEnforcement:
         clean_iam_data,
     ):
         """Group admin should be able to rename group (requires MANAGE)."""
-        group_id = await _create_group(
+        group_id = await create_group(
             async_client,
             tenant_auth_headers,
             spicedb_client,
@@ -179,7 +150,7 @@ class TestGroupRoleEnforcement:
         clean_iam_data,
     ):
         """Group member (not admin) should NOT be able to rename group."""
-        group_id = await _create_group(
+        group_id = await create_group(
             async_client,
             tenant_auth_headers,
             spicedb_client,
@@ -236,7 +207,7 @@ class TestGroupListingFiltered:
         Bob is a tenant member, so he should see groups in his tenant.
         """
         # Alice creates a group
-        group_id = await _create_group(
+        group_id = await create_group(
             async_client,
             tenant_auth_headers,
             spicedb_client,

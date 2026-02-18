@@ -6,6 +6,8 @@ Verifies POST/GET/PATCH/DELETE /iam/groups/{id}/members endpoints.
 AIHCM-160: Authorization integration tests for group member management.
 """
 
+import asyncio
+
 import pytest
 import pytest_asyncio
 
@@ -21,7 +23,7 @@ from shared_kernel.authorization.types import (
     format_resource,
     format_subject,
 )
-from tests.integration.iam.conftest import wait_for_permission
+from tests.integration.iam.conftest import create_group, wait_for_permission
 
 pytestmark = [pytest.mark.integration, pytest.mark.keycloak]
 
@@ -33,40 +35,6 @@ async def async_client():
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             yield client
-
-
-async def _create_group(
-    async_client: AsyncClient,
-    tenant_auth_headers: dict,
-    spicedb_client: AuthorizationProvider,
-    alice_user_id: str,
-    name: str = "test_group",
-) -> str:
-    """Helper: Create a group and wait for admin permission.
-
-    Returns the group ID.
-    """
-    create_resp = await async_client.post(
-        "/iam/groups",
-        headers=tenant_auth_headers,
-        json={"name": name},
-    )
-    assert create_resp.status_code == 201, f"Failed to create group: {create_resp.text}"
-    group_id = create_resp.json()["id"]
-
-    # Wait for outbox to grant alice admin on the new group
-    group_resource = format_resource(ResourceType.GROUP, group_id)
-    alice_subject = format_subject(ResourceType.USER, alice_user_id)
-    admin_ready = await wait_for_permission(
-        spicedb_client,
-        resource=group_resource,
-        permission=Permission.MANAGE,
-        subject=alice_subject,
-        timeout=5.0,
-    )
-    assert admin_ready, "Timed out waiting for group admin permission"
-
-    return group_id
 
 
 class TestAddGroupMember:
@@ -87,7 +55,7 @@ class TestAddGroupMember:
         Verifies that group admins can grant membership and that the
         SpiceDB relationship is correctly established.
         """
-        group_id = await _create_group(
+        group_id = await create_group(
             async_client,
             tenant_auth_headers,
             spicedb_client,
@@ -154,7 +122,7 @@ class TestAddGroupMember:
 
         Bob needs to be a group member (not admin) to test this properly.
         """
-        group_id = await _create_group(
+        group_id = await create_group(
             async_client,
             tenant_auth_headers,
             spicedb_client,
@@ -229,7 +197,7 @@ class TestListGroupMembers:
 
         Verifies the member list contains alice (admin) and bob (member).
         """
-        group_id = await _create_group(
+        group_id = await create_group(
             async_client,
             tenant_auth_headers,
             spicedb_client,
@@ -294,7 +262,7 @@ class TestListGroupMembers:
         Per the SpiceDB schema: group.view = admin + member_relation + tenant->view
         So tenant members should be able to view group members.
         """
-        group_id = await _create_group(
+        group_id = await create_group(
             async_client,
             tenant_auth_headers,
             spicedb_client,
@@ -331,7 +299,7 @@ class TestUpdateGroupMemberRole:
 
         Verifies that role updates correctly modify SpiceDB relationships.
         """
-        group_id = await _create_group(
+        group_id = await create_group(
             async_client,
             tenant_auth_headers,
             spicedb_client,
@@ -395,7 +363,7 @@ class TestUpdateGroupMemberRole:
         clean_iam_data,
     ):
         """Non-admin should receive 403 when trying to update group member role."""
-        group_id = await _create_group(
+        group_id = await create_group(
             async_client,
             tenant_auth_headers,
             spicedb_client,
@@ -450,7 +418,7 @@ class TestRemoveGroupMember:
 
         Verifies that SpiceDB relationships are correctly removed.
         """
-        group_id = await _create_group(
+        group_id = await create_group(
             async_client,
             tenant_auth_headers,
             spicedb_client,
@@ -487,8 +455,6 @@ class TestRemoveGroupMember:
         )
 
         # Allow time for removal to propagate
-        import asyncio
-
         await asyncio.sleep(0.5)
 
         # Verify bob no longer has member permission via direct grant
@@ -514,7 +480,7 @@ class TestRemoveGroupMember:
         clean_iam_data,
     ):
         """Non-admin should receive 403 when trying to remove group member."""
-        group_id = await _create_group(
+        group_id = await create_group(
             async_client,
             tenant_auth_headers,
             spicedb_client,

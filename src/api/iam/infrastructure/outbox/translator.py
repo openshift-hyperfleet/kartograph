@@ -313,14 +313,12 @@ class IAMEventTranslator:
         Also deletes the tenant#root_workspace relationship using filter-based
         deletion (no need to know the specific workspace ID).
 
-        TODO: Ensure the tenant deletion service emits WorkspaceDeleted events
-        for all tenant workspaces before emitting TenantDeleted. This ensures:
-        - Workspace data is cleaned up from the database (via repository)
-        - Child workspace relationships are cleaned up in SpiceDB
-        - Domain events provide audit trail for workspace deletions
-        The filter-based deletion here only cleans up the tenant's pointer to
-        its root workspace; the workspace's own relationships are cleaned up
-        by WorkspaceDeleted events.
+        Note: TenantService.delete_tenant() explicitly deletes all workspaces
+        before deleting the tenant, which ensures WorkspaceDeleted events are
+        emitted for proper SpiceDB cleanup. The filter-based deletion here only
+        cleans up the tenant's pointer to its root workspace; the workspace's
+        own relationships (admin, editor, member, parent, creator_tenant) are
+        cleaned up by WorkspaceDeleted event handlers.
         """
         operations: list[SpiceDBOperation] = []
 

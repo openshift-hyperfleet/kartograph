@@ -1,13 +1,12 @@
 """Tenant bootstrap service for IAM bounded context.
 
-TEMPORARY SERVICE: This service is used during the walking skeleton phase
-to ensure the default tenant and its root workspace exist at application startup.
+Ensures the default tenant and its root workspace exist at application startup.
+This service is used in single-tenant mode to provision the initial tenant
+before the full dependency graph (authorization providers, etc.) is available.
 
 This service provides a minimal-dependency alternative to TenantService for
 bootstrap operations, avoiding the need for authorization providers and other
 dependencies that may not be available or appropriate during startup.
-
-This service will be removed when proper multi-tenancy is implemented.
 """
 
 from __future__ import annotations
@@ -35,7 +34,7 @@ class TenantBootstrapService:
     - Does not require authorization providers
     - Does not require group/API key repositories
     - Uses StartupProbe instead of TenantServiceProbe
-    - Is intended only for single-tenant walking skeleton phase
+    - Is intended for single-tenant startup bootstrap
     """
 
     def __init__(

@@ -236,6 +236,7 @@ class TestInputValidation:
         mock_authz: AsyncMock,
         mock_probe: MagicMock,
         mock_tenant_repo: AsyncMock,
+        mock_session: AsyncMock,
     ) -> None:
         """Should strip leading/trailing whitespace from username and use cleaned value."""
         from iam.domain.aggregates import Tenant
@@ -254,6 +255,7 @@ class TestInputValidation:
             tenant_repository=mock_tenant_repo,
             default_tenant_name="default",
             bootstrap_admin_usernames=["admin-user"],
+            session=mock_session,
         )
 
         assert result.source == "default"
@@ -933,6 +935,7 @@ class TestAutoAddUserInSingleTenantMode:
         mock_authz: AsyncMock,
         mock_probe: MagicMock,
         mock_tenant_repo: AsyncMock,
+        mock_session: AsyncMock,
     ) -> None:
         """Should auto-add user as MEMBER when they lack view permission."""
         from iam.domain.aggregates import Tenant
@@ -951,6 +954,7 @@ class TestAutoAddUserInSingleTenantMode:
             tenant_repository=mock_tenant_repo,
             default_tenant_name="default",
             bootstrap_admin_usernames=[],
+            session=mock_session,
         )
 
         assert result.tenant_id == valid_tenant_id.value
@@ -969,6 +973,7 @@ class TestAutoAddUserInSingleTenantMode:
         mock_authz: AsyncMock,
         mock_probe: MagicMock,
         mock_tenant_repo: AsyncMock,
+        mock_session: AsyncMock,
     ) -> None:
         """Should auto-add user as ADMIN when username is in bootstrap_admin_usernames."""
         from iam.domain.aggregates import Tenant
@@ -987,6 +992,7 @@ class TestAutoAddUserInSingleTenantMode:
             tenant_repository=mock_tenant_repo,
             default_tenant_name="default",
             bootstrap_admin_usernames=["admin-user", "other-admin"],
+            session=mock_session,
         )
 
         assert result.tenant_id == valid_tenant_id.value
@@ -1068,6 +1074,7 @@ class TestAutoAddUserInSingleTenantMode:
         mock_authz: AsyncMock,
         mock_probe: MagicMock,
         mock_tenant_repo: AsyncMock,
+        mock_session: AsyncMock,
     ) -> None:
         """Should record TenantMemberAdded domain event via tenant.add_member()."""
         from iam.domain.aggregates import Tenant
@@ -1086,6 +1093,7 @@ class TestAutoAddUserInSingleTenantMode:
             tenant_repository=mock_tenant_repo,
             default_tenant_name="default",
             bootstrap_admin_usernames=[],
+            session=mock_session,
         )
 
         # The tenant passed to save should have pending events from add_member

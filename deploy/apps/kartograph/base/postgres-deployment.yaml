@@ -57,6 +57,8 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+            - name: dshm
+              mountPath: /dev/shm
           livenessProbe:
             exec:
               command:
@@ -83,8 +85,12 @@ spec:
               memory: 512Mi
             limits:
               cpu: 1000m
-              memory: 2Gi
+              memory: 4Gi
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: kartograph-postgres-pvc
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi

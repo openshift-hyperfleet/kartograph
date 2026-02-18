@@ -14,8 +14,8 @@ class User:
     Users are provisioned from SSO (Red Hat SSO) and represent individuals
     who can be members of groups and access resources.
 
-    For the walking skeleton, User is minimal (just id and username).
-    Future enhancements will add email, clearance_level, etc.
+    Currently minimal (id and username only) as users are provisioned from SSO.
+    Future enhancements will add additional profile fields.
     """
 
     id: UserId

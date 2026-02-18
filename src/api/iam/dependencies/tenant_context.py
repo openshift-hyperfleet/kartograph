@@ -1,7 +1,6 @@
 """Tenant context FastAPI dependency.
 
-Resolves tenant context from the X-Tenant-ID request header, replacing the
-walking skeleton's get_default_tenant_id() global function.
+Resolves tenant context from the X-Tenant-ID request header.
 
 In single-tenant dev mode (KARTOGRAPH_IAM_SINGLE_TENANT_MODE=true, default),
 when the header is missing the dependency auto-selects the default tenant

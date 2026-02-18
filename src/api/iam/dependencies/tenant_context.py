@@ -1,7 +1,6 @@
 """Tenant context FastAPI dependency.
 
-Resolves tenant context from the X-Tenant-ID request header, replacing the
-walking skeleton's get_default_tenant_id() global function.
+Resolves tenant context from the X-Tenant-ID request header.
 
 In single-tenant dev mode (KARTOGRAPH_IAM_SINGLE_TENANT_MODE=true, default),
 when the header is missing the dependency auto-selects the default tenant
@@ -251,6 +250,19 @@ async def _resolve_default_tenant(
         raise
 
     if not has_permission:
+        # Ensure we have a session for auto-add persistence
+        if session is None:
+            probe.user_auto_add_failed(
+                tenant_id=tenant.id.value,
+                user_id=user_id,
+                username=username,
+                error=ValueError("No database session available for auto-add"),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Cannot auto-add user: no database session available",
+            )
+
         # Auto-add user to the default tenant
         role = (
             TenantRole.ADMIN
@@ -261,8 +273,7 @@ async def _resolve_default_tenant(
         try:
             tenant.add_member(user_id=UserId(value=user_id), role=role)
             await tenant_repository.save(tenant)
-            if session is not None:
-                await session.commit()
+            await session.commit()
         except Exception as e:
             probe.user_auto_add_failed(
                 tenant_id=tenant.id.value,

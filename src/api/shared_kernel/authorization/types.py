@@ -115,6 +115,7 @@ class RelationType(StrEnum):
     """
 
     ADMIN = "admin"
+    CREATOR_TENANT = "creator_tenant"
     EDITOR = "editor"
     MEMBER = "member"
     MEMBER_RELATION = "member_relation"
@@ -133,6 +134,7 @@ class Permission(StrEnum):
     VIEW = "view"
     EDIT = "edit"
     MANAGE = "manage"
+    CREATE_CHILD = "create_child"
     ADMINISTRATE = "administrate"
 
 

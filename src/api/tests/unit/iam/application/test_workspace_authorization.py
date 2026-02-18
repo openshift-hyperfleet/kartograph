@@ -371,7 +371,7 @@ class TestWorkspaceManagePermission:
         creator_id,
         root_workspace,
     ):
-        """Test that create_workspace checks MANAGE permission on parent workspace."""
+        """Test that create_workspace checks CREATE_CHILD permission on parent workspace."""
         mock_authz.check_permission = AsyncMock(return_value=True)
         mock_workspace_repository.get_by_name = AsyncMock(return_value=None)
         mock_workspace_repository.get_by_id = AsyncMock(return_value=root_workspace)
@@ -386,10 +386,10 @@ class TestWorkspaceManagePermission:
         assert result is not None
         assert result.name == "Engineering"
 
-        # Verify MANAGE permission was checked on parent workspace
+        # Verify CREATE_CHILD permission was checked on parent workspace
         mock_authz.check_permission.assert_called_once_with(
             resource=format_resource(ResourceType.WORKSPACE, root_workspace.id.value),
-            permission=Permission.MANAGE.value,
+            permission=Permission.CREATE_CHILD.value,
             subject=format_subject(ResourceType.USER, creator_id.value),
         )
 
@@ -401,10 +401,12 @@ class TestWorkspaceManagePermission:
         creator_id,
         root_workspace,
     ):
-        """Test that create_workspace raises PermissionError without MANAGE on parent."""
+        """Test that create_workspace raises PermissionError without CREATE_CHILD on parent."""
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError, match="lacks manage permission on parent"):
+        with pytest.raises(
+            PermissionError, match="lacks create_child permission on parent"
+        ):
             await workspace_service.create_workspace(
                 name="Engineering",
                 parent_workspace_id=root_workspace.id,

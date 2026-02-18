@@ -3,6 +3,8 @@ services:
   api:
     # Run as root in dev to handle host file permissions (any umask)
     user: "${UID}:${GID}"
+    environment:
+      UV_CACHE_DIR: /tmp/uv-cache
     volumes:
       # Mount the entire app directory  (minus  venv) for hot-reload
       - ./src/api:/app:z

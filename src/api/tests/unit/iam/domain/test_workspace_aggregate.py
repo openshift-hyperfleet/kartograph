@@ -11,6 +11,7 @@ from unittest.mock import Mock
 from iam.domain.aggregates import Workspace
 from iam.domain.events import (
     WorkspaceCreated,
+    WorkspaceCreatorTenantSet,
     WorkspaceDeleted,
     WorkspaceMemberAdded,
     WorkspaceMemberRemoved,
@@ -186,7 +187,8 @@ class TestRootWorkspaceFactory:
         assert workspace.tenant_id == tenant_id
 
     def test_create_root_records_event_with_is_root_true(self):
-        """create_root should record event with is_root=True."""
+        """create_root should record WorkspaceCreated with is_root=True
+        and WorkspaceCreatorTenantSet."""
         tenant_id = TenantId.generate()
 
         workspace = Workspace.create_root(
@@ -195,9 +197,51 @@ class TestRootWorkspaceFactory:
         )
         events = workspace.collect_events()
 
-        assert len(events) == 1
+        assert len(events) == 2
         assert isinstance(events[0], WorkspaceCreated)
         assert events[0].is_root is True
+
+    def test_create_root_emits_workspace_creator_tenant_set(self):
+        """create_root should emit WorkspaceCreatorTenantSet event.
+
+        This event establishes the creator_tenant relation in SpiceDB,
+        which delegates create_child permission to all tenant members
+        for root workspaces.
+        """
+        tenant_id = TenantId.generate()
+
+        workspace = Workspace.create_root(
+            name="Root",
+            tenant_id=tenant_id,
+        )
+        events = workspace.collect_events()
+
+        # Second event should be WorkspaceCreatorTenantSet
+        assert len(events) == 2
+        creator_event = events[1]
+        assert isinstance(creator_event, WorkspaceCreatorTenantSet)
+        assert creator_event.workspace_id == workspace.id.value
+        assert creator_event.tenant_id == tenant_id.value
+        assert creator_event.occurred_at is not None
+
+    def test_create_child_does_not_emit_workspace_creator_tenant_set(self):
+        """create (child workspace) should NOT emit WorkspaceCreatorTenantSet.
+
+        Only root workspaces get the creator_tenant relation.
+        """
+        tenant_id = TenantId.generate()
+        parent_id = WorkspaceId.generate()
+
+        workspace = Workspace.create(
+            name="Child",
+            tenant_id=tenant_id,
+            parent_workspace_id=parent_id,
+        )
+        events = workspace.collect_events()
+
+        assert len(events) == 1
+        assert isinstance(events[0], WorkspaceCreated)
+        assert not any(isinstance(e, WorkspaceCreatorTenantSet) for e in events)
 
 
 class TestBusinessRules:

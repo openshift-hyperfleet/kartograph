@@ -59,3 +59,24 @@ class WorkspaceDeleted:
     is_root: bool
     members: tuple[WorkspaceMemberSnapshot, ...]
     occurred_at: datetime
+
+
+@dataclass(frozen=True)
+class WorkspaceCreatorTenantSet:
+    """Event raised when a root workspace's creator_tenant relation is established.
+
+    This event triggers the creation of a creator_tenant relationship in SpiceDB,
+    which allows all tenant members to create child workspaces under this root
+    workspace via the create_child permission.
+
+    Only emitted for root workspaces during creation.
+
+    Attributes:
+        workspace_id: The ULID of the root workspace
+        tenant_id: The ULID of the tenant whose members gain create_child permission
+        occurred_at: When the event occurred (UTC)
+    """
+
+    workspace_id: str
+    tenant_id: str
+    occurred_at: datetime

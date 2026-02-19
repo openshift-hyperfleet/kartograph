@@ -438,6 +438,7 @@ class TenantService:
                 root_workspace.remove_member(
                     member_id=user_id.value,
                     member_type=MemberType.USER,
+                    force=True,
                 )
                 await self._workspace_repository.save(root_workspace)
 
@@ -460,6 +461,7 @@ class TenantService:
             root_workspace.remove_member(
                 member_id=user_id.value,
                 member_type=MemberType.USER,
+                force=True,
             )
             await self._workspace_repository.save(root_workspace)
 

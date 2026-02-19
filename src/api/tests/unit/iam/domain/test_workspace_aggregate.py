@@ -1314,6 +1314,48 @@ class TestLastAdminProtection:
         assert len(events) == 0
 
 
+class TestForceRemoveLastAdmin:
+    """Tests for force-removing the last admin from a workspace.
+
+    The force parameter allows system-level operations (e.g., tenant member
+    removal) to bypass the last-admin protection when cascading access revocation.
+    """
+
+    def test_force_remove_last_admin_succeeds(self):
+        """Force-removing the last admin should succeed."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+        workspace.collect_events()
+
+        workspace.remove_member("user-alice", MemberType.USER, force=True)
+
+        assert not workspace.has_member("user-alice", MemberType.USER)
+
+    def test_force_remove_emits_event(self):
+        """Force-removing a member should still emit the removal event."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+        workspace.collect_events()
+
+        workspace.remove_member("user-alice", MemberType.USER, force=True)
+
+        events = workspace.collect_events()
+        removed_events = [e for e in events if isinstance(e, WorkspaceMemberRemoved)]
+        assert len(removed_events) == 1
+        assert removed_events[0].member_id == "user-alice"
+        assert removed_events[0].role == "admin"
+
+    def test_force_false_still_raises_for_last_admin(self):
+        """Explicitly passing force=False should still protect last admin."""
+        from iam.domain.exceptions import CannotRemoveLastAdminError
+
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+
+        with pytest.raises(CannotRemoveLastAdminError):
+            workspace.remove_member("user-alice", MemberType.USER, force=False)
+
+
 class TestWorkspaceProbes:
     """Tests for workspace domain probe emissions.
 

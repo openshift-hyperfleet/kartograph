@@ -38,13 +38,17 @@ interface CypherState {
   inPattern: boolean
   /** Did we just see a colon (for label detection)? */
   afterColon: boolean
+  /** Are we inside a block comment that spans multiple lines? */
+  inBlockComment: boolean
+  /** Depth of nested braces (for map literals inside patterns) */
+  braceDepth: number
 }
 
 const cypherStreamParser: StreamParser<CypherState> = {
   name: 'cypher',
 
   startState(): CypherState {
-    return { inPattern: false, afterColon: false }
+    return { inPattern: false, afterColon: false, inBlockComment: false, braceDepth: 0 }
   },
 
   token(stream, state): string | null {
@@ -52,6 +56,18 @@ const cypherStreamParser: StreamParser<CypherState> = {
     if (stream.eatSpace()) {
       state.afterColon = false
       return null
+    }
+
+    // Continue block comment from previous line
+    if (state.inBlockComment) {
+      while (!stream.eol()) {
+        if (stream.match('*/')) {
+          state.inBlockComment = false
+          return 'comment'
+        }
+        stream.next()
+      }
+      return 'comment'
     }
 
     // Line comments: //
@@ -62,8 +78,12 @@ const cypherStreamParser: StreamParser<CypherState> = {
 
     // Block comments: /* ... */
     if (stream.match('/*')) {
+      state.inBlockComment = true
       while (!stream.eol()) {
-        if (stream.match('*/')) break
+        if (stream.match('*/')) {
+          state.inBlockComment = false
+          return 'comment'
+        }
         stream.next()
       }
       return 'comment'
@@ -109,7 +129,14 @@ const cypherStreamParser: StreamParser<CypherState> = {
     }
 
     // Braces
-    if (stream.peek() === '{' || stream.peek() === '}') {
+    if (stream.peek() === '{') {
+      state.braceDepth++
+      state.afterColon = false
+      stream.next()
+      return 'bracket'
+    }
+    if (stream.peek() === '}') {
+      state.braceDepth = Math.max(0, state.braceDepth - 1)
       state.afterColon = false
       stream.next()
       return 'bracket'
@@ -118,7 +145,7 @@ const cypherStreamParser: StreamParser<CypherState> = {
     // Colon (label prefix in patterns)
     if (stream.peek() === ':') {
       stream.next()
-      if (state.inPattern) {
+      if (state.inPattern && state.braceDepth === 0) {
         state.afterColon = true
       }
       return 'operator'

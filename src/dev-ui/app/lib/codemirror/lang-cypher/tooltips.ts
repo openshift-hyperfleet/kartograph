@@ -217,6 +217,8 @@ const FUNCTION_DOCS: Record<string, KeywordDoc> = {
  */
 function createTooltipDom(doc: KeywordDoc): HTMLElement {
   const container = document.createElement('div')
+  container.setAttribute('role', 'tooltip')
+  container.setAttribute('aria-label', doc.title + ': ' + doc.description)
   container.style.maxWidth = '360px'
   container.style.padding = '8px 12px'
   container.style.fontSize = '0.8125rem'

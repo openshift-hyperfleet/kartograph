@@ -47,11 +47,15 @@ function findValueSpan(
   const valueStart = match.index + match[0].length
   const rest = lineText.slice(valueStart)
 
-  // If value starts with a quote, find the closing quote
   if (rest.startsWith('"')) {
-    const closeQuote = rest.indexOf('"', 1)
-    if (closeQuote >= 0) {
-      return { from: valueStart, to: valueStart + closeQuote + 1 }
+    // Scan for closing quote, respecting backslash escapes
+    let i = 1
+    while (i < rest.length) {
+      if (rest[i] === '\\') { i += 2; continue }
+      if (rest[i] === '"') {
+        return { from: valueStart, to: valueStart + i + 1 }
+      }
+      i++
     }
     // Unclosed quote — underline to end
     return { from: valueStart, to: lineText.length }
@@ -317,7 +321,7 @@ function lintIdField(
   lineTo: number,
   diagnostics: Diagnostic[],
 ) {
-  if (!obj[field]) {
+  if (!obj[field] && obj[field] !== 0 && obj[field] !== false) {
     diagnostics.push({
       from: lineFrom,
       to: lineTo,
@@ -325,7 +329,16 @@ function lintIdField(
       message: `${prefix}: missing required field "${field}"`,
     })
   }
-  else if (typeof obj[field] === 'string' && !ID_PATTERN.test(obj[field])) {
+  else if (typeof obj[field] !== 'string') {
+    const span = findValueSpan(lineText, field)
+    diagnostics.push({
+      from: lineFrom + (span?.from ?? 0),
+      to: lineFrom + (span?.to ?? lineText.length),
+      severity: 'error',
+      message: `${prefix}: ${field} must be a string`,
+    })
+  }
+  else if (!ID_PATTERN.test(obj[field])) {
     const span = findValueSpan(lineText, field)
     diagnostics.push({
       from: lineFrom + (span?.from ?? 0),

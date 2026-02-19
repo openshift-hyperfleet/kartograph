@@ -130,7 +130,7 @@ function getPartialWord(textBeforeCursor: string): { from: number; word: string 
   const quoteMatch = textBeforeCursor.match(/"([^"]*)$/)
   if (quoteMatch) {
     return {
-      from: textBeforeCursor.length - quoteMatch[1].length,
+      from: textBeforeCursor.length - quoteMatch[0].length,
       word: quoteMatch[1],
     }
   }

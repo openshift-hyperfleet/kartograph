@@ -145,15 +145,28 @@ export function applyServerError(view: EditorView, errorMsg: string): ParsedErro
 
   // Try to locate the error position using the "near" token
   if (parsed.near) {
-    // Search for the token in the document (case-insensitive)
     const searchTerm = parsed.near
-    const docLower = doc.toLowerCase()
     const termLower = searchTerm.toLowerCase()
-    const idx = docLower.indexOf(termLower)
 
-    if (idx >= 0) {
-      errorFrom = idx
-      errorTo = idx + searchTerm.length
+    if (parsed.line && parsed.line <= doc.split('\n').length) {
+      // Scope search to the specific line from the error
+      const line = view.state.doc.line(parsed.line)
+      const lineLower = line.text.toLowerCase()
+      const localIdx = lineLower.indexOf(termLower)
+      if (localIdx >= 0) {
+        errorFrom = line.from + localIdx
+        errorTo = errorFrom + searchTerm.length
+      }
+    }
+
+    // Fall back to whole-document search
+    if (errorFrom < 0) {
+      const docLower = doc.toLowerCase()
+      const idx = docLower.indexOf(termLower)
+      if (idx >= 0) {
+        errorFrom = idx
+        errorTo = idx + searchTerm.length
+      }
     }
   }
 

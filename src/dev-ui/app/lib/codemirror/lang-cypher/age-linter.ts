@@ -8,12 +8,48 @@ import type { EditorView } from '@codemirror/view'
  */
 function hasUnnestedCommas(clause: string): boolean {
   let depth = 0
-  for (const ch of clause) {
+  let inString = false
+  let stringChar = ''
+  for (let i = 0; i < clause.length; i++) {
+    const ch = clause[i]
+    if (inString) {
+      if (ch === '\\') { i++; continue }
+      if (ch === stringChar) inString = false
+      continue
+    }
+    if (ch === '"' || ch === "'") { inString = true; stringChar = ch; continue }
     if (ch === '(' || ch === '[' || ch === '{') depth++
     else if (ch === ')' || ch === ']' || ch === '}') depth--
     else if (ch === ',' && depth === 0) return true
   }
   return false
+}
+
+/**
+ * Split a string on top-level commas, respecting parens, brackets, braces, and strings.
+ */
+function splitTopLevel(text: string): string[] {
+  const parts: string[] = []
+  let current = ''
+  let depth = 0
+  let inString = false
+  let stringChar = ''
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      current += ch
+      if (ch === '\\') { i++; current += text[i] ?? ''; continue }
+      if (ch === stringChar) inString = false
+      continue
+    }
+    if (ch === '"' || ch === "'") { inString = true; stringChar = ch; current += ch; continue }
+    if (ch === '(' || ch === '[' || ch === '{') { depth++; current += ch; continue }
+    if (ch === ')' || ch === ']' || ch === '}') { depth--; current += ch; continue }
+    if (ch === ',' && depth === 0) { parts.push(current); current = ''; continue }
+    current += ch
+  }
+  if (current.trim()) parts.push(current)
+  return parts
 }
 
 /**
@@ -53,13 +89,22 @@ function ageLintSource(view: EditorView): Diagnostic[] {
           name: 'Wrap in map',
           apply: (view, from, to) => {
             const currentText = view.state.sliceDoc(from, to)
-            // Extract just the return expressions (after RETURN keyword)
             const returnKeywordMatch = currentText.match(/^(\s*RETURN\s+)/i)
             if (returnKeywordMatch) {
               const prefix = returnKeywordMatch[1]
-              const expressions = currentText.slice(prefix.length)
+              const expressions = currentText.slice(prefix.length).trim()
+              // Split on top-level commas (not inside parens/brackets/strings)
+              const parts = splitTopLevel(expressions)
+              const mapEntries = parts.map((expr) => {
+                const trimmed = expr.trim()
+                // Derive key: use property name from "x.prop", alias from "expr AS alias", or generate one
+                const propMatch = trimmed.match(/\.(\w+)$/)
+                const asMatch = trimmed.match(/\bAS\s+(\w+)$/i)
+                const key = asMatch ? asMatch[1] : propMatch ? propMatch[1] : trimmed.replace(/[^a-zA-Z0-9_]/g, '_')
+                return `${key}: ${trimmed}`
+              })
               view.dispatch({
-                changes: { from, to, insert: `${prefix}{${expressions.trim()}}` },
+                changes: { from, to, insert: `${prefix}{${mapEntries.join(', ')}}` },
               })
             }
           },
@@ -95,10 +140,12 @@ function ageLintSource(view: EditorView): Diagnostic[] {
   const hasMutation = /\b(CREATE|DELETE|SET|MERGE|REMOVE)\b/i.test(trimmed)
 
   if (hasMatch && !hasReturn && !hasMutation) {
-    // Find the end of the document for the warning
+    const contentStart = doc.indexOf(trimmed)
+    const contentEnd = contentStart + trimmed.length
+    const lastToken = trimmed.split(/\s+/).pop()!
     diagnostics.push({
-      from: doc.length - trimmed.length + trimmed.lastIndexOf(trimmed.split(/\s+/).pop()!),
-      to: doc.length,
+      from: contentStart + trimmed.lastIndexOf(lastToken),
+      to: contentEnd,
       severity: 'warning',
       message: 'Query has MATCH but no RETURN clause. Results will not be returned.\n\nAdd a RETURN clause, e.g.:\n  RETURN n',
     })

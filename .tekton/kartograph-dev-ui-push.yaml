@@ -628,20 +628,25 @@ spec:
           steps:
             - name: update-and-push
               image: alpine/git:latest
+              env:
+                - name: WORKSPACE_BASIC_AUTH_PATH
+                  value: /workspace/basic-auth
               script: |
                 #!/bin/sh
                 set -eu
 
                 # Configure git credentials
-                if [ -f /workspace/basic-auth/.gitconfig ]; then
-                  cp /workspace/basic-auth/.gitconfig ~/
+                if [ -f "${WORKSPACE_BASIC_AUTH_PATH}/.gitconfig" ]; then
+                  cp "${WORKSPACE_BASIC_AUTH_PATH}/.gitconfig" ~/
                 fi
-                if [ -f /workspace/basic-auth/.git-credentials ]; then
-                  cp /workspace/basic-auth/.git-credentials ~/
+                if [ -f "${WORKSPACE_BASIC_AUTH_PATH}/.git-credentials" ]; then
+                  cp "${WORKSPACE_BASIC_AUTH_PATH}/.git-credentials" ~/
                 fi
                 git config --global credential.helper store
 
                 COMMIT_SHA="$(params.COMMIT_SHA)"
+                SHORT_SHA="${COMMIT_SHA:0:12}"
+                BRANCH="konflux/deploy-tag-${SHORT_SHA}"
 
                 git clone --depth 1 --branch main "$(params.GIT_URL)" /tmp/repo
                 cd /tmp/repo

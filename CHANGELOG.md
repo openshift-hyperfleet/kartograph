@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.22.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.22.0...v3.22.1) (2026-02-19)
+
+
+### Bug Fixes
+
+* **cd:** use pr instead of direct git push for image tag updates ([#244](https://github.com/openshift-hyperfleet/kartograph/issues/244)) ([462dfcd](https://github.com/openshift-hyperfleet/kartograph/commit/462dfcdfb47f9b0695d43859518387357c947d25))
+
 ## [3.22.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.21.0...v3.22.0) (2026-02-19)
 
 

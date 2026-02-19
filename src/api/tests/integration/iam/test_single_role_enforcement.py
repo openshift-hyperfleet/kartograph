@@ -157,6 +157,7 @@ class TestGroupSingleRole:
         self,
         async_client: AsyncClient,
         tenant_auth_headers: dict,
+        bob_tenant_auth_headers: dict,
         spicedb_client: AuthorizationProvider,
         alice_user_id: str,
         bob_user_id: str,
@@ -167,6 +168,9 @@ class TestGroupSingleRole:
         Bob starts as 'member' and is changed to 'admin'.
         After the update, bob should have MANAGE (admin gets manage).
         """
+        # JIT-provision bob so the member-exists validation passes
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
+
         group_id = await create_group(
             async_client,
             tenant_auth_headers,

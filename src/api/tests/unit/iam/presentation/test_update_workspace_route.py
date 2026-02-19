@@ -161,7 +161,10 @@ class TestUpdateWorkspace:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "lacks manage permission" in response.json()["detail"].lower()
+        assert (
+            response.json()["detail"]
+            == "You do not have permission to perform this action"
+        )
 
     def test_returns_409_for_duplicate_name(
         self,
@@ -220,7 +223,10 @@ class TestUpdateWorkspace:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "different tenant" in response.json()["detail"].lower()
+        assert (
+            response.json()["detail"]
+            == "You do not have permission to perform this action"
+        )
 
     def test_returns_500_on_unexpected_error(
         self,

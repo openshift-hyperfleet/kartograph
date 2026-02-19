@@ -79,10 +79,10 @@ async def create_workspace(
 
         return WorkspaceResponse.from_domain(workspace)
 
-    except UnauthorizedError as e:
+    except UnauthorizedError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(e),
+            detail="You do not have permission to perform this action",
         )
     except DuplicateWorkspaceNameError as e:
         raise HTTPException(
@@ -263,10 +263,10 @@ async def delete_workspace(
 
         return None
 
-    except UnauthorizedError as e:
+    except UnauthorizedError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(e),
+            detail="You do not have permission to perform this action",
         )
     except CannotDeleteRootWorkspaceError as e:
         raise HTTPException(
@@ -340,10 +340,10 @@ async def add_workspace_member(
             role=request.role,
         )
 
-    except UnauthorizedError as e:
+    except UnauthorizedError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(e),
+            detail="You do not have permission to perform this action",
         )
     except (ValueError, TypeError) as e:
         error_msg = str(e)
@@ -409,10 +409,10 @@ async def list_workspace_members(
 
         return [WorkspaceMemberResponse.from_grant(grant) for grant in members]
 
-    except UnauthorizedError as e:
+    except UnauthorizedError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(e),
+            detail="You do not have permission to perform this action",
         )
     except HTTPException:
         raise
@@ -475,10 +475,10 @@ async def remove_workspace_member(
             member_type=domain_member_type,
         )
 
-    except UnauthorizedError as e:
+    except UnauthorizedError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(e),
+            detail="You do not have permission to perform this action",
         )
     except CannotRemoveLastAdminError:
         raise HTTPException(
@@ -567,10 +567,10 @@ async def update_workspace_member_role(
             role=WorkspaceRoleEnum(request.role.value),
         )
 
-    except UnauthorizedError as e:
+    except UnauthorizedError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(e),
+            detail="You do not have permission to perform this action",
         )
     except CannotRemoveLastAdminError:
         raise HTTPException(
@@ -640,10 +640,10 @@ async def update_workspace(
 
         return WorkspaceResponse.from_domain(workspace)
 
-    except UnauthorizedError as e:
+    except UnauthorizedError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(e),
+            detail="You do not have permission to perform this action",
         )
     except DuplicateWorkspaceNameError as e:
         raise HTTPException(

@@ -198,7 +198,10 @@ class TestUpdateWorkspaceMemberRole:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "lacks manage permission" in response.json()["detail"].lower()
+        assert (
+            response.json()["detail"]
+            == "You do not have permission to perform this action"
+        )
 
     def test_returns_403_on_unauthorized_error(
         self,
@@ -218,7 +221,10 @@ class TestUpdateWorkspaceMemberRole:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "different tenant" in response.json()["detail"].lower()
+        assert (
+            response.json()["detail"]
+            == "You do not have permission to perform this action"
+        )
 
     def test_returns_400_on_value_error(
         self,

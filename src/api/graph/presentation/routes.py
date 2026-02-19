@@ -64,11 +64,13 @@ async def apply_mutations(
     Returns:
         MutationResult with success status and operation count.
 
-        On validation error, returns success=false with detailed error messages
-        in the errors array (HTTP 500).
-
     Raises:
-        HTTPException: 500 if mutation application fails.
+        HTTPException: 422 Unprocessable Entity if the input contains validation
+            errors (e.g. malformed JSON, missing required fields). The response
+            detail includes an ``errors`` field with per-line error messages
+            matching ``result.errors``.
+        HTTPException: 500 if mutation application fails due to a database or
+            execution error.
     """
 
     # Run sync database operations in thread pool to avoid blocking event loop

@@ -24,6 +24,7 @@ from shared_kernel.authorization.types import (
 from tests.integration.iam.conftest import (
     create_child_workspace,
     create_group,
+    ensure_user_provisioned,
     wait_for_permission,
 )
 
@@ -52,6 +53,7 @@ class TestWorkspaceSingleRole:
         self,
         async_client: AsyncClient,
         tenant_auth_headers: dict,
+        bob_tenant_auth_headers: dict,
         spicedb_client: AuthorizationProvider,
         alice_user_id: str,
         bob_user_id: str,
@@ -63,6 +65,9 @@ class TestWorkspaceSingleRole:
         After the update, bob should have EDIT but not MANAGE, and the
         old 'member' role should be removed.
         """
+        # JIT-provision bob so the member-exists validation passes
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
+
         ws_id = await create_child_workspace(
             async_client,
             tenant_auth_headers,

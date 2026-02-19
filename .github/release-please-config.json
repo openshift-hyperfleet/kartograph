@@ -7,7 +7,11 @@
       "changelog-path": "CHANGELOG.md",
       "include-component-in-tag": false,
       "extra-files": [
-        "src/api/pyproject.toml",
+        {
+          "type": "toml",
+          "path": "src/api/pyproject.toml",
+          "jsonpath": "$.project.version"
+        },
         "website/package.json"
       ]
     }

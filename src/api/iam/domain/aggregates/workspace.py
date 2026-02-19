@@ -286,17 +286,22 @@ class Workspace:
         self,
         member_id: str,
         member_type: MemberType,
+        *,
+        force: bool = False,
     ) -> None:
         """Remove a member from the workspace.
 
         Args:
             member_id: The user ID or group ID
             member_type: Whether this is a USER or GROUP
+            force: If True, bypass last-admin protection. Used by system-level
+                operations (e.g., tenant member removal cascading to workspace).
 
         Raises:
             TypeError: If member_id is not a string, or if member_type is not
                 the correct enum type
             ValueError: If member_id is empty or member is not in workspace
+            CannotRemoveLastAdminError: If removing the last admin (unless force=True)
             RuntimeError: If invariant is violated
         """
         # Validate member_id type
@@ -321,8 +326,8 @@ class Workspace:
                 f"{member_type.value} {member_id} is not a member of this workspace"
             )
 
-        # Prevent removing the last admin
-        if self._is_last_admin(member_id, member_type):
+        # Prevent removing the last admin (unless force=True for system cascades)
+        if not force and self._is_last_admin(member_id, member_type):
             raise CannotRemoveLastAdminError()
 
         # Get role for event (need to know which relation to delete in SpiceDB)

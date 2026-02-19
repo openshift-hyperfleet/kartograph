@@ -215,7 +215,7 @@ class GroupService:
             True if deleted, False if not found
 
         Raises:
-            PermissionError: If user lacks manage permission on the group
+            UnauthorizedError: If user lacks manage permission on the group
         """
         # Check user has manage permission on this group (SpiceDB - no session needed)
         resource = format_resource(ResourceType.GROUP, group_id.value)
@@ -303,7 +303,7 @@ class GroupService:
             Updated Group aggregate
 
         Raises:
-            PermissionError: If acting user lacks MANAGE permission
+            UnauthorizedError: If acting user lacks MANAGE permission
             ValueError: If member already has the same role, group not found, or tenant mismatch
         """
         # Check acting user has MANAGE permission
@@ -360,7 +360,7 @@ class GroupService:
             Updated Group aggregate
 
         Raises:
-            PermissionError: If acting user lacks MANAGE permission
+            UnauthorizedError: If acting user lacks MANAGE permission
             ValueError: If member doesn't exist, group not found, or tenant mismatch
         """
         # Check acting user has MANAGE permission
@@ -413,7 +413,7 @@ class GroupService:
             Updated Group aggregate
 
         Raises:
-            PermissionError: If acting user lacks MANAGE permission
+            UnauthorizedError: If acting user lacks MANAGE permission
             ValueError: If member doesn't exist, group not found, or tenant mismatch
         """
         # Check acting user has MANAGE permission
@@ -465,7 +465,7 @@ class GroupService:
             List of GroupAccessGrant objects
 
         Raises:
-            PermissionError: If user lacks VIEW permission
+            UnauthorizedError: If user lacks VIEW permission
         """
         # Check user has VIEW permission
         has_view = await self._check_group_permission(
@@ -534,7 +534,7 @@ class GroupService:
             Updated Group aggregate
 
         Raises:
-            PermissionError: If user lacks MANAGE permission
+            UnauthorizedError: If user lacks MANAGE permission
             ValueError: If group not found, tenant mismatch, or name invalid
             DuplicateGroupNameError: If name already exists in tenant
         """

@@ -7,13 +7,13 @@ metadata:
     build.appstudio.redhat.com/target_branch: "{{target_branch}}"
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch == "main" && ("src/api/***".pathChanged() || ".tekton/kartograph-api-push.yaml".pathChanged())
+    pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch == "main" && ("src/dev-ui/***".pathChanged() || ".tekton/kartograph-dev-ui-push.yaml".pathChanged())
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: kartograph
-    appstudio.openshift.io/component: kartograph-api
+    appstudio.openshift.io/component: kartograph-dev-ui
     pipelines.appstudio.openshift.io/type: build
-  name: kartograph-api-on-push
+  name: kartograph-dev-ui-on-push
   namespace: kartograph-tenant
 spec:
   params:
@@ -22,11 +22,11 @@ spec:
     - name: revision
       value: "{{revision}}"
     - name: output-image
-      value: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-api:{{revision}}
+      value: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-dev-ui:{{revision}}
     - name: dockerfile
-      value: src/api/Dockerfile
+      value: src/dev-ui/Dockerfile
     - name: path-context
-      value: src/api
+      value: src/dev-ui
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while maintaining trust after pipeline customization.
@@ -657,7 +657,7 @@ spec:
                   exit 0
                 fi
 
-                sed -i '/kartograph-api$/{n;s/newTag: .*/newTag: '"${COMMIT_SHA}"'/;}' "$FILE"
+                sed -i '/kartograph-dev-ui$/{n;s/newTag: .*/newTag: '"${COMMIT_SHA}"'/;}' "$FILE"
 
                 git config user.email "konflux@kartograph.openshift.com"
                 git config user.name "Konflux Build"
@@ -668,7 +668,7 @@ spec:
                   exit 0
                 fi
 
-                git commit -m "chore(deploy): update api stage image tag to ${COMMIT_SHA}"
+                git commit -m "chore(deploy): update dev-ui stage image tag to ${COMMIT_SHA}"
                 git push origin main
     workspaces:
       - name: git-auth
@@ -676,7 +676,7 @@ spec:
       - name: netrc
         optional: true
   taskRunTemplate:
-    serviceAccountName: build-pipeline-kartograph-api
+    serviceAccountName: build-pipeline-kartograph-dev-ui
   workspaces:
     - name: git-auth
       secret:

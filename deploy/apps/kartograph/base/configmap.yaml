@@ -17,3 +17,9 @@ data:
   KARTOGRAPH_OUTBOX_ENABLED: "true"
   KARTOGRAPH_OUTBOX_POLL_INTERVAL_SECONDS: "30"
   KARTOGRAPH_OUTBOX_BATCH_SIZE: "100"
+  # Dev UI
+  DEV_UI_API_BASE_URL: "http://kartograph-api:8000"
+  DEV_UI_MCP_ENDPOINT_URL: "http://kartograph-api:8000/query/mcp"
+  DEV_UI_KEYCLOAK_URL: "http://keycloak:8080"
+  DEV_UI_KEYCLOAK_REALM: "kartograph"
+  DEV_UI_KEYCLOAK_CLIENT_ID: "kartograph-ui"

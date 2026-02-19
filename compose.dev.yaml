@@ -14,3 +14,23 @@ services:
       - -c
       - |
         uv run fastapi dev main.py --host 0.0.0.0 --port 8000
+
+  dev-ui:
+    build:
+      context: ./src/dev-ui
+      dockerfile: Dockerfile
+      target: builder
+    volumes:
+      # Mount source for live editing
+      - ./src/dev-ui:/app:z
+      # Preserve container's node_modules (don't overwrite with host)
+      - /app/node_modules
+      # Writable dirs for Nuxt dev server
+      - /app/.nuxt
+      - /app/.output
+    environment:
+      - HOST=0.0.0.0
+    command: ["pnpm", "run", "dev"]
+    ports:
+      - "3000:3000"
+      - "24678:24678"

@@ -73,7 +73,7 @@ const copiedHeader = ref<string | null>(null)
 // ── Computed ───────────────────────────────────────────────────────────────
 
 const apiBaseUrl = computed(() => config.public.apiBaseUrl as string)
-const mcpEndpointUrl = computed(() => `${apiBaseUrl.value}/query/mcp`)
+const mcpEndpointUrl = computed(() => config.public.mcpEndpointUrl as string)
 const tenantId = computed(() => currentTenantId.value ?? '<your-tenant-id>')
 
 const activeKeys = computed(() => apiKeys.value.filter((k) => !k.is_revoked))

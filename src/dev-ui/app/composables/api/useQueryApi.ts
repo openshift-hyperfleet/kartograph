@@ -35,8 +35,7 @@ export function useQueryApi() {
     timeoutSeconds?: number,
     maxRows?: number,
   ): Promise<CypherResult> {
-    const baseUrl = config.public.apiBaseUrl as string
-    const mcpUrl = `${baseUrl}/query/mcp`
+    const mcpUrl = config.public.mcpEndpointUrl as string
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

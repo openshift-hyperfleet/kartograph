@@ -14,6 +14,7 @@ from pytest_archon import archrule
 from iam.application.services.group_service import GroupService
 from iam.domain.aggregates import Group
 from iam.domain.value_objects import GroupId, GroupRole, TenantId, UserId
+from iam.ports.exceptions import UnauthorizedError
 from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.types import RelationshipTuple
 
@@ -165,14 +166,14 @@ class TestAddMember:
         group_service: GroupService,
         mock_authz,
     ):
-        """Should raise PermissionError when user lacks MANAGE permission."""
+        """Should raise UnauthorizedError when user lacks MANAGE permission."""
         group_id = GroupId.generate()
         acting_user_id = UserId.generate()
         new_user_id = UserId.generate()
 
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError, match="lacks manage permission"):
+        with pytest.raises(UnauthorizedError, match="lacks manage permission"):
             await group_service.add_member(
                 group_id=group_id,
                 acting_user_id=acting_user_id,
@@ -276,14 +277,14 @@ class TestRemoveMember:
         group_service: GroupService,
         mock_authz,
     ):
-        """Should raise PermissionError when user lacks MANAGE permission."""
+        """Should raise UnauthorizedError when user lacks MANAGE permission."""
         group_id = GroupId.generate()
         acting_user_id = UserId.generate()
         member_user_id = UserId.generate()
 
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError, match="lacks manage permission"):
+        with pytest.raises(UnauthorizedError, match="lacks manage permission"):
             await group_service.remove_member(
                 group_id=group_id,
                 acting_user_id=acting_user_id,
@@ -357,14 +358,14 @@ class TestUpdateMemberRole:
         group_service: GroupService,
         mock_authz,
     ):
-        """Should raise PermissionError when user lacks MANAGE permission."""
+        """Should raise UnauthorizedError when user lacks MANAGE permission."""
         group_id = GroupId.generate()
         acting_user_id = UserId.generate()
         member_user_id = UserId.generate()
 
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError, match="lacks manage permission"):
+        with pytest.raises(UnauthorizedError, match="lacks manage permission"):
             await group_service.update_member_role(
                 group_id=group_id,
                 acting_user_id=acting_user_id,
@@ -426,13 +427,13 @@ class TestListMembers:
         group_service: GroupService,
         mock_authz,
     ):
-        """Should raise PermissionError when user lacks VIEW permission."""
+        """Should raise UnauthorizedError when user lacks VIEW permission."""
         group_id = GroupId.generate()
         user_id = UserId.generate()
 
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError, match="lacks view permission"):
+        with pytest.raises(UnauthorizedError, match="lacks view permission"):
             await group_service.list_members(
                 group_id=group_id,
                 user_id=user_id,

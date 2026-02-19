@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Optional
 
+from iam.domain.exceptions import CannotRemoveLastAdminError
 from iam.domain.events import (
     WorkspaceCreated,
     WorkspaceCreatorTenantSet,
@@ -320,6 +321,10 @@ class Workspace:
                 f"{member_type.value} {member_id} is not a member of this workspace"
             )
 
+        # Prevent removing the last admin
+        if self._is_last_admin(member_id, member_type):
+            raise CannotRemoveLastAdminError()
+
         # Get role for event (need to know which relation to delete in SpiceDB)
         member_role = self.get_member_role(member_id, member_type)
         if member_role is None:
@@ -407,6 +412,12 @@ class Workspace:
         if old_role == new_role:
             raise ValueError(f"Member already has role {new_role.value}")
 
+        # Prevent changing the last admin away from admin role
+        if old_role == WorkspaceRole.ADMIN and self._is_last_admin(
+            member_id, member_type
+        ):
+            raise CannotRemoveLastAdminError()
+
         # Update in-memory member list
         for i, member in enumerate(self.members):
             if member.member_id == member_id and member.member_type == member_type:
@@ -454,6 +465,24 @@ class Workspace:
         # Update name
         self.name = new_name
         self.updated_at = datetime.now(UTC)
+
+    def _is_last_admin(self, member_id: str, member_type: MemberType) -> bool:
+        """Check if the given member is the only admin in this workspace.
+
+        Args:
+            member_id: The member being checked
+            member_type: Whether this is a USER or GROUP
+
+        Returns:
+            True if this member is the sole admin, False otherwise
+        """
+        admin_members = [m for m in self.members if m.role == WorkspaceRole.ADMIN]
+        if len(admin_members) != 1:
+            return False
+        sole_admin = admin_members[0]
+        return (
+            sole_admin.member_id == member_id and sole_admin.member_type == member_type
+        )
 
     def has_member(self, member_id: str, member_type: MemberType) -> bool:
         """Check if a member exists in this workspace.

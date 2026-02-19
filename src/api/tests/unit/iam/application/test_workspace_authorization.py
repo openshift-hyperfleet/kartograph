@@ -18,7 +18,11 @@ from iam.domain.value_objects import (
     WorkspaceRole,
 )
 from iam.ports.exceptions import UnauthorizedError
-from iam.ports.repositories import IWorkspaceRepository
+from iam.ports.repositories import (
+    IGroupRepository,
+    IUserRepository,
+    IWorkspaceRepository,
+)
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
@@ -66,6 +70,22 @@ def mock_probe():
 
 
 @pytest.fixture
+def mock_user_repository():
+    """Create mock user repository that returns None by default (user not found)."""
+    repo = create_autospec(IUserRepository, instance=True)
+    repo.get_by_id = AsyncMock(return_value=None)
+    return repo
+
+
+@pytest.fixture
+def mock_group_repository():
+    """Create mock group repository that returns None by default (group not found)."""
+    repo = create_autospec(IGroupRepository, instance=True)
+    repo.get_by_id = AsyncMock(return_value=None)
+    return repo
+
+
+@pytest.fixture
 def tenant_id() -> TenantId:
     return TenantId.generate()
 
@@ -102,6 +122,8 @@ def workspace_service(
     mock_workspace_repository,
     mock_authz,
     mock_probe,
+    mock_user_repository,
+    mock_group_repository,
     tenant_id,
 ):
     """Create WorkspaceService with mock dependencies."""
@@ -111,6 +133,8 @@ def workspace_service(
         authz=mock_authz,
         scope_to_tenant=tenant_id,
         probe=mock_probe,
+        user_repository=mock_user_repository,
+        group_repository=mock_group_repository,
     )
 
 
@@ -296,10 +320,10 @@ class TestWorkspaceViewPermission:
         user_id,
         child_workspace,
     ):
-        """Test that list_members raises PermissionError without VIEW permission."""
+        """Test that list_members raises UnauthorizedError without VIEW permission."""
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError, match="lacks view permission"):
+        with pytest.raises(UnauthorizedError, match="lacks view permission"):
             await workspace_service.list_members(
                 workspace_id=child_workspace.id,
                 user_id=user_id,
@@ -351,10 +375,10 @@ class TestWorkspaceManagePermission:
         user_id,
         child_workspace,
     ):
-        """Test that delete_workspace raises PermissionError without MANAGE permission."""
+        """Test that delete_workspace raises UnauthorizedError without MANAGE permission."""
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError, match="lacks manage permission"):
+        with pytest.raises(UnauthorizedError, match="lacks manage permission"):
             await workspace_service.delete_workspace(
                 workspace_id=child_workspace.id,
                 user_id=user_id,
@@ -401,11 +425,11 @@ class TestWorkspaceManagePermission:
         creator_id,
         root_workspace,
     ):
-        """Test that create_workspace raises PermissionError without CREATE_CHILD on parent."""
+        """Test that create_workspace raises UnauthorizedError without CREATE_CHILD on parent."""
         mock_authz.check_permission = AsyncMock(return_value=False)
 
         with pytest.raises(
-            PermissionError, match="lacks create_child permission on parent"
+            UnauthorizedError, match="lacks create_child permission on parent"
         ):
             await workspace_service.create_workspace(
                 name="Engineering",
@@ -420,6 +444,7 @@ class TestWorkspaceManagePermission:
         mock_workspace_repository,
         mock_authz,
         mock_probe,
+        mock_user_repository,
         tenant_id,
         user_id,
         child_workspace,
@@ -428,6 +453,8 @@ class TestWorkspaceManagePermission:
         mock_authz.check_permission = AsyncMock(return_value=True)
         mock_workspace_repository.get_by_id = AsyncMock(return_value=child_workspace)
         mock_workspace_repository.save = AsyncMock()
+        # User exists
+        mock_user_repository.get_by_id = AsyncMock(return_value=MagicMock())
 
         new_member_id = UserId.generate().value
 
@@ -456,10 +483,10 @@ class TestWorkspaceManagePermission:
         user_id,
         child_workspace,
     ):
-        """Test that add_member raises PermissionError without MANAGE permission."""
+        """Test that add_member raises UnauthorizedError without MANAGE permission."""
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError, match="lacks manage permission"):
+        with pytest.raises(UnauthorizedError, match="lacks manage permission"):
             await workspace_service.add_member(
                 workspace_id=child_workspace.id,
                 acting_user_id=user_id,
@@ -512,16 +539,83 @@ class TestWorkspaceManagePermission:
         user_id,
         child_workspace,
     ):
-        """Test that remove_member raises PermissionError without MANAGE permission."""
+        """Test that remove_member raises UnauthorizedError without MANAGE permission."""
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError, match="lacks manage permission"):
+        with pytest.raises(UnauthorizedError, match="lacks manage permission"):
             await workspace_service.remove_member(
                 workspace_id=child_workspace.id,
                 acting_user_id=user_id,
                 member_id="some-user-id",
                 member_type=MemberType.USER,
             )
+
+
+# --- Last-Admin Protection (Service-level) ---
+
+
+class TestWorkspaceLastAdminProtection:
+    """Tests for last-admin protection at the service layer."""
+
+    @pytest.mark.asyncio
+    async def test_remove_last_admin_raises_error(
+        self,
+        workspace_service: WorkspaceService,
+        mock_workspace_repository,
+        mock_authz,
+        user_id,
+        child_workspace,
+    ):
+        """Test that removing the last admin from a workspace raises CannotRemoveLastAdminError."""
+        from iam.domain.exceptions import CannotRemoveLastAdminError
+
+        admin_id = UserId.generate().value
+        child_workspace.add_member(admin_id, MemberType.USER, WorkspaceRole.ADMIN)
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_workspace_repository.get_by_id = AsyncMock(return_value=child_workspace)
+        mock_workspace_repository.save = AsyncMock()
+
+        with pytest.raises(CannotRemoveLastAdminError):
+            await workspace_service.remove_member(
+                workspace_id=child_workspace.id,
+                acting_user_id=user_id,
+                member_id=admin_id,
+                member_type=MemberType.USER,
+            )
+
+        # Save should not have been called
+        mock_workspace_repository.save.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_update_last_admin_role_raises_error(
+        self,
+        workspace_service: WorkspaceService,
+        mock_workspace_repository,
+        mock_authz,
+        user_id,
+        child_workspace,
+    ):
+        """Test that changing the last admin's role raises CannotRemoveLastAdminError."""
+        from iam.domain.exceptions import CannotRemoveLastAdminError
+
+        admin_id = UserId.generate().value
+        child_workspace.add_member(admin_id, MemberType.USER, WorkspaceRole.ADMIN)
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_workspace_repository.get_by_id = AsyncMock(return_value=child_workspace)
+        mock_workspace_repository.save = AsyncMock()
+
+        with pytest.raises(CannotRemoveLastAdminError):
+            await workspace_service.update_member_role(
+                workspace_id=child_workspace.id,
+                acting_user_id=user_id,
+                member_id=admin_id,
+                member_type=MemberType.USER,
+                new_role=WorkspaceRole.MEMBER,
+            )
+
+        mock_workspace_repository.save.assert_not_called()
 
 
 # --- Member Management Tests ---
@@ -537,6 +631,7 @@ class TestWorkspaceMemberManagement:
         mock_workspace_repository,
         mock_authz,
         mock_probe,
+        mock_user_repository,
         tenant_id,
         user_id,
         child_workspace,
@@ -545,6 +640,8 @@ class TestWorkspaceMemberManagement:
         mock_authz.check_permission = AsyncMock(return_value=True)
         mock_workspace_repository.get_by_id = AsyncMock(return_value=child_workspace)
         mock_workspace_repository.save = AsyncMock()
+        # User exists
+        mock_user_repository.get_by_id = AsyncMock(return_value=MagicMock())
 
         new_member_id = UserId.generate().value
 
@@ -582,6 +679,7 @@ class TestWorkspaceMemberManagement:
         mock_workspace_repository,
         mock_authz,
         mock_probe,
+        mock_group_repository,
         tenant_id,
         user_id,
         child_workspace,
@@ -590,23 +688,30 @@ class TestWorkspaceMemberManagement:
         mock_authz.check_permission = AsyncMock(return_value=True)
         mock_workspace_repository.get_by_id = AsyncMock(return_value=child_workspace)
         mock_workspace_repository.save = AsyncMock()
+        # Group exists
+        mock_group_repository.get_by_id = AsyncMock(return_value=MagicMock())
 
-        group_id = "group-eng-team"
+        from iam.domain.value_objects import GroupId
+
+        group_id = GroupId.generate()
 
         result = await workspace_service.add_member(
             workspace_id=child_workspace.id,
             acting_user_id=user_id,
-            member_id=group_id,
+            member_id=group_id.value,
             member_type=MemberType.GROUP,
             role=WorkspaceRole.ADMIN,
         )
 
-        assert result.has_member(group_id, MemberType.GROUP)
-        assert result.get_member_role(group_id, MemberType.GROUP) == WorkspaceRole.ADMIN
+        assert result.has_member(group_id.value, MemberType.GROUP)
+        assert (
+            result.get_member_role(group_id.value, MemberType.GROUP)
+            == WorkspaceRole.ADMIN
+        )
 
         mock_probe.workspace_member_added.assert_called_once_with(
             workspace_id=child_workspace.id.value,
-            member_id=group_id,
+            member_id=group_id.value,
             member_type=MemberType.GROUP.value,
             role=WorkspaceRole.ADMIN.value,
             acting_user_id=user_id.value,
@@ -916,6 +1021,159 @@ class TestWorkspaceMemberManagement:
             member_type=MemberType.GROUP,
             role=WorkspaceRole.ADMIN,
         )
+
+    @pytest.mark.asyncio
+    async def test_add_member_validates_user_exists(
+        self,
+        workspace_service: WorkspaceService,
+        mock_workspace_repository,
+        mock_authz,
+        mock_user_repository,
+        user_id,
+        child_workspace,
+    ):
+        """Test that add_member validates the member_id refers to an existing user."""
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_workspace_repository.get_by_id = AsyncMock(return_value=child_workspace)
+        # User does NOT exist
+        mock_user_repository.get_by_id = AsyncMock(return_value=None)
+
+        nonexistent_user_id = UserId.generate()
+
+        with pytest.raises(ValueError, match="does not exist"):
+            await workspace_service.add_member(
+                workspace_id=child_workspace.id,
+                acting_user_id=user_id,
+                member_id=nonexistent_user_id.value,
+                member_type=MemberType.USER,
+                role=WorkspaceRole.MEMBER,
+            )
+
+    @pytest.mark.asyncio
+    async def test_add_member_validates_group_exists(
+        self,
+        workspace_service: WorkspaceService,
+        mock_workspace_repository,
+        mock_authz,
+        mock_group_repository,
+        user_id,
+        child_workspace,
+    ):
+        """Test that add_member validates the member_id refers to an existing group."""
+        from iam.domain.value_objects import GroupId
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_workspace_repository.get_by_id = AsyncMock(return_value=child_workspace)
+        # Group does NOT exist
+        mock_group_repository.get_by_id = AsyncMock(return_value=None)
+
+        nonexistent_group_id = GroupId.generate()
+
+        with pytest.raises(ValueError, match="does not exist"):
+            await workspace_service.add_member(
+                workspace_id=child_workspace.id,
+                acting_user_id=user_id,
+                member_id=nonexistent_group_id.value,
+                member_type=MemberType.GROUP,
+                role=WorkspaceRole.EDITOR,
+            )
+
+    @pytest.mark.asyncio
+    async def test_add_member_succeeds_when_user_exists(
+        self,
+        mock_session,
+        mock_workspace_repository,
+        mock_authz,
+        mock_probe,
+        tenant_id,
+        user_id,
+        child_workspace,
+    ):
+        """Test that add_member succeeds when the user exists in the repository."""
+        from iam.ports.repositories import IUserRepository, IGroupRepository
+
+        mock_user_repo = create_autospec(IUserRepository, instance=True)
+        mock_group_repo = create_autospec(IGroupRepository, instance=True)
+
+        # User exists
+        mock_user = MagicMock()
+        mock_user_repo.get_by_id = AsyncMock(return_value=mock_user)
+
+        service = WorkspaceService(
+            session=mock_session,
+            workspace_repository=mock_workspace_repository,
+            authz=mock_authz,
+            scope_to_tenant=tenant_id,
+            probe=mock_probe,
+            user_repository=mock_user_repo,
+            group_repository=mock_group_repo,
+        )
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_workspace_repository.get_by_id = AsyncMock(return_value=child_workspace)
+        mock_workspace_repository.save = AsyncMock()
+
+        new_member_id = UserId.generate()
+
+        result = await service.add_member(
+            workspace_id=child_workspace.id,
+            acting_user_id=user_id,
+            member_id=new_member_id.value,
+            member_type=MemberType.USER,
+            role=WorkspaceRole.MEMBER,
+        )
+
+        assert result.has_member(new_member_id.value, MemberType.USER)
+        mock_user_repo.get_by_id.assert_called_once_with(new_member_id)
+
+    @pytest.mark.asyncio
+    async def test_add_member_succeeds_when_group_exists(
+        self,
+        mock_session,
+        mock_workspace_repository,
+        mock_authz,
+        mock_probe,
+        tenant_id,
+        user_id,
+        child_workspace,
+    ):
+        """Test that add_member succeeds when the group exists in the repository."""
+        from iam.ports.repositories import IUserRepository, IGroupRepository
+        from iam.domain.value_objects import GroupId
+
+        mock_user_repo = create_autospec(IUserRepository, instance=True)
+        mock_group_repo = create_autospec(IGroupRepository, instance=True)
+
+        # Group exists
+        mock_group = MagicMock()
+        mock_group_repo.get_by_id = AsyncMock(return_value=mock_group)
+
+        service = WorkspaceService(
+            session=mock_session,
+            workspace_repository=mock_workspace_repository,
+            authz=mock_authz,
+            scope_to_tenant=tenant_id,
+            probe=mock_probe,
+            user_repository=mock_user_repo,
+            group_repository=mock_group_repo,
+        )
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_workspace_repository.get_by_id = AsyncMock(return_value=child_workspace)
+        mock_workspace_repository.save = AsyncMock()
+
+        new_group_id = GroupId.generate()
+
+        result = await service.add_member(
+            workspace_id=child_workspace.id,
+            acting_user_id=user_id,
+            member_id=new_group_id.value,
+            member_type=MemberType.GROUP,
+            role=WorkspaceRole.EDITOR,
+        )
+
+        assert result.has_member(new_group_id.value, MemberType.GROUP)
+        mock_group_repo.get_by_id.assert_called_once_with(new_group_id)
 
     @pytest.mark.asyncio
     async def test_list_members_ignores_non_role_relations(

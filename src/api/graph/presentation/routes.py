@@ -97,7 +97,7 @@ async def apply_mutations(
         if is_validation_error:
             # Validation error - return 422
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail={"errors": result.errors},
             )
         else:

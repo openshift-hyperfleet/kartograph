@@ -11,7 +11,7 @@ from iam.application.observability import DefaultGroupServiceProbe, GroupService
 from iam.application.value_objects import GroupAccessGrant
 from iam.domain.aggregates import Group
 from iam.domain.value_objects import GroupId, GroupRole, TenantId, UserId
-from iam.ports.exceptions import DuplicateGroupNameError
+from iam.ports.exceptions import DuplicateGroupNameError, UnauthorizedError
 from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
@@ -223,7 +223,7 @@ class GroupService:
             subject=subject,
         )
         if not has_permission:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {user_id.value} lacks manage permission on group {group_id.value}"
             )
 
@@ -297,7 +297,7 @@ class GroupService:
         )
 
         if not has_manage:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {acting_user_id.value} lacks manage permission on group "
                 f"{group_id.value}"
             )
@@ -351,7 +351,7 @@ class GroupService:
         )
 
         if not has_manage:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {acting_user_id.value} lacks manage permission on group "
                 f"{group_id.value}"
             )
@@ -404,7 +404,7 @@ class GroupService:
         )
 
         if not has_manage:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {acting_user_id.value} lacks manage permission on group "
                 f"{group_id.value}"
             )
@@ -455,7 +455,7 @@ class GroupService:
         )
 
         if not has_view:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {user_id.value} lacks view permission on group {group_id.value}"
             )
 
@@ -526,7 +526,7 @@ class GroupService:
         )
 
         if not has_manage:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {user_id.value} lacks manage permission on group "
                 f"{group_id.value}"
             )

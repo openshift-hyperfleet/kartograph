@@ -148,7 +148,7 @@ class TestUpdateWorkspaceMemberRole:
             json={"role": "editor"},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_returns_422_for_invalid_member_type(
         self,
@@ -163,7 +163,7 @@ class TestUpdateWorkspaceMemberRole:
             json={"role": "editor"},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_returns_422_for_invalid_role(
         self,
@@ -178,7 +178,7 @@ class TestUpdateWorkspaceMemberRole:
             json={"role": "superadmin"},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_returns_403_on_permission_error(
         self,
@@ -187,7 +187,7 @@ class TestUpdateWorkspaceMemberRole:
         workspace: Workspace,
     ) -> None:
         """Test PATCH returns 403 when user lacks MANAGE permission."""
-        mock_workspace_service.update_member_role.side_effect = PermissionError(
+        mock_workspace_service.update_member_role.side_effect = UnauthorizedError(
             "User lacks manage permission"
         )
 
@@ -198,7 +198,7 @@ class TestUpdateWorkspaceMemberRole:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "insufficient permissions" in response.json()["detail"].lower()
+        assert "lacks manage permission" in response.json()["detail"].lower()
 
     def test_returns_403_on_unauthorized_error(
         self,

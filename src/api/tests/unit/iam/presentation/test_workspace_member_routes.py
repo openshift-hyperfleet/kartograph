@@ -177,7 +177,7 @@ class TestAddWorkspaceMember:
         workspace: Workspace,
     ) -> None:
         """Test POST returns 403 when user lacks MANAGE permission."""
-        mock_workspace_service.add_member.side_effect = PermissionError(
+        mock_workspace_service.add_member.side_effect = UnauthorizedError(
             "User lacks manage permission"
         )
 
@@ -191,7 +191,7 @@ class TestAddWorkspaceMember:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "insufficient permissions" in response.json()["detail"].lower()
+        assert "lacks manage permission" in response.json()["detail"].lower()
 
     def test_returns_403_on_unauthorized_error(
         self,
@@ -255,7 +255,7 @@ class TestAddWorkspaceMember:
             },
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_returns_422_for_invalid_role(
         self,
@@ -273,7 +273,7 @@ class TestAddWorkspaceMember:
             },
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_returns_422_for_empty_member_id(
         self,
@@ -291,7 +291,7 @@ class TestAddWorkspaceMember:
             },
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_returns_500_on_unexpected_error(
         self,
@@ -427,7 +427,7 @@ class TestListWorkspaceMembers:
         workspace: Workspace,
     ) -> None:
         """Test GET returns 403 when user lacks VIEW permission."""
-        mock_workspace_service.list_members.side_effect = PermissionError(
+        mock_workspace_service.list_members.side_effect = UnauthorizedError(
             "User lacks view permission"
         )
 
@@ -436,7 +436,7 @@ class TestListWorkspaceMembers:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "insufficient permissions" in response.json()["detail"].lower()
+        assert "lacks view permission" in response.json()["detail"].lower()
 
     def test_returns_500_on_unexpected_error(
         self,
@@ -538,7 +538,7 @@ class TestRemoveWorkspaceMember:
             f"/iam/workspaces/{workspace.id.value}/members/alice-user-id",
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_returns_422_for_invalid_member_type(
         self,
@@ -552,7 +552,7 @@ class TestRemoveWorkspaceMember:
             params={"member_type": "invalid"},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_returns_403_on_permission_error(
         self,
@@ -561,7 +561,7 @@ class TestRemoveWorkspaceMember:
         workspace: Workspace,
     ) -> None:
         """Test DELETE returns 403 when user lacks MANAGE permission."""
-        mock_workspace_service.remove_member.side_effect = PermissionError(
+        mock_workspace_service.remove_member.side_effect = UnauthorizedError(
             "User lacks manage permission"
         )
 
@@ -571,7 +571,7 @@ class TestRemoveWorkspaceMember:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "insufficient permissions" in response.json()["detail"].lower()
+        assert "lacks manage permission" in response.json()["detail"].lower()
 
     def test_returns_403_on_unauthorized_error(
         self,

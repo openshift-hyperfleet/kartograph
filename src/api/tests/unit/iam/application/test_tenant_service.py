@@ -186,6 +186,7 @@ class TestAddMember:
         tenant = Tenant(id=tenant_id, name="Acme Corp")
         mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
         mock_tenant_repo.save = AsyncMock()
+        mock_tenant_repo.is_last_admin = AsyncMock(return_value=False)
 
         # Mock SpiceDB: user currently has admin role
         tenant_resource = f"tenant:{tenant_id.value}"
@@ -409,6 +410,7 @@ class TestAddMember:
         tenant = Tenant(id=tenant_id, name="Acme Corp")
         mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
         mock_tenant_repo.save = AsyncMock()
+        mock_tenant_repo.is_last_admin = AsyncMock(return_value=False)
 
         # Mock SpiceDB: user currently has admin tenant role
         tenant_resource = f"tenant:{tenant_id.value}"
@@ -455,6 +457,44 @@ class TestAddMember:
         assert len(member_removed_events) == 1
         assert member_removed_events[0].member_id == user_id.value
         assert member_removed_events[0].role == "admin"
+
+    @pytest.mark.asyncio
+    async def test_cannot_demote_last_tenant_admin(
+        self, tenant_service, mock_tenant_repo, mock_workspace_repo, mock_authz
+    ):
+        """Demoting the last tenant admin should raise CannotRemoveLastAdminError."""
+        from iam.domain.exceptions import CannotRemoveLastAdminError
+
+        tenant_id = TenantId.generate()
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.save = AsyncMock()
+        mock_tenant_repo.is_last_admin = AsyncMock(return_value=True)
+
+        # User currently has admin role in SpiceDB
+        tenant_resource = f"tenant:{tenant_id.value}"
+        mock_authz.read_relationships = AsyncMock(
+            return_value=[
+                RelationshipTuple(
+                    resource=tenant_resource,
+                    relation="admin",
+                    subject=f"user:{user_id.value}",
+                ),
+            ]
+        )
+
+        with pytest.raises(CannotRemoveLastAdminError):
+            await tenant_service.add_member(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                role=TenantRole.MEMBER,
+                requesting_user_id=admin_id,
+            )
 
     @pytest.mark.asyncio
     async def test_add_admin_handles_missing_root_workspace(

@@ -11,6 +11,7 @@ from iam.application.value_objects import CurrentUser
 from iam.dependencies.user import get_current_user
 from iam.dependencies.workspace import get_workspace_service
 from iam.domain.value_objects import MemberType, WorkspaceId
+from iam.domain.exceptions import CannotRemoveLastAdminError
 from iam.ports.exceptions import (
     CannotDeleteRootWorkspaceError,
     DuplicateWorkspaceNameError,
@@ -78,10 +79,10 @@ async def create_workspace(
 
         return WorkspaceResponse.from_domain(workspace)
 
-    except PermissionError:
+    except UnauthorizedError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions to create workspace under this parent",
+            detail="You do not have permission to perform this action",
         )
     except DuplicateWorkspaceNameError as e:
         raise HTTPException(
@@ -205,6 +206,7 @@ async def list_workspaces(
 @router.delete(
     "/{workspace_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     summary="Delete a workspace",
     description="""
 Delete a workspace from the authenticated user's tenant.
@@ -261,10 +263,10 @@ async def delete_workspace(
 
         return None
 
-    except PermissionError:
+    except UnauthorizedError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions to delete workspace",
+            detail="You do not have permission to perform this action",
         )
     except CannotDeleteRootWorkspaceError as e:
         raise HTTPException(
@@ -274,11 +276,6 @@ async def delete_workspace(
     except WorkspaceHasChildrenError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
-        )
-    except UnauthorizedError as e:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
             detail=str(e),
         )
     except HTTPException:
@@ -343,10 +340,10 @@ async def add_workspace_member(
             role=request.role,
         )
 
-    except PermissionError:
+    except UnauthorizedError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions to manage workspace members",
+            detail="You do not have permission to perform this action",
         )
     except (ValueError, TypeError) as e:
         error_msg = str(e)
@@ -358,11 +355,6 @@ async def add_workspace_member(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=error_msg,
-        )
-    except UnauthorizedError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Workspace belongs to different tenant",
         )
     except HTTPException:
         raise
@@ -417,10 +409,10 @@ async def list_workspace_members(
 
         return [WorkspaceMemberResponse.from_grant(grant) for grant in members]
 
-    except PermissionError:
+    except UnauthorizedError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions to view workspace members",
+            detail="You do not have permission to perform this action",
         )
     except HTTPException:
         raise
@@ -434,6 +426,7 @@ async def list_workspace_members(
 @router.delete(
     "/{workspace_id}/members/{member_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     summary="Remove member from workspace",
     description="""
 Revoke a user's or group's access to a workspace.
@@ -482,10 +475,15 @@ async def remove_workspace_member(
             member_type=domain_member_type,
         )
 
-    except PermissionError:
+    except UnauthorizedError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions to manage workspace members",
+            detail="You do not have permission to perform this action",
+        )
+    except CannotRemoveLastAdminError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot remove the last admin from the workspace",
         )
     except (ValueError, TypeError, RuntimeError) as e:
         # Distinguish workspace not found (404) from member not found (400)
@@ -498,11 +496,6 @@ async def remove_workspace_member(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=error_msg,
-        )
-    except UnauthorizedError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Workspace belongs to different tenant",
         )
     except HTTPException:
         raise
@@ -574,10 +567,15 @@ async def update_workspace_member_role(
             role=WorkspaceRoleEnum(request.role.value),
         )
 
-    except PermissionError:
+    except UnauthorizedError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions to manage workspace members",
+            detail="You do not have permission to perform this action",
+        )
+    except CannotRemoveLastAdminError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot remove the last admin from the workspace",
         )
     except (ValueError, TypeError, RuntimeError) as e:
         error_msg = str(e)
@@ -589,11 +587,6 @@ async def update_workspace_member_role(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=error_msg,
-        )
-    except UnauthorizedError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Workspace belongs to different tenant",
         )
     except HTTPException:
         raise
@@ -647,10 +640,10 @@ async def update_workspace(
 
         return WorkspaceResponse.from_domain(workspace)
 
-    except PermissionError:
+    except UnauthorizedError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions to manage workspace",
+            detail="You do not have permission to perform this action",
         )
     except DuplicateWorkspaceNameError as e:
         raise HTTPException(
@@ -667,11 +660,6 @@ async def update_workspace(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=error_msg,
-        )
-    except UnauthorizedError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Workspace belongs to different tenant",
         )
     except HTTPException:
         raise

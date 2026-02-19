@@ -20,7 +20,11 @@ from shared_kernel.authorization.types import (
     format_resource,
     format_subject,
 )
-from tests.integration.iam.conftest import create_group, wait_for_permission
+from tests.integration.iam.conftest import (
+    create_group,
+    ensure_user_provisioned,
+    wait_for_permission,
+)
 
 pytestmark = [pytest.mark.integration, pytest.mark.keycloak]
 
@@ -82,6 +86,9 @@ class TestGroupRoleEnforcement:
             alice_user_id,
             name="member_no_delete_group",
         )
+
+        # Ensure bob is JIT-provisioned before adding as member
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
 
         # Add bob as regular member (not admin)
         add_resp = await async_client.post(
@@ -157,6 +164,9 @@ class TestGroupRoleEnforcement:
             alice_user_id,
             name="member_no_rename_group",
         )
+
+        # Ensure bob is JIT-provisioned before adding as member
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
 
         # Add bob as regular member
         add_resp = await async_client.post(

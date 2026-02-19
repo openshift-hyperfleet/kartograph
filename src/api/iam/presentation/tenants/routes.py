@@ -169,6 +169,7 @@ async def list_tenants(
 @router.delete(
     "/{tenant_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     responses={
         204: {"description": "Tenant deleted successfully"},
         400: {"description": "Invalid tenant ID format"},
@@ -333,6 +334,7 @@ async def add_tenant_member(
 @router.delete(
     "/{tenant_id}/members/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     responses={
         204: {
             "description": "Member successfully removed from tenant",

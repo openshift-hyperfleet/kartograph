@@ -23,7 +23,7 @@ from iam.domain.value_objects import (
     TenantId,
     UserId,
 )
-from iam.ports.exceptions import DuplicateGroupNameError
+from iam.ports.exceptions import DuplicateGroupNameError, UnauthorizedError
 
 
 class TestGroupRoutesArchitecturalBoundaries:
@@ -222,7 +222,7 @@ class TestGroupMemberRoutes:
     ) -> None:
         """Test POST /groups/{id}/members returns 403 when lacking permission."""
         group_id = GroupId.generate()
-        mock_group_service.add_member.side_effect = PermissionError(
+        mock_group_service.add_member.side_effect = UnauthorizedError(
             "User lacks manage permission"
         )
 
@@ -284,7 +284,7 @@ class TestGroupMemberRoutes:
             },
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_list_members_returns_200(
         self,
@@ -323,7 +323,7 @@ class TestGroupMemberRoutes:
     ) -> None:
         """Test GET /groups/{id}/members returns 403 without VIEW."""
         group_id = GroupId.generate()
-        mock_group_service.list_members.side_effect = PermissionError(
+        mock_group_service.list_members.side_effect = UnauthorizedError(
             "User lacks view permission"
         )
 
@@ -369,7 +369,7 @@ class TestGroupMemberRoutes:
     ) -> None:
         """Test PATCH /groups/{id}/members/{user_id} returns 403."""
         group_id = GroupId.generate()
-        mock_group_service.update_member_role.side_effect = PermissionError(
+        mock_group_service.update_member_role.side_effect = UnauthorizedError(
             "User lacks manage permission"
         )
 
@@ -410,7 +410,7 @@ class TestGroupMemberRoutes:
     ) -> None:
         """Test DELETE /groups/{id}/members/{user_id} returns 403."""
         group_id = GroupId.generate()
-        mock_group_service.remove_member.side_effect = PermissionError(
+        mock_group_service.remove_member.side_effect = UnauthorizedError(
             "User lacks manage permission"
         )
 
@@ -469,9 +469,9 @@ class TestUpdateGroupRoute:
         test_client: TestClient,
         mock_group_service: AsyncMock,
     ) -> None:
-        """Test PATCH /groups/{id} returns 403 on PermissionError."""
+        """Test PATCH /groups/{id} returns 403 on UnauthorizedError."""
         group_id = GroupId.generate()
-        mock_group_service.update_group.side_effect = PermissionError(
+        mock_group_service.update_group.side_effect = UnauthorizedError(
             "User lacks manage permission"
         )
 
@@ -539,7 +539,7 @@ class TestUpdateGroupRoute:
             json={"name": ""},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
 class TestWorkspaceMemberResponseEnums:

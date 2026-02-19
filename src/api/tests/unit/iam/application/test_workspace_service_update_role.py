@@ -129,10 +129,10 @@ class TestUpdateMemberRole:
         mock_authz,
         acting_user_id,
     ):
-        """Test that update_member_role raises PermissionError without MANAGE permission."""
+        """Test that update_member_role raises UnauthorizedError without MANAGE permission."""
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError, match="lacks manage permission"):
+        with pytest.raises(UnauthorizedError, match="lacks manage permission"):
             await workspace_service.update_member_role(
                 workspace_id=WorkspaceId.generate(),
                 acting_user_id=acting_user_id,

@@ -24,11 +24,12 @@ certs:
 dev: certs
 	@echo "🧰 [Development] Starting application containers..."
 	docker compose -f compose.yaml build
-	docker compose -f compose.yaml -f compose.dev.yaml up -d
+	docker compose -f compose.yaml -f compose.dev.yaml --profile ui up -d
 	@echo "Done."
 	@echo "----------------------------"
 	@echo "API Root: http://localhost:8000"
 	@echo "API Docs: http://localhost:8000/docs/"
+	@echo "Dev UI:   http://localhost:3000"
 	@echo "----------------------------"
 
 .PHONY: down

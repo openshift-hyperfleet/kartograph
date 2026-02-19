@@ -3,3 +3,9 @@ node_modules
 .output
 .git
 *.md
+.env*
+Dockerfile
+.dockerignore
+.vscode
+.idea
+*.log

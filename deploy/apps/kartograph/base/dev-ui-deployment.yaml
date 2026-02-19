@@ -14,9 +14,20 @@ spec:
       labels:
         app.kubernetes.io/component: dev-ui
     spec:
+      serviceAccountName: kartograph-dev-ui
       containers:
         - name: dev-ui
           image: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-dev-ui:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
           ports:
             - containerPort: 3000
               name: http
@@ -46,18 +57,28 @@ spec:
                 configMapKeyRef:
                   name: kartograph-config
                   key: DEV_UI_KEYCLOAK_CLIENT_ID
+          startupProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 5
+            failureThreshold: 12
           livenessProbe:
             httpGet:
               path: /
               port: 3000
             initialDelaySeconds: 5
             periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /
               port: 3000
             initialDelaySeconds: 3
             periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
           resources:
             requests:
               cpu: 50m
@@ -65,3 +86,9 @@ spec:
             limits:
               cpu: 200m
               memory: 256Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

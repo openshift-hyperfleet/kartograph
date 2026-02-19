@@ -23,6 +23,7 @@ resources:
   # Dev UI
   - dev-ui-deployment.yaml
   - dev-ui-service.yaml
+  - dev-ui-serviceaccount.yaml
   # Config
   - configmap.yaml
   - spicedb-schema-configmap.yaml

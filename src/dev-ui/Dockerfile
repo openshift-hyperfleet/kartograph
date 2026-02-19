@@ -2,7 +2,7 @@
 FROM registry.access.redhat.com/ubi9/nodejs-22 AS builder
 
 USER 0
-RUN npm install -g pnpm@10
+RUN npm install -g pnpm@10.30.0
 USER 1001
 
 WORKDIR /app

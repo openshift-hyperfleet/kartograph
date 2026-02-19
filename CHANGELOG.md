@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.22.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.21.0...v3.22.0) (2026-02-19)
+
+
+### Features
+
+* **dev-ui:** containerize and deploy dev ui ([#239](https://github.com/openshift-hyperfleet/kartograph/issues/239)) ([ade618d](https://github.com/openshift-hyperfleet/kartograph/commit/ade618db8269a58a6676fc2a298861508c102e25))
+
 ## [3.21.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.20.0...v3.21.0) (2026-02-19)
 
 

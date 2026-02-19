@@ -4,11 +4,13 @@ These fixtures require running PostgreSQL and SpiceDB instances.
 SpiceDB settings are configured in the parent conftest.
 """
 
+from __future__ import annotations
+
 import asyncio
 from collections.abc import AsyncGenerator, Callable, Coroutine
 import os
 import time
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from jose import jwt
 import pytest
@@ -30,7 +32,16 @@ from infrastructure.outbox.worker import OutboxWorker
 from infrastructure.settings import get_iam_settings
 from infrastructure.settings import DatabaseSettings
 from shared_kernel.authorization.protocols import AuthorizationProvider
+from shared_kernel.authorization.types import (
+    Permission,
+    ResourceType,
+    format_resource,
+    format_subject,
+)
 from shared_kernel.outbox.observability import DefaultOutboxWorkerProbe
+
+if TYPE_CHECKING:
+    from httpx import AsyncClient
 from tests.integration.iam.cleanup_probe import DefaultTestCleanupProbe
 
 
@@ -342,11 +353,6 @@ def grant_workspace_admin(
         workspace = resp.json()
         await grant_workspace_admin(workspace["id"])
     """
-    from shared_kernel.authorization.types import (
-        ResourceType,
-        format_resource,
-        format_subject,
-    )
 
     async def _grant(workspace_id: str) -> None:
         resource = format_resource(ResourceType.WORKSPACE, workspace_id)
@@ -392,3 +398,116 @@ async def wait_for_permission(
             return True
         await asyncio.sleep(poll_interval)
     return False
+
+
+async def wait_for_permission_revoked(
+    authz: AuthorizationProvider,
+    resource: str,
+    permission: str,
+    subject: str,
+    timeout: float = 5.0,
+    poll_interval: float = 0.05,
+) -> bool:
+    """Wait for a permission to be revoked in SpiceDB.
+
+    Counterpart to wait_for_permission for negative assertions. Polls
+    until the permission is no longer granted or the timeout is exceeded.
+
+    Args:
+        authz: Authorization provider (SpiceDB client)
+        resource: Resource identifier (e.g., "workspace:123")
+        permission: Permission to check (e.g., "manage")
+        subject: Subject identifier (e.g., "user:456")
+        timeout: Maximum time to wait in seconds
+        poll_interval: Time between checks in seconds
+
+    Returns:
+        True if permission was revoked, False if timeout exceeded
+    """
+    start = time.monotonic()
+    while time.monotonic() - start < timeout:
+        if not await authz.check_permission(resource, permission, subject):
+            return True
+        await asyncio.sleep(poll_interval)
+    return False
+
+
+async def create_child_workspace(
+    async_client: AsyncClient,
+    tenant_auth_headers: dict,
+    spicedb_client: AuthorizationProvider,
+    alice_user_id: str,
+    name: str = "test_ws",
+) -> str:
+    """Create a child workspace under the root and wait for admin permission.
+
+    Shared helper for integration tests that need a child workspace.
+
+    Returns the workspace ID.
+    """
+    ws_list = await async_client.get("/iam/workspaces", headers=tenant_auth_headers)
+    assert ws_list.status_code == 200, f"Failed to list workspaces: {ws_list.text}"
+    workspaces = ws_list.json()["workspaces"]
+    root = next((w for w in workspaces if w["is_root"]), None)
+    assert root is not None, (
+        f"No root workspace found in listing. "
+        f"Got {len(workspaces)} workspace(s): {[w.get('name') for w in workspaces]}"
+    )
+
+    create_resp = await async_client.post(
+        "/iam/workspaces",
+        headers=tenant_auth_headers,
+        json={"name": name, "parent_workspace_id": root["id"]},
+    )
+    assert create_resp.status_code == 201, (
+        f"Failed to create workspace: {create_resp.text}"
+    )
+    ws_id = create_resp.json()["id"]
+
+    ws_resource = format_resource(ResourceType.WORKSPACE, ws_id)
+    alice_subject = format_subject(ResourceType.USER, alice_user_id)
+    admin_ready = await wait_for_permission(
+        spicedb_client,
+        resource=ws_resource,
+        permission=Permission.MANAGE,
+        subject=alice_subject,
+        timeout=5.0,
+    )
+    assert admin_ready, "Timed out waiting for workspace admin permission"
+
+    return ws_id
+
+
+async def create_group(
+    async_client: AsyncClient,
+    tenant_auth_headers: dict,
+    spicedb_client: AuthorizationProvider,
+    alice_user_id: str,
+    name: str = "test_group",
+) -> str:
+    """Create a group and wait for admin permission.
+
+    Shared helper for integration tests that need a group.
+
+    Returns the group ID.
+    """
+    create_resp = await async_client.post(
+        "/iam/groups",
+        headers=tenant_auth_headers,
+        json={"name": name},
+    )
+    assert create_resp.status_code == 201, f"Failed to create group: {create_resp.text}"
+    group_id = create_resp.json()["id"]
+
+    group_resource = format_resource(ResourceType.GROUP, group_id)
+    alice_subject = format_subject(ResourceType.USER, alice_user_id)
+    admin_ready = await wait_for_permission(
+        spicedb_client,
+        resource=group_resource,
+        permission=Permission.MANAGE,
+        subject=alice_subject,
+        timeout=5.0,
+    )
+    assert admin_ready, "Timed out waiting for group admin permission"
+
+    return group_id

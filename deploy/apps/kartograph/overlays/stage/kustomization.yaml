@@ -12,4 +12,4 @@ images:
   - name: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-api
     newTag: 462dfcdfb47f9b0695d43859518387357c947d25
   - name: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-dev-ui
-    newTag: latest
+    newTag: 462dfcdfb47f9b0695d43859518387357c947d25

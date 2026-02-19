@@ -12,7 +12,7 @@ from iam.application.value_objects import GroupAccessGrant
 from iam.domain.aggregates import Group
 from iam.domain.value_objects import GroupId, GroupRole, TenantId, UserId
 from iam.ports.exceptions import DuplicateGroupNameError, UnauthorizedError
-from iam.ports.repositories import IGroupRepository
+from iam.ports.repositories import IGroupRepository, IUserRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
@@ -37,6 +37,7 @@ class GroupService:
         authz: AuthorizationProvider,
         scope_to_tenant: TenantId,
         probe: GroupServiceProbe | None = None,
+        user_repository: IUserRepository | None = None,
     ):
         """Initialize GroupService with dependencies.
 
@@ -46,12 +47,14 @@ class GroupService:
             authz: Authorization provider for permission checks
             scope_to_tenant: A tenant to which this service will be scoped.
             probe: Optional domain probe for observability
+            user_repository: Optional user repository for member existence validation
         """
         self._session = session
         self._group_repository = group_repository
         self._authz = authz
         self._probe = probe or DefaultGroupServiceProbe()
         self._scope_to_tenant = scope_to_tenant
+        self._user_repository = user_repository
 
     async def _check_group_permission(
         self,
@@ -263,6 +266,20 @@ class GroupService:
 
         return None
 
+    async def _validate_user_exists(self, user_id: UserId) -> None:
+        """Validate that the user exists in the system.
+
+        Args:
+            user_id: The user ID to validate
+
+        Raises:
+            ValueError: If the user does not exist in the system
+        """
+        if self._user_repository is not None:
+            user = await self._user_repository.get_by_id(user_id)
+            if user is None:
+                raise ValueError(f"User {user_id.value} does not exist")
+
     async def add_member(
         self,
         group_id: GroupId,
@@ -311,6 +328,9 @@ class GroupService:
             # Verify tenant ownership
             if group.tenant_id.value != self._scope_to_tenant.value:
                 raise ValueError("Group belongs to different tenant")
+
+            # Validate user exists
+            await self._validate_user_exists(user_id)
 
             # Check if user already has a role (query SpiceDB)
             current_role = await self._get_user_group_role(group_id, user_id)

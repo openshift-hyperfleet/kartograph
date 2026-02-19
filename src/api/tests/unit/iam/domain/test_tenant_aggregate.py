@@ -210,6 +210,60 @@ class TestAddMemberRoleReplacement:
         removed_event = events[0]
         assert removed_event.removed_by == admin_id.value
 
+    def test_cannot_replace_last_admin_role(self):
+        """Role replacement should raise CannotRemoveLastAdminError when demoting last admin."""
+        tenant = Tenant(id=TenantId.generate(), name="Acme Corp")
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        with pytest.raises(CannotRemoveLastAdminError):
+            tenant.add_member(
+                user_id,
+                TenantRole.MEMBER,
+                added_by=admin_id,
+                current_role=TenantRole.ADMIN,
+                is_last_admin=True,
+            )
+
+    def test_no_events_on_last_admin_role_replacement_failure(self):
+        """No events should be emitted when last-admin role replacement fails."""
+        tenant = Tenant(id=TenantId.generate(), name="Acme Corp")
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        try:
+            tenant.add_member(
+                user_id,
+                TenantRole.MEMBER,
+                added_by=admin_id,
+                current_role=TenantRole.ADMIN,
+                is_last_admin=True,
+            )
+        except CannotRemoveLastAdminError:
+            pass
+
+        events = tenant.collect_events()
+        assert len(events) == 0
+
+    def test_can_replace_admin_role_when_not_last_admin(self):
+        """Role replacement should succeed when is_last_admin=False."""
+        tenant = Tenant(id=TenantId.generate(), name="Acme Corp")
+        user_id = UserId.from_string("user-123")
+        admin_id = UserId.from_string("admin-456")
+
+        tenant.add_member(
+            user_id,
+            TenantRole.MEMBER,
+            added_by=admin_id,
+            current_role=TenantRole.ADMIN,
+            is_last_admin=False,
+        )
+
+        events = tenant.collect_events()
+        assert len(events) == 2
+        assert isinstance(events[0], TenantMemberRemoved)
+        assert isinstance(events[1], TenantMemberAdded)
+
 
 class TestGetMemberRole:
     """Tests for Tenant.get_member_role() helper."""

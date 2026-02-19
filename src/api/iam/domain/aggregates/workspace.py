@@ -238,6 +238,11 @@ class Workspace:
 
         # If user already has a different role, remove it first (role replacement)
         if current_role is not None and current_role != role:
+            # Prevent demoting the last admin via role replacement
+            if current_role == WorkspaceRole.ADMIN and role != WorkspaceRole.ADMIN:
+                if self._is_last_admin(member_id, member_type):
+                    raise CannotRemoveLastAdminError()
+
             # Remove from in-memory list
             self.members = [
                 m

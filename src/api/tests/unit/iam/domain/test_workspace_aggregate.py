@@ -1313,6 +1313,59 @@ class TestLastAdminProtection:
         events = workspace.collect_events()
         assert len(events) == 0
 
+    def test_cannot_replace_last_admin_role_via_add_member(self):
+        """Role replacement via add_member should raise CannotRemoveLastAdminError when demoting last admin."""
+        from iam.domain.exceptions import CannotRemoveLastAdminError
+
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+
+        with pytest.raises(CannotRemoveLastAdminError):
+            workspace.add_member(
+                "user-alice",
+                MemberType.USER,
+                WorkspaceRole.MEMBER,
+                current_role=WorkspaceRole.ADMIN,
+            )
+
+    def test_can_replace_admin_role_via_add_member_when_another_admin_exists(self):
+        """Role replacement via add_member should succeed when another admin exists."""
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+        workspace.add_member("user-bob", MemberType.USER, WorkspaceRole.ADMIN)
+        workspace.collect_events()
+
+        workspace.add_member(
+            "user-alice",
+            MemberType.USER,
+            WorkspaceRole.MEMBER,
+            current_role=WorkspaceRole.ADMIN,
+        )
+
+        assert (
+            workspace.get_member_role("user-alice", MemberType.USER)
+            == WorkspaceRole.MEMBER
+        )
+
+    def test_no_events_on_add_member_last_admin_replacement_failure(self):
+        """No events should be emitted when last-admin role replacement via add_member fails."""
+        from iam.domain.exceptions import CannotRemoveLastAdminError
+
+        workspace = _make_workspace()
+        workspace.add_member("user-alice", MemberType.USER, WorkspaceRole.ADMIN)
+        workspace.collect_events()
+
+        with pytest.raises(CannotRemoveLastAdminError):
+            workspace.add_member(
+                "user-alice",
+                MemberType.USER,
+                WorkspaceRole.EDITOR,
+                current_role=WorkspaceRole.ADMIN,
+            )
+
+        events = workspace.collect_events()
+        assert len(events) == 0
+
 
 class TestForceRemoveLastAdmin:
     """Tests for force-removing the last admin from a workspace.

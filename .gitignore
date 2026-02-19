@@ -22,7 +22,7 @@ downloads/
 eggs/
 .eggs/
 lib/
-!src/ui/app/lib/
+!src/dev-ui/app/lib/
 lib64/
 parts/
 sdist/
@@ -159,6 +159,12 @@ Thumbs.db
 website/node_modules/
 website/dist/
 website/.astro/
+
+# Dev UI
+src/dev-ui/node_modules/
+src/dev-ui/.nuxt/
+src/dev-ui/.output/
+
 certs/
 
 # Demo web interface (not for production)

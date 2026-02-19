@@ -177,6 +177,39 @@ services:
       retries: 3
       start_period: 5s
 
+  dev-ui:
+    build:
+      context: ./src/dev-ui
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    networks:
+      - kartograph
+    environment:
+      - NUXT_PUBLIC_API_BASE_URL=http://localhost:8000
+      - NUXT_PUBLIC_MCP_ENDPOINT_URL=http://localhost:8000/query/mcp
+      - NUXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080
+      - NUXT_PUBLIC_KEYCLOAK_REALM=kartograph
+      - NUXT_PUBLIC_KEYCLOAK_CLIENT_ID=kartograph-ui
+    depends_on:
+      api:
+        condition: service_healthy
+    profiles:
+      - ui
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:3000/', r => { process.exit(r.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
 networks:
   kartograph:
     driver: bridge

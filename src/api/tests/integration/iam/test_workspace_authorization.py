@@ -41,7 +41,15 @@ async def _get_root_workspace_id(
     """Helper: Get the root workspace ID."""
     ws_list = await async_client.get("/iam/workspaces", headers=tenant_auth_headers)
     assert ws_list.status_code == 200
-    root = next(w for w in ws_list.json()["workspaces"] if w["is_root"])
+    workspaces = ws_list.json()["workspaces"]
+    root = next(
+        (w for w in workspaces if w["is_root"]),
+        None,
+    )
+    assert root is not None, (
+        f"No root workspace found in workspace listing. "
+        f"Got {len(workspaces)} workspace(s): {[w.get('name') for w in workspaces]}"
+    )
     return root["id"]
 
 

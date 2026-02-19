@@ -6,8 +6,6 @@ and auto-grant/revoke of root workspace access on tenant role changes.
 AIHCM-160: Authorization integration tests for tenant authorization.
 """
 
-import asyncio
-
 import pytest
 import pytest_asyncio
 
@@ -23,7 +21,10 @@ from shared_kernel.authorization.types import (
     format_resource,
     format_subject,
 )
-from tests.integration.iam.conftest import wait_for_permission
+from tests.integration.iam.conftest import (
+    wait_for_permission,
+    wait_for_permission_revoked,
+)
 
 pytestmark = [pytest.mark.integration, pytest.mark.keycloak]
 
@@ -447,8 +448,10 @@ class TestAutoGrantRootWorkspaceAccess:
         root_ws_id = root_workspaces[0]["id"]
         ws_resource = format_resource(ResourceType.WORKSPACE, root_ws_id)
 
-        # Allow time for any potential auto-grant to propagate
-        await asyncio.sleep(0.5)
+        # Bob's tenant VIEW permission has already propagated (confirmed above),
+        # meaning the outbox event for add_member(role=member) was processed.
+        # If MANAGE were going to be auto-granted, it would have happened in
+        # the same outbox batch. No sleep needed.
 
         # Verify bob does NOT have MANAGE on root workspace
         has_manage = await spicedb_client.check_permission(
@@ -558,16 +561,15 @@ class TestAutoGrantRootWorkspaceAccess:
             f"got {downgrade_resp.status_code}: {downgrade_resp.text}"
         )
 
-        # Allow time for propagation
-        await asyncio.sleep(1.0)
-
-        # Verify bob no longer has MANAGE on root workspace
-        has_manage = await spicedb_client.check_permission(
+        # Wait for the revocation to propagate through the outbox
+        manage_revoked = await wait_for_permission_revoked(
+            spicedb_client,
             ws_resource,
             Permission.MANAGE,
             bob_subject,
+            timeout=5.0,
         )
-        assert has_manage is False, (
+        assert manage_revoked, (
             "Downgraded tenant member should NOT have MANAGE on root workspace"
         )
 
@@ -668,16 +670,15 @@ class TestAutoGrantRootWorkspaceAccess:
             f"got {remove_resp.status_code}: {remove_resp.text}"
         )
 
-        # Allow time for propagation
-        await asyncio.sleep(1.0)
-
-        # Verify bob has no workspace access
-        has_manage = await spicedb_client.check_permission(
+        # Wait for the revocation to propagate through the outbox
+        manage_revoked = await wait_for_permission_revoked(
+            spicedb_client,
             ws_resource,
             Permission.MANAGE,
             bob_subject,
+            timeout=5.0,
         )
-        assert has_manage is False, (
+        assert manage_revoked, (
             "Removed tenant member should NOT have MANAGE on root workspace"
         )
 

@@ -23,7 +23,11 @@ from shared_kernel.authorization.types import (
     format_resource,
     format_subject,
 )
-from tests.integration.iam.conftest import create_child_workspace, wait_for_permission
+from tests.integration.iam.conftest import (
+    create_child_workspace,
+    wait_for_permission,
+    wait_for_permission_revoked,
+)
 
 pytestmark = [pytest.mark.integration, pytest.mark.keycloak]
 
@@ -355,9 +359,9 @@ class TestListWorkspaceMembers:
         )
         assert add_resp.status_code == 201
 
-        # Wait for the workspace member addition to propagate
-        # We can't easily check group permission directly, so just give it time
-        # by listing and verifying
+        # Wait for the group-workspace relationship to propagate to SpiceDB.
+        # No group member exists in this test to use wait_for_permission,
+        # so a fixed delay is the pragmatic choice.
         await asyncio.sleep(0.5)
 
         # List members
@@ -616,18 +620,17 @@ class TestRemoveWorkspaceMember:
             f"Admin should be able to remove member, got {del_resp.status_code}: {del_resp.text}"
         )
 
-        # Allow time for SpiceDB to process the relationship deletion
-        await asyncio.sleep(0.5)
-
-        # Verify bob no longer has edit permission
-        has_edit = await spicedb_client.check_permission(
+        # Wait for the editor revocation to propagate through the outbox
+        edit_revoked = await wait_for_permission_revoked(
+            spicedb_client,
             ws_resource,
             Permission.EDIT,
             bob_subject,
+            timeout=5.0,
         )
         # Bob may still have VIEW via tenant->view, but should not have EDIT
         # from the direct editor grant anymore
-        assert has_edit is False, (
+        assert edit_revoked, (
             "Bob should NOT have EDIT permission after being removed as editor"
         )
 
@@ -713,6 +716,9 @@ class TestRemoveWorkspaceMember:
         )
         assert add_resp.status_code == 201
 
+        # Wait for the group-workspace relationship to propagate to SpiceDB
+        # before attempting removal. No group member exists in this test to
+        # use wait_for_permission, so a fixed delay is the pragmatic choice.
         await asyncio.sleep(0.5)
 
         # Remove group from workspace

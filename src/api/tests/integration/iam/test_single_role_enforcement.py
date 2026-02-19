@@ -289,7 +289,8 @@ class TestTenantSingleRole:
             "Regular member should NOT have ADMINISTRATE permission"
         )
 
-        # Promote bob to admin (role replacement via add_member)
+        # Promote bob to admin via POST (no PATCH endpoint for tenant members;
+        # POST with an existing user_id triggers role replacement).
         promote_resp = await async_client.post(
             f"/iam/tenants/{tenant_id}/members",
             json={"user_id": bob_user_id, "role": "admin"},

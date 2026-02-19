@@ -6,8 +6,6 @@ granted access to a workspace, all group members should inherit that access.
 AIHCM-160: Authorization integration tests for group workspace inheritance.
 """
 
-import asyncio
-
 import pytest
 import pytest_asyncio
 
@@ -22,7 +20,11 @@ from shared_kernel.authorization.types import (
     format_resource,
     format_subject,
 )
-from tests.integration.iam.conftest import create_child_workspace, wait_for_permission
+from tests.integration.iam.conftest import (
+    create_child_workspace,
+    wait_for_permission,
+    wait_for_permission_revoked,
+)
 
 pytestmark = [pytest.mark.integration, pytest.mark.keycloak]
 
@@ -312,16 +314,15 @@ class TestGroupWorkspaceInheritance:
             f"Should be able to remove group from workspace, got {del_resp.status_code}"
         )
 
-        # Allow propagation time
-        await asyncio.sleep(0.5)
-
-        # Verify bob no longer has EDIT (may still have VIEW via tenant->view)
-        has_edit = await spicedb_client.check_permission(
+        # Wait for the revocation to propagate through the outbox
+        edit_revoked = await wait_for_permission_revoked(
+            spicedb_client,
             ws_resource,
             Permission.EDIT,
             bob_subject,
+            timeout=5.0,
         )
-        assert has_edit is False, (
+        assert edit_revoked, (
             "Bob should NOT have EDIT permission after group removed from workspace"
         )
 
@@ -392,16 +393,15 @@ class TestGroupWorkspaceInheritance:
             f"Should be able to remove bob from group, got {del_resp.status_code}"
         )
 
-        # Allow propagation time
-        await asyncio.sleep(0.5)
-
-        # Verify bob no longer has EDIT via group
-        has_edit = await spicedb_client.check_permission(
+        # Wait for the revocation to propagate through the outbox
+        edit_revoked = await wait_for_permission_revoked(
+            spicedb_client,
             ws_resource,
             Permission.EDIT,
             bob_subject,
+            timeout=5.0,
         )
-        assert has_edit is False, (
+        assert edit_revoked, (
             "Bob should NOT have EDIT permission after being removed from group"
         )
 
@@ -455,7 +455,17 @@ class TestExplicitTupleListing:
         )
         assert add_resp.status_code == 201
 
-        await asyncio.sleep(0.5)
+        # Wait for the group-workspace relationship to propagate; bob is a
+        # group member so we can verify via his inherited EDIT permission.
+        ws_resource = format_resource(ResourceType.WORKSPACE, ws_id)
+        bob_subject = format_subject(ResourceType.USER, bob_user_id)
+        await wait_for_permission(
+            spicedb_client,
+            ws_resource,
+            Permission.EDIT,
+            bob_subject,
+            timeout=5.0,
+        )
 
         # List members
         list_resp = await async_client.get(

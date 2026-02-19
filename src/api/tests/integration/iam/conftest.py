@@ -400,6 +400,38 @@ async def wait_for_permission(
     return False
 
 
+async def wait_for_permission_revoked(
+    authz: AuthorizationProvider,
+    resource: str,
+    permission: str,
+    subject: str,
+    timeout: float = 5.0,
+    poll_interval: float = 0.05,
+) -> bool:
+    """Wait for a permission to be revoked in SpiceDB.
+
+    Counterpart to wait_for_permission for negative assertions. Polls
+    until the permission is no longer granted or the timeout is exceeded.
+
+    Args:
+        authz: Authorization provider (SpiceDB client)
+        resource: Resource identifier (e.g., "workspace:123")
+        permission: Permission to check (e.g., "manage")
+        subject: Subject identifier (e.g., "user:456")
+        timeout: Maximum time to wait in seconds
+        poll_interval: Time between checks in seconds
+
+    Returns:
+        True if permission was revoked, False if timeout exceeded
+    """
+    start = time.monotonic()
+    while time.monotonic() - start < timeout:
+        if not await authz.check_permission(resource, permission, subject):
+            return True
+        await asyncio.sleep(poll_interval)
+    return False
+
+
 async def create_child_workspace(
     async_client: AsyncClient,
     tenant_auth_headers: dict,
@@ -415,7 +447,12 @@ async def create_child_workspace(
     """
     ws_list = await async_client.get("/iam/workspaces", headers=tenant_auth_headers)
     assert ws_list.status_code == 200, f"Failed to list workspaces: {ws_list.text}"
-    root = next(w for w in ws_list.json()["workspaces"] if w["is_root"])
+    workspaces = ws_list.json()["workspaces"]
+    root = next((w for w in workspaces if w["is_root"]), None)
+    assert root is not None, (
+        f"No root workspace found in listing. "
+        f"Got {len(workspaces)} workspace(s): {[w.get('name') for w in workspaces]}"
+    )
 
     create_resp = await async_client.post(
         "/iam/workspaces",

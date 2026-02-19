@@ -234,12 +234,21 @@ function lintCreate(
   }
 
   // set_properties
-  if (!obj.set_properties) {
+  if (!obj.set_properties && obj.set_properties !== 0 && obj.set_properties !== false) {
     diagnostics.push({
       from: lineFrom,
       to: lineTo,
       severity: 'error',
       message: 'CREATE: missing required field "set_properties"',
+    })
+  }
+  else if (typeof obj.set_properties !== 'object' || obj.set_properties === null || Array.isArray(obj.set_properties)) {
+    const span = findKeySpan(lineText, 'set_properties')
+    diagnostics.push({
+      from: lineFrom + (span?.from ?? 0),
+      to: lineFrom + (span?.to ?? lineText.length),
+      severity: 'error',
+      message: 'CREATE: set_properties must be an object',
     })
   }
   else if (typeof obj.set_properties === 'object' && obj.set_properties !== null) {

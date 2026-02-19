@@ -91,20 +91,31 @@ function ageLintSource(view: EditorView): Diagnostic[] {
             const currentText = view.state.sliceDoc(from, to)
             const returnKeywordMatch = currentText.match(/^(\s*RETURN\s+)/i)
             if (returnKeywordMatch) {
-              const prefix = returnKeywordMatch[1]
-              const expressions = currentText.slice(prefix.length).trim()
+              let prefix = returnKeywordMatch[1]
+              let expressions = currentText.slice(prefix.length).trim()
+              // Preserve DISTINCT outside the map
+              let distinct = ''
+              const distinctMatch = expressions.match(/^(DISTINCT\s+)/i)
+              if (distinctMatch) {
+                distinct = distinctMatch[1]
+                expressions = expressions.slice(distinctMatch[0].length).trim()
+              }
               // Split on top-level commas (not inside parens/brackets/strings)
               const parts = splitTopLevel(expressions)
-              const mapEntries = parts.map((expr) => {
+              const mapEntries = parts.map((expr, idx) => {
                 const trimmed = expr.trim()
-                // Derive key: use property name from "x.prop", alias from "expr AS alias", or generate one
-                const propMatch = trimmed.match(/\.(\w+)$/)
+                // Derive key: use alias from "expr AS alias", property from "x.prop", or generate one
                 const asMatch = trimmed.match(/\bAS\s+(\w+)$/i)
-                const key = asMatch ? asMatch[1] : propMatch ? propMatch[1] : trimmed.replace(/[^a-zA-Z0-9_]/g, '_')
+                const propMatch = trimmed.match(/\.(\w+)$/)
+                let key = asMatch ? asMatch[1] : propMatch ? propMatch[1] : trimmed.replace(/[^a-zA-Z0-9_]/g, '_')
+                // Ensure key is a valid Cypher identifier (starts with letter or underscore)
+                if (!/^[a-zA-Z_]/.test(key) || !key) {
+                  key = `value${idx + 1}`
+                }
                 return `${key}: ${trimmed}`
               })
               view.dispatch({
-                changes: { from, to, insert: `${prefix}{${mapEntries.join(', ')}}` },
+                changes: { from, to, insert: `${prefix}${distinct}{${mapEntries.join(', ')}}` },
               })
             }
           },

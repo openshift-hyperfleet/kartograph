@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Optional
 
 from iam.domain.events import (
     WorkspaceCreated,
+    WorkspaceCreatorTenantSet,
     WorkspaceDeleted,
     WorkspaceMemberAdded,
     WorkspaceMemberRemoved,
@@ -151,7 +152,11 @@ class Workspace:
             probe: Optional observability probe for domain events
 
         Returns:
-            A new root Workspace aggregate with WorkspaceCreated event recorded
+            A new root Workspace aggregate with events recorded
+
+        Events recorded:
+            - WorkspaceCreated: Announces workspace creation
+            - WorkspaceCreatorTenantSet: Delegates creation rights to tenant members
 
         Raises:
             ValueError: If name is empty or exceeds 512 characters
@@ -174,6 +179,13 @@ class Workspace:
                 name=name,
                 parent_workspace_id=None,
                 is_root=True,
+                occurred_at=now,
+            )
+        )
+        workspace._pending_events.append(
+            WorkspaceCreatorTenantSet(
+                workspace_id=workspace.id.value,
+                tenant_id=tenant_id.value,
                 occurred_at=now,
             )
         )

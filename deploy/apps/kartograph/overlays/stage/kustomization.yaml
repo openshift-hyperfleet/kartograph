@@ -10,6 +10,6 @@ patches:
   - path: resources-patch.yaml
 images:
   - name: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-api
-    newTag: 20537154d73b5b8f8ced3cfabc56f6a841068e99
+    newTag: 099e2ac93049b63ce937447b3c4815fb00d1b809
   - name: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-dev-ui
     newTag: latest

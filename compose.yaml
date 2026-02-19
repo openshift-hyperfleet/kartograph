@@ -93,6 +93,7 @@ services:
       - kartograph
     restart: unless-stopped
     command: postgres -c max_locks_per_transaction=1024
+    shm_size: 2048mb
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kartograph"]
       interval: 10s

@@ -2,8 +2,6 @@
 
 Following TDD: Write tests that describe the desired behavior,
 then implement the User aggregate to make these tests pass.
-
-For the walking skeleton, User is minimal (just id and username).
 """
 
 import pytest

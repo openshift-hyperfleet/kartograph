@@ -27,6 +27,7 @@ from iam.domain.events import (
     TenantMemberAdded,
     TenantMemberRemoved,
     WorkspaceCreated,
+    WorkspaceCreatorTenantSet,
     WorkspaceDeleted,
     WorkspaceMemberAdded,
     WorkspaceMemberRemoved,
@@ -91,6 +92,7 @@ class IAMEventTranslator:
             TenantMemberAdded: self._translate_tenant_member_added,
             TenantMemberRemoved: self._translate_tenant_member_removed,
             WorkspaceCreated: self._translate_workspace_created,
+            WorkspaceCreatorTenantSet: self._translate_workspace_creator_tenant_set,
             WorkspaceDeleted: self._translate_workspace_deleted,
             WorkspaceMemberAdded: self._translate_workspace_member_added,
             WorkspaceMemberRemoved: self._translate_workspace_member_removed,
@@ -311,14 +313,12 @@ class IAMEventTranslator:
         Also deletes the tenant#root_workspace relationship using filter-based
         deletion (no need to know the specific workspace ID).
 
-        TODO: Ensure the tenant deletion service emits WorkspaceDeleted events
-        for all tenant workspaces before emitting TenantDeleted. This ensures:
-        - Workspace data is cleaned up from the database (via repository)
-        - Child workspace relationships are cleaned up in SpiceDB
-        - Domain events provide audit trail for workspace deletions
-        The filter-based deletion here only cleans up the tenant's pointer to
-        its root workspace; the workspace's own relationships are cleaned up
-        by WorkspaceDeleted events.
+        Note: TenantService.delete_tenant() explicitly deletes all workspaces
+        before deleting the tenant, which ensures WorkspaceDeleted events are
+        emitted for proper SpiceDB cleanup. The filter-based deletion here only
+        cleans up the tenant's pointer to its root workspace; the workspace's
+        own relationships (admin, editor, member, parent, creator_tenant) are
+        cleaned up by WorkspaceDeleted event handlers.
         """
         operations: list[SpiceDBOperation] = []
 
@@ -474,6 +474,32 @@ class IAMEventTranslator:
 
         return relationships
 
+    def _translate_workspace_creator_tenant_set(
+        self,
+        payload: dict[str, Any],
+    ) -> list[SpiceDBOperation]:
+        """Translate WorkspaceCreatorTenantSet to creator_tenant relationship write.
+
+        Creates: workspace#creator_tenant@tenant
+        This relationship enables all tenant members to create child workspaces
+        under this root workspace via the create_child permission.
+
+        Args:
+            payload: Event payload containing workspace_id and tenant_id
+
+        Returns:
+            List containing a single WriteRelationship operation
+        """
+        return [
+            WriteRelationship(
+                resource_type=ResourceType.WORKSPACE,
+                resource_id=payload["workspace_id"],
+                relation=RelationType.CREATOR_TENANT,
+                subject_type=ResourceType.TENANT,
+                subject_id=payload["tenant_id"],
+            )
+        ]
+
     def _translate_workspace_deleted(
         self,
         payload: dict[str, Any],
@@ -508,7 +534,7 @@ class IAMEventTranslator:
             )
         )
 
-        # 2. If root: Remove tenant->root_workspace pointer
+        # 2. If root: Remove tenant->root_workspace pointer and creator_tenant
         if is_root:
             relationships.append(
                 DeleteRelationship(
@@ -517,6 +543,15 @@ class IAMEventTranslator:
                     relation=RelationType.ROOT_WORKSPACE,
                     subject_type=ResourceType.WORKSPACE,
                     subject_id=workspace_id,
+                )
+            )
+            relationships.append(
+                DeleteRelationship(
+                    resource_type=ResourceType.WORKSPACE,
+                    resource_id=workspace_id,
+                    relation=RelationType.CREATOR_TENANT,
+                    subject_type=ResourceType.TENANT,
+                    subject_id=tenant_id,
                 )
             )
 

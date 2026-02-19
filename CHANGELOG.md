@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.21.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.20.0...v3.21.0) (2026-02-19)
+
+
+### Features
+
+* **api.iam:** aihcm 160 authorization integration tests ([#238](https://github.com/openshift-hyperfleet/kartograph/issues/238)) ([9c76019](https://github.com/openshift-hyperfleet/kartograph/commit/9c7601918968f432256b80631d90a505d460931b))
+
 ## [3.20.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.19.0...v3.20.0) (2026-02-17)
 
 

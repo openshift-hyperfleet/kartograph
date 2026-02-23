@@ -92,6 +92,7 @@ class Tenant:
         role: TenantRole,
         added_by: Optional[UserId] = None,
         current_role: Optional[TenantRole] = None,
+        is_last_admin: bool = False,
     ):
         """Add a user as a member to this tenant.
 
@@ -101,9 +102,20 @@ class Tenant:
             added_by: Admin who added them (None for system/migration)
             current_role: User's current role (if any). If different from new role,
                 the old role will be removed first (role replacement).
+            is_last_admin: Whether this user is the last admin in the tenant.
+                If True and the role change would demote them from admin,
+                a CannotRemoveLastAdminError is raised.
         """
         # If user already has a different role, remove it first
         if current_role is not None and current_role != role:
+            # Prevent demoting the last admin
+            if (
+                current_role == TenantRole.ADMIN
+                and role != TenantRole.ADMIN
+                and is_last_admin
+            ):
+                raise CannotRemoveLastAdminError()
+
             self._pending_events.append(
                 TenantMemberRemoved(
                     tenant_id=self.id.value,

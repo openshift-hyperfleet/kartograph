@@ -295,12 +295,20 @@ class TenantService:
             # Check if user already has a role (query SpiceDB)
             current_role = await self._get_user_tenant_role(tenant_id, user_id)
 
+            # Check if this is the last admin being demoted
+            is_last_admin = False
+            if current_role == TenantRole.ADMIN and role != TenantRole.ADMIN:
+                is_last_admin = await self._tenant_repository.is_last_admin(
+                    tenant_id, user_id, self._authz
+                )
+
             # Add member (will replace role if different)
             tenant.add_member(
                 user_id=user_id,
                 role=role,
                 added_by=requesting_user_id,
                 current_role=current_role,
+                is_last_admin=is_last_admin,
             )
             await self._tenant_repository.save(tenant)
 
@@ -438,6 +446,7 @@ class TenantService:
                 root_workspace.remove_member(
                     member_id=user_id.value,
                     member_type=MemberType.USER,
+                    force=True,
                 )
                 await self._workspace_repository.save(root_workspace)
 
@@ -460,6 +469,7 @@ class TenantService:
             root_workspace.remove_member(
                 member_id=user_id.value,
                 member_type=MemberType.USER,
+                force=True,
             )
             await self._workspace_repository.save(root_workspace)
 

@@ -119,6 +119,22 @@ spec:
                 configMapKeyRef:
                   name: kartograph-config
                   key: KARTOGRAPH_OUTBOX_ENABLED
+            - name: KARTOGRAPH_OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: kartograph-sso-client-api
+                  key: client_id
+            - name: KARTOGRAPH_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: kartograph-sso-client-api
+                  key: client_secret
+            - name: KARTOGRAPH_OIDC_ISSUER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: kartograph-sso-client-api
+                  key: issuer
+
           livenessProbe:
             httpGet:
               path: /health

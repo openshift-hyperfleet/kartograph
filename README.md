@@ -18,7 +18,7 @@
 
 # What is Kartograph?
 
-Kartograph is an enterprise-ready property graph as a service platform.
+Kartograph is an enterprise-ready property graph platform.
 
 Images are [built on Konflux](https://konflux-ui.apps.kflux-prd-rh02.0fk9.p1.openshiftapps.com/ns/kartograph-tenant/applications/kartograph) and [published to Quay](https://quay.io/repository/redhat-user-workloads/kartograph-tenant/kartograph-api?tab=tags&tag=latest).
 

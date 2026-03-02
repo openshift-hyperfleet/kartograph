@@ -82,13 +82,13 @@ class APIKeyService:
             Tuple of (APIKey aggregate, plaintext_secret)
 
         Raises:
-            UnauthorizedError: If user lacks VIEW permission on the tenant
+            UnauthorizedError: If user lacks CREATE_API_KEY permission on the tenant
             DuplicateAPIKeyNameError: If key name already exists for user
         """
-        # Check authorization: user must have VIEW permission on the tenant
+        # Check authorization: user must have CREATE_API_KEY permission on the tenant
         has_permission = await self._authz.check_permission(
             resource=format_resource(ResourceType.TENANT, tenant_id.value),
-            permission=Permission.VIEW,
+            permission=Permission.CREATE_API_KEY,
             subject=format_subject(ResourceType.USER, created_by_user_id.value),
         )
         if not has_permission:
@@ -97,7 +97,7 @@ class APIKeyService:
                 tenant_id=tenant_id.value,
             )
             raise UnauthorizedError(
-                f"User {created_by_user_id.value} lacks view permission on tenant "
+                f"User {created_by_user_id.value} lacks create_api_key permission on tenant "
                 f"{tenant_id.value}"
             )
 

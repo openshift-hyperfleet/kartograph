@@ -121,6 +121,9 @@ data:
             /** Permission to view tenant */
             permission view = admin + member
 
+            /** Permission to create API keys within this tenant */
+            permission create_api_key = admin + member
+
             /** Permission to manage tenant configuration */
             permission manage = admin
 

@@ -135,6 +135,7 @@ class Permission(StrEnum):
     EDIT = "edit"
     MANAGE = "manage"
     CREATE_CHILD = "create_child"
+    CREATE_API_KEY = "create_api_key"
     ADMINISTRATE = "administrate"
     REVOKE = "revoke"
 

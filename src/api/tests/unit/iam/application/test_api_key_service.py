@@ -295,7 +295,7 @@ class TestAPIKeyServiceCreateAuthorization:
         mock_api_key_repository,
         mock_authz,
     ):
-        """Should call check_permission with tenant resource, VIEW permission, and user subject."""
+        """Should call check_permission with tenant resource, CREATE_API_KEY permission, and user subject."""
         from shared_kernel.authorization.types import (
             Permission,
             ResourceType,
@@ -318,7 +318,7 @@ class TestAPIKeyServiceCreateAuthorization:
 
         mock_authz.check_permission.assert_called_once_with(
             resource=format_resource(ResourceType.TENANT, tenant_id.value),
-            permission=Permission.VIEW,
+            permission=Permission.CREATE_API_KEY,
             subject=format_subject(ResourceType.USER, created_by_user_id.value),
         )
 

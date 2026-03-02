@@ -159,6 +159,7 @@ class TestMCPApiKeyAuthMiddleware401WhenMissing:
         assert capture.status == 401
         assert capture.json == {"error": "X-API-Key header is required"}
         assert capture.headers["content-type"] == "application/json"
+        assert capture.headers["www-authenticate"] == 'ApiKey realm="kartograph"'
 
     @pytest.mark.asyncio
     async def test_calls_probe_on_missing_header(self) -> None:
@@ -196,6 +197,7 @@ class TestMCPApiKeyAuthMiddleware401WhenInvalid:
 
         assert capture.status == 401
         assert capture.json == {"error": "Invalid or expired API key"}
+        assert capture.headers["www-authenticate"] == 'ApiKey realm="kartograph"'
 
     @pytest.mark.asyncio
     async def test_calls_probe_on_invalid_key(self) -> None:

@@ -136,16 +136,24 @@ class MCPApiKeyAuthMiddleware:
 
     @staticmethod
     async def _send_json_error(send: ASGISend, status: int, error: str) -> None:
-        """Send a JSON error response via raw ASGI send."""
+        """Send a JSON error response via raw ASGI send.
+
+        For 401 responses, includes a ``WWW-Authenticate: ApiKey`` header
+        per RFC 9110 §11.6.1 to signal that this server uses API key
+        authentication, not OAuth/Bearer.
+        """
         body = json.dumps({"error": error}).encode("utf-8")
+        headers: list[list[bytes]] = [
+            [b"content-type", b"application/json"],
+            [b"content-length", str(len(body)).encode()],
+        ]
+        if status == 401:
+            headers.append([b"www-authenticate", b'ApiKey realm="kartograph"'])
         await send(
             {
                 "type": "http.response.start",
                 "status": status,
-                "headers": [
-                    [b"content-type", b"application/json"],
-                    [b"content-length", str(len(body)).encode()],
-                ],
+                "headers": headers,
             }
         )
         await send({"type": "http.response.body", "body": body})

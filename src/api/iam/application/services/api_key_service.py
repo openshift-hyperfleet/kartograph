@@ -85,23 +85,20 @@ class APIKeyService:
             UnauthorizedError: If user lacks CREATE_API_KEY permission on the tenant
             DuplicateAPIKeyNameError: If key name already exists for user
         """
-        # Check authorization: user must have CREATE_API_KEY permission on the tenant
-        has_permission = await self._authz.check_permission(
-            resource=format_resource(ResourceType.TENANT, tenant_id.value),
-            permission=Permission.CREATE_API_KEY,
-            subject=format_subject(ResourceType.USER, created_by_user_id.value),
-        )
-        if not has_permission:
-            self._probe.api_key_create_authorization_denied(
-                user_id=created_by_user_id.value,
-                tenant_id=tenant_id.value,
-            )
-            raise UnauthorizedError(
-                f"User {created_by_user_id.value} lacks create_api_key permission on tenant "
-                f"{tenant_id.value}"
-            )
-
         try:
+            # Check authorization: user must have CREATE_API_KEY permission
+            has_permission = await self._authz.check_permission(
+                resource=format_resource(ResourceType.TENANT, tenant_id.value),
+                permission=Permission.CREATE_API_KEY,
+                subject=format_subject(ResourceType.USER, created_by_user_id.value),
+            )
+            if not has_permission:
+                self._probe.api_key_create_authorization_denied(
+                    user_id=created_by_user_id.value,
+                    tenant_id=tenant_id.value,
+                )
+                raise UnauthorizedError("Insufficient permissions")
+
             # Generate secret and hash
             plaintext_secret = generate_api_key_secret()
             key_hash = hash_api_key_secret(plaintext_secret)
@@ -221,10 +218,7 @@ class APIKeyService:
                         user_id=user_id.value,
                         api_key_id=api_key_id.value,
                     )
-                    raise UnauthorizedError(
-                        f"User {user_id.value} lacks revoke permission on "
-                        f"API key {api_key_id.value}"
-                    )
+                    raise UnauthorizedError("Insufficient permissions")
 
                 # This will raise APIKeyAlreadyRevokedError if already revoked
                 api_key.revoke()

@@ -136,6 +136,7 @@ class Permission(StrEnum):
     MANAGE = "manage"
     CREATE_CHILD = "create_child"
     ADMINISTRATE = "administrate"
+    REVOKE = "revoke"
 
 
 def format_resource(resource_type: ResourceType, resource_id: str) -> str:

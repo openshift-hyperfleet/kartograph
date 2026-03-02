@@ -364,12 +364,15 @@ async def alice_admin_tenant_auth_headers(
     alice_token: str,
     default_tenant_id: str,
     _spicedb_client: AuthorizationProvider,
-) -> dict[str, str]:
+) -> AsyncGenerator[dict[str, str], None]:
     """Auth headers for alice with tenant admin role in SpiceDB.
 
     The standard tenant_auth_headers grants alice 'member' on the tenant.
     This fixture additionally grants 'admin', which is required for
     tenant-level administrative actions like revoking other users' API keys.
+
+    The admin grant is removed during teardown to avoid leaking state
+    between tests.
     """
     from jose import jwt as jose_jwt
 
@@ -385,7 +388,13 @@ async def alice_admin_tenant_auth_headers(
         subject=user_subject,
     )
 
-    return tenant_auth_headers
+    yield tenant_auth_headers
+
+    await _spicedb_client.delete_relationship(
+        resource=tenant_resource,
+        relation="admin",
+        subject=user_subject,
+    )
 
 
 # =============================================================================

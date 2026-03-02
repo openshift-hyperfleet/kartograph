@@ -285,6 +285,124 @@ class TestAPIKeyServiceCreate:
         assert api_key.prefix == plaintext_secret[:12]
 
 
+class TestAPIKeyServiceCreateAuthorization:
+    """Tests for authorization checks in create_api_key method."""
+
+    @pytest.mark.asyncio
+    async def test_create_checks_tenant_permission(
+        self,
+        api_key_service: APIKeyService,
+        mock_api_key_repository,
+        mock_authz,
+    ):
+        """Should call check_permission with tenant resource, VIEW permission, and user subject."""
+        from shared_kernel.authorization.types import (
+            Permission,
+            ResourceType,
+            format_resource,
+            format_subject,
+        )
+
+        created_by_user_id = UserId.generate()
+        tenant_id = TenantId.generate()
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_api_key_repository.save = AsyncMock()
+
+        await api_key_service.create_api_key(
+            created_by_user_id=created_by_user_id,
+            expires_in_days=1,
+            tenant_id=tenant_id,
+            name="My CI Key",
+        )
+
+        mock_authz.check_permission.assert_called_once_with(
+            resource=format_resource(ResourceType.TENANT, tenant_id.value),
+            permission=Permission.VIEW.value,
+            subject=format_subject(ResourceType.USER, created_by_user_id.value),
+        )
+
+    @pytest.mark.asyncio
+    async def test_create_raises_unauthorized_when_denied(
+        self,
+        api_key_service: APIKeyService,
+        mock_api_key_repository,
+        mock_authz,
+    ):
+        """Should raise UnauthorizedError when check_permission returns False."""
+        from iam.ports.exceptions import UnauthorizedError
+
+        created_by_user_id = UserId.generate()
+        tenant_id = TenantId.generate()
+
+        mock_authz.check_permission = AsyncMock(return_value=False)
+
+        with pytest.raises(UnauthorizedError):
+            await api_key_service.create_api_key(
+                created_by_user_id=created_by_user_id,
+                expires_in_days=1,
+                tenant_id=tenant_id,
+                name="My CI Key",
+            )
+
+        # Should NOT have attempted to save
+        mock_api_key_repository.save.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_create_calls_probe_on_authorization_denied(
+        self,
+        api_key_service: APIKeyService,
+        mock_api_key_repository,
+        mock_authz,
+        mock_probe,
+    ):
+        """Should call probe method when authorization is denied."""
+        from iam.ports.exceptions import UnauthorizedError
+
+        created_by_user_id = UserId.generate()
+        tenant_id = TenantId.generate()
+
+        mock_authz.check_permission = AsyncMock(return_value=False)
+
+        with pytest.raises(UnauthorizedError):
+            await api_key_service.create_api_key(
+                created_by_user_id=created_by_user_id,
+                expires_in_days=1,
+                tenant_id=tenant_id,
+                name="My CI Key",
+            )
+
+        mock_probe.api_key_create_authorization_denied.assert_called_once_with(
+            user_id=created_by_user_id.value,
+            tenant_id=tenant_id.value,
+        )
+
+    @pytest.mark.asyncio
+    async def test_create_succeeds_when_authorized(
+        self,
+        api_key_service: APIKeyService,
+        mock_api_key_repository,
+        mock_authz,
+    ):
+        """Should succeed with full key creation when authorization passes."""
+        created_by_user_id = UserId.generate()
+        tenant_id = TenantId.generate()
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_api_key_repository.save = AsyncMock()
+
+        api_key, plaintext_secret = await api_key_service.create_api_key(
+            created_by_user_id=created_by_user_id,
+            expires_in_days=1,
+            tenant_id=tenant_id,
+            name="My CI Key",
+        )
+
+        assert isinstance(api_key, APIKey)
+        assert plaintext_secret.startswith("karto_")
+        mock_api_key_repository.save.assert_called_once()
+
+
 class TestAPIKeyServiceRevoke:
     """Tests for revoke_api_key method."""
 

@@ -14,6 +14,7 @@ from iam.application.value_objects import CurrentUser
 from shared_kernel.authorization.types import (
     Permission,
     ResourceType,
+    format_resource,
     format_subject,
 )
 from shared_kernel.authorization.protocols import AuthorizationProvider
@@ -29,7 +30,7 @@ from iam.application.security import (
 )
 from iam.domain.aggregates import APIKey
 from iam.domain.value_objects import APIKeyId, TenantId, UserId
-from iam.ports.exceptions import APIKeyNotFoundError
+from iam.ports.exceptions import APIKeyNotFoundError, UnauthorizedError
 from iam.ports.repositories import IAPIKeyRepository
 
 
@@ -81,8 +82,25 @@ class APIKeyService:
             Tuple of (APIKey aggregate, plaintext_secret)
 
         Raises:
+            UnauthorizedError: If user lacks VIEW permission on the tenant
             DuplicateAPIKeyNameError: If key name already exists for user
         """
+        # Check authorization: user must have VIEW permission on the tenant
+        has_permission = await self._authz.check_permission(
+            resource=format_resource(ResourceType.TENANT, tenant_id.value),
+            permission=Permission.VIEW,
+            subject=format_subject(ResourceType.USER, created_by_user_id.value),
+        )
+        if not has_permission:
+            self._probe.api_key_create_authorization_denied(
+                user_id=created_by_user_id.value,
+                tenant_id=tenant_id.value,
+            )
+            raise UnauthorizedError(
+                f"User {created_by_user_id.value} lacks view permission on tenant "
+                f"{tenant_id.value}"
+            )
+
         try:
             # Generate secret and hash
             plaintext_secret = generate_api_key_secret()

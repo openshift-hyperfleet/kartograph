@@ -43,7 +43,7 @@ import type { APIKeyResponse, APIKeyCreatedResponse } from '~/types'
 
 const { createApiKey, listApiKeys } = useIamApi()
 const { extractErrorMessage } = useErrorHandler()
-const { hasTenant, tenantVersion } = useTenant()
+const { hasTenant, currentTenantName, tenantVersion } = useTenant()
 const transientSecret = useTransientSecret()
 const config = useRuntimeConfig()
 
@@ -302,6 +302,15 @@ async function copyHeaderValue(key: string, value: string) {
       <!-- ════════════════════════════════════════════════════════════════════
            SECTION 1: PRIMARY — Quick-Start Config (the main event)
            ════════════════════════════════════════════════════════════════════ -->
+
+      <!-- Tenant scoping notice -->
+      <Alert variant="info">
+        <Info class="size-4" />
+        <AlertDescription>
+          <p>API keys are bound to the tenant in which they are created. Keys created here will be scoped
+            to <span class="font-medium">{{ currentTenantName }}.</span></p>
+        </AlertDescription>
+      </Alert>
 
       <!-- Newly created key banner -->
       <Alert v-if="newlyCreatedKey" class="border-green-500/30 bg-green-500/5">

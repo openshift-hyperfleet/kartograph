@@ -358,6 +358,72 @@ class TestMCPApiKeyAuthMiddlewareValidationError:
         probe.mcp_auth_invalid_api_key.assert_called_once()
 
 
+class TestMCPApiKeyAuthMiddlewareContextCleanup:
+    """Tests that _mcp_auth_context_var is cleaned up between requests."""
+
+    @pytest.mark.asyncio
+    async def test_context_var_cleared_after_request(self) -> None:
+        """_mcp_auth_context_var must be reset after middleware completes.
+
+        Simulates two sequential requests: the first authenticates with a
+        valid key (setting the context var), the second verifies the var
+        is not leaked from the first request.  This prevents identity bleed
+        between independent ASGI call-chains.
+        """
+        fake_key = FakeAPIKey(
+            id="key-first",
+            created_by_user_id="user-first",
+            tenant_id="tenant-first",
+        )
+        probe = MagicMock()
+
+        # Track context var state *inside* the inner app for each request
+        captured_contexts: list[MCPAuthContext | None] = []
+
+        async def capturing_app(scope, receive, send):
+            try:
+                captured_contexts.append(_mcp_auth_context_var.get())
+            except LookupError:
+                captured_contexts.append(None)
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [],
+                }
+            )
+            await send({"type": "http.response.body", "body": b""})
+
+        middleware = MCPApiKeyAuthMiddleware(
+            app=capturing_app,
+            validate_api_key=_make_validate_fn(return_value=fake_key),
+            probe=probe,
+        )
+
+        # Request 1: valid key — context should be set inside the app
+        scope1 = _make_http_scope(headers=[(b"x-api-key", b"karto_first")])
+        capture1 = _ResponseCapture()
+        await middleware(scope1, _noop_receive, capture1)
+
+        assert capture1.status == 200
+        assert captured_contexts[0] is not None
+        assert captured_contexts[0].user_id == "user-first"
+
+        # After the middleware returns, the context var must be cleared
+        with pytest.raises(LookupError):
+            _mcp_auth_context_var.get()
+
+        # Request 2: no header — 401, and the context var must still be
+        # absent (not leaking the first request's identity)
+        scope2 = _make_http_scope(headers=[])
+        capture2 = _ResponseCapture()
+        await middleware(scope2, _noop_receive, capture2)
+
+        assert capture2.status == 401
+        with pytest.raises(LookupError):
+            _mcp_auth_context_var.get()
+
+
 class TestMCPApiKeyAuthMiddlewareNonHTTP:
     """Tests that non-HTTP scopes pass through without auth."""
 

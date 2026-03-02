@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.23.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.23.0...v3.23.1) (2026-03-02)
+
+
+### Bug Fixes
+
+* **api.iam:** aihcm 172 enforce authz on api key CRUD endpoints ([#256](https://github.com/openshift-hyperfleet/kartograph/issues/256)) ([f71c23d](https://github.com/openshift-hyperfleet/kartograph/commit/f71c23d7f7291b176f1fcbf7784bd0f7b449fae5))
+
 ## [3.23.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.22.2...v3.23.0) (2026-03-02)
 
 

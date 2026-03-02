@@ -497,9 +497,10 @@ async function copyHeaderValue(key: string, value: string) {
                 Run this command in your terminal:
               </p>
               <div class="relative">
-                <pre
-                  class="overflow-x-auto rounded-md border bg-muted/50 p-4 pr-14 font-mono text-[13px] leading-relaxed text-foreground whitespace-pre">
-        {{ mcpConfigClaudeDisplay(configSecret) }}</pre>
+                <pre class="overflow-x-auto rounded-md border bg-muted/50
+                   p-4 pr-14 font-mono text-[13px] leading-relaxed 
+                   text-foreground 
+                   whitespace-pre">{{ mcpConfigClaudeDisplay(configSecret) }}</pre>
                 <Tooltip>
                   <TooltipTrigger as-child>
                     <Button variant="ghost" size="icon"
@@ -521,9 +522,10 @@ async function copyHeaderValue(key: string, value: string) {
                 Add to <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">.cursor/mcp.json</code>:
               </p>
               <div class="relative">
-                <pre
-                  class="overflow-x-auto rounded-md border bg-muted/50 p-4 pr-14 font-mono text-[13px] leading-relaxed text-foreground whitespace-pre">
-        {{ mcpConfigCursor(configSecret) }}</pre>
+                <pre class="overflow-x-auto rounded-md border bg-muted/50
+                   p-4 pr-14 font-mono text-[13px] leading-relaxed 
+                   text-foreground 
+                   whitespace-pre">{{ mcpConfigCursor(configSecret) }}</pre>
                 <Tooltip>
                   <TooltipTrigger as-child>
                     <Button variant="ghost" size="icon"

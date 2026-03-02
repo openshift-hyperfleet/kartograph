@@ -147,7 +147,7 @@ class TestApplyMutationsRoute:
             headers={"Content-Type": "application/jsonlines"},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         assert "errors" in response.json()["detail"]
 
 

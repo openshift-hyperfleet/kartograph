@@ -410,8 +410,8 @@ class TestCreateWorkspace:
         # Setup: User does NOT have create_child permission
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        # Call and Assert: Should raise PermissionError
-        with pytest.raises(PermissionError):
+        # Call and Assert: Should raise UnauthorizedError
+        with pytest.raises(UnauthorizedError):
             await workspace_service.create_workspace(
                 name="Engineering",
                 parent_workspace_id=root_workspace.id,

@@ -147,7 +147,11 @@ async def list_api_keys(
         )
 
 
-@router.delete("/{api_key_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{api_key_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def revoke_api_key(
     api_key_id: str,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
@@ -176,7 +180,7 @@ async def revoke_api_key(
         api_key_id_obj = APIKeyId.from_string(api_key_id)
     except ValueError:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Invalid API key ID format",
         )
 

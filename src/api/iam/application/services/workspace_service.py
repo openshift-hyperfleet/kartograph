@@ -15,6 +15,7 @@ from iam.application.observability import (
 from iam.application.value_objects import WorkspaceAccessGrant
 from iam.domain.aggregates import Workspace
 from iam.domain.value_objects import (
+    GroupId,
     MemberType,
     TenantId,
     UserId,
@@ -22,6 +23,7 @@ from iam.domain.value_objects import (
     WorkspaceRole,
 )
 from infrastructure.settings import get_iam_settings
+from iam.ports.repositories import IGroupRepository, IUserRepository
 from iam.ports.exceptions import (
     CannotDeleteRootWorkspaceError,
     DuplicateWorkspaceNameError,
@@ -52,6 +54,8 @@ class WorkspaceService:
         authz: AuthorizationProvider,
         scope_to_tenant: TenantId,
         probe: WorkspaceServiceProbe | None = None,
+        user_repository: IUserRepository | None = None,
+        group_repository: IGroupRepository | None = None,
     ):
         """Initialize WorkspaceService with dependencies.
 
@@ -61,12 +65,16 @@ class WorkspaceService:
             authz: Authorization provider for permission checks
             scope_to_tenant: Tenant ID to which this service is scoped
             probe: Optional domain probe for observability
+            user_repository: Optional user repository for member existence validation
+            group_repository: Optional group repository for member existence validation
         """
         self._session = session
         self._workspace_repository = workspace_repository
         self._authz = authz
         self._scope_to_tenant = scope_to_tenant
         self._probe = probe or DefaultWorkspaceServiceProbe()
+        self._user_repository = user_repository
+        self._group_repository = group_repository
 
     async def _check_workspace_permission(
         self,
@@ -132,7 +140,7 @@ class WorkspaceService:
         )
 
         if not has_create_child:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {creator_id.value} lacks create_child permission on parent workspace "
                 f"{parent_workspace_id.value}"
             )
@@ -216,7 +224,7 @@ class WorkspaceService:
             raise
         except ValueError:
             raise
-        except PermissionError:
+        except UnauthorizedError:
             raise
         except Exception as e:
             self._probe.workspace_creation_failed(
@@ -456,7 +464,7 @@ class WorkspaceService:
         )
 
         if not has_manage:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {user_id.value} lacks manage permission on workspace "
                 f"{workspace_id.value}"
             )
@@ -505,6 +513,35 @@ class WorkspaceService:
                 )
 
             return result
+
+    async def _validate_member_exists(
+        self,
+        member_id: str,
+        member_type: MemberType,
+    ) -> None:
+        """Validate that the member_id refers to an existing user or group.
+
+        Args:
+            member_id: The user ID or group ID to validate
+            member_type: Whether this is a USER or GROUP
+
+        Raises:
+            ValueError: If the member does not exist in the system
+        """
+        if member_type == MemberType.USER:
+            if self._user_repository is not None:
+                user = await self._user_repository.get_by_id(
+                    UserId.from_string(member_id)
+                )
+                if user is None:
+                    raise ValueError(f"User {member_id} does not exist")
+        elif member_type == MemberType.GROUP:
+            if self._group_repository is not None:
+                group = await self._group_repository.get_by_id(
+                    GroupId.from_string(member_id)
+                )
+                if group is None:
+                    raise ValueError(f"Group {member_id} does not exist")
 
     async def _get_member_workspace_role(
         self,
@@ -569,7 +606,7 @@ class WorkspaceService:
         )
 
         if not has_manage:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {acting_user_id.value} lacks manage permission on workspace "
                 f"{workspace_id.value}"
             )
@@ -583,6 +620,9 @@ class WorkspaceService:
             # Verify tenant ownership
             if workspace.tenant_id != self._scope_to_tenant:
                 raise UnauthorizedError("Workspace belongs to different tenant")
+
+            # Validate member exists in the system
+            await self._validate_member_exists(member_id, member_type)
 
             # Check if member already has a role (query SpiceDB)
             current_role = await self._get_member_workspace_role(
@@ -639,7 +679,7 @@ class WorkspaceService:
         )
 
         if not has_manage:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {acting_user_id.value} lacks manage permission on workspace "
                 f"{workspace_id.value}"
             )
@@ -700,7 +740,7 @@ class WorkspaceService:
         )
 
         if not has_manage:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {user_id.value} lacks manage permission on workspace "
                 f"{workspace_id.value}"
             )
@@ -767,7 +807,7 @@ class WorkspaceService:
         )
 
         if not has_manage:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {acting_user_id.value} lacks manage permission on workspace "
                 f"{workspace_id.value}"
             )
@@ -827,7 +867,7 @@ class WorkspaceService:
         )
 
         if not has_view:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {user_id.value} lacks view permission on workspace "
                 f"{workspace_id.value}"
             )

@@ -74,7 +74,7 @@ class TestCreateWorkspaceIdValidation:
         # but we also need from_string validation for valid-length but invalid ULID
         assert response.status_code in (
             status.HTTP_400_BAD_REQUEST,
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
         )
 
     def test_create_workspace_returns_400_for_ulid_length_but_invalid_chars(

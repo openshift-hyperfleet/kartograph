@@ -11,8 +11,8 @@ from iam.application.observability import DefaultGroupServiceProbe, GroupService
 from iam.application.value_objects import GroupAccessGrant
 from iam.domain.aggregates import Group
 from iam.domain.value_objects import GroupId, GroupRole, TenantId, UserId
-from iam.ports.exceptions import DuplicateGroupNameError
-from iam.ports.repositories import IGroupRepository
+from iam.ports.exceptions import DuplicateGroupNameError, UnauthorizedError
+from iam.ports.repositories import IGroupRepository, IUserRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
@@ -37,6 +37,7 @@ class GroupService:
         authz: AuthorizationProvider,
         scope_to_tenant: TenantId,
         probe: GroupServiceProbe | None = None,
+        user_repository: IUserRepository | None = None,
     ):
         """Initialize GroupService with dependencies.
 
@@ -46,12 +47,14 @@ class GroupService:
             authz: Authorization provider for permission checks
             scope_to_tenant: A tenant to which this service will be scoped.
             probe: Optional domain probe for observability
+            user_repository: Optional user repository for member existence validation
         """
         self._session = session
         self._group_repository = group_repository
         self._authz = authz
         self._probe = probe or DefaultGroupServiceProbe()
         self._scope_to_tenant = scope_to_tenant
+        self._user_repository = user_repository
 
     async def _check_group_permission(
         self,
@@ -212,7 +215,7 @@ class GroupService:
             True if deleted, False if not found
 
         Raises:
-            PermissionError: If user lacks manage permission on the group
+            UnauthorizedError: If user lacks manage permission on the group
         """
         # Check user has manage permission on this group (SpiceDB - no session needed)
         resource = format_resource(ResourceType.GROUP, group_id.value)
@@ -223,7 +226,7 @@ class GroupService:
             subject=subject,
         )
         if not has_permission:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {user_id.value} lacks manage permission on group {group_id.value}"
             )
 
@@ -263,6 +266,20 @@ class GroupService:
 
         return None
 
+    async def _validate_user_exists(self, user_id: UserId) -> None:
+        """Validate that the user exists in the system.
+
+        Args:
+            user_id: The user ID to validate
+
+        Raises:
+            ValueError: If the user does not exist in the system
+        """
+        if self._user_repository is not None:
+            user = await self._user_repository.get_by_id(user_id)
+            if user is None:
+                raise ValueError(f"User {user_id.value} does not exist")
+
     async def add_member(
         self,
         group_id: GroupId,
@@ -286,7 +303,7 @@ class GroupService:
             Updated Group aggregate
 
         Raises:
-            PermissionError: If acting user lacks MANAGE permission
+            UnauthorizedError: If acting user lacks MANAGE permission
             ValueError: If member already has the same role, group not found, or tenant mismatch
         """
         # Check acting user has MANAGE permission
@@ -297,7 +314,7 @@ class GroupService:
         )
 
         if not has_manage:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {acting_user_id.value} lacks manage permission on group "
                 f"{group_id.value}"
             )
@@ -311,6 +328,9 @@ class GroupService:
             # Verify tenant ownership
             if group.tenant_id.value != self._scope_to_tenant.value:
                 raise ValueError("Group belongs to different tenant")
+
+            # Validate user exists
+            await self._validate_user_exists(user_id)
 
             # Check if user already has a role (query SpiceDB)
             current_role = await self._get_user_group_role(group_id, user_id)
@@ -340,7 +360,7 @@ class GroupService:
             Updated Group aggregate
 
         Raises:
-            PermissionError: If acting user lacks MANAGE permission
+            UnauthorizedError: If acting user lacks MANAGE permission
             ValueError: If member doesn't exist, group not found, or tenant mismatch
         """
         # Check acting user has MANAGE permission
@@ -351,7 +371,7 @@ class GroupService:
         )
 
         if not has_manage:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {acting_user_id.value} lacks manage permission on group "
                 f"{group_id.value}"
             )
@@ -393,7 +413,7 @@ class GroupService:
             Updated Group aggregate
 
         Raises:
-            PermissionError: If acting user lacks MANAGE permission
+            UnauthorizedError: If acting user lacks MANAGE permission
             ValueError: If member doesn't exist, group not found, or tenant mismatch
         """
         # Check acting user has MANAGE permission
@@ -404,7 +424,7 @@ class GroupService:
         )
 
         if not has_manage:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {acting_user_id.value} lacks manage permission on group "
                 f"{group_id.value}"
             )
@@ -445,7 +465,7 @@ class GroupService:
             List of GroupAccessGrant objects
 
         Raises:
-            PermissionError: If user lacks VIEW permission
+            UnauthorizedError: If user lacks VIEW permission
         """
         # Check user has VIEW permission
         has_view = await self._check_group_permission(
@@ -455,7 +475,7 @@ class GroupService:
         )
 
         if not has_view:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {user_id.value} lacks view permission on group {group_id.value}"
             )
 
@@ -514,7 +534,7 @@ class GroupService:
             Updated Group aggregate
 
         Raises:
-            PermissionError: If user lacks MANAGE permission
+            UnauthorizedError: If user lacks MANAGE permission
             ValueError: If group not found, tenant mismatch, or name invalid
             DuplicateGroupNameError: If name already exists in tenant
         """
@@ -526,7 +546,7 @@ class GroupService:
         )
 
         if not has_manage:
-            raise PermissionError(
+            raise UnauthorizedError(
                 f"User {user_id.value} lacks manage permission on group "
                 f"{group_id.value}"
             )

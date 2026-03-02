@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, create_autospec
 from iam.application.services.group_service import GroupService
 from iam.domain.aggregates import Group, User
 from iam.domain.value_objects import GroupId, GroupRole, TenantId, UserId
-from iam.ports.exceptions import DuplicateGroupNameError
+from iam.ports.exceptions import DuplicateGroupNameError, UnauthorizedError
 from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.types import (
     RelationshipTuple,
@@ -319,13 +319,13 @@ class TestDeleteGroup:
     async def test_raises_permission_error_when_unauthorized(
         self, group_service: GroupService, mock_group_repository, mock_authz
     ):
-        """Should raise PermissionError when user lacks manage permission."""
+        """Should raise UnauthorizedError when user lacks manage permission."""
         group_id = GroupId.generate()
         user_id = UserId.generate()
 
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError) as exc_info:
+        with pytest.raises(UnauthorizedError) as exc_info:
             await group_service.delete_group(group_id, user_id)
 
         assert "lacks manage permission" in str(exc_info.value)
@@ -405,13 +405,13 @@ class TestListMembers:
         group_service: GroupService,
         mock_authz,
     ):
-        """Test that list_members raises PermissionError without VIEW permission."""
+        """Test that list_members raises UnauthorizedError without VIEW permission."""
         group_id = GroupId.generate()
         user_id = UserId.generate()
 
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError, match="lacks view permission"):
+        with pytest.raises(UnauthorizedError, match="lacks view permission"):
             await group_service.list_members(
                 group_id=group_id,
                 user_id=user_id,

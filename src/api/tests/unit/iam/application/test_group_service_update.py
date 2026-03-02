@@ -13,7 +13,7 @@ import pytest
 from iam.application.services.group_service import GroupService
 from iam.domain.aggregates import Group
 from iam.domain.value_objects import GroupId, TenantId, UserId
-from iam.ports.exceptions import DuplicateGroupNameError
+from iam.ports.exceptions import DuplicateGroupNameError, UnauthorizedError
 from iam.ports.repositories import IGroupRepository
 
 
@@ -113,13 +113,13 @@ class TestUpdateGroup:
         group_service: GroupService,
         mock_authz,
     ):
-        """Should raise PermissionError when user lacks MANAGE permission."""
+        """Should raise UnauthorizedError when user lacks MANAGE permission."""
         group_id = GroupId.generate()
         user_id = UserId.generate()
 
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError, match="lacks manage permission"):
+        with pytest.raises(UnauthorizedError, match="lacks manage permission"):
             await group_service.update_group(
                 group_id=group_id,
                 user_id=user_id,

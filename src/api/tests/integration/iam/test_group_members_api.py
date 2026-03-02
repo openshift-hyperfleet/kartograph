@@ -23,7 +23,11 @@ from shared_kernel.authorization.types import (
     format_resource,
     format_subject,
 )
-from tests.integration.iam.conftest import create_group, wait_for_permission
+from tests.integration.iam.conftest import (
+    create_group,
+    ensure_user_provisioned,
+    wait_for_permission,
+)
 
 pytestmark = [pytest.mark.integration, pytest.mark.keycloak]
 
@@ -45,6 +49,7 @@ class TestAddGroupMember:
         self,
         async_client: AsyncClient,
         tenant_auth_headers: dict,
+        bob_tenant_auth_headers: dict,
         spicedb_client: AuthorizationProvider,
         alice_user_id: str,
         bob_user_id: str,
@@ -62,6 +67,9 @@ class TestAddGroupMember:
             alice_user_id,
             name="admin_add_member_group",
         )
+
+        # Ensure bob is JIT-provisioned before adding as member
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
 
         # Add bob as member
         add_resp = await async_client.post(
@@ -130,6 +138,9 @@ class TestAddGroupMember:
             name="non_admin_add_group",
         )
 
+        # Ensure bob is JIT-provisioned before adding as member
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
+
         # Add bob as regular member (not admin)
         add_bob_resp = await async_client.post(
             f"/iam/groups/{group_id}/members",
@@ -188,6 +199,7 @@ class TestListGroupMembers:
         self,
         async_client: AsyncClient,
         tenant_auth_headers: dict,
+        bob_tenant_auth_headers: dict,
         spicedb_client: AuthorizationProvider,
         alice_user_id: str,
         bob_user_id: str,
@@ -204,6 +216,9 @@ class TestListGroupMembers:
             alice_user_id,
             name="list_members_group",
         )
+
+        # Ensure bob is JIT-provisioned before adding as member
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
 
         # Add bob as member
         add_resp = await async_client.post(
@@ -290,6 +305,7 @@ class TestUpdateGroupMemberRole:
         self,
         async_client: AsyncClient,
         tenant_auth_headers: dict,
+        bob_tenant_auth_headers: dict,
         spicedb_client: AuthorizationProvider,
         alice_user_id: str,
         bob_user_id: str,
@@ -306,6 +322,9 @@ class TestUpdateGroupMemberRole:
             alice_user_id,
             name="update_role_group",
         )
+
+        # Ensure bob is JIT-provisioned before adding as member
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
 
         # Add bob as member
         add_resp = await async_client.post(
@@ -371,6 +390,9 @@ class TestUpdateGroupMemberRole:
             name="non_admin_update_group",
         )
 
+        # Ensure bob is JIT-provisioned before adding as member
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
+
         # Add bob as member (not admin)
         add_resp = await async_client.post(
             f"/iam/groups/{group_id}/members",
@@ -409,6 +431,7 @@ class TestRemoveGroupMember:
         self,
         async_client: AsyncClient,
         tenant_auth_headers: dict,
+        bob_tenant_auth_headers: dict,
         spicedb_client: AuthorizationProvider,
         alice_user_id: str,
         bob_user_id: str,
@@ -425,6 +448,9 @@ class TestRemoveGroupMember:
             alice_user_id,
             name="remove_member_group",
         )
+
+        # Ensure bob is JIT-provisioned before adding as member
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
 
         # Add bob as member
         add_resp = await async_client.post(
@@ -487,6 +513,9 @@ class TestRemoveGroupMember:
             alice_user_id,
             name="non_admin_remove_group",
         )
+
+        # Ensure bob is JIT-provisioned before adding as member
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
 
         # Add bob as member (not admin)
         add_resp = await async_client.post(

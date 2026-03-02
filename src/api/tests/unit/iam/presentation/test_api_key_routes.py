@@ -154,7 +154,7 @@ class TestCreateAPIKeyRoute:
             json={},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_validates_name_min_length(
         self,
@@ -167,7 +167,7 @@ class TestCreateAPIKeyRoute:
             json={"name": ""},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_returns_409_on_duplicate_name(
         self,
@@ -229,7 +229,7 @@ class TestCreateAPIKeyRoute:
             json={"name": "my-api-key", "expires_in_days": 0},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_validates_expires_in_days_maximum(
         self,
@@ -242,7 +242,7 @@ class TestCreateAPIKeyRoute:
             json={"name": "my-api-key", "expires_in_days": 3651},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
 class TestListAPIKeysRoute:
@@ -377,5 +377,5 @@ class TestRevokeAPIKeyRoute:
         """Should return 422 when API key ID is not a valid ULID."""
         response = test_client.delete("/iam/api-keys/not-a-valid-ulid")
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         assert "Invalid" in response.json()["detail"]

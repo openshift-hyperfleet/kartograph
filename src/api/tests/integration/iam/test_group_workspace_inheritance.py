@@ -22,6 +22,7 @@ from shared_kernel.authorization.types import (
 )
 from tests.integration.iam.conftest import (
     create_child_workspace,
+    ensure_user_provisioned,
     wait_for_permission,
     wait_for_permission_revoked,
 )
@@ -100,6 +101,7 @@ class TestGroupWorkspaceInheritance:
         self,
         async_client: AsyncClient,
         tenant_auth_headers: dict,
+        bob_tenant_auth_headers: dict,
         spicedb_client: AuthorizationProvider,
         alice_user_id: str,
         bob_user_id: str,
@@ -119,7 +121,10 @@ class TestGroupWorkspaceInheritance:
             name="group_inherit_ws",
         )
 
-        # 2. Create group with bob as member
+        # 2. Ensure bob is JIT-provisioned before adding as group member
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
+
+        # 3. Create group with bob as member
         group_id = await _create_group_with_member(
             async_client,
             tenant_auth_headers,
@@ -129,7 +134,7 @@ class TestGroupWorkspaceInheritance:
             group_name="engineering_inherit",
         )
 
-        # 3. Add group to workspace as editor
+        # 4. Add group to workspace as editor
         add_resp = await async_client.post(
             f"/iam/workspaces/{ws_id}/members",
             headers=tenant_auth_headers,
@@ -141,7 +146,7 @@ class TestGroupWorkspaceInheritance:
         )
         assert add_resp.status_code == 201
 
-        # 4. Wait for the relationship to propagate
+        # 5. Wait for the relationship to propagate
         ws_resource = format_resource(ResourceType.WORKSPACE, ws_id)
         bob_subject = format_subject(ResourceType.USER, bob_user_id)
 
@@ -156,7 +161,7 @@ class TestGroupWorkspaceInheritance:
             "Bob should have EDIT permission on workspace via group membership"
         )
 
-        # 5. Verify bob has EDIT but not MANAGE
+        # 6. Verify bob has EDIT but not MANAGE
         has_edit = await spicedb_client.check_permission(
             ws_resource,
             Permission.EDIT,
@@ -180,6 +185,7 @@ class TestGroupWorkspaceInheritance:
         self,
         async_client: AsyncClient,
         tenant_auth_headers: dict,
+        bob_tenant_auth_headers: dict,
         spicedb_client: AuthorizationProvider,
         alice_user_id: str,
         bob_user_id: str,
@@ -198,6 +204,9 @@ class TestGroupWorkspaceInheritance:
             alice_user_id,
             name="group_admin_inherit_ws",
         )
+
+        # Ensure bob is JIT-provisioned before adding as group member
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
 
         # Create group with bob as admin
         group_id = await _create_group_with_member(
@@ -252,6 +261,7 @@ class TestGroupWorkspaceInheritance:
         self,
         async_client: AsyncClient,
         tenant_auth_headers: dict,
+        bob_tenant_auth_headers: dict,
         spicedb_client: AuthorizationProvider,
         alice_user_id: str,
         bob_user_id: str,
@@ -270,6 +280,9 @@ class TestGroupWorkspaceInheritance:
             alice_user_id,
             name="revoke_group_ws",
         )
+
+        # Ensure bob is JIT-provisioned before adding as group member
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
 
         # Create group with bob as member
         group_id = await _create_group_with_member(
@@ -331,6 +344,7 @@ class TestGroupWorkspaceInheritance:
         self,
         async_client: AsyncClient,
         tenant_auth_headers: dict,
+        bob_tenant_auth_headers: dict,
         spicedb_client: AuthorizationProvider,
         alice_user_id: str,
         bob_user_id: str,
@@ -349,6 +363,9 @@ class TestGroupWorkspaceInheritance:
             alice_user_id,
             name="revoke_user_ws",
         )
+
+        # Ensure bob is JIT-provisioned before adding as group member
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
 
         # Create group with bob as member
         group_id = await _create_group_with_member(
@@ -414,6 +431,7 @@ class TestExplicitTupleListing:
         self,
         async_client: AsyncClient,
         tenant_auth_headers: dict,
+        bob_tenant_auth_headers: dict,
         spicedb_client: AuthorizationProvider,
         alice_user_id: str,
         bob_user_id: str,
@@ -432,6 +450,9 @@ class TestExplicitTupleListing:
             alice_user_id,
             name="tuple_listing_ws",
         )
+
+        # Ensure bob is JIT-provisioned before adding as group member
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
 
         # Create group with bob as member
         group_id = await _create_group_with_member(

@@ -219,7 +219,7 @@ class TestCreateWorkspace:
         )
 
         # Pydantic validation catches empty name (min_length=1)
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_create_workspace_returns_401_when_not_authenticated(
         self,
@@ -512,7 +512,10 @@ class TestDeleteWorkspace:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "different tenant" in response.json()["detail"].lower()
+        assert (
+            response.json()["detail"]
+            == "You do not have permission to perform this action"
+        )
 
     def test_delete_workspace_returns_401_when_not_authenticated(
         self,

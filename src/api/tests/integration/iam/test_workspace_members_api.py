@@ -25,6 +25,7 @@ from shared_kernel.authorization.types import (
 )
 from tests.integration.iam.conftest import (
     create_child_workspace,
+    ensure_user_provisioned,
     wait_for_permission,
     wait_for_permission_revoked,
 )
@@ -60,6 +61,9 @@ class TestAddWorkspaceMember:
         Verifies that workspace admins can grant access to other users
         and that the SpiceDB relationship is correctly established.
         """
+        # JIT-provision bob so the member-exists validation passes
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
+
         ws_id = await create_child_workspace(
             async_client,
             tenant_auth_headers,
@@ -233,6 +237,7 @@ class TestListWorkspaceMembers:
         self,
         async_client: AsyncClient,
         tenant_auth_headers: dict,
+        bob_tenant_auth_headers: dict,
         spicedb_client: AuthorizationProvider,
         alice_user_id: str,
         bob_user_id: str,
@@ -243,6 +248,9 @@ class TestListWorkspaceMembers:
         Verifies the member list contains all explicitly granted members
         with their correct roles.
         """
+        # JIT-provision bob so the member-exists validation passes
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
+
         ws_id = await create_child_workspace(
             async_client,
             tenant_auth_headers,
@@ -432,6 +440,7 @@ class TestUpdateWorkspaceMemberRole:
         self,
         async_client: AsyncClient,
         tenant_auth_headers: dict,
+        bob_tenant_auth_headers: dict,
         spicedb_client: AuthorizationProvider,
         alice_user_id: str,
         bob_user_id: str,
@@ -442,6 +451,9 @@ class TestUpdateWorkspaceMemberRole:
         Verifies that role updates correctly modify SpiceDB relationships,
         replacing the old role with the new one.
         """
+        # JIT-provision bob so the member-exists validation passes
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
+
         ws_id = await create_child_workspace(
             async_client,
             tenant_auth_headers,
@@ -520,6 +532,9 @@ class TestUpdateWorkspaceMemberRole:
 
         Bob (tenant member, not workspace admin) tries to change his own role.
         """
+        # JIT-provision bob so the member-exists validation passes
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
+
         ws_id = await create_child_workspace(
             async_client,
             tenant_auth_headers,
@@ -570,6 +585,7 @@ class TestRemoveWorkspaceMember:
         self,
         async_client: AsyncClient,
         tenant_auth_headers: dict,
+        bob_tenant_auth_headers: dict,
         spicedb_client: AuthorizationProvider,
         alice_user_id: str,
         bob_user_id: str,
@@ -579,6 +595,9 @@ class TestRemoveWorkspaceMember:
 
         Verifies that SpiceDB relationships are correctly removed.
         """
+        # JIT-provision bob so the member-exists validation passes
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
+
         ws_id = await create_child_workspace(
             async_client,
             tenant_auth_headers,

@@ -14,6 +14,7 @@ from pytest_archon import archrule
 from iam.application.services.group_service import GroupService
 from iam.domain.aggregates import Group
 from iam.domain.value_objects import GroupId, GroupRole, TenantId, UserId
+from iam.ports.exceptions import UnauthorizedError
 from iam.ports.repositories import IGroupRepository
 from shared_kernel.authorization.types import RelationshipTuple
 
@@ -101,6 +102,14 @@ def mock_probe():
 
 
 @pytest.fixture
+def mock_user_repository():
+    """Create mock user repository."""
+    from iam.infrastructure.user_repository import UserRepository
+
+    return create_autospec(UserRepository, instance=True)
+
+
+@pytest.fixture
 def tenant_id() -> TenantId:
     return TenantId.generate()
 
@@ -111,6 +120,7 @@ def group_service(
     mock_group_repository,
     mock_authz,
     mock_probe,
+    mock_user_repository,
     tenant_id,
 ):
     """Create GroupService with mock dependencies."""
@@ -120,6 +130,7 @@ def group_service(
         authz=mock_authz,
         scope_to_tenant=tenant_id,
         probe=mock_probe,
+        user_repository=mock_user_repository,
     )
 
 
@@ -131,6 +142,7 @@ class TestAddMember:
         self,
         group_service: GroupService,
         mock_group_repository,
+        mock_user_repository,
         mock_authz,
         tenant_id,
     ):
@@ -148,6 +160,7 @@ class TestAddMember:
         mock_authz.check_permission = AsyncMock(return_value=True)
         mock_group_repository.get_by_id = AsyncMock(return_value=group)
         mock_group_repository.save = AsyncMock()
+        mock_user_repository.get_by_id = AsyncMock(return_value=MagicMock())
 
         result = await group_service.add_member(
             group_id=group_id,
@@ -165,14 +178,14 @@ class TestAddMember:
         group_service: GroupService,
         mock_authz,
     ):
-        """Should raise PermissionError when user lacks MANAGE permission."""
+        """Should raise UnauthorizedError when user lacks MANAGE permission."""
         group_id = GroupId.generate()
         acting_user_id = UserId.generate()
         new_user_id = UserId.generate()
 
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError, match="lacks manage permission"):
+        with pytest.raises(UnauthorizedError, match="lacks manage permission"):
             await group_service.add_member(
                 group_id=group_id,
                 acting_user_id=acting_user_id,
@@ -232,6 +245,38 @@ class TestAddMember:
                 role=GroupRole.MEMBER,
             )
 
+    @pytest.mark.asyncio
+    async def test_raises_value_error_when_user_does_not_exist(
+        self,
+        group_service: GroupService,
+        mock_group_repository,
+        mock_user_repository,
+        mock_authz,
+        tenant_id,
+    ):
+        """Should raise ValueError when the user being added does not exist."""
+        group_id = GroupId.generate()
+        acting_user_id = UserId.generate()
+        new_user_id = UserId.generate()
+        group = Group(
+            id=group_id,
+            tenant_id=tenant_id,
+            name="Engineering",
+            members=[],
+        )
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_group_repository.get_by_id = AsyncMock(return_value=group)
+        mock_user_repository.get_by_id = AsyncMock(return_value=None)
+
+        with pytest.raises(ValueError, match="does not exist"):
+            await group_service.add_member(
+                group_id=group_id,
+                acting_user_id=acting_user_id,
+                user_id=new_user_id,
+                role=GroupRole.MEMBER,
+            )
+
 
 class TestRemoveMember:
     """Tests for GroupService.remove_member()."""
@@ -276,14 +321,14 @@ class TestRemoveMember:
         group_service: GroupService,
         mock_authz,
     ):
-        """Should raise PermissionError when user lacks MANAGE permission."""
+        """Should raise UnauthorizedError when user lacks MANAGE permission."""
         group_id = GroupId.generate()
         acting_user_id = UserId.generate()
         member_user_id = UserId.generate()
 
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError, match="lacks manage permission"):
+        with pytest.raises(UnauthorizedError, match="lacks manage permission"):
             await group_service.remove_member(
                 group_id=group_id,
                 acting_user_id=acting_user_id,
@@ -357,14 +402,14 @@ class TestUpdateMemberRole:
         group_service: GroupService,
         mock_authz,
     ):
-        """Should raise PermissionError when user lacks MANAGE permission."""
+        """Should raise UnauthorizedError when user lacks MANAGE permission."""
         group_id = GroupId.generate()
         acting_user_id = UserId.generate()
         member_user_id = UserId.generate()
 
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError, match="lacks manage permission"):
+        with pytest.raises(UnauthorizedError, match="lacks manage permission"):
             await group_service.update_member_role(
                 group_id=group_id,
                 acting_user_id=acting_user_id,
@@ -426,13 +471,13 @@ class TestListMembers:
         group_service: GroupService,
         mock_authz,
     ):
-        """Should raise PermissionError when user lacks VIEW permission."""
+        """Should raise UnauthorizedError when user lacks VIEW permission."""
         group_id = GroupId.generate()
         user_id = UserId.generate()
 
         mock_authz.check_permission = AsyncMock(return_value=False)
 
-        with pytest.raises(PermissionError, match="lacks view permission"):
+        with pytest.raises(UnauthorizedError, match="lacks view permission"):
             await group_service.list_members(
                 group_id=group_id,
                 user_id=user_id,

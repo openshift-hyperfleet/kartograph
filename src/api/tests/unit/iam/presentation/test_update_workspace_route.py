@@ -128,7 +128,7 @@ class TestUpdateWorkspace:
             json={"name": ""},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_returns_422_for_name_too_long(
         self,
@@ -142,7 +142,7 @@ class TestUpdateWorkspace:
             json={"name": "x" * 513},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_returns_403_on_permission_error(
         self,
@@ -151,7 +151,7 @@ class TestUpdateWorkspace:
         workspace: Workspace,
     ) -> None:
         """Test PATCH returns 403 when user lacks MANAGE permission."""
-        mock_workspace_service.update_workspace.side_effect = PermissionError(
+        mock_workspace_service.update_workspace.side_effect = UnauthorizedError(
             "User lacks manage permission"
         )
 
@@ -161,7 +161,10 @@ class TestUpdateWorkspace:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "insufficient permissions" in response.json()["detail"].lower()
+        assert (
+            response.json()["detail"]
+            == "You do not have permission to perform this action"
+        )
 
     def test_returns_409_for_duplicate_name(
         self,
@@ -220,7 +223,10 @@ class TestUpdateWorkspace:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "different tenant" in response.json()["detail"].lower()
+        assert (
+            response.json()["detail"]
+            == "You do not have permission to perform this action"
+        )
 
     def test_returns_500_on_unexpected_error(
         self,

@@ -511,3 +511,26 @@ async def create_group(
     assert admin_ready, "Timed out waiting for group admin permission"
 
     return group_id
+
+
+async def ensure_user_provisioned(
+    async_client: "AsyncClient",
+    auth_headers: dict,
+) -> None:
+    """Ensure a user is JIT-provisioned in the database.
+
+    Users are only created in the local DB when they first make an API call
+    (JIT provisioning via get_current_user). This helper triggers that
+    provisioning by making a lightweight API call as the user.
+
+    This must be called before adding a user as a workspace/group member,
+    since the workspace service validates that the member exists in the DB.
+
+    Args:
+        async_client: The async HTTP client
+        auth_headers: The user's auth headers (triggers JIT provisioning)
+    """
+    resp = await async_client.get("/iam/workspaces", headers=auth_headers)
+    assert resp.status_code == 200, (
+        f"Failed to provision user via workspace listing: {resp.text}"
+    )

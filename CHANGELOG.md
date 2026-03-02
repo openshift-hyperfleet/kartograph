@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.22.2](https://github.com/openshift-hyperfleet/kartograph/compare/v3.22.1...v3.22.2) (2026-02-25)
+
+
+### Documentation
+
+* revise readme description to emphasize platform ([#251](https://github.com/openshift-hyperfleet/kartograph/issues/251)) ([6e4333d](https://github.com/openshift-hyperfleet/kartograph/commit/6e4333d96c114668a71f67a56c854156618e9fe8))
+
 ## [3.22.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.22.0...v3.22.1) (2026-02-19)
 
 

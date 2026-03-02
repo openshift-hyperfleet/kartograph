@@ -11,7 +11,7 @@ from iam.dependencies.user import get_current_user
 from iam.application.services import GroupService
 from iam.application.value_objects import CurrentUser
 from iam.domain.value_objects import GroupId, UserId
-from iam.ports.exceptions import DuplicateGroupNameError
+from iam.ports.exceptions import DuplicateGroupNameError, UnauthorizedError
 from iam.presentation.groups.models import (
     AddGroupMemberRequest,
     CreateGroupRequest,
@@ -186,10 +186,10 @@ async def update_group(
 
         return GroupResponse.from_domain(group)
 
-    except PermissionError:
+    except UnauthorizedError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions to manage group",
+            detail=str(e),
         )
     except DuplicateGroupNameError as e:
         raise HTTPException(
@@ -216,7 +216,11 @@ async def update_group(
         )
 
 
-@router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{group_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def delete_group(
     group_id: str,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
@@ -255,10 +259,10 @@ async def delete_group(
                 detail="Group not found",
             )
 
-    except PermissionError:
+    except UnauthorizedError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions",
+            detail=str(e),
         )
     except HTTPException:
         raise
@@ -321,10 +325,10 @@ async def add_group_member(
             role=request.to_domain_role(),
         )
 
-    except PermissionError:
+    except UnauthorizedError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions to manage group members",
+            detail=str(e),
         )
     except (ValueError, TypeError) as e:
         error_msg = str(e)
@@ -390,10 +394,10 @@ async def list_group_members(
             for grant in members
         ]
 
-    except PermissionError:
+    except UnauthorizedError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions to view group members",
+            detail=str(e),
         )
     except HTTPException:
         raise
@@ -457,10 +461,10 @@ async def update_group_member_role(
             role=request.to_domain_role(),
         )
 
-    except PermissionError:
+    except UnauthorizedError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions to manage group members",
+            detail=str(e),
         )
     except (ValueError, TypeError) as e:
         error_msg = str(e)
@@ -485,6 +489,7 @@ async def update_group_member_role(
 @router.delete(
     "/{group_id}/members/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     summary="Remove member from group",
     description="Remove a user from a group. Requires MANAGE permission.",
     responses={
@@ -527,10 +532,10 @@ async def remove_group_member(
             user_id=user_id_obj,
         )
 
-    except PermissionError:
+    except UnauthorizedError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions to manage group members",
+            detail=str(e),
         )
     except (ValueError, TypeError) as e:
         error_msg = str(e)

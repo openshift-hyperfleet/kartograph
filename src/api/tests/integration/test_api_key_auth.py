@@ -408,22 +408,23 @@ class TestAPIKeyAuthorizationEnforcement:
     async def test_owner_can_revoke_own_key(
         self,
         async_client: AsyncClient,
-        alice_admin_tenant_auth_headers: dict[str, str],
+        tenant_auth_headers: dict[str, str],
         process_outbox: Callable[[], Coroutine[Any, Any, None]],
     ):
         """API key owner should be able to revoke their own key.
 
-        The owner relationship (api_key#owner@user) grants revoke
-        permission directly, regardless of tenant admin status.
+        Uses tenant_auth_headers (alice as member, NOT admin) so this
+        test exercises the owner relationship path exclusively:
+        api_key#owner@user -> api_key#revoke.
         """
-        # Alice creates an API key (she is the owner)
+        # Alice creates an API key (she is the owner, not a tenant admin)
         create_response = await async_client.post(
             "/iam/api-keys",
             json={
                 "name": f"alice-own-key-{uuid.uuid4().hex[:8]}",
                 "expires_in_days": 1,
             },
-            headers=alice_admin_tenant_auth_headers,
+            headers=tenant_auth_headers,
         )
         assert create_response.status_code == 201
         key_id = create_response.json()["id"]
@@ -431,10 +432,10 @@ class TestAPIKeyAuthorizationEnforcement:
         # Process outbox to write owner + tenant relationships to SpiceDB
         await process_outbox()
 
-        # Alice revokes her own key
+        # Alice revokes her own key (as owner, not admin)
         revoke_response = await async_client.delete(
             f"/iam/api-keys/{key_id}",
-            headers=alice_admin_tenant_auth_headers,
+            headers=tenant_auth_headers,
         )
 
         assert revoke_response.status_code == 204

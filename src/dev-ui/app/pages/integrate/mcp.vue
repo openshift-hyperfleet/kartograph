@@ -88,6 +88,8 @@ const hasRealSecret = computed(() => !!newlyCreatedKey.value)
 
 const configReady = computed(() => hasTenant.value && hasRealSecret.value)
 
+const tenantDisplayName = computed(() => currentTenantName.value || 'this tenant')
+
 // ── MCP Config generators ──────────────────────────────────────────────────
 
 // Display version: multiline with \ continuations for readability
@@ -308,7 +310,7 @@ async function copyHeaderValue(key: string, value: string) {
         <Info class="size-4" />
         <AlertDescription>
           <p>API keys are bound to the tenant in which they are created. Keys created here will be scoped
-            to <span class="font-medium">{{ currentTenantName }}.</span></p>
+            to <span class="font-medium">{{ tenantDisplayName }}.</span></p>
         </AlertDescription>
       </Alert>
 

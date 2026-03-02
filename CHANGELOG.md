@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.23.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.22.2...v3.23.0) (2026-03-02)
+
+
+### Features
+
+* **api.iam:** aihcm 171 enforce mcp auth ([#254](https://github.com/openshift-hyperfleet/kartograph/issues/254)) ([1fc3a33](https://github.com/openshift-hyperfleet/kartograph/commit/1fc3a330b83a58e1cf0617b9ead9f229a54d486d))
+
 ## [3.22.2](https://github.com/openshift-hyperfleet/kartograph/compare/v3.22.1...v3.22.2) (2026-02-25)
 
 

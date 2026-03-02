@@ -338,7 +338,7 @@ class WorkspaceRepository(IWorkspaceRepository):
         """
         # Read all explicit tuples for this workspace
         tuples = await self._authz.read_relationships(
-            resource_type=ResourceType.WORKSPACE.value,
+            resource_type=ResourceType.WORKSPACE,
             resource_id=workspace_id,
         )
 
@@ -359,7 +359,7 @@ class WorkspaceRepository(IWorkspaceRepository):
 
             member_type = (
                 MemberType.GROUP
-                if subject_type_str == ResourceType.GROUP.value
+                if subject_type_str == ResourceType.GROUP
                 else MemberType.USER
             )
 

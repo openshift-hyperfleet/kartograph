@@ -318,7 +318,7 @@ class TestAPIKeyServiceCreateAuthorization:
 
         mock_authz.check_permission.assert_called_once_with(
             resource=format_resource(ResourceType.TENANT, tenant_id.value),
-            permission=Permission.VIEW.value,
+            permission=Permission.VIEW,
             subject=format_subject(ResourceType.USER, created_by_user_id.value),
         )
 
@@ -447,7 +447,7 @@ class TestAPIKeyServiceRevokeAuthorization:
 
         mock_authz.check_permission.assert_called_once_with(
             resource=format_resource(ResourceType.API_KEY, api_key_id.value),
-            permission=Permission.REVOKE.value,
+            permission=Permission.REVOKE,
             subject=format_subject(ResourceType.USER, user_id.value),
         )
 

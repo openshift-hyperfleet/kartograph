@@ -156,8 +156,8 @@ class APIKeyService:
         # Use SpiceDB to find all API keys the current user can view
         try:
             api_key_ids = await self._authz.lookup_resources(
-                resource_type=ResourceType.API_KEY.value,
-                permission=Permission.VIEW.value,
+                resource_type=ResourceType.API_KEY,
+                permission=Permission.VIEW,
                 subject=format_subject(ResourceType.USER, current_user.user_id.value),
             )
 
@@ -213,7 +213,7 @@ class APIKeyService:
                 # Check authorization via SpiceDB
                 permitted = await self._authz.check_permission(
                     resource=format_resource(ResourceType.API_KEY, api_key_id.value),
-                    permission=Permission.REVOKE.value,
+                    permission=Permission.REVOKE,
                     subject=format_subject(ResourceType.USER, user_id.value),
                 )
                 if not permitted:

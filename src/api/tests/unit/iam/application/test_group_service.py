@@ -576,6 +576,6 @@ class TestListMembers:
 
         # Single call to read_relationships
         mock_authz.read_relationships.assert_called_once_with(
-            resource_type=ResourceType.GROUP.value,
+            resource_type=ResourceType.GROUP,
             resource_id=group_id.value,
         )

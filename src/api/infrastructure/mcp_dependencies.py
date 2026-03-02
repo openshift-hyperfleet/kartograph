@@ -11,9 +11,10 @@ remains unchanged.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from iam.domain.aggregates.api_key import APIKey
     from query.ports.schema import ISchemaService
 
 
@@ -37,7 +38,10 @@ def get_schema_service_for_mcp() -> "ISchemaService":
     return cast(ISchemaService, service)
 
 
-async def validate_mcp_api_key(secret: str) -> Any:
+_mcp_auth_engine = None
+
+
+async def validate_mcp_api_key(secret: str) -> APIKey | None:
     """Validate an API key secret for MCP authentication.
 
     This is the composition function that wires IAM's APIKeyService
@@ -95,9 +99,6 @@ def _get_mcp_auth_engine():
         settings = get_database_settings()
         _mcp_auth_engine = create_write_engine(settings)
     return _mcp_auth_engine
-
-
-_mcp_auth_engine = None
 
 
 class _NoOpAuthz:

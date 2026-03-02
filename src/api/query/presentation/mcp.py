@@ -24,6 +24,9 @@ mcp = FastMCP(name=settings.app_name)
 
 _mcp_http_app = mcp.http_app(path="/mcp", stateless_http=True)
 
+#: The raw MCP Starlette app, exposed so main.py can invoke its lifespan.
+mcp_http_app_inner = _mcp_http_app
+
 query_mcp_app = MCPApiKeyAuthMiddleware(
     app=_mcp_http_app,
     validate_api_key=validate_mcp_api_key,

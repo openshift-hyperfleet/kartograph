@@ -10,6 +10,7 @@ validation callable to avoid direct imports from the IAM bounded context.
 from __future__ import annotations
 
 import json
+from collections.abc import MutableMapping
 from typing import Any, Awaitable, Callable, Protocol
 
 from shared_kernel.middleware.mcp_auth import MCPAuthContext, _mcp_auth_context_var
@@ -20,12 +21,12 @@ from shared_kernel.middleware.observability.mcp_auth_probe import (
 
 
 # ---------------------------------------------------------------------------
-# Type aliases for ASGI
+# Type aliases for ASGI (using MutableMapping to match Starlette's types)
 # ---------------------------------------------------------------------------
 
-ASGIReceive = Callable[[], Awaitable[dict[str, Any]]]
-ASGISend = Callable[[dict[str, Any]], Awaitable[None]]
-ASGIApp = Callable[[dict[str, Any], ASGIReceive, ASGISend], Awaitable[None]]
+ASGIReceive = Callable[[], Awaitable[MutableMapping[str, Any]]]
+ASGISend = Callable[[MutableMapping[str, Any]], Awaitable[None]]
+ASGIApp = Callable[[MutableMapping[str, Any], ASGIReceive, ASGISend], Awaitable[None]]
 
 
 class _ValidatedKey(Protocol):
@@ -80,7 +81,7 @@ class MCPApiKeyAuthMiddleware:
 
     async def __call__(
         self,
-        scope: dict[str, Any],
+        scope: MutableMapping[str, Any],
         receive: ASGIReceive,
         send: ASGISend,
     ) -> None:
@@ -126,7 +127,7 @@ class MCPApiKeyAuthMiddleware:
             _mcp_auth_context_var.reset(token)
 
     @staticmethod
-    def _get_header(scope: dict[str, Any], name: bytes) -> str | None:
+    def _get_header(scope: MutableMapping[str, Any], name: bytes) -> str | None:
         """Extract a header value from ASGI scope (case-insensitive)."""
         for header_name, header_value in scope.get("headers", []):
             if header_name.lower() == name:

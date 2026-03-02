@@ -7,6 +7,7 @@ and sets MCPAuthContext in a ContextVar for downstream tool functions.
 from __future__ import annotations
 
 import json
+from collections.abc import MutableMapping
 from dataclasses import dataclass
 from typing import Any
 from unittest.mock import MagicMock
@@ -36,7 +37,7 @@ class FakeAPIKey:
 # ---------------------------------------------------------------------------
 
 
-async def _dummy_app(scope: dict, receive: Any, send: Any) -> None:
+async def _dummy_app(scope: MutableMapping[str, Any], receive: Any, send: Any) -> None:
     """A minimal ASGI app that echoes MCPAuthContext if available."""
     if scope["type"] == "http":
         try:
@@ -70,7 +71,9 @@ async def _dummy_app(scope: dict, receive: Any, send: Any) -> None:
                 return
 
 
-def _make_http_scope(headers: list[tuple[bytes, bytes]] | None = None) -> dict:
+def _make_http_scope(
+    headers: list[tuple[bytes, bytes]] | None = None,
+) -> MutableMapping[str, Any]:
     """Create a minimal HTTP ASGI scope."""
     return {
         "type": "http",
@@ -80,7 +83,7 @@ def _make_http_scope(headers: list[tuple[bytes, bytes]] | None = None) -> dict:
     }
 
 
-def _make_lifespan_scope() -> dict:
+def _make_lifespan_scope() -> MutableMapping[str, Any]:
     """Create a minimal lifespan ASGI scope."""
     return {"type": "lifespan"}
 
@@ -89,9 +92,9 @@ class _ResponseCapture:
     """Captures ASGI send() calls for assertion."""
 
     def __init__(self) -> None:
-        self.messages: list[dict] = []
+        self.messages: list[MutableMapping[str, Any]] = []
 
-    async def __call__(self, message: dict) -> None:
+    async def __call__(self, message: MutableMapping[str, Any]) -> None:
         self.messages.append(message)
 
     @property
@@ -111,7 +114,7 @@ class _ResponseCapture:
         return {k.decode(): v.decode() for k, v in self.messages[0].get("headers", [])}
 
 
-async def _noop_receive() -> dict:
+async def _noop_receive() -> MutableMapping[str, Any]:
     return {"type": "http.request", "body": b""}
 
 

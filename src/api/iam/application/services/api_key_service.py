@@ -188,23 +188,43 @@ class APIKeyService:
         """Revoke an API key.
 
         Marks the key as revoked so it can no longer be used for authentication.
+        Uses SpiceDB to check the acting user has REVOKE permission on the
+        API key, enabling tenant admins to revoke any key in their tenant.
 
         Args:
             api_key_id: The ID of the key to revoke
-            user_id: The user who owns the key (for access control)
+            user_id: The acting user performing the revocation
             tenant_id: The tenant in which the revocation will occur
+
         Raises:
             APIKeyNotFoundError: If the key doesn't exist
+            UnauthorizedError: If the acting user lacks REVOKE permission
             APIKeyAlreadyRevokedError: If the key is already revoked
         """
         try:
             async with self._session.begin():
                 api_key = await self._api_key_repository.get_by_id(
-                    api_key_id, user_id, tenant_id
+                    api_key_id, user_id=None, tenant_id=tenant_id
                 )
 
                 if api_key is None:
                     raise APIKeyNotFoundError(f"API key {api_key_id.value} not found")
+
+                # Check authorization via SpiceDB
+                permitted = await self._authz.check_permission(
+                    resource=format_resource(ResourceType.API_KEY, api_key_id.value),
+                    permission=Permission.REVOKE.value,
+                    subject=format_subject(ResourceType.USER, user_id.value),
+                )
+                if not permitted:
+                    self._probe.api_key_revoke_authorization_denied(
+                        user_id=user_id.value,
+                        api_key_id=api_key_id.value,
+                    )
+                    raise UnauthorizedError(
+                        f"User {user_id.value} lacks revoke permission on "
+                        f"API key {api_key_id.value}"
+                    )
 
                 # This will raise APIKeyAlreadyRevokedError if already revoked
                 api_key.revoke()

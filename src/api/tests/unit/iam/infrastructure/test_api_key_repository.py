@@ -243,6 +243,61 @@ class TestAPIKeyRepositoryGet:
         assert result is None
         mock_probe.api_key_not_found.assert_called_once_with(api_key_id.value)
 
+    @pytest.mark.asyncio
+    async def test_get_by_id_without_user_id_returns_key_in_tenant(
+        self, repository, mock_session, mock_probe
+    ):
+        """When user_id is None, should find key by id + tenant_id only."""
+        api_key_id = APIKeyId.generate()
+        created_by_user_id = UserId.generate()
+        tenant_id = TenantId.generate()
+
+        model = APIKeyModel(
+            id=api_key_id.value,
+            created_by_user_id=created_by_user_id.value,
+            tenant_id=tenant_id.value,
+            name="Admin Lookup Key",
+            key_hash="hash456",
+            prefix="karto_cd",
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+            last_used_at=None,
+            is_revoked=False,
+        )
+        model.created_at = datetime.now(UTC)
+        model.updated_at = datetime.now(UTC)
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        result = await repository.get_by_id(
+            api_key_id, user_id=None, tenant_id=tenant_id
+        )
+
+        assert result is not None
+        assert result.id.value == api_key_id.value
+        assert result.name == "Admin Lookup Key"
+        mock_probe.api_key_retrieved.assert_called_once_with(api_key_id.value)
+
+    @pytest.mark.asyncio
+    async def test_get_by_id_without_user_id_returns_none_for_wrong_tenant(
+        self, repository, mock_session, mock_probe
+    ):
+        """When user_id is None, should still scope to tenant and return None for wrong tenant."""
+        api_key_id = APIKeyId.generate()
+        wrong_tenant_id = TenantId.generate()
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        result = await repository.get_by_id(
+            api_key_id, user_id=None, tenant_id=wrong_tenant_id
+        )
+
+        assert result is None
+        mock_probe.api_key_not_found.assert_called_once_with(api_key_id.value)
+
 
 class TestAPIKeyRepositoryDelete:
     """Tests for delete method."""

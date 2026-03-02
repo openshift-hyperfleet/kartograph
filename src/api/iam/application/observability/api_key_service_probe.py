@@ -72,6 +72,18 @@ class APIKeyServiceProbe(Protocol):
         """
         ...
 
+    def api_key_create_authorization_denied(
+        self, *, user_id: str, tenant_id: str
+    ) -> None:
+        """Record that API key creation was denied due to authorization."""
+        ...
+
+    def api_key_revoke_authorization_denied(
+        self, *, user_id: str, api_key_id: str
+    ) -> None:
+        """Record that API key revocation was denied due to authorization."""
+        ...
+
     def with_context(self, context: ObservationContext) -> APIKeyServiceProbe:
         """Create a new probe with observation context bound."""
         ...
@@ -185,5 +197,27 @@ class DefaultAPIKeyServiceProbe:
             "api_key_list_retrieval_failed",
             filter_user_id=user_id,
             reason=reason,
+            **self._get_context_kwargs(),
+        )
+
+    def api_key_create_authorization_denied(
+        self, *, user_id: str, tenant_id: str
+    ) -> None:
+        """Record that API key creation was denied due to authorization."""
+        self._logger.warning(
+            "api_key_create_authorization_denied",
+            user_id=user_id,
+            tenant_id=tenant_id,
+            **self._get_context_kwargs(),
+        )
+
+    def api_key_revoke_authorization_denied(
+        self, *, user_id: str, api_key_id: str
+    ) -> None:
+        """Record that API key revocation was denied due to authorization."""
+        self._logger.warning(
+            "api_key_revoke_authorization_denied",
+            user_id=user_id,
+            api_key_id=api_key_id,
             **self._get_context_kwargs(),
         )

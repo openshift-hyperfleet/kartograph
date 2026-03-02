@@ -1,7 +1,7 @@
 """MCP-specific cross-context dependency composition.
 
 This is the integration/composition layer for MCP resources and tools.
-It's the ONLY place allowed to wire together Graph and Query contexts.
+It's the ONLY place allowed to wire together Graph, Query, and IAM contexts.
 
 Future service decomposition: When splitting into microservices, this is
 where you'd swap GraphSchemaService for an HTTP REST client that calls
@@ -9,9 +9,12 @@ the Graph service's API endpoints. The Query context's ISchemaService port
 remains unchanged.
 """
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from iam.domain.aggregates.api_key import APIKey
     from query.ports.schema import ISchemaService
 
 
@@ -33,3 +36,136 @@ def get_schema_service_for_mcp() -> "ISchemaService":
 
     # GraphSchemaService structurally satisfies ISchemaService protocol
     return cast(ISchemaService, service)
+
+
+_mcp_auth_engine = None
+
+
+async def validate_mcp_api_key(secret: str) -> APIKey | None:
+    """Validate an API key secret for MCP authentication.
+
+    This is the composition function that wires IAM's APIKeyService
+    into the MCP auth middleware. It creates its own database session
+    per-request because it operates outside FastAPI's DI system.
+
+    Uses runtime imports to avoid static dependencies from the
+    infrastructure module on bounded contexts at the module level.
+
+    Args:
+        secret: The plaintext API key secret to validate.
+
+    Returns:
+        The APIKey aggregate if valid, None otherwise.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from iam.application.services.api_key_service import APIKeyService
+    from iam.infrastructure.api_key_repository import APIKeyRepository
+    from infrastructure.outbox.repository import OutboxRepository
+
+    # Lazily cached engine (reused across calls)
+    engine = _get_mcp_auth_engine()
+    sessionmaker = async_sessionmaker(
+        engine, expire_on_commit=False, class_=AsyncSession
+    )
+
+    async with sessionmaker() as session:
+        outbox = OutboxRepository(session=session)
+        repo = APIKeyRepository(session=session, outbox=outbox)
+        # AuthorizationProvider not needed for validate_and_get_key
+        # (it doesn't do authz checks), but APIKeyService requires it.
+        # Cast the no-op stub to satisfy mypy's structural check.
+        from shared_kernel.authorization.protocols import AuthorizationProvider
+
+        service = APIKeyService(
+            session=session,
+            api_key_repository=repo,
+            authz=cast(AuthorizationProvider, _NoOpAuthz()),
+        )
+        return await service.validate_and_get_key(secret)
+
+
+def _get_mcp_auth_engine():
+    """Get or create the cached async engine for MCP auth.
+
+    Uses a module-level cache to reuse the engine across requests,
+    similar to how get_age_connection_pool() caches the pool.
+    """
+    global _mcp_auth_engine
+    if _mcp_auth_engine is None:
+        from infrastructure.database.engines import create_write_engine
+        from infrastructure.settings import get_database_settings
+
+        settings = get_database_settings()
+        _mcp_auth_engine = create_write_engine(settings)
+    return _mcp_auth_engine
+
+
+class _NoOpAuthz:
+    """No-op authorization provider for MCP API key validation.
+
+    The validate_and_get_key() method does not perform authorization
+    checks, but APIKeyService requires an AuthorizationProvider in
+    its constructor. This stub satisfies that requirement.
+
+    Only used with cast(AuthorizationProvider, ...) -- the methods
+    below are never actually called.
+    """
+
+    async def check_permission(
+        self, resource: str, permission: str, subject: str
+    ) -> bool:
+        return False
+
+    async def bulk_check_permission(self, requests: list) -> set[str]:
+        return set()
+
+    async def write_relationship(
+        self, resource: str, relation: str, subject: str
+    ) -> None:
+        pass
+
+    async def write_relationships(self, relationships: list) -> None:
+        pass
+
+    async def delete_relationship(
+        self, resource: str, relation: str, subject: str
+    ) -> None:
+        pass
+
+    async def delete_relationships(self, relationships: list) -> None:
+        pass
+
+    async def delete_relationships_by_filter(
+        self,
+        resource_type: str,
+        resource_id: str | None = None,
+        relation: str | None = None,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+    ) -> None:
+        pass
+
+    async def lookup_resources(
+        self, resource_type: str, permission: str, subject: str
+    ) -> list[str]:
+        return []
+
+    async def lookup_subjects(
+        self,
+        resource: str,
+        relation: str,
+        subject_type: str,
+        optional_subject_relation: str | None = None,
+    ) -> list:
+        return []
+
+    async def read_relationships(
+        self,
+        resource_type: str,
+        resource_id: str | None = None,
+        relation: str | None = None,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+    ) -> list:
+        return []

@@ -36,7 +36,7 @@ from shared_kernel.outbox.observability import (
     DefaultEventSourceProbe,
     DefaultOutboxWorkerProbe,
 )
-from query.presentation.mcp import query_mcp_app
+from query.presentation.mcp import mcp_http_app_inner, query_mcp_app
 
 # Configure structlog before any loggers are created
 configure_logging()
@@ -152,7 +152,7 @@ async def kartograph_lifespan(app: FastAPI):
 
     # MCP lifespan - skip if already initialized (e.g., in tests with multiple lifespans)
     if not app.state._mcp_initialized:
-        async with query_mcp_app.lifespan(app):
+        async with mcp_http_app_inner.lifespan(app):
             app.state._mcp_initialized = True
             yield
     else:

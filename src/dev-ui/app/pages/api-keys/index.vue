@@ -55,7 +55,7 @@ import { UserIdDisplay } from '@/components/ui/user-id'
 const { createApiKey, listApiKeys, revokeApiKey } = useIamApi()
 const { currentTenantId } = useApiClient()
 const { extractErrorMessage } = useErrorHandler()
-const { hasTenant, tenantVersion } = useTenant()
+const { hasTenant, currentTenantName, tenantVersion } = useTenant()
 const transientSecret = useTransientSecret()
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -311,32 +311,23 @@ function maskedSecret(secret: string): string {
             <DialogTitle>Create API Key</DialogTitle>
             <DialogDescription>
               Generate a new API key for programmatic access to Kartograph. Use descriptive names
-              to help identify keys later.
+              to help identify keys later. This key will be scoped to
+              <span class="font-medium">"{{ currentTenantName }}"</span>.
             </DialogDescription>
           </DialogHeader>
           <form @submit.prevent="handleCreate" class="space-y-4">
             <div class="space-y-2">
               <Label for="key-name">Name <span class="text-destructive">*</span></Label>
-              <Input
-                id="key-name"
-                v-model="createForm.name"
-                placeholder="e.g. CI/CD Pipeline, MCP - Claude Code"
-                :disabled="isCreating"
-              />
+              <Input id="key-name" v-model="createForm.name" placeholder="e.g. CI/CD Pipeline, MCP - Claude Code"
+                :disabled="isCreating" />
               <p class="text-xs text-muted-foreground">
                 Choose a name that describes how or where this key is used.
               </p>
             </div>
             <div class="space-y-2">
               <Label for="key-expiry">Expires in (days)</Label>
-              <Input
-                id="key-expiry"
-                v-model.number="createForm.expires_in_days"
-                type="number"
-                :min="1"
-                :max="3650"
-                :disabled="isCreating"
-              />
+              <Input id="key-expiry" v-model.number="createForm.expires_in_days" type="number" :min="1" :max="3650"
+                :disabled="isCreating" />
               <p class="text-xs text-muted-foreground">Between 1 and 3650 days (10 years)</p>
               <p v-if="createExpiryError" class="text-sm text-destructive">{{ createExpiryError }}</p>
             </div>
@@ -365,403 +356,376 @@ function maskedSecret(secret: string): string {
 
     <template v-else>
 
-    <!-- Newly Created Key Banner -->
-    <Card v-if="newlyCreatedKey" class="border-amber-500/30 bg-amber-500/5">
-      <CardContent class="pt-6 space-y-4">
-        <!-- Warning header -->
-        <div class="flex items-start gap-3">
-          <div class="rounded-full bg-amber-500/10 p-2 shrink-0">
-            <ShieldAlert class="size-4 text-amber-600 dark:text-amber-400" />
-          </div>
-          <div class="min-w-0 flex-1">
-            <h3 class="font-semibold text-amber-700 dark:text-amber-300">
-              Save your API key secret
-            </h3>
-            <p class="text-sm text-amber-600/80 dark:text-amber-400/80 mt-0.5">
-              This is the only time the full secret will be shown. Copy it now and store it securely.
-              You will not be able to retrieve it again.
-            </p>
-          </div>
-        </div>
+      <!-- Tenant scoping notice -->
+      <Alert variant="info">
+        <Info class="size-4" />
+        <AlertDescription>
+          <p>API keys are bound to the tenant in which they are created. Keys created here will be scoped
+            to <span class="font-medium">{{ currentTenantName }}.</span></p>
+        </AlertDescription>
+      </Alert>
 
-        <!-- Key details -->
-        <div class="space-y-3 rounded-md border border-amber-500/20 bg-background p-4">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-medium">{{ newlyCreatedKey.name }}</span>
-              <Badge variant="success">active</Badge>
+      <!-- Newly Created Key Banner -->
+      <Card v-if="newlyCreatedKey" class="border-amber-500/30 bg-amber-500/5">
+        <CardContent class="pt-6 space-y-4">
+          <!-- Warning header -->
+          <div class="flex items-start gap-3">
+            <div class="rounded-full bg-amber-500/10 p-2 shrink-0">
+              <ShieldAlert class="size-4 text-amber-600 dark:text-amber-400" />
             </div>
-            <code class="text-xs text-muted-foreground font-mono">{{ newlyCreatedKey.prefix }}...</code>
+            <div class="min-w-0 flex-1">
+              <h3 class="font-semibold text-amber-700 dark:text-amber-300">
+                Save your API key secret
+              </h3>
+              <p class="text-sm text-amber-600/80 dark:text-amber-400/80 mt-0.5">
+                This is the only time the full secret will be shown. Copy it now and store it securely.
+                You will not be able to retrieve it again.
+              </p>
+            </div>
           </div>
 
-          <Separator />
-
-          <!-- Secret display -->
-          <div class="space-y-1.5">
-            <div class="flex items-center gap-2">
-              <Label class="text-xs text-muted-foreground uppercase tracking-wider">API Key Secret</Label>
+          <!-- Key details -->
+          <div class="space-y-3 rounded-md border border-amber-500/20 bg-background p-4">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-medium">{{ newlyCreatedKey.name }}</span>
+                <Badge variant="success">active</Badge>
+              </div>
+              <code class="text-xs text-muted-foreground font-mono">{{ newlyCreatedKey.prefix }}...</code>
             </div>
-            <div class="flex items-center gap-2">
-              <code
-                class="flex-1 min-w-0 rounded-md border bg-muted px-3 py-2.5 font-mono text-sm break-all select-all"
-              >
+
+            <Separator />
+
+            <!-- Secret display -->
+            <div class="space-y-1.5">
+              <div class="flex items-center gap-2">
+                <Label class="text-xs text-muted-foreground uppercase tracking-wider">API Key Secret</Label>
+              </div>
+              <div class="flex items-center gap-2">
+                <code
+                  class="flex-1 min-w-0 rounded-md border bg-muted px-3 py-2.5 font-mono text-sm break-all select-all">
                 {{ secretVisible ? newlyCreatedKey.secret : maskedSecret(newlyCreatedKey.secret) }}
               </code>
-              <div class="flex items-center gap-1 shrink-0">
-                <Tooltip>
-                  <TooltipTrigger as-child>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      class="size-9"
-                      @click="secretVisible = !secretVisible"
-                    >
-                      <component :is="secretVisible ? EyeOff : Eye" class="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{{ secretVisible ? 'Hide secret' : 'Show secret' }}</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger as-child>
-                    <Button
-                      :variant="secretCopied ? 'outline' : 'default'"
-                      size="icon"
-                      class="size-9"
-                      @click="copySecret"
-                    >
-                      <component :is="secretCopied ? Check : Copy" class="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{{ secretCopied ? 'Copied!' : 'Copy secret' }}</TooltipContent>
-                </Tooltip>
+                <div class="flex items-center gap-1 shrink-0">
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <Button variant="outline" size="icon" class="size-9" @click="secretVisible = !secretVisible">
+                        <component :is="secretVisible ? EyeOff : Eye" class="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{{ secretVisible ? 'Hide secret' : 'Show secret' }}</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <Button :variant="secretCopied ? 'outline' : 'default'" size="icon" class="size-9"
+                        @click="copySecret">
+                        <component :is="secretCopied ? Check : Copy" class="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{{ secretCopied ? 'Copied!' : 'Copy secret' }}</TooltipContent>
+                  </Tooltip>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- MCP cross-link -->
-        <div class="flex items-center justify-between gap-4 rounded-md border bg-muted/50 px-4 py-3">
-          <div class="flex items-center gap-2 min-w-0">
-            <Plug class="size-4 text-muted-foreground shrink-0" />
-            <p class="text-sm text-muted-foreground">
-              Need to configure an MCP client? Use the integration page for copy-paste configs.
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            class="shrink-0"
-            @click="navigateToMcpWithSecret"
-          >
-            MCP Integration
-          </Button>
-        </div>
-
-        <!-- Dismiss -->
-        <div class="flex justify-end">
-          <Button variant="ghost" size="sm" @click="dismissCreatedKey">
-            Dismiss
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-
-    <!-- Loading state -->
-    <div v-if="isLoading && !newlyCreatedKey" class="flex items-center justify-center py-12">
-      <Loader2 class="size-5 animate-spin text-muted-foreground" />
-      <span class="ml-2 text-sm text-muted-foreground">Loading API keys...</span>
-    </div>
-
-    <!-- Error state -->
-    <Alert v-else-if="loadError" variant="destructive">
-      <AlertTriangle class="size-4" />
-      <AlertTitle>Failed to load API keys</AlertTitle>
-      <AlertDescription class="flex items-center gap-2">
-        {{ loadError }}
-        <Button variant="outline" size="sm" class="ml-2" @click="loadKeys">
-          <RefreshCw class="mr-1.5 size-3.5" />
-          Retry
-        </Button>
-      </AlertDescription>
-    </Alert>
-
-    <!-- Key list -->
-    <template v-else>
-      <!-- Summary bar -->
-      <div
-        v-if="totalKeys > 0"
-        class="flex items-center gap-4 text-sm text-muted-foreground"
-      >
-        <span>{{ totalKeys }} total {{ totalKeys === 1 ? 'key' : 'keys' }}</span>
-        <Separator orientation="vertical" class="h-4" />
-        <div class="flex items-center gap-3">
-          <span v-if="activeKeys.length > 0" class="flex items-center gap-1.5">
-            <span class="size-2 rounded-full bg-green-500" />
-            {{ activeKeys.length }} active
-          </span>
-          <span v-if="expiredKeys.length > 0" class="flex items-center gap-1.5">
-            <span class="size-2 rounded-full bg-amber-500" />
-            {{ expiredKeys.length }} expired
-          </span>
-          <span v-if="revokedKeys.length > 0" class="flex items-center gap-1.5">
-            <span class="size-2 rounded-full bg-muted-foreground/50" />
-            {{ revokedKeys.length }} revoked
-          </span>
-        </div>
-      </div>
-
-      <!-- Active Keys -->
-      <Card v-if="activeKeys.length > 0">
-        <CardHeader class="pb-3">
-          <div class="flex items-center gap-2">
-            <span class="size-2 rounded-full bg-green-500" />
-            <CardTitle class="text-base">Active Keys</CardTitle>
-            <Badge variant="secondary" class="ml-1">{{ activeKeys.length }}</Badge>
-          </div>
-        </CardHeader>
-        <CardContent class="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Prefix</TableHead>
-                <TableHead>Created By</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Expires</TableHead>
-                <TableHead>Last Used</TableHead>
-                <TableHead class="w-[60px]" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow v-for="key in activeKeys" :key="key.id">
-                <TableCell class="font-medium">{{ key.name }}</TableCell>
-                <TableCell>
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <button
-                        class="inline-flex items-center gap-1.5 rounded bg-muted px-1.5 py-0.5 font-mono text-xs transition-colors hover:bg-muted/80"
-                        @click="copyKeyPrefix(key.prefix)"
-                      >
-                        {{ key.prefix }}...
-                        <component
-                          :is="copiedPrefix === key.prefix ? Check : Copy"
-                          class="size-3"
-                          :class="copiedPrefix === key.prefix ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'"
-                        />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>{{ copiedPrefix === key.prefix ? 'Copied!' : 'Copy prefix' }}</TooltipContent>
-                  </Tooltip>
-                </TableCell>
-                <TableCell>
-                  <UserIdDisplay :user-id="key.created_by_user_id" />
-                </TableCell>
-                <TableCell class="text-sm text-muted-foreground">
-                  {{ formatDate(key.created_at) }}
-                </TableCell>
-                <TableCell>
-                  <span
-                    class="text-sm"
-                    :class="daysUntilExpiry(key) <= 30
-                      ? 'text-amber-600 dark:text-amber-400 font-medium'
-                      : 'text-muted-foreground'"
-                  >
-                    {{ formatDate(key.expires_at) }}
-                    <span v-if="daysUntilExpiry(key) <= 30" class="text-xs ml-1">
-                      ({{ daysUntilExpiry(key) }}d)
-                    </span>
-                  </span>
-                </TableCell>
-                <TableCell class="text-sm text-muted-foreground">
-                  {{ key.last_used_at ? formatDateTime(key.last_used_at) : 'Never' }}
-                </TableCell>
-                <TableCell>
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        class="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        @click="confirmRevoke(key)"
-                      >
-                        <Trash2 class="size-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Revoke key</TooltipContent>
-                  </Tooltip>
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <!-- Expired Keys (non-revoked but past expiry) -->
-      <Card v-if="expiredKeys.length > 0">
-        <CardHeader class="pb-3">
-          <div class="flex items-center gap-2">
-            <span class="size-2 rounded-full bg-amber-500" />
-            <CardTitle class="text-base text-muted-foreground">Expired Keys</CardTitle>
-            <Badge variant="secondary" class="ml-1">{{ expiredKeys.length }}</Badge>
-          </div>
-          <CardDescription>
-            These keys have passed their expiration date and can no longer authenticate requests.
-          </CardDescription>
-        </CardHeader>
-        <CardContent class="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Prefix</TableHead>
-                <TableHead>Created By</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Expired</TableHead>
-                <TableHead>Last Used</TableHead>
-                <TableHead class="w-[60px]" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow v-for="key in expiredKeys" :key="key.id" class="opacity-70">
-                <TableCell class="font-medium">{{ key.name }}</TableCell>
-                <TableCell>
-                  <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-                    {{ key.prefix }}...
-                  </code>
-                </TableCell>
-                <TableCell>
-                  <UserIdDisplay :user-id="key.created_by_user_id" />
-                </TableCell>
-                <TableCell class="text-sm text-muted-foreground">
-                  {{ formatDate(key.created_at) }}
-                </TableCell>
-                <TableCell>
-                  <span class="text-sm text-amber-600 dark:text-amber-400">
-                    {{ formatDate(key.expires_at) }}
-                  </span>
-                </TableCell>
-                <TableCell class="text-sm text-muted-foreground">
-                  {{ key.last_used_at ? formatDateTime(key.last_used_at) : 'Never' }}
-                </TableCell>
-                <TableCell>
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        class="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        @click="confirmRevoke(key)"
-                      >
-                        <Trash2 class="size-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Revoke key</TooltipContent>
-                  </Tooltip>
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <!-- Revoked Keys -->
-      <Card v-if="revokedKeys.length > 0">
-        <CardHeader class="pb-3">
-          <div class="flex items-center gap-2">
-            <span class="size-2 rounded-full bg-muted-foreground/50" />
-            <CardTitle class="text-base text-muted-foreground">Revoked Keys</CardTitle>
-            <Badge variant="secondary" class="ml-1">{{ revokedKeys.length }}</Badge>
-          </div>
-        </CardHeader>
-        <CardContent class="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Prefix</TableHead>
-                <TableHead>Created By</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Expired</TableHead>
-                <TableHead>Last Used</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow v-for="key in revokedKeys" :key="key.id" class="opacity-50">
-                <TableCell class="font-medium line-through">{{ key.name }}</TableCell>
-                <TableCell>
-                  <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-                    {{ key.prefix }}...
-                  </code>
-                </TableCell>
-                <TableCell>
-                  <UserIdDisplay :user-id="key.created_by_user_id" />
-                </TableCell>
-                <TableCell class="text-sm text-muted-foreground">
-                  {{ formatDate(key.created_at) }}
-                </TableCell>
-                <TableCell class="text-sm text-muted-foreground">
-                  {{ formatDate(key.expires_at) }}
-                </TableCell>
-                <TableCell class="text-sm text-muted-foreground">
-                  {{ key.last_used_at ? formatDateTime(key.last_used_at) : 'Never' }}
-                </TableCell>
-                <TableCell>
-                  <Badge variant="secondary">revoked</Badge>
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <!-- Empty state -->
-      <div
-        v-if="!isLoading && apiKeys.length === 0 && !newlyCreatedKey"
-        class="py-16 text-center"
-      >
-        <div class="mx-auto rounded-full bg-muted p-4 w-fit">
-          <KeyRound class="size-8 text-muted-foreground" />
-        </div>
-        <h3 class="mt-4 text-lg font-semibold">No API keys</h3>
-        <p class="mt-1 text-sm text-muted-foreground max-w-sm mx-auto">
-          API keys authenticate programmatic access to Kartograph, including MCP clients like Claude Code and Cursor.
-        </p>
-        <div class="flex items-center justify-center gap-3 mt-6">
-          <Button @click="createDialogOpen = true">
-            <Plus class="mr-2 size-4" />
-            Create API Key
-          </Button>
-          <NuxtLink to="/integrate/mcp">
-            <Button variant="outline">
-              <Plug class="mr-2 size-4" />
+          <!-- MCP cross-link -->
+          <div class="flex items-center justify-between gap-4 rounded-md border bg-muted/50 px-4 py-3">
+            <div class="flex items-center gap-2 min-w-0">
+              <Plug class="size-4 text-muted-foreground shrink-0" />
+              <p class="text-sm text-muted-foreground">
+                Need to configure an MCP client? Use the integration page for copy-paste configs.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" class="shrink-0" @click="navigateToMcpWithSecret">
               MCP Integration
             </Button>
-          </NuxtLink>
-        </div>
+          </div>
+
+          <!-- Dismiss -->
+          <div class="flex justify-end">
+            <Button variant="ghost" size="sm" @click="dismissCreatedKey">
+              Dismiss
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <!-- Loading state -->
+      <div v-if="isLoading && !newlyCreatedKey" class="flex items-center justify-center py-12">
+        <Loader2 class="size-5 animate-spin text-muted-foreground" />
+        <span class="ml-2 text-sm text-muted-foreground">Loading API keys...</span>
       </div>
 
-      <!-- Info note about secrets -->
-      <div
-        v-if="!isLoading && apiKeys.length > 0"
-        class="flex items-start gap-2.5 rounded-md border bg-muted/30 px-4 py-3"
-      >
-        <Info class="size-4 text-muted-foreground shrink-0 mt-0.5" />
-        <div class="text-sm text-muted-foreground space-y-1">
-          <p>
-            API key secrets are only shown once at creation time.
-            If you need a new secret, create a new key and revoke the old one.
-          </p>
-          <p>
-            Setting up an MCP client?
-            <NuxtLink to="/integrate/mcp" class="text-primary hover:underline underline-offset-4">
-              Use the MCP Integration page
-            </NuxtLink>
-            for copy-paste configurations.
-          </p>
+      <!-- Error state -->
+      <Alert v-else-if="loadError" variant="destructive">
+        <AlertTriangle class="size-4" />
+        <AlertTitle>Failed to load API keys</AlertTitle>
+        <AlertDescription class="flex items-center gap-2">
+          {{ loadError }}
+          <Button variant="outline" size="sm" class="ml-2" @click="loadKeys">
+            <RefreshCw class="mr-1.5 size-3.5" />
+            Retry
+          </Button>
+        </AlertDescription>
+      </Alert>
+
+      <!-- Key list -->
+      <template v-else>
+        <!-- Summary bar -->
+        <div v-if="totalKeys > 0" class="flex items-center gap-4 text-sm text-muted-foreground">
+          <span>{{ totalKeys }} total {{ totalKeys === 1 ? 'key' : 'keys' }}</span>
+          <Separator orientation="vertical" class="h-4" />
+          <div class="flex items-center gap-3">
+            <span v-if="activeKeys.length > 0" class="flex items-center gap-1.5">
+              <span class="size-2 rounded-full bg-green-500" />
+              {{ activeKeys.length }} active
+            </span>
+            <span v-if="expiredKeys.length > 0" class="flex items-center gap-1.5">
+              <span class="size-2 rounded-full bg-amber-500" />
+              {{ expiredKeys.length }} expired
+            </span>
+            <span v-if="revokedKeys.length > 0" class="flex items-center gap-1.5">
+              <span class="size-2 rounded-full bg-muted-foreground/50" />
+              {{ revokedKeys.length }} revoked
+            </span>
+          </div>
         </div>
-      </div>
-    </template>
+
+        <!-- Active Keys -->
+        <Card v-if="activeKeys.length > 0">
+          <CardHeader class="pb-3">
+            <div class="flex items-center gap-2">
+              <span class="size-2 rounded-full bg-green-500" />
+              <CardTitle class="text-base">Active Keys</CardTitle>
+              <Badge variant="secondary" class="ml-1">{{ activeKeys.length }}</Badge>
+            </div>
+          </CardHeader>
+          <CardContent class="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Prefix</TableHead>
+                  <TableHead>Created By</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Expires</TableHead>
+                  <TableHead>Last Used</TableHead>
+                  <TableHead class="w-[60px]" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow v-for="key in activeKeys" :key="key.id">
+                  <TableCell class="font-medium">{{ key.name }}</TableCell>
+                  <TableCell>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <button
+                          class="inline-flex items-center gap-1.5 rounded bg-muted px-1.5 py-0.5 font-mono text-xs transition-colors hover:bg-muted/80"
+                          @click="copyKeyPrefix(key.prefix)">
+                          {{ key.prefix }}...
+                          <component :is="copiedPrefix === key.prefix ? Check : Copy" class="size-3"
+                            :class="copiedPrefix === key.prefix ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>{{ copiedPrefix === key.prefix ? 'Copied!' : 'Copy prefix' }}</TooltipContent>
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell>
+                    <UserIdDisplay :user-id="key.created_by_user_id" />
+                  </TableCell>
+                  <TableCell class="text-sm text-muted-foreground">
+                    {{ formatDate(key.created_at) }}
+                  </TableCell>
+                  <TableCell>
+                    <span class="text-sm" :class="daysUntilExpiry(key) <= 30
+                      ? 'text-amber-600 dark:text-amber-400 font-medium'
+                      : 'text-muted-foreground'">
+                      {{ formatDate(key.expires_at) }}
+                      <span v-if="daysUntilExpiry(key) <= 30" class="text-xs ml-1">
+                        ({{ daysUntilExpiry(key) }}d)
+                      </span>
+                    </span>
+                  </TableCell>
+                  <TableCell class="text-sm text-muted-foreground">
+                    {{ key.last_used_at ? formatDateTime(key.last_used_at) : 'Never' }}
+                  </TableCell>
+                  <TableCell>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Button variant="ghost" size="icon"
+                          class="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          @click="confirmRevoke(key)">
+                          <Trash2 class="size-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Revoke key</TooltipContent>
+                    </Tooltip>
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <!-- Expired Keys (non-revoked but past expiry) -->
+        <Card v-if="expiredKeys.length > 0">
+          <CardHeader class="pb-3">
+            <div class="flex items-center gap-2">
+              <span class="size-2 rounded-full bg-amber-500" />
+              <CardTitle class="text-base text-muted-foreground">Expired Keys</CardTitle>
+              <Badge variant="secondary" class="ml-1">{{ expiredKeys.length }}</Badge>
+            </div>
+            <CardDescription>
+              These keys have passed their expiration date and can no longer authenticate requests.
+            </CardDescription>
+          </CardHeader>
+          <CardContent class="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Prefix</TableHead>
+                  <TableHead>Created By</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Expired</TableHead>
+                  <TableHead>Last Used</TableHead>
+                  <TableHead class="w-[60px]" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow v-for="key in expiredKeys" :key="key.id" class="opacity-70">
+                  <TableCell class="font-medium">{{ key.name }}</TableCell>
+                  <TableCell>
+                    <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                    {{ key.prefix }}...
+                  </code>
+                  </TableCell>
+                  <TableCell>
+                    <UserIdDisplay :user-id="key.created_by_user_id" />
+                  </TableCell>
+                  <TableCell class="text-sm text-muted-foreground">
+                    {{ formatDate(key.created_at) }}
+                  </TableCell>
+                  <TableCell>
+                    <span class="text-sm text-amber-600 dark:text-amber-400">
+                      {{ formatDate(key.expires_at) }}
+                    </span>
+                  </TableCell>
+                  <TableCell class="text-sm text-muted-foreground">
+                    {{ key.last_used_at ? formatDateTime(key.last_used_at) : 'Never' }}
+                  </TableCell>
+                  <TableCell>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Button variant="ghost" size="icon"
+                          class="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          @click="confirmRevoke(key)">
+                          <Trash2 class="size-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Revoke key</TooltipContent>
+                    </Tooltip>
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <!-- Revoked Keys -->
+        <Card v-if="revokedKeys.length > 0">
+          <CardHeader class="pb-3">
+            <div class="flex items-center gap-2">
+              <span class="size-2 rounded-full bg-muted-foreground/50" />
+              <CardTitle class="text-base text-muted-foreground">Revoked Keys</CardTitle>
+              <Badge variant="secondary" class="ml-1">{{ revokedKeys.length }}</Badge>
+            </div>
+          </CardHeader>
+          <CardContent class="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Prefix</TableHead>
+                  <TableHead>Created By</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Expired</TableHead>
+                  <TableHead>Last Used</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow v-for="key in revokedKeys" :key="key.id" class="opacity-50">
+                  <TableCell class="font-medium line-through">{{ key.name }}</TableCell>
+                  <TableCell>
+                    <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                    {{ key.prefix }}...
+                  </code>
+                  </TableCell>
+                  <TableCell>
+                    <UserIdDisplay :user-id="key.created_by_user_id" />
+                  </TableCell>
+                  <TableCell class="text-sm text-muted-foreground">
+                    {{ formatDate(key.created_at) }}
+                  </TableCell>
+                  <TableCell class="text-sm text-muted-foreground">
+                    {{ formatDate(key.expires_at) }}
+                  </TableCell>
+                  <TableCell class="text-sm text-muted-foreground">
+                    {{ key.last_used_at ? formatDateTime(key.last_used_at) : 'Never' }}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="secondary">revoked</Badge>
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <!-- Empty state -->
+        <div v-if="!isLoading && apiKeys.length === 0 && !newlyCreatedKey" class="py-16 text-center">
+          <div class="mx-auto rounded-full bg-muted p-4 w-fit">
+            <KeyRound class="size-8 text-muted-foreground" />
+          </div>
+          <h3 class="mt-4 text-lg font-semibold">No API keys</h3>
+          <p class="mt-1 text-sm text-muted-foreground max-w-sm mx-auto">
+            API keys authenticate programmatic access to Kartograph, including MCP clients like Claude Code and Cursor.
+          </p>
+          <div class="flex items-center justify-center gap-3 mt-6">
+            <Button @click="createDialogOpen = true">
+              <Plus class="mr-2 size-4" />
+              Create API Key
+            </Button>
+            <NuxtLink to="/integrate/mcp">
+              <Button variant="outline">
+                <Plug class="mr-2 size-4" />
+                MCP Integration
+              </Button>
+            </NuxtLink>
+          </div>
+        </div>
+
+        <!-- Info note about secrets -->
+        <div v-if="!isLoading && apiKeys.length > 0"
+          class="flex items-start gap-2.5 rounded-md border bg-muted/30 px-4 py-3">
+          <Info class="size-4 text-muted-foreground shrink-0 mt-0.5" />
+          <div class="text-sm text-muted-foreground space-y-1">
+            <p>
+              API key secrets are only shown once at creation time.
+              If you need a new secret, create a new key and revoke the old one.
+            </p>
+            <p>
+              Setting up an MCP client?
+              <NuxtLink to="/integrate/mcp" class="text-primary hover:underline underline-offset-4">
+                Use the MCP Integration page
+              </NuxtLink>
+              for copy-paste configurations.
+            </p>
+          </div>
+        </div>
+      </template>
 
     </template>
 

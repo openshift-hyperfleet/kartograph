@@ -6,6 +6,7 @@ from fastmcp import FastMCP
 from fastmcp.dependencies import Depends
 from fastmcp.server.dependencies import get_http_headers
 
+from infrastructure.mcp_dependencies import validate_mcp_api_key
 from infrastructure.settings import get_settings
 from query.application.services import MCPQueryService
 from query.dependencies import (
@@ -15,12 +16,18 @@ from query.dependencies import (
 )
 from query.domain.value_objects import QueryError
 from query.ports.file_repository_models import RemoteFileRepositoryResponse
+from shared_kernel.middleware.mcp_api_key_auth import MCPApiKeyAuthMiddleware
 
 settings = get_settings()
 
 mcp = FastMCP(name=settings.app_name)
 
-query_mcp_app = mcp.http_app(path="/mcp", stateless_http=True)
+_mcp_http_app = mcp.http_app(path="/mcp", stateless_http=True)
+
+query_mcp_app = MCPApiKeyAuthMiddleware(
+    app=_mcp_http_app,
+    validate_api_key=validate_mcp_api_key,
+)
 
 # Eagerly validate prompts at startup (fail-fast if missing)
 _prompt_repository = get_prompt_repository()

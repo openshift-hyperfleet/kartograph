@@ -230,14 +230,18 @@ class TestDependencyLayerBoundaries:
 
         infrastructure.mcp_dependencies is the composition/integration layer
         for MCP resources and tools. It's explicitly allowed to wire together
-        Graph and Query contexts. This is the single point for future service
-        decomposition - when splitting into microservices, swap GraphSchemaService
-        here for an HTTP REST client.
+        Graph, Query, and IAM contexts. This is the single point for future
+        service decomposition - when splitting into microservices, swap
+        GraphSchemaService here for an HTTP REST client.
+
+        IAM imports are needed for MCP API key authentication wiring:
+        the middleware validation callable is composed here from IAM's
+        APIKeyService and repository.
         """
         (
             archrule("mcp_deps_may_compose")
             .match("infrastructure.mcp_dependencies*")
-            .may_import("graph*", "query*")
+            .may_import("graph*", "query*", "iam*")
             .check("infrastructure")
         )
 

@@ -159,6 +159,7 @@ class TestMCPApiKeyAuthMiddleware401WhenMissing:
         assert capture.status == 401
         assert capture.json == {"error": "X-API-Key header is required"}
         assert capture.headers["content-type"] == "application/json"
+        assert capture.headers["www-authenticate"] == 'ApiKey realm="kartograph"'
 
     @pytest.mark.asyncio
     async def test_calls_probe_on_missing_header(self) -> None:
@@ -196,6 +197,7 @@ class TestMCPApiKeyAuthMiddleware401WhenInvalid:
 
         assert capture.status == 401
         assert capture.json == {"error": "Invalid or expired API key"}
+        assert capture.headers["www-authenticate"] == 'ApiKey realm="kartograph"'
 
     @pytest.mark.asyncio
     async def test_calls_probe_on_invalid_key(self) -> None:
@@ -307,6 +309,53 @@ class TestMCPApiKeyAuthMiddlewareSuccess:
         assert captured_context.user_id == "user-def"
         assert captured_context.tenant_id == "tenant-ghi"
         assert captured_context.api_key_id == "key-abc"
+
+
+class TestMCPApiKeyAuthMiddlewareValidationError:
+    """Tests that backend/decode errors produce controlled responses, not 500s."""
+
+    @pytest.mark.asyncio
+    async def test_returns_503_when_validator_raises(self) -> None:
+        """Should return 503 when the validation callable raises an exception."""
+
+        async def _exploding_validate(secret: str) -> FakeAPIKey | None:
+            raise ConnectionError("database is down")
+
+        probe = MagicMock()
+        middleware = MCPApiKeyAuthMiddleware(
+            app=_dummy_app,
+            validate_api_key=_exploding_validate,
+            probe=probe,
+        )
+
+        scope = _make_http_scope(headers=[(b"x-api-key", b"karto_some_key")])
+        capture = _ResponseCapture()
+        await middleware(scope, _noop_receive, capture)
+
+        assert capture.status == 503
+        assert capture.json == {
+            "error": "Authentication service temporarily unavailable"
+        }
+        probe.mcp_auth_validation_error.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_returns_401_when_header_has_invalid_encoding(self) -> None:
+        """Should return 401 when X-API-Key header contains invalid UTF-8."""
+        probe = MagicMock()
+        middleware = MCPApiKeyAuthMiddleware(
+            app=_dummy_app,
+            validate_api_key=_make_validate_fn(return_value=None),
+            probe=probe,
+        )
+
+        # \xff is invalid UTF-8
+        scope = _make_http_scope(headers=[(b"x-api-key", b"\xff\xfe")])
+        capture = _ResponseCapture()
+        await middleware(scope, _noop_receive, capture)
+
+        assert capture.status == 401
+        assert capture.json == {"error": "Invalid API key header encoding"}
+        probe.mcp_auth_invalid_api_key.assert_called_once()
 
 
 class TestMCPApiKeyAuthMiddlewareNonHTTP:

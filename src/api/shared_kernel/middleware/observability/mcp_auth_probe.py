@@ -34,6 +34,10 @@ class MCPAuthProbe(Protocol):
         """Record that an MCP request had an invalid or expired API key."""
         ...
 
+    def mcp_auth_validation_error(self, error: str) -> None:
+        """Record that API key validation failed due to a backend error."""
+        ...
+
 
 class DefaultMCPAuthProbe:
     """Default implementation of MCPAuthProbe using structlog."""
@@ -70,4 +74,11 @@ class DefaultMCPAuthProbe:
         self._logger.warning(
             "mcp_auth_invalid_api_key",
             message="Invalid or expired API key",
+        )
+
+    def mcp_auth_validation_error(self, error: str) -> None:
+        """Record that API key validation failed due to a backend error."""
+        self._logger.error(
+            "mcp_auth_validation_error",
+            error=error,
         )

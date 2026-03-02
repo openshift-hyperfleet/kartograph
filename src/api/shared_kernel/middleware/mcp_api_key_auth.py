@@ -91,15 +91,27 @@ class MCPApiKeyAuthMiddleware:
             return
 
         # Extract X-API-Key header
-        api_key_secret = self._get_header(scope, b"x-api-key")
+        try:
+            api_key_secret = self._get_header(scope, b"x-api-key")
+        except UnicodeDecodeError:
+            self._probe.mcp_auth_invalid_api_key()
+            await self._send_json_error(send, 401, "Invalid API key header encoding")
+            return
 
         if api_key_secret is None:
             self._probe.mcp_auth_missing_api_key()
             await self._send_json_error(send, 401, "X-API-Key header is required")
             return
 
-        # Validate the API key
-        key = await self._validate_api_key(api_key_secret)
+        # Validate the API key against the backend
+        try:
+            key = await self._validate_api_key(api_key_secret)
+        except Exception as exc:
+            self._probe.mcp_auth_validation_error(error=str(exc))
+            await self._send_json_error(
+                send, 503, "Authentication service temporarily unavailable"
+            )
+            return
 
         if key is None:
             self._probe.mcp_auth_invalid_api_key()
@@ -136,16 +148,24 @@ class MCPApiKeyAuthMiddleware:
 
     @staticmethod
     async def _send_json_error(send: ASGISend, status: int, error: str) -> None:
-        """Send a JSON error response via raw ASGI send."""
+        """Send a JSON error response via raw ASGI send.
+
+        For 401 responses, includes a ``WWW-Authenticate: ApiKey`` header
+        per RFC 9110 §11.6.1 to signal that this server uses API key
+        authentication, not OAuth/Bearer.
+        """
         body = json.dumps({"error": error}).encode("utf-8")
+        headers: list[list[bytes]] = [
+            [b"content-type", b"application/json"],
+            [b"content-length", str(len(body)).encode()],
+        ]
+        if status == 401:
+            headers.append([b"www-authenticate", b'ApiKey realm="kartograph"'])
         await send(
             {
                 "type": "http.response.start",
                 "status": status,
-                "headers": [
-                    [b"content-type", b"application/json"],
-                    [b"content-length", str(len(body)).encode()],
-                ],
+                "headers": headers,
             }
         )
         await send({"type": "http.response.body", "body": body})

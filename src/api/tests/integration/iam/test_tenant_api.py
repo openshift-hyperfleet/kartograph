@@ -144,7 +144,7 @@ class TestListTenants:
 
     @pytest.mark.asyncio
     async def test_lists_all_tenants(
-        self, async_client, clean_iam_data, tenant_auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers, process_outbox
     ):
         """Should list all tenants in the system."""
         # Create multiple tenants
@@ -163,6 +163,10 @@ class TestListTenants:
             json={"name": "Stark Industries"},
             headers=tenant_auth_headers,
         )
+
+        # Ensure outbox events are processed so SpiceDB relationships
+        # exist before the list query uses lookup_resources
+        await process_outbox()
 
         # List all tenants
         response = await async_client.get("/iam/tenants", headers=tenant_auth_headers)

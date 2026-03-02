@@ -21,6 +21,7 @@ from iam.ports.exceptions import (
     APIKeyAlreadyRevokedError,
     APIKeyNotFoundError,
     DuplicateAPIKeyNameError,
+    UnauthorizedError,
 )
 
 
@@ -244,6 +245,24 @@ class TestCreateAPIKeyRoute:
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
+    def test_create_api_key_returns_403_when_unauthorized(
+        self,
+        test_client: TestClient,
+        mock_api_key_service: AsyncMock,
+    ) -> None:
+        """Should return 403 when service raises UnauthorizedError."""
+        mock_api_key_service.create_api_key.side_effect = UnauthorizedError(
+            "User lacks permission"
+        )
+
+        response = test_client.post(
+            "/iam/api-keys",
+            json={"name": "my-api-key"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "permission" in response.json()["detail"].lower()
+
 
 class TestListAPIKeysRoute:
     """Tests for GET /iam/api-keys endpoint."""
@@ -379,3 +398,19 @@ class TestRevokeAPIKeyRoute:
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         assert "Invalid" in response.json()["detail"]
+
+    def test_revoke_api_key_returns_403_when_unauthorized(
+        self,
+        test_client: TestClient,
+        mock_api_key_service: AsyncMock,
+    ) -> None:
+        """Should return 403 when service raises UnauthorizedError."""
+        api_key_id = APIKeyId.generate()
+        mock_api_key_service.revoke_api_key.side_effect = UnauthorizedError(
+            "User lacks revoke permission"
+        )
+
+        response = test_client.delete(f"/iam/api-keys/{api_key_id.value}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "permission" in response.json()["detail"].lower()

@@ -1,17 +1,35 @@
-"""Integration tests for API Key authentication.
+"""Integration tests for API Key authentication and authorization.
 
 Tests the dual authentication flow supporting both JWT Bearer tokens
-and X-API-Key header authentication.
+and X-API-Key header authentication, plus SpiceDB-backed authorization
+enforcement for API key revocation.
 """
 
+import os
 import uuid
+from collections.abc import AsyncGenerator, Callable, Coroutine
+from typing import Any
 
 import pytest
 import pytest_asyncio
 from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from iam.infrastructure.outbox import IAMEventTranslator
+from infrastructure.authorization_dependencies import get_spicedb_client
+from infrastructure.database.engines import create_write_engine
+from infrastructure.settings import DatabaseSettings
 from main import app
+from pydantic import SecretStr
+from shared_kernel.authorization.protocols import AuthorizationProvider
+from shared_kernel.authorization.types import (
+    ResourceType,
+    format_resource,
+    format_subject,
+)
+from infrastructure.outbox.worker import OutboxWorker
+from shared_kernel.outbox.observability import DefaultOutboxWorkerProbe
 
 pytestmark = [pytest.mark.integration, pytest.mark.keycloak]
 
@@ -272,3 +290,254 @@ class TestAPIKeyCanAccessProtectedEndpoints:
 
         assert response.status_code == 200
         assert "nodes" in response.json()
+
+
+# =============================================================================
+# Authorization Enforcement Fixtures
+# =============================================================================
+# These fixtures provide SpiceDB and outbox processing support needed for
+# authorization tests. They duplicate some fixtures from iam/conftest.py
+# because this test file lives at the integration/ level, not under iam/.
+
+
+@pytest.fixture
+def _authz_db_settings() -> DatabaseSettings:
+    """Database settings for authorization test fixtures."""
+    return DatabaseSettings(
+        host=os.getenv("KARTOGRAPH_DB_HOST", "localhost"),
+        port=int(os.getenv("KARTOGRAPH_DB_PORT", "5432")),
+        database=os.getenv("KARTOGRAPH_DB_DATABASE", "kartograph"),
+        username=os.getenv("KARTOGRAPH_DB_USERNAME", "kartograph"),
+        password=SecretStr(
+            os.getenv("KARTOGRAPH_DB_PASSWORD", "kartograph_dev_password")
+        ),
+        graph_name="test_graph",
+    )
+
+
+@pytest_asyncio.fixture
+async def _authz_session_factory(
+    _authz_db_settings: DatabaseSettings,
+) -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
+    """Session factory for outbox worker in authorization tests."""
+    engine = create_write_engine(_authz_db_settings)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    yield factory
+    await engine.dispose()
+
+
+@pytest.fixture
+def _spicedb_client() -> AuthorizationProvider:
+    """SpiceDB client for authorization tests."""
+    return get_spicedb_client()
+
+
+@pytest_asyncio.fixture
+async def process_outbox(
+    _authz_session_factory: async_sessionmaker[AsyncSession],
+    _spicedb_client: AuthorizationProvider,
+) -> Callable[[], Coroutine[Any, Any, None]]:
+    """Process all pending outbox entries to sync SpiceDB relationships.
+
+    Must be called after creating API keys so that owner and tenant
+    relationships are written to SpiceDB before authorization checks.
+    """
+    translator = IAMEventTranslator()
+    probe = DefaultOutboxWorkerProbe()
+
+    worker = OutboxWorker(
+        session_factory=_authz_session_factory,
+        authz=_spicedb_client,
+        translator=translator,
+        probe=probe,
+    )
+
+    async def _process() -> None:
+        await worker._process_batch()
+
+    return _process
+
+
+@pytest_asyncio.fixture
+async def alice_admin_tenant_auth_headers(
+    tenant_auth_headers: dict[str, str],
+    alice_token: str,
+    default_tenant_id: str,
+    _spicedb_client: AuthorizationProvider,
+) -> AsyncGenerator[dict[str, str], None]:
+    """Auth headers for alice with tenant admin role in SpiceDB.
+
+    The standard tenant_auth_headers grants alice 'member' on the tenant.
+    This fixture additionally grants 'admin', which is required for
+    tenant-level administrative actions like revoking other users' API keys.
+
+    The admin grant is removed during teardown to avoid leaking state
+    between tests.
+    """
+    from jose import jwt as jose_jwt
+
+    claims = jose_jwt.get_unverified_claims(alice_token)
+    user_id = claims["sub"]
+
+    tenant_resource = format_resource(ResourceType.TENANT, default_tenant_id)
+    user_subject = format_subject(ResourceType.USER, user_id)
+
+    await _spicedb_client.write_relationship(
+        resource=tenant_resource,
+        relation="admin",
+        subject=user_subject,
+    )
+
+    yield tenant_auth_headers
+
+    await _spicedb_client.delete_relationship(
+        resource=tenant_resource,
+        relation="admin",
+        subject=user_subject,
+    )
+
+
+# =============================================================================
+# Authorization Enforcement Tests
+# =============================================================================
+
+
+class TestAPIKeyAuthorizationEnforcement:
+    """Tests for SpiceDB-backed authorization on API key operations.
+
+    Validates the ReBAC model defined in schema.zed:
+        api_key#revoke = owner + tenant->administrate
+
+    Where tenant->administrate = tenant#admin.
+
+    Alice is granted tenant admin; Bob is a tenant member (not admin).
+    """
+
+    @pytest.mark.asyncio
+    async def test_owner_can_revoke_own_key(
+        self,
+        async_client: AsyncClient,
+        tenant_auth_headers: dict[str, str],
+        process_outbox: Callable[[], Coroutine[Any, Any, None]],
+    ):
+        """API key owner should be able to revoke their own key.
+
+        Uses tenant_auth_headers (alice as member, NOT admin) so this
+        test exercises the owner relationship path exclusively:
+        api_key#owner@user -> api_key#revoke.
+        """
+        # Alice creates an API key (she is the owner, not a tenant admin)
+        create_response = await async_client.post(
+            "/iam/api-keys",
+            json={
+                "name": f"alice-own-key-{uuid.uuid4().hex[:8]}",
+                "expires_in_days": 1,
+            },
+            headers=tenant_auth_headers,
+        )
+        assert create_response.status_code == 201
+        key_id = create_response.json()["id"]
+
+        # Process outbox to write owner + tenant relationships to SpiceDB
+        await process_outbox()
+
+        # Alice revokes her own key (as owner, not admin)
+        revoke_response = await async_client.delete(
+            f"/iam/api-keys/{key_id}",
+            headers=tenant_auth_headers,
+        )
+
+        assert revoke_response.status_code == 204
+
+    @pytest.mark.asyncio
+    async def test_tenant_admin_can_revoke_other_users_key(
+        self,
+        async_client: AsyncClient,
+        alice_admin_tenant_auth_headers: dict[str, str],
+        bob_tenant_auth_headers: dict[str, str],
+        process_outbox: Callable[[], Coroutine[Any, Any, None]],
+    ):
+        """Tenant admin should be able to revoke any key in their tenant.
+
+        Bob (tenant member) creates a key. Alice (tenant admin) revokes it.
+        Authorization flows: api_key#tenant@tenant -> tenant#admin@alice
+        which satisfies api_key#revoke via tenant->administrate.
+        """
+        # Bob creates an API key (bob is the owner)
+        create_response = await async_client.post(
+            "/iam/api-keys",
+            json={
+                "name": f"bob-key-{uuid.uuid4().hex[:8]}",
+                "expires_in_days": 1,
+            },
+            headers=bob_tenant_auth_headers,
+        )
+        assert create_response.status_code == 201
+        key_id = create_response.json()["id"]
+
+        # Process outbox to write bob's owner + tenant relationships to SpiceDB
+        await process_outbox()
+
+        # Alice (tenant admin) revokes bob's key
+        revoke_response = await async_client.delete(
+            f"/iam/api-keys/{key_id}",
+            headers=alice_admin_tenant_auth_headers,
+        )
+
+        assert revoke_response.status_code == 204
+
+    @pytest.mark.asyncio
+    async def test_non_admin_cannot_revoke_other_users_key(
+        self,
+        async_client: AsyncClient,
+        alice_admin_tenant_auth_headers: dict[str, str],
+        bob_tenant_auth_headers: dict[str, str],
+        process_outbox: Callable[[], Coroutine[Any, Any, None]],
+    ):
+        """Non-admin tenant member must NOT revoke another user's key.
+
+        Alice creates a key. Bob (member, not admin) attempts to revoke it.
+        Bob is neither the owner nor a tenant admin, so SpiceDB denies
+        the revoke permission and the service returns 403.
+        """
+        # Alice creates an API key (alice is the owner)
+        create_response = await async_client.post(
+            "/iam/api-keys",
+            json={
+                "name": f"alice-key-{uuid.uuid4().hex[:8]}",
+                "expires_in_days": 1,
+            },
+            headers=alice_admin_tenant_auth_headers,
+        )
+        assert create_response.status_code == 201
+        key_id = create_response.json()["id"]
+
+        # Process outbox to write owner + tenant relationships to SpiceDB
+        await process_outbox()
+
+        # Bob (member, not admin) attempts to revoke alice's key
+        revoke_response = await async_client.delete(
+            f"/iam/api-keys/{key_id}",
+            headers=bob_tenant_auth_headers,
+        )
+
+        assert revoke_response.status_code == 403
+
+    @pytest.mark.asyncio
+    @pytest.mark.skip(
+        reason=(
+            "Cannot easily test without a third non-member user. "
+            "The test infrastructure only provisions alice (admin) and bob (member). "
+            "Creating a non-member user requires Keycloak provisioning which is "
+            "outside the scope of these integration fixtures. The tenant membership "
+            "check is implicitly covered by the authentication layer — unauthenticated "
+            "requests already return 401."
+        )
+    )
+    async def test_create_api_key_requires_tenant_membership(self):
+        """A user who is not a tenant member should not be able to create API keys.
+
+        Skipped: requires a third user who is authenticated but not a member
+        of the default tenant. The current test infrastructure only supports
+        alice and bob, both of whom are tenant members.
+        """

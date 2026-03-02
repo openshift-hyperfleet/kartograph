@@ -69,7 +69,7 @@ class TestRootWorkspaceCreatorTenantRelation:
 
         # Verify creator_tenant relation exists in SpiceDB
         tuples = await spicedb_client.read_relationships(
-            resource_type=ResourceType.WORKSPACE.value,
+            resource_type=ResourceType.WORKSPACE,
             resource_id=workspace.id.value,
         )
 
@@ -118,7 +118,7 @@ class TestRootWorkspaceCreatorTenantRelation:
 
         # Verify NO creator_tenant relation on child workspace
         tuples = await spicedb_client.read_relationships(
-            resource_type=ResourceType.WORKSPACE.value,
+            resource_type=ResourceType.WORKSPACE,
             resource_id=child.id.value,
         )
 
@@ -174,7 +174,7 @@ class TestCreateChildPermission:
         root_resource = format_resource(ResourceType.WORKSPACE, root.id.value)
         has_create_child = await spicedb_client.check_permission(
             resource=root_resource,
-            permission=Permission.CREATE_CHILD.value,
+            permission=Permission.CREATE_CHILD,
             subject=member_subject,
         )
         assert has_create_child is True
@@ -233,7 +233,7 @@ class TestCreateChildPermission:
         child_resource = format_resource(ResourceType.WORKSPACE, child.id.value)
         has_create_child = await spicedb_client.check_permission(
             resource=child_resource,
-            permission=Permission.CREATE_CHILD.value,
+            permission=Permission.CREATE_CHILD,
             subject=member_subject,
         )
         assert has_create_child is False
@@ -290,7 +290,7 @@ class TestCreateChildPermission:
         # Check that workspace admin has create_child
         has_create_child = await spicedb_client.check_permission(
             resource=child_resource,
-            permission=Permission.CREATE_CHILD.value,
+            permission=Permission.CREATE_CHILD,
             subject=admin_subject,
         )
         assert has_create_child is True
@@ -343,7 +343,7 @@ class TestCreateChildPermission:
         # Check that workspace editor has create_child
         has_create_child = await spicedb_client.check_permission(
             resource=child_resource,
-            permission=Permission.CREATE_CHILD.value,
+            permission=Permission.CREATE_CHILD,
             subject=editor_subject,
         )
         assert has_create_child is True

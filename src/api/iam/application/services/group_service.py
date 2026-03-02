@@ -77,7 +77,7 @@ class GroupService:
 
         return await self._authz.check_permission(
             resource=resource,
-            permission=permission.value,
+            permission=permission,
             subject=subject,
         )
 
@@ -252,16 +252,16 @@ class GroupService:
     ) -> GroupRole | None:
         """Get user's current role in group, or None if not a member."""
         tuples = await self._authz.read_relationships(
-            resource_type=ResourceType.GROUP.value,
+            resource_type=ResourceType.GROUP,
             resource_id=group_id.value,
-            subject_type=ResourceType.USER.value,
+            subject_type=ResourceType.USER,
             subject_id=user_id.value,
         )
 
         for rel_tuple in tuples:
-            if rel_tuple.relation == RelationType.ADMIN.value:
+            if rel_tuple.relation == RelationType.ADMIN:
                 return GroupRole.ADMIN
-            elif rel_tuple.relation == RelationType.MEMBER_RELATION.value:
+            elif rel_tuple.relation == RelationType.MEMBER_RELATION:
                 return GroupRole.MEMBER
 
         return None
@@ -483,7 +483,7 @@ class GroupService:
         # Unlike LookupSubjects which expands groups and computes permissions,
         # ReadRelationships returns only the explicitly stored tuples.
         tuples = await self._authz.read_relationships(
-            resource_type=ResourceType.GROUP.value,
+            resource_type=ResourceType.GROUP,
             resource_id=group_id.value,
         )
 
@@ -499,11 +499,11 @@ class GroupService:
             user_id_str = ":".join(subject_parts[1:])
 
             # Only process user subjects with group role relations
-            if subject_type_str == ResourceType.USER.value:
+            if subject_type_str == ResourceType.USER:
                 # Map SpiceDB relation to domain role
-                if rel_tuple.relation == RelationType.ADMIN.value:
+                if rel_tuple.relation == RelationType.ADMIN:
                     role = GroupRole.ADMIN
-                elif rel_tuple.relation == RelationType.MEMBER_RELATION.value:
+                elif rel_tuple.relation == RelationType.MEMBER_RELATION:
                     role = GroupRole.MEMBER
                 else:
                     continue  # Skip non-role relations (tenant, etc.)

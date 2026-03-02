@@ -170,7 +170,7 @@ class TestWorkspaceViewPermission:
         # Verify check_permission was called with correct args
         mock_authz.check_permission.assert_called_once_with(
             resource=format_resource(ResourceType.WORKSPACE, child_workspace.id.value),
-            permission=Permission.VIEW.value,
+            permission=Permission.VIEW,
             subject=format_subject(ResourceType.USER, user_id.value),
         )
 
@@ -308,7 +308,7 @@ class TestWorkspaceViewPermission:
         # Verify VIEW permission was checked
         mock_authz.check_permission.assert_called_once_with(
             resource=format_resource(ResourceType.WORKSPACE, child_workspace.id.value),
-            permission=Permission.VIEW.value,
+            permission=Permission.VIEW,
             subject=format_subject(ResourceType.USER, user_id.value),
         )
 
@@ -363,7 +363,7 @@ class TestWorkspaceManagePermission:
         # Verify MANAGE permission was checked
         mock_authz.check_permission.assert_called_once_with(
             resource=format_resource(ResourceType.WORKSPACE, child_workspace.id.value),
-            permission=Permission.MANAGE.value,
+            permission=Permission.MANAGE,
             subject=format_subject(ResourceType.USER, user_id.value),
         )
 
@@ -413,7 +413,7 @@ class TestWorkspaceManagePermission:
         # Verify CREATE_CHILD permission was checked on parent workspace
         mock_authz.check_permission.assert_called_once_with(
             resource=format_resource(ResourceType.WORKSPACE, root_workspace.id.value),
-            permission=Permission.CREATE_CHILD.value,
+            permission=Permission.CREATE_CHILD,
             subject=format_subject(ResourceType.USER, creator_id.value),
         )
 
@@ -471,7 +471,7 @@ class TestWorkspaceManagePermission:
         # Verify MANAGE permission was checked
         mock_authz.check_permission.assert_called_once_with(
             resource=format_resource(ResourceType.WORKSPACE, child_workspace.id.value),
-            permission=Permission.MANAGE.value,
+            permission=Permission.MANAGE,
             subject=format_subject(ResourceType.USER, user_id.value),
         )
 
@@ -527,7 +527,7 @@ class TestWorkspaceManagePermission:
         # Verify MANAGE permission was checked
         mock_authz.check_permission.assert_called_once_with(
             resource=format_resource(ResourceType.WORKSPACE, child_workspace.id.value),
-            permission=Permission.MANAGE.value,
+            permission=Permission.MANAGE,
             subject=format_subject(ResourceType.USER, user_id.value),
         )
 

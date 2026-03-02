@@ -213,7 +213,7 @@ class TenantService:
         subject = format_subject(ResourceType.USER, user_id.value)
         return await self._authz.check_permission(
             resource=resource,
-            permission=permission.value,
+            permission=permission,
             subject=subject,
         )
 
@@ -240,9 +240,9 @@ class TenantService:
     ) -> TenantRole | None:
         """Get user's current role in tenant, or None if not a member."""
         tuples = await self._authz.read_relationships(
-            resource_type=ResourceType.TENANT.value,
+            resource_type=ResourceType.TENANT,
             resource_id=tenant_id.value,
-            subject_type=ResourceType.USER.value,
+            subject_type=ResourceType.USER,
             subject_id=user_id.value,
         )
 
@@ -484,9 +484,9 @@ class TenantService:
         Returns: list[tuple[user_id, user_role]]
         """
         tuples = await self._authz.read_relationships(
-            resource_type=ResourceType.TENANT.value,
+            resource_type=ResourceType.TENANT,
             resource_id=tenant_id.value,
-            subject_type=ResourceType.USER.value,
+            subject_type=ResourceType.USER,
         )
 
         members: list[tuple[str, str]] = []

@@ -329,15 +329,17 @@ class IAPIKeyRepository(Protocol):
         ...
 
     async def get_by_id(
-        self, api_key_id: APIKeyId, user_id: UserId, tenant_id: TenantId
+        self, api_key_id: APIKeyId, user_id: UserId | None, tenant_id: TenantId
     ) -> APIKey | None:
-        """Retrieve an API key by its ID with user/tenant scoping.
+        """Retrieve an API key by its ID with tenant scoping and optional user scoping.
 
-        Security note: Requires user_id and tenant_id to prevent cross-user access.
+        When user_id is provided, filters by both user and tenant (self-service flow).
+        When user_id is None, finds any key in the tenant (admin revocation flow).
 
         Args:
             api_key_id: The unique identifier of the API key
-            user_id: The user who owns the key (for access control)
+            user_id: The user who owns the key (for access control), or None for
+                     admin flows that already verified permission via SpiceDB
             tenant_id: The tenant the key belongs to (for access control)
 
         Returns:

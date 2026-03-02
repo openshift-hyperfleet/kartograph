@@ -97,7 +97,7 @@ class WorkspaceService:
 
         return await self._authz.check_permission(
             resource=resource,
-            permission=permission.value,
+            permission=permission,
             subject=subject,
         )
 
@@ -551,12 +551,10 @@ class WorkspaceService:
     ) -> WorkspaceRole | None:
         """Get a member's current role in a workspace, or None if not a member."""
         subject_type = (
-            ResourceType.GROUP.value
-            if member_type == MemberType.GROUP
-            else ResourceType.USER.value
+            ResourceType.GROUP if member_type == MemberType.GROUP else ResourceType.USER
         )
         tuples = await self._authz.read_relationships(
-            resource_type=ResourceType.WORKSPACE.value,
+            resource_type=ResourceType.WORKSPACE,
             resource_id=workspace_id.value,
             subject_type=subject_type,
             subject_id=member_id,
@@ -876,7 +874,7 @@ class WorkspaceService:
         # Unlike LookupSubjects which expands groups and computes permissions,
         # ReadRelationships returns only the explicitly stored tuples.
         tuples = await self._authz.read_relationships(
-            resource_type=ResourceType.WORKSPACE.value,
+            resource_type=ResourceType.WORKSPACE,
             resource_id=workspace_id.value,
         )
 
@@ -900,7 +898,7 @@ class WorkspaceService:
             # Determine member type
             member_type = (
                 MemberType.GROUP
-                if subject_type_str == ResourceType.GROUP.value
+                if subject_type_str == ResourceType.GROUP
                 else MemberType.USER
             )
 

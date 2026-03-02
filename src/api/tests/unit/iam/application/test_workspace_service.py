@@ -421,7 +421,7 @@ class TestCreateWorkspace:
         # Verify check_permission was called with CREATE_CHILD
         mock_authz.check_permission.assert_called_once()
         call_kwargs = mock_authz.check_permission.call_args
-        assert call_kwargs.kwargs["permission"] == Permission.CREATE_CHILD.value
+        assert call_kwargs.kwargs["permission"] == Permission.CREATE_CHILD
 
     @pytest.mark.asyncio
     async def test_create_workspace_succeeds_with_create_child_permission(
@@ -454,7 +454,7 @@ class TestCreateWorkspace:
         # Verify check_permission was called with CREATE_CHILD
         mock_authz.check_permission.assert_called_once()
         call_kwargs = mock_authz.check_permission.call_args
-        assert call_kwargs.kwargs["permission"] == Permission.CREATE_CHILD.value
+        assert call_kwargs.kwargs["permission"] == Permission.CREATE_CHILD
 
 
 class TestCreateRootWorkspace:

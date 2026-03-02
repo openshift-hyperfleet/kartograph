@@ -26,6 +26,8 @@ class TestAPIKeyServiceProbeProtocol:
         assert hasattr(probe, "api_key_revoked")
         assert hasattr(probe, "api_key_revocation_failed")
         assert hasattr(probe, "api_key_list_retrieved")
+        assert hasattr(probe, "api_key_create_authorization_denied")
+        assert hasattr(probe, "api_key_revoke_authorization_denied")
         assert hasattr(probe, "with_context")
 
 
@@ -190,6 +192,54 @@ class TestAPIKeyListRetrievedLogging:
         assert call_args[0][0] == "api_key_list_retrieved"
         assert call_args[1]["filter_user_id"] == "user-456"
         assert call_args[1]["count"] == 5
+
+
+class TestAPIKeyCreateAuthorizationDeniedLogging:
+    """Tests for api_key_create_authorization_denied method."""
+
+    def test_api_key_create_authorization_denied_logs(self):
+        """Should log api_key_create_authorization_denied at warning level."""
+        from iam.application.observability.api_key_service_probe import (
+            DefaultAPIKeyServiceProbe,
+        )
+
+        mock_logger = MagicMock()
+        probe = DefaultAPIKeyServiceProbe(logger=mock_logger)
+
+        probe.api_key_create_authorization_denied(
+            user_id="user-456",
+            tenant_id="tenant-123",
+        )
+
+        mock_logger.warning.assert_called_once()
+        call_args = mock_logger.warning.call_args
+        assert call_args[0][0] == "api_key_create_authorization_denied"
+        assert call_args[1]["user_id"] == "user-456"
+        assert call_args[1]["tenant_id"] == "tenant-123"
+
+
+class TestAPIKeyRevokeAuthorizationDeniedLogging:
+    """Tests for api_key_revoke_authorization_denied method."""
+
+    def test_api_key_revoke_authorization_denied_logs(self):
+        """Should log api_key_revoke_authorization_denied at warning level."""
+        from iam.application.observability.api_key_service_probe import (
+            DefaultAPIKeyServiceProbe,
+        )
+
+        mock_logger = MagicMock()
+        probe = DefaultAPIKeyServiceProbe(logger=mock_logger)
+
+        probe.api_key_revoke_authorization_denied(
+            user_id="user-456",
+            api_key_id="key-123",
+        )
+
+        mock_logger.warning.assert_called_once()
+        call_args = mock_logger.warning.call_args
+        assert call_args[0][0] == "api_key_revoke_authorization_denied"
+        assert call_args[1]["user_id"] == "user-456"
+        assert call_args[1]["api_key_id"] == "key-123"
 
 
 class TestWithContext:

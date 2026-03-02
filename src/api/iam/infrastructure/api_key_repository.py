@@ -135,25 +135,30 @@ class APIKeyRepository(IAPIKeyRepository):
         self._probe.api_key_saved(api_key.id.value, api_key.created_by_user_id.value)
 
     async def get_by_id(
-        self, api_key_id: APIKeyId, user_id: UserId, tenant_id: TenantId
+        self, api_key_id: APIKeyId, user_id: UserId | None, tenant_id: TenantId
     ) -> APIKey | None:
-        """Retrieve an API key by ID with user/tenant scoping.
+        """Retrieve an API key by ID with tenant scoping and optional user scoping.
+
+        When user_id is provided, filters by both user and tenant (self-service flow).
+        When user_id is None, finds any key in the tenant (admin revocation flow).
 
         Args:
             api_key_id: The unique identifier of the API key
-            user_id: The user who created the key (for access control)
+            user_id: The user who created the key (for access control), or None for
+                     admin flows that already verified permission via SpiceDB
             tenant_id: The tenant the key belongs to (for access control)
 
         Returns:
             The APIKey aggregate, or None if not found or access denied
         """
-        stmt = select(APIKeyModel).where(
-            and_(
-                APIKeyModel.id == api_key_id.value,
-                APIKeyModel.created_by_user_id == user_id.value,
-                APIKeyModel.tenant_id == tenant_id.value,
-            )
-        )
+        conditions: list[ColumnElement[bool] | BinaryExpression[bool]] = [
+            APIKeyModel.id == api_key_id.value,
+            APIKeyModel.tenant_id == tenant_id.value,
+        ]
+        if user_id is not None:
+            conditions.append(APIKeyModel.created_by_user_id == user_id.value)
+
+        stmt = select(APIKeyModel).where(and_(*conditions))
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
 

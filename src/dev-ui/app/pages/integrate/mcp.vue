@@ -42,7 +42,6 @@ import {
 import type { APIKeyResponse, APIKeyCreatedResponse } from '~/types'
 
 const { createApiKey, listApiKeys } = useIamApi()
-const { currentTenantId } = useApiClient()
 const { extractErrorMessage } = useErrorHandler()
 const { hasTenant, tenantVersion } = useTenant()
 const transientSecret = useTransientSecret()
@@ -74,7 +73,6 @@ const copiedHeader = ref<string | null>(null)
 
 const apiBaseUrl = computed(() => config.public.apiBaseUrl as string)
 const mcpEndpointUrl = computed(() => config.public.mcpEndpointUrl as string)
-const tenantId = computed(() => currentTenantId.value ?? '<your-tenant-id>')
 
 const activeKeys = computed(() => apiKeys.value.filter((k) => !k.is_revoked))
 
@@ -98,14 +96,13 @@ function mcpConfigClaudeDisplay(secret: string): string {
     'claude mcp add kartograph-mcp \\',
     '  --transport http \\',
     `  ${mcpEndpointUrl.value} \\`,
-    `  -H "X-API-Key: ${secret}" \\`,
-    `  -H "X-Tenant-ID: ${tenantId.value}"`,
+    `  -H "X-API-Key: ${secret}"`,
   ].join('\n')
 }
 
 // Copy version: single line for clipboard
 function mcpConfigClaudeCopy(secret: string): string {
-  return `claude mcp add kartograph-mcp --transport http ${mcpEndpointUrl.value} -H "X-API-Key: ${secret}" -H "X-Tenant-ID: ${tenantId.value}"`
+  return `claude mcp add kartograph-mcp --transport http ${mcpEndpointUrl.value} -H "X-API-Key: ${secret}"`
 }
 
 function mcpConfigCursor(secret: string): string {
@@ -116,7 +113,6 @@ function mcpConfigCursor(secret: string): string {
           url: mcpEndpointUrl.value,
           headers: {
             'X-API-Key': secret,
-            'X-Tenant-ID': tenantId.value,
           },
         },
       },
@@ -135,7 +131,6 @@ function mcpConfigDesktop(secret: string): string {
           args: ['-y', 'mcp-remote', mcpEndpointUrl.value],
           env: {
             X_API_KEY: secret,
-            X_TENANT_ID: tenantId.value,
           },
         },
       },
@@ -150,13 +145,12 @@ function mcpConfigCurlDisplay(secret: string): string {
   return [
     `curl -X GET ${apiBaseUrl.value}/iam/tenants \\`,
     `  -H "X-API-Key: ${secret}" \\`,
-    `  -H "X-Tenant-ID: ${tenantId.value}"`,
   ].join('\n')
 }
 
 // Copy version: single line for clipboard
 function mcpConfigCurlCopy(secret: string): string {
-  return `curl -X GET ${apiBaseUrl.value}/iam/tenants -H "X-API-Key: ${secret}" -H "X-Tenant-ID: ${tenantId.value}"`
+  return `curl -X GET ${apiBaseUrl.value}/iam/tenants -H "X-API-Key: ${secret}"`
 }
 
 // ── Data fetching ──────────────────────────────────────────────────────────
@@ -314,21 +308,19 @@ async function copyHeaderValue(key: string, value: string) {
         <CircleCheck class="size-4 text-green-600 dark:text-green-400" />
         <AlertDescription class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div class="min-w-0">
-            <span class="font-medium text-green-700 dark:text-green-300">API key "{{ newlyCreatedKey.name }}" created.</span>
+            <span class="font-medium text-green-700 dark:text-green-300">API key "{{ newlyCreatedKey.name }}"
+              created.</span>
             <span class="text-muted-foreground"> Copy your config now — the secret won't be shown again.</span>
           </div>
           <div class="flex items-center gap-2 shrink-0">
-            <code class="rounded bg-muted px-2 py-1 font-mono text-xs truncate max-w-[180px]" :title="newlyCreatedKey.secret">
+            <code class="rounded bg-muted px-2 py-1 font-mono text-xs truncate max-w-[180px]"
+              :title="newlyCreatedKey.secret">
               {{ newlyCreatedKey.secret }}
             </code>
             <Tooltip>
               <TooltipTrigger as-child>
-                <Button
-                  :variant="secretCopied ? 'outline' : 'default'"
-                  size="sm"
-                  class="shrink-0 gap-1.5"
-                  @click="copySecret"
-                >
+                <Button :variant="secretCopied ? 'outline' : 'default'" size="sm" class="shrink-0 gap-1.5"
+                  @click="copySecret">
                   <component :is="secretCopied ? Check : Copy" class="size-3.5" />
                   {{ secretCopied ? 'Copied' : 'Copy Key' }}
                 </Button>
@@ -375,7 +367,8 @@ async function copyHeaderValue(key: string, value: string) {
               <div class="flex items-center gap-2 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
                 <CircleCheck class="size-3.5 text-green-600 dark:text-green-400 shrink-0" />
                 <span class="text-sm text-green-700 dark:text-green-300">
-                  Using key "<span class="font-medium">{{ newlyCreatedKey.name }}</span>" — configs below contain the real secret.
+                  Using key "<span class="font-medium">{{ newlyCreatedKey.name }}</span>" — configs below contain the
+                  real secret.
                 </span>
               </div>
             </template>
@@ -404,23 +397,13 @@ async function copyHeaderValue(key: string, value: string) {
                     <form class="space-y-4" @submit.prevent="handleCreateKey">
                       <div class="space-y-2">
                         <Label for="mcp-key-name">Name <span class="text-destructive">*</span></Label>
-                        <Input
-                          id="mcp-key-name"
-                          v-model="createForm.name"
-                          placeholder="e.g. MCP - Claude Code"
-                          :disabled="isCreating"
-                        />
+                        <Input id="mcp-key-name" v-model="createForm.name" placeholder="e.g. MCP - Claude Code"
+                          :disabled="isCreating" />
                       </div>
                       <div class="space-y-2">
                         <Label for="mcp-key-expiry">Expires in (days)</Label>
-                        <Input
-                          id="mcp-key-expiry"
-                          v-model.number="createForm.expires_in_days"
-                          type="number"
-                          :min="1"
-                          :max="3650"
-                          :disabled="isCreating"
-                        />
+                        <Input id="mcp-key-expiry" v-model.number="createForm.expires_in_days" type="number" :min="1"
+                          :max="3650" :disabled="isCreating" />
                         <p class="text-xs text-muted-foreground">Between 1 and 3650 days</p>
                         <p v-if="createExpiryError" class="text-sm text-destructive">{{ createExpiryError }}</p>
                       </div>
@@ -462,23 +445,13 @@ async function copyHeaderValue(key: string, value: string) {
                     <form class="space-y-4" @submit.prevent="handleCreateKey">
                       <div class="space-y-2">
                         <Label for="mcp-key-name-empty">Name <span class="text-destructive">*</span></Label>
-                        <Input
-                          id="mcp-key-name-empty"
-                          v-model="createForm.name"
-                          placeholder="e.g. MCP - Claude Code"
-                          :disabled="isCreating"
-                        />
+                        <Input id="mcp-key-name-empty" v-model="createForm.name" placeholder="e.g. MCP - Claude Code"
+                          :disabled="isCreating" />
                       </div>
                       <div class="space-y-2">
                         <Label for="mcp-key-expiry-empty">Expires in (days)</Label>
-                        <Input
-                          id="mcp-key-expiry-empty"
-                          v-model.number="createForm.expires_in_days"
-                          type="number"
-                          :min="1"
-                          :max="3650"
-                          :disabled="isCreating"
-                        />
+                        <Input id="mcp-key-expiry-empty" v-model.number="createForm.expires_in_days" type="number"
+                          :min="1" :max="3650" :disabled="isCreating" />
                         <p class="text-xs text-muted-foreground">Between 1 and 3650 days</p>
                         <p v-if="createExpiryError" class="text-sm text-destructive">{{ createExpiryError }}</p>
                       </div>
@@ -515,20 +488,20 @@ async function copyHeaderValue(key: string, value: string) {
                 Run this command in your terminal:
               </p>
               <div class="relative">
-                <pre class="overflow-x-auto rounded-md border bg-muted/50 p-4 pr-14 font-mono text-[13px] leading-relaxed text-foreground whitespace-pre">{{ mcpConfigClaudeDisplay(configSecret) }}</pre>
+                <pre
+                  class="overflow-x-auto rounded-md border bg-muted/50 p-4 pr-14 font-mono text-[13px] leading-relaxed text-foreground whitespace-pre">
+        {{ mcpConfigClaudeDisplay(configSecret) }}</pre>
                 <Tooltip>
                   <TooltipTrigger as-child>
-                    <Button
-                      variant="ghost"
-                      size="icon"
+                    <Button variant="ghost" size="icon"
                       class="absolute right-2 top-2 size-8 text-muted-foreground hover:text-foreground"
                       :class="copiedConfigTab === 'Claude Code' ? 'text-green-600 dark:text-green-400' : ''"
-                      @click="copyConfig('Claude Code', mcpConfigClaudeCopy(configSecret))"
-                    >
+                      @click="copyConfig('Claude Code', mcpConfigClaudeCopy(configSecret))">
                       <component :is="copiedConfigTab === 'Claude Code' ? Check : Copy" class="size-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>{{ copiedConfigTab === 'Claude Code' ? 'Copied!' : 'Copy as single-line command' }}</TooltipContent>
+                  <TooltipContent>{{ copiedConfigTab === 'Claude Code' ? 'Copied!' : 'Copy as single-line command' }}
+                  </TooltipContent>
                 </Tooltip>
               </div>
             </TabsContent>
@@ -539,16 +512,15 @@ async function copyHeaderValue(key: string, value: string) {
                 Add to <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">.cursor/mcp.json</code>:
               </p>
               <div class="relative">
-                <pre class="overflow-x-auto rounded-md border bg-muted/50 p-4 pr-14 font-mono text-[13px] leading-relaxed text-foreground whitespace-pre">{{ mcpConfigCursor(configSecret) }}</pre>
+                <pre
+                  class="overflow-x-auto rounded-md border bg-muted/50 p-4 pr-14 font-mono text-[13px] leading-relaxed text-foreground whitespace-pre">
+        {{ mcpConfigCursor(configSecret) }}</pre>
                 <Tooltip>
                   <TooltipTrigger as-child>
-                    <Button
-                      variant="ghost"
-                      size="icon"
+                    <Button variant="ghost" size="icon"
                       class="absolute right-2 top-2 size-8 text-muted-foreground hover:text-foreground"
                       :class="copiedConfigTab === 'Cursor' ? 'text-green-600 dark:text-green-400' : ''"
-                      @click="copyConfig('Cursor', mcpConfigCursor(configSecret))"
-                    >
+                      @click="copyConfig('Cursor', mcpConfigCursor(configSecret))">
                       <component :is="copiedConfigTab === 'Cursor' ? Check : Copy" class="size-4" />
                     </Button>
                   </TooltipTrigger>
@@ -563,20 +535,21 @@ async function copyHeaderValue(key: string, value: string) {
                 Add to <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">claude_desktop_config.json</code>:
               </p>
               <div class="relative">
-                <pre class="overflow-x-auto rounded-md border bg-muted/50 p-4 pr-14 font-mono text-[13px] leading-relaxed text-foreground whitespace-pre">{{ mcpConfigDesktop(configSecret) }}</pre>
+                <pre class="overflow-x-auto rounded-md border 
+                  bg-muted/50 p-4 pr-14 font-mono text-[13px]
+                   leading-relaxed text-foreground 
+                   whitespace-pre">{{ mcpConfigDesktop(configSecret) }}</pre>
                 <Tooltip>
                   <TooltipTrigger as-child>
-                    <Button
-                      variant="ghost"
-                      size="icon"
+                    <Button variant="ghost" size="icon"
                       class="absolute right-2 top-2 size-8 text-muted-foreground hover:text-foreground"
                       :class="copiedConfigTab === 'Claude Desktop' ? 'text-green-600 dark:text-green-400' : ''"
-                      @click="copyConfig('Claude Desktop', mcpConfigDesktop(configSecret))"
-                    >
+                      @click="copyConfig('Claude Desktop', mcpConfigDesktop(configSecret))">
                       <component :is="copiedConfigTab === 'Claude Desktop' ? Check : Copy" class="size-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>{{ copiedConfigTab === 'Claude Desktop' ? 'Copied!' : 'Copy config' }}</TooltipContent>
+                  <TooltipContent>{{ copiedConfigTab === 'Claude Desktop' ? 'Copied!' : 'Copy config' }}
+                  </TooltipContent>
                 </Tooltip>
               </div>
             </TabsContent>
@@ -587,20 +560,21 @@ async function copyHeaderValue(key: string, value: string) {
                 Test your connection with a cURL request:
               </p>
               <div class="relative">
-                <pre class="overflow-x-auto rounded-md border bg-muted/50 p-4 pr-14 font-mono text-[13px] leading-relaxed text-foreground whitespace-pre">{{ mcpConfigCurlDisplay(configSecret) }}</pre>
+                <pre class="overflow-x-auto rounded-md 
+                  border bg-muted/50 p-4 pr-14 font-mono 
+                  text-[13px] leading-relaxed text-foreground 
+                  whitespace-pre">{{ mcpConfigCurlDisplay(configSecret) }}</pre>
                 <Tooltip>
                   <TooltipTrigger as-child>
-                    <Button
-                      variant="ghost"
-                      size="icon"
+                    <Button variant="ghost" size="icon"
                       class="absolute right-2 top-2 size-8 text-muted-foreground hover:text-foreground"
                       :class="copiedConfigTab === 'cURL' ? 'text-green-600 dark:text-green-400' : ''"
-                      @click="copyConfig('cURL', mcpConfigCurlCopy(configSecret))"
-                    >
+                      @click="copyConfig('cURL', mcpConfigCurlCopy(configSecret))">
                       <component :is="copiedConfigTab === 'cURL' ? Check : Copy" class="size-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>{{ copiedConfigTab === 'cURL' ? 'Copied!' : 'Copy as single-line command' }}</TooltipContent>
+                  <TooltipContent>{{ copiedConfigTab === 'cURL' ? 'Copied!' : 'Copy as single-line command' }}
+                  </TooltipContent>
                 </Tooltip>
               </div>
             </TabsContent>
@@ -616,42 +590,30 @@ async function copyHeaderValue(key: string, value: string) {
       <Card>
         <button
           class="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset rounded-lg"
-          :aria-expanded="showDetails"
-          aria-controls="endpoint-details-content"
-          @click="showDetails = !showDetails"
-        >
+          :aria-expanded="showDetails" aria-controls="endpoint-details-content" @click="showDetails = !showDetails">
           <div class="flex items-center gap-2">
             <Info class="size-4 text-muted-foreground" />
             <span class="text-sm font-medium">Endpoint Details</span>
             <Badge variant="outline" class="text-[11px]">Reference</Badge>
           </div>
-          <ChevronDown
-            class="size-4 text-muted-foreground transition-transform duration-200"
-            :class="showDetails ? '' : '-rotate-90'"
-          />
+          <ChevronDown class="size-4 text-muted-foreground transition-transform duration-200"
+            :class="showDetails ? '' : '-rotate-90'" />
         </button>
 
-        <div
-          v-if="showDetails"
-          id="endpoint-details-content"
-          role="region"
-        >
+        <div v-if="showDetails" id="endpoint-details-content" role="region">
           <Separator />
           <CardContent class="pt-4 space-y-4">
             <!-- URL -->
             <div class="space-y-1.5">
               <p class="text-xs font-medium text-muted-foreground uppercase tracking-wider">MCP Endpoint URL</p>
               <div class="flex items-center gap-2">
-                <code class="flex-1 min-w-0 rounded-md border bg-muted/50 px-3 py-2 font-mono text-sm break-all">{{ mcpEndpointUrl }}</code>
+                <code class="flex-1 min-w-0 rounded-md border bg-muted/50 px-3 py-2 font-mono text-sm break-all">{{
+                  mcpEndpointUrl }}</code>
                 <Tooltip>
                   <TooltipTrigger as-child>
-                    <Button
-                      variant="ghost"
-                      size="icon"
+                    <Button variant="ghost" size="icon"
                       class="shrink-0 size-8 text-muted-foreground hover:text-foreground"
-                      :class="endpointCopied ? 'text-green-600 dark:text-green-400' : ''"
-                      @click="copyEndpoint"
-                    >
+                      :class="endpointCopied ? 'text-green-600 dark:text-green-400' : ''" @click="copyEndpoint">
                       <component :is="endpointCopied ? Check : Copy" class="size-4" />
                     </Button>
                   </TooltipTrigger>
@@ -668,7 +630,7 @@ async function copyHeaderValue(key: string, value: string) {
               </div>
               <div class="rounded-md border bg-muted/30 p-3 space-y-1">
                 <p class="text-xs font-medium text-muted-foreground">Authentication</p>
-                <Badge variant="secondary">API Key + Tenant ID</Badge>
+                <Badge variant="secondary">API Key (Automatically Scoped to Current Tenant)</Badge>
               </div>
             </div>
 
@@ -679,52 +641,23 @@ async function copyHeaderValue(key: string, value: string) {
                 <!-- X-API-Key header -->
                 <div class="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
                   <code class="text-xs font-mono font-medium text-foreground shrink-0">X-API-Key:</code>
-                  <code
-                    class="flex-1 min-w-0 font-mono text-xs truncate"
+                  <code class="flex-1 min-w-0 font-mono text-xs truncate"
                     :class="hasRealSecret ? 'text-green-700 dark:text-green-400' : 'text-muted-foreground italic'"
-                    :title="configSecret"
-                  >
-                    {{ configSecret }}
-                  </code>
+                    :title="configSecret">
+              {{ configSecret }}
+            </code>
                   <Tooltip>
                     <TooltipTrigger as-child>
-                      <Button
-                        variant="ghost"
-                        size="icon"
+                      <Button variant="ghost" size="icon"
                         class="shrink-0 size-7 text-muted-foreground hover:text-foreground"
                         :class="copiedHeader === 'X-API-Key' ? 'text-green-600 dark:text-green-400' : ''"
-                        @click="copyHeaderValue('X-API-Key', configSecret)"
-                      >
+                        @click="copyHeaderValue('X-API-Key', configSecret)">
                         <component :is="copiedHeader === 'X-API-Key' ? Check : Copy" class="size-3.5" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{{ copiedHeader === 'X-API-Key' ? 'Copied!' : hasRealSecret ? 'Copy API key secret' : 'Copy placeholder' }}</TooltipContent>
-                  </Tooltip>
-                </div>
-
-                <!-- X-Tenant-ID header -->
-                <div class="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
-                  <code class="text-xs font-mono font-medium text-foreground shrink-0">X-Tenant-ID:</code>
-                  <code
-                    class="flex-1 min-w-0 font-mono text-xs truncate"
-                    :class="currentTenantId ? 'text-foreground' : 'text-muted-foreground italic'"
-                    :title="tenantId"
-                  >
-                    {{ tenantId }}
-                  </code>
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        class="shrink-0 size-7 text-muted-foreground hover:text-foreground"
-                        :class="copiedHeader === 'X-Tenant-ID' ? 'text-green-600 dark:text-green-400' : ''"
-                        @click="copyHeaderValue('X-Tenant-ID', tenantId)"
-                      >
-                        <component :is="copiedHeader === 'X-Tenant-ID' ? Check : Copy" class="size-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{{ copiedHeader === 'X-Tenant-ID' ? 'Copied!' : 'Copy tenant ID' }}</TooltipContent>
+                    <TooltipContent>{{ copiedHeader === 'X-API-Key' ? 'Copied!' : hasRealSecret ? 'Copy API key secret'
+                      :
+                      'Copy placeholder' }}</TooltipContent>
                   </Tooltip>
                 </div>
               </div>
@@ -737,26 +670,17 @@ async function copyHeaderValue(key: string, value: string) {
       <Card>
         <button
           class="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset rounded-lg"
-          :aria-expanded="showTools"
-          aria-controls="tools-content"
-          @click="showTools = !showTools"
-        >
+          :aria-expanded="showTools" aria-controls="tools-content" @click="showTools = !showTools">
           <div class="flex items-center gap-2">
             <Terminal class="size-4 text-muted-foreground" />
             <span class="text-sm font-medium">Available MCP Tools</span>
             <Badge variant="outline" class="text-[11px]">1 tool</Badge>
           </div>
-          <ChevronDown
-            class="size-4 text-muted-foreground transition-transform duration-200"
-            :class="showTools ? '' : '-rotate-90'"
-          />
+          <ChevronDown class="size-4 text-muted-foreground transition-transform duration-200"
+            :class="showTools ? '' : '-rotate-90'" />
         </button>
 
-        <div
-          v-if="showTools"
-          id="tools-content"
-          role="region"
-        >
+        <div v-if="showTools" id="tools-content" role="region">
           <Separator />
           <CardContent class="pt-4">
             <div class="rounded-md border p-4 space-y-3">

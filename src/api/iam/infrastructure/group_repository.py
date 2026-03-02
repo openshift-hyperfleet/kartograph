@@ -123,7 +123,7 @@ class GroupRepository(IGroupRepository):
                     event_type=type(event).__name__,
                     payload=payload,
                     occurred_at=event.occurred_at,
-                    aggregate_type=ResourceType.GROUP.value,
+                    aggregate_type=ResourceType.GROUP,
                     aggregate_id=group.id.value,
                 )
 
@@ -268,7 +268,7 @@ class GroupRepository(IGroupRepository):
                 event_type=type(event).__name__,
                 payload=payload,
                 occurred_at=event.occurred_at,
-                aggregate_type=ResourceType.GROUP.value,
+                aggregate_type=ResourceType.GROUP,
                 aggregate_id=group.id.value,
             )
 
@@ -281,16 +281,16 @@ class GroupRepository(IGroupRepository):
     # (admin + member_relation). This map reverses the mapping so
     # hydrated members get the correct domain role.
     _SPICEDB_RELATION_TO_GROUP_ROLE: dict[str, GroupRole] = {
-        RelationType.ADMIN.value: GroupRole.ADMIN,
-        RelationType.MEMBER_RELATION.value: GroupRole.MEMBER,
+        RelationType.ADMIN: GroupRole.ADMIN,
+        RelationType.MEMBER_RELATION: GroupRole.MEMBER,
     }
 
     # The SpiceDB relation names to query for each GroupRole.
     # GroupRole.ADMIN  -> RelationType.ADMIN (relation)
     # GroupRole.MEMBER -> RelationType.MEMBER_RELATION (relation, not "member" which is a permission)
     _GROUP_ROLE_TO_SPICEDB_RELATION: dict[GroupRole, str] = {
-        GroupRole.ADMIN: RelationType.ADMIN.value,
-        GroupRole.MEMBER: RelationType.MEMBER_RELATION.value,
+        GroupRole.ADMIN: RelationType.ADMIN,
+        GroupRole.MEMBER: RelationType.MEMBER_RELATION,
     }
 
     async def _hydrate_members(self, group_id: str) -> list[GroupMember]:
@@ -308,7 +308,7 @@ class GroupRepository(IGroupRepository):
         """
         # Read all explicit tuples for this group
         tuples = await self._authz.read_relationships(
-            resource_type=ResourceType.GROUP.value,
+            resource_type=ResourceType.GROUP,
             resource_id=group_id,
         )
 
@@ -324,7 +324,7 @@ class GroupRepository(IGroupRepository):
             user_id_str = ":".join(subject_parts[1:])
 
             # Only process user subjects with role relations
-            if subject_type_str == ResourceType.USER.value:
+            if subject_type_str == ResourceType.USER:
                 domain_role = self._SPICEDB_RELATION_TO_GROUP_ROLE.get(
                     rel_tuple.relation
                 )

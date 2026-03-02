@@ -84,3 +84,12 @@ pattern. Be sure to read the article to fully understand. Domain probes should b
 - Use FastAPI and FastMCP for API and MCP (model context protocol) work respectively.
 - Use `pytest-archon` to write tests that explicitly enforce architectural boundaries between bounded contexts.
 </non-functional-requirements>
+
+<testing-instructions>
+This repo uses `uv` for package management.
+
+To run pytest or python directly, you must invoke
+them through `uv`.
+
+For example, `uv run pytest ...` or `uv run python -c ...`.
+</testing-instructions>

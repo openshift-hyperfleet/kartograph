@@ -15,6 +15,7 @@ from iam.ports.exceptions import (
     APIKeyAlreadyRevokedError,
     APIKeyNotFoundError,
     DuplicateAPIKeyNameError,
+    UnauthorizedError,
 )
 from iam.presentation.api_keys.models import (
     APIKeyCreatedResponse,
@@ -63,6 +64,11 @@ async def create_api_key(
             **APIKeyResponse.from_domain(api_key).model_dump(),
         )
 
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
     except DuplicateAPIKeyNameError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -191,6 +197,11 @@ async def revoke_api_key(
             tenant_id=current_user.tenant_id,
         )
 
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
     except APIKeyNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

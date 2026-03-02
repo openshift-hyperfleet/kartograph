@@ -14,6 +14,7 @@ from iam.application.value_objects import CurrentUser
 from shared_kernel.authorization.types import (
     Permission,
     ResourceType,
+    format_resource,
     format_subject,
 )
 from shared_kernel.authorization.protocols import AuthorizationProvider
@@ -29,7 +30,7 @@ from iam.application.security import (
 )
 from iam.domain.aggregates import APIKey
 from iam.domain.value_objects import APIKeyId, TenantId, UserId
-from iam.ports.exceptions import APIKeyNotFoundError
+from iam.ports.exceptions import APIKeyNotFoundError, UnauthorizedError
 from iam.ports.repositories import IAPIKeyRepository
 
 
@@ -81,9 +82,23 @@ class APIKeyService:
             Tuple of (APIKey aggregate, plaintext_secret)
 
         Raises:
+            UnauthorizedError: If user lacks CREATE_API_KEY permission on the tenant
             DuplicateAPIKeyNameError: If key name already exists for user
         """
         try:
+            # Check authorization: user must have CREATE_API_KEY permission
+            has_permission = await self._authz.check_permission(
+                resource=format_resource(ResourceType.TENANT, tenant_id.value),
+                permission=Permission.CREATE_API_KEY,
+                subject=format_subject(ResourceType.USER, created_by_user_id.value),
+            )
+            if not has_permission:
+                self._probe.api_key_create_authorization_denied(
+                    user_id=created_by_user_id.value,
+                    tenant_id=tenant_id.value,
+                )
+                raise UnauthorizedError("Insufficient permissions")
+
             # Generate secret and hash
             plaintext_secret = generate_api_key_secret()
             key_hash = hash_api_key_secret(plaintext_secret)
@@ -138,8 +153,8 @@ class APIKeyService:
         # Use SpiceDB to find all API keys the current user can view
         try:
             api_key_ids = await self._authz.lookup_resources(
-                resource_type=ResourceType.API_KEY.value,
-                permission=Permission.VIEW.value,
+                resource_type=ResourceType.API_KEY,
+                permission=Permission.VIEW,
                 subject=format_subject(ResourceType.USER, current_user.user_id.value),
             )
 
@@ -170,23 +185,44 @@ class APIKeyService:
         """Revoke an API key.
 
         Marks the key as revoked so it can no longer be used for authentication.
+        Uses SpiceDB to check the acting user has REVOKE permission on the
+        API key, enabling tenant admins to revoke any key in their tenant.
 
         Args:
             api_key_id: The ID of the key to revoke
-            user_id: The user who owns the key (for access control)
+            user_id: The acting user performing the revocation
             tenant_id: The tenant in which the revocation will occur
+
         Raises:
             APIKeyNotFoundError: If the key doesn't exist
+            UnauthorizedError: If the acting user lacks REVOKE permission
             APIKeyAlreadyRevokedError: If the key is already revoked
         """
         try:
             async with self._session.begin():
+                # Load the key first to ensure it exists before checking
+                # authorization. This avoids false 403s when SpiceDB
+                # relationships haven't propagated yet (outbox lag) and
+                # ensures correct error semantics (404 for missing keys,
+                # 403 for permission denied).
                 api_key = await self._api_key_repository.get_by_id(
-                    api_key_id, user_id, tenant_id
+                    api_key_id, user_id=None, tenant_id=tenant_id
                 )
-
                 if api_key is None:
                     raise APIKeyNotFoundError(f"API key {api_key_id.value} not found")
+
+                # Check authorization via SpiceDB
+                permitted = await self._authz.check_permission(
+                    resource=format_resource(ResourceType.API_KEY, api_key_id.value),
+                    permission=Permission.REVOKE,
+                    subject=format_subject(ResourceType.USER, user_id.value),
+                )
+                if not permitted:
+                    self._probe.api_key_revoke_authorization_denied(
+                        user_id=user_id.value,
+                        api_key_id=api_key_id.value,
+                    )
+                    raise UnauthorizedError("Insufficient permissions")
 
                 # This will raise APIKeyAlreadyRevokedError if already revoked
                 api_key.revoke()

@@ -199,6 +199,20 @@ class APIKeyService:
             APIKeyAlreadyRevokedError: If the key is already revoked
         """
         try:
+            # Check authorization via SpiceDB (outside transaction to avoid
+            # holding DB resources during remote call)
+            permitted = await self._authz.check_permission(
+                resource=format_resource(ResourceType.API_KEY, api_key_id.value),
+                permission=Permission.REVOKE,
+                subject=format_subject(ResourceType.USER, user_id.value),
+            )
+            if not permitted:
+                self._probe.api_key_revoke_authorization_denied(
+                    user_id=user_id.value,
+                    api_key_id=api_key_id.value,
+                )
+                raise UnauthorizedError("Insufficient permissions")
+
             async with self._session.begin():
                 api_key = await self._api_key_repository.get_by_id(
                     api_key_id, user_id=None, tenant_id=tenant_id
@@ -206,19 +220,6 @@ class APIKeyService:
 
                 if api_key is None:
                     raise APIKeyNotFoundError(f"API key {api_key_id.value} not found")
-
-                # Check authorization via SpiceDB
-                permitted = await self._authz.check_permission(
-                    resource=format_resource(ResourceType.API_KEY, api_key_id.value),
-                    permission=Permission.REVOKE,
-                    subject=format_subject(ResourceType.USER, user_id.value),
-                )
-                if not permitted:
-                    self._probe.api_key_revoke_authorization_denied(
-                        user_id=user_id.value,
-                        api_key_id=api_key_id.value,
-                    )
-                    raise UnauthorizedError("Insufficient permissions")
 
                 # This will raise APIKeyAlreadyRevokedError if already revoked
                 api_key.revoke()

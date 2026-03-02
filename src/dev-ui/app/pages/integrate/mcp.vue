@@ -144,7 +144,7 @@ function mcpConfigDesktop(secret: string): string {
 function mcpConfigCurlDisplay(secret: string): string {
   return [
     `curl -X GET ${apiBaseUrl.value}/iam/tenants \\`,
-    `  -H "X-API-Key: ${secret}" \\`,
+    `  -H "X-API-Key: ${secret}"`,
   ].join('\n')
 }
 

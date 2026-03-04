@@ -393,8 +393,10 @@ class TestOutboxInfrastructureBoundaries:
             .match("infrastructure.outbox*")
             .should_not_import(
                 "iam.domain*",
+                "iam.ports*",
                 "iam.application*",
                 "iam.infrastructure*",
+                "iam.presentation*",
             )
             .check("infrastructure")
         )
@@ -406,8 +408,10 @@ class TestOutboxInfrastructureBoundaries:
             .match("infrastructure.outbox*")
             .should_not_import(
                 "graph.domain*",
+                "graph.ports*",
                 "graph.application*",
                 "graph.infrastructure*",
+                "graph.presentation*",
             )
             .check("infrastructure")
         )
@@ -419,8 +423,10 @@ class TestOutboxInfrastructureBoundaries:
             .match("infrastructure.outbox*")
             .should_not_import(
                 "query.domain*",
+                "query.ports*",
                 "query.application*",
                 "query.infrastructure*",
+                "query.presentation*",
             )
             .check("infrastructure")
         )
@@ -432,8 +438,10 @@ class TestOutboxInfrastructureBoundaries:
             .match("infrastructure.outbox*")
             .should_not_import(
                 "management.domain*",
+                "management.ports*",
                 "management.application*",
                 "management.infrastructure*",
+                "management.presentation*",
             )
             .check("infrastructure")
         )
@@ -445,8 +453,10 @@ class TestOutboxInfrastructureBoundaries:
             .match("infrastructure.outbox*")
             .should_not_import(
                 "ingestion.domain*",
+                "ingestion.ports*",
                 "ingestion.application*",
                 "ingestion.infrastructure*",
+                "ingestion.presentation*",
             )
             .check("infrastructure")
         )
@@ -458,8 +468,10 @@ class TestOutboxInfrastructureBoundaries:
             .match("infrastructure.outbox*")
             .should_not_import(
                 "extraction.domain*",
+                "extraction.ports*",
                 "extraction.application*",
                 "extraction.infrastructure*",
+                "extraction.presentation*",
             )
             .check("infrastructure")
         )

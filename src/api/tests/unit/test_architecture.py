@@ -1,7 +1,8 @@
 """Architecture tests using pytest-archon.
 
 These tests enforce DDD architectural boundaries between layers
-within the Graph bounded context.
+within bounded contexts, cross-context isolation, shared kernel
+boundaries, and composition layer rules.
 """
 
 from pytest_archon import archrule
@@ -366,6 +367,126 @@ class TestSharedKernelBoundaries:
             .match("iam*")
             .may_import("shared_kernel*")
             .check("iam")
+        )
+
+
+class TestOutboxInfrastructureBoundaries:
+    """Tests that outbox infrastructure is bounded-context agnostic.
+
+    The outbox infrastructure (worker, models, repository, composite
+    translator) is generic cross-cutting infrastructure. It must not
+    import bounded context internals (domain, application, infrastructure).
+
+    Note: the ticket referenced 'infrastructure.outbox.handlers' which
+    does not exist. This tests 'infrastructure.outbox*' broadly, which
+    covers composite.py, worker.py, models.py, and repository.py.
+    """
+
+    def test_outbox_does_not_import_iam_internals(self):
+        """Outbox infrastructure must not import IAM internals.
+
+        The outbox is generic infrastructure; IAM-specific event
+        translation lives in iam.infrastructure.outbox, not here.
+        """
+        (
+            archrule("outbox_no_iam_internals")
+            .match("infrastructure.outbox*")
+            .should_not_import(
+                "iam.domain*",
+                "iam.ports*",
+                "iam.application*",
+                "iam.infrastructure*",
+                "iam.presentation*",
+            )
+            .check("infrastructure")
+        )
+
+    def test_outbox_does_not_import_graph_internals(self):
+        """Outbox infrastructure must not import Graph internals."""
+        (
+            archrule("outbox_no_graph_internals")
+            .match("infrastructure.outbox*")
+            .should_not_import(
+                "graph.domain*",
+                "graph.ports*",
+                "graph.application*",
+                "graph.infrastructure*",
+                "graph.presentation*",
+            )
+            .check("infrastructure")
+        )
+
+    def test_outbox_does_not_import_query_internals(self):
+        """Outbox infrastructure must not import Query internals."""
+        (
+            archrule("outbox_no_query_internals")
+            .match("infrastructure.outbox*")
+            .should_not_import(
+                "query.domain*",
+                "query.ports*",
+                "query.application*",
+                "query.infrastructure*",
+                "query.presentation*",
+            )
+            .check("infrastructure")
+        )
+
+    def test_outbox_does_not_import_management_internals(self):
+        """Outbox infrastructure must not import Management internals."""
+        (
+            archrule("outbox_no_management_internals")
+            .match("infrastructure.outbox*")
+            .should_not_import(
+                "management.domain*",
+                "management.ports*",
+                "management.application*",
+                "management.infrastructure*",
+                "management.presentation*",
+            )
+            .check("infrastructure")
+        )
+
+    def test_outbox_does_not_import_ingestion_internals(self):
+        """Outbox infrastructure must not import Ingestion internals."""
+        (
+            archrule("outbox_no_ingestion_internals")
+            .match("infrastructure.outbox*")
+            .should_not_import(
+                "ingestion.domain*",
+                "ingestion.ports*",
+                "ingestion.application*",
+                "ingestion.infrastructure*",
+                "ingestion.presentation*",
+            )
+            .check("infrastructure")
+        )
+
+    def test_outbox_does_not_import_extraction_internals(self):
+        """Outbox infrastructure must not import Extraction internals."""
+        (
+            archrule("outbox_no_extraction_internals")
+            .match("infrastructure.outbox*")
+            .should_not_import(
+                "extraction.domain*",
+                "extraction.ports*",
+                "extraction.application*",
+                "extraction.infrastructure*",
+                "extraction.presentation*",
+            )
+            .check("infrastructure")
+        )
+
+    def test_outbox_may_import_shared_kernel(self):
+        """Outbox infrastructure may import from shared_kernel.
+
+        The outbox worker and repository depend on shared_kernel.outbox
+        for event translator protocols and value objects.
+        """
+        (
+            archrule("outbox_may_import_shared_kernel")
+            .match("infrastructure.outbox*")
+            .may_import("shared_kernel*")
+            .check("infrastructure")
         )
 
 

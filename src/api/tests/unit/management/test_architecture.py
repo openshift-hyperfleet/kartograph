@@ -18,12 +18,19 @@ from pytest_archon import archrule
 
 
 def _subpackage_exists(name: str) -> bool:
-    """Check whether a Management subpackage has been created."""
+    """Check whether a Management subpackage has been created.
+
+    Only returns False when the target package itself is missing.
+    Re-raises ModuleNotFoundError for broken nested imports so that
+    real import errors inside an existing package surface immediately.
+    """
     try:
         importlib.import_module(name)
         return True
-    except ModuleNotFoundError:
-        return False
+    except ModuleNotFoundError as e:
+        if e.name == name:
+            return False
+        raise
 
 
 _has_domain = _subpackage_exists("management.domain")

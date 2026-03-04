@@ -438,6 +438,32 @@ class TestOutboxInfrastructureBoundaries:
             .check("infrastructure")
         )
 
+    def test_outbox_does_not_import_ingestion_internals(self):
+        """Outbox infrastructure must not import Ingestion internals."""
+        (
+            archrule("outbox_no_ingestion_internals")
+            .match("infrastructure.outbox*")
+            .should_not_import(
+                "ingestion.domain*",
+                "ingestion.application*",
+                "ingestion.infrastructure*",
+            )
+            .check("infrastructure")
+        )
+
+    def test_outbox_does_not_import_extraction_internals(self):
+        """Outbox infrastructure must not import Extraction internals."""
+        (
+            archrule("outbox_no_extraction_internals")
+            .match("infrastructure.outbox*")
+            .should_not_import(
+                "extraction.domain*",
+                "extraction.application*",
+                "extraction.infrastructure*",
+            )
+            .check("infrastructure")
+        )
+
     def test_outbox_may_import_shared_kernel(self):
         """Outbox infrastructure may import from shared_kernel.
 

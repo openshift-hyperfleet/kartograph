@@ -38,6 +38,7 @@ class ICredentialReader(Protocol):
             "password": "..."} for other adapters).
 
         Raises:
+            ValueError: If path or tenant_id is empty or invalid.
             KeyError: If no credentials exist at the given path for the tenant.
         """
         ...

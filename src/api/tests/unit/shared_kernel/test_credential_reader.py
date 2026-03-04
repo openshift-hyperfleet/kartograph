@@ -63,6 +63,20 @@ class TestICredentialReaderProtocol:
         assert isinstance(result, dict)
         assert result == {"username": "admin", "password": "secret"}
 
+    @pytest.mark.asyncio
+    async def test_retrieve_raises_keyerror_when_missing(self):
+        """Calling retrieve should raise KeyError when credentials are not found."""
+
+        class StubReader:
+            async def retrieve(self, path: str, tenant_id: str) -> dict[str, str]:
+                raise KeyError(f"No credentials at {path} for tenant {tenant_id}")
+
+        reader = StubReader()
+        with pytest.raises(KeyError):
+            await reader.retrieve(
+                path="datasource/nonexistent/credentials", tenant_id="tenant-1"
+            )
+
     def test_retrieve_signature_parameters(self):
         """The retrieve method should accept path and tenant_id string parameters."""
 

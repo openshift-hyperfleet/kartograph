@@ -68,6 +68,13 @@ def _extract_permission(schema: str, definition: str, permission: str) -> str | 
     return perm_match.group(1).strip()
 
 
+@pytest.fixture
+def schema() -> str:
+    """Read the SpiceDB schema file."""
+    assert SCHEMA_PATH.exists(), f"Schema file not found at {SCHEMA_PATH}"
+    return SCHEMA_PATH.read_text()
+
+
 class TestWorkspaceViewPermission:
     """Tests for workspace VIEW permission design.
 
@@ -79,12 +86,6 @@ class TestWorkspaceViewPermission:
     (relation) following SpiceDB best practices. Since tenant.view = admin +
     member, the end result is the same, but the schema is more maintainable.
     """
-
-    @pytest.fixture
-    def schema(self) -> str:
-        """Read the SpiceDB schema file."""
-        assert SCHEMA_PATH.exists(), f"Schema file not found at {SCHEMA_PATH}"
-        return SCHEMA_PATH.read_text()
 
     def test_workspace_view_includes_tenant_member(self, schema: str):
         """Verify workspace view permission includes tenant->view.
@@ -170,12 +171,6 @@ class TestKnowledgeGraphSchemaDesign:
     - edit  = admin + editor + workspace->edit
     - manage = admin + workspace->manage
     """
-
-    @pytest.fixture
-    def schema(self) -> str:
-        """Read the SpiceDB schema file."""
-        assert SCHEMA_PATH.exists(), f"Schema file not found at {SCHEMA_PATH}"
-        return SCHEMA_PATH.read_text()
 
     def test_knowledge_graph_definition_exists(self, schema: str):
         """Verify the knowledge_graph definition block exists in the schema."""
@@ -298,12 +293,6 @@ class TestDataSourceSchemaDesign:
     - edit   = knowledge_graph->edit
     - manage = knowledge_graph->manage
     """
-
-    @pytest.fixture
-    def schema(self) -> str:
-        """Read the SpiceDB schema file."""
-        assert SCHEMA_PATH.exists(), f"Schema file not found at {SCHEMA_PATH}"
-        return SCHEMA_PATH.read_text()
 
     def test_data_source_definition_exists(self, schema: str):
         """Verify the data_source definition block exists in the schema."""

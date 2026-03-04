@@ -105,7 +105,8 @@ class ResourceType(StrEnum):
     WORKSPACE = "workspace"
     TENANT = "tenant"
     API_KEY = "api_key"
-    # Future: KNOWLEDGE_GRAPH, DATA_SOURCE, etc.
+    KNOWLEDGE_GRAPH = "knowledge_graph"
+    DATA_SOURCE = "data_source"
 
 
 class RelationType(StrEnum):
@@ -117,12 +118,15 @@ class RelationType(StrEnum):
     ADMIN = "admin"
     CREATOR_TENANT = "creator_tenant"
     EDITOR = "editor"
+    KNOWLEDGE_GRAPH = "knowledge_graph"
     MEMBER = "member"
     MEMBER_RELATION = "member_relation"
     OWNER = "owner"
     PARENT = "parent"
     ROOT_WORKSPACE = "root_workspace"
     TENANT = "tenant"
+    VIEWER = "viewer"
+    WORKSPACE = "workspace"
 
 
 class Permission(StrEnum):

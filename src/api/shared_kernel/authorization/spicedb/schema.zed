@@ -99,6 +99,60 @@ definition workspace {
 }
 
 /**
+ * KnowledgeGraph is a container for a unified knowledge graph.
+ * Lives under a Workspace; permissions inherit from workspace roles.
+ * Direct admin/editor/viewer grants enable fine-grained access
+ * without requiring full workspace membership.
+ */
+definition knowledge_graph {
+	/** The workspace this knowledge graph belongs to */
+	relation workspace: workspace
+
+	/** The tenant this knowledge graph belongs to (for data isolation) */
+	relation tenant: tenant
+
+	/** Direct admin access (fine-grained grants beyond workspace inheritance) */
+	relation admin: user | group#member
+
+	/** Direct editor access */
+	relation editor: user | group#member
+
+	/** Direct viewer access */
+	relation viewer: user | group#member
+
+	/** Permission to view this knowledge graph and its data */
+	permission view = admin + editor + viewer + workspace->view
+
+	/** Permission to edit this knowledge graph (add/remove data sources, configure) */
+	permission edit = admin + editor + workspace->edit
+
+	/** Permission to manage this knowledge graph (delete, modify access) */
+	permission manage = admin + workspace->manage
+}
+
+/**
+ * DataSource is a configured connection to an external data system.
+ * Permissions are inherited purely from the parent KnowledgeGraph.
+ * No direct user/group relations — access is through the KG.
+ */
+definition data_source {
+	/** The knowledge graph this data source feeds */
+	relation knowledge_graph: knowledge_graph
+
+	/** The tenant this data source belongs to (for data isolation) */
+	relation tenant: tenant
+
+	/** Permission to view this data source's configuration */
+	permission view = knowledge_graph->view
+
+	/** Permission to edit this data source (update config, credentials) */
+	permission edit = knowledge_graph->edit
+
+	/** Permission to manage this data source (delete, trigger sync) */
+	permission manage = knowledge_graph->manage
+}
+
+/**
  * Tenant is the top-level organization boundary.
  * Maps 1:1 with data isolation (separate graph database).
  * Each tenant must have a root workspace.

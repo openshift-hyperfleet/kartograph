@@ -28,6 +28,14 @@ class TestResourceType:
         """Test that TENANT resource type exists."""
         assert ResourceType.TENANT == "tenant"
 
+    def test_has_knowledge_graph_type(self):
+        """Test that KNOWLEDGE_GRAPH resource type exists."""
+        assert ResourceType.KNOWLEDGE_GRAPH == "knowledge_graph"
+
+    def test_has_data_source_type(self):
+        """Test that DATA_SOURCE resource type exists."""
+        assert ResourceType.DATA_SOURCE == "data_source"
+
     def test_resource_types_are_lowercase(self):
         """Test that all resource types are lowercase strings."""
         for resource_type in ResourceType:
@@ -53,6 +61,18 @@ class TestRelationType:
     def test_has_parent_relation(self):
         """Test that PARENT relation exists."""
         assert RelationType.PARENT == "parent"
+
+    def test_has_workspace_relation(self):
+        """Test that WORKSPACE relation exists."""
+        assert RelationType.WORKSPACE == "workspace"
+
+    def test_has_knowledge_graph_relation(self):
+        """Test that KNOWLEDGE_GRAPH relation exists."""
+        assert RelationType.KNOWLEDGE_GRAPH == "knowledge_graph"
+
+    def test_has_viewer_relation(self):
+        """Test that VIEWER relation exists."""
+        assert RelationType.VIEWER == "viewer"
 
     def test_relation_types_are_lowercase(self):
         """Test that all relation types are lowercase strings."""

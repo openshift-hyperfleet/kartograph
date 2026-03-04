@@ -154,3 +154,219 @@ class TestWorkspaceViewPermission:
             f"Manage requires explicit admin grants. "
             f"Current expression: {manage_expr}"
         )
+
+
+class TestKnowledgeGraphSchemaDesign:
+    """Tests for knowledge_graph permission design.
+
+    Knowledge graphs sit within a workspace and inherit workspace-level access.
+    Direct roles (admin, editor, viewer) allow fine-grained per-KG grants,
+    while workspace arrow permissions (workspace->view, etc.) ensure that
+    workspace members automatically gain access to knowledge graphs within
+    that workspace.
+
+    Permission model:
+    - view  = admin + editor + viewer + workspace->view
+    - edit  = admin + editor + workspace->edit
+    - manage = admin + workspace->manage
+    """
+
+    @pytest.fixture
+    def schema(self) -> str:
+        """Read the SpiceDB schema file."""
+        assert SCHEMA_PATH.exists(), f"Schema file not found at {SCHEMA_PATH}"
+        return SCHEMA_PATH.read_text()
+
+    def test_knowledge_graph_definition_exists(self, schema: str):
+        """Verify the knowledge_graph definition block exists in the schema."""
+        def_pattern = r"definition\s+knowledge_graph\s*\{"
+        assert re.search(def_pattern, schema), (
+            "definition knowledge_graph not found in schema"
+        )
+
+    def test_knowledge_graph_view_includes_workspace_view(self, schema: str):
+        """Verify knowledge_graph view permission includes workspace->view.
+
+        Workspace members should have VIEW access to all knowledge graphs
+        within the workspace, without requiring per-KG grants.
+        """
+        view_expr = _extract_permission(schema, "knowledge_graph", "view")
+        assert view_expr is not None, (
+            "knowledge_graph.view permission not found in schema"
+        )
+        assert "workspace->view" in view_expr, (
+            f"knowledge_graph.view should include 'workspace->view' for "
+            f"workspace-level visibility. Current expression: {view_expr}"
+        )
+
+    def test_knowledge_graph_view_includes_direct_roles(self, schema: str):
+        """Verify knowledge_graph view permission includes all direct roles."""
+        view_expr = _extract_permission(schema, "knowledge_graph", "view")
+        assert view_expr is not None, (
+            "knowledge_graph.view permission not found in schema"
+        )
+
+        for role in ("admin", "editor", "viewer"):
+            assert role in view_expr, (
+                f"knowledge_graph.view should include '{role}'. "
+                f"Current expression: {view_expr}"
+            )
+
+    def test_knowledge_graph_edit_includes_workspace_edit(self, schema: str):
+        """Verify knowledge_graph edit permission includes workspace->edit.
+
+        Workspace editors should have edit access to knowledge graphs within
+        the workspace, without requiring per-KG grants.
+        """
+        edit_expr = _extract_permission(schema, "knowledge_graph", "edit")
+        assert edit_expr is not None, (
+            "knowledge_graph.edit permission not found in schema"
+        )
+        assert "workspace->edit" in edit_expr, (
+            f"knowledge_graph.edit should include 'workspace->edit'. "
+            f"Current expression: {edit_expr}"
+        )
+
+    def test_knowledge_graph_edit_includes_direct_roles(self, schema: str):
+        """Verify knowledge_graph edit permission includes admin and editor."""
+        edit_expr = _extract_permission(schema, "knowledge_graph", "edit")
+        assert edit_expr is not None, (
+            "knowledge_graph.edit permission not found in schema"
+        )
+
+        for role in ("admin", "editor"):
+            assert role in edit_expr, (
+                f"knowledge_graph.edit should include '{role}'. "
+                f"Current expression: {edit_expr}"
+            )
+
+    def test_knowledge_graph_edit_excludes_viewer(self, schema: str):
+        """Verify knowledge_graph edit permission does NOT include viewer.
+
+        Viewers should only have read access. Edit requires explicit editor
+        or admin grants.
+        """
+        edit_expr = _extract_permission(schema, "knowledge_graph", "edit")
+        assert edit_expr is not None, (
+            "knowledge_graph.edit permission not found in schema"
+        )
+        assert not re.search(r"\bviewer\b", edit_expr), (
+            f"knowledge_graph.edit should NOT include 'viewer'. "
+            f"Edit requires explicit editor or admin grants. "
+            f"Current expression: {edit_expr}"
+        )
+
+    def test_knowledge_graph_manage_includes_workspace_manage(self, schema: str):
+        """Verify knowledge_graph manage permission includes workspace->manage.
+
+        Workspace admins should have manage access to knowledge graphs within
+        the workspace, without requiring per-KG grants.
+        """
+        manage_expr = _extract_permission(schema, "knowledge_graph", "manage")
+        assert manage_expr is not None, (
+            "knowledge_graph.manage permission not found in schema"
+        )
+        assert "workspace->manage" in manage_expr, (
+            f"knowledge_graph.manage should include 'workspace->manage'. "
+            f"Current expression: {manage_expr}"
+        )
+
+    def test_knowledge_graph_manage_is_admin_based(self, schema: str):
+        """Verify knowledge_graph manage permission includes admin.
+
+        Only admins (direct or via workspace) should have manage access.
+        """
+        manage_expr = _extract_permission(schema, "knowledge_graph", "manage")
+        assert manage_expr is not None, (
+            "knowledge_graph.manage permission not found in schema"
+        )
+        assert "admin" in manage_expr, (
+            f"knowledge_graph.manage should include 'admin'. "
+            f"Current expression: {manage_expr}"
+        )
+
+
+class TestDataSourceSchemaDesign:
+    """Tests for data_source permission design.
+
+    Data sources belong to a knowledge graph and inherit all access through
+    the KG relationship. There are no direct user/group relations on data
+    sources — access is purely derived from the parent knowledge graph.
+
+    Permission model:
+    - view   = knowledge_graph->view
+    - edit   = knowledge_graph->edit
+    - manage = knowledge_graph->manage
+    """
+
+    @pytest.fixture
+    def schema(self) -> str:
+        """Read the SpiceDB schema file."""
+        assert SCHEMA_PATH.exists(), f"Schema file not found at {SCHEMA_PATH}"
+        return SCHEMA_PATH.read_text()
+
+    def test_data_source_definition_exists(self, schema: str):
+        """Verify the data_source definition block exists in the schema."""
+        def_pattern = r"definition\s+data_source\s*\{"
+        assert re.search(def_pattern, schema), (
+            "definition data_source not found in schema"
+        )
+
+    def test_data_source_view_inherits_from_knowledge_graph(self, schema: str):
+        """Verify data_source view permission inherits from knowledge_graph->view.
+
+        Data source view access is entirely derived from the parent knowledge
+        graph's view permission.
+        """
+        view_expr = _extract_permission(schema, "data_source", "view")
+        assert view_expr is not None, "data_source.view permission not found in schema"
+        assert "knowledge_graph->view" in view_expr, (
+            f"data_source.view should include 'knowledge_graph->view'. "
+            f"Current expression: {view_expr}"
+        )
+
+    def test_data_source_edit_inherits_from_knowledge_graph(self, schema: str):
+        """Verify data_source edit permission inherits from knowledge_graph->edit.
+
+        Data source edit access is entirely derived from the parent knowledge
+        graph's edit permission.
+        """
+        edit_expr = _extract_permission(schema, "data_source", "edit")
+        assert edit_expr is not None, "data_source.edit permission not found in schema"
+        assert "knowledge_graph->edit" in edit_expr, (
+            f"data_source.edit should include 'knowledge_graph->edit'. "
+            f"Current expression: {edit_expr}"
+        )
+
+    def test_data_source_manage_inherits_from_knowledge_graph(self, schema: str):
+        """Verify data_source manage permission inherits from knowledge_graph->manage.
+
+        Data source manage access is entirely derived from the parent knowledge
+        graph's manage permission.
+        """
+        manage_expr = _extract_permission(schema, "data_source", "manage")
+        assert manage_expr is not None, (
+            "data_source.manage permission not found in schema"
+        )
+        assert "knowledge_graph->manage" in manage_expr, (
+            f"data_source.manage should include 'knowledge_graph->manage'. "
+            f"Current expression: {manage_expr}"
+        )
+
+    def test_data_source_has_no_direct_user_relations(self, schema: str):
+        """Verify data_source has no direct user role relations.
+
+        Data sources should not have admin, editor, or viewer relations
+        pointing to users. All access is inherited through the knowledge
+        graph relationship.
+        """
+        def_pattern = r"definition\s+data_source\s*\{(.*?)\n\}"
+        def_match = re.search(def_pattern, schema, re.DOTALL)
+        assert def_match is not None, "definition data_source not found in schema"
+
+        def_body = def_match.group(1)
+        for role in ("admin", "editor", "viewer"):
+            assert not re.search(rf"relation\s+{role}\s*:", def_body), (
+                f"data_source should NOT have a direct '{role}' relation. "
+                f"All access should be inherited through knowledge_graph."
+            )

@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.24.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.23.1...v3.24.0) (2026-03-04)
+
+
+### Features
+
+* **api:** add Management architecture boundary tests (AIHCM-187) ([#263](https://github.com/openshift-hyperfleet/kartograph/issues/263)) ([75af826](https://github.com/openshift-hyperfleet/kartograph/commit/75af826bbe13487ab2fc5d338d18c796a136270f))
+
 ## [3.23.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.23.0...v3.23.1) (2026-03-02)
 
 

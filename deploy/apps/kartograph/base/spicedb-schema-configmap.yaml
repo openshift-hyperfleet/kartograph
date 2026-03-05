@@ -6,19 +6,18 @@ data:
     schema.zed: |
         /**
          * Kartograph Authorization Schema for SpiceDB
-         *
+         * 
          * This schema defines the authorization model for Kartograph using
          * Relationship-Based Access Control (ReBAC). The hierarchy is:
-         *
-         * Tenant -> Workspace -> Group -> Users
-         *
+         * 
+         * Tenant → Workspace → Group → Users
+         * 
          * Design principles:
          * - Groups (not Teams) for Red Hat terminology alignment
          * - Workspaces provide resource organization within tenants
          * - Groups can be owned by users or other groups (for shared ownership)
          * - Knowledge graphs and data sources (future) belong to workspaces
          */
-
         /**
          * User represents a person in the system.
          * Users are provisioned from SSO (Red Hat SSO).
@@ -31,23 +30,23 @@ data:
          * Groups own workspaces and can have members.
          */
         definition group {
-            /** The tenant this group belongs to */
-            relation tenant: tenant
+        	/** The tenant this group belongs to */
+        	relation tenant: tenant
 
-            /** Users who can administer this group (manage members, delete group) */
-            relation admin: user
+        	/** Users who can administer this group (manage members, delete group) */
+        	relation admin: user
 
-            /** Users who are regular members of this group (non-admin) */
-            relation member_relation: user
+        	/** Users who are regular members of this group (non-admin) */
+        	relation member_relation: user
 
-            /** Permission representing all group participants (admins + members) */
-            permission member = admin + member_relation
+        	/** Permission representing all group participants (admins + members) */
+        	permission member = admin + member_relation
 
-            /** Permission to view group details (tenant members can discover groups) */
-            permission view = admin + member_relation + tenant->view
+        	/** Permission to view group details (tenant members can discover groups) */
+        	permission view = admin + member_relation + tenant->view
 
-            /** Permission to manage group membership and delete group */
-            permission manage = admin
+        	/** Permission to manage group membership and delete group */
+        	permission manage = admin
         }
 
         /**
@@ -56,51 +55,53 @@ data:
          * Workspaces can form hierarchies via parent references.
          */
         definition workspace {
-            /** The tenant this workspace belongs to (organizational ownership) */
-            relation tenant: tenant
+        	/** The tenant this workspace belongs to (organizational ownership) */
+        	relation tenant: tenant
 
-            /** The parent workspace (for hierarchical structure, child workspaces only) */
-            relation parent: workspace
+        	/**
+        	 * The parent workspace (for hierarchical structure, child workspaces only)
+        	 */
+        	relation parent: workspace
 
-            /**
-             * The tenant whose members can create child workspaces here.
-             * Only set on root workspaces. This delegates create_child permission
-             * to all tenant members (via creator_tenant->view), enabling any tenant
-             * member to create workspaces under root without being a workspace admin.
-             */
-            relation creator_tenant: tenant
+        	/**
+        	 * The tenant whose members can create child workspaces here.
+        	 * Only set on root workspaces. This delegates create_child permission
+        	 * to all tenant members (via creator_tenant->view), enabling any tenant
+        	 * member to create workspaces under root without being a workspace admin.
+        	 */
+        	relation creator_tenant: tenant
 
-            /** Users or groups who can administer this workspace */
-            relation admin: user | group#member
+        	/** Users or groups who can administer this workspace */
+        	relation admin: user | group#member
 
-            /** Users or groups who can edit resources in this workspace */
-            relation editor: user | group#member
+        	/** Users or groups who can edit resources in this workspace */
+        	relation editor: user | group#member
 
-            /** Users or groups who are members of this workspace */
-            relation member: user | group#member
+        	/** Users or groups who are members of this workspace */
+        	relation member: user | group#member
 
-            /**
-             * Permission to view workspace and its resources.
-             * Granted to:
-             * - Direct workspace members (admin, editor, member)
-             * - All tenant members (tenant->view) for organizational visibility
-             */
-            permission view = admin + editor + member + tenant->view
+        	/**
+        	 * Permission to view workspace and its resources.
+        	 * Granted to:
+        	 * - Direct workspace members (admin, editor, member)
+        	 * - All tenant members (tenant->view) for organizational visibility
+        	 */
+        	permission view = admin + editor + member + tenant->view
 
-            /** Permission to edit workspace configuration */
-            permission edit = admin + editor
+        	/** Permission to edit workspace configuration */
+        	permission edit = admin + editor
 
-            /** Permission to manage workspace (delete, modify members) */
-            permission manage = admin
+        	/** Permission to manage workspace (delete, modify members) */
+        	permission manage = admin
 
-            /**
-             * Permission to create child workspaces under this workspace.
-             * Granted to:
-             * - Workspace admins and editors (direct grants)
-             * - All tenant members (via creator_tenant->view) on root workspaces only
-             * Child workspaces don't have creator_tenant set, so only admin/editor can create children.
-             */
-            permission create_child = admin + editor + creator_tenant->view
+        	/**
+        	 * Permission to create child workspaces under this workspace.
+        	 * Granted to:
+        	 * - Workspace admins and editors (direct grants)
+        	 * - All tenant members (via creator_tenant->view) on root workspaces only
+        	 * Child workspaces don't have creator_tenant set, so only admin/editor can create children.
+        	 */
+        	permission create_child = admin + editor + creator_tenant->view
         }
 
         /**
@@ -110,51 +111,51 @@ data:
          * without requiring full workspace membership.
          */
         definition knowledge_graph {
-            /** The workspace this knowledge graph belongs to */
-            relation workspace: workspace
+        	/** The workspace this knowledge graph belongs to */
+        	relation workspace: workspace
 
-            /** The tenant this knowledge graph belongs to (for data isolation) */
-            relation tenant: tenant
+        	/** The tenant this knowledge graph belongs to (for data isolation) */
+        	relation tenant: tenant
 
-            /** Direct admin access (fine-grained grants beyond workspace inheritance) */
-            relation admin: user | group#member
+        	/** Direct admin access (fine-grained grants beyond workspace inheritance) */
+        	relation admin: user | group#member
 
-            /** Direct editor access */
-            relation editor: user | group#member
+        	/** Direct editor access */
+        	relation editor: user | group#member
 
-            /** Direct viewer access */
-            relation viewer: user | group#member
+        	/** Direct viewer access */
+        	relation viewer: user | group#member
 
-            /** Permission to view this knowledge graph and its data */
-            permission view = admin + editor + viewer + workspace->view
+        	/** Permission to view this knowledge graph and its data */
+        	permission view = admin + editor + viewer + workspace->view
 
-            /** Permission to edit this knowledge graph (add/remove data sources, configure) */
-            permission edit = admin + editor + workspace->edit
+        	/** Permission to edit this knowledge graph (add/remove data sources, configure) */
+        	permission edit = admin + editor + workspace->edit
 
-            /** Permission to manage this knowledge graph (delete, modify access) */
-            permission manage = admin + workspace->manage
+        	/** Permission to manage this knowledge graph (delete, modify access) */
+        	permission manage = admin + workspace->manage
         }
 
         /**
          * DataSource is a configured connection to an external data system.
          * Permissions are inherited purely from the parent KnowledgeGraph.
-         * No direct user/group relations -- access is through the KG.
+         * No direct user/group relations — access is through the KG.
          */
         definition data_source {
-            /** The knowledge graph this data source feeds */
-            relation knowledge_graph: knowledge_graph
+        	/** The knowledge graph this data source feeds */
+        	relation knowledge_graph: knowledge_graph
 
-            /** The tenant this data source belongs to (for data isolation) */
-            relation tenant: tenant
+        	/** The tenant this data source belongs to (for data isolation) */
+        	relation tenant: tenant
 
-            /** Permission to view this data source's configuration */
-            permission view = knowledge_graph->view
+        	/** Permission to view this data source's configuration */
+        	permission view = knowledge_graph->view
 
-            /** Permission to edit this data source (update config, credentials) */
-            permission edit = knowledge_graph->edit
+        	/** Permission to edit this data source (update config, credentials) */
+        	permission edit = knowledge_graph->edit
 
-            /** Permission to manage this data source (delete, trigger sync) */
-            permission manage = knowledge_graph->manage
+        	/** Permission to manage this data source (delete, trigger sync) */
+        	permission manage = knowledge_graph->manage
         }
 
         /**
@@ -163,26 +164,26 @@ data:
          * Each tenant must have a root workspace.
          */
         definition tenant {
-            /** Users who can administer this tenant */
-            relation admin: user
+        	/** Users who can administer this tenant */
+        	relation admin: user
 
-            /** The mandatory root workspace for this tenant */
-            relation root_workspace: workspace
+        	/** The mandatory root workspace for this tenant */
+        	relation root_workspace: workspace
 
-            /** Members of this tenant */
-            relation member: user
+        	/** Members of this tenant */
+        	relation member: user
 
-            /** Permission to view tenant */
-            permission view = admin + member
+        	/** Permission to view tenant */
+        	permission view = admin + member
 
-            /** Permission to create API keys within this tenant */
-            permission create_api_key = admin + member
+        	/** Permission to create API keys within this tenant */
+        	permission create_api_key = admin + member
 
-            /** Permission to manage tenant configuration */
-            permission manage = admin
+        	/** Permission to manage tenant configuration */
+        	permission manage = admin
 
-            /** Permission to perform administrative actions on the tenant */
-            permission administrate = admin
+        	/** Permission to perform administrative actions on the tenant */
+        	permission administrate = admin
         }
 
         /**
@@ -191,15 +192,15 @@ data:
          * Tenant admins can view and revoke any API key in their tenant.
          */
         definition api_key {
-            /** The user who owns this API key */
-            relation owner: user
+        	/** The user who owns this API key */
+        	relation owner: user
 
-            /** The tenant this API key belongs to */
-            relation tenant: tenant
+        	/** The tenant this API key belongs to */
+        	relation tenant: tenant
 
-            /** Permission to view API key metadata */
-            permission view = owner + tenant->administrate
+        	/** Permission to view API key metadata */
+        	permission view = owner + tenant->administrate
 
-            /** Permission to revoke this API key */
-            permission revoke = owner + tenant->administrate
+        	/** Permission to revoke this API key */
+        	permission revoke = owner + tenant->administrate
         }

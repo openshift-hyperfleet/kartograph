@@ -5,7 +5,7 @@ without requiring a real database or handler implementations.
 """
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 from uuid import uuid4
 
 import pytest
@@ -131,7 +131,13 @@ class TestOutboxWorkerProcessBatch:
 
         await worker._process_entries([entry_a, entry_b], mock_session)
 
-        assert mock_handler.handle.call_count == 2
+        mock_handler.handle.assert_has_awaits(
+            [
+                call(entry_a.event_type, entry_a.payload),
+                call(entry_b.event_type, entry_b.payload),
+            ],
+            any_order=False,
+        )
 
     @pytest.mark.asyncio
     async def test_marks_entry_as_processed(self):
@@ -282,3 +288,68 @@ class TestOutboxWorkerProbeIntegration:
         args = mock_probe.event_processing_failed.call_args[0]
         assert args[0] == entry_id
         assert "Handler unavailable" in args[1]
+
+
+class TestOutboxWorkerValidation:
+    """Tests for OutboxWorker constructor input validation."""
+
+    def test_rejects_zero_poll_interval(self):
+        with pytest.raises(ValueError, match="poll_interval_seconds"):
+            OutboxWorker(
+                session_factory=AsyncMock(),
+                handler=AsyncMock(),
+                probe=MagicMock(),
+                poll_interval_seconds=0,
+            )
+
+    def test_rejects_negative_poll_interval(self):
+        with pytest.raises(ValueError, match="poll_interval_seconds"):
+            OutboxWorker(
+                session_factory=AsyncMock(),
+                handler=AsyncMock(),
+                probe=MagicMock(),
+                poll_interval_seconds=-1,
+            )
+
+    def test_rejects_zero_batch_size(self):
+        with pytest.raises(ValueError, match="batch_size"):
+            OutboxWorker(
+                session_factory=AsyncMock(),
+                handler=AsyncMock(),
+                probe=MagicMock(),
+                batch_size=0,
+            )
+
+    def test_rejects_negative_max_retries(self):
+        with pytest.raises(ValueError, match="max_retries"):
+            OutboxWorker(
+                session_factory=AsyncMock(),
+                handler=AsyncMock(),
+                probe=MagicMock(),
+                max_retries=-1,
+            )
+
+    def test_rejects_none_session_factory(self):
+        with pytest.raises(ValueError, match="session_factory"):
+            OutboxWorker(session_factory=None, handler=AsyncMock(), probe=MagicMock())
+
+    def test_rejects_none_handler(self):
+        with pytest.raises(ValueError, match="handler"):
+            OutboxWorker(session_factory=AsyncMock(), handler=None, probe=MagicMock())
+
+    def test_rejects_none_probe(self):
+        with pytest.raises(ValueError, match="probe"):
+            OutboxWorker(session_factory=AsyncMock(), handler=AsyncMock(), probe=None)
+
+    def test_accepts_valid_configuration(self):
+        # Should not raise
+        worker = OutboxWorker(
+            session_factory=AsyncMock(),
+            handler=AsyncMock(),
+            probe=MagicMock(),
+            event_source=None,
+            poll_interval_seconds=10,
+            batch_size=50,
+            max_retries=3,
+        )
+        assert worker._running is False

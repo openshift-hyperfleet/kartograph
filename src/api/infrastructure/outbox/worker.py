@@ -64,6 +64,22 @@ class OutboxWorker:
             batch_size: Maximum entries to process per batch
             max_retries: Maximum retry attempts before moving to DLQ
         """
+        if session_factory is None:
+            raise ValueError("session_factory is required")
+        if handler is None:
+            raise ValueError("handler is required")
+        if probe is None:
+            raise ValueError("probe is required")
+
+        if poll_interval_seconds <= 0:
+            raise ValueError(
+                f"poll_interval_seconds must be positive, got {poll_interval_seconds}"
+            )
+        if batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {batch_size}")
+        if max_retries < 0:
+            raise ValueError(f"max_retries must be non-negative, got {max_retries}")
+
         self._session_factory = session_factory
         self._handler = handler
         self._probe = probe

@@ -134,3 +134,19 @@ class TestCompositeEventHandler:
         await composite.handle("EventX", {"some": "data"})
 
         probe.event_dispatching.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_register_is_idempotent(self):
+        """Registering the same handler twice should not duplicate dispatch."""
+        handler = MagicMock()
+        handler.supported_event_types.return_value = frozenset({"EventA"})
+        handler.handle = AsyncMock()
+
+        composite = CompositeEventHandler()
+        composite.register(handler)
+        composite.register(handler)  # duplicate
+
+        await composite.handle("EventA", {"key": "value"})
+
+        # Should only be called once, not twice
+        handler.handle.assert_awaited_once_with("EventA", {"key": "value"})

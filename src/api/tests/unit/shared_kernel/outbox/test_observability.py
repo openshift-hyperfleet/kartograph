@@ -41,10 +41,20 @@ class TestOutboxWorkerProbeProtocol:
         probe.event_dispatching(uuid4(), "GroupCreated")
 
     def test_event_dispatching_logs_event_type(self):
-        """event_dispatching provides visibility into which events are dispatched."""
+        """event_dispatching emits a debug log with event_type."""
+        import structlog.testing
+
         probe = DefaultOutboxWorkerProbe()
-        probe.event_dispatching(uuid4(), "UnknownEvent")
-        probe.event_dispatching(uuid4(), "JobPackageProduced")
+        entry_id = uuid4()
+
+        with structlog.testing.capture_logs() as logs:
+            probe.event_dispatching(entry_id, "JobPackageProduced")
+
+        assert len(logs) == 1
+        assert logs[0]["event"] == "outbox_event_dispatching"
+        assert logs[0]["log_level"] == "debug"
+        assert logs[0]["entry_id"] == str(entry_id)
+        assert logs[0]["event_type"] == "JobPackageProduced"
 
     def test_default_probe_has_handler_registered(self):
         """DefaultOutboxWorkerProbe should have handler_registered method."""
@@ -62,15 +72,23 @@ class TestOutboxWorkerProbeProtocol:
         )
 
     def test_handler_registered_logs_event_types(self):
-        """handler_registered provides visibility into registered handlers."""
+        """handler_registered emits an info log with handler name and event types."""
+        import structlog.testing
+
         probe = DefaultOutboxWorkerProbe()
-        # Single event type
-        probe.handler_registered("SimpleHandler", frozenset({"SimpleEvent"}))
-        # Multiple event types
-        probe.handler_registered(
-            "SpiceDBEventHandler",
-            frozenset({"GroupCreated", "GroupDeleted", "MemberAdded", "MemberRemoved"}),
-        )
+
+        with structlog.testing.capture_logs() as logs:
+            probe.handler_registered(
+                "SpiceDBEventHandler",
+                frozenset({"GroupCreated", "MemberAdded"}),
+            )
+
+        assert len(logs) == 1
+        assert logs[0]["event"] == "outbox_handler_registered"
+        assert logs[0]["log_level"] == "info"
+        assert logs[0]["handler"] == "SpiceDBEventHandler"
+        assert logs[0]["event_types"] == sorted({"GroupCreated", "MemberAdded"})
+        assert logs[0]["event_count"] == 2
 
     def test_default_probe_implements_all_protocol_methods(self):
         """DefaultOutboxWorkerProbe should implement all protocol methods."""

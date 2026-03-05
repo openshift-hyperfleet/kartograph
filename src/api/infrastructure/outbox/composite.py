@@ -50,7 +50,8 @@ class CompositeEventHandler:
         for event_type in event_types:
             if event_type not in self._handlers_by_type:
                 self._handlers_by_type[event_type] = []
-            self._handlers_by_type[event_type].append(handler)
+            if handler not in self._handlers_by_type[event_type]:
+                self._handlers_by_type[event_type].append(handler)
 
         # Log registration if probe is available
         if self._probe is not None:

@@ -226,3 +226,22 @@ class TestSpiceDBEventHandler:
 
         with pytest.raises(Exception, match="SpiceDB unavailable"):
             await handler.handle("GroupCreated", {"id": "group-1"})
+
+    @pytest.mark.asyncio
+    async def test_handle_raises_for_unsupported_operation_type(self) -> None:
+        """handle should raise TypeError for unknown operation types."""
+        # Create a fake operation object that isn't one of the 3 known types
+        fake_op = object()  # not Write/Delete/DeleteByFilter
+        translator = MagicMock()
+        translator.translate.return_value = [fake_op]
+        authz = AsyncMock()
+
+        handler = SpiceDBEventHandler(translator=translator, authz=authz)
+
+        with pytest.raises(TypeError, match="Unsupported"):
+            await handler.handle("SomeEvent", {})
+
+        # Verify no authz methods were called
+        authz.write_relationship.assert_not_awaited()
+        authz.delete_relationship.assert_not_awaited()
+        authz.delete_relationships_by_filter.assert_not_awaited()

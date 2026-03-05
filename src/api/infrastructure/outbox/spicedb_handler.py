@@ -87,3 +87,8 @@ class SpiceDBEventHandler:
                     else None,
                     subject_id=operation.subject_id,
                 )
+
+            case _:
+                raise TypeError(
+                    f"Unsupported operation type: {type(operation).__name__}"
+                )

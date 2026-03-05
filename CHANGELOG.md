@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.26.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.25.1...v3.26.0) (2026-03-05)
+
+
+### Features
+
+* **api.management:** add domain model and business logic (AIHCM-180) ([#275](https://github.com/openshift-hyperfleet/kartograph/issues/275)) ([e978b97](https://github.com/openshift-hyperfleet/kartograph/commit/e978b97ecfeb0e697e9e72de6754ac40de9ef1af))
+
 ## [3.25.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.25.0...v3.25.1) (2026-03-05)
 
 

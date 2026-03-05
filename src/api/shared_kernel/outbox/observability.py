@@ -29,7 +29,7 @@ class OutboxWorkerProbe(Protocol):
         ...
 
     def event_dispatching(
-        self, entry_id: UUID, event_type: str, handler_count: int
+        self, entry_id: UUID | None, event_type: str, handler_count: int
     ) -> None:
         """Called when an event is about to be dispatched to handlers.
 
@@ -38,7 +38,8 @@ class OutboxWorkerProbe(Protocol):
         unregistered event type.
 
         Args:
-            entry_id: The outbox entry being dispatched
+            entry_id: The outbox entry being dispatched (None when called
+                      from CompositeEventHandler which lacks entry context)
             event_type: The event type name
             handler_count: Number of handlers that will process this event
         """
@@ -108,7 +109,7 @@ class DefaultOutboxWorkerProbe:
         self._log.info("outbox_worker_stopped")
 
     def event_dispatching(
-        self, entry_id: UUID, event_type: str, handler_count: int
+        self, entry_id: UUID | None, event_type: str, handler_count: int
     ) -> None:
         """Log event dispatch with handler count.
 
@@ -117,7 +118,7 @@ class DefaultOutboxWorkerProbe:
         """
         self._log.debug(
             "outbox_event_dispatching",
-            entry_id=str(entry_id),
+            entry_id=str(entry_id) if entry_id else None,
             event_type=event_type,
             handler_count=handler_count,
         )

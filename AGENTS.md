@@ -80,6 +80,18 @@ Logging should follow the [Domain Oriented Observability](https://martinfowler.c
 pattern. Be sure to read the article to fully understand. Domain probes should be 100% preferred over logger.* and print().
 </development-pattern>
 
+<dual-source-files>
+The SpiceDB schema exists in two locations that must be kept in sync:
+1. **Canonical source:** `src/api/shared_kernel/authorization/spicedb/schema.zed`
+2. **Deployment ConfigMap:** `deploy/apps/kartograph/base/spicedb-schema-configmap.yaml`
+
+When modifying `schema.zed`, always update the ConfigMap to match. The ConfigMap
+embeds the schema inline under the `data.schema.zed` key and is used by the
+Kubernetes job (`job-spicedb-schema.yaml`) to write the schema to SpiceDB via
+`zed schema write`. The `compose.yaml` mounts the canonical file directly, so
+only the Kubernetes ConfigMap requires manual sync.
+</dual-source-files>
+
 <non-functional-requirements>
 - Use FastAPI and FastMCP for API and MCP (model context protocol) work respectively.
 - Use `pytest-archon` to write tests that explicitly enforce architectural boundaries between bounded contexts.

@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.25.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.25.0...v3.25.1) (2026-03-05)
+
+
+### Bug Fixes
+
+* **deploy:** sync SpiceDB schema ConfigMap and document dual-source rule (AIHCM-179) ([#269](https://github.com/openshift-hyperfleet/kartograph/issues/269)) ([05b2ce2](https://github.com/openshift-hyperfleet/kartograph/commit/05b2ce21e695b9dfea9598f6a8901691bc4d833d))
+
 ## [3.25.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.24.0...v3.25.0) (2026-03-05)
 
 

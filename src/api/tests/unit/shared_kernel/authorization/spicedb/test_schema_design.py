@@ -184,6 +184,9 @@ class TestKnowledgeGraphSchemaDesign:
 
         Workspace members should have VIEW access to all knowledge graphs
         within the workspace, without requiring per-KG grants.
+        Knowledge graph visibility is scoped to workspace membership,
+        NOT tenant-wide — unlike groups and workspaces which use tenant->view
+        for organizational discoverability.
         """
         view_expr = _extract_permission(schema, "knowledge_graph", "view")
         assert view_expr is not None, (
@@ -192,6 +195,11 @@ class TestKnowledgeGraphSchemaDesign:
         assert "workspace->view" in view_expr, (
             f"knowledge_graph.view should include 'workspace->view' for "
             f"workspace-level visibility. Current expression: {view_expr}"
+        )
+        assert "tenant->view" not in view_expr, (
+            f"knowledge_graph.view should NOT include 'tenant->view'. "
+            f"KG visibility is scoped to workspace, not tenant-wide. "
+            f"Current expression: {view_expr}"
         )
 
     def test_knowledge_graph_view_includes_direct_roles(self, schema: str):

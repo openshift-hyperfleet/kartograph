@@ -275,9 +275,10 @@ class TestKnowledgeGraphSchemaDesign:
         )
 
     def test_knowledge_graph_manage_is_admin_based(self, schema: str):
-        """Verify knowledge_graph manage permission includes admin.
+        """Verify knowledge_graph manage permission is admin-only.
 
         Only admins (direct or via workspace) should have manage access.
+        Editor and viewer roles must not appear in the manage expression.
         """
         manage_expr = _extract_permission(schema, "knowledge_graph", "manage")
         assert manage_expr is not None, (
@@ -287,6 +288,11 @@ class TestKnowledgeGraphSchemaDesign:
             f"knowledge_graph.manage should include 'admin'. "
             f"Current expression: {manage_expr}"
         )
+        for role in ("editor", "viewer"):
+            assert role not in manage_expr, (
+                f"knowledge_graph.manage should NOT include '{role}'. "
+                f"Manage is admin-only. Current expression: {manage_expr}"
+            )
 
 
 class TestDataSourceSchemaDesign:
@@ -310,43 +316,43 @@ class TestDataSourceSchemaDesign:
         )
 
     def test_data_source_view_inherits_from_knowledge_graph(self, schema: str):
-        """Verify data_source view permission inherits from knowledge_graph->view.
+        """Verify data_source view permission is exactly knowledge_graph->view.
 
         Data source view access is entirely derived from the parent knowledge
-        graph's view permission.
+        graph's view permission. No additional grants should be present.
         """
         view_expr = _extract_permission(schema, "data_source", "view")
         assert view_expr is not None, "data_source.view permission not found in schema"
-        assert "knowledge_graph->view" in view_expr, (
-            f"data_source.view should include 'knowledge_graph->view'. "
+        assert view_expr == "knowledge_graph->view", (
+            f"data_source.view should be exactly 'knowledge_graph->view'. "
             f"Current expression: {view_expr}"
         )
 
     def test_data_source_edit_inherits_from_knowledge_graph(self, schema: str):
-        """Verify data_source edit permission inherits from knowledge_graph->edit.
+        """Verify data_source edit permission is exactly knowledge_graph->edit.
 
         Data source edit access is entirely derived from the parent knowledge
-        graph's edit permission.
+        graph's edit permission. No additional grants should be present.
         """
         edit_expr = _extract_permission(schema, "data_source", "edit")
         assert edit_expr is not None, "data_source.edit permission not found in schema"
-        assert "knowledge_graph->edit" in edit_expr, (
-            f"data_source.edit should include 'knowledge_graph->edit'. "
+        assert edit_expr == "knowledge_graph->edit", (
+            f"data_source.edit should be exactly 'knowledge_graph->edit'. "
             f"Current expression: {edit_expr}"
         )
 
     def test_data_source_manage_inherits_from_knowledge_graph(self, schema: str):
-        """Verify data_source manage permission inherits from knowledge_graph->manage.
+        """Verify data_source manage permission is exactly knowledge_graph->manage.
 
         Data source manage access is entirely derived from the parent knowledge
-        graph's manage permission.
+        graph's manage permission. No additional grants should be present.
         """
         manage_expr = _extract_permission(schema, "data_source", "manage")
         assert manage_expr is not None, (
             "data_source.manage permission not found in schema"
         )
-        assert "knowledge_graph->manage" in manage_expr, (
-            f"data_source.manage should include 'knowledge_graph->manage'. "
+        assert manage_expr == "knowledge_graph->manage", (
+            f"data_source.manage should be exactly 'knowledge_graph->manage'. "
             f"Current expression: {manage_expr}"
         )
 

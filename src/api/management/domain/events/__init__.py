@@ -10,8 +10,8 @@ from __future__ import annotations
 from management.domain.events.data_source import (
     DataSourceCreated,
     DataSourceDeleted,
+    DataSourceSyncRequested,
     DataSourceUpdated,
-    SyncRequested,
 )
 from management.domain.events.knowledge_graph import (
     KnowledgeGraphCreated,
@@ -27,7 +27,7 @@ DomainEvent = (
     | DataSourceCreated
     | DataSourceUpdated
     | DataSourceDeleted
-    | SyncRequested
+    | DataSourceSyncRequested
 )
 
 __all__ = [
@@ -39,7 +39,7 @@ __all__ = [
     "DataSourceCreated",
     "DataSourceUpdated",
     "DataSourceDeleted",
-    "SyncRequested",
+    "DataSourceSyncRequested",
     # Type alias
     "DomainEvent",
 ]

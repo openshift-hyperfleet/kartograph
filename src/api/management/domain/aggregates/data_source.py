@@ -11,7 +11,10 @@ from management.domain.events import (
     DataSourceDeleted,
     DataSourceUpdated,
 )
-from management.domain.exceptions import InvalidDataSourceNameError
+from management.domain.exceptions import (
+    AggregateDeletedError,
+    InvalidDataSourceNameError,
+)
 from management.domain.observability import (
     DataSourceProbe,
     DefaultDataSourceProbe,
@@ -58,6 +61,7 @@ class DataSource:
         default_factory=DefaultDataSourceProbe,
         repr=False,
     )
+    _deleted: bool = field(default=False, repr=False)
 
     def __post_init__(self) -> None:
         """Validate business rules after initialization."""
@@ -115,7 +119,7 @@ class DataSource:
             tenant_id=tenant_id,
             name=name,
             adapter_type=adapter_type,
-            connection_config=connection_config,
+            connection_config=dict(connection_config),
             credentials_path=credentials_path,
             schedule=Schedule(schedule_type=ScheduleType.MANUAL),
             last_sync_at=None,
@@ -161,10 +165,13 @@ class DataSource:
 
         Raises:
             InvalidDataSourceNameError: If name is not 1-100 characters
+            AggregateDeletedError: If the data source has been marked for deletion
         """
+        if self._deleted:
+            raise AggregateDeletedError("Cannot update a deleted data source")
         self._validate_name(name)
         self.name = name
-        self.connection_config = connection_config
+        self.connection_config = dict(connection_config)
         self.credentials_path = credentials_path
         self.updated_at = datetime.now(UTC)
 
@@ -211,6 +218,9 @@ class DataSource:
         Args:
             deleted_by: The user performing the deletion (optional)
         """
+        if self._deleted:
+            return
+        self._deleted = True
         self._pending_events.append(
             DataSourceDeleted(
                 data_source_id=self.id.value,

@@ -13,7 +13,10 @@ from management.domain.events import (
     DataSourceDeleted,
     DataSourceUpdated,
 )
-from management.domain.exceptions import InvalidDataSourceNameError
+from management.domain.exceptions import (
+    AggregateDeletedError,
+    InvalidDataSourceNameError,
+)
 from management.domain.observability import DataSourceProbe
 from management.domain.value_objects import (
     DataSourceId,
@@ -161,6 +164,19 @@ class TestDataSourceCreate:
         )
         assert ds.credentials_path is None
 
+    def test_create_defensively_copies_connection_config(self):
+        """create() should copy connection_config to avoid external mutation."""
+        original_config = {"repo": "org/repo"}
+        ds = DataSource.create(
+            knowledge_graph_id="kg-1",
+            tenant_id="t",
+            name="Source",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config=original_config,
+        )
+        original_config["injected"] = "evil"
+        assert "injected" not in ds.connection_config
+
 
 class TestDataSourceUpdateConnection:
     """Tests for DataSource.update_connection() method."""
@@ -260,6 +276,28 @@ class TestDataSourceUpdateConnection:
             tenant_id=ds.tenant_id,
             name="Updated Source",
         )
+
+    def test_update_connection_defensively_copies_connection_config(self):
+        """update_connection() should copy connection_config to avoid external mutation."""
+        ds = self._create_ds()
+        new_config = {"repo": "org/new-repo"}
+        ds.update_connection(
+            name="Updated",
+            connection_config=new_config,
+            credentials_path=None,
+        )
+        new_config["injected"] = "evil"
+        assert "injected" not in ds.connection_config
+
+    def test_update_connection_raises_after_deletion(self):
+        """update_connection() should raise AggregateDeletedError after mark_for_deletion()."""
+        ds = self._create_ds()
+        ds.mark_for_deletion()
+        ds.collect_events()
+        with pytest.raises(AggregateDeletedError):
+            ds.update_connection(
+                name="Should fail", connection_config={}, credentials_path=None
+            )
 
 
 class TestDataSourceRecordSyncCompleted:
@@ -363,6 +401,15 @@ class TestDataSourceMarkForDeletion:
             knowledge_graph_id="kg-123",
             tenant_id="tenant-456",
         )
+
+    def test_mark_for_deletion_is_idempotent(self):
+        """Calling mark_for_deletion() twice should only emit one event."""
+        ds = self._create_ds()
+        ds.mark_for_deletion()
+        ds.mark_for_deletion()  # second call should be no-op
+        events = ds.collect_events()
+        assert len(events) == 1
+        assert isinstance(events[0], DataSourceDeleted)
 
 
 class TestDataSourceCollectEvents:

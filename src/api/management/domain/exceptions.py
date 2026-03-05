@@ -17,3 +17,15 @@ class InvalidScheduleError(Exception):
     """Raised when a schedule configuration is invalid."""
 
     pass
+
+
+class AggregateDeletedError(Exception):
+    """Raised when attempting to mutate a deleted aggregate."""
+
+    pass
+
+
+class InvalidIdentifierError(Exception):
+    """Raised when a cross-context identifier (tenant_id, workspace_id, etc.) is empty or whitespace."""
+
+    pass

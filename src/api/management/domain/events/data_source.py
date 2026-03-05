@@ -70,7 +70,7 @@ class DataSourceDeleted:
 
 
 @dataclass(frozen=True)
-class SyncRequested:
+class DataSourceSyncRequested:
     """Emitted when a sync is requested for a data source.
 
     Attributes:

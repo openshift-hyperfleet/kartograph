@@ -10,12 +10,12 @@ import pytest
 from management.domain.events import (
     DataSourceCreated,
     DataSourceDeleted,
+    DataSourceSyncRequested,
     DataSourceUpdated,
     DomainEvent,
     KnowledgeGraphCreated,
     KnowledgeGraphDeleted,
     KnowledgeGraphUpdated,
-    SyncRequested,
 )
 
 
@@ -236,12 +236,12 @@ class TestDataSourceDeleted:
         assert event.deleted_by is None
 
 
-class TestSyncRequested:
-    """Tests for SyncRequested event."""
+class TestDataSourceSyncRequested:
+    """Tests for DataSourceSyncRequested event."""
 
     def test_stores_all_fields(self):
         now = datetime.now(UTC)
-        event = SyncRequested(
+        event = DataSourceSyncRequested(
             data_source_id="ds-123",
             knowledge_graph_id="kg-456",
             tenant_id="tenant-789",
@@ -256,7 +256,7 @@ class TestSyncRequested:
 
     def test_requested_by_defaults_to_none(self):
         now = datetime.now(UTC)
-        event = SyncRequested(
+        event = DataSourceSyncRequested(
             data_source_id="ds-123",
             knowledge_graph_id="kg-456",
             tenant_id="tenant-789",
@@ -272,7 +272,7 @@ _ALL_EVENT_TYPES = [
     DataSourceCreated,
     DataSourceUpdated,
     DataSourceDeleted,
-    SyncRequested,
+    DataSourceSyncRequested,
 ]
 
 _ALLOWED_FIELD_TYPES = {"str", "datetime", "str | None"}

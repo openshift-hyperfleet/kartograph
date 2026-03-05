@@ -13,7 +13,11 @@ from management.domain.events import (
     KnowledgeGraphDeleted,
     KnowledgeGraphUpdated,
 )
-from management.domain.exceptions import InvalidKnowledgeGraphNameError
+from management.domain.exceptions import (
+    AggregateDeletedError,
+    InvalidIdentifierError,
+    InvalidKnowledgeGraphNameError,
+)
 from management.domain.observability import (
     KnowledgeGraphProbe,
 )
@@ -207,6 +211,13 @@ class TestKnowledgeGraphUpdate:
             name="Updated",
         )
 
+    def test_update_raises_after_deletion(self):
+        """update() should raise AggregateDeletedError after mark_for_deletion()."""
+        kg = self._create_kg()
+        kg.mark_for_deletion()
+        with pytest.raises(AggregateDeletedError):
+            kg.update(name="Should fail", description="")
+
 
 class TestKnowledgeGraphMarkForDeletion:
     """Tests for KnowledgeGraph.mark_for_deletion() method."""
@@ -268,6 +279,15 @@ class TestKnowledgeGraphMarkForDeletion:
             tenant_id="tenant-123",
             workspace_id="ws-456",
         )
+
+    def test_mark_for_deletion_is_idempotent(self):
+        """Calling mark_for_deletion() twice should only emit one event."""
+        kg = self._create_kg()
+        kg.mark_for_deletion()
+        kg.mark_for_deletion()  # second call should be no-op
+        events = kg.collect_events()
+        assert len(events) == 1
+        assert isinstance(events[0], KnowledgeGraphDeleted)
 
 
 class TestKnowledgeGraphCollectEvents:
@@ -332,4 +352,70 @@ class TestKnowledgeGraphValidation:
                 description="",
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
+            )
+
+    def test_post_init_rejects_empty_tenant_id(self):
+        """Direct construction with empty tenant_id should raise."""
+        with pytest.raises(InvalidIdentifierError):
+            KnowledgeGraph(
+                id=KnowledgeGraphId.generate(),
+                tenant_id="",
+                workspace_id="w",
+                name="Graph",
+                description="",
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+
+    def test_post_init_rejects_whitespace_tenant_id(self):
+        """Direct construction with whitespace-only tenant_id should raise."""
+        with pytest.raises(InvalidIdentifierError):
+            KnowledgeGraph(
+                id=KnowledgeGraphId.generate(),
+                tenant_id="   ",
+                workspace_id="w",
+                name="Graph",
+                description="",
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+
+    def test_post_init_rejects_empty_workspace_id(self):
+        """Direct construction with empty workspace_id should raise."""
+        with pytest.raises(InvalidIdentifierError):
+            KnowledgeGraph(
+                id=KnowledgeGraphId.generate(),
+                tenant_id="t",
+                workspace_id="",
+                name="Graph",
+                description="",
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+
+    def test_post_init_rejects_whitespace_workspace_id(self):
+        """Direct construction with whitespace-only workspace_id should raise."""
+        with pytest.raises(InvalidIdentifierError):
+            KnowledgeGraph(
+                id=KnowledgeGraphId.generate(),
+                tenant_id="t",
+                workspace_id="   ",
+                name="Graph",
+                description="",
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+
+    def test_create_rejects_empty_tenant_id(self):
+        """create() with empty tenant_id should raise."""
+        with pytest.raises(InvalidIdentifierError):
+            KnowledgeGraph.create(
+                tenant_id="", workspace_id="w", name="Graph", description=""
+            )
+
+    def test_create_rejects_empty_workspace_id(self):
+        """create() with empty workspace_id should raise."""
+        with pytest.raises(InvalidIdentifierError):
+            KnowledgeGraph.create(
+                tenant_id="t", workspace_id="", name="Graph", description=""
             )

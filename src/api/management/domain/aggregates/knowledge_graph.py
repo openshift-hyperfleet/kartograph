@@ -11,7 +11,11 @@ from management.domain.events import (
     KnowledgeGraphDeleted,
     KnowledgeGraphUpdated,
 )
-from management.domain.exceptions import InvalidKnowledgeGraphNameError
+from management.domain.exceptions import (
+    AggregateDeletedError,
+    InvalidIdentifierError,
+    InvalidKnowledgeGraphNameError,
+)
 from management.domain.observability import (
     DefaultKnowledgeGraphProbe,
     KnowledgeGraphProbe,
@@ -51,10 +55,13 @@ class KnowledgeGraph:
         default_factory=DefaultKnowledgeGraphProbe,
         repr=False,
     )
+    _deleted: bool = field(default=False, repr=False)
 
     def __post_init__(self) -> None:
         """Validate business rules after initialization."""
         self._validate_name(self.name)
+        self._validate_identifier(self.tenant_id, "tenant_id")
+        self._validate_identifier(self.workspace_id, "workspace_id")
 
     def _validate_name(self, name: str) -> None:
         """Validate knowledge graph name length.
@@ -68,6 +75,22 @@ class KnowledgeGraph:
         if not (1 <= len(name) <= 100):
             raise InvalidKnowledgeGraphNameError(
                 "Knowledge graph name must be between 1 and 100 characters"
+            )
+
+    @staticmethod
+    def _validate_identifier(value: str, field_name: str) -> None:
+        """Validate that a cross-context identifier is non-empty.
+
+        Args:
+            value: The identifier value to validate
+            field_name: The field name for error messages
+
+        Raises:
+            InvalidIdentifierError: If value is empty or whitespace-only
+        """
+        if not value or not value.strip():
+            raise InvalidIdentifierError(
+                f"{field_name} must not be empty or whitespace-only"
             )
 
     @classmethod
@@ -146,7 +169,10 @@ class KnowledgeGraph:
 
         Raises:
             InvalidKnowledgeGraphNameError: If name is not 1-100 characters
+            AggregateDeletedError: If the knowledge graph has been marked for deletion
         """
+        if self._deleted:
+            raise AggregateDeletedError("Cannot update a deleted knowledge graph")
         self._validate_name(name)
         self.name = name
         self.description = description
@@ -181,6 +207,9 @@ class KnowledgeGraph:
         Args:
             deleted_by: The user performing the deletion (optional)
         """
+        if self._deleted:
+            return
+        self._deleted = True
         self._pending_events.append(
             KnowledgeGraphDeleted(
                 knowledge_graph_id=self.id.value,

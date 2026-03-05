@@ -1,0 +1,1 @@
+"""Management domain observability probes."""

@@ -28,8 +28,17 @@ class OutboxWorkerProbe(Protocol):
         """Called when the worker stops."""
         ...
 
+    def event_dispatching(self, entry_id: UUID, event_type: str) -> None:
+        """Called when an event is about to be dispatched to handlers.
+
+        Args:
+            entry_id: The outbox entry being dispatched
+            event_type: The event type name
+        """
+        ...
+
     def event_processed(self, entry_id: UUID, event_type: str) -> None:
-        """Called when an event is successfully processed."""
+        """Called when an event is successfully processed by all handlers."""
         ...
 
     def event_processing_failed(
@@ -58,23 +67,17 @@ class OutboxWorkerProbe(Protocol):
         """Called when an error occurs in the poll loop."""
         ...
 
-    def event_translated(
-        self, entry_id: UUID, event_type: str, operation_count: int
+    def handler_registered(
+        self, handler_name: str, event_types: frozenset[str]
     ) -> None:
-        """Called when an event is translated to SpiceDB operations.
+        """Called when an event handler is registered.
 
-        Provides visibility into how many operations each event produces.
-        Zero operations may indicate misconfiguration or unsupported event type.
-        """
-        ...
+        Provides visibility into which handlers have been registered
+        and what event types they handle.
 
-    def translator_registered(
-        self, context_name: str, event_types: frozenset[str]
-    ) -> None:
-        """Called when a translator plugin is registered.
-
-        Provides visibility into which bounded contexts have registered
-        their event translators and what event types they handle.
+        Args:
+            handler_name: Name of the handler (e.g., "SpiceDBEventHandler", "iam")
+            event_types: The event types this handler will process
         """
         ...
 
@@ -96,6 +99,14 @@ class DefaultOutboxWorkerProbe:
     def worker_stopped(self) -> None:
         """Log worker stop."""
         self._log.info("outbox_worker_stopped")
+
+    def event_dispatching(self, entry_id: UUID, event_type: str) -> None:
+        """Log event dispatch."""
+        self._log.debug(
+            "outbox_event_dispatching",
+            entry_id=str(entry_id),
+            event_type=event_type,
+        )
 
     def event_processed(self, entry_id: UUID, event_type: str) -> None:
         """Log successful event processing."""
@@ -142,28 +153,13 @@ class DefaultOutboxWorkerProbe:
         """Log poll loop error."""
         self._log.warning("outbox_poll_loop_error", error=error)
 
-    def event_translated(
-        self, entry_id: UUID, event_type: str, operation_count: int
+    def handler_registered(
+        self, handler_name: str, event_types: frozenset[str]
     ) -> None:
-        """Log event translation with operation count.
-
-        Zero operations is valid for audit-only events (e.g., TenantCreated,
-        TenantDeleted) that don't require side effects like SpiceDB writes.
-        """
-        self._log.debug(
-            "outbox_event_translated",
-            entry_id=str(entry_id),
-            event_type=event_type,
-            operation_count=operation_count,
-        )
-
-    def translator_registered(
-        self, context_name: str, event_types: frozenset[str]
-    ) -> None:
-        """Log translator plugin registration."""
+        """Log event handler registration."""
         self._log.info(
-            "outbox_translator_registered",
-            context=context_name,
+            "outbox_handler_registered",
+            handler=handler_name,
             event_types=sorted(event_types),
             event_count=len(event_types),
         )

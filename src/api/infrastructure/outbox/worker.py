@@ -1,4 +1,4 @@
-"""Outbox worker for processing events and writing to SpiceDB.
+"""Outbox worker for processing events via pluggable handlers.
 
 The worker runs as a background task within the FastAPI application,
 processing outbox entries through a pluggable event source architecture.
@@ -19,22 +19,16 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from infrastructure.outbox.models import OutboxModel
-from shared_kernel.outbox.operations import (
-    DeleteRelationship,
-    DeleteRelationshipsByFilter,
-    WriteRelationship,
-)
-from shared_kernel.outbox.ports import EventTranslator
+from shared_kernel.outbox.ports import EventHandler
 from shared_kernel.outbox.value_objects import OutboxEntry
 
 if TYPE_CHECKING:
-    from shared_kernel.authorization.protocols import AuthorizationProvider
     from shared_kernel.outbox.observability import OutboxWorkerProbe
     from shared_kernel.outbox.ports import OutboxEventSource
 
 
 class OutboxWorker:
-    """Background worker that processes outbox entries and applies to SpiceDB.
+    """Background worker that processes outbox entries via event handlers.
 
     The worker uses a pluggable event source architecture:
     1. Event Source: Optional real-time processing via OutboxEventSource protocol
@@ -43,17 +37,14 @@ class OutboxWorker:
 
     This ensures both low latency and reliability.
 
-    The worker uses a plugin architecture for event translation:
-    - Translators are injected and handle converting events to SpiceDB operations
-    - This keeps the worker generic and bounded-context agnostic
-    - Event sources are optional and can be swapped for different notification mechanisms
+    The worker delegates all event processing to the injected EventHandler,
+    keeping the worker generic and bounded-context agnostic.
     """
 
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
-        authz: AuthorizationProvider,
-        translator: EventTranslator,
+        handler: EventHandler,
         probe: OutboxWorkerProbe,
         event_source: OutboxEventSource | None = None,
         poll_interval_seconds: int = 30,
@@ -64,8 +55,7 @@ class OutboxWorker:
 
         Args:
             session_factory: Factory for creating database sessions
-            authz: Authorization provider for SpiceDB operations
-            translator: Translator for domain events to SpiceDB operations
+            handler: Event handler for processing outbox entries
             probe: Observability probe for logging/metrics
             event_source: Optional event source for real-time notifications
                          (e.g., PostgresNotifyEventSource). If not provided,
@@ -74,9 +64,24 @@ class OutboxWorker:
             batch_size: Maximum entries to process per batch
             max_retries: Maximum retry attempts before moving to DLQ
         """
+        if session_factory is None:
+            raise ValueError("session_factory is required")
+        if handler is None:
+            raise ValueError("handler is required")
+        if probe is None:
+            raise ValueError("probe is required")
+
+        if poll_interval_seconds <= 0:
+            raise ValueError(
+                f"poll_interval_seconds must be positive, got {poll_interval_seconds}"
+            )
+        if batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {batch_size}")
+        if max_retries < 0:
+            raise ValueError(f"max_retries must be non-negative, got {max_retries}")
+
         self._session_factory = session_factory
-        self._authz = authz
-        self._translator = translator
+        self._handler = handler
         self._probe = probe
         self._event_source = event_source
         self._poll_interval = poll_interval_seconds
@@ -208,18 +213,11 @@ class OutboxWorker:
         entries: list[OutboxEntry],
         session: AsyncSession,
     ) -> None:
-        """Process a list of entries, applying operations to SpiceDB."""
+        """Process a list of entries by delegating to the event handler."""
         for entry in entries:
             try:
-                # Translate to SpiceDB operations using the injected translator
-                operations = self._translator.translate(entry.event_type, entry.payload)
-                self._probe.event_translated(
-                    entry.id, entry.event_type, len(operations)
-                )
-
-                # Apply each operation
-                for operation in operations:
-                    await self._apply_operation(operation)
+                self._probe.event_dispatching(entry.id, entry.event_type)
+                await self._handler.handle(entry.event_type, entry.payload)
 
                 # Mark as processed
                 await self._mark_processed(entry.id, session)
@@ -227,37 +225,6 @@ class OutboxWorker:
 
             except Exception as e:
                 await self._handle_processing_failure(entry, str(e), session)
-
-    async def _apply_operation(
-        self,
-        operation: WriteRelationship | DeleteRelationship | DeleteRelationshipsByFilter,
-    ) -> None:
-        """Apply a single SpiceDB operation."""
-        match operation:
-            case WriteRelationship():
-                await self._authz.write_relationship(
-                    resource=operation.resource,
-                    relation=operation.relation_name,
-                    subject=operation.subject,
-                )
-
-            case DeleteRelationship():
-                await self._authz.delete_relationship(
-                    resource=operation.resource,
-                    relation=operation.relation_name,
-                    subject=operation.subject,
-                )
-
-            case DeleteRelationshipsByFilter():
-                await self._authz.delete_relationships_by_filter(
-                    resource_type=operation.resource_type.value,
-                    resource_id=operation.resource_id,
-                    relation=str(operation.relation) if operation.relation else None,
-                    subject_type=operation.subject_type.value
-                    if operation.subject_type
-                    else None,
-                    subject_id=operation.subject_id,
-                )
 
     async def _mark_processed(self, entry_id: UUID, session: AsyncSession) -> None:
         """Mark an entry as successfully processed."""

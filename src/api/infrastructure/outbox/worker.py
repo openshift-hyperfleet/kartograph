@@ -200,7 +200,7 @@ class OutboxWorker:
         """Process a list of entries by delegating to the event handler."""
         for entry in entries:
             try:
-                self._probe.event_dispatching(entry.id, entry.event_type, 1)
+                self._probe.event_dispatching(entry.id, entry.event_type)
                 await self._handler.handle(entry.event_type, entry.payload)
 
                 # Mark as processed

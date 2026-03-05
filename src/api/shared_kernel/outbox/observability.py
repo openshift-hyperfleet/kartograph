@@ -28,19 +28,12 @@ class OutboxWorkerProbe(Protocol):
         """Called when the worker stops."""
         ...
 
-    def event_dispatching(
-        self, entry_id: UUID, event_type: str, handler_count: int
-    ) -> None:
+    def event_dispatching(self, entry_id: UUID, event_type: str) -> None:
         """Called when an event is about to be dispatched to handlers.
-
-        Provides visibility into fan-out: how many handlers will process
-        each event. Zero handlers may indicate misconfiguration or an
-        unregistered event type.
 
         Args:
             entry_id: The outbox entry being dispatched
             event_type: The event type name
-            handler_count: Number of handlers that will process this event
         """
         ...
 
@@ -107,19 +100,12 @@ class DefaultOutboxWorkerProbe:
         """Log worker stop."""
         self._log.info("outbox_worker_stopped")
 
-    def event_dispatching(
-        self, entry_id: UUID, event_type: str, handler_count: int
-    ) -> None:
-        """Log event dispatch with handler count.
-
-        Zero handlers is valid for event types that have no registered
-        handlers (e.g., audit-only events).
-        """
+    def event_dispatching(self, entry_id: UUID, event_type: str) -> None:
+        """Log event dispatch."""
         self._log.debug(
             "outbox_event_dispatching",
             entry_id=str(entry_id),
             event_type=event_type,
-            handler_count=handler_count,
         )
 
     def event_processed(self, entry_id: UUID, event_type: str) -> None:

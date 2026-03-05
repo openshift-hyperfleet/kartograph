@@ -35,18 +35,16 @@ class TestOutboxWorkerProbeProtocol:
         assert callable(probe.event_dispatching)
 
     def test_event_dispatching_accepts_parameters(self):
-        """event_dispatching should accept entry_id, event_type, and handler_count."""
+        """event_dispatching should accept entry_id and event_type."""
         probe = DefaultOutboxWorkerProbe()
         # Should not raise
-        probe.event_dispatching(uuid4(), "GroupCreated", 2)
+        probe.event_dispatching(uuid4(), "GroupCreated")
 
-    def test_event_dispatching_logs_handler_count(self):
-        """event_dispatching provides visibility into fan-out per event."""
+    def test_event_dispatching_logs_event_type(self):
+        """event_dispatching provides visibility into which events are dispatched."""
         probe = DefaultOutboxWorkerProbe()
-        # Zero handlers is valid (but worth observing - could indicate misconfiguration)
-        probe.event_dispatching(uuid4(), "UnknownEvent", 0)
-        # Multiple handlers is the fan-out case
-        probe.event_dispatching(uuid4(), "JobPackageProduced", 2)
+        probe.event_dispatching(uuid4(), "UnknownEvent")
+        probe.event_dispatching(uuid4(), "JobPackageProduced")
 
     def test_default_probe_has_handler_registered(self):
         """DefaultOutboxWorkerProbe should have handler_registered method."""
@@ -81,7 +79,7 @@ class TestOutboxWorkerProbeProtocol:
         # All these methods should exist and be callable
         probe.worker_started()
         probe.worker_stopped()
-        probe.event_dispatching(uuid4(), "GroupCreated", 1)
+        probe.event_dispatching(uuid4(), "GroupCreated")
         probe.event_processed(uuid4(), "GroupCreated")
         probe.event_processing_failed(uuid4(), "Error message", 1)
         probe.event_moved_to_dlq(uuid4(), "GroupCreated", "Max retries exceeded")

@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.25.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.24.0...v3.25.0) (2026-03-05)
+
+
+### Features
+
+* **shared-kernel:** add Management context types, protocol, and SpiceDB schema (AIHCM-179) ([#267](https://github.com/openshift-hyperfleet/kartograph/issues/267)) ([8198b47](https://github.com/openshift-hyperfleet/kartograph/commit/8198b47566e646555f791a0a0fa57b2937d6a262))
+
 ## [3.24.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.23.1...v3.24.0) (2026-03-04)
 
 

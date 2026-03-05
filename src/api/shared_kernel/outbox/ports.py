@@ -115,6 +115,49 @@ class EventTranslator(Protocol):
 
 
 @runtime_checkable
+class EventHandler(Protocol):
+    """Handles outbox events generically.
+
+    Each handler declares which event types it can process and provides
+    an async handle method. Handlers encapsulate the full processing
+    logic (e.g., translating to SpiceDB operations and applying them,
+    updating sync run status, triggering extraction jobs).
+
+    Multiple handlers can be registered for the same event type via
+    CompositeEventHandler to achieve fan-out.
+    """
+
+    def supported_event_types(self) -> frozenset[str]:
+        """Return the event type names this handler processes.
+
+        Returns:
+            Frozenset of event type names (e.g., {"GroupCreated", "MemberAdded"})
+        """
+        ...
+
+    async def handle(
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> None:
+        """Process a single event.
+
+        Implementations should be idempotent -- the outbox worker may
+        retry events on failure, so handlers must tolerate duplicate
+        delivery.
+
+        Args:
+            event_type: The name of the event type
+            payload: The serialized event data
+
+        Raises:
+            Exception: Any exception signals failure; the worker will
+                retry or move to DLQ based on retry count.
+        """
+        ...
+
+
+@runtime_checkable
 class EventSerializer(Protocol):
     """Serializes and deserializes domain events.
 

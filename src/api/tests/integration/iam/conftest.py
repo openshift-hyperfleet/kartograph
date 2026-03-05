@@ -28,6 +28,7 @@ from iam.infrastructure.user_repository import UserRepository
 from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.database.engines import create_write_engine
 from infrastructure.outbox.repository import OutboxRepository
+from infrastructure.outbox.spicedb_handler import SpiceDBEventHandler
 from infrastructure.outbox.worker import OutboxWorker
 from infrastructure.settings import get_iam_settings
 from infrastructure.settings import DatabaseSettings
@@ -244,23 +245,32 @@ async def test_tenant(
     return tenant.id
 
 
+@pytest.fixture
+def spicedb_event_handler(
+    spicedb_client: AuthorizationProvider,
+) -> SpiceDBEventHandler:
+    """Provide a SpiceDBEventHandler wrapping IAMEventTranslator for tests."""
+    return SpiceDBEventHandler(
+        translator=IAMEventTranslator(),
+        authz=spicedb_client,
+    )
+
+
 @pytest_asyncio.fixture
 async def process_outbox(
     session_factory: async_sessionmaker[AsyncSession],
-    spicedb_client: AuthorizationProvider,
+    spicedb_event_handler: SpiceDBEventHandler,
 ) -> Callable[[], Coroutine[Any, Any, None]]:
     """Provide a function to process all pending outbox entries.
 
     Call this after saves to synchronously process outbox entries
     and write relationships to SpiceDB before assertions.
     """
-    translator = IAMEventTranslator()
     probe = DefaultOutboxWorkerProbe()
 
     worker = OutboxWorker(
         session_factory=session_factory,
-        authz=spicedb_client,
-        translator=translator,
+        handler=spicedb_event_handler,
         probe=probe,
     )
 

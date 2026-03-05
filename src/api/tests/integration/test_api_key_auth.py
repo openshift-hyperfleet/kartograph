@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from iam.infrastructure.outbox import IAMEventTranslator
 from infrastructure.authorization_dependencies import get_spicedb_client
+from infrastructure.outbox.spicedb_handler import SpiceDBEventHandler
 from infrastructure.database.engines import create_write_engine
 from infrastructure.settings import DatabaseSettings
 from main import app
@@ -342,13 +343,15 @@ async def process_outbox(
     Must be called after creating API keys so that owner and tenant
     relationships are written to SpiceDB before authorization checks.
     """
-    translator = IAMEventTranslator()
     probe = DefaultOutboxWorkerProbe()
+    spicedb_handler = SpiceDBEventHandler(
+        translator=IAMEventTranslator(),
+        authz=_spicedb_client,
+    )
 
     worker = OutboxWorker(
         session_factory=_authz_session_factory,
-        authz=_spicedb_client,
-        translator=translator,
+        handler=spicedb_handler,
         probe=probe,
     )
 

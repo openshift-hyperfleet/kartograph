@@ -123,21 +123,14 @@ class TestCompositeEventHandler:
             await composite.handle("UnknownEvent", {})
 
     @pytest.mark.asyncio
-    async def test_handle_calls_probe_event_dispatching(self):
-        """handle should call probe.event_dispatching before dispatching."""
+    async def test_handle_does_not_call_probe_event_dispatching(self):
+        """handle should NOT call probe.event_dispatching (worker owns that)."""
         probe = MagicMock(spec=OutboxWorkerProbe)
         composite = CompositeEventHandler(probe=probe)
         handler_a = MockHandler(frozenset({"EventX"}))
-        handler_b = MockHandler(frozenset({"EventX"}))
 
         composite.register(handler_a)
-        composite.register(handler_b)
 
         await composite.handle("EventX", {"some": "data"})
 
-        # Verify event_dispatching was called with handler_count before dispatch
-        probe.event_dispatching.assert_called_once()
-        call_args = probe.event_dispatching.call_args[0]
-        # call_args[0] is entry_id (None -- composite doesn't have it)
-        assert call_args[1] == "EventX"  # event_type
-        assert call_args[2] == 2  # handler_count (two handlers for EventX)
+        probe.event_dispatching.assert_not_called()

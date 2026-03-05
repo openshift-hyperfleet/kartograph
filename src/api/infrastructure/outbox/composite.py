@@ -85,9 +85,5 @@ class CompositeEventHandler:
                 f"Registered types: {sorted(self._handlers_by_type.keys())}"
             )
 
-        # Log dispatch before calling handlers
-        if self._probe is not None:
-            self._probe.event_dispatching(None, event_type, len(handlers))
-
         for handler in handlers:
             await handler.handle(event_type, payload)

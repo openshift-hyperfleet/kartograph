@@ -55,6 +55,9 @@ class TestOutboxWorkerProcessBatch:
         await worker._process_entries([entry], mock_session)
 
         # Assert
+        mock_probe.event_dispatching.assert_called_once_with(
+            entry.id, "GroupCreated", 1
+        )
         mock_handler.handle.assert_called_once_with(entry.event_type, entry.payload)
         mock_probe.event_processed.assert_called_once()
 

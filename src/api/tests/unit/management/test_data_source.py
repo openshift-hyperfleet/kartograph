@@ -16,6 +16,7 @@ from management.domain.events import (
 from management.domain.exceptions import (
     AggregateDeletedError,
     InvalidDataSourceNameError,
+    InvalidIdentifierError,
 )
 from management.domain.observability import DataSourceProbe
 from management.domain.value_objects import (
@@ -346,6 +347,14 @@ class TestDataSourceRecordSyncCompleted:
         events = ds.collect_events()
         assert events == []
 
+    def test_record_sync_completed_raises_after_deletion(self):
+        """record_sync_completed() should raise AggregateDeletedError after mark_for_deletion()."""
+        ds = self._create_ds()
+        ds.mark_for_deletion()
+        ds.collect_events()
+        with pytest.raises(AggregateDeletedError):
+            ds.record_sync_completed()
+
 
 class TestDataSourceMarkForDeletion:
     """Tests for DataSource.mark_for_deletion() method."""
@@ -553,4 +562,48 @@ class TestDataSourceValidation:
                 last_sync_at=None,
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
+            )
+
+    def test_create_rejects_empty_tenant_id(self):
+        """create() with empty tenant_id should raise."""
+        with pytest.raises(InvalidIdentifierError):
+            DataSource.create(
+                knowledge_graph_id="kg-1",
+                tenant_id="",
+                name="Source",
+                adapter_type=DataSourceAdapterType.GITHUB,
+                connection_config={},
+            )
+
+    def test_create_rejects_whitespace_tenant_id(self):
+        """create() with whitespace-only tenant_id should raise."""
+        with pytest.raises(InvalidIdentifierError):
+            DataSource.create(
+                knowledge_graph_id="kg-1",
+                tenant_id="   ",
+                name="Source",
+                adapter_type=DataSourceAdapterType.GITHUB,
+                connection_config={},
+            )
+
+    def test_create_rejects_empty_knowledge_graph_id(self):
+        """create() with empty knowledge_graph_id should raise."""
+        with pytest.raises(InvalidIdentifierError):
+            DataSource.create(
+                knowledge_graph_id="",
+                tenant_id="t",
+                name="Source",
+                adapter_type=DataSourceAdapterType.GITHUB,
+                connection_config={},
+            )
+
+    def test_create_rejects_whitespace_knowledge_graph_id(self):
+        """create() with whitespace-only knowledge_graph_id should raise."""
+        with pytest.raises(InvalidIdentifierError):
+            DataSource.create(
+                knowledge_graph_id="   ",
+                tenant_id="t",
+                name="Source",
+                adapter_type=DataSourceAdapterType.GITHUB,
+                connection_config={},
             )

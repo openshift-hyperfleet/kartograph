@@ -14,6 +14,7 @@ from management.domain.events import (
 from management.domain.exceptions import (
     AggregateDeletedError,
     InvalidDataSourceNameError,
+    InvalidIdentifierError,
 )
 from management.domain.observability import (
     DataSourceProbe,
@@ -66,6 +67,24 @@ class DataSource:
     def __post_init__(self) -> None:
         """Validate business rules after initialization."""
         self._validate_name(self.name)
+        self._validate_identifier(self.tenant_id, "tenant_id")
+        self._validate_identifier(self.knowledge_graph_id, "knowledge_graph_id")
+
+    @staticmethod
+    def _validate_identifier(value: str, field_name: str) -> None:
+        """Validate that a cross-context identifier is non-empty.
+
+        Args:
+            value: The identifier value to validate
+            field_name: The field name for error messages
+
+        Raises:
+            InvalidIdentifierError: If value is empty or whitespace-only
+        """
+        if not value or not value.strip():
+            raise InvalidIdentifierError(
+                f"{field_name} must not be empty or whitespace-only"
+            )
 
     def _validate_name(self, name: str) -> None:
         """Validate data source name length.
@@ -197,7 +216,12 @@ class DataSource:
 
         Updates last_sync_at to the current time and calls the probe.
         Does NOT emit a domain event — this is just a timestamp update.
+
+        Raises:
+            AggregateDeletedError: If the data source has been marked for deletion
         """
+        if self._deleted:
+            raise AggregateDeletedError("Cannot record sync on a deleted data source")
         self.last_sync_at = datetime.now(UTC)
         self._probe.sync_completed(
             data_source_id=self.id.value,

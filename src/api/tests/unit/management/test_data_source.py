@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
+import pytest
 
 from management.domain.aggregates.data_source import DataSource
 from management.domain.events import (
@@ -12,6 +13,7 @@ from management.domain.events import (
     DataSourceDeleted,
     DataSourceUpdated,
 )
+from management.domain.exceptions import InvalidDataSourceNameError
 from management.domain.observability import DataSourceProbe
 from management.domain.value_objects import (
     DataSourceId,
@@ -412,3 +414,96 @@ class TestDataSourceCollectEvents:
         assert isinstance(events[0], DataSourceCreated)
         assert isinstance(events[1], DataSourceUpdated)
         assert isinstance(events[2], DataSourceDeleted)
+
+
+class TestDataSourceValidation:
+    """Tests for DataSource name validation."""
+
+    def test_create_rejects_empty_name(self):
+        """create() should raise error for empty name."""
+        with pytest.raises(InvalidDataSourceNameError):
+            DataSource.create(
+                knowledge_graph_id="kg-1",
+                tenant_id="t",
+                name="",
+                adapter_type=DataSourceAdapterType.GITHUB,
+                connection_config={},
+            )
+
+    def test_create_rejects_name_over_100_chars(self):
+        """create() should raise error for name exceeding 100 characters."""
+        with pytest.raises(InvalidDataSourceNameError):
+            DataSource.create(
+                knowledge_graph_id="kg-1",
+                tenant_id="t",
+                name="x" * 101,
+                adapter_type=DataSourceAdapterType.GITHUB,
+                connection_config={},
+            )
+
+    def test_create_accepts_name_exactly_100_chars(self):
+        """create() should accept name that is exactly 100 characters."""
+        ds = DataSource.create(
+            knowledge_graph_id="kg-1",
+            tenant_id="t",
+            name="x" * 100,
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={},
+        )
+        assert len(ds.name) == 100
+
+    def test_create_accepts_single_char_name(self):
+        """create() should accept single character name."""
+        ds = DataSource.create(
+            knowledge_graph_id="kg-1",
+            tenant_id="t",
+            name="A",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={},
+        )
+        assert ds.name == "A"
+
+    def test_update_connection_rejects_empty_name(self):
+        """update_connection() should raise error for empty name."""
+        ds = DataSource.create(
+            knowledge_graph_id="kg-1",
+            tenant_id="t",
+            name="Valid",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={},
+        )
+        ds.collect_events()
+        with pytest.raises(InvalidDataSourceNameError):
+            ds.update_connection(name="", connection_config={}, credentials_path=None)
+
+    def test_update_connection_rejects_name_over_100_chars(self):
+        """update_connection() should raise error for name exceeding 100 characters."""
+        ds = DataSource.create(
+            knowledge_graph_id="kg-1",
+            tenant_id="t",
+            name="Valid",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={},
+        )
+        ds.collect_events()
+        with pytest.raises(InvalidDataSourceNameError):
+            ds.update_connection(
+                name="x" * 101, connection_config={}, credentials_path=None
+            )
+
+    def test_post_init_rejects_empty_name(self):
+        """Direct construction with empty name should raise."""
+        with pytest.raises(InvalidDataSourceNameError):
+            DataSource(
+                id=DataSourceId.generate(),
+                knowledge_graph_id="kg-1",
+                tenant_id="t",
+                name="",
+                adapter_type=DataSourceAdapterType.GITHUB,
+                connection_config={},
+                credentials_path=None,
+                schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+                last_sync_at=None,
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )

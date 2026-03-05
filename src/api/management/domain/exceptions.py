@@ -7,6 +7,12 @@ class InvalidKnowledgeGraphNameError(Exception):
     pass
 
 
+class InvalidDataSourceNameError(Exception):
+    """Raised when a data source name fails validation."""
+
+    pass
+
+
 class InvalidScheduleError(Exception):
     """Raised when a schedule configuration is invalid."""
 

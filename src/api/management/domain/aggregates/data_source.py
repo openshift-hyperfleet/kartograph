@@ -11,6 +11,7 @@ from management.domain.events import (
     DataSourceDeleted,
     DataSourceUpdated,
 )
+from management.domain.exceptions import InvalidDataSourceNameError
 from management.domain.observability import (
     DataSourceProbe,
     DefaultDataSourceProbe,
@@ -31,6 +32,7 @@ class DataSource:
     one knowledge graph and one tenant.
 
     Business rules:
+    - Name must be 1-100 characters
     - Schedule defaults to MANUAL when created
     - last_sync_at starts as None and is updated via record_sync_completed()
     - Deletion event must include knowledge_graph_id for relationship cleanup
@@ -56,6 +58,24 @@ class DataSource:
         default_factory=DefaultDataSourceProbe,
         repr=False,
     )
+
+    def __post_init__(self) -> None:
+        """Validate business rules after initialization."""
+        self._validate_name(self.name)
+
+    def _validate_name(self, name: str) -> None:
+        """Validate data source name length.
+
+        Args:
+            name: The name to validate
+
+        Raises:
+            InvalidDataSourceNameError: If name is not 1-100 characters
+        """
+        if not (1 <= len(name) <= 100):
+            raise InvalidDataSourceNameError(
+                "Data source name must be between 1 and 100 characters"
+            )
 
     @classmethod
     def create(
@@ -134,11 +154,15 @@ class DataSource:
         """Update the data source's connection configuration.
 
         Args:
-            name: The new name
+            name: The new name (1-100 characters)
             connection_config: The new connection configuration
             credentials_path: The new credentials path (or None)
             updated_by: The user performing the update (optional)
+
+        Raises:
+            InvalidDataSourceNameError: If name is not 1-100 characters
         """
+        self._validate_name(name)
         self.name = name
         self.connection_config = connection_config
         self.credentials_path = credentials_path

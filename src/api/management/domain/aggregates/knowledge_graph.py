@@ -65,7 +65,7 @@ class KnowledgeGraph:
         Raises:
             InvalidKnowledgeGraphNameError: If name is not 1-100 characters
         """
-        if not name or len(name) < 1 or len(name) > 100:
+        if not (1 <= len(name) <= 100):
             raise InvalidKnowledgeGraphNameError(
                 "Knowledge graph name must be between 1 and 100 characters"
             )

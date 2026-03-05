@@ -31,7 +31,7 @@ from shared_kernel.authorization.types import (
 from infrastructure.outbox.models import OutboxModel
 from infrastructure.outbox.repository import OutboxRepository
 from infrastructure.outbox.worker import OutboxWorker
-from infrastructure.outbox.composite import CompositeTranslator
+from infrastructure.outbox.spicedb_handler import SpiceDBEventHandler
 from shared_kernel.outbox.observability import DefaultOutboxWorkerProbe
 
 pytestmark = pytest.mark.integration
@@ -242,15 +242,16 @@ class TestOutboxWorkerProcessing:
         async with async_session.begin():
             await group_repo.save(group)
 
-        # Build composite translator with IAM translator
-        translator = CompositeTranslator()
-        translator.register(IAMEventTranslator())
+        # Build SpiceDB handler wrapping IAM translator
+        spicedb_handler = SpiceDBEventHandler(
+            translator=IAMEventTranslator(),
+            authz=spicedb_client,
+        )
 
         # Process the outbox entries using the worker's processing logic directly
         worker = OutboxWorker(
             session_factory=session_factory,
-            authz=spicedb_client,
-            translator=translator,
+            handler=spicedb_handler,
             probe=DefaultOutboxWorkerProbe(),
         )
 
@@ -320,15 +321,16 @@ class TestOutboxWorkerProcessing:
         async with async_session.begin():
             await group_repo.save(group)
 
-        # Build composite translator with IAM translator
-        translator = CompositeTranslator()
-        translator.register(IAMEventTranslator())
+        # Build SpiceDB handler wrapping IAM translator
+        spicedb_handler = SpiceDBEventHandler(
+            translator=IAMEventTranslator(),
+            authz=spicedb_client,
+        )
 
         # Process the outbox
         worker = OutboxWorker(
             session_factory=session_factory,
-            authz=spicedb_client,
-            translator=translator,
+            handler=spicedb_handler,
             probe=DefaultOutboxWorkerProbe(),
         )
         await worker._process_batch()
@@ -496,9 +498,11 @@ class TestOutboxWorkerNotifyProcessing:
             outbox=outbox_repo,
         )
 
-        # Build composite translator
-        translator = CompositeTranslator()
-        translator.register(IAMEventTranslator())
+        # Build SpiceDB handler wrapping IAM translator
+        spicedb_handler = SpiceDBEventHandler(
+            translator=IAMEventTranslator(),
+            authz=spicedb_client,
+        )
 
         # Create event source with REAL database URL
         db_url = (
@@ -517,8 +521,7 @@ class TestOutboxWorkerNotifyProcessing:
         # Set poll_interval very high to ensure NOTIFY is used, not polling
         worker = OutboxWorker(
             session_factory=session_factory,
-            authz=spicedb_client,
-            translator=translator,
+            handler=spicedb_handler,
             probe=DefaultOutboxWorkerProbe(),
             event_source=event_source,
             poll_interval_seconds=999,

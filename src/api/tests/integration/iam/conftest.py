@@ -28,6 +28,7 @@ from iam.infrastructure.user_repository import UserRepository
 from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.database.engines import create_write_engine
 from infrastructure.outbox.repository import OutboxRepository
+from infrastructure.outbox.spicedb_handler import SpiceDBEventHandler
 from infrastructure.outbox.worker import OutboxWorker
 from infrastructure.settings import get_iam_settings
 from infrastructure.settings import DatabaseSettings
@@ -254,13 +255,15 @@ async def process_outbox(
     Call this after saves to synchronously process outbox entries
     and write relationships to SpiceDB before assertions.
     """
-    translator = IAMEventTranslator()
     probe = DefaultOutboxWorkerProbe()
+    spicedb_handler = SpiceDBEventHandler(
+        translator=IAMEventTranslator(),
+        authz=spicedb_client,
+    )
 
     worker = OutboxWorker(
         session_factory=session_factory,
-        authz=spicedb_client,
-        translator=translator,
+        handler=spicedb_handler,
         probe=probe,
     )
 

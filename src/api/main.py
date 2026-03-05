@@ -26,7 +26,8 @@ from infrastructure.settings import (
 )
 from infrastructure.version import __version__
 from iam.infrastructure.outbox import IAMEventTranslator
-from infrastructure.outbox.composite import CompositeTranslator
+from infrastructure.outbox.composite import CompositeEventHandler
+from infrastructure.outbox.spicedb_handler import SpiceDBEventHandler
 from infrastructure.outbox.event_sources.postgres_notify import (
     PostgresNotifyEventSource,
 )
@@ -125,10 +126,15 @@ async def kartograph_lifespan(app: FastAPI):
         # Create observability probe
         probe = DefaultOutboxWorkerProbe()
 
-        # Build composite translator with registered bounded context translators
-        translator = CompositeTranslator(probe=probe)
-        translator.register(IAMEventTranslator(), context_name="iam")
-        # Future: translator.register(ManagementEventTranslator(), context_name="management")
+        # Build composite handler with registered bounded context handlers
+        handler = CompositeEventHandler(probe=probe)
+        # Register SpiceDB handler wrapping the IAM translator
+        spicedb_handler = SpiceDBEventHandler(
+            translator=IAMEventTranslator(),
+            authz=authz,
+        )
+        handler.register(spicedb_handler, handler_name="iam")
+        # Future: handler.register(management_handler, handler_name="management")
 
         # Create event source for real-time NOTIFY processing
         event_source = PostgresNotifyEventSource(
@@ -139,8 +145,7 @@ async def kartograph_lifespan(app: FastAPI):
 
         worker = OutboxWorker(
             session_factory=app.state.write_sessionmaker,
-            authz=authz,
-            translator=translator,
+            handler=handler,
             probe=probe,
             event_source=event_source,
             poll_interval_seconds=outbox_settings.poll_interval_seconds,

@@ -20,7 +20,7 @@ from iam.domain.aggregates import Group
 from iam.domain.events import GroupCreated, MemberAdded, MemberRemoved
 from iam.domain.value_objects import GroupRole, UserId
 from iam.infrastructure.group_repository import GroupRepository
-from iam.infrastructure.outbox import IAMEventSerializer, IAMEventTranslator
+from iam.infrastructure.outbox import IAMEventSerializer
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     ResourceType,
@@ -224,6 +224,7 @@ class TestOutboxWorkerProcessing:
         async_session: AsyncSession,
         session_factory,
         spicedb_client: AuthorizationProvider,
+        spicedb_event_handler: SpiceDBEventHandler,
         test_tenant,
         clean_iam_data,
     ):
@@ -242,16 +243,10 @@ class TestOutboxWorkerProcessing:
         async with async_session.begin():
             await group_repo.save(group)
 
-        # Build SpiceDB handler wrapping IAM translator
-        spicedb_handler = SpiceDBEventHandler(
-            translator=IAMEventTranslator(),
-            authz=spicedb_client,
-        )
-
         # Process the outbox entries using the worker's processing logic directly
         worker = OutboxWorker(
             session_factory=session_factory,
-            handler=spicedb_handler,
+            handler=spicedb_event_handler,
             probe=DefaultOutboxWorkerProbe(),
         )
 
@@ -302,6 +297,7 @@ class TestOutboxWorkerProcessing:
         async_session: AsyncSession,
         session_factory,
         spicedb_client: AuthorizationProvider,
+        spicedb_event_handler: SpiceDBEventHandler,
         test_tenant,
         clean_iam_data,
     ):
@@ -321,16 +317,10 @@ class TestOutboxWorkerProcessing:
         async with async_session.begin():
             await group_repo.save(group)
 
-        # Build SpiceDB handler wrapping IAM translator
-        spicedb_handler = SpiceDBEventHandler(
-            translator=IAMEventTranslator(),
-            authz=spicedb_client,
-        )
-
         # Process the outbox
         worker = OutboxWorker(
             session_factory=session_factory,
-            handler=spicedb_handler,
+            handler=spicedb_event_handler,
             probe=DefaultOutboxWorkerProbe(),
         )
         await worker._process_batch()
@@ -475,6 +465,7 @@ class TestOutboxWorkerNotifyProcessing:
         async_session: AsyncSession,
         session_factory,
         spicedb_client: AuthorizationProvider,
+        spicedb_event_handler: SpiceDBEventHandler,
         db_settings,
         test_tenant,
         clean_iam_data,
@@ -498,12 +489,6 @@ class TestOutboxWorkerNotifyProcessing:
             outbox=outbox_repo,
         )
 
-        # Build SpiceDB handler wrapping IAM translator
-        spicedb_handler = SpiceDBEventHandler(
-            translator=IAMEventTranslator(),
-            authz=spicedb_client,
-        )
-
         # Create event source with REAL database URL
         db_url = (
             f"postgresql://{db_settings.username}:"
@@ -521,7 +506,7 @@ class TestOutboxWorkerNotifyProcessing:
         # Set poll_interval very high to ensure NOTIFY is used, not polling
         worker = OutboxWorker(
             session_factory=session_factory,
-            handler=spicedb_handler,
+            handler=spicedb_event_handler,
             probe=DefaultOutboxWorkerProbe(),
             event_source=event_source,
             poll_interval_seconds=999,

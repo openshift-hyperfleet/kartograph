@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.27.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.27.0...v3.27.1) (2026-03-12)
+
+
+### Bug Fixes
+
+* **deploy:** set stage aud ([#284](https://github.com/openshift-hyperfleet/kartograph/issues/284)) ([fec7846](https://github.com/openshift-hyperfleet/kartograph/commit/fec784621c04e2d2635318591f4d2d74f8efbd6f))
+
 ## [3.27.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.26.0...v3.27.0) (2026-03-12)
 
 

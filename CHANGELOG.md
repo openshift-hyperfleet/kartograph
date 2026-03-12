@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.27.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.26.0...v3.27.0) (2026-03-12)
+
+
+### Features
+
+* **deploy:** add KARTOGRAPH_OIDC_SWAGGER_CLIENT_ID configuration from vault secret ([#281](https://github.com/openshift-hyperfleet/kartograph/issues/281)) ([4bae011](https://github.com/openshift-hyperfleet/kartograph/commit/4bae011f0bd455e5c9c2225f06d87f5a1f0a2be8))
+
 ## [3.26.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.25.1...v3.26.0) (2026-03-05)
 
 

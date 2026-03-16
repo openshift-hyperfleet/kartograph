@@ -169,3 +169,7 @@ certs/
 
 # Demo web interface (not for production)
 demo-web/
+
+# Ontology/graph data (local or generated, do not commit)
+kg_final.jsonl
+master_ontology.jsonl

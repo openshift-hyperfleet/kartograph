@@ -387,3 +387,45 @@ def get_oidc_settings() -> OIDCSettings:
     Uses lru_cache to ensure settings are only loaded once.
     """
     return OIDCSettings()
+
+
+class QuerySettings(BaseSettings):
+    """Querying bounded context settings.
+
+    Environment variables:
+        KARTOGRAPH_QUERY_ASK_SRE_GITLAB_BLOB_BASE_URL: Base GitLab blob URL for the
+            ask_sre_data_sources repository, e.g.:
+            https://gitlab.example.com/org/ask_sre_data_sources/-/blob/main
+        KARTOGRAPH_GITLAB_PAT: GitLab Personal Access Token for authenticated fetches
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="KARTOGRAPH_QUERY_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    ask_sre_gitlab_blob_base_url: str = Field(
+        default="",
+        description=(
+            "Base GitLab blob URL for the ask_sre_data_sources repo "
+            "(e.g. https://gitlab.example.com/org/ask_sre_data_sources/-/blob/main)"
+        ),
+    )
+    gitlab_tls_verify: bool = Field(
+        default=True,
+        description=(
+            "Verify TLS certificates when fetching files from GitLab. "
+            "Set to false for self-hosted instances with self-signed certificates."
+        ),
+    )
+
+
+@lru_cache
+def get_query_settings() -> QuerySettings:
+    """Get cached query settings.
+
+    Uses lru_cache to ensure settings are only loaded once.
+    """
+    return QuerySettings()

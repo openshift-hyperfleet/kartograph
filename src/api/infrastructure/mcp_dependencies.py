@@ -17,6 +17,12 @@ if TYPE_CHECKING:
     from iam.domain.aggregates.api_key import APIKey
     from query.ports.schema import ISchemaService
 
+# Validated keys are cached for the process lifetime. A key that passes
+# validation once is considered permanently valid — no TTL, no re-validation.
+# If a key needs to be revoked, restart the process.
+_validated_key_cache: set[str] = set()
+_validated_key_objects: dict[str, "APIKey"] = {}
+
 
 def get_schema_service_for_mcp() -> "ISchemaService":
     """Get schema service for MCP resources.
@@ -39,17 +45,15 @@ def get_schema_service_for_mcp() -> "ISchemaService":
 
 
 _mcp_auth_engine = None
+_mcp_auth_sessionmaker = None
 
 
-async def validate_mcp_api_key(secret: str) -> APIKey | None:
+async def validate_mcp_api_key(secret: str) -> "APIKey | None":
     """Validate an API key secret for MCP authentication.
 
-    This is the composition function that wires IAM's APIKeyService
-    into the MCP auth middleware. It creates its own database session
-    per-request because it operates outside FastAPI's DI system.
-
-    Uses runtime imports to avoid static dependencies from the
-    infrastructure module on bounded contexts at the module level.
+    Valid keys are cached for the process lifetime — a key that passes once
+    is never re-checked against the DB. Zero DB access on every subsequent
+    request, regardless of how many concurrent agents share the key.
 
     Args:
         secret: The plaintext API key secret to validate.
@@ -57,24 +61,30 @@ async def validate_mcp_api_key(secret: str) -> APIKey | None:
     Returns:
         The APIKey aggregate if valid, None otherwise.
     """
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+    if secret in _validated_key_cache:
+        return _validated_key_objects[secret]
 
+    key = await _validate_mcp_api_key_uncached(secret)
+    if key is not None:
+        _validated_key_cache.add(secret)
+        _validated_key_objects[secret] = key
+    return key
+
+
+async def _validate_mcp_api_key_uncached(secret: str) -> "APIKey | None":
+    """Full DB validation — only called on cache miss or TTL expiry."""
     from iam.application.services.api_key_service import APIKeyService
     from iam.infrastructure.api_key_repository import APIKeyRepository
     from infrastructure.outbox.repository import OutboxRepository
 
-    # Lazily cached engine (reused across calls)
-    engine = _get_mcp_auth_engine()
-    sessionmaker = async_sessionmaker(
-        engine, expire_on_commit=False, class_=AsyncSession
-    )
+    # Both engine and sessionmaker are module-level singletons — creating a new
+    # sessionmaker on every request was unnecessarily rebuilding the object and
+    # obscuring that the underlying connection pool was being shared.
+    sessionmaker = _get_mcp_auth_sessionmaker()
 
     async with sessionmaker() as session:
         outbox = OutboxRepository(session=session)
         repo = APIKeyRepository(session=session, outbox=outbox)
-        # AuthorizationProvider not needed for validate_and_get_key
-        # (it doesn't do authz checks), but APIKeyService requires it.
-        # Cast the no-op stub to satisfy mypy's structural check.
         from shared_kernel.authorization.protocols import AuthorizationProvider
 
         service = APIKeyService(
@@ -99,6 +109,23 @@ def _get_mcp_auth_engine():
         settings = get_database_settings()
         _mcp_auth_engine = create_write_engine(settings)
     return _mcp_auth_engine
+
+
+def _get_mcp_auth_sessionmaker():
+    """Get or create the cached async sessionmaker for MCP auth.
+
+    The sessionmaker is a lightweight factory — it should be a singleton,
+    not rebuilt on every request. Rebuilding it per-call was hiding the fact
+    that the underlying pool was shared and masking pool exhaustion under load.
+    """
+    global _mcp_auth_sessionmaker
+    if _mcp_auth_sessionmaker is None:
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+        _mcp_auth_sessionmaker = async_sessionmaker(
+            _get_mcp_auth_engine(), expire_on_commit=False, class_=AsyncSession
+        )
+    return _mcp_auth_sessionmaker
 
 
 class _NoOpAuthz:

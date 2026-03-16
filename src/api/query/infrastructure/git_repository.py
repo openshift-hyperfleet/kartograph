@@ -1,10 +1,29 @@
 from abc import abstractmethod
 from dataclasses import dataclass
+from functools import lru_cache
 import re
 from typing import Optional
 from urllib.parse import quote, urlparse
 
 import httpx
+
+from infrastructure.settings import get_query_settings
+
+
+@lru_cache(maxsize=1)
+def _get_http_client() -> httpx.AsyncClient:
+    """Return the shared async HTTP client, created once for process lifetime.
+
+    Using AsyncClient means get_file() awaits the network I/O on the event
+    loop instead of blocking a thread pool worker. With 50 concurrent agents
+    each fetching files from GitLab, the sync Client would exhaust the thread
+    pool (typically ~12 workers) causing query_graph calls to queue behind
+    blocked threads. The AsyncClient handles all concurrent fetches on the
+    event loop with no thread overhead.
+    TLS verification is configurable for self-hosted instances with self-signed certs.
+    """
+    tls_verify = get_query_settings().gitlab_tls_verify
+    return httpx.AsyncClient(timeout=30.0, follow_redirects=False, verify=tls_verify)
 from query.infrastructure.observability.remote_file_repository_probe import (
     DefaultRemoteFileRepositoryProbe,
     RemoteFileRepositoryProbe,
@@ -40,7 +59,7 @@ class AbstractGitRemoteFileRepository(IRemoteFileRepository):
         self._access_token = access_token
         self._probe = probe or DefaultRemoteFileRepositoryProbe()
 
-    def get_file(self, url: str) -> RemoteFileRepositoryResponse:
+    async def get_file(self, url: str) -> RemoteFileRepositoryResponse:
         """Fetch file content using provider-specific API.
 
         Template method that orchestrates the common flow while
@@ -70,11 +89,9 @@ class AbstractGitRemoteFileRepository(IRemoteFileRepository):
 
         # Common HTTP logic
         try:
-            response = httpx.get(
+            response = await _get_http_client().get(
                 api_url,
                 headers=self._request_headers,
-                timeout=30.0,
-                follow_redirects=False,
             )
         except Exception as e:
             self._probe.file_fetch_failed(url=api_url, reason=repr(e))

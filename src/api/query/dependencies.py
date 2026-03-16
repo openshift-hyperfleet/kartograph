@@ -4,6 +4,7 @@ Provides dependencies local to the Query context only.
 Cross-context composition is handled in infrastructure.mcp_dependencies.
 """
 
+import json
 from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -18,7 +19,7 @@ from query.ports.repositories import IRemoteFileRepository
 
 from infrastructure.database.connection import ConnectionFactory
 from infrastructure.dependencies import get_age_connection_pool
-from infrastructure.settings import get_database_settings
+from infrastructure.settings import get_database_settings, get_query_settings
 from query.application.observability import (
     DefaultQueryServiceProbe,
     DefaultSchemaResourceProbe,
@@ -30,6 +31,8 @@ from query.infrastructure.query_repository import QueryGraphRepository
 
 if TYPE_CHECKING:
     from graph.infrastructure.age_client import AgeGraphClient
+
+_FILE_PATH_INDEX = Path(__file__).parent / "infrastructure" / "file_indexes" / "ask_sre_file_identifiers.json"
 
 
 def get_query_service_probe() -> QueryServiceProbe:
@@ -126,6 +129,47 @@ def get_git_repository(
     return GitRepositoryFactory.create_from_url(
         url=url, github_token=github_token, gitlab_token=gitlab_token, probe=probe
     )
+
+
+@lru_cache(maxsize=1)
+def _load_file_path_index() -> dict[str, str]:
+    """Load the file path index from disk once and cache for process lifetime."""
+    with _FILE_PATH_INDEX.open() as f:
+        return json.load(f)
+
+
+def resolve_ask_sre_document_path(identifier: str) -> Optional[str]:
+    """Resolve an identifier (slug or file path) to its repo-relative path.
+
+    Looks up the identifier in the file path index, which maps both full
+    paths (e.g. "openshift-docs-md/foo/bar.md") and slugs
+    (e.g. "bar-md") to their canonical path within the data source repo
+    (e.g. "data/openshift-docs-md/foo/bar.md").
+
+    Args:
+        identifier: A slug or file_path value from the knowledge graph.
+
+    Returns:
+        The repo-relative path (e.g. "data/openshift-docs-md/foo/bar.md"),
+        or None if the identifier is not found.
+    """
+    return _load_file_path_index().get(identifier)
+
+
+def build_ask_sre_gitlab_url(relative_path: str) -> str:
+    """Build a full GitLab blob URL for a repo-relative file path.
+
+    Combines the configured base URL with the relative path from the index.
+
+    Args:
+        relative_path: Repo-relative path, e.g. "data/openshift-docs-md/foo/bar.md"
+
+    Returns:
+        Full GitLab blob URL, e.g.:
+        https://gitlab.example.com/org/repo/-/blob/main/data/openshift-docs-md/foo/bar.md
+    """
+    base = get_query_settings().ask_sre_gitlab_blob_base_url.rstrip("/")
+    return f"{base}/{relative_path}"
 
 
 @lru_cache(maxsize=1)

@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.28.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.27.1...v3.28.0) (2026-03-17)
+
+
+### Features
+
+* **api.management:** add PostgreSQL persistence layer (AIHCM-181) ([#287](https://github.com/openshift-hyperfleet/kartograph/issues/287)) ([760ac20](https://github.com/openshift-hyperfleet/kartograph/commit/760ac20ec14f3fc54f6fb8952ecb4e4dfdd6e93f))
+
 ## [3.27.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.27.0...v3.27.1) (2026-03-12)
 
 

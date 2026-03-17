@@ -396,6 +396,19 @@ class TestDataSourceServiceListForKnowledgeGraph:
             await service.list_for_knowledge_graph(user_id=user_id, kg_id=kg_id)
 
     @pytest.mark.asyncio
+    async def test_list_raises_unauthorized_for_different_tenant_kg(
+        self, service, mock_authz, mock_kg_repo, user_id, kg_id
+    ):
+        """list_for_knowledge_graph() rejects KG belonging to different tenant."""
+        mock_authz.check_permission.return_value = True
+        mock_kg_repo.get_by_id.return_value = _make_kg(
+            kg_id=kg_id, tenant_id="other-tenant"
+        )
+
+        with pytest.raises(UnauthorizedError, match="not accessible"):
+            await service.list_for_knowledge_graph(user_id=user_id, kg_id=kg_id)
+
+    @pytest.mark.asyncio
     async def test_list_returns_data_sources(
         self,
         service,

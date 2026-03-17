@@ -506,9 +506,10 @@ class TestDataSourceSyncTracking:
             await data_source_repository.save(ds)
 
         # Verify initial state has no sync timestamp
-        initial = await data_source_repository.get_by_id(ds.id)
-        assert initial is not None
-        assert initial.last_sync_at is None
+        async with async_session.begin():
+            initial = await data_source_repository.get_by_id(ds.id)
+            assert initial is not None
+            assert initial.last_sync_at is None
 
         # Record sync and persist
         ds.record_sync_completed()
@@ -516,7 +517,8 @@ class TestDataSourceSyncTracking:
         async with async_session.begin():
             await data_source_repository.save(ds)
 
-        retrieved = await data_source_repository.get_by_id(ds.id)
+        async with async_session.begin():
+            retrieved = await data_source_repository.get_by_id(ds.id)
 
         assert retrieved is not None
         assert retrieved.last_sync_at is not None

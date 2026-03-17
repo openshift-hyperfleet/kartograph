@@ -182,6 +182,9 @@ class KnowledgeGraphService:
         if kg is None:
             return None
 
+        if kg.tenant_id != self._scope_to_tenant:
+            return None
+
         has_view = await self._check_permission(
             user_id=user_id,
             resource_type=ResourceType.KNOWLEDGE_GRAPH,
@@ -190,14 +193,7 @@ class KnowledgeGraphService:
         )
 
         if not has_view:
-            self._probe.permission_denied(
-                user_id=user_id,
-                resource_id=kg_id,
-                permission=Permission.VIEW,
-            )
-            raise UnauthorizedError(
-                f"User {user_id} lacks view permission on knowledge graph {kg_id}"
-            )
+            return None
 
         self._probe.knowledge_graph_retrieved(kg_id=kg_id)
         return kg
@@ -313,6 +309,9 @@ class KnowledgeGraphService:
         if kg is None:
             raise ValueError(f"Knowledge graph {kg_id} not found")
 
+        if kg.tenant_id != self._scope_to_tenant:
+            raise ValueError(f"Knowledge graph {kg_id} not found")
+
         kg.update(name=name, description=description, updated_by=user_id)
 
         try:
@@ -363,6 +362,9 @@ class KnowledgeGraphService:
 
         kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
         if kg is None:
+            return False
+
+        if kg.tenant_id != self._scope_to_tenant:
             return False
 
         async with self._session.begin():

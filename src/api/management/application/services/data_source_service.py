@@ -16,7 +16,6 @@ from management.application.observability import (
 )
 from management.domain.aggregates import DataSource
 from management.domain.entities import DataSourceSyncRun
-from management.domain.events import DataSourceSyncRequested
 from management.domain.value_objects import DataSourceId, KnowledgeGraphId
 from management.ports.exceptions import UnauthorizedError
 from management.ports.repositories import (
@@ -201,6 +200,9 @@ class DataSourceService:
         if ds is None:
             return None
 
+        if ds.tenant_id != self._scope_to_tenant:
+            return None
+
         has_view = await self._check_permission(
             user_id=user_id,
             resource_type=ResourceType.DATA_SOURCE,
@@ -209,14 +211,7 @@ class DataSourceService:
         )
 
         if not has_view:
-            self._probe.permission_denied(
-                user_id=user_id,
-                resource_id=ds_id,
-                permission=Permission.VIEW,
-            )
-            raise UnauthorizedError(
-                f"User {user_id} lacks view permission on data source {ds_id}"
-            )
+            return None
 
         self._probe.data_source_retrieved(ds_id=ds_id)
         return ds
@@ -309,6 +304,9 @@ class DataSourceService:
         if ds is None:
             raise ValueError(f"Data source {ds_id} not found")
 
+        if ds.tenant_id != self._scope_to_tenant:
+            raise ValueError(f"Data source {ds_id} not found")
+
         async with self._session.begin():
             if name is not None or connection_config is not None:
                 ds.update_connection(
@@ -374,6 +372,9 @@ class DataSourceService:
         if ds is None:
             return False
 
+        if ds.tenant_id != self._scope_to_tenant:
+            return False
+
         async with self._session.begin():
             if ds.credentials_path:
                 await self._secret_store.delete(
@@ -427,6 +428,9 @@ class DataSourceService:
         if ds is None:
             raise ValueError(f"Data source {ds_id} not found")
 
+        if ds.tenant_id != self._scope_to_tenant:
+            raise ValueError(f"Data source {ds_id} not found")
+
         now = datetime.now(UTC)
 
         async with self._session.begin():
@@ -444,15 +448,7 @@ class DataSourceService:
             await self._sync_run_repo.save(sync_run)
 
             # Record sync requested event on the data source aggregate
-            ds._pending_events.append(
-                DataSourceSyncRequested(
-                    data_source_id=ds.id.value,
-                    knowledge_graph_id=ds.knowledge_graph_id,
-                    tenant_id=ds.tenant_id,
-                    occurred_at=now,
-                    requested_by=user_id,
-                )
-            )
+            ds.request_sync(requested_by=user_id)
             await self._ds_repo.save(ds)
 
         self._probe.sync_requested(ds_id=ds_id)

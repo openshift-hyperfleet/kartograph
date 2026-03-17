@@ -323,16 +323,29 @@ class TestDataSourceServiceGet:
         )
 
     @pytest.mark.asyncio
-    async def test_get_raises_unauthorized_when_denied(
+    async def test_get_returns_none_for_different_tenant(
+        self, service, mock_ds_repo, user_id
+    ):
+        """get() returns None when DS belongs to a different tenant."""
+        ds = _make_ds(tenant_id="other-tenant")
+        mock_ds_repo.get_by_id.return_value = ds
+
+        result = await service.get(user_id=user_id, ds_id=ds.id.value)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_returns_none_when_permission_denied(
         self, service, mock_authz, mock_ds_repo, user_id
     ):
-        """get() raises UnauthorizedError when user lacks VIEW."""
+        """get() returns None when user lacks VIEW (no existence leakage)."""
         ds = _make_ds()
         mock_ds_repo.get_by_id.return_value = ds
         mock_authz.check_permission.return_value = False
 
-        with pytest.raises(UnauthorizedError):
-            await service.get(user_id=user_id, ds_id=ds.id.value)
+        result = await service.get(user_id=user_id, ds_id=ds.id.value)
+
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_get_returns_aggregate_on_success(
@@ -458,6 +471,22 @@ class TestDataSourceServiceUpdate:
             )
 
     @pytest.mark.asyncio
+    async def test_update_rejects_different_tenant(
+        self, service, mock_authz, mock_ds_repo, user_id
+    ):
+        """update() raises ValueError when DS belongs to a different tenant."""
+        ds = _make_ds(tenant_id="other-tenant")
+        mock_authz.check_permission.return_value = True
+        mock_ds_repo.get_by_id.return_value = ds
+
+        with pytest.raises(ValueError):
+            await service.update(
+                user_id=user_id,
+                ds_id=ds.id.value,
+                name="Updated",
+            )
+
+    @pytest.mark.asyncio
     async def test_update_stores_credentials_when_provided(
         self, service, mock_authz, mock_ds_repo, mock_secret_store, user_id, tenant_id
     ):
@@ -544,6 +573,19 @@ class TestDataSourceServiceDelete:
         assert result is False
 
     @pytest.mark.asyncio
+    async def test_delete_returns_false_for_different_tenant(
+        self, service, mock_authz, mock_ds_repo, user_id
+    ):
+        """delete() returns False when DS belongs to a different tenant."""
+        ds = _make_ds(tenant_id="other-tenant")
+        mock_authz.check_permission.return_value = True
+        mock_ds_repo.get_by_id.return_value = ds
+
+        result = await service.delete(user_id=user_id, ds_id=ds.id.value)
+
+        assert result is False
+
+    @pytest.mark.asyncio
     async def test_delete_removes_credentials_if_path_exists(
         self, service, mock_authz, mock_ds_repo, mock_secret_store, user_id, tenant_id
     ):
@@ -618,6 +660,18 @@ class TestDataSourceServiceTriggerSync:
 
         with pytest.raises(ValueError):
             await service.trigger_sync(user_id=user_id, ds_id="nonexistent")
+
+    @pytest.mark.asyncio
+    async def test_trigger_sync_rejects_different_tenant(
+        self, service, mock_authz, mock_ds_repo, user_id
+    ):
+        """trigger_sync() raises ValueError when DS belongs to a different tenant."""
+        ds = _make_ds(tenant_id="other-tenant")
+        mock_authz.check_permission.return_value = True
+        mock_ds_repo.get_by_id.return_value = ds
+
+        with pytest.raises(ValueError):
+            await service.trigger_sync(user_id=user_id, ds_id=ds.id.value)
 
     @pytest.mark.asyncio
     async def test_trigger_sync_creates_sync_run_and_saves_ds(

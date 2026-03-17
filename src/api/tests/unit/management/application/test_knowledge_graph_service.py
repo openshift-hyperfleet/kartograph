@@ -260,16 +260,29 @@ class TestKnowledgeGraphServiceGet:
         )
 
     @pytest.mark.asyncio
-    async def test_get_raises_unauthorized_when_permission_denied(
+    async def test_get_returns_none_for_different_tenant(
+        self, service, mock_kg_repo, user_id
+    ):
+        """get() returns None when KG belongs to a different tenant."""
+        kg = _make_kg(tenant_id="other-tenant")
+        mock_kg_repo.get_by_id.return_value = kg
+
+        result = await service.get(user_id=user_id, kg_id=kg.id.value)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_returns_none_when_permission_denied(
         self, service, mock_authz, mock_kg_repo, user_id
     ):
-        """get() raises UnauthorizedError when user lacks VIEW."""
+        """get() returns None when user lacks VIEW (no existence leakage)."""
         kg = _make_kg()
         mock_kg_repo.get_by_id.return_value = kg
         mock_authz.check_permission.return_value = False
 
-        with pytest.raises(UnauthorizedError):
-            await service.get(user_id=user_id, kg_id=kg.id.value)
+        result = await service.get(user_id=user_id, kg_id=kg.id.value)
+
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_get_returns_aggregate_on_success(
@@ -449,6 +462,23 @@ class TestKnowledgeGraphServiceUpdate:
             )
 
     @pytest.mark.asyncio
+    async def test_update_rejects_different_tenant(
+        self, service, mock_authz, mock_kg_repo, user_id
+    ):
+        """update() raises ValueError when KG belongs to a different tenant."""
+        kg = _make_kg(tenant_id="other-tenant")
+        mock_authz.check_permission.return_value = True
+        mock_kg_repo.get_by_id.return_value = kg
+
+        with pytest.raises(ValueError):
+            await service.update(
+                user_id=user_id,
+                kg_id=kg.id.value,
+                name="Updated",
+                description="Updated desc",
+            )
+
+    @pytest.mark.asyncio
     async def test_update_calls_aggregate_update_and_saves(
         self, service, mock_authz, mock_kg_repo, mock_probe, user_id
     ):
@@ -537,6 +567,19 @@ class TestKnowledgeGraphServiceDelete:
         mock_kg_repo.get_by_id.return_value = None
 
         result = await service.delete(user_id=user_id, kg_id="nonexistent")
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_delete_returns_false_for_different_tenant(
+        self, service, mock_authz, mock_kg_repo, user_id
+    ):
+        """delete() returns False when KG belongs to a different tenant."""
+        kg = _make_kg(tenant_id="other-tenant")
+        mock_authz.check_permission.return_value = True
+        mock_kg_repo.get_by_id.return_value = kg
+
+        result = await service.delete(user_id=user_id, kg_id=kg.id.value)
 
         assert result is False
 

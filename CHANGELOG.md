@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.29.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.28.0...v3.29.0) (2026-03-17)
+
+
+### Features
+
+* **management:** add outbox event translator and registration (AIHCM-184) ([#291](https://github.com/openshift-hyperfleet/kartograph/issues/291)) ([33c68be](https://github.com/openshift-hyperfleet/kartograph/commit/33c68be2b19cb1498941a775fbd41062098b4f30))
+
 ## [3.28.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.27.1...v3.28.0) (2026-03-17)
 
 

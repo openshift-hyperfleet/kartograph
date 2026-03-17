@@ -26,6 +26,7 @@ from infrastructure.settings import (
 )
 from infrastructure.version import __version__
 from iam.infrastructure.outbox import IAMEventTranslator
+from management.infrastructure.outbox import ManagementEventTranslator
 from infrastructure.outbox.composite import CompositeEventHandler
 from infrastructure.outbox.spicedb_handler import SpiceDBEventHandler
 from infrastructure.outbox.event_sources.postgres_notify import (
@@ -134,7 +135,12 @@ async def kartograph_lifespan(app: FastAPI):
             authz=authz,
         )
         handler.register(spicedb_handler, handler_name="iam")
-        # Future: handler.register(management_handler, handler_name="management")
+        # Register SpiceDB handler wrapping the Management translator
+        management_spicedb_handler = SpiceDBEventHandler(
+            translator=ManagementEventTranslator(),
+            authz=authz,
+        )
+        handler.register(management_spicedb_handler, handler_name="management")
 
         # Create event source for real-time NOTIFY processing
         event_source = PostgresNotifyEventSource(

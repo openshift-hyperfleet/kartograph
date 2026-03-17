@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from ulid import ULID
 
 from management.application.observability import (
     DataSourceServiceProbe,
@@ -191,10 +192,8 @@ class DataSourceService:
             ds_id: The data source ID
 
         Returns:
-            The DataSource aggregate, or None if not found
-
-        Raises:
-            UnauthorizedError: If user lacks VIEW permission
+            The DataSource aggregate, or None if not found or if
+            the caller lacks VIEW permission (to avoid existence leakage)
         """
         ds = await self._ds_repo.get_by_id(DataSourceId(value=ds_id))
         if ds is None:
@@ -434,8 +433,6 @@ class DataSourceService:
         now = datetime.now(UTC)
 
         async with self._session.begin():
-            from ulid import ULID
-
             sync_run = DataSourceSyncRun(
                 id=str(ULID()),
                 data_source_id=ds.id.value,

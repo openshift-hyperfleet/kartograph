@@ -173,10 +173,8 @@ class KnowledgeGraphService:
             kg_id: The knowledge graph ID
 
         Returns:
-            The KnowledgeGraph aggregate, or None if not found
-
-        Raises:
-            UnauthorizedError: If user lacks VIEW permission
+            The KnowledgeGraph aggregate, or None if not found or if
+            the caller lacks VIEW permission (to avoid existence leakage)
         """
         kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
         if kg is None:

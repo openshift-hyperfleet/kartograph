@@ -1,5 +1,26 @@
 # Changelog
 
+## [3.27.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.27.0...v3.27.1) (2026-03-12)
+
+
+### Bug Fixes
+
+* **deploy:** set stage aud ([#284](https://github.com/openshift-hyperfleet/kartograph/issues/284)) ([fec7846](https://github.com/openshift-hyperfleet/kartograph/commit/fec784621c04e2d2635318591f4d2d74f8efbd6f))
+
+## [3.27.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.26.0...v3.27.0) (2026-03-12)
+
+
+### Features
+
+* **deploy:** add KARTOGRAPH_OIDC_SWAGGER_CLIENT_ID configuration from vault secret ([#281](https://github.com/openshift-hyperfleet/kartograph/issues/281)) ([4bae011](https://github.com/openshift-hyperfleet/kartograph/commit/4bae011f0bd455e5c9c2225f06d87f5a1f0a2be8))
+
+## [3.26.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.25.1...v3.26.0) (2026-03-05)
+
+
+### Features
+
+* **api.management:** add domain model and business logic (AIHCM-180) ([#275](https://github.com/openshift-hyperfleet/kartograph/issues/275)) ([e978b97](https://github.com/openshift-hyperfleet/kartograph/commit/e978b97ecfeb0e697e9e72de6754ac40de9ef1af))
+
 ## [3.25.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.25.0...v3.25.1) (2026-03-05)
 
 

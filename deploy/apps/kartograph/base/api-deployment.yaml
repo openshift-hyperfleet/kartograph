@@ -134,6 +134,11 @@ spec:
                 secretKeyRef:
                   name: kartograph-sso-client-api
                   key: issuer
+            - name: KARTOGRAPH_OIDC_SWAGGER_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: kartograph-sso-client-swagger-docs
+                  key: client_id
 
           livenessProbe:
             httpGet:

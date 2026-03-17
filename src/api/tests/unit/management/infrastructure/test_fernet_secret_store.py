@@ -9,7 +9,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 
 from management.ports.secret_store import ISecretStoreRepository
 from shared_kernel.credential_reader import ICredentialReader
@@ -39,7 +39,9 @@ def mock_session() -> AsyncMock:
 
 def _make_store(session: AsyncMock, keys: list[str]):
     """Create a FernetSecretStore with mocked session."""
-    from management.infrastructure.fernet_secret_store import FernetSecretStore
+    from management.infrastructure.repositories.fernet_secret_store import (
+        FernetSecretStore,
+    )
 
     return FernetSecretStore(session=session, encryption_keys=keys)
 
@@ -164,3 +166,125 @@ class TestInvalidKey:
     def test_invalid_key_raises_error(self, mock_session: AsyncMock):
         with pytest.raises(Exception):
             _make_store(mock_session, ["not-a-valid-fernet-key"])
+
+
+class TestDelete:
+    """Test delete behavior with mocked session."""
+
+    @pytest.mark.asyncio
+    async def test_delete_returns_true_when_credentials_exist(
+        self, mock_session: AsyncMock, fernet_key: str
+    ):
+        store = _make_store(mock_session, [fernet_key])
+
+        from management.infrastructure.models.encrypted_credential import (
+            EncryptedCredentialModel,
+        )
+
+        model = EncryptedCredentialModel(
+            path="datasource/5/creds",
+            tenant_id="tenant-1",
+            encrypted_value=b"encrypted",
+            key_version=0,
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        result = await store.delete("datasource/5/creds", "tenant-1")
+        assert result is True
+        mock_session.delete.assert_awaited_once_with(model)
+        mock_session.flush.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_delete_returns_false_when_credentials_not_found(
+        self, mock_session: AsyncMock, fernet_key: str
+    ):
+        store = _make_store(mock_session, [fernet_key])
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        result = await store.delete("datasource/6/creds", "tenant-1")
+        assert result is False
+        mock_session.delete.assert_not_awaited()
+
+
+class TestInputValidation:
+    """Test input validation for path and tenant_id."""
+
+    @pytest.mark.asyncio
+    async def test_store_with_empty_path_raises_value_error(
+        self, mock_session: AsyncMock, fernet_key: str
+    ):
+        store = _make_store(mock_session, [fernet_key])
+        with pytest.raises(ValueError, match="path must not be empty"):
+            await store.store("", "tenant-1", {"token": "abc"})
+
+    @pytest.mark.asyncio
+    async def test_retrieve_with_empty_tenant_id_raises_value_error(
+        self, mock_session: AsyncMock, fernet_key: str
+    ):
+        store = _make_store(mock_session, [fernet_key])
+        with pytest.raises(ValueError, match="tenant_id must not be empty"):
+            await store.retrieve("datasource/1/creds", "")
+
+    @pytest.mark.asyncio
+    async def test_store_with_whitespace_path_raises_value_error(
+        self, mock_session: AsyncMock, fernet_key: str
+    ):
+        store = _make_store(mock_session, [fernet_key])
+        with pytest.raises(ValueError, match="path must not be empty"):
+            await store.store("   ", "tenant-1", {"token": "abc"})
+
+    @pytest.mark.asyncio
+    async def test_retrieve_with_whitespace_tenant_id_raises_value_error(
+        self, mock_session: AsyncMock, fernet_key: str
+    ):
+        store = _make_store(mock_session, [fernet_key])
+        with pytest.raises(ValueError, match="tenant_id must not be empty"):
+            await store.retrieve("datasource/1/creds", "   ")
+
+    @pytest.mark.asyncio
+    async def test_delete_with_empty_path_raises_value_error(
+        self, mock_session: AsyncMock, fernet_key: str
+    ):
+        store = _make_store(mock_session, [fernet_key])
+        with pytest.raises(ValueError, match="path must not be empty"):
+            await store.delete("", "tenant-1")
+
+    @pytest.mark.asyncio
+    async def test_delete_with_empty_tenant_id_raises_value_error(
+        self, mock_session: AsyncMock, fernet_key: str
+    ):
+        store = _make_store(mock_session, [fernet_key])
+        with pytest.raises(ValueError, match="tenant_id must not be empty"):
+            await store.delete("datasource/1/creds", "")
+
+
+class TestCorruptedCiphertext:
+    """Test that corrupted ciphertext raises InvalidToken."""
+
+    @pytest.mark.asyncio
+    async def test_corrupted_encrypted_value_raises_invalid_token(
+        self, mock_session: AsyncMock, fernet_key: str
+    ):
+        store = _make_store(mock_session, [fernet_key])
+
+        from management.infrastructure.models.encrypted_credential import (
+            EncryptedCredentialModel,
+        )
+
+        model = EncryptedCredentialModel(
+            path="datasource/corrupt/creds",
+            tenant_id="tenant-1",
+            encrypted_value=b"this-is-not-valid-fernet-ciphertext",
+            key_version=0,
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        with pytest.raises(InvalidToken):
+            await store.retrieve("datasource/corrupt/creds", "tenant-1")

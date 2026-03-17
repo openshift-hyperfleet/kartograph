@@ -401,8 +401,7 @@ class ManagementSettings(BaseSettings):
         extra="ignore",
     )
 
-    encryption_key: str = Field(
-        default="",
+    encryption_key: SecretStr = Field(
         description="Comma-separated Fernet keys for MultiFernet",
     )
 
@@ -413,4 +412,4 @@ def get_management_settings() -> ManagementSettings:
 
     Uses lru_cache to ensure settings are only loaded once.
     """
-    return ManagementSettings()
+    return ManagementSettings()  # type: ignore[call-arg]

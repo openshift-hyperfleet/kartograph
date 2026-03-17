@@ -95,7 +95,9 @@ async def clean_management_data(
     async def cleanup() -> None:
         """Perform cleanup with proper FK constraint ordering."""
         try:
-            # Clean management-related outbox entries first
+            # Clean encrypted credentials first
+            await async_session.execute(text("DELETE FROM encrypted_credentials"))
+            # Clean management-related outbox entries
             await async_session.execute(
                 text(
                     "DELETE FROM outbox WHERE aggregate_type "

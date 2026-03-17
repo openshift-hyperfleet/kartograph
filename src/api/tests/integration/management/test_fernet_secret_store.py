@@ -14,7 +14,7 @@ from cryptography.fernet import Fernet
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.infrastructure.fernet_secret_store import FernetSecretStore
+from management.infrastructure.repositories.fernet_secret_store import FernetSecretStore
 
 pytestmark = pytest.mark.integration
 

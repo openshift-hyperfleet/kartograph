@@ -387,3 +387,31 @@ def get_oidc_settings() -> OIDCSettings:
     Uses lru_cache to ensure settings are only loaded once.
     """
     return OIDCSettings()
+
+
+class ManagementSettings(BaseSettings):
+    """Management bounded context settings.
+
+    Environment variables:
+        KARTOGRAPH_MGMT_ENCRYPTION_KEY: Comma-separated Fernet keys for MultiFernet
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="KARTOGRAPH_MGMT_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    encryption_key: SecretStr = Field(
+        description="Comma-separated Fernet keys for MultiFernet",
+    )
+
+
+@lru_cache
+def get_management_settings() -> ManagementSettings:
+    """Get cached Management settings.
+
+    Uses lru_cache to ensure settings are only loaded once.
+    """
+    return ManagementSettings()  # type: ignore[call-arg]

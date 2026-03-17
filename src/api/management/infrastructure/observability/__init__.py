@@ -12,12 +12,18 @@ from management.infrastructure.observability.repository_probe import (
     KnowledgeGraphRepositoryProbe,
     SyncRunRepositoryProbe,
 )
+from management.infrastructure.observability.secret_store_probe import (
+    DefaultSecretStoreProbe,
+    SecretStoreProbe,
+)
 
 __all__ = [
     "DataSourceRepositoryProbe",
     "DefaultDataSourceRepositoryProbe",
     "DefaultKnowledgeGraphRepositoryProbe",
+    "DefaultSecretStoreProbe",
     "DefaultSyncRunRepositoryProbe",
     "KnowledgeGraphRepositoryProbe",
+    "SecretStoreProbe",
     "SyncRunRepositoryProbe",
 ]

@@ -213,6 +213,63 @@ class TestKnowledgeGraphDeletion:
         assert result is False
 
 
+class TestKnowledgeGraphFKRestrict:
+    """Tests for FK RESTRICT behavior preventing KG deletion with child data sources."""
+
+    @pytest.mark.asyncio
+    async def test_delete_kg_with_data_sources_raises_integrity_error(
+        self,
+        knowledge_graph_repository: KnowledgeGraphRepository,
+        async_session,
+        test_tenant: str,
+        test_workspace: str,
+        clean_management_data,
+    ):
+        """Should reject deletion when KG still has data sources (FK RESTRICT)."""
+        from sqlalchemy import text
+        from sqlalchemy.exc import IntegrityError as SAIntegrityError
+
+        from shared_kernel.datasource_types import DataSourceAdapterType
+
+        kg = KnowledgeGraph.create(
+            tenant_id=test_tenant,
+            workspace_id=test_workspace,
+            name="KG With Children",
+            description="Has data sources",
+        )
+
+        async with async_session.begin():
+            await knowledge_graph_repository.save(kg)
+
+        # Insert a data source via raw SQL to avoid circular repo dependency
+        from ulid import ULID
+
+        ds_id = str(ULID())
+        await async_session.execute(
+            text(
+                "INSERT INTO data_sources "
+                "(id, knowledge_graph_id, tenant_id, name, adapter_type, "
+                "connection_config, schedule_type, created_at, updated_at) "
+                "VALUES (:id, :kg_id, :tid, :name, :adapter, "
+                "'{}'::jsonb, 'MANUAL', NOW(), NOW())"
+            ),
+            {
+                "id": ds_id,
+                "kg_id": kg.id.value,
+                "tid": test_tenant,
+                "name": "child-ds",
+                "adapter": DataSourceAdapterType.GITHUB.value,
+            },
+        )
+        await async_session.commit()
+
+        kg.mark_for_deletion()
+
+        with pytest.raises(SAIntegrityError):
+            async with async_session.begin():
+                await knowledge_graph_repository.delete(kg)
+
+
 class TestKnowledgeGraphUniqueness:
     """Tests for knowledge graph name uniqueness constraints."""
 

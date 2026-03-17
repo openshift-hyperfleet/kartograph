@@ -45,6 +45,7 @@ class DataSourceModel(Base, TimestampMixin):
 
     __table_args__ = (
         UniqueConstraint("knowledge_graph_id", "name", name="uq_data_sources_kg_name"),
+        Index("idx_data_sources_knowledge_graph_id", "knowledge_graph_id"),
         Index("idx_data_sources_tenant_id", "tenant_id"),
     )
 

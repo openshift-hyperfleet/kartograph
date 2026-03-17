@@ -77,6 +77,9 @@ def upgrade() -> None:
         ),
     )
 
+    op.create_index(
+        "idx_data_sources_knowledge_graph_id", "data_sources", ["knowledge_graph_id"]
+    )
     op.create_index("idx_data_sources_tenant_id", "data_sources", ["tenant_id"])
 
     # 3. data_source_sync_runs
@@ -93,12 +96,7 @@ def upgrade() -> None:
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("error", sa.Text, nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("NOW()"),
-        ),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(
             "status IN ('pending', 'running', 'completed', 'failed')",
             name="ck_sync_runs_status",
@@ -126,6 +124,7 @@ def downgrade() -> None:
 
     # 2. data_sources
     op.drop_index("idx_data_sources_tenant_id", table_name="data_sources")
+    op.drop_index("idx_data_sources_knowledge_graph_id", table_name="data_sources")
     op.drop_table("data_sources")
 
     # 1. knowledge_graphs

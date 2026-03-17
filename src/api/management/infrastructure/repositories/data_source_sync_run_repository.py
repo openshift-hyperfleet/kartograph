@@ -12,6 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.domain.entities import DataSourceSyncRun
 from management.infrastructure.models import DataSourceSyncRunModel
+from management.infrastructure.observability import (
+    DefaultSyncRunRepositoryProbe,
+    SyncRunRepositoryProbe,
+)
 from management.ports.repositories import IDataSourceSyncRunRepository
 
 
@@ -28,25 +32,13 @@ class DataSourceSyncRunRepository(IDataSourceSyncRunRepository):
     def __init__(
         self,
         session: AsyncSession,
+        probe: SyncRunRepositoryProbe | None = None,
     ) -> None:
-        """Initialize repository with database session.
-
-        Args:
-            session: AsyncSession from FastAPI dependency injection
-        """
         self._session = session
+        self._probe = probe or DefaultSyncRunRepositoryProbe()
 
     async def save(self, sync_run: DataSourceSyncRun) -> None:
-        """Persist a sync run to PostgreSQL (insert or update).
-
-        Creates a new sync run record or updates an existing one.
-        Does not use the outbox pattern since sync runs are entities,
-        not aggregate roots.
-
-        Args:
-            sync_run: The DataSourceSyncRun entity to persist
-        """
-        # Upsert sync run in PostgreSQL
+        """Persist a sync run to PostgreSQL (insert or update)."""
         stmt = select(DataSourceSyncRunModel).where(
             DataSourceSyncRunModel.id == sync_run.id
         )
@@ -54,12 +46,10 @@ class DataSourceSyncRunRepository(IDataSourceSyncRunRepository):
         model = result.scalar_one_or_none()
 
         if model:
-            # Update existing — only mutable fields
             model.status = sync_run.status
             model.completed_at = sync_run.completed_at
             model.error = sync_run.error
         else:
-            # Create new
             model = DataSourceSyncRunModel(
                 id=sync_run.id,
                 data_source_id=sync_run.data_source_id,
@@ -71,18 +61,11 @@ class DataSourceSyncRunRepository(IDataSourceSyncRunRepository):
             )
             self._session.add(model)
 
-        # Flush to ensure data is written within the current transaction
         await self._session.flush()
 
+        self._probe.sync_run_saved(sync_run.id, sync_run.data_source_id)
+
     async def get_by_id(self, sync_run_id: str) -> DataSourceSyncRun | None:
-        """Fetch a sync run by its ID from PostgreSQL.
-
-        Args:
-            sync_run_id: The unique identifier of the sync run
-
-        Returns:
-            The DataSourceSyncRun entity, or None if not found
-        """
         stmt = select(DataSourceSyncRunModel).where(
             DataSourceSyncRunModel.id == sync_run_id
         )
@@ -90,38 +73,25 @@ class DataSourceSyncRunRepository(IDataSourceSyncRunRepository):
         model = result.scalar_one_or_none()
 
         if model is None:
+            self._probe.sync_run_not_found(sync_run_id)
             return None
 
+        self._probe.sync_run_retrieved(sync_run_id)
         return self._to_domain(model)
 
     async def find_by_data_source(self, data_source_id: str) -> list[DataSourceSyncRun]:
-        """List all sync runs for a data source.
-
-        Args:
-            data_source_id: The data source to list sync runs for
-
-        Returns:
-            List of DataSourceSyncRun entities for the data source
-        """
         stmt = select(DataSourceSyncRunModel).where(
             DataSourceSyncRunModel.data_source_id == data_source_id
         )
         result = await self._session.execute(stmt)
         models = result.scalars().all()
 
-        return [self._to_domain(model) for model in models]
+        runs = [self._to_domain(model) for model in models]
+        self._probe.sync_runs_listed(data_source_id, len(runs))
+        return runs
 
     def _to_domain(self, model: DataSourceSyncRunModel) -> DataSourceSyncRun:
-        """Convert a DataSourceSyncRunModel to a DataSourceSyncRun entity.
-
-        Reconstitutes the entity from database state.
-
-        Args:
-            model: The SQLAlchemy model to convert
-
-        Returns:
-            A DataSourceSyncRun domain entity
-        """
+        """Reconstitute entity from database state."""
         return DataSourceSyncRun(
             id=model.id,
             data_source_id=model.data_source_id,

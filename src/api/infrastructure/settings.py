@@ -398,6 +398,8 @@ class ManagementSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="KARTOGRAPH_MGMT_",
+        env_file=".env",
+        env_file_encoding="utf-8",
         extra="ignore",
     )
 

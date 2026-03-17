@@ -33,6 +33,10 @@ class SecretStoreProbe(Protocol):
         """Record that credentials were successfully deleted."""
         ...
 
+    def with_context(self, context: ObservationContext) -> SecretStoreProbe:
+        """Create a new probe with observation context bound."""
+        ...
+
 
 class DefaultSecretStoreProbe:
     """Default implementation of SecretStoreProbe using structlog."""
@@ -49,6 +53,9 @@ class DefaultSecretStoreProbe:
         if self._context is None:
             return {}
         return self._context.as_dict()
+
+    def with_context(self, context: ObservationContext) -> DefaultSecretStoreProbe:
+        return DefaultSecretStoreProbe(logger=self._logger, context=context)
 
     def credential_stored(self, path: str, tenant_id: str) -> None:
         self._logger.info(

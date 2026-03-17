@@ -249,6 +249,11 @@ class DataSourceService:
                 f"User {user_id} lacks view permission on knowledge graph {kg_id}"
             )
 
+        # Verify KG belongs to tenant (defense-in-depth)
+        kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
+        if kg is None or kg.tenant_id != self._scope_to_tenant:
+            raise UnauthorizedError(f"Knowledge graph {kg_id} not accessible")
+
         data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
 
         self._probe.data_sources_listed(
@@ -309,8 +314,10 @@ class DataSourceService:
         async with self._session.begin():
             if name is not None or connection_config is not None:
                 ds.update_connection(
-                    name=name or ds.name,
-                    connection_config=connection_config or ds.connection_config,
+                    name=name if name is not None else ds.name,
+                    connection_config=connection_config
+                    if connection_config is not None
+                    else ds.connection_config,
                     credentials_path=ds.credentials_path,
                     updated_by=user_id,
                 )

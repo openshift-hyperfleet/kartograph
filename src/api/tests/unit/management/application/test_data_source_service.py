@@ -370,10 +370,11 @@ class TestDataSourceServiceListForKnowledgeGraph:
 
     @pytest.mark.asyncio
     async def test_list_checks_view_permission_on_kg(
-        self, service, mock_authz, mock_ds_repo, user_id, kg_id
+        self, service, mock_authz, mock_ds_repo, mock_kg_repo, user_id, kg_id, tenant_id
     ):
         """list_for_knowledge_graph() checks VIEW on the KG."""
         mock_authz.check_permission.return_value = True
+        mock_kg_repo.get_by_id.return_value = _make_kg(kg_id=kg_id, tenant_id=tenant_id)
         mock_ds_repo.find_by_knowledge_graph.return_value = []
 
         await service.list_for_knowledge_graph(user_id=user_id, kg_id=kg_id)
@@ -396,10 +397,19 @@ class TestDataSourceServiceListForKnowledgeGraph:
 
     @pytest.mark.asyncio
     async def test_list_returns_data_sources(
-        self, service, mock_authz, mock_ds_repo, mock_probe, user_id, kg_id
+        self,
+        service,
+        mock_authz,
+        mock_ds_repo,
+        mock_kg_repo,
+        mock_probe,
+        user_id,
+        kg_id,
+        tenant_id,
     ):
         """list_for_knowledge_graph() returns data sources from repo."""
         mock_authz.check_permission.return_value = True
+        mock_kg_repo.get_by_id.return_value = _make_kg(kg_id=kg_id, tenant_id=tenant_id)
         ds1 = _make_ds(ds_id="ds-001")
         ds2 = _make_ds(ds_id="ds-002")
         mock_ds_repo.find_by_knowledge_graph.return_value = [ds1, ds2]

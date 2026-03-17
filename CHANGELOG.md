@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.30.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.29.0...v3.30.0) (2026-03-17)
+
+
+### Features
+
+* **management:** add Fernet encrypted credential storage (AIHCM-182) ([#295](https://github.com/openshift-hyperfleet/kartograph/issues/295)) ([e0ac3b6](https://github.com/openshift-hyperfleet/kartograph/commit/e0ac3b6f3dbef8a38cd45cf3e3c98bc02b449e55))
+
 ## [3.29.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.28.0...v3.29.0) (2026-03-17)
 
 

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from management.domain.events import (
     DataSourceCreated,
     DataSourceDeleted,
+    DataSourceSyncRequested,
     DataSourceUpdated,
 )
 from management.domain.exceptions import (
@@ -209,6 +210,29 @@ class DataSource:
             knowledge_graph_id=self.knowledge_graph_id,
             tenant_id=self.tenant_id,
             name=name,
+        )
+
+    def request_sync(self, *, requested_by: str | None = None) -> None:
+        """Request a sync for this data source.
+
+        Records a DataSourceSyncRequested event.
+
+        Args:
+            requested_by: The user who requested the sync (optional)
+
+        Raises:
+            AggregateDeletedError: If the data source has been marked for deletion
+        """
+        if self._deleted:
+            raise AggregateDeletedError("Cannot request sync on a deleted data source")
+        self._pending_events.append(
+            DataSourceSyncRequested(
+                data_source_id=self.id.value,
+                knowledge_graph_id=self.knowledge_graph_id,
+                tenant_id=self.tenant_id,
+                occurred_at=datetime.now(UTC),
+                requested_by=requested_by,
+            )
         )
 
     def record_sync_completed(self) -> None:

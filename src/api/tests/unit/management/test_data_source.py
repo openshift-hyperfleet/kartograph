@@ -11,6 +11,7 @@ from management.domain.aggregates.data_source import DataSource
 from management.domain.events import (
     DataSourceCreated,
     DataSourceDeleted,
+    DataSourceSyncRequested,
     DataSourceUpdated,
 )
 from management.domain.exceptions import (
@@ -299,6 +300,53 @@ class TestDataSourceUpdateConnection:
             ds.update_connection(
                 name="Should fail", connection_config={}, credentials_path=None
             )
+
+
+class TestDataSourceRequestSync:
+    """Tests for DataSource.request_sync() method."""
+
+    def _create_ds(self, **kwargs):
+        """Helper to create a DataSource and clear creation events."""
+        defaults = {
+            "knowledge_graph_id": "kg-123",
+            "tenant_id": "tenant-456",
+            "name": "Source",
+            "adapter_type": DataSourceAdapterType.GITHUB,
+            "connection_config": {},
+        }
+        defaults.update(kwargs)
+        ds = DataSource.create(**defaults)
+        ds.collect_events()
+        return ds
+
+    def test_request_sync_emits_sync_requested_event(self):
+        """request_sync() should emit a DataSourceSyncRequested event."""
+        ds = self._create_ds()
+        ds.request_sync(requested_by="user-abc")
+        events = ds.collect_events()
+        assert len(events) == 1
+        event = events[0]
+        assert isinstance(event, DataSourceSyncRequested)
+        assert event.data_source_id == ds.id.value
+        assert event.knowledge_graph_id == "kg-123"
+        assert event.tenant_id == "tenant-456"
+        assert event.requested_by == "user-abc"
+        assert event.occurred_at is not None
+
+    def test_request_sync_without_actor(self):
+        """request_sync() without requested_by should set it to None."""
+        ds = self._create_ds()
+        ds.request_sync()
+        events = ds.collect_events()
+        assert events[0].requested_by is None
+
+    def test_request_sync_raises_after_deletion(self):
+        """request_sync() should raise AggregateDeletedError after mark_for_deletion()."""
+        ds = self._create_ds()
+        ds.mark_for_deletion()
+        ds.collect_events()
+        with pytest.raises(AggregateDeletedError):
+            ds.request_sync()
 
 
 class TestDataSourceRecordSyncCompleted:

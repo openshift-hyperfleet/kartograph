@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.31.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.30.0...v3.31.0) (2026-03-18)
+
+
+### Features
+
+* **management:** add application services with SpiceDB authorization (AIHCM-183) ([#299](https://github.com/openshift-hyperfleet/kartograph/issues/299)) ([9e9de5e](https://github.com/openshift-hyperfleet/kartograph/commit/9e9de5e74e33c2854350385f8e0a7edd162ff3f2))
+
 ## [3.30.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.29.0...v3.30.0) (2026-03-17)
 
 

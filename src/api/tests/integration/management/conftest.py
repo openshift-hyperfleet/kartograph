@@ -99,17 +99,19 @@ async def clean_management_data(
 
     async def cleanup() -> None:
         try:
-            await mgmt_async_session.execute(text("DELETE FROM data_source_sync_runs"))
-            await mgmt_async_session.execute(text("DELETE FROM data_sources"))
-            await mgmt_async_session.execute(text("DELETE FROM knowledge_graphs"))
-            # Clean outbox entries related to management
-            await mgmt_async_session.execute(
-                text(
-                    "DELETE FROM outbox WHERE aggregate_type IN "
-                    "('KnowledgeGraph', 'DataSource')"
+            async with mgmt_async_session.begin():
+                await mgmt_async_session.execute(
+                    text("DELETE FROM data_source_sync_runs")
                 )
-            )
-            await mgmt_async_session.commit()
+                await mgmt_async_session.execute(text("DELETE FROM data_sources"))
+                await mgmt_async_session.execute(text("DELETE FROM knowledge_graphs"))
+                # Clean outbox entries related to management
+                await mgmt_async_session.execute(
+                    text(
+                        "DELETE FROM outbox WHERE aggregate_type IN "
+                        "('KnowledgeGraph', 'DataSource')"
+                    )
+                )
         except Exception:
             await mgmt_async_session.rollback()
             raise

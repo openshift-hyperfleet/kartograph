@@ -130,21 +130,22 @@ class TestKnowledgeGraphUpdate:
             await knowledge_graph_repository.save(kg)
 
         # Clear outbox of the create event so we can isolate the update event
-        await async_session.execute(text("DELETE FROM outbox"))
-        await async_session.commit()
+        async with async_session.begin():
+            await async_session.execute(text("DELETE FROM outbox"))
 
         kg.update(name="After Update", description="After")
 
         async with async_session.begin():
             await knowledge_graph_repository.save(kg)
 
-        result = await async_session.execute(
-            text(
-                "SELECT aggregate_type, event_type, aggregate_id "
-                "FROM outbox WHERE aggregate_type = 'knowledge_graph'"
+        async with async_session.begin():
+            result = await async_session.execute(
+                text(
+                    "SELECT aggregate_type, event_type, aggregate_id "
+                    "FROM outbox WHERE aggregate_type = 'knowledge_graph'"
+                )
             )
-        )
-        rows = result.fetchall()
+            rows = result.fetchall()
 
         assert len(rows) == 1
         assert rows[0].aggregate_type == "knowledge_graph"
@@ -245,23 +246,23 @@ class TestKnowledgeGraphFKRestrict:
         from ulid import ULID
 
         ds_id = str(ULID())
-        await async_session.execute(
-            text(
-                "INSERT INTO data_sources "
-                "(id, knowledge_graph_id, tenant_id, name, adapter_type, "
-                "connection_config, schedule_type, created_at, updated_at) "
-                "VALUES (:id, :kg_id, :tid, :name, :adapter, "
-                "'{}'::jsonb, 'MANUAL', NOW(), NOW())"
-            ),
-            {
-                "id": ds_id,
-                "kg_id": kg.id.value,
-                "tid": test_tenant,
-                "name": "child-ds",
-                "adapter": DataSourceAdapterType.GITHUB.value,
-            },
-        )
-        await async_session.commit()
+        async with async_session.begin():
+            await async_session.execute(
+                text(
+                    "INSERT INTO data_sources "
+                    "(id, knowledge_graph_id, tenant_id, name, adapter_type, "
+                    "connection_config, schedule_type, created_at, updated_at) "
+                    "VALUES (:id, :kg_id, :tid, :name, :adapter, "
+                    "'{}'::jsonb, 'MANUAL', NOW(), NOW())"
+                ),
+                {
+                    "id": ds_id,
+                    "kg_id": kg.id.value,
+                    "tid": test_tenant,
+                    "name": "child-ds",
+                    "adapter": DataSourceAdapterType.GITHUB.value,
+                },
+            )
 
         kg.mark_for_deletion()
 
@@ -341,26 +342,26 @@ class TestFindByTenant:
 
         other_tenant_id = str(ULID())
         other_workspace_id = str(ULID())
-        await async_session.execute(
-            text(
-                "INSERT INTO tenants (id, name, created_at, updated_at) "
-                "VALUES (:id, :name, NOW(), NOW())"
-            ),
-            {"id": other_tenant_id, "name": f"other-tenant-{other_tenant_id}"},
-        )
-        await async_session.execute(
-            text(
-                "INSERT INTO workspaces (id, tenant_id, name, is_root, created_at, updated_at) "
-                "VALUES (:id, :tenant_id, :name, :is_root, NOW(), NOW())"
-            ),
-            {
-                "id": other_workspace_id,
-                "tenant_id": other_tenant_id,
-                "name": f"other-workspace-{other_workspace_id}",
-                "is_root": True,
-            },
-        )
-        await async_session.commit()
+        async with async_session.begin():
+            await async_session.execute(
+                text(
+                    "INSERT INTO tenants (id, name, created_at, updated_at) "
+                    "VALUES (:id, :name, NOW(), NOW())"
+                ),
+                {"id": other_tenant_id, "name": f"other-tenant-{other_tenant_id}"},
+            )
+            await async_session.execute(
+                text(
+                    "INSERT INTO workspaces (id, tenant_id, name, is_root, created_at, updated_at) "
+                    "VALUES (:id, :tenant_id, :name, :is_root, NOW(), NOW())"
+                ),
+                {
+                    "id": other_workspace_id,
+                    "tenant_id": other_tenant_id,
+                    "name": f"other-workspace-{other_workspace_id}",
+                    "is_root": True,
+                },
+            )
 
         # Create 1 KG in the other tenant
         kg_other = KnowledgeGraph.create(
@@ -411,8 +412,8 @@ class TestOutboxConsistency:
     ):
         """Should record a KnowledgeGraphCreated event in the outbox table."""
         # Clear any pre-existing outbox entries
-        await async_session.execute(text("DELETE FROM outbox"))
-        await async_session.commit()
+        async with async_session.begin():
+            await async_session.execute(text("DELETE FROM outbox"))
 
         kg = KnowledgeGraph.create(
             tenant_id=test_tenant,
@@ -424,13 +425,14 @@ class TestOutboxConsistency:
         async with async_session.begin():
             await knowledge_graph_repository.save(kg)
 
-        result = await async_session.execute(
-            text(
-                "SELECT aggregate_type, event_type, aggregate_id "
-                "FROM outbox WHERE aggregate_type = 'knowledge_graph'"
+        async with async_session.begin():
+            result = await async_session.execute(
+                text(
+                    "SELECT aggregate_type, event_type, aggregate_id "
+                    "FROM outbox WHERE aggregate_type = 'knowledge_graph'"
+                )
             )
-        )
-        rows = result.fetchall()
+            rows = result.fetchall()
 
         assert len(rows) == 1
         assert rows[0].aggregate_type == "knowledge_graph"
@@ -458,8 +460,8 @@ class TestOutboxConsistency:
             await knowledge_graph_repository.save(kg)
 
         # Clear outbox of the create event so we can isolate the delete event
-        await async_session.execute(text("DELETE FROM outbox"))
-        await async_session.commit()
+        async with async_session.begin():
+            await async_session.execute(text("DELETE FROM outbox"))
 
         async with async_session.begin():
             retrieved = await knowledge_graph_repository.get_by_id(kg.id)
@@ -468,13 +470,14 @@ class TestOutboxConsistency:
             retrieved.mark_for_deletion()
             await knowledge_graph_repository.delete(retrieved)
 
-        result = await async_session.execute(
-            text(
-                "SELECT aggregate_type, event_type, aggregate_id "
-                "FROM outbox WHERE aggregate_type = 'knowledge_graph'"
+        async with async_session.begin():
+            result = await async_session.execute(
+                text(
+                    "SELECT aggregate_type, event_type, aggregate_id "
+                    "FROM outbox WHERE aggregate_type = 'knowledge_graph'"
+                )
             )
-        )
-        rows = result.fetchall()
+            rows = result.fetchall()
 
         assert len(rows) == 1
         assert rows[0].aggregate_type == "knowledge_graph"

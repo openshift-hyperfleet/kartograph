@@ -267,16 +267,16 @@ class KnowledgeGraphService:
         self,
         user_id: str,
         kg_id: str,
-        name: str,
-        description: str,
+        name: str | None = None,
+        description: str | None = None,
     ) -> KnowledgeGraph:
         """Update a knowledge graph's metadata.
 
         Args:
             user_id: The user performing the update
             kg_id: The knowledge graph ID
-            name: New name
-            description: New description
+            name: Optional new name (uses existing if None)
+            description: Optional new description (uses existing if None)
 
         Returns:
             The updated KnowledgeGraph aggregate
@@ -310,17 +310,26 @@ class KnowledgeGraphService:
         if kg.tenant_id != self._scope_to_tenant:
             raise ValueError(f"Knowledge graph {kg_id} not found")
 
-        kg.update(name=name, description=description, updated_by=user_id)
+        resolved_name = name if name is not None else kg.name
+        resolved_description = (
+            description if description is not None else kg.description
+        )
+
+        kg.update(
+            name=resolved_name,
+            description=resolved_description,
+            updated_by=user_id,
+        )
 
         try:
             async with self._session.begin():
                 await self._kg_repo.save(kg)
         except IntegrityError as e:
             raise DuplicateKnowledgeGraphNameError(
-                f"Knowledge graph '{name}' already exists in tenant"
+                f"Knowledge graph '{resolved_name}' already exists in tenant"
             ) from e
 
-        self._probe.knowledge_graph_updated(kg_id=kg_id, name=name)
+        self._probe.knowledge_graph_updated(kg_id=kg_id, name=resolved_name)
 
         return kg
 

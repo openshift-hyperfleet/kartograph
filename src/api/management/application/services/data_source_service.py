@@ -348,7 +348,13 @@ class DataSourceService:
                         tenant_id=self._scope_to_tenant,
                         credentials=raw_credentials,
                     )
-                    ds.credentials_path = cred_path
+                    # Update via aggregate method to emit event and update timestamps
+                    ds.update_connection(
+                        name=ds.name,
+                        connection_config=ds.connection_config,
+                        credentials_path=cred_path,
+                        updated_by=user_id,
+                    )
 
                 await self._ds_repo.save(ds)
         except IntegrityError as e:

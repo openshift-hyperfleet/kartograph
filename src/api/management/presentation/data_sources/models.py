@@ -133,6 +133,7 @@ class SyncRunResponse(BaseModel):
     status: str
     started_at: datetime
     completed_at: datetime | None
+    error: str | None
     created_at: datetime
 
     @classmethod
@@ -151,5 +152,6 @@ class SyncRunResponse(BaseModel):
             status=sync_run.status,
             started_at=sync_run.started_at,
             completed_at=sync_run.completed_at,
+            error=sync_run.error,
             created_at=sync_run.created_at,
         )

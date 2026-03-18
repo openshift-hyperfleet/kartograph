@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -121,16 +121,32 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
         self._probe.knowledge_graph_retrieved(knowledge_graph_id.value)
         return self._to_domain(model)
 
-    async def find_by_tenant(self, tenant_id: str) -> list[KnowledgeGraph]:
-        stmt = select(KnowledgeGraphModel).where(
-            KnowledgeGraphModel.tenant_id == tenant_id
+    async def find_by_tenant(
+        self, tenant_id: str, *, offset: int = 0, limit: int = 20
+    ) -> tuple[list[KnowledgeGraph], int]:
+        # Count query
+        count_stmt = (
+            select(func.count())
+            .select_from(KnowledgeGraphModel)
+            .where(KnowledgeGraphModel.tenant_id == tenant_id)
+        )
+        count_result = await self._session.execute(count_stmt)
+        total = count_result.scalar_one()
+
+        # Paginated query
+        stmt = (
+            select(KnowledgeGraphModel)
+            .where(KnowledgeGraphModel.tenant_id == tenant_id)
+            .offset(offset)
+            .limit(limit)
+            .order_by(KnowledgeGraphModel.created_at.desc())
         )
         result = await self._session.execute(stmt)
         models = result.scalars().all()
 
         kgs = [self._to_domain(model) for model in models]
         self._probe.knowledge_graphs_listed(tenant_id, len(kgs))
-        return kgs
+        return kgs, total
 
     async def delete(self, knowledge_graph: KnowledgeGraph) -> bool:
         stmt = select(KnowledgeGraphModel).where(

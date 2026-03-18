@@ -233,7 +233,7 @@ class TestListDataSources:
         data_sources = [
             _make_ds(ds_id=f"01JTEST00000000000000DS00{i}") for i in range(3)
         ]
-        mock_service.list_for_knowledge_graph.return_value = data_sources
+        mock_service.list_for_knowledge_graph.return_value = (data_sources, 3)
 
         resp = await client.get(
             f"/management/knowledge-graphs/{KG_ID}/data-sources",
@@ -249,10 +249,11 @@ class TestListDataSources:
     @pytest.mark.asyncio
     async def test_pagination_offset_limit(self, client, mock_service):
         """Test that offset and limit query params work correctly."""
+        # Service returns only the paginated slice; total reflects full count
         data_sources = [
-            _make_ds(ds_id=f"01JTEST00000000000000DS00{i}") for i in range(5)
+            _make_ds(ds_id=f"01JTEST00000000000000DS00{i}") for i in range(2)
         ]
-        mock_service.list_for_knowledge_graph.return_value = data_sources
+        mock_service.list_for_knowledge_graph.return_value = (data_sources, 5)
 
         resp = await client.get(
             f"/management/knowledge-graphs/{KG_ID}/data-sources?offset=2&limit=2",

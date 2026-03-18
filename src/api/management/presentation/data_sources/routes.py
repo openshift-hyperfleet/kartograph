@@ -72,6 +72,13 @@ async def create_data_source(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred",
+        )
 
 
 @router.get(
@@ -88,14 +95,14 @@ async def list_data_sources(
 ) -> DataSourceListResponse:
     """List data sources for a knowledge graph with pagination."""
     try:
-        all_ds = await service.list_for_knowledge_graph(
+        data_sources, total = await service.list_for_knowledge_graph(
             user_id=current_user.user_id.value,
             kg_id=kg_id,
+            offset=offset,
+            limit=limit,
         )
-        total = len(all_ds)
-        paginated = all_ds[offset : offset + limit]
         return DataSourceListResponse(
-            items=[DataSourceResponse.from_domain(ds) for ds in paginated],
+            items=[DataSourceResponse.from_domain(ds) for ds in data_sources],
             total=total,
             offset=offset,
             limit=limit,
@@ -104,6 +111,13 @@ async def list_data_sources(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to perform this action",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred",
         )
 
 
@@ -130,6 +144,13 @@ async def get_data_source(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to perform this action",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred",
         )
 
 
@@ -175,6 +196,13 @@ async def update_data_source(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=error_msg,
         )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred",
+        )
 
 
 @router.delete(
@@ -209,7 +237,7 @@ async def delete_data_source(
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete data source",
+            detail="An unexpected error occurred",
         )
 
 
@@ -240,4 +268,11 @@ async def trigger_sync(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Data source not found",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred",
         )

@@ -375,7 +375,7 @@ class TestDataSourceServiceListForKnowledgeGraph:
         """list_for_knowledge_graph() checks VIEW on the KG."""
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = _make_kg(kg_id=kg_id, tenant_id=tenant_id)
-        mock_ds_repo.find_by_knowledge_graph.return_value = []
+        mock_ds_repo.find_by_knowledge_graph.return_value = ([], 0)
 
         await service.list_for_knowledge_graph(user_id=user_id, kg_id=kg_id)
 
@@ -436,11 +436,14 @@ class TestDataSourceServiceListForKnowledgeGraph:
         mock_kg_repo.get_by_id.return_value = _make_kg(kg_id=kg_id, tenant_id=tenant_id)
         ds1 = _make_ds(ds_id="ds-001")
         ds2 = _make_ds(ds_id="ds-002")
-        mock_ds_repo.find_by_knowledge_graph.return_value = [ds1, ds2]
+        mock_ds_repo.find_by_knowledge_graph.return_value = ([ds1, ds2], 2)
 
-        result = await service.list_for_knowledge_graph(user_id=user_id, kg_id=kg_id)
+        result, total = await service.list_for_knowledge_graph(
+            user_id=user_id, kg_id=kg_id
+        )
 
         assert len(result) == 2
+        assert total == 2
         mock_probe.data_sources_listed.assert_called_once_with(
             kg_id=kg_id,
             count=2,

@@ -300,8 +300,11 @@ class TestFindByKnowledgeGraph:
             await data_source_repository.save(ds2)
             await data_source_repository.save(ds3)
 
-        results = await data_source_repository.find_by_knowledge_graph(kg1.id.value)
+        results, total = await data_source_repository.find_by_knowledge_graph(
+            kg1.id.value
+        )
 
+        assert total == 2
         assert len(results) == 2
         result_ids = {r.id.value for r in results}
         assert ds1.id.value in result_ids
@@ -314,9 +317,12 @@ class TestFindByKnowledgeGraph:
         clean_management_data,
     ):
         """Should return an empty list when KG has no data sources."""
-        results = await data_source_repository.find_by_knowledge_graph("nonexistent")
+        results, total = await data_source_repository.find_by_knowledge_graph(
+            "nonexistent"
+        )
 
         assert results == []
+        assert total == 0
 
 
 class TestDataSourceUniqueness:

@@ -200,18 +200,24 @@ class KnowledgeGraphService:
         self,
         user_id: str,
         workspace_id: str,
-    ) -> list[KnowledgeGraph]:
-        """List knowledge graphs in a workspace.
+        *,
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[KnowledgeGraph], int]:
+        """List knowledge graphs in a workspace with pagination.
 
         Uses read_relationships to discover KG IDs linked to the workspace,
         then fetches each from the repository and filters by tenant.
+        Pagination is applied after filtering.
 
         Args:
             user_id: The user requesting the list
             workspace_id: The workspace to list KGs for
+            offset: Number of records to skip
+            limit: Maximum number of records to return
 
         Returns:
-            List of KnowledgeGraph aggregates
+            Tuple of (paginated KnowledgeGraph aggregates, total count)
 
         Raises:
             UnauthorizedError: If user lacks VIEW permission on workspace
@@ -250,18 +256,22 @@ class KnowledgeGraphService:
                 kg_ids.append(parts[1])
 
         # Fetch each KG from repo and filter by tenant
+        # (N+1 problem - acceptable for walking skeleton)
         kgs: list[KnowledgeGraph] = []
         for kg_id in kg_ids:
             kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
             if kg is not None and kg.tenant_id == self._scope_to_tenant:
                 kgs.append(kg)
 
+        total = len(kgs)
+        paginated = kgs[offset : offset + limit]
+
         self._probe.knowledge_graphs_listed(
             workspace_id=workspace_id,
-            count=len(kgs),
+            count=len(paginated),
         )
 
-        return kgs
+        return paginated, total
 
     async def update(
         self,
@@ -377,7 +387,9 @@ class KnowledgeGraphService:
         async with self._session.begin():
             # Cascade delete data sources if repo is available
             if self._ds_repo is not None:
-                data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
+                data_sources, _ = await self._ds_repo.find_by_knowledge_graph(
+                    kg_id, offset=0, limit=10000
+                )
                 for ds in data_sources:
                     ds.mark_for_deletion(deleted_by=user_id)
                     await self._ds_repo.delete(ds)

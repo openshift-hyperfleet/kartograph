@@ -230,15 +230,20 @@ class DataSourceService:
         self,
         user_id: str,
         kg_id: str,
-    ) -> list[DataSource]:
-        """List data sources for a knowledge graph.
+        *,
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[DataSource], int]:
+        """List data sources for a knowledge graph with pagination.
 
         Args:
             user_id: The user requesting the list
             kg_id: The knowledge graph to list DSes for
+            offset: Number of records to skip
+            limit: Maximum number of records to return
 
         Returns:
-            List of DataSource aggregates
+            Tuple of (paginated DataSource aggregates, total count)
 
         Raises:
             UnauthorizedError: If user lacks VIEW permission on KG
@@ -265,14 +270,16 @@ class DataSourceService:
         if kg is None or kg.tenant_id != self._scope_to_tenant:
             raise UnauthorizedError(f"Knowledge graph {kg_id} not accessible")
 
-        data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
+        data_sources, total = await self._ds_repo.find_by_knowledge_graph(
+            kg_id, offset=offset, limit=limit
+        )
 
         self._probe.data_sources_listed(
             kg_id=kg_id,
             count=len(data_sources),
         )
 
-        return data_sources
+        return data_sources, total
 
     async def update(
         self,

@@ -63,6 +63,13 @@ async def create_knowledge_graph(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred",
+        )
 
 
 @router.get(
@@ -79,14 +86,14 @@ async def list_knowledge_graphs(
 ) -> KnowledgeGraphListResponse:
     """List knowledge graphs in a workspace with pagination."""
     try:
-        all_kgs = await service.list_for_workspace(
+        kgs, total = await service.list_for_workspace(
             user_id=current_user.user_id.value,
             workspace_id=workspace_id,
+            offset=offset,
+            limit=limit,
         )
-        total = len(all_kgs)
-        paginated = all_kgs[offset : offset + limit]
         return KnowledgeGraphListResponse(
-            items=[KnowledgeGraphResponse.from_domain(kg) for kg in paginated],
+            items=[KnowledgeGraphResponse.from_domain(kg) for kg in kgs],
             total=total,
             offset=offset,
             limit=limit,
@@ -95,6 +102,13 @@ async def list_knowledge_graphs(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to perform this action",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred",
         )
 
 
@@ -121,6 +135,13 @@ async def get_knowledge_graph(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to perform this action",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred",
         )
 
 
@@ -165,6 +186,13 @@ async def update_knowledge_graph(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=error_msg,
         )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred",
+        )
 
 
 @router.delete(
@@ -199,5 +227,5 @@ async def delete_knowledge_graph(
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete knowledge graph",
+            detail="An unexpected error occurred",
         )

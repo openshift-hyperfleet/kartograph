@@ -362,11 +362,12 @@ class TestKnowledgeGraphServiceListForWorkspace:
         ]
         mock_kg_repo.get_by_id.side_effect = [kg1, kg2]
 
-        result = await service.list_for_workspace(
+        result, total = await service.list_for_workspace(
             user_id=user_id, workspace_id=workspace_id
         )
 
         assert len(result) == 2
+        assert total == 2
         mock_probe.knowledge_graphs_listed.assert_called_once_with(
             workspace_id=workspace_id,
             count=2,
@@ -394,11 +395,12 @@ class TestKnowledgeGraphServiceListForWorkspace:
         ]
         mock_kg_repo.get_by_id.side_effect = [kg_own, kg_other]
 
-        result = await service.list_for_workspace(
+        result, total = await service.list_for_workspace(
             user_id=user_id, workspace_id=workspace_id
         )
 
         assert len(result) == 1
+        assert total == 1
         assert result[0].id.value == "kg-001"
 
 
@@ -537,7 +539,7 @@ class TestKnowledgeGraphServiceDelete:
         kg = _make_kg()
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = kg
-        mock_ds_repo.find_by_knowledge_graph.return_value = []
+        mock_ds_repo.find_by_knowledge_graph.return_value = ([], 0)
         mock_kg_repo.delete.return_value = True
 
         await service.delete(user_id=user_id, kg_id=kg.id.value)
@@ -593,7 +595,7 @@ class TestKnowledgeGraphServiceDelete:
         ds2 = MagicMock()
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = kg
-        mock_ds_repo.find_by_knowledge_graph.return_value = [ds1, ds2]
+        mock_ds_repo.find_by_knowledge_graph.return_value = ([ds1, ds2], 2)
         mock_ds_repo.delete.return_value = True
         mock_kg_repo.delete.return_value = True
 
@@ -614,7 +616,7 @@ class TestKnowledgeGraphServiceDelete:
         kg = _make_kg()
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = kg
-        mock_ds_repo.find_by_knowledge_graph.return_value = []
+        mock_ds_repo.find_by_knowledge_graph.return_value = ([], 0)
         mock_kg_repo.delete.return_value = True
 
         await service.delete(user_id=user_id, kg_id=kg.id.value)

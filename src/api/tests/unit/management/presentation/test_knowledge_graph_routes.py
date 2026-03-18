@@ -182,7 +182,7 @@ class TestListKnowledgeGraphs:
     async def test_lists_successfully(self, client, mock_service):
         """Test successful list returns 200 with correct pagination."""
         kgs = [_make_kg(kg_id=f"01JTEST00000000000000KG00{i}") for i in range(3)]
-        mock_service.list_for_workspace.return_value = kgs
+        mock_service.list_for_workspace.return_value = (kgs, 3)
 
         resp = await client.get(
             f"/management/workspaces/{WORKSPACE_ID}/knowledge-graphs",
@@ -198,8 +198,9 @@ class TestListKnowledgeGraphs:
     @pytest.mark.asyncio
     async def test_pagination_offset_limit(self, client, mock_service):
         """Test that offset and limit query params work correctly."""
-        kgs = [_make_kg(kg_id=f"01JTEST00000000000000KG00{i}") for i in range(5)]
-        mock_service.list_for_workspace.return_value = kgs
+        # Service returns only the paginated slice; total reflects full count
+        kgs = [_make_kg(kg_id=f"01JTEST00000000000000KG00{i}") for i in range(2)]
+        mock_service.list_for_workspace.return_value = (kgs, 5)
 
         resp = await client.get(
             f"/management/workspaces/{WORKSPACE_ID}/knowledge-graphs?offset=1&limit=2",
@@ -226,7 +227,7 @@ class TestListKnowledgeGraphs:
     @pytest.mark.asyncio
     async def test_empty_list(self, client, mock_service):
         """Test listing returns empty result correctly."""
-        mock_service.list_for_workspace.return_value = []
+        mock_service.list_for_workspace.return_value = ([], 0)
 
         resp = await client.get(
             f"/management/workspaces/{WORKSPACE_ID}/knowledge-graphs",

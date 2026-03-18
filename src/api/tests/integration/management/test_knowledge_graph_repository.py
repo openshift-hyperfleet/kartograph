@@ -374,8 +374,9 @@ class TestFindByTenant:
             await knowledge_graph_repository.save(kg_other)
 
         # Query for the test tenant
-        results = await knowledge_graph_repository.find_by_tenant(test_tenant)
+        results, total = await knowledge_graph_repository.find_by_tenant(test_tenant)
 
+        assert total == 2
         assert len(results) == 2
         result_ids = {r.id.value for r in results}
         assert kg1.id.value in result_ids
@@ -388,9 +389,12 @@ class TestFindByTenant:
         clean_management_data,
     ):
         """Should return an empty list when tenant has no knowledge graphs."""
-        results = await knowledge_graph_repository.find_by_tenant("nonexistent-tenant")
+        results, total = await knowledge_graph_repository.find_by_tenant(
+            "nonexistent-tenant"
+        )
 
         assert results == []
+        assert total == 0
 
 
 class TestOutboxConsistency:

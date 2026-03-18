@@ -259,10 +259,10 @@ class TestDataSourceServiceCreate:
         )
 
         mock_secret_store.store.assert_called_once()
-        call_kwargs = mock_secret_store.store.call_args
-        assert "datasource/" in call_kwargs.kwargs.get("path", "") or "datasource/" in (
-            call_kwargs.args[0] if call_kwargs.args else ""
-        )
+        call_kwargs = mock_secret_store.store.call_args.kwargs
+        assert "datasource/" in call_kwargs.get("path", "")
+        assert call_kwargs.get("tenant_id") == tenant_id
+        assert call_kwargs.get("credentials") == creds
 
     @pytest.mark.asyncio
     async def test_create_probes_success(
@@ -537,6 +537,10 @@ class TestDataSourceServiceUpdate:
         )
 
         mock_secret_store.store.assert_called_once()
+        call_kwargs = mock_secret_store.store.call_args.kwargs
+        assert "datasource/" in call_kwargs.get("path", "")
+        assert call_kwargs.get("tenant_id") == tenant_id
+        assert call_kwargs.get("credentials") == creds
 
     @pytest.mark.asyncio
     async def test_update_probes_success(

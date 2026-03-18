@@ -333,8 +333,8 @@ class TestUpdateKnowledgeGraph:
         assert resp.status_code == 409
 
     @pytest.mark.asyncio
-    async def test_not_found_returns_400(self, client, mock_service):
-        """Test that ValueError from service maps to 400."""
+    async def test_not_found_returns_404(self, client, mock_service):
+        """Test that ValueError with 'not found' from service maps to 404."""
         mock_service.update.side_effect = ValueError("not found")
 
         resp = await client.patch(
@@ -342,7 +342,7 @@ class TestUpdateKnowledgeGraph:
             json={"name": "New Name"},
         )
 
-        assert resp.status_code == 400
+        assert resp.status_code == 404
 
 
 class TestDeleteKnowledgeGraph:

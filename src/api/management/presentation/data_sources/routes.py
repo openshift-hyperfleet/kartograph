@@ -118,13 +118,19 @@ async def get_data_source(
     service: Annotated[DataSourceService, Depends(get_data_source_service)],
 ) -> DataSourceResponse:
     """Get a data source by ID."""
-    ds = await service.get(user_id=current_user.user_id.value, ds_id=ds_id)
-    if ds is None:
+    try:
+        ds = await service.get(user_id=current_user.user_id.value, ds_id=ds_id)
+        if ds is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Data source not found",
+            )
+        return DataSourceResponse.from_domain(ds)
+    except UnauthorizedError:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Data source not found",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
         )
-    return DataSourceResponse.from_domain(ds)
 
 
 @router.patch(
@@ -159,9 +165,15 @@ async def update_data_source(
             detail="A data source with this name already exists in this knowledge graph",
         )
     except ValueError as e:
+        error_msg = str(e)
+        if "not found" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Data source not found",
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=error_msg,
         )
 
 
@@ -224,8 +236,8 @@ async def trigger_sync(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to perform this action",
         )
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
+            detail="Data source not found",
         )

@@ -109,13 +109,19 @@ async def get_knowledge_graph(
     service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
 ) -> KnowledgeGraphResponse:
     """Get a knowledge graph by ID."""
-    kg = await service.get(user_id=current_user.user_id.value, kg_id=kg_id)
-    if kg is None:
+    try:
+        kg = await service.get(user_id=current_user.user_id.value, kg_id=kg_id)
+        if kg is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Knowledge graph not found",
+            )
+        return KnowledgeGraphResponse.from_domain(kg)
+    except UnauthorizedError:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Knowledge graph not found",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
         )
-    return KnowledgeGraphResponse.from_domain(kg)
 
 
 @router.patch(
@@ -149,9 +155,15 @@ async def update_knowledge_graph(
             detail="A knowledge graph with this name already exists",
         )
     except (InvalidKnowledgeGraphNameError, ValueError) as e:
+        error_msg = str(e)
+        if "not found" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Knowledge graph not found",
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=error_msg,
         )
 
 

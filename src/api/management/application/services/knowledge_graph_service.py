@@ -385,14 +385,17 @@ class KnowledgeGraphService:
             return False
 
         async with self._session.begin():
-            # Cascade delete data sources if repo is available
+            # Cascade delete all data sources before deleting KG
             if self._ds_repo is not None:
-                data_sources, _ = await self._ds_repo.find_by_knowledge_graph(
-                    kg_id, offset=0, limit=10000
-                )
-                for ds in data_sources:
-                    ds.mark_for_deletion(deleted_by=user_id)
-                    await self._ds_repo.delete(ds)
+                while True:
+                    batch, _ = await self._ds_repo.find_by_knowledge_graph(
+                        kg_id, offset=0, limit=100
+                    )
+                    if not batch:
+                        break
+                    for ds in batch:
+                        ds.mark_for_deletion(deleted_by=user_id)
+                        await self._ds_repo.delete(ds)
 
             kg.mark_for_deletion(deleted_by=user_id)
             await self._kg_repo.delete(kg)

@@ -109,7 +109,7 @@ async def clean_management_data(
                 await mgmt_async_session.execute(
                     text(
                         "DELETE FROM outbox WHERE aggregate_type IN "
-                        "('KnowledgeGraph', 'DataSource')"
+                        "('knowledge_graph', 'data_source')"
                     )
                 )
         except Exception:

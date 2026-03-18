@@ -1,7 +1,6 @@
 """Integration test fixtures for Management bounded context.
 
-These fixtures require a running PostgreSQL instance.
-Database settings follow the same pattern as IAM integration tests.
+These fixtures require running PostgreSQL, SpiceDB, and Keycloak instances.
 """
 
 from __future__ import annotations
@@ -11,31 +10,33 @@ from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
+from asgi_lifespan import LifespanManager
+from cryptography.fernet import Fernet
+from httpx import ASGITransport, AsyncClient
+from jose import jwt as jose_jwt
 from pydantic import SecretStr
 from sqlalchemy import text
-from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from ulid import ULID
 
+from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.database.engines import create_write_engine
-from infrastructure.outbox.repository import OutboxRepository
 from infrastructure.settings import DatabaseSettings
-from management.infrastructure.repositories.data_source_repository import (
-    DataSourceRepository,
+from shared_kernel.authorization.protocols import AuthorizationProvider
+from shared_kernel.authorization.types import (
+    Permission,
+    ResourceType,
+    format_resource,
+    format_subject,
 )
-from management.infrastructure.repositories.data_source_sync_run_repository import (
-    DataSourceSyncRunRepository,
-)
-from management.infrastructure.repositories.knowledge_graph_repository import (
-    KnowledgeGraphRepository,
-)
+from tests.integration.iam.conftest import wait_for_permission
 
-pytestmark = pytest.mark.integration
+# Ensure encryption key is available for management services
+os.environ.setdefault("KARTOGRAPH_MGMT_ENCRYPTION_KEY", Fernet.generate_key().decode())
 
 
 @pytest.fixture(scope="session")
-def management_db_settings() -> DatabaseSettings:
-    """Database settings for Management integration tests."""
+def mgmt_db_settings() -> DatabaseSettings:
+    """Database settings for management integration tests."""
     return DatabaseSettings(
         host=os.getenv("KARTOGRAPH_DB_HOST", "localhost"),
         port=int(os.getenv("KARTOGRAPH_DB_PORT", "5432")),
@@ -49,11 +50,11 @@ def management_db_settings() -> DatabaseSettings:
 
 
 @pytest_asyncio.fixture
-async def async_session(
-    management_db_settings: DatabaseSettings,
+async def mgmt_async_session(
+    mgmt_db_settings: DatabaseSettings,
 ) -> AsyncGenerator[AsyncSession, None]:
-    """Provide an async session for integration tests."""
-    engine = create_write_engine(management_db_settings)
+    """Provide an async session for management integration tests."""
+    engine = create_write_engine(mgmt_db_settings)
     sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
 
     async with sessionmaker() as session:
@@ -63,152 +64,124 @@ async def async_session(
 
 
 @pytest_asyncio.fixture
-async def session_factory(
-    management_db_settings: DatabaseSettings,
-) -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
-    """Provide a session factory for tests that need to create multiple sessions.
+async def async_client():
+    """Create async HTTP client for testing with lifespan support."""
+    from main import app
 
-    This is needed for components that create their own sessions.
-    """
-    engine = create_write_engine(management_db_settings)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with LifespanManager(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client
 
-    yield factory
 
-    await engine.dispose()
+@pytest.fixture
+def spicedb_client() -> AuthorizationProvider:
+    """Provide a SpiceDB client for integration tests."""
+    return get_spicedb_client()
+
+
+@pytest.fixture
+def alice_user_id(alice_token: str) -> str:
+    """Extract the actual user_id (sub claim) from alice's JWT token."""
+    claims = jose_jwt.get_unverified_claims(alice_token)
+    return claims["sub"]
 
 
 @pytest_asyncio.fixture
 async def clean_management_data(
-    async_session: AsyncSession,
+    mgmt_async_session: AsyncSession,
 ) -> AsyncGenerator[None, None]:
-    """Clean Management tables before and after tests.
+    """Clean management tables before and after tests.
 
     Deletion order respects FK constraints:
-    outbox (management events) -> data_source_sync_runs ->
-    data_sources -> knowledge_graphs
-
-    Guards against tables not existing yet (TDD-first: tests may be
-    collected before migration runs).
+    data_source_sync_runs -> data_sources -> knowledge_graphs
     """
 
     async def cleanup() -> None:
-        """Perform cleanup with proper FK constraint ordering."""
         try:
-            # Clean encrypted credentials first
-            await async_session.execute(text("DELETE FROM encrypted_credentials"))
-            # Clean management-related outbox entries
-            await async_session.execute(
-                text(
-                    "DELETE FROM outbox WHERE aggregate_type "
-                    "IN ('knowledge_graph', 'data_source')"
+            async with mgmt_async_session.begin():
+                await mgmt_async_session.execute(
+                    text("DELETE FROM data_source_sync_runs")
                 )
-            )
-            await async_session.execute(text("DELETE FROM data_source_sync_runs"))
-            await async_session.execute(text("DELETE FROM data_sources"))
-            await async_session.execute(text("DELETE FROM knowledge_graphs"))
-            await async_session.commit()
-        except ProgrammingError:
-            # Tables may not exist yet if migration hasn't run
-            await async_session.rollback()
+                await mgmt_async_session.execute(text("DELETE FROM data_sources"))
+                await mgmt_async_session.execute(text("DELETE FROM knowledge_graphs"))
+                # Clean outbox entries related to management
+                await mgmt_async_session.execute(
+                    text(
+                        "DELETE FROM outbox WHERE aggregate_type IN "
+                        "('knowledge_graph', 'data_source')"
+                    )
+                )
+        except Exception:
+            await mgmt_async_session.rollback()
+            raise
 
-    # Clean before test
     await cleanup()
-
     yield
-
-    # Clean after test
     await cleanup()
 
 
-@pytest.fixture
-def knowledge_graph_repository(
-    async_session: AsyncSession,
-) -> KnowledgeGraphRepository:
-    """Provide a KnowledgeGraphRepository for integration tests."""
-    outbox = OutboxRepository(session=async_session)
-    return KnowledgeGraphRepository(session=async_session, outbox=outbox)
+async def grant_kg_permission(
+    spicedb_client: AuthorizationProvider,
+    user_id: str,
+    kg_id: str,
+    workspace_id: str,
+) -> None:
+    """Set up SpiceDB relationships for a KG.
 
-
-@pytest.fixture
-def data_source_repository(
-    async_session: AsyncSession,
-) -> DataSourceRepository:
-    """Provide a DataSourceRepository for integration tests."""
-    outbox = OutboxRepository(session=async_session)
-    return DataSourceRepository(session=async_session, outbox=outbox)
-
-
-@pytest.fixture
-def data_source_sync_run_repository(
-    async_session: AsyncSession,
-) -> DataSourceSyncRunRepository:
-    """Provide a DataSourceSyncRunRepository for integration tests."""
-    return DataSourceSyncRunRepository(session=async_session)
-
-
-@pytest_asyncio.fixture
-async def test_tenant(
-    async_session: AsyncSession,
-    clean_management_data: None,
-) -> AsyncGenerator[str, None]:
-    """Create a tenant in the tenants table for FK satisfaction.
-
-    Uses raw SQL to insert directly, avoiding dependency on IAM domain objects.
-    Cleans up the test tenant on teardown.
-    Returns the tenant_id string.
+    Writes the workspace relationship on the KG and grants
+    admin permission on the KG to the user.
     """
-    tenant_id = str(ULID())
-    await async_session.execute(
-        text(
-            "INSERT INTO tenants (id, name, created_at, updated_at) "
-            "VALUES (:id, :name, NOW(), NOW())"
-        ),
-        {"id": tenant_id, "name": f"test-tenant-{tenant_id}"},
+    kg_resource = format_resource(ResourceType.KNOWLEDGE_GRAPH, kg_id)
+    user_subject = format_subject(ResourceType.USER, user_id)
+    ws_subject = format_resource(ResourceType.WORKSPACE, workspace_id)
+
+    # Write workspace parent relationship
+    await spicedb_client.write_relationship(
+        resource=kg_resource,
+        relation="workspace",
+        subject=ws_subject,
     )
-    await async_session.commit()
 
-    yield tenant_id
-
-    # Teardown: remove test tenant (workspaces cleaned first by test_workspace)
-    try:
-        await async_session.execute(
-            text("DELETE FROM workspaces WHERE tenant_id = :tid"),
-            {"tid": tenant_id},
-        )
-        await async_session.execute(
-            text("DELETE FROM tenants WHERE id = :tid"),
-            {"tid": tenant_id},
-        )
-        await async_session.commit()
-    except ProgrammingError:
-        await async_session.rollback()
+    # Wait for view permission (inherited from workspace)
+    view_ready = await wait_for_permission(
+        spicedb_client,
+        resource=kg_resource,
+        permission=Permission.VIEW,
+        subject=user_subject,
+        timeout=5.0,
+    )
+    assert view_ready, "Timed out waiting for KG view permission"
 
 
-@pytest_asyncio.fixture
-async def test_workspace(
-    async_session: AsyncSession,
-    test_tenant: str,
-) -> AsyncGenerator[str, None]:
-    """Create a workspace in the workspaces table for FK satisfaction.
+async def grant_ds_permission(
+    spicedb_client: AuthorizationProvider,
+    user_id: str,
+    ds_id: str,
+    kg_id: str,
+) -> None:
+    """Set up SpiceDB relationships for a DataSource.
 
-    Depends on test_tenant to ensure a valid tenant_id FK reference.
-    Uses raw SQL to insert directly, avoiding dependency on IAM domain objects.
-    Returns the workspace_id string.
+    Writes the knowledge_graph relationship on the DS so permissions
+    inherit from the KG.
     """
-    workspace_id = str(ULID())
-    await async_session.execute(
-        text(
-            "INSERT INTO workspaces (id, tenant_id, name, is_root, created_at, updated_at) "
-            "VALUES (:id, :tenant_id, :name, :is_root, NOW(), NOW())"
-        ),
-        {
-            "id": workspace_id,
-            "tenant_id": test_tenant,
-            "name": f"test-workspace-{workspace_id}",
-            "is_root": True,
-        },
-    )
-    await async_session.commit()
+    ds_resource = format_resource(ResourceType.DATA_SOURCE, ds_id)
+    user_subject = format_subject(ResourceType.USER, user_id)
+    kg_subject = format_resource(ResourceType.KNOWLEDGE_GRAPH, kg_id)
 
-    yield workspace_id
+    # Write knowledge_graph parent relationship
+    await spicedb_client.write_relationship(
+        resource=ds_resource,
+        relation="knowledge_graph",
+        subject=kg_subject,
+    )
+
+    # Wait for view permission (inherited from KG)
+    view_ready = await wait_for_permission(
+        spicedb_client,
+        resource=ds_resource,
+        permission=Permission.VIEW,
+        subject=user_subject,
+        timeout=5.0,
+    )
+    assert view_ready, "Timed out waiting for DS view permission"

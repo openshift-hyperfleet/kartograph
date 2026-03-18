@@ -51,14 +51,18 @@ class IKnowledgeGraphRepository(Protocol):
         """
         ...
 
-    async def find_by_tenant(self, tenant_id: str) -> list[KnowledgeGraph]:
-        """List all knowledge graphs belonging to a tenant.
+    async def find_by_tenant(
+        self, tenant_id: str, *, offset: int = 0, limit: int = 20
+    ) -> tuple[list[KnowledgeGraph], int]:
+        """List knowledge graphs with pagination.
 
         Args:
             tenant_id: The tenant to list knowledge graphs for
+            offset: Number of records to skip
+            limit: Maximum number of records to return
 
         Returns:
-            List of KnowledgeGraph aggregates in the tenant
+            Tuple of (items for the requested page, total count)
         """
         ...
 
@@ -111,15 +115,17 @@ class IDataSourceRepository(Protocol):
         ...
 
     async def find_by_knowledge_graph(
-        self, knowledge_graph_id: str
-    ) -> list[DataSource]:
-        """List all data sources belonging to a knowledge graph.
+        self, knowledge_graph_id: str, *, offset: int = 0, limit: int = 20
+    ) -> tuple[list[DataSource], int]:
+        """List data sources with pagination.
 
         Args:
             knowledge_graph_id: The knowledge graph to list data sources for
+            offset: Number of records to skip
+            limit: Maximum number of records to return
 
         Returns:
-            List of DataSource aggregates for the knowledge graph
+            Tuple of (items for the requested page, total count)
         """
         ...
 

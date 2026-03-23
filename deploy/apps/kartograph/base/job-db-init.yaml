@@ -17,7 +17,7 @@ spec:
       initContainers:
         # Wait for Postgres to be ready
         - name: wait-for-postgres
-          image: postgres:17-alpine
+          image: postgres:18-alpine
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -30,7 +30,7 @@ spec:
               echo "PostgreSQL is ready!"
       containers:
         - name: init
-          image: postgres:17-alpine
+          image: postgres:18-alpine
           imagePullPolicy: IfNotPresent
           env:
             - name: PGHOST

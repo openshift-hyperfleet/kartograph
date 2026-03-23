@@ -18,7 +18,7 @@ jobs:
 
     services:
       postgres:
-        image: apache/age:release_PG17_1.6.0
+        image: apache/age:release_PG18_1.7.0
         env:
           POSTGRES_USER: kartograph
           POSTGRES_PASSWORD: kartograph_dev_password
@@ -52,7 +52,7 @@ jobs:
           -p 50051:50051 \
           -p 50052:50052 \
           --entrypoint spicedb \
-          quay.io/authzed/spicedb:v1.48.0 \
+          quay.io/authzed/spicedb:v1.50.0 \
           serve-testing
 
       - name: Set up uv

@@ -25,7 +25,7 @@ services:
       start_period: 30s
 
   spicedb:
-    image: authzed/spicedb:v1.48.0
+    image: authzed/spicedb:v1.50.0
     command: "serve"
     env_file:
       - env/spicedb.env
@@ -82,7 +82,7 @@ services:
         condition: service_healthy
 
   postgres:
-    image: apache/age:release_PG17_1.6.0
+    image: apache/age:release_PG18_1.7.0
     env_file:
       - env/postgres.env
     ports:

@@ -39,7 +39,7 @@ spec:
               echo "Migration complete!"
       containers:
         - name: spicedb
-          image: authzed/spicedb:v1.48.0
+          image: authzed/spicedb:v1.50.0
           imagePullPolicy: IfNotPresent
           securityContext:
             runAsNonRoot: true

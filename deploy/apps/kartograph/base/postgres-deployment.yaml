@@ -19,7 +19,7 @@ spec:
       securityContext: {}
       containers:
         - name: postgres
-          image: apache/age:release_PG17_1.6.0
+          image: apache/age:release_PG18_1.7.0
           securityContext:
             runAsNonRoot: true
             allowPrivilegeEscalation: false

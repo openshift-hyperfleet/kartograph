@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.17.2",
+    "authlib>=1.6.9",  # CVE fix: transitive dep pinned for security
     "apache-age-python>=0.0.7",
     "asyncpg>=0.31.0",
     "asyncpg-listen>=0.0.9",

@@ -300,8 +300,11 @@ class TestFindByKnowledgeGraph:
             await data_source_repository.save(ds2)
             await data_source_repository.save(ds3)
 
-        results = await data_source_repository.find_by_knowledge_graph(kg1.id.value)
+        results, total = await data_source_repository.find_by_knowledge_graph(
+            kg1.id.value
+        )
 
+        assert total == 2
         assert len(results) == 2
         result_ids = {r.id.value for r in results}
         assert ds1.id.value in result_ids
@@ -314,9 +317,12 @@ class TestFindByKnowledgeGraph:
         clean_management_data,
     ):
         """Should return an empty list when KG has no data sources."""
-        results = await data_source_repository.find_by_knowledge_graph("nonexistent")
+        results, total = await data_source_repository.find_by_knowledge_graph(
+            "nonexistent"
+        )
 
         assert results == []
+        assert total == 0
 
 
 class TestDataSourceUniqueness:
@@ -390,8 +396,8 @@ class TestDataSourceOutboxConsistency:
             await knowledge_graph_repository.save(kg)
 
         # Clear outbox of the KG create event
-        await async_session.execute(text("DELETE FROM outbox"))
-        await async_session.commit()
+        async with async_session.begin():
+            await async_session.execute(text("DELETE FROM outbox"))
 
         ds = DataSource.create(
             knowledge_graph_id=kg.id.value,
@@ -404,13 +410,14 @@ class TestDataSourceOutboxConsistency:
         async with async_session.begin():
             await data_source_repository.save(ds)
 
-        result = await async_session.execute(
-            text(
-                "SELECT aggregate_type, event_type, aggregate_id "
-                "FROM outbox WHERE aggregate_type = 'data_source'"
+        async with async_session.begin():
+            result = await async_session.execute(
+                text(
+                    "SELECT aggregate_type, event_type, aggregate_id "
+                    "FROM outbox WHERE aggregate_type = 'data_source'"
+                )
             )
-        )
-        rows = result.fetchall()
+            rows = result.fetchall()
 
         assert len(rows) == 1
         assert rows[0].aggregate_type == "data_source"
@@ -449,21 +456,22 @@ class TestDataSourceOutboxConsistency:
             await data_source_repository.save(ds)
 
         # Clear outbox of the create events so we isolate the delete event
-        await async_session.execute(text("DELETE FROM outbox"))
-        await async_session.commit()
+        async with async_session.begin():
+            await async_session.execute(text("DELETE FROM outbox"))
 
         ds.mark_for_deletion()
 
         async with async_session.begin():
             await data_source_repository.delete(ds)
 
-        result = await async_session.execute(
-            text(
-                "SELECT aggregate_type, event_type, aggregate_id "
-                "FROM outbox WHERE aggregate_type = 'data_source'"
+        async with async_session.begin():
+            result = await async_session.execute(
+                text(
+                    "SELECT aggregate_type, event_type, aggregate_id "
+                    "FROM outbox WHERE aggregate_type = 'data_source'"
+                )
             )
-        )
-        rows = result.fetchall()
+            rows = result.fetchall()
 
         assert len(rows) == 1
         assert rows[0].aggregate_type == "data_source"

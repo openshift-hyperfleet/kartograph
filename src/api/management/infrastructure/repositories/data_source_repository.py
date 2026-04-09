@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -128,17 +128,31 @@ class DataSourceRepository(IDataSourceRepository):
         return self._to_domain(model)
 
     async def find_by_knowledge_graph(
-        self, knowledge_graph_id: str
-    ) -> list[DataSource]:
-        stmt = select(DataSourceModel).where(
-            DataSourceModel.knowledge_graph_id == knowledge_graph_id
+        self, knowledge_graph_id: str, *, offset: int = 0, limit: int = 20
+    ) -> tuple[list[DataSource], int]:
+        # Count query
+        count_stmt = (
+            select(func.count())
+            .select_from(DataSourceModel)
+            .where(DataSourceModel.knowledge_graph_id == knowledge_graph_id)
+        )
+        count_result = await self._session.execute(count_stmt)
+        total = count_result.scalar_one()
+
+        # Paginated query
+        stmt = (
+            select(DataSourceModel)
+            .where(DataSourceModel.knowledge_graph_id == knowledge_graph_id)
+            .offset(offset)
+            .limit(limit)
+            .order_by(DataSourceModel.created_at.desc())
         )
         result = await self._session.execute(stmt)
         models = result.scalars().all()
 
         data_sources = [self._to_domain(model) for model in models]
         self._probe.data_sources_listed(knowledge_graph_id, len(data_sources))
-        return data_sources
+        return data_sources, total
 
     async def delete(self, data_source: DataSource) -> bool:
         stmt = select(DataSourceModel).where(DataSourceModel.id == data_source.id.value)

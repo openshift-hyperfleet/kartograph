@@ -227,14 +227,16 @@ class TestManagementBoundedContextIsolation:
         IAM manages authentication and authorization. Management should
         not couple to IAM's user, tenant, or API key domain objects.
 
-        The management.dependencies package is excluded because DI wiring
-        is a presentation-layer concern that legitimately crosses context
-        boundaries (e.g., extracting CurrentUser from IAM for tenant scoping).
+        The management.dependencies and management.presentation packages
+        are excluded because DI wiring and route handlers are
+        presentation-layer concerns that legitimately cross context
+        boundaries (e.g., extracting CurrentUser from IAM for tenant
+        scoping and auth dependency injection).
         """
         (
             archrule("management_no_iam")
             .match("management*")
-            .exclude("management.dependencies*")
+            .exclude("management.dependencies*", "management.presentation*")
             .should_not_import("iam*")
             .check("management")
         )

@@ -11,6 +11,7 @@ from graph.dependencies import get_age_graph_client
 from graph.infrastructure.age_client import AgeGraphClient
 from graph.presentation import routes as graph_routes
 from iam.presentation import router as iam_router
+from management.presentation import management_router
 from infrastructure.database.dependencies import (
     close_database_engines,
     init_database_engines,
@@ -215,6 +216,9 @@ app.include_router(graph_routes.router)
 
 # Include IAM bounded context routes
 app.include_router(iam_router)
+
+# Include Management bounded context routes
+app.include_router(management_router)
 
 # Include dev utility routes (easy to remove for production)
 app.include_router(dev_routes.router)

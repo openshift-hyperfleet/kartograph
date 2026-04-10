@@ -3,9 +3,6 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Git worktrees
-worktrees/
-
 agent-notes/
 agent-memory/
 ess/

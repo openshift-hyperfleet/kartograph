@@ -18,14 +18,18 @@ We know this is bad. It's intentional tech debt for a dev-only utility.
 import gzip
 import json
 import logging
+import re
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, Response
 
 from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.dependencies import get_age_connection_pool
 from infrastructure.settings import get_database_settings
+
+# Valid graph names: alphanumeric, underscores only (no SQL injection risk)
+_GRAPH_NAME_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 logger = logging.getLogger(__name__)
 
@@ -201,13 +205,18 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
   
   <div id="controls">
     <h1>Kartograph Graph Viewer</h1>
+    <div id="graphSelector" style="margin-bottom: 12px;">
+      <select id="graphSelect" style="width: 100%; padding: 6px 10px; border: 1px solid #444; border-radius: 4px; background: #1a1a1a; color: #fff; font-size: 13px; cursor: pointer;">
+        <option value="">Loading graphs...</option>
+      </select>
+    </div>
     <input type="text" id="search" placeholder="Search nodes...">
     <div>
       <button class="btn" id="fitView">Fit to Screen</button>
       <button class="btn" id="pausePlay">Pause</button>
     </div>
     <div id="stats">
-      Nodes: <span id="nodeCount">0</span> | 
+      Nodes: <span id="nodeCount">0</span> |
       Edges: <span id="edgeCount">0</span>
     </div>
     <div id="status"></div>
@@ -341,12 +350,71 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
       metadataPanel.classList.remove('visible');
     });
 
+    const graphSelect = document.getElementById('graphSelect');
+    let currentGraphName = null;
+
+    // Load available graphs and populate the dropdown
+    async function loadGraphList() {
+      try {
+        const response = await fetch('/util/graphs');
+        if (!response.ok) throw new Error('Failed to fetch graph list');
+        const data = await response.json();
+        const graphs = data.graphs || [];
+
+        graphSelect.innerHTML = '';
+        if (graphs.length === 0) {
+          graphSelect.innerHTML = '<option value="">No graphs available</option>';
+          return;
+        }
+
+        graphs.forEach(name => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          graphSelect.appendChild(opt);
+        });
+
+        // Select the first graph by default
+        currentGraphName = graphs[0];
+        graphSelect.value = currentGraphName;
+      } catch (err) {
+        graphSelect.innerHTML = '<option value="">Error loading graphs</option>';
+        console.error('Failed to load graph list:', err);
+      }
+    }
+
+    // Re-fetch data when graph selection changes
+    graphSelect.addEventListener('change', async (e) => {
+      const selectedGraph = e.target.value;
+      if (!selectedGraph || selectedGraph === currentGraphName) return;
+      currentGraphName = selectedGraph;
+
+      // Reset state
+      loading.style.display = 'block';
+      if (cosmograph) {
+        cosmograph.destroy();
+        cosmograph = null;
+      }
+
+      try {
+        const data = await fetchGraphData(selectedGraph);
+        await initGraph(data);
+      } catch (err) {
+        console.error('Failed to fetch graph data:', err);
+        loading.innerHTML = '<div style="color: #f87171;">Error: ' + err.message + '</div>' +
+          '<div style="margin-top: 8px; font-size: 12px; color: #888;">Try refreshing (Ctrl+Shift+R)</div>';
+      }
+    });
+
     // Fetch graph data with progress tracking
-    async function fetchGraphData() {
+    async function fetchGraphData(graphName) {
       loadingText.textContent = 'Fetching graph data...';
       progressText.textContent = 'Connecting...';
-      
-      const response = await fetch('/util/graph-viewer/data');
+
+      const url = graphName
+        ? '/util/graph-viewer/data?graph_name=' + encodeURIComponent(graphName)
+        : '/util/graph-viewer/data';
+      const response = await fetch(url);
       
       if (!response.ok) {
         throw new Error('Failed to fetch graph data: ' + response.status);
@@ -618,8 +686,9 @@ _VIEWER_TEMPLATE = """<!DOCTYPE html>
       }
     });
 
-    // Fetch data asynchronously and initialize graph
-    fetchGraphData()
+    // Load graph list, then fetch data for the first graph
+    loadGraphList()
+      .then(() => fetchGraphData(currentGraphName))
       .then(data => initGraph(data))
       .catch(err => {
         console.error('Failed to fetch graph data:', err);
@@ -804,6 +873,50 @@ def _fetch_graph_data(pool: ConnectionPool, graph_name: str) -> dict:
         pool.return_connection(conn)
 
 
+def _list_age_graphs(pool: ConnectionPool) -> list[str]:
+    """List all user-created AGE graph names from the catalog."""
+    conn = pool.get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM ag_catalog.ag_graph ORDER BY name")
+            return [row[0] for row in cur.fetchall()]
+    finally:
+        pool.return_connection(conn)
+
+
+def _validate_graph_name(graph_name: str) -> None:
+    """Validate that a graph name is safe for use in SQL queries.
+
+    Raises:
+        HTTPException: If the graph name is empty or contains unsafe characters.
+    """
+    if not graph_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="graph_name must not be empty",
+        )
+    if not _GRAPH_NAME_PATTERN.match(graph_name):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="graph_name must contain only alphanumeric characters and underscores",
+        )
+
+
+@router.get("/graphs")
+def list_graphs(
+    pool: Annotated[ConnectionPool, Depends(get_age_connection_pool)],
+) -> dict:
+    """List available AGE graphs.
+
+    Returns the names of all graphs in the AGE catalog. Useful for
+    selecting which graph to visualize.
+
+    Development utility only - no authentication required.
+    """
+    graphs = _list_age_graphs(pool)
+    return {"graphs": graphs}
+
+
 @router.get("/graph-viewer", response_class=HTMLResponse)
 def graph_viewer() -> HTMLResponse:
     """Serve interactive graph visualization page.
@@ -827,17 +940,35 @@ def graph_viewer() -> HTMLResponse:
 def graph_viewer_data(
     request: Request,
     pool: Annotated[ConnectionPool, Depends(get_age_connection_pool)],
+    graph_name: Annotated[str | None, Query()] = None,
 ) -> Response:
     """Fetch graph data as gzip-compressed JSON.
 
     Returns all nodes and edges from the graph. Response is gzip-compressed
     if the client accepts it, which typically reduces ~100MB JSON to ~5-10MB.
 
+    Args:
+        graph_name: Optional AGE graph name. Falls back to the default
+            from database settings if not provided.
+
     Development utility only - no authentication required.
     """
-    try:
+    # Validate graph_name before the data-fetching try/except so
+    # HTTPException propagates correctly (not caught as a 500).
+    if graph_name is not None and graph_name != "":
+        _validate_graph_name(graph_name)
+        effective_graph_name = graph_name
+    elif graph_name == "":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="graph_name must not be empty",
+        )
+    else:
         settings = get_database_settings()
-        graph_data = _fetch_graph_data(pool, settings.graph_name)
+        effective_graph_name = settings.graph_name
+
+    try:
+        graph_data = _fetch_graph_data(pool, effective_graph_name)
 
         # Serialize to JSON
         json_bytes = json.dumps(graph_data).encode("utf-8")

@@ -140,7 +140,15 @@ class MCPApiKeyAuthMiddleware:
 
         # --- Fallback to Bearer token ---
         if self._validate_bearer_token is not None:
-            bearer_token = self._extract_bearer_token(scope)
+            try:
+                bearer_token = self._extract_bearer_token(scope)
+            except UnicodeDecodeError:
+                self._probe.mcp_auth_invalid_api_key()
+                await self._send_json_error(
+                    send, 401, "Invalid Authorization header encoding"
+                )
+                return
+
             if bearer_token is not None:
                 auth_context = await self._authenticate_bearer(
                     bearer_token, scope, send
@@ -201,7 +209,14 @@ class MCPApiKeyAuthMiddleware:
         """Validate a Bearer token and return auth context, or send error."""
         assert self._validate_bearer_token is not None
 
-        tenant_id_header = self._get_header(scope, b"x-tenant-id")
+        try:
+            tenant_id_header = self._get_header(scope, b"x-tenant-id")
+        except UnicodeDecodeError:
+            self._probe.mcp_auth_invalid_api_key()
+            await self._send_json_error(
+                send, 401, "Invalid X-Tenant-ID header encoding"
+            )
+            return None
 
         try:
             result = await self._validate_bearer_token(token, tenant_id_header)

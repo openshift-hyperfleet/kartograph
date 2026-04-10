@@ -525,6 +525,61 @@ class TestMCPApiKeyAuthMiddlewareBearerFallback:
         assert bearer_called is False
 
     @pytest.mark.asyncio
+    async def test_returns_401_for_invalid_utf8_in_authorization_header(self) -> None:
+        """Should return 401 when Authorization header contains invalid UTF-8."""
+
+        async def validate_bearer(token: str, tenant_id: str | None):
+            return None  # Should never be called
+
+        probe = MagicMock()
+        middleware = MCPApiKeyAuthMiddleware(
+            app=_dummy_app,
+            validate_api_key=_make_validate_fn(return_value=None),
+            validate_bearer_token=validate_bearer,
+            probe=probe,
+        )
+
+        # \xff is invalid UTF-8
+        scope = _make_http_scope(headers=[(b"authorization", b"Bearer \xff\xfe")])
+        capture = _ResponseCapture()
+        await middleware(scope, _noop_receive, capture)
+
+        assert capture.status == 401
+
+    @pytest.mark.asyncio
+    async def test_returns_401_for_invalid_utf8_in_tenant_id_header(self) -> None:
+        """Should return 401 when X-Tenant-ID header contains invalid UTF-8."""
+
+        @dataclass
+        class FakeBearerResult:
+            user_id: str
+            tenant_id: str
+
+        async def validate_bearer(
+            token: str, tenant_id: str | None
+        ) -> FakeBearerResult | None:
+            return FakeBearerResult(user_id="user-1", tenant_id=tenant_id or "")
+
+        probe = MagicMock()
+        middleware = MCPApiKeyAuthMiddleware(
+            app=_dummy_app,
+            validate_api_key=_make_validate_fn(return_value=None),
+            validate_bearer_token=validate_bearer,
+            probe=probe,
+        )
+
+        scope = _make_http_scope(
+            headers=[
+                (b"authorization", b"Bearer valid-jwt"),
+                (b"x-tenant-id", b"\xff\xfe"),
+            ]
+        )
+        capture = _ResponseCapture()
+        await middleware(scope, _noop_receive, capture)
+
+        assert capture.status == 401
+
+    @pytest.mark.asyncio
     async def test_no_bearer_validator_returns_401_as_before(self) -> None:
         """Without validate_bearer_token, missing API key returns 401."""
         probe = MagicMock()

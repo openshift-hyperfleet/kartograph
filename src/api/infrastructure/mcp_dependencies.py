@@ -191,7 +191,8 @@ async def validate_mcp_bearer_token(
 
     Uses the same OIDC JWT validation as the REST endpoints.
     The tenant is resolved from the X-Tenant-ID header (or single-tenant
-    mode auto-selection).
+    mode auto-selection), then verified via SpiceDB to ensure the user
+    is a member of the resolved tenant.
 
     Args:
         token: The raw JWT Bearer token string.
@@ -201,8 +202,15 @@ async def validate_mcp_bearer_token(
         MCPBearerResult with user_id and tenant_id on success, None on failure.
     """
     from iam.dependencies.authentication import get_jwt_validator
+    from infrastructure.authorization_dependencies import get_spicedb_client
     from infrastructure.settings import get_iam_settings
     from shared_kernel.auth import InvalidTokenError
+    from shared_kernel.authorization.types import (
+        Permission,
+        ResourceType,
+        format_resource,
+        format_subject,
+    )
 
     validator = get_jwt_validator()
 
@@ -220,6 +228,17 @@ async def validate_mcp_bearer_token(
             effective_tenant_id = await _resolve_single_tenant_id()
 
     if not effective_tenant_id:
+        return None
+
+    # Verify the user has view permission on the tenant (membership check).
+    # This mirrors the SpiceDB check in get_tenant_context().
+    authz = get_spicedb_client()
+    has_permission = await authz.check_permission(
+        resource=format_resource(ResourceType.TENANT, effective_tenant_id),
+        permission=Permission.VIEW,
+        subject=format_subject(ResourceType.USER, claims.sub),
+    )
+    if not has_permission:
         return None
 
     return MCPBearerResult(

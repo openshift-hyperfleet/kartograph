@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.31.2](https://github.com/openshift-hyperfleet/kartograph/compare/v3.31.1...v3.31.2) (2026-04-10)
+
+
+### Bug Fixes
+
+* **dev-ui:** fix query console auth and add multi-tenant graph viewer ([#311](https://github.com/openshift-hyperfleet/kartograph/issues/311)) ([4fc4fa1](https://github.com/openshift-hyperfleet/kartograph/commit/4fc4fa10b9b1d19a496fbcc13eee4175a51d7a5e))
+
 ## [3.31.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.31.0...v3.31.1) (2026-04-10)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.31.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.31.0...v3.31.1) (2026-04-10)
+
+
+### Bug Fixes
+
+* **compose:** fix volume mount for postgres for PG18 ([#308](https://github.com/openshift-hyperfleet/kartograph/issues/308)) ([1f3008d](https://github.com/openshift-hyperfleet/kartograph/commit/1f3008d13b8e3322ce7305a57102785c379bf6bc))
+
 ## [3.31.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.30.0...v3.31.0) (2026-03-18)
 
 

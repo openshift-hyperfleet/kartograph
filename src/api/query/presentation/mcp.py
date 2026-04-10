@@ -6,7 +6,10 @@ from fastmcp import FastMCP
 from fastmcp.dependencies import Depends
 from fastmcp.server.dependencies import get_http_headers
 
-from infrastructure.mcp_dependencies import validate_mcp_api_key
+from infrastructure.mcp_dependencies import (
+    validate_mcp_api_key,
+    validate_mcp_bearer_token,
+)
 from infrastructure.settings import get_settings
 from query.application.services import MCPQueryService
 from query.dependencies import (
@@ -30,6 +33,7 @@ mcp_http_app_inner = _mcp_http_app
 query_mcp_app = MCPApiKeyAuthMiddleware(
     app=_mcp_http_app,
     validate_api_key=validate_mcp_api_key,
+    validate_bearer_token=validate_mcp_bearer_token,
 )
 
 # Eagerly validate prompts at startup (fail-fast if missing)

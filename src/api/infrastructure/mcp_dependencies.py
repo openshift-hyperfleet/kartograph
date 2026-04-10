@@ -11,11 +11,24 @@ remains unchanged.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from iam.domain.aggregates.api_key import APIKey
     from query.ports.schema import ISchemaService
+
+
+@dataclass(frozen=True)
+class MCPBearerResult:
+    """Result of validating a Bearer token for MCP authentication.
+
+    Carries the fields needed by MCPApiKeyAuthMiddleware to build
+    an MCPAuthContext.
+    """
+
+    user_id: str
+    tenant_id: str
 
 
 def get_schema_service_for_mcp() -> "ISchemaService":
@@ -169,3 +182,72 @@ class _NoOpAuthz:
         subject_id: str | None = None,
     ) -> list:
         return []
+
+
+async def validate_mcp_bearer_token(
+    token: str, tenant_id: str | None
+) -> MCPBearerResult | None:
+    """Validate a Bearer JWT token for MCP authentication.
+
+    Uses the same OIDC JWT validation as the REST endpoints.
+    The tenant is resolved from the X-Tenant-ID header (or single-tenant
+    mode auto-selection).
+
+    Args:
+        token: The raw JWT Bearer token string.
+        tenant_id: Optional X-Tenant-ID header value.
+
+    Returns:
+        MCPBearerResult with user_id and tenant_id on success, None on failure.
+    """
+    from iam.dependencies.authentication import get_jwt_validator
+    from infrastructure.settings import get_iam_settings
+    from shared_kernel.auth import InvalidTokenError
+
+    validator = get_jwt_validator()
+
+    try:
+        claims = await validator.validate_token(token)
+    except InvalidTokenError:
+        return None
+
+    # Resolve tenant: use header if provided, fall back to single-tenant
+    # auto-selection (same logic as resolve_tenant_context for simple cases).
+    effective_tenant_id = tenant_id
+    if not effective_tenant_id:
+        iam_settings = get_iam_settings()
+        if iam_settings.single_tenant_mode:
+            effective_tenant_id = await _resolve_single_tenant_id()
+
+    if not effective_tenant_id:
+        return None
+
+    return MCPBearerResult(
+        user_id=claims.sub,
+        tenant_id=effective_tenant_id,
+    )
+
+
+async def _resolve_single_tenant_id() -> str | None:
+    """Look up the default tenant ID in single-tenant mode."""
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from infrastructure.settings import get_iam_settings
+
+    iam_settings = get_iam_settings()
+    engine = _get_mcp_auth_engine()
+    sessionmaker = async_sessionmaker(
+        engine, expire_on_commit=False, class_=AsyncSession
+    )
+
+    async with sessionmaker() as session:
+        from sqlalchemy import select
+
+        from iam.infrastructure.models import TenantModel
+
+        stmt = select(TenantModel.id).where(
+            TenantModel.name == iam_settings.default_tenant_name
+        )
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        return str(row) if row else None

@@ -48,8 +48,24 @@ The system SHALL support GitHub repositories as a data source.
 #### Scenario: Credential handling
 - GIVEN encrypted credentials stored by the Management context
 - WHEN the adapter runs
-- THEN plaintext credentials are provided to the adapter at runtime
-- AND the adapter uses them for GitHub API authentication
+- THEN plaintext credentials are retrieved via the `ICredentialReader` shared kernel port
+- AND the adapter receives decrypted credentials at runtime
+- AND the adapter uses them for data source API authentication
+
+### Requirement: Pluggable Credential Backend
+The system SHALL consume credentials through a shared kernel port, not a specific encryption implementation.
+
+#### Scenario: Port-based credential retrieval
+- GIVEN the `ICredentialReader` port in the shared kernel
+- WHEN the Ingestion context needs credentials for an adapter
+- THEN it retrieves them via the port (not by importing the Management context directly)
+- AND the port abstracts the credential backend (Fernet, Vault, or other providers)
+
+#### Scenario: Backend independence
+- GIVEN a credential stored via Fernet encryption (current implementation)
+- AND a future migration to an external secrets manager (e.g., HashiCorp Vault)
+- WHEN the backend changes
+- THEN the Ingestion context requires no code changes (port contract unchanged)
 
 ### Requirement: dlt Framework Integration
 The system SHALL use dlt as the adapter framework, restricted to its Extract phase.

@@ -98,3 +98,24 @@ class WorkspaceHasChildrenError(Exception):
     """
 
     pass
+
+
+class ProvisioningConflictError(Exception):
+    """Raised when JIT user provisioning fails due to a username conflict.
+
+    Two SSO users with the same ``preferred_username`` claim cannot both be
+    provisioned in the same Kartograph instance because usernames must be
+    globally unique. This exception deliberately hides database internals
+    (e.g. IntegrityError / unique-constraint violations) and exposes only
+    a user-friendly message.
+
+    Attributes:
+        username: The conflicting username that triggered the error.
+    """
+
+    def __init__(self, username: str) -> None:
+        self.username = username
+        super().__init__(
+            f"Username '{username}' is already taken by another account. "
+            "Contact your administrator if you believe this is an error."
+        )

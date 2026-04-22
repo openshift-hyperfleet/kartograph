@@ -5,11 +5,11 @@ They verify user metadata persistence and retrieval.
 """
 
 import pytest
-from sqlalchemy.exc import IntegrityError
 
 from iam.domain.aggregates import User
 from iam.domain.value_objects import UserId
 from iam.infrastructure.user_repository import UserRepository
+from iam.ports.exceptions import ProvisioningConflictError
 
 pytestmark = pytest.mark.integration
 
@@ -93,10 +93,14 @@ class TestUsernameUniqueness:
     """Tests for username uniqueness constraint."""
 
     @pytest.mark.asyncio
-    async def test_duplicate_username_raises_error(
+    async def test_duplicate_username_raises_provisioning_conflict_error(
         self, user_repository: UserRepository, async_session, clean_iam_data
     ):
-        """Should raise IntegrityError for duplicate username."""
+        """Should raise ProvisioningConflictError (not IntegrityError) for duplicate username.
+
+        Requirement: Username Uniqueness - Duplicate username scenario.
+        The error must not expose database internals.
+        """
         user1 = User(id=UserId.generate(), username="alice")
 
         # Save first user
@@ -106,6 +110,12 @@ class TestUsernameUniqueness:
         # Try to save another user with same username
         user2 = User(id=UserId.generate(), username="alice")
 
-        with pytest.raises(IntegrityError):
+        with pytest.raises(ProvisioningConflictError) as exc_info:
             async with async_session.begin():
                 await user_repository.save(user2)
+
+        # Must expose the conflicting username but not DB internals
+        assert exc_info.value.username == "alice"
+        error_message = str(exc_info.value)
+        assert "IntegrityError" not in error_message
+        assert "duplicate key" not in error_message.lower()

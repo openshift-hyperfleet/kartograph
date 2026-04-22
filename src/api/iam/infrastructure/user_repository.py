@@ -7,6 +7,7 @@ and this repository only handles metadata persistence.
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.domain.aggregates import User
@@ -16,6 +17,7 @@ from iam.infrastructure.observability import (
     DefaultUserRepositoryProbe,
     UserRepositoryProbe,
 )
+from iam.ports.exceptions import ProvisioningConflictError
 from iam.ports.repositories import IUserRepository
 
 
@@ -45,24 +47,35 @@ class UserRepository(IUserRepository):
 
         Args:
             user: The User aggregate to persist
+
+        Raises:
+            ProvisioningConflictError: If the username is already taken by
+                another account (unique constraint violation). Database
+                internals (IntegrityError) are not exposed to callers.
         """
-        # Check if user exists
-        stmt = select(UserModel).where(UserModel.id == user.id.value)
-        result = await self._session.execute(stmt)
-        model = result.scalar_one_or_none()
+        try:
+            # Check if user exists
+            stmt = select(UserModel).where(UserModel.id == user.id.value)
+            result = await self._session.execute(stmt)
+            model = result.scalar_one_or_none()
 
-        if model:
-            # Update existing user
-            model.username = user.username
-        else:
-            # Create new user
-            model = UserModel(
-                id=user.id.value,
-                username=user.username,
-            )
-            self._session.add(model)
+            if model:
+                # Update existing user
+                model.username = user.username
+            else:
+                # Create new user
+                model = UserModel(
+                    id=user.id.value,
+                    username=user.username,
+                )
+                self._session.add(model)
 
-        self._probe.user_saved(user.id.value, user.username)
+            self._probe.user_saved(user.id.value, user.username)
+
+        except IntegrityError:
+            # Translate database-level unique constraint violation into a
+            # domain-level exception so callers never see DB internals.
+            raise ProvisioningConflictError(user.username)
 
     async def get_by_id(self, user_id: UserId) -> User | None:
         """Retrieve a user by their ID.

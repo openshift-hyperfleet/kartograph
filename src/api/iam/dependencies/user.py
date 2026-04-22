@@ -31,6 +31,7 @@ from infrastructure.database.dependencies import (
 )
 from infrastructure.outbox.repository import OutboxRepository
 from infrastructure.settings import get_iam_settings
+from iam.ports.exceptions import ProvisioningConflictError
 from shared_kernel.auth import InvalidTokenError
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.middleware.observability import DefaultTenantContextProbe
@@ -207,6 +208,17 @@ async def _ensure_user_exists(
                 was_created=True,
                 was_updated=False,
             )
+
+    except ProvisioningConflictError as e:
+        probe.user_provision_failed(
+            user_id=user_id.value,
+            username=username,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
 
     except Exception as e:
         probe.user_provision_failed(

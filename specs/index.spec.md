@@ -68,6 +68,13 @@ Capabilities shared across bounded contexts.
 | [Entity ID Generation](shared-kernel/entity-id-generation.spec.md) | Deterministic SHA256-based entity IDs |
 | [JobPackage](shared-kernel/job-package.spec.md) | ZIP-based contract between Ingestion and Extraction |
 
+### [UI](ui/) — User Interface
+The web interface for platform setup, data source management, and graph exploration.
+
+| Spec | Scope |
+|------|-------|
+| [Experience](ui/experience.spec.md) | Navigation, setup flow, ontology design, sync monitoring, exploration |
+
 ---
 
 ## Non-Functional Requirements

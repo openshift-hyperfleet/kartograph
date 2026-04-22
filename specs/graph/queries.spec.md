@@ -49,6 +49,22 @@ The system SHALL support raw Cypher queries for advanced graph exploration with 
 - WHEN the query is executed
 - THEN it is terminated at the timeout boundary
 
+### Requirement: Cypher Injection Prevention
+The system SHALL prevent SQL injection via Cypher dollar-quoting by using randomly generated nonce-based delimiters.
+
+#### Scenario: Nonce-based dollar-quoting
+- GIVEN a Cypher query to be executed against Apache AGE
+- WHEN the query is wrapped in the AGE `cypher()` SQL function
+- THEN a unique 64-character random nonce is generated per query
+- AND the Cypher text is delimited with `$<nonce>$` tags instead of the default `$$`
+- AND the graph name is escaped via parameterized SQL
+
+#### Scenario: Nonce collision with query content
+- GIVEN a Cypher query whose text contains the generated nonce
+- WHEN the query is about to be executed
+- THEN execution is rejected with an insecure query error
+- AND the query is not sent to the database
+
 ### Requirement: Entity ID Generation
 The system SHALL generate deterministic entity IDs from type and slug inputs.
 

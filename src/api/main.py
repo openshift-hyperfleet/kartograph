@@ -25,6 +25,10 @@ from infrastructure.settings import (
     get_spicedb_settings,
 )
 from infrastructure.version import __version__
+from graph.infrastructure.tenant_graph_handler import (
+    AGEGraphProvisioner,
+    TenantAGEGraphHandler,
+)
 from iam.infrastructure.outbox import IAMEventTranslator
 from management.infrastructure.outbox import ManagementEventTranslator
 from infrastructure.outbox.composite import CompositeEventHandler
@@ -141,6 +145,18 @@ async def kartograph_lifespan(app: FastAPI):
             authz=authz,
         )
         handler.register(management_spicedb_handler, handler_name="management")
+        # Register AGE graph provisioning handler for tenant lifecycle events
+        age_pool = get_age_connection_pool()
+        from infrastructure.database.connection import ConnectionFactory
+
+        age_connection_factory = ConnectionFactory(
+            settings=get_database_settings(),
+            pool=age_pool,
+        )
+        tenant_graph_handler = TenantAGEGraphHandler(
+            graph_provisioner=AGEGraphProvisioner(age_connection_factory)
+        )
+        handler.register(tenant_graph_handler, handler_name="tenant_graph")
 
         # Create event source for real-time NOTIFY processing
         event_source = PostgresNotifyEventSource(

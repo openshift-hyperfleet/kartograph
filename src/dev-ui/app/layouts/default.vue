@@ -28,6 +28,8 @@ import {
   Cable,
   Plug,
   Settings2,
+  BookOpen,
+  GitBranch,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -178,25 +180,25 @@ const homeItem: NavItem = { label: 'Home', icon: LayoutDashboard, to: '/' }
 
 const navSections: NavSection[] = [
   {
-    title: 'Knowledge',
+    title: 'Explore',
     items: [
-      { label: 'Schema Browser', icon: Database, to: '/graph/schema' },
-      { label: 'Explorer', icon: Share2, to: '/graph/explorer' },
       { label: 'Query Console', icon: Terminal, to: '/query' },
-      { label: 'Mutations', icon: FileCode, to: '/graph/mutations' },
+      { label: 'Schema Browser', icon: Database, to: '/graph/schema' },
+      { label: 'Graph Explorer', icon: Share2, to: '/graph/explorer' },
+    ],
+  },
+  {
+    title: 'Data',
+    items: [
+      { label: 'Knowledge Graphs', icon: BookOpen, to: '/knowledge-graphs' },
+      { label: 'Data Sources', icon: Cable, to: '/data-sources', disabled: true, badge: 'Soon' },
     ],
   },
   {
     title: 'Connect',
     items: [
-      { label: 'Data Sources', icon: Cable, to: '#', disabled: true, badge: 'Soon' },
-    ],
-  },
-  {
-    title: 'Integrate',
-    items: [
       { label: 'API Keys', icon: KeyRound, to: '/api-keys' },
-      { label: 'MCP Endpoints', icon: Plug, to: '/integrate/mcp' },
+      { label: 'MCP Integration', icon: Plug, to: '/integrate/mcp' },
     ],
   },
   {
@@ -204,6 +206,7 @@ const navSections: NavSection[] = [
     items: [
       { label: 'Workspaces', icon: FolderTree, to: '/workspaces' },
       { label: 'Groups', icon: Users, to: '/groups' },
+      { label: 'Tenants', icon: Building2, to: '/tenants' },
     ],
   },
 ]
@@ -226,10 +229,12 @@ const breadcrumbs = computed(() => {
     '/groups': 'Groups',
     '/api-keys': 'API Keys',
     '/graph/schema': 'Schema Browser',
-    '/graph/explorer': 'Explorer',
+    '/graph/explorer': 'Graph Explorer',
     '/graph/mutations': 'Mutations',
     '/query': 'Query Console',
     '/integrate/mcp': 'MCP Integration',
+    '/knowledge-graphs': 'Knowledge Graphs',
+    '/data-sources': 'Data Sources',
   }
 
   if (path !== '/' && routeLabels[path]) {

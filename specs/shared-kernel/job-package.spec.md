@@ -11,7 +11,7 @@ The system SHALL produce JobPackages as ZIP archives with a defined internal str
 #### Scenario: Package contents
 - GIVEN a completed ingestion run
 - WHEN a JobPackage is assembled
-- THEN the ZIP archive contains exactly four components:
+- THEN the ZIP archive contains exactly four top-level entries:
   - `manifest.json` — package metadata
   - `changeset.jsonl` — one entry per changed item
   - `content/` — raw content files, content-addressable by lowercase hex digest filename (e.g., `a3f2...`)
@@ -20,6 +20,13 @@ The system SHALL produce JobPackages as ZIP archives with a defined internal str
 #### Scenario: Package naming
 - GIVEN a JobPackage is produced
 - THEN the archive is named `job-package-{ulid}.zip`
+
+#### Scenario: ZIP entry path safety
+- GIVEN any ZIP entry in the archive
+- THEN its name MUST be a normalized relative path: no leading `/` or drive letters, no `..` segments, forward-slash separators only
+- AND directories are represented by their top-level name only (e.g., `content/` and files under it as `content/{hex}`)
+- AND producers MUST validate all entry names before writing
+- AND consumers MUST reject (or fail) any archive containing an entry that does not meet these requirements, preventing path traversal attacks
 
 ### Requirement: Manifest
 The system SHALL include a manifest with package metadata.

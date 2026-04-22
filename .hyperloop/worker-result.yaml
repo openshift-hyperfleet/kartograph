@@ -1,0 +1,38 @@
+---
+verdict: pass
+---
+All scenarios from specs/iam/tenants.spec.md are implemented and covered by tests.
+
+## Work completed
+
+### 1. Tenant AGE graph provisioning (new feature)
+- Added `src/api/graph/infrastructure/tenant_graph_handler.py`:
+  - `AGEGraphProvisioner`: checks `ag_catalog.ag_graph` for existence before calling
+    `ag_catalog.create_graph()`. Idempotent (no-op if graph exists). Rolls back on
+    failure and always returns the connection to the pool.
+  - `TenantAGEGraphHandler`: outbox EventHandler that handles `TenantCreated` events,
+    derives graph name as `tenant_{tenant_id}`, and delegates to `AGEGraphProvisioner`
+    via `loop.run_in_executor()` (psycopg2 is synchronous).
+- Added `src/api/tests/unit/graph/infrastructure/test_tenant_graph_handler.py`:
+  - 10 unit tests covering: supported event types, graph name format, idempotency,
+    error propagation, connection return on success and error, rollback on create failure.
+- Modified `src/api/main.py`: registered `TenantAGEGraphHandler` in the outbox
+  `CompositeEventHandler` so it receives `TenantCreated` events at runtime.
+
+### 2. Bug fix: 409 on CannotRemoveLastAdminError in add_member route
+- Modified `src/api/iam/presentation/tenants/routes.py`: added explicit
+  `except CannotRemoveLastAdminError` handler returning HTTP 409 (was falling
+  through to the generic 500 handler).
+- Added `src/api/tests/unit/iam/presentation/test_tenant_member_routes.py`:
+  - 11 route-level tests for add/remove/list member endpoints, including the
+    409-on-demote-last-admin regression test.
+
+## Test results
+- Total unit tests: 2024 passed (up from 1997 before this task)
+- All architecture boundary tests pass
+- All pre-commit hooks pass (ruff, mypy, etc.)
+
+## Commits
+1. `feat(graph): provision AGE graph per tenant on TenantCreated event`
+2. `fix(iam): return 409 on CannotRemoveLastAdminError in add_member route`
+3. `feat(main): register TenantAGEGraphHandler in outbox worker`

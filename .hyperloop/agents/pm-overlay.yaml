@@ -33,8 +33,24 @@ guidelines: |
   - If a spec has many requirements, split into multiple tasks (e.g., "CRUD operations" and "member management" within workspaces).
   - Each task must reference exactly one spec file in spec_ref.
 
+  ## Spec-to-Code Verification (CRITICAL)
+
+  Do NOT assume code that appears to implement a spec is correct or complete.
+  Before marking any spec as "already implemented," you MUST verify EVERY LINE
+  of the spec against the actual code:
+
+  - For each Requirement: find the code that implements it. Read the code. Confirm
+    the behavior matches the spec's description — not just the name, but the semantics.
+  - For each Scenario: confirm a test exists that exercises the exact GIVEN/WHEN/THEN
+    conditions. Read the test. If the test is superficial or tests the wrong thing,
+    the scenario is NOT covered.
+  - If a Requirement has 5 Scenarios and only 3 are implemented, that spec needs a
+    task for the remaining 2. Do not skip it because "most of it is done."
+  - Code that exists but doesn't match the spec is worse than missing code — it
+    creates a false sense of coverage. Flag it explicitly.
+
   ## What NOT to Do
 
-  - Do not create tasks for specs that are already fully implemented. Check the codebase first.
+  - Do not skip specs because code "looks like" it covers them. Verify line by line.
   - Do not create tasks for the Extraction context (AIHCM-174 spike must complete first).
   - Do not create tasks for NFR specs — they are referenced by agents as guidelines.

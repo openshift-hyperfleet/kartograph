@@ -100,6 +100,22 @@ class NodeRecord(BaseModel):
     properties: dict[str, Any] = Field(default_factory=dict)
 
 
+class RedactedNodeRecord(BaseModel):
+    """ID-only representation of a node the requesting user is not authorized to view.
+
+    Per the Secure Enclave pattern (specs/iam/authorization.spec.md), when a user
+    lacks VIEW permission on a node's parent KnowledgeGraph, only the entity ID is
+    returned. The node is NOT removed from the result set — graph topology is preserved.
+
+    Attributes:
+        id: Unique identifier for the node (e.g., "documentation_module:abf3ad8")
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+
+
 class EdgeRecord(BaseModel):
     """Immutable representation of a graph edge/relationship.
 
@@ -118,6 +134,27 @@ class EdgeRecord(BaseModel):
     start_id: str
     end_id: str
     properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class RedactedEdgeRecord(BaseModel):
+    """Endpoint-preserving representation of an edge the user is not authorized to view.
+
+    Per the Secure Enclave pattern (specs/iam/authorization.spec.md), when a user
+    lacks VIEW permission on an edge's parent KnowledgeGraph, only the edge ID,
+    start_id, and end_id are returned. All other properties are stripped.
+    The edge is NOT removed from the result set — graph topology is preserved.
+
+    Attributes:
+        id: Unique identifier for the edge
+        start_id: ID of the source node (preserved for topology)
+        end_id: ID of the target node (preserved for topology)
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    start_id: str
+    end_id: str
 
 
 class TypeDefinition(BaseModel):

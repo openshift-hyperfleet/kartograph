@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from shared_kernel.outbox.exceptions import UnknownEventTypeError
 from shared_kernel.outbox.ports import EventHandler
 
 if TYPE_CHECKING:
@@ -81,9 +82,9 @@ class CompositeEventHandler:
         """
         handlers = self._handlers_by_type.get(event_type)
         if handlers is None:
-            raise ValueError(
-                f"No handler registered for event type: {event_type}. "
-                f"Registered types: {sorted(self._handlers_by_type.keys())}"
+            raise UnknownEventTypeError(
+                event_type,
+                frozenset(self._handlers_by_type.keys()),
             )
 
         for handler in handlers:

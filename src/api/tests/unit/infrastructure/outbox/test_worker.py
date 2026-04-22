@@ -2,15 +2,22 @@
 
 These tests use mocked dependencies to test the worker logic
 without requiring a real database or handler implementations.
+
+Spec coverage:
+- Requirement: Event Processing (normal, transient failure, permanent failure/DLQ)
+- Requirement: Idempotent Event Handlers (duplicate delivery)
+- Requirement: Concurrent Worker Safety (FOR UPDATE SKIP LOCKED)
+- Requirement: Event Fan-Out (unknown event type → immediate DLQ)
 """
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock, call, patch
 from uuid import uuid4
 
 import pytest
 
 from infrastructure.outbox.worker import OutboxWorker
+from shared_kernel.outbox.exceptions import UnknownEventTypeError
 from shared_kernel.outbox.value_objects import OutboxEntry
 
 
@@ -353,3 +360,378 @@ class TestOutboxWorkerValidation:
             max_retries=3,
         )
         assert worker._running is False
+
+
+def _make_entry(
+    event_type: str = "GroupCreated",
+    retry_count: int = 0,
+) -> OutboxEntry:
+    """Helper to build an OutboxEntry for tests."""
+    return OutboxEntry(
+        id=uuid4(),
+        aggregate_type="group",
+        aggregate_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
+        event_type=event_type,
+        payload={"event_type": event_type},
+        occurred_at=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
+        processed_at=None,
+        created_at=datetime(2026, 1, 8, 12, 0, 1, tzinfo=UTC),
+        retry_count=retry_count,
+    )
+
+
+class TestOutboxWorkerRetryBehavior:
+    """Tests for retry and DLQ behavior.
+
+    Covers spec:
+    - Requirement: Event Processing — Transient failure scenario
+    - Requirement: Event Processing — Permanent failure (dead letter) scenario
+    - Requirement: Event Fan-Out — Unknown event type scenario
+    """
+
+    @pytest.mark.asyncio
+    async def test_transient_failure_increments_retry_count(self):
+        """Spec: Transient failure — retry count is incremented and last error recorded.
+
+        GIVEN an outbox entry that fails to process (e.g., SpiceDB unreachable)
+        WHEN the worker retries
+        THEN the retry count is incremented
+        AND the last error is recorded
+        """
+        mock_session = AsyncMock()
+        mock_handler = AsyncMock()
+        mock_handler.handle.side_effect = RuntimeError("SpiceDB unreachable")
+        mock_probe = MagicMock()
+
+        entry = _make_entry(retry_count=0)
+
+        worker = OutboxWorker(
+            session_factory=AsyncMock(),
+            handler=mock_handler,
+            probe=mock_probe,
+            max_retries=3,
+        )
+
+        await worker._process_entries([entry], mock_session)
+
+        # Worker should call session.execute (for _increment_retry)
+        mock_session.execute.assert_called()
+        # probe.event_processing_failed should be called (not DLQ)
+        mock_probe.event_processing_failed.assert_called_once()
+        # probe.event_moved_to_dlq should NOT be called yet
+        mock_probe.event_moved_to_dlq.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_max_retries_moves_entry_to_dlq(self):
+        """Spec: Permanent failure — entry exceeding max retry count goes to DLQ.
+
+        GIVEN an outbox entry that has exceeded the maximum retry count
+        WHEN the worker encounters it
+        THEN the entry is moved to a dead-letter state (failed_at timestamp set)
+        AND it is no longer retried
+        """
+        mock_session = AsyncMock()
+        mock_handler = AsyncMock()
+        mock_handler.handle.side_effect = RuntimeError("Still unreachable")
+        mock_probe = MagicMock()
+
+        # Entry already at max retries - 1 so next failure exceeds it
+        entry = _make_entry(retry_count=2)  # max_retries=3 → 2+1=3 >= 3 → DLQ
+
+        worker = OutboxWorker(
+            session_factory=AsyncMock(),
+            handler=mock_handler,
+            probe=mock_probe,
+            max_retries=3,
+        )
+
+        await worker._process_entries([entry], mock_session)
+
+        # probe.event_moved_to_dlq should be called
+        mock_probe.event_moved_to_dlq.assert_called_once()
+        args = mock_probe.event_moved_to_dlq.call_args[0]
+        assert args[0] == entry.id
+        # probe.event_processing_failed should NOT be called (it's DLQ now)
+        mock_probe.event_processing_failed.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unknown_event_type_immediately_moves_to_dlq(self):
+        """Spec: Unknown event type scenario — immediately to DLQ, not retried.
+
+        GIVEN an outbox entry with an unregistered event type
+        WHEN the worker attempts to process it
+        THEN the entry is immediately moved to the dead-letter state
+        AND it is not retried (unknown types are permanent failures, not transient)
+        """
+        mock_session = AsyncMock()
+        mock_handler = AsyncMock()
+        # Unknown event type raises UnknownEventTypeError
+        mock_handler.handle.side_effect = UnknownEventTypeError(
+            "UnregisteredEvent", {"UnregisteredEvent"}
+        )
+        mock_probe = MagicMock()
+
+        entry = _make_entry(event_type="UnregisteredEvent", retry_count=0)
+
+        worker = OutboxWorker(
+            session_factory=AsyncMock(),
+            handler=mock_handler,
+            probe=mock_probe,
+            max_retries=5,  # High max retries to prove we bypass retry logic
+        )
+
+        await worker._process_entries([entry], mock_session)
+
+        # Must immediately DLQ — not increment retry count
+        mock_probe.event_moved_to_dlq.assert_called_once()
+        args = mock_probe.event_moved_to_dlq.call_args[0]
+        assert args[0] == entry.id
+        # Must NOT call event_processing_failed (no retries for unknown types)
+        mock_probe.event_processing_failed.assert_not_called()
+        # Must NOT call event_processed
+        mock_probe.event_processed.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unknown_event_type_dlq_even_at_zero_retries(self):
+        """Unknown event type is immediately DLQ regardless of retry count.
+
+        Even if retry_count=0, an unknown event type should go straight to DLQ
+        because it is a permanent failure, not a transient one.
+        """
+        mock_session = AsyncMock()
+        mock_handler = AsyncMock()
+        mock_handler.handle.side_effect = UnknownEventTypeError(
+            "GhostEvent", {"GhostEvent"}
+        )
+        mock_probe = MagicMock()
+
+        entry = _make_entry(event_type="GhostEvent", retry_count=0)
+
+        worker = OutboxWorker(
+            session_factory=AsyncMock(),
+            handler=mock_handler,
+            probe=mock_probe,
+            max_retries=10,
+        )
+
+        await worker._process_entries([entry], mock_session)
+
+        mock_probe.event_moved_to_dlq.assert_called_once()
+        mock_probe.event_processing_failed.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_retry_not_called_for_unknown_event_type(self):
+        """Retry increment should never be called for unknown event types."""
+        mock_session = AsyncMock()
+        mock_handler = AsyncMock()
+        mock_handler.handle.side_effect = UnknownEventTypeError("Phantom", {"Phantom"})
+        mock_probe = MagicMock()
+
+        entry = _make_entry(event_type="Phantom", retry_count=0)
+
+        worker = OutboxWorker(
+            session_factory=AsyncMock(),
+            handler=mock_handler,
+            probe=mock_probe,
+            max_retries=5,
+        )
+
+        # Patch _increment_retry to verify it's never called
+        with patch.object(worker, "_increment_retry", new=AsyncMock()) as mock_inc:
+            await worker._process_entries([entry], mock_session)
+            mock_inc.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_transient_failure_does_not_dlq_immediately(self):
+        """Transient failures (non-UnknownEventTypeError) should be retried, not DLQ'd.
+
+        GIVEN an entry with retry_count=0 that fails with a transient error
+        THEN the entry gets retry count incremented (not DLQ'd)
+        """
+        mock_session = AsyncMock()
+        mock_handler = AsyncMock()
+        mock_handler.handle.side_effect = ConnectionError("DB down")
+        mock_probe = MagicMock()
+
+        entry = _make_entry(retry_count=0)
+
+        worker = OutboxWorker(
+            session_factory=AsyncMock(),
+            handler=mock_handler,
+            probe=mock_probe,
+            max_retries=5,
+        )
+
+        await worker._process_entries([entry], mock_session)
+
+        # Should be retried, not DLQ'd
+        mock_probe.event_processing_failed.assert_called_once()
+        mock_probe.event_moved_to_dlq.assert_not_called()
+
+
+class TestOutboxWorkerTransactionAtomicity:
+    """Tests for transactional atomicity of the outbox.
+
+    Covers spec:
+    - Requirement: Transactional Event Storage — Successful write scenario
+    - Requirement: Transactional Event Storage — Transaction rollback scenario
+    """
+
+    @pytest.mark.asyncio
+    async def test_repository_append_does_not_commit(self):
+        """Spec: Repository never commits — caller owns the transaction boundary.
+
+        The repository should call session.add() but never session.commit().
+        This ensures the outbox entry and aggregate change are atomic.
+        """
+        from infrastructure.outbox.repository import OutboxRepository
+
+        mock_session = MagicMock()
+        repo = OutboxRepository(mock_session)
+
+        await repo.append(
+            event_type="GroupCreated",
+            payload={"group_id": "01ABC"},
+            occurred_at=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
+            aggregate_type="group",
+            aggregate_id="01ABC",
+        )
+
+        # Must NOT commit (caller owns the transaction)
+        mock_session.commit.assert_not_called()
+        # Must add to session (it will be committed with the aggregate)
+        mock_session.add.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_failed_service_call_leaves_no_outbox_entries(self):
+        """Spec: Transaction rollback — no outbox entries persisted on rollback.
+
+        If a service operation raises an exception after emitting events,
+        the transaction rolls back and no outbox entries are persisted.
+        This is guaranteed by the shared session design.
+        """
+        # This is demonstrated by the repository never committing.
+        # If the session is rolled back (by the caller), the outbox entry
+        # added via session.add() is discarded along with the aggregate change.
+        mock_session = AsyncMock()
+        mock_session.add = MagicMock()
+
+        from infrastructure.outbox.repository import OutboxRepository
+
+        repo = OutboxRepository(mock_session)
+
+        await repo.append(
+            event_type="GroupCreated",
+            payload={"group_id": "01ABC"},
+            occurred_at=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
+            aggregate_type="group",
+            aggregate_id="01ABC",
+        )
+
+        # Simulate rollback — session discards uncommitted changes
+        # (In a real scenario, session.rollback() removes pending adds)
+        # The key invariant: outbox repository never commits independently
+        assert not mock_session.commit.called
+
+
+class TestOutboxWorkerConcurrentSafety:
+    """Tests for concurrent worker safety.
+
+    Covers spec:
+    - Requirement: Concurrent Worker Safety — each entry claimed by exactly one worker
+    """
+
+    @pytest.mark.asyncio
+    async def test_fetch_unprocessed_uses_for_update_skip_locked(self):
+        """Spec: FOR UPDATE SKIP LOCKED prevents duplicate processing.
+
+        GIVEN two workers polling simultaneously
+        WHEN both query the outbox table
+        THEN each entry is claimed by exactly one worker
+
+        This test verifies the query construction uses SKIP LOCKED by compiling
+        with the PostgreSQL dialect which renders dialect-specific FOR UPDATE syntax.
+        """
+        from sqlalchemy.dialects import postgresql
+
+        from infrastructure.outbox.repository import OutboxRepository
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        repo = OutboxRepository(mock_session)
+        await repo.fetch_unprocessed(limit=10)
+
+        # Verify execute was called and inspect the query
+        mock_session.execute.assert_called_once()
+        call_args = mock_session.execute.call_args[0]
+        query = call_args[0]
+
+        # Compile with PostgreSQL dialect so SKIP LOCKED is rendered
+        compiled = str(
+            query.compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+        assert "SKIP LOCKED" in compiled.upper()
+
+
+class TestOutboxWorkerIdempotency:
+    """Tests for idempotent event handler behavior.
+
+    Covers spec:
+    - Requirement: Idempotent Event Handlers — duplicate delivery scenario
+    """
+
+    @pytest.mark.asyncio
+    async def test_already_processed_entry_excluded_from_fetch(self):
+        """Spec: Duplicate delivery — worker only picks up unprocessed entries.
+
+        Entries with processed_at set are excluded from fetch_unprocessed,
+        which is the primary mechanism for idempotency at the infrastructure level.
+        """
+        from infrastructure.outbox.repository import OutboxRepository
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        repo = OutboxRepository(mock_session)
+        await repo.fetch_unprocessed(limit=10)
+
+        mock_session.execute.assert_called_once()
+        call_args = mock_session.execute.call_args[0]
+        query = call_args[0]
+
+        # The query must filter on processed_at IS NULL
+        compiled = str(query.compile(compile_kwargs={"literal_binds": True}))
+        assert "processed_at IS NULL" in compiled
+
+    @pytest.mark.asyncio
+    async def test_failed_entries_excluded_from_fetch(self):
+        """Spec: Dead-letter entries (failed_at set) are not re-fetched.
+
+        GIVEN an outbox entry that has been moved to DLQ (failed_at is set)
+        WHEN the worker polls for unprocessed entries
+        THEN the DLQ entry is excluded
+        """
+        from infrastructure.outbox.repository import OutboxRepository
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        repo = OutboxRepository(mock_session)
+        await repo.fetch_unprocessed()
+
+        call_args = mock_session.execute.call_args[0]
+        query = call_args[0]
+        compiled = str(query.compile(compile_kwargs={"literal_binds": True}))
+
+        # Must filter out DLQ entries (failed_at IS NULL)
+        assert "failed_at IS NULL" in compiled

@@ -19,6 +19,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from infrastructure.outbox.models import OutboxModel
+from shared_kernel.outbox.exceptions import UnknownEventTypeError
 from shared_kernel.outbox.ports import EventHandler
 from shared_kernel.outbox.value_objects import OutboxEntry
 
@@ -222,6 +223,12 @@ class OutboxWorker:
                 # Mark as processed
                 await self._mark_processed(entry.id, session)
                 self._probe.event_processed(entry.id, entry.event_type)
+
+            except UnknownEventTypeError as e:
+                # Permanent failure — unknown event types are never retried.
+                # Immediately move to dead-letter queue regardless of retry count.
+                await self._move_to_dlq(entry.id, entry.retry_count, str(e), session)
+                self._probe.event_moved_to_dlq(entry.id, entry.event_type, str(e))
 
             except Exception as e:
                 await self._handle_processing_failure(entry, str(e), session)

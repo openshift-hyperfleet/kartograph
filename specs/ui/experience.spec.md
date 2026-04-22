@@ -232,6 +232,73 @@ The system SHALL provide a UI for workspace and member management.
 - GIVEN a workspace the user has manage permission on
 - THEN they can add, remove, and change roles for members (users and groups)
 
+### Requirement: Design Language
+The system SHALL follow the established Kartograph design language for visual consistency.
+
+#### Scenario: Component library
+- GIVEN any UI component
+- THEN it uses shadcn/vue (Reka UI) primitives with Tailwind CSS
+- AND variants are defined via Class Variance Authority (CVA)
+- AND icons use Lucide Vue Next
+
+#### Scenario: Color theme
+- GIVEN the Kartograph color palette
+- THEN colors are defined as OKLCH CSS custom properties
+- AND the primary/brand color is warm amber/orange (`oklch(0.5768 0.2469 29.23)` light, `oklch(0.6857 0.1560 17.57)` dark)
+- AND neutral grays form the background, card, and border palette
+- AND destructive actions use a coral/red accent
+- AND chart/data visualization uses a 5-color palette (amber, blue, purple, yellow, green)
+
+#### Scenario: Typography
+- GIVEN any text in the UI
+- THEN the system font stack is used (no custom fonts)
+- AND body text uses `text-sm` (0.875rem)
+- AND section headers use uppercase `text-[11px]` with `tracking-wider`
+- AND font weights are limited to regular (400), medium (500), and semibold (600)
+
+#### Scenario: Border radius
+- GIVEN any rounded element
+- THEN border radius scales from a base of `0.625rem` (10px)
+- AND cards use `rounded-xl`, buttons and inputs use `rounded-md`, badges use `rounded-full`
+
+#### Scenario: Elevation
+- GIVEN depth/layering
+- THEN cards use `shadow-sm` and buttons use `shadow-xs`
+- AND depth is minimal — the UI is predominantly flat
+
+### Requirement: Interaction Principles
+The system SHALL follow consistent interaction patterns across all pages.
+
+#### Scenario: Progressive disclosure
+- GIVEN complex information
+- THEN the UI shows a summary by default
+- AND detail is revealed on demand (expand, drill-in, sheet)
+
+#### Scenario: Inline actions over navigation
+- GIVEN an editable resource (workspace name, group name)
+- THEN editing happens in-place or in a side panel
+- AND the user is not navigated to a separate edit page
+
+#### Scenario: Copy-to-clipboard
+- GIVEN any identifier, configuration snippet, or secret
+- THEN a copy button is provided
+- AND a toast confirms the copy action
+
+#### Scenario: Mutation feedback
+- GIVEN a write operation (create, update, delete)
+- THEN a toast notification confirms success or reports failure
+- AND validation errors are shown inline on form fields
+
+#### Scenario: Keyboard shortcuts
+- GIVEN a power-user action (execute query, focus search)
+- THEN a keyboard shortcut is available (Ctrl/Cmd+Enter, /)
+- AND the shortcut is discoverable via tooltip or documentation
+
+#### Scenario: Focus indicators
+- GIVEN an interactive element receiving focus
+- THEN a 3px ring in the primary color at 50% opacity is shown
+- AND native outlines are suppressed in favor of the ring
+
 ### Requirement: Responsive Design
 The system SHALL be usable on desktop and tablet screen sizes.
 

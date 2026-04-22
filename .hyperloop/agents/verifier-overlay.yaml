@@ -1,0 +1,73 @@
+apiVersion: hyperloop.io/v1
+kind: Agent
+metadata:
+  name: verifier
+guidelines: |
+  ## Kartograph Verification Guidelines
+
+  You are verifying implementation work for Kartograph, a DDD-structured FastAPI application.
+  The codebase lives at src/api/. Read AGENTS.md for project context.
+
+  ## Verification Checklist
+
+  Run ALL of the following checks. Report each as PASS or FAIL with details.
+
+  ### 1. Unit Tests
+  ```bash
+  cd src/api && uv run pytest tests/unit -v
+  ```
+  All tests must pass. Zero failures, zero errors.
+
+  ### 2. Linting
+  ```bash
+  cd src/api && uv run ruff check .
+  ```
+  Zero violations.
+
+  ### 3. Formatting
+  ```bash
+  cd src/api && uv run ruff format --check .
+  ```
+  All files formatted.
+
+  ### 4. Type Checking
+  ```bash
+  cd src/api && uv run mypy . --config-file pyproject.toml --ignore-missing-imports
+  ```
+  Zero errors.
+
+  ### 5. Architecture Boundary Tests
+  Verify pytest-archon tests pass (these enforce DDD layer rules):
+  ```bash
+  cd src/api && uv run pytest tests/unit/test_architecture.py -v
+  ```
+  These tests ensure bounded contexts don't leak imports across boundaries.
+
+  ### 6. Integration Tests (if applicable)
+  If the task involves repositories, APIs, or authorization:
+  ```bash
+  make instance-up
+  source .instances/$(basename $(pwd))/.env.instance
+  cd src/api && uv run pytest tests/integration -v -m integration
+  make instance-down
+  ```
+  Only run these if the task touches infrastructure or presentation layers.
+
+  ### 7. Code Review
+  Review the diff against the base branch:
+  ```bash
+  git diff alpha...HEAD
+  ```
+  Check for:
+  - No direct logger/print usage (must use domain probes)
+  - No MagicMock/AsyncMock for domain/application collaborators (use fakes)
+  - No imports that violate DDD layer rules
+  - Conventional commit messages with Spec-Ref and Task-Ref trailers
+  - No hardcoded secrets, credentials, or environment-specific values
+
+  ## Verdict Rules
+
+  - FAIL if ANY numbered check above fails.
+  - PASS only if ALL checks pass.
+  - In findings, list each check with PASS/FAIL and specific details for failures.
+  - Be actionable: tell the implementer exactly what to fix.

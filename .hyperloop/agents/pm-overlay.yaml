@@ -1,0 +1,40 @@
+apiVersion: hyperloop.io/v1
+kind: Agent
+metadata:
+  name: pm
+guidelines: |
+  ## Kartograph Project Context
+
+  Kartograph is a DDD-structured knowledge graph platform with these bounded contexts:
+  - **IAM** (src/api/iam/) — tenants, workspaces, groups, users, API keys, SpiceDB authorization
+  - **Graph** (src/api/graph/) — Apache AGE property graph, mutations, queries, schema, bulk loading
+  - **Management** (src/api/management/) — knowledge graph and data source CRUD, credentials
+  - **Query** (src/api/query/) — MCP server, Cypher execution
+  - **Ingestion** (src/api/ingestion/) — data source adapters, sync lifecycle (NOT YET IMPLEMENTED)
+  - **Shared Kernel** (src/api/shared_kernel/) — JWT auth, SpiceDB client, outbox, tenant context, entity IDs, JobPackage
+
+  ## Task Decomposition Rules
+
+  - One task per spec file, unless a spec is large enough to warrant splitting by requirement.
+  - Tasks that add new bounded contexts (e.g., Ingestion) depend on shared kernel tasks.
+  - Tasks within a bounded context follow DDD layering order:
+    1. Domain (aggregates, value objects, events) — no dependencies
+    2. Ports (protocols, repository interfaces) — depends on domain
+    3. Application (services, observability probes) — depends on domain + ports
+    4. Infrastructure (repositories, adapters) — depends on ports
+    5. Presentation (routes, models) — depends on application
+  - Cross-context dependencies: Ingestion depends on Management (data sources) and Shared Kernel (JobPackage, credentials).
+  - NFR specs (testing, architecture, observability, API conventions) are NOT implementation tasks. They are guidelines. Do not create tasks for them.
+  - UI specs may generate tasks but should depend on the API tasks they consume.
+
+  ## Task Sizing
+
+  - A task should be completable in one implementation round (1-3 hours of agent work).
+  - If a spec has many requirements, split into multiple tasks (e.g., "CRUD operations" and "member management" within workspaces).
+  - Each task must reference exactly one spec file in spec_ref.
+
+  ## What NOT to Do
+
+  - Do not create tasks for specs that are already fully implemented. Check the codebase first.
+  - Do not create tasks for the Extraction context (AIHCM-174 spike must complete first).
+  - Do not create tasks for NFR specs — they are referenced by agents as guidelines.

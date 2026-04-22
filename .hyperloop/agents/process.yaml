@@ -1,0 +1,17 @@
+apiVersion: hyperloop.io/v1
+kind: Process
+metadata:
+  name: default
+
+pipeline:
+  - loop:
+      - agent: implementer
+      - agent: verifier
+      - agent: spec-reviewer
+  - gate: pr-require-label
+  - action: merge-pr
+
+gates:
+  pr-require-label:
+    type: label
+    label_name: lgtm

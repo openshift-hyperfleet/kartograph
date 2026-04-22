@@ -1,5 +1,5 @@
 resources:
-  - github.com/jsell-rh/hyperloop//base?ref=main
+  - github.com/jsell-rh/hyperloop//base?ref=v0.28.1
   - spec-reviewer.yaml
 
 patches:

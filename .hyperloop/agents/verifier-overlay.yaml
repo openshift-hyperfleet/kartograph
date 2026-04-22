@@ -62,7 +62,7 @@ guidelines: |
   - No direct logger/print usage (must use domain probes)
   - No MagicMock/AsyncMock for domain/application collaborators (use fakes)
   - No imports that violate DDD layer rules
-  - Conventional commit messages with Spec-Ref and Task-Ref trailers
+  - Conventional commit messages (Spec-Ref and Task-Ref trailers if present)
   - No hardcoded secrets, credentials, or environment-specific values
 
   ## Verdict Rules

@@ -28,8 +28,8 @@ prompt: |
         verdict: pass   # or fail
         ---
         Your detail text here explaining the outcome.
-    List each requirement and its status (covered / missing / partial).
-    For failures, explain exactly what is missing so the implementer
+    List each requirement and its status (COVERED / PARTIAL / MISSING).
+    For PARTIAL or MISSING, explain exactly what is needed so the implementer
     can fix it in the next round.
   - Commit this file. Do NOT create or commit any files under
     `.hyperloop/state/`.

@@ -5,6 +5,7 @@ max_task_rounds: 30
 max_cycles: 10000
 poll_interval: 30
 runtime: local
+repo: openshift-hyperfleet/kartograph
 
 merge:
   auto_merge: true

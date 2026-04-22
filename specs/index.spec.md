@@ -66,3 +66,4 @@ Capabilities shared across bounded contexts.
 |------|-------|
 | [Observability](nfr/observability.spec.md) | Domain-oriented observability probe contracts |
 | [Architecture](nfr/architecture.spec.md) | DDD layering rules, bounded context isolation |
+| [Testing](nfr/testing.spec.md) | Fakes over mocks, contract tests, test layering |

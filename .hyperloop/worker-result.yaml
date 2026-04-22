@@ -1,38 +1,69 @@
 ---
 verdict: pass
 ---
-All scenarios from specs/iam/tenants.spec.md are implemented and covered by tests.
+Independent verification of task-002 implementation. All checks passed.
 
-## Work completed
+## Check Results
 
-### 1. Tenant AGE graph provisioning (new feature)
-- Added `src/api/graph/infrastructure/tenant_graph_handler.py`:
-  - `AGEGraphProvisioner`: checks `ag_catalog.ag_graph` for existence before calling
-    `ag_catalog.create_graph()`. Idempotent (no-op if graph exists). Rolls back on
-    failure and always returns the connection to the pool.
-  - `TenantAGEGraphHandler`: outbox EventHandler that handles `TenantCreated` events,
-    derives graph name as `tenant_{tenant_id}`, and delegates to `AGEGraphProvisioner`
-    via `loop.run_in_executor()` (psycopg2 is synchronous).
-- Added `src/api/tests/unit/graph/infrastructure/test_tenant_graph_handler.py`:
-  - 10 unit tests covering: supported event types, graph name format, idempotency,
-    error propagation, connection return on success and error, rollback on create failure.
-- Modified `src/api/main.py`: registered `TenantAGEGraphHandler` in the outbox
-  `CompositeEventHandler` so it receives `TenantCreated` events at runtime.
+### 1. Unit Tests — PASS
+2024 tests passed, 0 failures, 0 errors.
+New tests added: 10 (graph handler) + 11 (tenant member routes) = 21.
 
-### 2. Bug fix: 409 on CannotRemoveLastAdminError in add_member route
-- Modified `src/api/iam/presentation/tenants/routes.py`: added explicit
-  `except CannotRemoveLastAdminError` handler returning HTTP 409 (was falling
-  through to the generic 500 handler).
-- Added `src/api/tests/unit/iam/presentation/test_tenant_member_routes.py`:
-  - 11 route-level tests for add/remove/list member endpoints, including the
-    409-on-demote-last-admin regression test.
+### 2. Linting — PASS
+`uv run ruff check .` — zero violations.
 
-## Test results
-- Total unit tests: 2024 passed (up from 1997 before this task)
-- All architecture boundary tests pass
-- All pre-commit hooks pass (ruff, mypy, etc.)
+### 3. Formatting — PASS
+`uv run ruff format --check .` — 442 files already formatted.
 
-## Commits
-1. `feat(graph): provision AGE graph per tenant on TenantCreated event`
-2. `fix(iam): return 409 on CannotRemoveLastAdminError in add_member route`
-3. `feat(main): register TenantAGEGraphHandler in outbox worker`
+### 4. Type Checking — PASS
+`uv run mypy . --config-file pyproject.toml --ignore-missing-imports` — zero errors.
+
+### 5. Architecture Boundary Tests — PASS
+40/40 architecture tests pass. `TenantAGEGraphHandler` correctly lives in
+`graph.infrastructure` and imports no `iam.*` internals — works only with the
+raw event payload dict, which is the correct cross-context contract.
+
+### 6. Commit Trailers — PASS
+All three commits carry `Spec-Ref: specs/iam/tenants.spec.md` and `Task-Ref: task-002`.
+Commit messages follow conventional commit format.
+
+### 7. Code Review — PASS
+
+**Tenant AGE Graph Provisioning** (`graph/infrastructure/tenant_graph_handler.py`):
+- Create-if-not-exists pattern is correct: checks `ag_catalog.ag_graph` before calling
+  `create_graph()`, making the handler idempotent and safe for outbox replay.
+- `GraphProvisioner` protocol is runtime-checkable and properly separates concerns.
+- `FakeGraphProvisioner` used for handler tests (no mocks on domain collaborators). ✓
+- `MagicMock` used only for the low-level psycopg2 connection/cursor in
+  `AGEGraphProvisioner` unit tests — this is infrastructure-layer, not domain/application;
+  consistent with established codebase pattern. ✓
+- No logger/print statements — domain probes pattern maintained. ✓
+- Registration in `main.py` is correct: `TenantAGEGraphHandler` wired into
+  `CompositeEventHandler` with named handler `"tenant_graph"`. ✓
+
+**Bug Fix: 409 on CannotRemoveLastAdminError** (`iam/presentation/tenants/routes.py`):
+- `except CannotRemoveLastAdminError` block added before `except ValueError` in
+  `add_tenant_member` — order is correct (specific before general). ✓
+- `remove_tenant_member` already handled this error (pre-existing). ✓
+- Route-level tests cover 201, 403, 404, 409, 400, and 422 for add_member;
+  204, 403, 404, 409 for remove_member; 200, 403, 404, empty-list for list_members. ✓
+
+**Minor notes (non-blocking):**
+- `asyncio.get_event_loop()` in `TenantAGEGraphHandler.handle()` should prefer
+  `asyncio.get_running_loop()` for clarity (no functional issue since called in async ctx).
+- `status.HTTP_422_UNPROCESSABLE_ENTITY` is deprecated in favour of
+  `HTTP_422_UNPROCESSABLE_CONTENT` (emits DeprecationWarning but test passes; no
+  `filterwarnings = error` in pyproject.toml so not a CI failure).
+- `AsyncMock(spec=TenantService)` in presentation tests is consistent with all other
+  existing presentation layer tests in the codebase (not new debt).
+
+## Spec Coverage
+
+All scenarios from the Tenants spec that were outstanding at task intake are addressed:
+- **Tenant graph provisioning** (Requirement: Tenant Creation): `TenantAGEGraphHandler`
+  provisions `tenant_{tenant_id}` AGE graph on `TenantCreated` event with idempotent
+  create-if-not-exists semantics. ✓
+- **Demote last admin → 409** (Requirement: Add Tenant Member): `CannotRemoveLastAdminError`
+  now correctly returns HTTP 409 instead of falling through to 500. ✓
+- **Remove last admin → 409** (Requirement: Remove Tenant Member): already existed in
+  `remove_tenant_member`; test coverage added. ✓

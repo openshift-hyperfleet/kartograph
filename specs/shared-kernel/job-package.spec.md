@@ -14,7 +14,7 @@ The system SHALL produce JobPackages as ZIP archives with a defined internal str
 - THEN the ZIP archive contains exactly four components:
   - `manifest.json` — package metadata
   - `changeset.jsonl` — one entry per changed item
-  - `content/` — raw content files, content-addressable by SHA-256
+  - `content/` — raw content files, content-addressable using the `sha256:{hex_digest}` filename format
   - `state.json` — adapter checkpoint snapshot
 
 #### Scenario: Package naming
@@ -37,7 +37,7 @@ The system SHALL include a manifest with package metadata.
 #### Scenario: Content checksum computation
 - GIVEN the `content/` directory of a JobPackage
 - THEN `content_checksum` is the hex-encoded SHA-256 of a canonical byte stream constructed as follows:
-  - Walk the `content/` directory recursively, following symlinks
+  - Walk the `content/` directory recursively; for symlinks, resolve to the target and include it only if the target is within the `content/` root (skip out-of-tree symlinks) and has not already been visited (cycle detection via tracked visited paths)
   - Include all regular files; exclude directories
   - Normalize each file path to POSIX format with no leading `./`, using UTF-8 encoding
   - Sort entries lexicographically by normalized path
@@ -76,16 +76,16 @@ The system SHALL express changes as JSONL with one entry per changed item.
 
 #### Scenario: Content reference
 - GIVEN a changeset entry with content
-- THEN `content_ref` is a SHA-256 hash referencing a file in the `content/` directory
-- AND the format is `sha256:{hex_digest}`
+- THEN `content_ref` references a file in the `content/` directory
+- AND the format is `sha256:{lowercase_hex_digest}`
 
 ### Requirement: Content-Addressable Storage
-The system SHALL store raw content files named by their SHA-256 hash.
+The system SHALL store raw content files using the canonical `sha256:{hex_digest}` format as the filename.
 
 #### Scenario: Content file naming
 - GIVEN raw content to include in the package
 - WHEN it is written to the `content/` directory
-- THEN the filename is the SHA-256 hash of the content
+- THEN the filename is `sha256:{lowercase_hex_digest}` (identical to the `content_ref` format)
 
 #### Scenario: Deduplication
 - GIVEN two changeset entries referencing identical content
@@ -94,7 +94,7 @@ The system SHALL store raw content files named by their SHA-256 hash.
 
 #### Scenario: Integrity verification
 - GIVEN a consumer reading content from the package
-- THEN the consumer can hash the file content and verify it matches the filename
+- THEN the consumer strips the `sha256:` prefix from the filename and verifies it matches the SHA-256 hash of the file's raw bytes
 - AND a mismatch indicates corruption
 
 ### Requirement: Adapter Checkpoint

@@ -107,12 +107,19 @@ The system SHALL enforce per-entity authorization on all graph query results, re
 - WHEN the entity appears in query results
 - THEN its full properties are returned
 
-#### Scenario: Unauthorized entity — ID-only redaction
-- GIVEN a node or edge the user does NOT have `view` permission on
-- WHEN the entity appears in query results
+#### Scenario: Unauthorized node — ID-only redaction
+- GIVEN a node the user does NOT have `view` permission on
+- WHEN the node appears in query results
 - THEN only the entity ID is returned (e.g., `documentation_module:abf3ad8`)
 - AND all other properties are stripped
-- AND the entity is NOT removed from the result set (graph topology is preserved)
+- AND the node is NOT removed from the result set (graph topology is preserved)
+
+#### Scenario: Unauthorized edge — endpoint-preserving redaction
+- GIVEN an edge the user does NOT have `view` permission on
+- WHEN the edge appears in query results
+- THEN only the edge ID, `start_id`, and `end_id` are returned
+- AND all other properties are stripped
+- AND the edge is NOT removed from the result set (graph topology is preserved)
 
 #### Scenario: Permission derivation for graph entities
 - GIVEN a node or edge with a `knowledge_graph_id` property

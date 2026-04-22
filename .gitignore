@@ -5,6 +5,7 @@ __pycache__/
 
 # Git worktrees
 worktrees/
+.worktrees/
 
 agent-notes/
 agent-memory/

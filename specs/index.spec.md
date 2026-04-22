@@ -71,3 +71,4 @@ Capabilities shared across bounded contexts.
 | [Health Checks](nfr/health-checks.spec.md) | Liveness, readiness, startup ordering |
 | [CORS](nfr/cors.spec.md) | Cross-origin resource sharing policy |
 | [Application Lifecycle](nfr/application-lifecycle.spec.md) | Startup bootstrap, shutdown, default configuration |
+| [API Conventions](nfr/api-conventions.spec.md) | URL structure, status codes, error format, request/response models |

@@ -1,0 +1,20 @@
+overlay: .hyperloop/agents/
+base_branch: alpha
+max_workers: 6
+max_task_rounds: 30
+max_cycles: 10000
+poll_interval: 30
+runtime: local
+
+merge:
+  auto_merge: true
+  strategy: squash
+  delete_branch: true
+
+observability:
+  log_level: debug
+
+notifications:
+  type: github-comment
+
+dashboard: { enabled: true }

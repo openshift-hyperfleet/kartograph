@@ -1,0 +1,87 @@
+apiVersion: hyperloop.io/v1
+kind: Agent
+metadata:
+  name: implementer
+guidelines: |
+  ## Kartograph Implementation Guidelines
+
+  You are implementing features for Kartograph, a DDD-structured FastAPI application.
+  The codebase lives at src/api/. Read AGENTS.md and CLAUDE.md for full context.
+
+  ## TDD Protocol (MANDATORY)
+
+  Follow this exact order — no exceptions:
+  1. Read the spec file for your task. Understand every Requirement and Scenario.
+  2. Identify which bounded context and DDD layer this work belongs to.
+  3. Write tests FIRST:
+     - Unit tests in tests/unit/{context}/ for domain/application logic.
+     - Integration tests in tests/integration/{context}/ for repository/API behavior.
+     - Each spec Scenario should map to at least one test.
+  4. Run tests — they MUST fail (proving they test something real):
+     `cd src/api && uv run pytest tests/unit -v`
+  5. Implement the code to make tests pass.
+  6. Run tests again — they MUST pass.
+  7. Run the full unit suite to check for regressions:
+     `cd src/api && uv run pytest tests/unit -v`
+  8. Commit with conventional commits (feat:, fix:, refactor:, test:, docs:, chore:).
+
+  ## DDD Layer Rules
+
+  - **Domain** (aggregates, value objects, events): Pure Python. No framework imports. No I/O.
+  - **Ports** (protocols, repository interfaces): Python Protocols. No implementations.
+  - **Application** (services): Depend on domain + ports only. Never import infrastructure.
+  - **Infrastructure** (repositories, adapters): Implement ports. May import domain.
+  - **Presentation** (routes, models): FastAPI routes. Follow nfr/api-conventions.spec.md.
+  - Architecture is enforced by pytest-archon tests in tests/unit/test_architecture.py.
+
+  ## Observability
+
+  Use Domain-Oriented Observability (Martin Fowler pattern):
+  - Define probe Protocols in ports/observability.py or application/observability/.
+  - Implement DefaultXxxProbe classes using structlog.
+  - Domain/application code depends on probe Protocol, never on structlog directly.
+  - Every service method should emit probe events for success and failure paths.
+
+  ## Testing Rules
+
+  - Fakes over mocks. Build InMemoryXxx classes that implement port protocols.
+  - Never use MagicMock or AsyncMock for domain/application collaborators.
+  - Mocking is acceptable ONLY for: HTTP clients, gRPC channels, filesystem I/O.
+  - See specs/nfr/testing.spec.md for the full testing philosophy.
+
+  ## Integration Test Environment
+
+  If your task requires integration tests (repository, API, or authorization tests):
+  1. Start an isolated dev instance: `make instance-up`
+  2. Source the instance env: `source .instances/$(basename $(pwd))/.env.instance`
+  3. Run integration tests: `cd src/api && uv run pytest tests/integration -v -m integration`
+  4. Tear down when done: `make instance-down`
+
+  ## Outbox Pattern
+
+  Domain events emitted by aggregates flow through the transactional outbox:
+  1. Aggregate methods call `_emit_event(event)`.
+  2. Repository calls `aggregate.collect_events()` and appends to outbox table.
+  3. Event serializer converts domain events to JSON.
+  4. Event translator maps events to SpiceDB operations.
+  5. See specs/shared-kernel/outbox.spec.md for details.
+
+  ## SpiceDB Authorization
+
+  - All permission checks go through the AuthorizationProvider protocol.
+  - New resource types require schema.zed updates AND ConfigMap sync.
+  - See specs/iam/authorization.spec.md for the permission model.
+
+  ## API Conventions
+
+  When building presentation layers (FastAPI routes):
+  - Follow specs/nfr/api-conventions.spec.md for URL structure, status codes, error format.
+  - Nested creation, flat retrieval: POST /context/parents/{id}/children, GET /context/children/{id}.
+  - Error format: {"detail": "message"} for single errors.
+  - Use Pydantic models with snake_case fields.
+
+  ## Commit Conventions
+
+  - Conventional commits: feat:, fix:, refactor:, test:, docs:, chore:
+  - Atomic commits: one logical change per commit.
+  - Pre-commit hooks will run ruff, ruff-format, and mypy. Fix any issues they flag.

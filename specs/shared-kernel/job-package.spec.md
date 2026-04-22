@@ -45,12 +45,11 @@ The system SHALL include a manifest with package metadata.
 - GIVEN the `content/` directory of a JobPackage
 - THEN `content_checksum` is the hex-encoded SHA-256 of a canonical byte stream constructed as follows:
   - Walk the `content/` directory recursively; for symlinks, resolve to the target and include it only if the target is within the `content/` root (skip out-of-tree symlinks) and has not already been visited (cycle detection via tracked visited paths)
-  - Include all regular files; exclude directories
+  - Include only regular files whose name matches the lowercase hex digest pattern (`[0-9a-f]+`); exclude directories and any other files
   - Normalize each file path to POSIX format with no leading `./`, using UTF-8 encoding
   - Sort entries lexicographically by normalized path
   - For each file in sorted order, append to the stream: the normalized path, a newline (`\n`), then the file's raw bytes
 - AND file metadata (timestamps, permissions) is excluded from the stream
-- AND ephemeral files (e.g., `.git`, temp files) are excluded from the stream
 - AND the same `content/` directory always produces the same checksum regardless of filesystem ordering or OS
 
 ### Requirement: Changeset Format

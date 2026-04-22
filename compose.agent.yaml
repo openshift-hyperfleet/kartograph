@@ -1,0 +1,54 @@
+# Agent/CI compose overlay — replaces Keycloak with a fake OIDC provider.
+#
+# Usage:
+#   docker compose -f compose.yaml -f compose.agent.yaml up -d
+#
+# This overlay:
+#   - Disables Keycloak (scales to 0)
+#   - Adds a lightweight fake OIDC provider on port 8180
+#   - Configures the API to use the fake provider
+#   - Skips the dev-ui entirely
+
+services:
+  # Disable Keycloak
+  keycloak:
+    deploy:
+      replicas: 0
+
+  # Fake OIDC provider — lightweight replacement for Keycloak
+  fake-oidc:
+    build:
+      context: ./src/api/tests/fakes
+      dockerfile: Dockerfile
+    ports:
+      - "8180:8180"
+    networks:
+      - kartograph
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8180/realms/kartograph/.well-known/openid-configuration').read()",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+
+  # Override API to use fake OIDC provider
+  api:
+    environment:
+      - KARTOGRAPH_OIDC_ISSUER_URL=http://fake-oidc:8180/realms/kartograph
+      - KARTOGRAPH_OIDC_CLIENT_ID=kartograph-api
+      - KARTOGRAPH_OIDC_CLIENT_SECRET=kartograph-api-secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+      spicedb-schema-init:
+        condition: service_completed_successfully
+      fake-oidc:
+        condition: service_healthy

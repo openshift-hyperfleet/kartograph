@@ -53,6 +53,34 @@ run:
 logs:
 	docker compose logs --tail 1000 --follow
 
+# --- Isolated instance management (for agents / worktrees) ---
+
+.PHONY: instance-up
+instance-up: certs
+	@./scripts/dev-instance.sh up --no-keycloak
+
+.PHONY: instance-down
+instance-down:
+	@./scripts/dev-instance.sh down
+
+.PHONY: instance-status
+instance-status:
+	@./scripts/dev-instance.sh status
+
+.PHONY: instance-env
+instance-env:
+	@./scripts/dev-instance.sh env
+
+# --- Test targets ---
+
+.PHONY: test-unit
+test-unit:
+	cd src/api && uv run pytest tests/unit -v
+
+.PHONY: test-integration
+test-integration:
+	cd src/api && uv run pytest tests/integration -v -m integration
+
 .PHONY: docs-export
 docs-export:
 .PHONY: docs-export

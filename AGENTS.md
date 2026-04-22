@@ -104,4 +104,78 @@ To run pytest or python directly, you must invoke
 them through `uv`.
 
 For example, `uv run pytest ...` or `uv run python -c ...`.
+
+## Running Tests
+
+**Unit tests** (no infrastructure needed):
+```bash
+make test-unit
+# or: cd src/api && uv run pytest tests/unit -v
+```
+
+**Integration tests** (requires running dev instance):
+```bash
+make test-integration
+# or: cd src/api && uv run pytest tests/integration -v -m integration
+```
+
+Pre-push hooks run unit tests only. Integration tests run in CI or
+must be triggered explicitly.
+
+## Dev Environment Setup
+
+**Standard (single developer):**
+```bash
+make dev    # starts all services: Postgres, SpiceDB, Keycloak, API, Dev UI
+make down   # tears everything down
+```
+
+**Isolated instance (agents / worktrees):**
+
+When working in a worktree or running multiple instances in parallel,
+use the instance manager. It assigns unique ports per worktree so
+instances don't collide.
+
+```bash
+# Start an isolated instance (no Keycloak — uses fake OIDC provider)
+make instance-up
+
+# Check what's running
+make instance-status
+
+# Point your tests at this instance
+source .instances/$(basename $(pwd))/.env.instance
+make test-integration
+
+# Tear down
+make instance-down
+```
+
+The instance name is derived from your current directory basename.
+Each instance gets deterministic port offsets, its own Docker network
+and volumes, and a fake OIDC provider that replaces Keycloak.
+
+**What `make instance-up` provides:**
+- PostgreSQL with Apache AGE (unique port)
+- SpiceDB (unique port)
+- Fake OIDC provider (issues real JWTs, no Keycloak dependency)
+- Kartograph API (unique port)
+
+**Custom instance name:**
+```bash
+./scripts/dev-instance.sh up --name my-feature
+./scripts/dev-instance.sh down --name my-feature
+```
+
+## Fake OIDC Provider
+
+The fake OIDC provider (`src/api/tests/fakes/oidc_provider.py`) is a
+lightweight in-memory OIDC server that issues real RS256-signed JWTs.
+It serves discovery, JWKS, and token endpoints. Pre-configured test
+users: `alice` / `password` and `bob` / `password`.
+
+For standalone use:
+```bash
+cd src/api && uv run python -m tests.fakes.oidc_provider --port 8180
+```
 </testing-instructions>

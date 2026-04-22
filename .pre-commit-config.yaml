@@ -72,10 +72,10 @@ repos:
         language: system
         pass_filenames: false
         files: ^(src/api/graph/domain/value_objects\.py|src/api/infrastructure/settings\.py|scripts/export_system_properties\.py|scripts/export_settings\.py)$
-      - id: pytest
-        name: pytest
-        entry: bash -c 'cd src/api && uv run pytest tests -v'
-        files: ^src/.*\.py$
+      - id: pytest-unit
+        name: pytest (unit tests only)
+        entry: bash -c 'cd src/api && uv run pytest tests/unit -v'
+        files: ^src/api/.*\.py$
         language: system
         pass_filenames: false
         stages: [pre-push]

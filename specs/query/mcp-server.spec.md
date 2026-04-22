@@ -23,7 +23,8 @@ The system SHALL expose a `query_graph` MCP tool for executing read-only Cypher 
 #### Scenario: Secure enclave redaction
 - GIVEN query results containing entities the caller is not authorized to view
 - WHEN the results are returned
-- THEN unauthorized entities are redacted to only their ID
+- THEN unauthorized nodes are redacted to ID-only (all other properties stripped)
+- AND unauthorized edges are redacted to their ID, `start_id`, and `end_id` only (all other properties stripped)
 - AND the graph topology (which entities exist and are connected) is preserved
 
 #### Scenario: Write operation rejected

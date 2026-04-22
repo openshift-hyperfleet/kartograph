@@ -14,7 +14,7 @@ The system SHALL produce JobPackages as ZIP archives with a defined internal str
 - THEN the ZIP archive contains exactly four components:
   - `manifest.json` — package metadata
   - `changeset.jsonl` — one entry per changed item
-  - `content/` — raw content files, content-addressable using the `sha256:{hex_digest}` filename format
+  - `content/` — raw content files, content-addressable by lowercase hex digest filename (e.g., `a3f2...`)
   - `state.json` — adapter checkpoint snapshot
 
 #### Scenario: Package naming
@@ -80,12 +80,13 @@ The system SHALL express changes as JSONL with one entry per changed item.
 - AND the format is `sha256:{lowercase_hex_digest}`
 
 ### Requirement: Content-Addressable Storage
-The system SHALL store raw content files using the canonical `sha256:{hex_digest}` format as the filename.
+The system SHALL store raw content files using the lowercase hex digest as the filename (no algorithm prefix), while `content_ref` in the changeset retains the full `sha256:{hex_digest}` form.
 
 #### Scenario: Content file naming
 - GIVEN raw content to include in the package
 - WHEN it is written to the `content/` directory
-- THEN the filename is `sha256:{lowercase_hex_digest}` (identical to the `content_ref` format)
+- THEN the filename is the lowercase hex digest only (e.g., `a3f2c1...`), with no `sha256:` prefix
+- AND this format is portable across all operating systems (no reserved characters)
 
 #### Scenario: Deduplication
 - GIVEN two changeset entries referencing identical content
@@ -94,7 +95,7 @@ The system SHALL store raw content files using the canonical `sha256:{hex_digest
 
 #### Scenario: Integrity verification
 - GIVEN a consumer reading content from the package
-- THEN the consumer strips the `sha256:` prefix from the filename and verifies it matches the SHA-256 hash of the file's raw bytes
+- THEN the consumer strips the `sha256:` prefix from `content_ref` to derive the filename, reads the file from `content/{hex_digest}`, and verifies the SHA-256 hash of its raw bytes matches the hex digest
 - AND a mismatch indicates corruption
 
 ### Requirement: Adapter Checkpoint

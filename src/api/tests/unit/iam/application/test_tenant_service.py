@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.application.services import TenantService
-from iam.domain.aggregates import Tenant, Workspace
+from iam.domain.aggregates import APIKey, Tenant, Workspace
 from iam.domain.value_objects import (
     MemberType,
     TenantId,
@@ -1443,3 +1443,337 @@ class TestDeleteTenant:
         mock_authz.check_permission.assert_called_once()
         call_kwargs = mock_authz.check_permission.call_args
         assert "administrate" in str(call_kwargs).lower()
+
+    @pytest.mark.asyncio
+    async def test_deletes_api_keys_on_tenant_deletion(
+        self,
+        tenant_service,
+        mock_tenant_repo,
+        mock_workspace_repo,
+        mock_group_repo,
+        mock_api_key_repo,
+        mock_authz,
+    ):
+        """Test that deleting a tenant cascades to API keys (spec: Cascade Deletion).
+
+        Scenario: Tenant deletion
+        - GIVEN a tenant with active API keys
+        - WHEN the tenant is deleted
+        - THEN all API keys in the tenant are deleted
+        """
+        from datetime import UTC, datetime, timedelta
+
+        tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        # Create a real APIKey aggregate to validate proper cascade
+        api_key = APIKey.create(
+            created_by_user_id=UserId.from_string("user-123"),
+            tenant_id=tenant_id,
+            name="CI Pipeline Key",
+            key_hash="hashed_secret",
+            prefix="karto_ab",
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+        )
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.delete = AsyncMock(return_value=True)
+        mock_workspace_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_group_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_api_key_repo.list = AsyncMock(return_value=[api_key])
+        mock_api_key_repo.delete = AsyncMock(return_value=True)
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
+        await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
+
+        # Verify the API key was deleted via the repository
+        mock_api_key_repo.delete.assert_called_once_with(api_key)
+
+    @pytest.mark.asyncio
+    async def test_deletes_multiple_api_keys_on_tenant_deletion(
+        self,
+        tenant_service,
+        mock_tenant_repo,
+        mock_workspace_repo,
+        mock_group_repo,
+        mock_api_key_repo,
+        mock_authz,
+    ):
+        """Test that all API keys are deleted when a tenant is deleted.
+
+        Scenario: Tenant deletion with multiple API keys
+        - GIVEN a tenant with multiple active API keys
+        - WHEN the tenant is deleted
+        - THEN each API key is deleted individually
+        """
+        from datetime import UTC, datetime, timedelta
+
+        tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        # Create multiple real APIKey aggregates
+        api_key_1 = APIKey.create(
+            created_by_user_id=UserId.from_string("user-123"),
+            tenant_id=tenant_id,
+            name="CI Pipeline Key",
+            key_hash="hashed_secret_1",
+            prefix="karto_ab",
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+        )
+        api_key_2 = APIKey.create(
+            created_by_user_id=UserId.from_string("user-456"),
+            tenant_id=tenant_id,
+            name="Deploy Key",
+            key_hash="hashed_secret_2",
+            prefix="karto_cd",
+            expires_at=datetime.now(UTC) + timedelta(days=90),
+        )
+        api_key_3 = APIKey.create(
+            created_by_user_id=UserId.from_string("user-123"),
+            tenant_id=tenant_id,
+            name="Read Only Key",
+            key_hash="hashed_secret_3",
+            prefix="karto_ef",
+            expires_at=datetime.now(UTC) + timedelta(days=365),
+        )
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.delete = AsyncMock(return_value=True)
+        mock_workspace_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_group_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_api_key_repo.list = AsyncMock(
+            return_value=[api_key_1, api_key_2, api_key_3]
+        )
+        mock_api_key_repo.delete = AsyncMock(return_value=True)
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
+        await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
+
+        # Verify delete was called for each API key
+        assert mock_api_key_repo.delete.call_count == 3
+        deleted_keys = [
+            call.args[0] for call in mock_api_key_repo.delete.call_args_list
+        ]
+        assert api_key_1 in deleted_keys
+        assert api_key_2 in deleted_keys
+        assert api_key_3 in deleted_keys
+
+    @pytest.mark.asyncio
+    async def test_api_key_mark_for_deletion_emits_deleted_event(
+        self,
+        tenant_service,
+        mock_tenant_repo,
+        mock_workspace_repo,
+        mock_group_repo,
+        mock_api_key_repo,
+        mock_authz,
+    ):
+        """Test that mark_for_deletion is called on each API key during cascade.
+
+        Spec: authorization relationships are cleaned up via APIKeyDeleted events.
+        The APIKeyDeleted domain event is what drives SpiceDB relationship cleanup.
+        """
+        from datetime import UTC, datetime, timedelta
+
+        from iam.domain.events import APIKeyDeleted
+
+        tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        # Create a real APIKey aggregate (no pending events initially)
+        api_key = APIKey.create(
+            created_by_user_id=UserId.from_string("user-123"),
+            tenant_id=tenant_id,
+            name="CI Pipeline Key",
+            key_hash="hashed_secret",
+            prefix="karto_ab",
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+        )
+        # Drain creation event so we can check for the deletion event
+        api_key.collect_events()
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.delete = AsyncMock(return_value=True)
+        mock_workspace_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_group_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_api_key_repo.list = AsyncMock(return_value=[api_key])
+        mock_api_key_repo.delete = AsyncMock(return_value=True)
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
+        await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
+
+        # The delete method receives the api_key after mark_for_deletion() was called.
+        # Verify the key passed to delete has the APIKeyDeleted event recorded
+        # (which is what triggers SpiceDB relationship cleanup via the outbox)
+        deleted_key = mock_api_key_repo.delete.call_args.args[0]
+        pending_events = deleted_key.collect_events()
+
+        assert len(pending_events) == 1
+        assert isinstance(pending_events[0], APIKeyDeleted)
+        assert pending_events[0].api_key_id == api_key.id.value
+        assert pending_events[0].tenant_id == tenant_id.value
+
+    @pytest.mark.asyncio
+    async def test_api_key_repo_queried_by_tenant_on_deletion(
+        self,
+        tenant_service,
+        mock_tenant_repo,
+        mock_workspace_repo,
+        mock_group_repo,
+        mock_api_key_repo,
+        mock_authz,
+    ):
+        """Test that API keys are looked up by the correct tenant_id during cascade.
+
+        Spec: all API keys IN THE TENANT are deleted (not keys in other tenants).
+        """
+        tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.delete = AsyncMock(return_value=True)
+        mock_workspace_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_group_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_api_key_repo.list = AsyncMock(return_value=[])
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
+        await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
+
+        # Verify the repository was queried for this specific tenant's keys
+        mock_api_key_repo.list.assert_called_once()
+        call_kwargs = mock_api_key_repo.list.call_args.kwargs
+        assert call_kwargs.get("tenant_id") == tenant_id
+
+    @pytest.mark.asyncio
+    async def test_cascade_deletion_probe_reports_api_key_count(
+        self,
+        mock_tenant_repo,
+        mock_workspace_repo,
+        mock_group_repo,
+        mock_api_key_repo,
+        mock_authz,
+        mock_session,
+    ):
+        """Test that the probe correctly records the number of API keys in cascade.
+
+        Domain-Oriented Observability: operators should be able to see how many
+        API keys are being deleted for a given tenant deletion.
+        """
+        from datetime import UTC, datetime, timedelta
+        from unittest.mock import MagicMock
+
+        tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        api_key_1 = APIKey.create(
+            created_by_user_id=UserId.from_string("user-123"),
+            tenant_id=tenant_id,
+            name="Key 1",
+            key_hash="hash_1",
+            prefix="karto_ab",
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+        )
+        api_key_2 = APIKey.create(
+            created_by_user_id=UserId.from_string("user-456"),
+            tenant_id=tenant_id,
+            name="Key 2",
+            key_hash="hash_2",
+            prefix="karto_cd",
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+        )
+
+        # Use a mock probe to capture probe events
+        mock_probe = MagicMock()
+        mock_probe.tenant_cascade_deletion_started = MagicMock()
+        mock_probe.tenant_deleted = MagicMock()
+
+        service_with_probe = TenantService(
+            tenant_repository=mock_tenant_repo,
+            workspace_repository=mock_workspace_repo,
+            group_repository=mock_group_repo,
+            api_key_repository=mock_api_key_repo,
+            authz=mock_authz,
+            session=mock_session,
+            probe=mock_probe,
+        )
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.delete = AsyncMock(return_value=True)
+        mock_workspace_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_group_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_api_key_repo.list = AsyncMock(return_value=[api_key_1, api_key_2])
+        mock_api_key_repo.delete = AsyncMock(return_value=True)
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
+        await service_with_probe.delete_tenant(tenant_id, requesting_user_id=admin_id)
+
+        # Verify the probe was called with the correct API key count
+        mock_probe.tenant_cascade_deletion_started.assert_called_once_with(
+            tenant_id=tenant_id.value,
+            workspaces_count=0,
+            groups_count=0,
+            api_keys_count=2,
+        )
+
+    @pytest.mark.asyncio
+    async def test_api_keys_deleted_before_tenant_on_cascade(
+        self,
+        tenant_service,
+        mock_tenant_repo,
+        mock_workspace_repo,
+        mock_group_repo,
+        mock_api_key_repo,
+        mock_authz,
+    ):
+        """Test that API keys are deleted before the tenant itself.
+
+        Spec: cascade deletion must happen before the tenant is deleted
+        to ensure SpiceDB relationships are cleaned up (no orphaned relationships).
+        """
+        from datetime import UTC, datetime, timedelta
+
+        call_order: list[str] = []
+
+        tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        api_key = APIKey.create(
+            created_by_user_id=UserId.from_string("user-123"),
+            tenant_id=tenant_id,
+            name="CI Key",
+            key_hash="hash",
+            prefix="karto_ab",
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+        )
+
+        async def track_api_key_delete(key: APIKey) -> bool:
+            call_order.append("api_key_delete")
+            return True
+
+        async def track_tenant_delete(t: Tenant) -> bool:
+            call_order.append("tenant_delete")
+            return True
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.delete = AsyncMock(side_effect=track_tenant_delete)
+        mock_workspace_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_group_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_api_key_repo.list = AsyncMock(return_value=[api_key])
+        mock_api_key_repo.delete = AsyncMock(side_effect=track_api_key_delete)
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
+        await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
+
+        assert call_order == ["api_key_delete", "tenant_delete"]

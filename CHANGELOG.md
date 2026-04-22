@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.32.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.0...v3.32.1) (2026-04-22)
+
+
+### Bug Fixes
+
+* **deploy:** enable SpiceDB TLS for non-loopback stage connections ([#329](https://github.com/openshift-hyperfleet/kartograph/issues/329)) ([f63eda5](https://github.com/openshift-hyperfleet/kartograph/commit/f63eda5b7c182fe0016f5c772dae74323b5a780c))
+
 ## [3.32.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.31.4...v3.32.0) (2026-04-22)
 
 

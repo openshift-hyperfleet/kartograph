@@ -42,6 +42,15 @@ The system SHALL process outbox entries asynchronously via a worker.
 - THEN the entry is moved to a dead-letter state (failed_at timestamp set)
 - AND it is no longer retried
 
+### Requirement: Idempotent Event Handlers
+The system SHALL ensure that event handlers are idempotent, tolerating duplicate delivery from retries or concurrent processing.
+
+#### Scenario: Duplicate delivery
+- GIVEN an outbox entry that was partially processed before a transient failure
+- WHEN the worker retries the same entry
+- THEN reprocessing produces the same final state as a single successful processing
+- AND no duplicate side effects are created (e.g., duplicate SpiceDB relationships)
+
 ### Requirement: Concurrent Worker Safety
 The system SHALL support multiple outbox workers processing entries without duplication.
 

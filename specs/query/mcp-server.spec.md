@@ -29,9 +29,10 @@ The system SHALL expose a `query_graph` MCP tool for executing read-only Cypher 
 - THEN a LIMIT is automatically applied (default 1000, max 10000)
 
 #### Scenario: Result truncation flag
-- GIVEN a query that returns rows equal to the limit
+- GIVEN a query whose result set may exceed the limit
 - WHEN the results are returned
-- THEN the `truncated` flag is set to true
+- THEN the server SHOULD fetch `limit + 1` rows and set `truncated` to true only if more than `limit` rows were available
+- AND the response returns at most `limit` rows
 
 #### Scenario: Internal property filtering
 - GIVEN query results containing internal properties (e.g., `all_content_lower`)

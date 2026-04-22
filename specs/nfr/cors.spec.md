@@ -15,6 +15,7 @@ The system SHALL enable CORS middleware only when allowed origins are configured
 - WHEN a cross-origin request is received from an allowed origin
 - THEN the response includes appropriate CORS headers
 - AND credentials are allowed
+- AND wildcard (`*`) origins MUST NOT be used when credentials are allowed (explicit allowlist only)
 
 #### Scenario: No origins configured
 - GIVEN an empty CORS origins configuration

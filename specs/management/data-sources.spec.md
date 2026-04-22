@@ -74,15 +74,18 @@ The system SHALL return data source details only to users with `view` permission
 #### Scenario: Unauthorized or non-existent
 - GIVEN a data source the user cannot view (or does not exist)
 - WHEN the user requests it by ID
-- THEN no result is returned
+- THEN a not-found response is returned
+- AND no distinction is made between "unauthorized" and "missing"
 
 ### Requirement: Data Source Update
 The system SHALL allow users with `edit` permission to update data source connection configuration.
 
 #### Scenario: Update connection config
 - GIVEN a user with `edit` permission on a data source
-- WHEN the user updates the name, connection config, or credentials path
-- THEN the data source is updated
+- WHEN the user updates the name, connection config, or raw credentials
+- THEN the data source metadata is updated
+- AND if raw credentials are provided, they are encrypted and stored at the system-managed path `datasource/{id}/credentials`
+- AND the credentials path is not directly settable by the client
 
 ### Requirement: Data Source Immutability After Deletion
 The system SHALL prevent mutations on a data source after it has been marked for deletion.

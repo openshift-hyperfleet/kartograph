@@ -75,4 +75,5 @@ The system SHALL support routing a single event type to multiple handlers.
 #### Scenario: Unknown event type
 - GIVEN an outbox entry with an unregistered event type
 - WHEN the worker attempts to process it
-- THEN an error is raised
+- THEN the entry is immediately moved to the dead-letter state
+- AND it is not retried (unknown types are permanent failures, not transient)

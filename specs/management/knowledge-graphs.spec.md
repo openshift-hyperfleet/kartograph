@@ -68,9 +68,11 @@ The system SHALL allow users with `manage` permission to delete a knowledge grap
 #### Scenario: Successful deletion
 - GIVEN a user with `manage` permission on a knowledge graph
 - WHEN the user deletes the knowledge graph
-- THEN all data sources within it are deleted first (including their credentials)
-- AND the knowledge graph is deleted
-- AND all authorization relationships are cleaned up (workspace, tenant, and all direct grants)
+- THEN the following cascade executes atomically within a single transaction:
+  - All data sources within it are deleted (including their encrypted credentials)
+  - The knowledge graph record is deleted
+  - All authorization relationships are cleaned up (workspace, tenant, and all direct grants)
+- AND if any step fails, the entire deletion rolls back with no partial state
 
 #### Scenario: Mutation after deletion
 - GIVEN a knowledge graph that has been marked for deletion

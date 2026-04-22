@@ -1,18 +1,25 @@
 # Query Execution
 
 ## Purpose
-Query execution translates Cypher queries into graph database operations with safety guardrails. It enforces read-only access, timeouts, and result limits to protect both the database and the consumer.
+Query execution translates Cypher queries into graph database operations with safety guardrails. It enforces read-only access via defense-in-depth (database-level and application-level controls), timeouts, and result limits to protect both the database and the consumer.
 
 ## Requirements
 
 ### Requirement: Read-Only Enforcement
-The system SHALL reject queries that attempt to modify graph data.
+The system SHALL enforce read-only query execution via defense-in-depth.
 
-#### Scenario: Mutation keyword detection
+#### Scenario: Database-level enforcement (primary)
+- GIVEN a query session used for graph queries
+- WHEN any query is executed
+- THEN the database session MUST be configured as read-only
+- AND write attempts are rejected by the database regardless of query content
+
+#### Scenario: Keyword blacklist (secondary)
 - GIVEN a query containing any of: CREATE, DELETE, SET, REMOVE, MERGE, EXPLAIN, LOAD
 - WHEN the query is submitted (case-insensitive check)
-- THEN it is rejected with a forbidden error
-- AND the rejected query is logged
+- THEN it is rejected with a forbidden error before reaching the database
+- AND a redacted reference is logged (not the raw query text)
+- AND the error response includes a correlation ID for log lookup
 
 ### Requirement: Timeout Enforcement
 The system SHALL enforce a per-query timeout at the database level.
@@ -25,7 +32,7 @@ The system SHALL enforce a per-query timeout at the database level.
 #### Scenario: Query exceeds timeout
 - GIVEN a query that takes longer than the timeout
 - WHEN the database cancels the statement
-- THEN a timeout error is returned with the original query for debugging
+- THEN a timeout error is returned with a correlation ID for debugging
 
 ### Requirement: Result Limiting
 The system SHALL enforce a maximum number of returned rows.
@@ -33,12 +40,17 @@ The system SHALL enforce a maximum number of returned rows.
 #### Scenario: No LIMIT in query
 - GIVEN a query without a LIMIT clause
 - WHEN the query is executed
-- THEN a LIMIT clause is appended automatically
+- THEN a LIMIT of 1000 is appended automatically
 
-#### Scenario: Explicit LIMIT in query
-- GIVEN a query with an existing LIMIT clause
+#### Scenario: Explicit LIMIT within bounds
+- GIVEN a query with a LIMIT clause at or below 10000
 - WHEN the query is executed
 - THEN the existing LIMIT is respected
+
+#### Scenario: Explicit LIMIT exceeds maximum
+- GIVEN a query with a LIMIT clause exceeding 10000
+- WHEN the query is executed
+- THEN the LIMIT is capped to 10000
 
 ### Requirement: Error Categorization
 The system SHALL categorize query errors into distinct types for consumer handling.

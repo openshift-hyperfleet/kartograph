@@ -32,12 +32,17 @@ The system SHALL list node and edge type labels with optional filtering.
 - THEN only "person" is returned
 
 ### Requirement: Type Definition Lookup
-The system SHALL return the full schema for a specific type label.
+The system SHALL return the full schema for a specific type label, scoped by entity type (node or edge).
 
 #### Scenario: Existing type
-- GIVEN a type definition for label "person"
-- WHEN the schema is requested for "person"
+- GIVEN a type definition for node label "person"
+- WHEN the node schema is requested for "person"
 - THEN the definition is returned with description, required properties, and optional properties
+
+#### Scenario: Same label, different entity types
+- GIVEN a node type "link" and an edge type "link"
+- WHEN the node schema is requested for "link"
+- THEN only the node definition is returned (labels are scoped by entity type, not globally unique)
 
 #### Scenario: Unknown type
 - GIVEN no type definition for label "widget"

@@ -39,9 +39,10 @@ The system SHALL use temporary staging tables and PostgreSQL COPY for efficient 
 #### Scenario: Edge bulk create with ID resolution
 - GIVEN a batch of edge CREATE operations referencing logical node IDs
 - WHEN the batch is processed
-- THEN a graphid lookup table is built from existing nodes
-- AND logical IDs are resolved to internal graph IDs via join
+- THEN a graphid lookup table is built from the union of pre-existing nodes and nodes created earlier in the same batch
+- AND logical IDs are resolved to internal graph IDs via join against this lookup table
 - AND edges are inserted with resolved graph IDs
+- AND nodes from the same batch MUST be materialized (inserted into the graph) before the lookup table is built, so that edge endpoint resolution includes same-batch node IDs
 
 ### Requirement: Duplicate and Orphan Detection
 The system SHALL detect data quality issues within a batch.
@@ -63,3 +64,10 @@ The system SHALL use advisory locks to prevent concurrent bulk loading conflicts
 - GIVEN two bulk loading operations targeting the same label
 - WHEN both execute simultaneously
 - THEN advisory locks ensure they do not conflict
+
+#### Scenario: Deterministic lock ordering
+- GIVEN a bulk loading operation that acquires locks on multiple labels
+- WHEN advisory locks are acquired
+- THEN labels MUST be sorted into a canonical order (e.g., alphabetical) before acquisition
+- AND locks are acquired strictly in that order to prevent deadlocks
+- AND if any lock acquisition fails, all previously acquired locks are released before retry

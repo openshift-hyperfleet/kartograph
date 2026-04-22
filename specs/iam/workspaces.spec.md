@@ -37,7 +37,8 @@ The system SHALL allow users with `create_child` permission on a parent workspac
 #### Scenario: Unauthorized creation
 - GIVEN a user without `create_child` permission on the parent workspace
 - WHEN the user attempts to create a child workspace
-- THEN the request is rejected with a forbidden error
+- THEN a not-found response is returned
+- AND no distinction is made between "unauthorized" and "missing parent"
 
 ### Requirement: Workspace Name Validation
 The system SHALL enforce constraints on workspace names.

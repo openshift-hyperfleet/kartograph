@@ -26,7 +26,8 @@ The system SHALL expose a database connectivity health check endpoint.
 #### Scenario: Database is unreachable
 - GIVEN the application is running but the database is unavailable
 - WHEN `GET /health/db` is called
-- THEN the response indicates a database connectivity failure
+- THEN a 503 Service Unavailable response is returned
+- AND the response body contains an error message indicating database connectivity failure
 
 ### Requirement: Startup Ordering
 The system SHALL wait for dependent services to be ready before accepting traffic.

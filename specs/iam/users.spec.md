@@ -14,18 +14,18 @@ The system SHALL automatically create a local user record on first JWT authentic
 - THEN a new user record is created with the `sub` claim as the user ID
 - AND the `preferred_username` claim is stored as the username
 
-#### Scenario: Subsequent login
+#### Scenario: Subsequent login (no changes)
 - GIVEN a user who has previously authenticated
+- AND the `preferred_username` claim has not changed
 - WHEN the user authenticates again
 - THEN the existing user record is returned without modification
 
-### Requirement: Username Synchronization
-The system SHALL keep the local username in sync with the identity provider.
-
-#### Scenario: Username changed in SSO
-- GIVEN a user whose `preferred_username` has changed in the identity provider
-- WHEN the user authenticates
+#### Scenario: Subsequent login (username changed)
+- GIVEN a user who has previously authenticated
+- AND the `preferred_username` claim has changed in the identity provider
+- WHEN the user authenticates again
 - THEN the local username is updated to match the new value
+- AND the updated user record is returned
 
 #### Scenario: Username fallback
 - GIVEN a JWT token without a `preferred_username` claim
@@ -51,7 +51,8 @@ The system SHALL enforce global uniqueness of usernames.
 #### Scenario: Duplicate username
 - GIVEN two SSO users with the same `preferred_username`
 - WHEN both attempt to authenticate
-- THEN the second provisioning fails with a database error
+- THEN the second provisioning fails with a provisioning conflict error
+- AND the error does not expose database internals
 
 ### Requirement: Multi-Tenant Access
 The system SHALL allow a single user to be a member of multiple tenants.

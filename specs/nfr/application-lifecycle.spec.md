@@ -12,6 +12,7 @@ The system SHALL provision a default tenant and workspace on startup when runnin
 
 #### Scenario: Default tenant and workspace
 - GIVEN single-tenant mode is enabled (the default)
+- AND a write database session is available
 - WHEN the application starts
 - THEN a default tenant is created (or verified to exist) using the configured tenant name
 - AND a root workspace is created within the default tenant

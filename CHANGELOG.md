@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.31.3](https://github.com/openshift-hyperfleet/kartograph/compare/v3.31.2...v3.31.3) (2026-04-22)
+
+
+### Documentation
+
+* spec coverage for implemented features ([#316](https://github.com/openshift-hyperfleet/kartograph/issues/316)) ([b46589a](https://github.com/openshift-hyperfleet/kartograph/commit/b46589a2419c1bf08c2dd08c311ee95642139703))
+
 ## [3.31.2](https://github.com/openshift-hyperfleet/kartograph/compare/v3.31.1...v3.31.2) (2026-04-10)
 
 

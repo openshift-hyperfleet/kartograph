@@ -72,6 +72,7 @@ spec:
             - zed
             - schema
             - write
+            - --no-verify-ca
             - /schema/schema.zed
           env:
             - name: ZED_ENDPOINT
@@ -82,10 +83,7 @@ spec:
                   name: kartograph-spicedb-credentials
                   key: SPICEDB_PRESHARED_KEY
             - name: ZED_INSECURE
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: SPICEDB_INSECURE
+              value: "false"
           volumeMounts:
             - name: schema
               mountPath: /schema

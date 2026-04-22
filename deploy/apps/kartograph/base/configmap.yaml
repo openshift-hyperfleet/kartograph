@@ -11,8 +11,7 @@ data:
   KARTOGRAPH_DB_GRAPH_NAME: kartograph_graph
   # SpiceDB
   SPICEDB_ENDPOINT: kartograph-spicedb:50051
-  SPICEDB_USE_TLS: "false"
-  SPICEDB_INSECURE: "true"  # Inverted from SPICEDB_USE_TLS for zed CLI
+  SPICEDB_USE_TLS: "true"
   # Outbox worker
   KARTOGRAPH_OUTBOX_ENABLED: "true"
   KARTOGRAPH_OUTBOX_POLL_INTERVAL_SECONDS: "30"

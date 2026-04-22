@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.31.4](https://github.com/openshift-hyperfleet/kartograph/compare/v3.31.3...v3.31.4) (2026-04-22)
+
+
+### Bug Fixes
+
+* **deploy:** update DEV_UI_KEYCLOAK_URL ([38921b2](https://github.com/openshift-hyperfleet/kartograph/commit/38921b281122f30f6450c810dd685a771f3d2632))
+
 ## [3.31.3](https://github.com/openshift-hyperfleet/kartograph/compare/v3.31.2...v3.31.3) (2026-04-22)
 
 

@@ -99,6 +99,38 @@ The system SHALL allow API key owners and tenant admins to view and revoke keys.
 - GIVEN a tenant admin
 - THEN the admin has `view` and `revoke` permissions on all API keys in the tenant
 
+### Requirement: Secure Enclave — Per-Entity Graph Authorization
+The system SHALL enforce per-entity authorization on all graph query results, redacting content for entities the user is not authorized to view.
+
+#### Scenario: Authorized entity — full properties
+- GIVEN a node or edge the user has `view` permission on (via KnowledgeGraph or direct grant)
+- WHEN the entity appears in query results
+- THEN its full properties are returned
+
+#### Scenario: Unauthorized node — ID-only redaction
+- GIVEN a node the user does NOT have `view` permission on
+- WHEN the node appears in query results
+- THEN only the entity ID is returned (e.g., `documentation_module:abf3ad8`)
+- AND all other properties are stripped
+- AND the node is NOT removed from the result set (graph topology is preserved)
+
+#### Scenario: Unauthorized edge — endpoint-preserving redaction
+- GIVEN an edge the user does NOT have `view` permission on
+- WHEN the edge appears in query results
+- THEN only the edge ID, `start_id`, and `end_id` are returned
+- AND all other properties are stripped
+- AND the edge is NOT removed from the result set (graph topology is preserved)
+
+#### Scenario: Permission derivation for graph entities
+- GIVEN a node or edge with a `knowledge_graph_id` property
+- THEN `view` permission is derived from the user's access to that KnowledgeGraph
+- AND KnowledgeGraph access is in turn derivable from workspace membership
+
+#### Scenario: Missing or unresolvable knowledge_graph_id
+- GIVEN a node or edge whose `knowledge_graph_id` property is missing, null, malformed, or cannot be resolved to a valid KnowledgeGraph
+- THEN `view` permission MUST be denied (the entity is treated as redacted)
+- AND this applies regardless of any other permissions the user may hold
+
 ### Requirement: Single-Role Enforcement
 The system SHALL ensure each user or group holds exactly one role per resource.
 

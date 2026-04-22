@@ -1,5 +1,24 @@
 # Changelog
 
+## [3.32.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.31.4...v3.32.0) (2026-04-22)
+
+
+### Features
+
+* isolated dev instances for parallel agent/worktree use ([#324](https://github.com/openshift-hyperfleet/kartograph/issues/324)) ([e6f68a0](https://github.com/openshift-hyperfleet/kartograph/commit/e6f68a00c16411cbfde499f571fd4027f6619edd))
+
+
+### Documentation
+
+* specs for ui, ingest, management domain ([#323](https://github.com/openshift-hyperfleet/kartograph/issues/323)) ([774c6c8](https://github.com/openshift-hyperfleet/kartograph/commit/774c6c8eb35f1f3d4226385ff483f4e5dc344a08))
+
+## [3.31.4](https://github.com/openshift-hyperfleet/kartograph/compare/v3.31.3...v3.31.4) (2026-04-22)
+
+
+### Bug Fixes
+
+* **deploy:** update DEV_UI_KEYCLOAK_URL ([38921b2](https://github.com/openshift-hyperfleet/kartograph/commit/38921b281122f30f6450c810dd685a771f3d2632))
+
 ## [3.31.3](https://github.com/openshift-hyperfleet/kartograph/compare/v3.31.2...v3.31.3) (2026-04-22)
 
 

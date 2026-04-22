@@ -169,6 +169,7 @@ src/dev-ui/.nuxt/
 src/dev-ui/.output/
 
 certs/
+.instances/
 
 # Demo web interface (not for production)
 demo-web/

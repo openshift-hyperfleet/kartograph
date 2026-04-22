@@ -1,7 +1,7 @@
 # Credentials
 
 ## Purpose
-Credentials for external data source connections are encrypted at rest using Fernet symmetric encryption. The system stores encrypted credential blobs keyed by a logical path and tenant, with support for key rotation.
+Credentials for external data source connections are encrypted at rest and retrievable via a shared kernel port (`ICredentialReader`). The current implementation uses Fernet symmetric encryption, but the port abstraction enables future migration to external secret managers (e.g., HashiCorp Vault) without changing consuming contexts.
 
 ## Requirements
 

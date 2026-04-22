@@ -94,19 +94,31 @@ class MCPQueryService:
 
         except QueryForbiddenError as e:
             error_msg = str(e)
-            self._probe.cypher_query_rejected(query=query, reason=error_msg)
+            correlation_id = getattr(e, "correlation_id", None)
+            self._probe.cypher_query_rejected(
+                query=query,
+                reason=error_msg,
+                correlation_id=correlation_id,
+            )
             return QueryError(
                 error_type="forbidden",
                 message=error_msg,
                 query=query,
+                correlation_id=correlation_id,
             )
         except QueryTimeoutError as e:
             error_msg = str(e)
-            self._probe.cypher_query_failed(query=query, error=error_msg)
+            correlation_id = getattr(e, "correlation_id", None)
+            self._probe.cypher_query_failed(
+                query=query,
+                error=error_msg,
+                correlation_id=correlation_id,
+            )
             return QueryError(
                 error_type="timeout",
                 message=error_msg,
                 query=query,
+                correlation_id=correlation_id,
             )
         except QueryExecutionError as e:
             error_msg = str(e)

@@ -239,3 +239,65 @@ class TestExecuteCypherQuery:
 
         assert isinstance(result, QueryError)
         assert result.query == "MATCH (n) RETURN n"
+
+    def test_forbidden_error_includes_correlation_id_in_response(
+        self, service, mock_repository
+    ):
+        """Forbidden QueryError MUST carry a correlation ID (spec: keyword blacklist scenario).
+
+        The error response includes a correlation ID so consumers can look up
+        the redacted log entry on the server side.
+        """
+        exc = QueryForbiddenError(
+            "Query must be read-only. Found forbidden keyword: CREATE"
+        )
+        exc.correlation_id = "test-corr-id-abc123"
+        mock_repository.execute_cypher.side_effect = exc
+
+        result = service.execute_cypher_query("CREATE (n:Test)")
+
+        assert isinstance(result, QueryError)
+        assert result.correlation_id == "test-corr-id-abc123"
+
+    def test_forbidden_error_correlation_id_included_in_probe_call(
+        self, service, mock_repository, mock_probe
+    ):
+        """The probe should receive the correlation ID so it can be logged."""
+        exc = QueryForbiddenError(
+            "Query must be read-only. Found forbidden keyword: CREATE"
+        )
+        exc.correlation_id = "probe-corr-id-xyz"
+        mock_repository.execute_cypher.side_effect = exc
+
+        service.execute_cypher_query("CREATE (n:Test)")
+
+        mock_probe.cypher_query_rejected.assert_called_once()
+        call_kwargs = mock_probe.cypher_query_rejected.call_args.kwargs
+        assert call_kwargs.get("correlation_id") == "probe-corr-id-xyz"
+
+    def test_timeout_error_includes_correlation_id_in_response(
+        self, service, mock_repository
+    ):
+        """Timeout QueryError MUST carry a correlation ID (spec: timeout scenario)."""
+        exc = QueryTimeoutError("Query exceeded 5s timeout")
+        exc.correlation_id = "timeout-corr-id-456"
+        mock_repository.execute_cypher.side_effect = exc
+
+        result = service.execute_cypher_query("MATCH (n) RETURN n")
+
+        assert isinstance(result, QueryError)
+        assert result.correlation_id == "timeout-corr-id-456"
+
+    def test_timeout_error_correlation_id_included_in_probe_call(
+        self, service, mock_repository, mock_probe
+    ):
+        """The probe should receive the correlation ID for timeout failures."""
+        exc = QueryTimeoutError("Query exceeded 5s timeout")
+        exc.correlation_id = "timeout-probe-corr-789"
+        mock_repository.execute_cypher.side_effect = exc
+
+        service.execute_cypher_query("MATCH (n) RETURN n")
+
+        mock_probe.cypher_query_failed.assert_called_once()
+        call_kwargs = mock_probe.cypher_query_failed.call_args.kwargs
+        assert call_kwargs.get("correlation_id") == "timeout-probe-corr-789"

@@ -38,14 +38,20 @@ class QueryServiceProbe(Protocol):
         self,
         query: str,
         reason: str,
+        correlation_id: str | None = None,
     ) -> None:
-        """Record that a query was rejected (security violation)."""
+        """Record that a query was rejected (security violation).
+
+        Note: The raw query MUST NOT be logged. Use correlation_id to cross-
+        reference the redacted log entry with the error response.
+        """
         ...
 
     def cypher_query_failed(
         self,
         query: str,
         error: str,
+        correlation_id: str | None = None,
     ) -> None:
         """Record that a query failed during execution."""
         ...
@@ -92,17 +98,31 @@ class DefaultQueryServiceProbe:
             **self._get_context_kwargs(),
         )
 
-    def cypher_query_rejected(self, query: str, reason: str) -> None:
+    def cypher_query_rejected(
+        self,
+        query: str,
+        reason: str,
+        correlation_id: str | None = None,
+    ) -> None:
+        # IMPORTANT: Do NOT log `query` — log only the correlation_id so that
+        # raw query text never appears in log output (spec: redacted reference).
         self._logger.warning(
             "mcp_cypher_query_rejected",
             reason=reason,
+            correlation_id=correlation_id,
             **self._get_context_kwargs(),
         )
 
-    def cypher_query_failed(self, query: str, error: str) -> None:
+    def cypher_query_failed(
+        self,
+        query: str,
+        error: str,
+        correlation_id: str | None = None,
+    ) -> None:
         self._logger.error(
             "mcp_cypher_query_failed",
             error=error,
+            correlation_id=correlation_id,
             **self._get_context_kwargs(),
         )
 

@@ -11,7 +11,20 @@ The system SHALL expose a `query_graph` MCP tool for executing read-only Cypher 
 #### Scenario: Successful query
 - GIVEN an authenticated MCP client
 - WHEN the client calls `query_graph` with a valid Cypher query
-- THEN the results are returned with rows, row count, truncation flag, and execution time
+- THEN the query executes against the caller's tenant graph
+- AND the results are returned with rows, row count, truncation flag, and execution time
+
+#### Scenario: Optional KnowledgeGraph filter
+- GIVEN a `query_graph` call with an optional `knowledge_graph_id` parameter
+- WHEN the parameter is provided
+- THEN results are filtered to only that KnowledgeGraph
+- AND when omitted, results span all KnowledgeGraphs in the tenant
+
+#### Scenario: Secure enclave redaction
+- GIVEN query results containing entities the caller is not authorized to view
+- WHEN the results are returned
+- THEN unauthorized entities are redacted to only their ID
+- AND the graph topology (which entities exist and are connected) is preserved
 
 #### Scenario: Write operation rejected
 - GIVEN a Cypher query containing CREATE, DELETE, SET, REMOVE, MERGE, EXPLAIN, or LOAD

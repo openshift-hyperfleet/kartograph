@@ -5,6 +5,29 @@ Mutations are the write path for the knowledge graph. They are expressed as JSON
 
 ## Requirements
 
+### Requirement: Per-Tenant Graph Isolation
+The system SHALL execute mutations against a tenant-specific graph for data isolation.
+
+#### Scenario: Tenant graph routing
+- GIVEN an authenticated user in tenant "t1"
+- WHEN mutations are submitted
+- THEN they execute against the AGE graph named `tenant_{tenant_id}` (e.g., `tenant_t1`)
+- AND no data is written to any other tenant's graph
+
+### Requirement: KnowledgeGraph Scoping
+The system SHALL require a target KnowledgeGraph for all mutations and enforce authorization.
+
+#### Scenario: Mutation authorization
+- GIVEN a mutation request targeting a specific KnowledgeGraph
+- WHEN the request is processed
+- THEN the user MUST have `edit` permission on the KnowledgeGraph (via SpiceDB)
+- AND the request is rejected with a forbidden error if permission is denied
+
+#### Scenario: KnowledgeGraph ID stamping
+- GIVEN a mutation targeting KnowledgeGraph "kg-123"
+- WHEN CREATE or UPDATE operations are applied
+- THEN all created/updated nodes and edges carry `knowledge_graph_id` as a system property
+
 ### Requirement: Mutation Log Format
 The system SHALL accept mutations as JSONL (one JSON object per line).
 
@@ -108,11 +131,11 @@ The system SHALL require specific system-managed properties on all CREATE operat
 
 #### Scenario: Node system properties
 - GIVEN a CREATE operation for a node
-- THEN `data_source_id`, `source_path`, and `slug` MUST be present in `set_properties`
+- THEN `data_source_id`, `source_path`, `slug`, and `knowledge_graph_id` MUST be present in `set_properties`
 
 #### Scenario: Edge system properties
 - GIVEN a CREATE operation for an edge
-- THEN `data_source_id` and `source_path` MUST be present in `set_properties`
+- THEN `data_source_id`, `source_path`, and `knowledge_graph_id` MUST be present in `set_properties`
 
 ### Requirement: Deterministic Entity IDs
 The system SHALL use deterministic IDs for idempotent mutation replay.

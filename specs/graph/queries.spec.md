@@ -1,23 +1,58 @@
 # Queries
 
 ## Purpose
-The graph query interface provides read access to knowledge graph data. It supports slug-based lookups, neighbor traversal, and raw Cypher exploration with safety guardrails. All queries are scoped to a specific graph for data isolation.
+The graph query interface provides read access to knowledge graph data. It supports slug-based lookups, neighbor traversal, and raw Cypher exploration with safety guardrails. All queries execute against the requesting user's tenant graph and enforce per-entity authorization via the secure enclave pattern.
 
 ## Requirements
 
-### Requirement: Graph-Scoped Query Isolation
-The system SHALL scope all graph queries to a specific graph identifier, preventing cross-graph data leakage.
+### Requirement: Per-Tenant Graph Routing
+The system SHALL route all queries to the tenant-specific AGE graph.
 
-#### Scenario: Query isolation
-- GIVEN a graph repository scoped to graph "alpha"
-- WHEN a query is executed
-- THEN only data belonging to graph "alpha" is returned
-- AND data from other graphs is excluded
+#### Scenario: Tenant graph routing
+- GIVEN an authenticated user in tenant "t1"
+- WHEN any graph query is executed
+- THEN it runs against the AGE graph named `tenant_{tenant_id}`
+- AND no data from other tenants' graphs is accessible
 
-#### Scenario: Slug search isolation
-- GIVEN nodes with slug "readme" in graphs "alpha" and "beta"
-- WHEN a slug search is performed in the repository scoped to "alpha"
-- THEN only the node from graph "alpha" is returned
+### Requirement: KnowledgeGraph Filtering
+The system SHALL support optional filtering by KnowledgeGraph across all query types.
+
+#### Scenario: Filtered query
+- GIVEN a query with a `knowledge_graph_id` parameter
+- WHEN the query is executed
+- THEN only nodes and edges with a matching `knowledge_graph_id` property are returned
+
+#### Scenario: Unfiltered query
+- GIVEN a query without a `knowledge_graph_id` parameter
+- WHEN the query is executed
+- THEN nodes and edges across all KnowledgeGraphs in the tenant graph are returned
+
+### Requirement: Secure Enclave — Per-Entity Authorization
+The system SHALL check authorization on every individual node and edge in query results, redacting content the user is not authorized to view.
+
+#### Scenario: Authorized entity
+- GIVEN a node the user has `view` permission on
+- WHEN the node appears in query results
+- THEN its full properties are returned
+
+#### Scenario: Unauthorized node (redacted)
+- GIVEN a node the user does NOT have `view` permission on
+- WHEN the node appears in query results
+- THEN only the entity ID is returned (e.g., `{"id": "documentation_module:abf3ad8"}`)
+- AND all other properties are stripped
+
+#### Scenario: Unauthorized edge (redacted)
+- GIVEN an edge the user does NOT have `view` permission on
+- WHEN the edge appears in query results
+- THEN only the edge ID is returned
+- AND all other properties (including start/end node references) are stripped
+
+#### Scenario: Graph topology preserved
+- GIVEN a query that traverses relationships between authorized and unauthorized entities
+- WHEN the results are returned
+- THEN unauthorized entities still appear in the result set (as redacted stubs)
+- AND the overall graph structure is preserved
+- AND the user can see that relationships exist without seeing the content
 
 ### Requirement: Slug-Based Node Lookup
 The system SHALL support finding nodes by their slug property.

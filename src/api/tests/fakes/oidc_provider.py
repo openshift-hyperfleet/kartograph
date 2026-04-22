@@ -201,8 +201,10 @@ def create_oidc_app(provider: FakeOIDCProvider | None = None):
     if provider is None:
         provider = FakeOIDCProvider()
 
+    from urllib.parse import urlparse
+
     app = FastAPI(title="Fake OIDC Provider")
-    realm_prefix = "/realms/kartograph"
+    realm_prefix = urlparse(provider.issuer_url).path
 
     @app.get(f"{realm_prefix}/.well-known/openid-configuration")
     def discovery():

@@ -48,6 +48,14 @@ Read access for end-users and AI agents via MCP.
 | [MCP Server](query/mcp-server.spec.md) | Model Context Protocol tools and authentication |
 | [Query Execution](query/query-execution.spec.md) | Translating questions into graph queries |
 
+### [Ingestion](ingestion/) — Data Extraction
+Connecting to external sources, detecting changes, and packaging raw content for downstream processing.
+
+| Spec | Scope |
+|------|-------|
+| [Adapters](ingestion/adapters.spec.md) | Adapter port, GitHub adapter, dlt framework integration |
+| [Sync Lifecycle](ingestion/sync-lifecycle.spec.md) | Event-driven state machine, status tracking, staleness detection |
+
 ### [Shared Kernel](shared-kernel/) — Cross-Cutting Contracts
 Capabilities shared across bounded contexts.
 
@@ -58,6 +66,7 @@ Capabilities shared across bounded contexts.
 | [Outbox](shared-kernel/outbox.spec.md) | Transactional event publishing pattern |
 | [Tenant Context](shared-kernel/tenant-context.spec.md) | Request-scoped tenant resolution middleware |
 | [Entity ID Generation](shared-kernel/entity-id-generation.spec.md) | Deterministic SHA256-based entity IDs |
+| [JobPackage](shared-kernel/job-package.spec.md) | ZIP-based contract between Ingestion and Extraction |
 
 ---
 

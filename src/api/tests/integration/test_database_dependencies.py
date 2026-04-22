@@ -4,10 +4,13 @@ Tests the lifespan-initialized database engines and FastAPI dependency
 providers for async database sessions against a real database.
 """
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from main import app
+
+pytestmark = pytest.mark.integration
 
 
 class TestDatabaseEngineLifecycle:

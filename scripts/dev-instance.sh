@@ -102,33 +102,30 @@ generate_compose_override() {
 # Port offset: $OFFSET
 services:
   keycloak:
-    ports:
+    ports: !override
       - "${KEYCLOAK_PORT}:8080"
       - "${KEYCLOAK_MGMT_PORT}:9000"
     volumes:
       - ${INSTANCE_DIR}/realm.json:/opt/keycloak/data/import/realm.json:ro
 
   postgres:
-    ports:
+    ports: !override
       - "${POSTGRES_PORT}:5432"
 
   spicedb:
-    ports:
+    ports: !override
       - "${SPICEDB_PORT}:50051"
 
   fake-oidc:
-    ports:
+    ports: !override
       - "${FAKE_OIDC_PORT}:8180"
 
   api:
-    ports:
+    ports: !override
       - "${API_PORT}:8000"
-    environment:
-      - KARTOGRAPH_OIDC_ISSUER_URL=http://localhost:${KEYCLOAK_PORT}/realms/kartograph
-      - KARTOGRAPH_CORS_ORIGINS=http://localhost:${DEVUI_PORT}
 
   dev-ui:
-    ports:
+    ports: !override
       - "${DEVUI_PORT}:3000"
       - "${HMR_PORT}:24678"
     environment:
@@ -240,19 +237,11 @@ case "$ACTION" in
 
     down)
         echo "Stopping Kartograph instance: $PROJECT_NAME"
-        if [[ -f "$INSTANCE_DIR/compose.override.yaml" ]]; then
-            $(compose_cmd) down
-        else
-            docker compose -p "kg-${PROJECT_NAME}" down
-        fi
+        docker compose -p "kg-${PROJECT_NAME}" down 2>/dev/null || true
         ;;
 
     status)
-        if [[ -f "$INSTANCE_DIR/compose.override.yaml" ]]; then
-            $(compose_cmd) ps
-        else
-            docker compose -p "kg-${PROJECT_NAME}" ps
-        fi
+        docker compose -p "kg-${PROJECT_NAME}" ps
         ;;
 
     env)

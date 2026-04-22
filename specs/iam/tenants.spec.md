@@ -30,8 +30,9 @@ The system SHALL allow authenticated users to create a new tenant with a unique 
 #### Scenario: Tenant graph provisioning
 - GIVEN a tenant is successfully created
 - WHEN the creation event is processed (via outbox)
-- THEN a dedicated AGE graph named `tenant_{tenant_id}` is provisioned
+- THEN a dedicated AGE graph named `tenant_{tenant_id}` is provisioned only if it does not already exist (create-if-not-exists)
 - AND all knowledge graph data for this tenant will be stored in this graph
+- AND if the graph already exists, the event is treated as a no-op (idempotent replay is safe)
 
 ### Requirement: Tenant Retrieval
 The system SHALL return tenant details only to users with view permission.

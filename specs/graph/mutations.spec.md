@@ -26,7 +26,9 @@ The system SHALL require a target KnowledgeGraph for all mutations and enforce a
 #### Scenario: KnowledgeGraph ID stamping
 - GIVEN a mutation targeting KnowledgeGraph "kg-123"
 - WHEN CREATE or UPDATE operations are applied
-- THEN all created/updated nodes and edges carry `knowledge_graph_id` as a system property
+- THEN `knowledge_graph_id` is stamped on all created/updated nodes and edges from the authorized target KnowledgeGraph
+- AND any `knowledge_graph_id` value provided by the caller is rejected or ignored
+- AND this applies to mutation validation logic so callers cannot spoof the graph ID
 
 ### Requirement: Mutation Log Format
 The system SHALL accept mutations as JSONL (one JSON object per line).
@@ -64,7 +66,7 @@ The system SHALL support declaring node and edge types with property schemas.
 The system SHALL support idempotent entity creation with property accumulation.
 
 #### Scenario: Create a new node
-- GIVEN a CREATE operation with a deterministic ID, label, and properties
+- GIVEN a CREATE operation with a deterministic ID, label, and `set_properties`
 - WHEN the entity does not yet exist in the graph
 - THEN the node is created with the specified properties
 
@@ -72,7 +74,7 @@ The system SHALL support idempotent entity creation with property accumulation.
 - GIVEN a CREATE operation for a node that already exists
 - WHEN the mutation is applied
 - THEN existing properties are preserved
-- AND new properties from the operation are added
+- AND new properties from `set_properties` are added
 
 #### Scenario: Create an edge
 - GIVEN a CREATE operation for an edge with `start_id` and `end_id`
@@ -90,7 +92,7 @@ The system SHALL support idempotent entity creation with property accumulation.
 - THEN the operation is rejected with a validation error
 
 #### Scenario: Schema learning
-- GIVEN a CREATE operation with properties beyond the required set
+- GIVEN a CREATE operation with `set_properties` containing fields beyond the required set
 - WHEN the mutation succeeds
 - THEN the extra properties are added to the type definition's optional properties
 

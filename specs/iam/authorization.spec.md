@@ -119,6 +119,11 @@ The system SHALL enforce per-entity authorization on all graph query results, re
 - THEN `view` permission is derived from the user's access to that KnowledgeGraph
 - AND KnowledgeGraph access is in turn derivable from workspace membership
 
+#### Scenario: Missing or unresolvable knowledge_graph_id
+- GIVEN a node or edge whose `knowledge_graph_id` property is missing, null, malformed, or cannot be resolved to a valid KnowledgeGraph
+- THEN `view` permission MUST be denied (the entity is treated as redacted)
+- AND this applies regardless of any other permissions the user may hold
+
 ### Requirement: Single-Role Enforcement
 The system SHALL ensure each user or group holds exactly one role per resource.
 

@@ -32,7 +32,19 @@ The system SHALL include a manifest with package metadata.
   - `knowledge_graph_id` — which knowledge graph this data feeds
   - `sync_mode` — `"incremental"` or `"full_refresh"`
   - `entry_count` — number of entries in changeset.jsonl
-  - `content_checksum` — integrity checksum for the content directory
+  - `content_checksum` — integrity checksum for the content directory (see Content Checksum Computation below)
+
+#### Scenario: Content checksum computation
+- GIVEN the `content/` directory of a JobPackage
+- THEN `content_checksum` is the hex-encoded SHA-256 of a canonical byte stream constructed as follows:
+  - Walk the `content/` directory recursively, following symlinks
+  - Include all regular files; exclude directories
+  - Normalize each file path to POSIX format with no leading `./`, using UTF-8 encoding
+  - Sort entries lexicographically by normalized path
+  - For each file in sorted order, append to the stream: the normalized path, a newline (`\n`), then the file's raw bytes
+- AND file metadata (timestamps, permissions) is excluded from the stream
+- AND ephemeral files (e.g., `.git`, temp files) are excluded from the stream
+- AND the same `content/` directory always produces the same checksum regardless of filesystem ordering or OS
 
 ### Requirement: Changeset Format
 The system SHALL express changes as JSONL with one entry per changed item.

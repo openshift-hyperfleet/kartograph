@@ -27,11 +27,11 @@ The system SHALL track sync runs through a defined set of states, driven by doma
 #### Scenario: State transitions
 - GIVEN the following lifecycle events and their effects:
   - `SyncStarted` → status becomes `ingesting`
-  - `JobPackageProduced` → status becomes `extracting` (AI extraction triggered)
+  - `JobPackageProduced` → status becomes `ai_extracting` (AI-based entity extraction triggered)
   - `IngestionFailed` → status becomes `failed`
   - `MutationLogProduced` → status becomes `applying` (graph mutations triggered)
   - `ExtractionFailed` → status becomes `failed`
-  - `MutationsApplied` → status becomes `completed`, `last_sync_at` updated
+  - `MutationsApplied` → status becomes `completed`, sync run's `last_sync_at` updated
   - `MutationApplicationFailed` → status becomes `failed`
 - THEN each event transitions the sync run to the corresponding status
 

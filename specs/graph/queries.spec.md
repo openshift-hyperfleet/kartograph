@@ -44,15 +44,15 @@ The system SHALL check authorization on every individual node and edge in query 
 #### Scenario: Unauthorized edge (redacted)
 - GIVEN an edge the user does NOT have `view` permission on
 - WHEN the edge appears in query results
-- THEN only the edge ID is returned
-- AND all other properties (including start/end node references) are stripped
+- THEN only the edge ID, `start_id`, and `end_id` are returned
+- AND all other properties are stripped
 
 #### Scenario: Graph topology preserved
 - GIVEN a query that traverses relationships between authorized and unauthorized entities
 - WHEN the results are returned
-- THEN unauthorized entities still appear in the result set (as redacted stubs)
-- AND the overall graph structure is preserved
-- AND the user can see that relationships exist without seeing the content
+- THEN unauthorized edges appear as stubs containing only their ID, `start_id`, and `end_id`
+- AND the overall graph structure remains traversable
+- AND the user can see that a relationship exists between nodes without seeing the edge's properties
 
 ### Requirement: Slug-Based Node Lookup
 The system SHALL support finding nodes by their slug property.

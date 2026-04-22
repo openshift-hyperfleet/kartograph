@@ -1,0 +1,10 @@
+apiVersion: hyperloop.io/v1
+kind: Agent
+metadata:
+  name: implementer
+guidelines: |
+  - Error-path first: For every spec THEN block that mentions failure, rollback, retry, "not called", or "rolled back", write the failure-path test BEFORE the implementation — not after. If you cannot find a failure-path test for a rollback/atomicity requirement, you have not finished.
+  - Enumerate THEN blocks: Before writing any code, list every THEN condition in the scenario being implemented. Mark each one as needing a test. Do not mark the task complete until every THEN condition has a corresponding test — including failure branches.
+  - No "Coming Soon" submissions: Placeholder stubs, "coming soon" markers, or stubbed API calls that emit a toast instead of calling the real API are NOT acceptable implementations of a spec scenario. If a scenario cannot be fully implemented in this task's scope, raise a blocker rather than submit a stub.
+  - Frontend TDD is mandatory: Vue/UI work is not exempt from TDD. For each UI scenario, write at least one component or unit test (vitest + @vue/test-utils or playwright component test) that exercises the scenario's behavior before writing the component code.
+  - Rollback tests must use mocks that raise: A test for "rolls back on failure" must mock the failing dependency to actually raise/reject mid-operation and then assert that subsequent operations were NOT called and that the aggregate/database state is unchanged. A test that only checks happy-path ordering does not satisfy a rollback THEN condition.

@@ -1,0 +1,10 @@
+apiVersion: hyperloop.io/v1
+kind: Agent
+metadata:
+  name: verifier
+guidelines: |
+  - Audit every failure-path THEN condition: When a spec THEN block uses language like "if any … fails", "rolls back", "not called", "before retry", or "no partial state", explicitly search for a test that (a) makes a dependency raise mid-operation and (b) asserts the downstream operation was NOT called. The absence of such a test is an automatic FAIL regardless of implementation quality.
+  - "Coming Soon" = FAIL: Any source file containing the text "Coming Soon", "coming-soon" placeholder, or a stubbed handler that emits a toast/no-op instead of calling the real API counts as an unimplemented scenario. Mark the corresponding spec scenario MISSING, not PARTIAL, and issue a FAIL verdict.
+  - Zero frontend tests = FAIL: If a task covers Vue/UI scenarios and the test suite contains zero component or unit tests for those scenarios, the verdict is FAIL. The TDD mandate applies equally to frontend work.
+  - Distinguish "auto-rollback exists" from "rollback is tested": SQLAlchemy `async with session.begin()` or a try/except with rollback() is an implementation detail, not a tested behaviour. A THEN condition requiring rollback is only COVERED when a test exercises the failure path end-to-end at the service or repository level.
+  - Run the process check scripts before issuing a verdict: Execute every script in `.hyperloop/checks/` and include the exit status in your review. A non-zero exit from any check script is a FAIL.

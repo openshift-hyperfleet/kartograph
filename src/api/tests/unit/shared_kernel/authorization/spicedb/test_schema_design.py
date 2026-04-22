@@ -295,6 +295,253 @@ class TestKnowledgeGraphSchemaDesign:
             )
 
 
+class TestTenantSchemaDesign:
+    """Tests for tenant permission design.
+
+    Tenants are the top-level organizational boundary. The permission
+    model distinguishes admin from regular member:
+
+    - admin: view, create_api_key, manage, administrate
+    - member: view, create_api_key (but NOT manage or administrate)
+    """
+
+    def test_tenant_definition_exists(self, schema: str):
+        """Verify the tenant definition block exists in the schema."""
+        def_pattern = r"definition\s+tenant\s*\{"
+        assert re.search(def_pattern, schema), "definition tenant not found in schema"
+
+    def test_tenant_admin_has_view_permission(self, schema: str):
+        """Verify tenant admin is included in view permission.
+
+        Admin implies membership so should have all member permissions.
+        """
+        view_expr = _extract_permission(schema, "tenant", "view")
+        assert view_expr is not None, "tenant.view permission not found in schema"
+        assert "admin" in view_expr, (
+            f"tenant.view should include 'admin'. Current expression: {view_expr}"
+        )
+
+    def test_tenant_member_has_view_permission(self, schema: str):
+        """Verify tenant member is included in view permission."""
+        view_expr = _extract_permission(schema, "tenant", "view")
+        assert view_expr is not None, "tenant.view permission not found in schema"
+        assert "member" in view_expr, (
+            f"tenant.view should include 'member'. Current expression: {view_expr}"
+        )
+
+    def test_tenant_admin_has_create_api_key_permission(self, schema: str):
+        """Verify tenant admin is included in create_api_key permission."""
+        perm_expr = _extract_permission(schema, "tenant", "create_api_key")
+        assert perm_expr is not None, (
+            "tenant.create_api_key permission not found in schema"
+        )
+        assert "admin" in perm_expr, (
+            f"tenant.create_api_key should include 'admin'. "
+            f"Current expression: {perm_expr}"
+        )
+
+    def test_tenant_member_has_create_api_key_permission(self, schema: str):
+        """Verify tenant member is included in create_api_key permission.
+
+        Regular members should be able to create API keys for their own use.
+        """
+        perm_expr = _extract_permission(schema, "tenant", "create_api_key")
+        assert perm_expr is not None, (
+            "tenant.create_api_key permission not found in schema"
+        )
+        assert "member" in perm_expr, (
+            f"tenant.create_api_key should include 'member'. "
+            f"Current expression: {perm_expr}"
+        )
+
+    def test_tenant_manage_is_admin_only(self, schema: str):
+        """Verify tenant manage permission is admin-only.
+
+        Regular members must NOT have manage access. Manage controls tenant
+        configuration and should be restricted to admins.
+        """
+        manage_expr = _extract_permission(schema, "tenant", "manage")
+        assert manage_expr is not None, "tenant.manage permission not found in schema"
+        assert "admin" in manage_expr, (
+            f"tenant.manage should include 'admin'. Current expression: {manage_expr}"
+        )
+        assert not re.search(r"\bmember\b", manage_expr), (
+            f"tenant.manage should NOT include 'member'. "
+            f"Manage is admin-only. Current expression: {manage_expr}"
+        )
+
+    def test_tenant_administrate_is_admin_only(self, schema: str):
+        """Verify tenant administrate permission is admin-only.
+
+        The administrate permission grants the highest-level admin actions.
+        Only explicit admins should have this.
+        """
+        admin_expr = _extract_permission(schema, "tenant", "administrate")
+        assert admin_expr is not None, (
+            "tenant.administrate permission not found in schema"
+        )
+        assert "admin" in admin_expr, (
+            f"tenant.administrate should include 'admin'. "
+            f"Current expression: {admin_expr}"
+        )
+        assert not re.search(r"\bmember\b", admin_expr), (
+            f"tenant.administrate should NOT include 'member'. "
+            f"Administrate is admin-only. Current expression: {admin_expr}"
+        )
+
+
+class TestAPIKeySchemaDesign:
+    """Tests for api_key permission design.
+
+    API keys are owned by users and scoped to tenants.
+    Both the owner and tenant admins can view and revoke any key.
+
+    Permission model:
+    - view   = owner + tenant->administrate
+    - revoke = owner + tenant->administrate
+    """
+
+    def test_api_key_definition_exists(self, schema: str):
+        """Verify the api_key definition block exists in the schema."""
+        def_pattern = r"definition\s+api_key\s*\{"
+        assert re.search(def_pattern, schema), "definition api_key not found in schema"
+
+    def test_api_key_owner_has_view_permission(self, schema: str):
+        """Verify api_key owner is included in view permission.
+
+        The user who created the API key should always be able to view it.
+        """
+        view_expr = _extract_permission(schema, "api_key", "view")
+        assert view_expr is not None, "api_key.view permission not found in schema"
+        assert "owner" in view_expr, (
+            f"api_key.view should include 'owner'. Current expression: {view_expr}"
+        )
+
+    def test_api_key_tenant_admin_has_view_permission(self, schema: str):
+        """Verify tenant admins have view permission on API keys via administrate.
+
+        Tenant admins must be able to view all API keys in their tenant
+        for governance and security management.
+        """
+        view_expr = _extract_permission(schema, "api_key", "view")
+        assert view_expr is not None, "api_key.view permission not found in schema"
+        assert "tenant->administrate" in view_expr, (
+            f"api_key.view should include 'tenant->administrate' for tenant admin access. "
+            f"Current expression: {view_expr}"
+        )
+
+    def test_api_key_owner_has_revoke_permission(self, schema: str):
+        """Verify api_key owner is included in revoke permission.
+
+        API key owners should be able to revoke their own keys.
+        """
+        revoke_expr = _extract_permission(schema, "api_key", "revoke")
+        assert revoke_expr is not None, "api_key.revoke permission not found in schema"
+        assert "owner" in revoke_expr, (
+            f"api_key.revoke should include 'owner'. Current expression: {revoke_expr}"
+        )
+
+    def test_api_key_tenant_admin_has_revoke_permission(self, schema: str):
+        """Verify tenant admins have revoke permission on API keys.
+
+        Tenant admins must be able to revoke any API key in their tenant
+        for security incident response.
+        """
+        revoke_expr = _extract_permission(schema, "api_key", "revoke")
+        assert revoke_expr is not None, "api_key.revoke permission not found in schema"
+        assert "tenant->administrate" in revoke_expr, (
+            f"api_key.revoke should include 'tenant->administrate'. "
+            f"Current expression: {revoke_expr}"
+        )
+
+    def test_api_key_view_and_revoke_have_same_grantees(self, schema: str):
+        """Verify api_key view and revoke permissions have identical grantees.
+
+        Per spec: owner and tenant admin both get both view AND revoke.
+        Symmetric access ensures no one can revoke without being able to view.
+        """
+        view_expr = _extract_permission(schema, "api_key", "view")
+        revoke_expr = _extract_permission(schema, "api_key", "revoke")
+        assert view_expr is not None, "api_key.view permission not found in schema"
+        assert revoke_expr is not None, "api_key.revoke permission not found in schema"
+        assert view_expr == revoke_expr, (
+            f"api_key view and revoke should have identical grantees. "
+            f"view='{view_expr}', revoke='{revoke_expr}'"
+        )
+
+
+class TestGroupSchemaDesign:
+    """Tests for group permission design.
+
+    Groups allow organizing users for workspace access delegation.
+
+    Permission model:
+    - member  = admin + member_relation  (computed permission: all group participants)
+    - view    = admin + member_relation + tenant->view  (includes tenant-wide discovery)
+    - manage  = admin  (admin-only: manage membership, delete group)
+    """
+
+    def test_group_definition_exists(self, schema: str):
+        """Verify the group definition block exists in the schema."""
+        def_pattern = r"definition\s+group\s*\{"
+        assert re.search(def_pattern, schema), "definition group not found in schema"
+
+    def test_group_admin_has_view_permission(self, schema: str):
+        """Verify group admin is included in view permission."""
+        view_expr = _extract_permission(schema, "group", "view")
+        assert view_expr is not None, "group.view permission not found in schema"
+        assert "admin" in view_expr, (
+            f"group.view should include 'admin'. Current expression: {view_expr}"
+        )
+
+    def test_group_member_relation_has_view_permission(self, schema: str):
+        """Verify group member_relation (regular members) is included in view permission."""
+        view_expr = _extract_permission(schema, "group", "view")
+        assert view_expr is not None, "group.view permission not found in schema"
+        assert "member_relation" in view_expr, (
+            f"group.view should include 'member_relation'. "
+            f"Current expression: {view_expr}"
+        )
+
+    def test_group_admin_has_manage_permission(self, schema: str):
+        """Verify group admin is included in manage permission."""
+        manage_expr = _extract_permission(schema, "group", "manage")
+        assert manage_expr is not None, "group.manage permission not found in schema"
+        assert "admin" in manage_expr, (
+            f"group.manage should include 'admin'. Current expression: {manage_expr}"
+        )
+
+    def test_group_member_does_not_have_manage_permission(self, schema: str):
+        """Verify group member_relation does NOT have manage permission.
+
+        Only admins can manage group membership. Regular members have view-only access.
+        """
+        manage_expr = _extract_permission(schema, "group", "manage")
+        assert manage_expr is not None, "group.manage permission not found in schema"
+        assert "member_relation" not in manage_expr, (
+            f"group.manage should NOT include 'member_relation'. "
+            f"Manage is admin-only. Current expression: {manage_expr}"
+        )
+
+    def test_group_member_computed_permission_includes_admin_and_member(
+        self, schema: str
+    ):
+        """Verify group member permission (computed) includes both admin and member_relation.
+
+        The 'member' computed permission represents ALL group participants.
+        This is used for workspace permission inheritance (group#member subject relation).
+        """
+        member_expr = _extract_permission(schema, "group", "member")
+        assert member_expr is not None, "group.member permission not found in schema"
+        assert "admin" in member_expr, (
+            f"group.member should include 'admin'. Current expression: {member_expr}"
+        )
+        assert "member_relation" in member_expr, (
+            f"group.member should include 'member_relation'. "
+            f"Current expression: {member_expr}"
+        )
+
+
 class TestDataSourceSchemaDesign:
     """Tests for data_source permission design.
 

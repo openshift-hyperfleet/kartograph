@@ -84,6 +84,14 @@ The system SHALL allow users with `edit` permission to update data source connec
 - WHEN the user updates the name, connection config, or credentials path
 - THEN the data source is updated
 
+### Requirement: Data Source Immutability After Deletion
+The system SHALL prevent mutations on a data source after it has been marked for deletion.
+
+#### Scenario: Mutation after deletion
+- GIVEN a data source that has been marked for deletion
+- WHEN any mutation is attempted (update, sync request)
+- THEN the operation is rejected
+
 ### Requirement: Data Source Deletion
 The system SHALL allow users with `manage` permission to delete a data source.
 

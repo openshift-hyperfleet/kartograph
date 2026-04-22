@@ -114,7 +114,12 @@ The system SHALL allow tenant admins to remove members from a tenant.
 - GIVEN an admin of the tenant and a member to remove
 - WHEN the admin removes the member
 - THEN the member's role on the tenant is revoked
-- AND the member's access to the root workspace is revoked
+- AND the member's access to the root workspace is revoked (if they were a member)
+
+#### Scenario: Removing an admin syncs root workspace
+- GIVEN a tenant admin being removed from the tenant
+- WHEN the removal is applied
+- THEN the user's admin access to the root workspace is also revoked
 
 #### Scenario: Remove last admin
 - GIVEN a tenant with exactly one admin

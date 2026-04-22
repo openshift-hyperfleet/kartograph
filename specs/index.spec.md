@@ -57,6 +57,7 @@ Capabilities shared across bounded contexts.
 | [SpiceDB Authorization](shared-kernel/spicedb-authorization.spec.md) | Permission checks, relationship writes, resource lookups |
 | [Outbox](shared-kernel/outbox.spec.md) | Transactional event publishing pattern |
 | [Tenant Context](shared-kernel/tenant-context.spec.md) | Request-scoped tenant resolution middleware |
+| [Entity ID Generation](shared-kernel/entity-id-generation.spec.md) | Deterministic SHA256-based entity IDs |
 
 ---
 
@@ -67,3 +68,6 @@ Capabilities shared across bounded contexts.
 | [Observability](nfr/observability.spec.md) | Domain-oriented observability probe contracts |
 | [Architecture](nfr/architecture.spec.md) | DDD layering rules, bounded context isolation |
 | [Testing](nfr/testing.spec.md) | Fakes over mocks, contract tests, test layering |
+| [Health Checks](nfr/health-checks.spec.md) | Liveness, readiness, startup ordering |
+| [CORS](nfr/cors.spec.md) | Cross-origin resource sharing policy |
+| [Application Lifecycle](nfr/application-lifecycle.spec.md) | Startup bootstrap, shutdown, default configuration |

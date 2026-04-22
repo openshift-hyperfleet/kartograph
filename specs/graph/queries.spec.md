@@ -1,9 +1,23 @@
 # Queries
 
 ## Purpose
-The graph query interface provides read access to knowledge graph data. It supports slug-based lookups, neighbor traversal, and raw Cypher exploration with safety guardrails.
+The graph query interface provides read access to knowledge graph data. It supports slug-based lookups, neighbor traversal, and raw Cypher exploration with safety guardrails. All queries are scoped to a specific graph for data isolation.
 
 ## Requirements
+
+### Requirement: Graph-Scoped Query Isolation
+The system SHALL scope all graph queries to a specific graph identifier, preventing cross-graph data leakage.
+
+#### Scenario: Query isolation
+- GIVEN a graph repository scoped to graph "alpha"
+- WHEN a query is executed
+- THEN only data belonging to graph "alpha" is returned
+- AND data from other graphs is excluded
+
+#### Scenario: Slug search isolation
+- GIVEN nodes with slug "readme" in graphs "alpha" and "beta"
+- WHEN a slug search is performed in the repository scoped to "alpha"
+- THEN only the node from graph "alpha" is returned
 
 ### Requirement: Slug-Based Node Lookup
 The system SHALL support finding nodes by their slug property.

@@ -53,6 +53,8 @@ spec:
           args:
             - serve
             - --http-enabled=true
+            - --grpc-tls-cert-path=/tls/tls.crt
+            - --grpc-tls-key-path=/tls/tls.key
           ports:
             - containerPort: 50051
               name: grpc
@@ -71,6 +73,10 @@ spec:
                 secretKeyRef:
                   name: kartograph-spicedb-credentials
                   key: SPICEDB_PRESHARED_KEY
+          volumeMounts:
+            - name: spicedb-tls
+              mountPath: /tls
+              readOnly: true
           livenessProbe:
             grpc:
               port: 50051
@@ -92,3 +98,7 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+      volumes:
+        - name: spicedb-tls
+          secret:
+            secretName: kartograph-spicedb-tls

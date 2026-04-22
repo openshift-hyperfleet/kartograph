@@ -113,6 +113,8 @@ spec:
                 configMapKeyRef:
                   name: kartograph-config
                   key: SPICEDB_USE_TLS
+            - name: SPICEDB_CERT_PATH
+              value: /etc/spicedb-ca/service-ca.crt
             # Outbox worker config
             - name: KARTOGRAPH_OUTBOX_ENABLED
               valueFrom:
@@ -140,6 +142,10 @@ spec:
                   name: kartograph-sso-client-swagger-docs
                   key: client_id
 
+          volumeMounts:
+            - name: spicedb-ca
+              mountPath: /etc/spicedb-ca
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /health
@@ -163,3 +169,10 @@ spec:
             limits:
               cpu: 500m
               memory: 3Gi
+      volumes:
+        - name: spicedb-ca
+          configMap:
+            name: kartograph-spicedb-ca
+            items:
+              - key: service-ca.crt
+                path: service-ca.crt

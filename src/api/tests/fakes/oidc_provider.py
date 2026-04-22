@@ -140,6 +140,14 @@ class FakeOIDCProvider:
             headers={"kid": self._kid},
         )
 
+    @property
+    def token_lifetime(self) -> int:
+        return self._token_lifetime
+
+    def validate_client(self, client_id: str, client_secret: str) -> bool:
+        """Validate client credentials."""
+        return client_id == self._client_id and client_secret == self._client_secret
+
     def authenticate(self, username: str, password: str) -> str | None:
         """Authenticate a user and return a token, or None if invalid."""
         user = self._users.get(username)
@@ -216,6 +224,9 @@ def create_oidc_app(provider: FakeOIDCProvider | None = None):
         if grant_type != "password":
             raise HTTPException(400, "Only password grant supported in fake provider")
 
+        if not provider.validate_client(client_id or "", client_secret or ""):
+            raise HTTPException(401, "Invalid client credentials")
+
         access_token = provider.authenticate(username or "", password or "")
         if not access_token:
             raise HTTPException(401, "Invalid credentials")
@@ -224,7 +235,7 @@ def create_oidc_app(provider: FakeOIDCProvider | None = None):
             {
                 "access_token": access_token,
                 "token_type": "Bearer",
-                "expires_in": 3600,
+                "expires_in": provider.token_lifetime,
             }
         )
 

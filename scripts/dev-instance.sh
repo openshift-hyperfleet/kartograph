@@ -221,12 +221,14 @@ case "$ACTION" in
         # Build and start
         local_cmd="$(compose_cmd)"
 
-        if [[ "$NO_KEYCLOAK" == "true" ]]; then
+        if [[ "$NO_KEYCLOAK" == "true" && "$NO_UI" == "false" ]]; then
+            $local_cmd --profile ui up -d --scale keycloak=0
+        elif [[ "$NO_KEYCLOAK" == "true" ]]; then
             $local_cmd up -d --scale keycloak=0
-        elif [[ "$NO_UI" == "true" ]]; then
-            $local_cmd up -d
-        else
+        elif [[ "$NO_UI" == "false" ]]; then
             $local_cmd --profile ui up -d
+        else
+            $local_cmd up -d
         fi
 
         echo ""
@@ -249,7 +251,11 @@ case "$ACTION" in
         generate_env >/dev/null 2>&1
         echo "KARTOGRAPH_DB_PORT=$POSTGRES_PORT"
         echo "SPICEDB_ENDPOINT=localhost:$SPICEDB_PORT"
-        echo "KARTOGRAPH_OIDC_ISSUER_URL=http://localhost:${KEYCLOAK_PORT}/realms/kartograph"
+        if [[ "$NO_KEYCLOAK" == "true" ]]; then
+            echo "KARTOGRAPH_OIDC_ISSUER_URL=http://localhost:${FAKE_OIDC_PORT}/realms/kartograph"
+        else
+            echo "KARTOGRAPH_OIDC_ISSUER_URL=http://localhost:${KEYCLOAK_PORT}/realms/kartograph"
+        fi
         echo "API_URL=http://localhost:$API_PORT"
         ;;
 esac

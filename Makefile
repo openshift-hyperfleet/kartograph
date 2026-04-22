@@ -69,7 +69,7 @@ instance-status:
 
 .PHONY: instance-env
 instance-env:
-	@./scripts/dev-instance.sh env
+	@./scripts/dev-instance.sh env --no-keycloak
 
 # --- Test targets ---
 

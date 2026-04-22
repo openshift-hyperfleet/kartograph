@@ -96,11 +96,14 @@ class AgeBulkLoadingStrategy(BulkLoadingStrategy):
             total_batches = 0
 
             with conn.cursor() as cursor:
-                # Acquire advisory locks for all labels we'll modify
+                # Acquire advisory locks for all labels we'll modify.
+                # Labels MUST be sorted into a canonical (alphabetical) order
+                # before acquisition to prevent deadlocks when two concurrent
+                # transactions lock the same set of labels in different orders.
                 all_labels = {op.label for op in create_nodes if op.label} | {
                     op.label for op in create_edges if op.label
                 }
-                for label in all_labels:
+                for label in sorted(all_labels):
                     self._queries.acquire_advisory_lock(cursor, graph_name, label)
 
                 # Execute DELETEs first (edges before nodes for referential integrity)

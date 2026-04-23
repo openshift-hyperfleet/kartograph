@@ -78,15 +78,17 @@ spec:
               mountPath: /tls
               readOnly: true
           livenessProbe:
-            grpc:
-              port: 50051
+            httpGet:
+              path: /metrics
+              port: 9090
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
           readinessProbe:
-            grpc:
-              port: 50051
+            httpGet:
+              path: /metrics
+              port: 9090
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3

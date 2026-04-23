@@ -1,76 +1,110 @@
 ---
 verdict: pass
 report: |
-  ## Task-008 Knowledge Graphs — Final PR Feedback Verification (2026-04-23)
+  ## Task-008 Knowledge Graphs — Final Spec Alignment Review (2026-04-23)
 
-  All PR feedback items across all CodeRabbit review rounds have been verified
-  in the current codebase. Unit tests: 2066 passed, 0 failed.
+  Full re-verification of spec requirements and all CodeRabbit PR feedback rounds.
+  Unit tests: 2066 passed, 0 failed.
 
   ---
 
-  ### Round 4 MAJOR (outside diff): Typed exceptions for parent workspace errors
+  ### Spec Requirements
 
-  RESOLVED. `iam/presentation/workspaces/routes.py` (lines 85-95) catches
+  **Requirement: Knowledge Graph Creation — COVERED**
+  - Implementation: `management/presentation/knowledge_graphs/routes.py:72-123` (POST endpoint)
+  - Service: `management/application/services/knowledge_graph_service.py:99-166`
+  - Domain: `management/domain/aggregates/knowledge_graph.py:96-123` (ULID factory)
+  - Tests: `TestCreateKnowledgeGraph` (6 unit tests), `test_knowledge_graph_authorization.py`
+    (integration). Covers successful creation, duplicate name rejection.
+
+  **Requirement: Knowledge Graph Name Validation — COVERED**
+  - Implementation: `management/presentation/knowledge_graphs/models.py:24-29`
+    (Pydantic Field min_length=1, max_length=100) and domain aggregate.
+  - Tests: `test_create_knowledge_graph_returns_422_for_empty_name`,
+    `test_create_knowledge_graph_returns_422_for_oversized_name`.
+
+  **Requirement: Knowledge Graph Retrieval — COVERED**
+  - Implementation: `routes.py:126-170` (GET /management/knowledge-graphs/{kg_id})
+  - Service: `knowledge_graph_service.py:168-201` (returns None if unauthorized)
+  - Tests: `TestGetKnowledgeGraph` (4 tests: 200, 404 unauthorized, 404 missing, 401).
+    No distinction between unauthorized and missing per spec.
+
+  **Requirement: Knowledge Graph Listing — COVERED**
+  - Workspace-scoped: `routes.py:173-218` (GET /management/workspaces/{workspace_id}/knowledge-graphs)
+  - Tenant-scoped: `routes.py:35-69` (GET /management/knowledge-graphs)
+  - Tests: `TestListKnowledgeGraphs` and `TestListAllKnowledgeGraphs` (8 unit tests total).
+
+  **Requirement: Knowledge Graph Update — COVERED**
+  - Implementation: `routes.py:221-285` (PATCH /management/knowledge-graphs/{kg_id})
+  - Tests: `TestUpdateKnowledgeGraph` (8 tests: 200, 403, 404, 409, 422, 401).
+
+  **Requirement: Knowledge Graph Deletion (cascade) — COVERED**
+  - Implementation: `routes.py:288-340` (DELETE /management/knowledge-graphs/{kg_id})
+  - Service: `knowledge_graph_service.py:362-421` — cascade deletes data sources,
+    encrypted credentials, KG record, and auth relationships atomically in one transaction.
+  - Tests: `TestDeleteKnowledgeGraph` (5 unit tests: 204, 403, 404, 401).
+
+  **Requirement: Permission Inheritance — COVERED**
+  - Workspace-inherited access: service checks permission on WORKSPACE resource.
+  - Direct grants: service checks permission on KNOWLEDGE_GRAPH resource.
+  - Integration tests: `test_knowledge_graph_authorization.py` (comprehensive SpiceDB scenarios).
+
+  ---
+
+  ### PR Feedback Resolution
+
+  **Round 4 MAJOR: Typed exceptions for parent workspace errors — RESOLVED**
+  `iam/presentation/workspaces/routes.py` (lines 85-95) catches
   `ParentWorkspaceNotFoundError` and `ParentWorkspaceCrossTenantError` directly
-  from `iam/ports/exceptions.py` — no string parsing of ValueError.
+  from `iam/ports/exceptions.py` (defined at lines 103 and 115). No string parsing
+  of ValueError. The route `responses` map includes 404. The service
+  `iam/application/services/workspace_service.py` raises typed exceptions at
+  lines 166 and 172.
 
+  **Round 5 NITPICK: workspace_service.py create_workspace docstring — RESOLVED**
+  The `create_workspace` method docstring Raises section (lines 128-133) lists:
+  `UnauthorizedError`, `DuplicateWorkspaceNameError`, `ParentWorkspaceNotFoundError`,
+  `ParentWorkspaceCrossTenantError`.
+
+  **Architecture test exclusion — RESOLVED**
+  `tests/unit/management/test_architecture.py` uses four targeted exclusions
+  (lines 245-256):
+  - `management.dependencies*`
+  - `management.presentation.knowledge_graphs.routes*`
+  - `management.presentation.knowledge_graphs`
+  - `management.presentation`
+  No broad `management.presentation*` wildcard exclusion.
+
+  **TestListAllKnowledgeGraphs — RESOLVED**
+  Class exists at `test_knowledge_graph_routes.py:358` with 4 tests covering
+  GET /management/knowledge-graphs: 200 with list, 200 empty list, service called
+  with user_id, 401 unauthenticated.
+
+  **tenant_id assertion removal — RESOLVED**
+  No `result["tenant_id"]` assertions present in route tests. Only fields exposed
+  by `KnowledgeGraphResponse.from_domain` are checked.
+
+  **Encryption key CSV normalization — RESOLVED**
+  Both `management/dependencies/knowledge_graph.py` and
+  `management/dependencies/data_source.py` strip whitespace and filter empty
+  entries:
   ```python
-  except (
-      UnauthorizedError,
-      ParentWorkspaceNotFoundError,
-      ParentWorkspaceCrossTenantError,
-  ):
-      raise HTTPException(status_code=404, detail="Parent workspace not found")
+  encryption_keys = [
+      k.strip()
+      for k in settings.encryption_key.get_secret_value().split(",")
+      if k.strip()
+  ]
   ```
 
-  The route `responses` map includes 404 (lines 53-60). The remaining `ValueError`
-  catch handles only genuine validation errors (e.g., malformed workspace ID format)
-  and returns 400. This is correct behaviour — ValueError cannot represent a
-  parent-not-found case because the service now raises typed exceptions instead.
+  **dev-ui knowledge-graphs/index.vue — RESOLVED**
+  - `handleCreate()` uses workspace-scoped endpoint:
+    `POST /management/workspaces/${rootWorkspaceId.value}/knowledge-graphs`
+  - `loadKnowledgeGraphs()` shows toast on error with finally block setting
+    `loadingKgs.value = false`.
 
-  `iam/ports/exceptions.py` defines both exceptions at lines 103 and 115 with
-  full docstrings explaining the 404-normalization rationale.
-
-  `iam/application/services/workspace_service.py` raises typed exceptions at
-  lines 166 (`ParentWorkspaceNotFoundError`) and 172 (`ParentWorkspaceCrossTenantError`)
-  instead of generic ValueError.
-
-  ---
-
-  ### Round 5 NITPICK: workspace_service.py create_workspace docstring
-
-  RESOLVED. The `create_workspace` method docstring Raises section (lines 128-133)
-  lists all four typed exceptions:
-  - `UnauthorizedError`
-  - `DuplicateWorkspaceNameError`
-  - `ParentWorkspaceNotFoundError`
-  - `ParentWorkspaceCrossTenantError`
-
-  The "also applies to lines 225-227" CodeRabbit note referred to the
-  `except (ParentWorkspaceNotFoundError, ParentWorkspaceCrossTenantError): raise`
-  block — which is existing implementation code, not a docstring gap.
-
-  ---
-
-  ### Previously Resolved (Rounds 1-3)
-
-  **Architecture test exclusion (test_architecture.py):** Four targeted exclusions
-  used (lines 248-253) — no broad `management.presentation*` pattern.
-
-  **TestListAllKnowledgeGraphs class:** Exists at test_knowledge_graph_routes.py:358
-  with four tests covering GET /management/knowledge-graphs.
-
-  **tenant_id assertion removal:** No `result["tenant_id"]` assertions in routes
-  tests — only fields exposed by KnowledgeGraphResponse.from_domain are checked.
-
-  **Encryption key CSV normalization:** Both knowledge_graph.py and data_source.py
-  strip whitespace and filter empty entries.
-
-  **dev-ui knowledge-graphs/index.vue:** handleCreate() uses workspace-scoped
-  endpoint; loadKnowledgeGraphs() shows toast on error with finally block.
-
-  **dev-ui knowledge-graphs.test.ts:** Correctly asserts workspace-scoped endpoint;
-  imports real buildQueryGraphArgs from production code.
+  **dev-ui knowledge-graphs.test.ts — RESOLVED**
+  - Asserts workspace-scoped endpoint in `handleCreate` test.
+  - Imports real `buildQueryGraphArgs` from `~/composables/api/useQueryApi`.
 
   ---
 

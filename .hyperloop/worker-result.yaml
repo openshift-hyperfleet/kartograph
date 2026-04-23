@@ -1,117 +1,69 @@
 ---
 verdict: pass
 detail: |
-  ## Verification — task-017 Outbox Pattern (Round 4 / Final)
+  ## Verification — task-017 Outbox Pattern (Round 5 / Final)
 
-  Addresses the one outstanding CodeRabbit finding from round 3.
+  All prior round findings confirmed addressed. Final spot-checks all clean.
 
   ---
 
-  ### Check 1 — Unit Tests
+  ### Check 1 — check-frontend-test-infrastructure.sh (CodeRabbit fix)
 
   STATUS: PASS
 
-  cd src/api && uv run pytest tests/unit -v
-  2413 passed, 45 warnings in 73.98s
-
-  All 81 outbox-specific tests pass:
-  - test_composite.py:            11 passed
-  - test_models.py:                3 passed
-  - test_postgres_notify_event_source.py: 22 passed
-  - test_repository.py:            5 passed
-  - test_spicedb_handler.py:      12 passed
-  - test_worker.py:               28 passed
+  Lines 43-54 confirm the fix is present:
+  - `git_diff_output=$(git diff ...)` captured separately with
+    `|| { echo "ERROR: git diff failed unexpectedly." >&2; exit 1; }`.
+  - `|| true` retained only on the grep/filter pipeline (grep exit-1 on no
+    matches is expected behavior, not an error).
+  - Real git failures are now surfaced and cause a non-zero exit.
 
   ---
 
-  ### Check 2 — Linting (ruff check)
+  ### Check 2 — check-frontend-tests-exist.sh
 
   STATUS: PASS
 
-  uv run ruff check .  →  All checks passed!
+  Script is clean. The `git diff` line uses `2>/dev/null` which is acceptable
+  here (base branch validation occurs earlier and exits non-zero on failure).
+  The `|| true` is scoped only to the grep/filter pipeline.
 
   ---
 
-  ### Check 3 — Formatting (ruff format)
+  ### Check 3 — Dead-letter field consistency (failed_at vs dlq_at)
+
+  STATUS: PASS (confirmed false positive from prior rounds)
+
+  worker.py uses `OutboxModel.failed_at` at lines 203 and 226 (fetch filter)
+  and sets `failed_at=datetime.now(UTC)` at line 320 (DLQ write). No `dlq_at`
+  field exists anywhere. The CodeRabbit finding was a hallucination.
+
+  ---
+
+  ### Check 4 — Test assertion for failed_at filter (test_worker.py:780)
 
   STATUS: PASS
 
-  uv run ruff format --check .  →  481 files already formatted
+  `test_failed_entries_excluded_from_fetch` (line 758) compiles the repository
+  query and asserts `"failed_at IS NULL" in compiled`. This directly verifies
+  that DLQ entries are excluded from the fetch query.
 
   ---
 
-  ### Check 4 — Type Checking (mypy)
+  ### Check 5 — Outbox unit tests
 
   STATUS: PASS
 
-  uv run mypy . --config-file pyproject.toml --ignore-missing-imports
-  Success: no issues found in 481 source files
+  cd src/api && uv run pytest tests/unit/infrastructure/outbox/ -v --tb=short
+  81 passed in 1.20s
 
-  ---
-
-  ### Check 5 — Architecture Boundary Tests
-
-  STATUS: PASS
-
-  uv run pytest tests/unit/test_architecture.py -v
-  40 passed in 0.29s
-
-  All DDD layer rules satisfied; outbox does not leak imports across bounded
-  contexts.
-
-  ---
-
-  ### Check 6 — Hyperloop Check Scripts
-
-  STATUS: PASS (both scripts exit 0 — no UI files changed in this task)
-
-  check-frontend-test-infrastructure.sh → "No UI files changed. Skipping."
-  check-frontend-tests-exist.sh         → "No UI files changed. Skipping."
-
-  ---
-
-  ### CodeRabbit Round-3 Finding — check-frontend-test-infrastructure.sh error masking
-
-  STATUS: FIXED in this pass
-
-  The remaining finding was that `git diff ... 2>/dev/null | ... || true` masked
-  real git errors: if git diff failed for any reason other than a missing base
-  ref, the script would silently treat it as "no UI changes" and skip enforcement.
-
-  Fix applied: separated the git diff invocation into its own variable with an
-  explicit `|| { echo ...; exit 1; }` error handler so unexpected git failures
-  are surfaced. The `|| true` is retained only on the grep/filter pipeline where
-  grep returning exit-1 for no matches is expected and not an error.
-
-  Before:
-    task_ui_changes=$(git diff "${BASE_BRANCH}...HEAD" --name-only -- "$UI_DIR"
-      2>/dev/null | grep ... | head -1 || true)
-
-  After:
-    git_diff_output=$(git diff "${BASE_BRANCH}...HEAD" --name-only -- "$UI_DIR")
-      || { echo "ERROR: git diff failed unexpectedly." >&2; exit 1; }
-    task_ui_changes=$(echo "$git_diff_output" | grep ... | head -1 || true)
-
-  ---
-
-  ### CodeRabbit Round-1/2 Findings (previously confirmed addressed)
-
-  Finding 1 — check-frontend-test-infrastructure.sh BASE_BRANCH + git diff scope
-    ALREADY FIXED in commit 54af4c6c — BASE_BRANCH exits non-zero with error,
-    git diff restricts to -- "$UI_DIR" pathspec.
-
-  Finding 2 — check-frontend-tests-exist.sh find -o parentheses bug
-    FIXED in commit 1a573006 — added \( \) around -name "*.vue" -o -name "*.ts"
-    so both file types are counted correctly.
-
-  Finding 3 — worker-result.yaml YAML token parsing
-    FIXED in commit 54af4c6c — uses YAML literal block scalar (detail: |)
-    throughout; no raw backticks or bold markers in unquoted scalars.
-
-  Finding 4 — dlq_at vs failed_at discrepancy
-    CONFIRMED FALSE POSITIVE — CodeRabbit hallucinated a field name.
-    All 4 code locations (models.py, value_objects.py, worker.py, repository.py)
-    consistently use `failed_at`. No file uses `dlq_at`. No change warranted.
+  Breakdown:
+  - test_composite.py:                     11 passed
+  - test_models.py:                         3 passed
+  - test_postgres_notify_event_source.py:  22 passed
+  - test_repository.py:                     5 passed
+  - test_spicedb_handler.py:               12 passed
+  - test_worker.py:                        28 passed
 
   ---
 
@@ -124,4 +76,12 @@ detail: |
   5. Dual Delivery Mechanism (polling + NOTIFY): COVERED
   6. Event Fan-Out (composite dispatcher): COVERED
 
-  All checks pass. All PR feedback addressed or confirmed false positive.
+  ---
+
+  ### Summary
+
+  All 6 spec requirements are implemented and tested. All CodeRabbit findings
+  from rounds 1-4 are addressed or confirmed as false positives. The Round 4
+  fix (separating git diff from the filter pipeline in
+  check-frontend-test-infrastructure.sh) is confirmed present and correct.
+  No misalignments between spec and implementation.

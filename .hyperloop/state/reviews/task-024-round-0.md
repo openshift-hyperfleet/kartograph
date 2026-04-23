@@ -1,0 +1,149 @@
+---
+task_id: task-024
+round: 0
+role: spec-reviewer
+verdict: fail
+---
+# Spec Alignment Review — Groups Feature (task-024)
+
+Independent review of every SHALL/MUST requirement and every scenario in the Groups spec.
+
+## Requirement Status Summary
+
+| Requirement | Scenario | Status |
+|---|---|---|
+| Group Creation | Successful creation | COVERED |
+| Group Creation | Duplicate name within tenant | COVERED |
+| Group Name Validation | Valid name | COVERED |
+| Group Name Validation | Empty or whitespace-only name | COVERED |
+| Group Retrieval | Authorized retrieval | COVERED |
+| Group Retrieval | Unauthorized or non-existent | COVERED |
+| Group Listing | Tenant member lists groups | COVERED |
+| Group Rename | Successful rename | COVERED |
+| Group Rename | Duplicate name | COVERED |
+| Group Deletion | Successful deletion | COVERED |
+| Group Member Management | Add member | COVERED |
+| Group Member Management | Change member role | COVERED |
+| Group Member Management | Remove member | COVERED |
+| Group Member Management | Demote or remove last admin | COVERED |
+| Group Member Listing | List members | COVERED |
+| Workspace Access Inheritance | Group added to workspace | COVERED |
+| Workspace Access Inheritance | Member added to group with workspace assignments | PARTIAL |
+| Workspace Access Inheritance | Member removed from group | COVERED |
+| Group Roles | Admin role | COVERED |
+| Group Roles | Member role | COVERED |
+
+---
+
+## Detailed Findings
+
+### COVERED: Group Creation — Successful creation
+- **Code:** `GroupService.create_group()` calls `Group.create(name, tenant_id)` which generates a ULID via `GroupId.generate()`, then `group.add_member(creator_id, GroupRole.ADMIN)`. Routes return HTTP 201.
+- **Tests:** `TestCreateGroup.test_creates_group_with_creator_as_admin` (service unit), `TestCreateGroupRoute.test_create_group_returns_201_with_group_details` (presentation unit).
+
+### COVERED: Group Creation — Duplicate name within tenant
+- **Code:** Route catches `DuplicateGroupNameError` and returns 409. Repository raises on DB unique constraint; service re-raises.
+- **Tests:** `TestCreateGroupRoute.test_create_group_returns_409_on_duplicate_name`.
+
+### COVERED: Group Name Validation — Valid name (create and rename)
+- **Code:** `Group.create()` and `Group.rename()` accept names 1–255 chars after trimming. `CreateGroupRequest` and `UpdateGroupRequest` both have `min_length=1, max_length=255` with field validators stripping whitespace.
+- **Tests:** `TestGroupNameValidation.test_create_accepts_single_character_name`, `test_create_accepts_exactly_255_character_name`, `TestGroupRename.test_renames_group_successfully`, `TestGroupRename.test_trims_whitespace_from_name`.
+
+### COVERED: Group Name Validation — Empty or whitespace-only name
+- **Code:** `Group.create()` and `Group.rename()` strip and reject empty/whitespace. `CreateGroupRequest.strip_and_validate_name` raises `ValueError` for whitespace-only (yields HTTP 422). Same for `UpdateGroupRequest`.
+- **Tests (create):** `TestGroupNameValidation.test_create_rejects_empty_name`, `test_create_rejects_whitespace_only_name` (domain); `TestCreateGroupRoute.test_create_group_returns_422_for_empty_name`, `test_create_group_returns_422_for_whitespace_only_name` (presentation).
+- **Tests (rename):** `TestGroupRename.test_raises_value_error_for_empty_name`, `test_raises_value_error_for_whitespace_only_name` (domain); `TestUpdateGroupRoute.test_update_group_returns_422_for_empty_name` (presentation).
+
+### COVERED: Group Retrieval — Authorized retrieval
+- **Code:** `GroupService.get_group()` checks VIEW permission via SpiceDB; returns group when accessible. Route returns 200 with `GroupResponse`.
+- **Tests:** `TestGetGroup.test_returns_group_when_found_and_user_has_view_permission` (service), `TestGetGroupRoute.test_get_group_returns_200_when_found` (presentation).
+
+### COVERED: Group Retrieval — Unauthorized or non-existent
+- **Code:** Service returns `None` when group doesn't exist or user lacks VIEW (tenant isolation is maintained — different tenant returns `None` without SpiceDB call). Route returns 404.
+- **Tests:** `TestGetGroup.test_returns_none_when_group_not_found`, `test_returns_none_when_user_lacks_view_permission`, `test_returns_none_when_tenant_mismatch` (service); `TestGetGroupRoute.test_get_group_returns_404_when_not_found` (presentation).
+
+### COVERED: Group Listing — Tenant member lists groups
+- **Code:** `GroupService.list_groups()` uses SpiceDB `lookup_resources` with VIEW permission. SpiceDB schema: `view = admin + member_relation + tenant->view`, so tenant members see all groups via `tenant->view`.
+- **Tests:** `TestListGroups.test_returns_view_filtered_groups` (service unit); `TestGroupListingFiltered.test_group_listing_only_shows_accessible_groups` (integration — Bob is tenant member and sees Alice's group).
+
+### COVERED: Group Rename — Successful rename
+- **Code:** `GroupService.update_group()` checks MANAGE permission, calls `group.rename(name)`. Route returns 200.
+- **Tests:** `TestUpdateGroup.test_renames_group_with_manage_permission` (service); `TestUpdateGroupRoute.test_update_group_returns_200` (presentation); `TestGroupRoleEnforcement.test_group_admin_can_rename_group` (integration).
+
+### COVERED: Group Rename — Duplicate name
+- **Code:** `GroupService.update_group()` calls `get_by_name()` before renaming; raises `DuplicateGroupNameError`. Route returns 409.
+- **Tests:** `TestUpdateGroup.test_raises_duplicate_name_error_when_name_exists` (service); `TestUpdateGroupRoute.test_update_group_returns_409_on_duplicate_name` (presentation).
+
+### COVERED: Group Deletion — Successful deletion with member snapshot
+- **Code:** `GroupService.delete_group()` checks MANAGE, calls `group.mark_for_deletion()` (records `GroupDeleted` event containing full `members` snapshot), then `repository.delete(group)`. The outbox worker uses the snapshot for SpiceDB cleanup without extra lookups.
+- **Tests:** `TestMarkForDeletion.test_group_deleted_event_includes_member_snapshot` (domain); `TestDeleteGroup.test_deletes_group_when_authorized` (service); `TestDeleteGroupRoute.test_delete_group_returns_204_on_success` (presentation); `TestGroupRoleEnforcement.test_group_admin_can_delete_group` (integration).
+
+### COVERED: Group Member Management — Add member
+- **Code:** `GroupService.add_member()` checks MANAGE, calls `group.add_member(user_id, role)` recording `MemberAdded` event. Outbox worker writes SpiceDB relationship.
+- **Tests:** `TestAddMember.test_adds_member_with_manage_permission` (service); `TestGroupMemberRoutes.test_add_member_returns_201` (presentation); `TestAddGroupMember.test_admin_can_add_member_to_group` (integration — verifies SpiceDB VIEW permission granted).
+
+### COVERED: Group Member Management — Change member role
+- **Code:** `GroupService.update_member_role()` calls `group.update_member_role(user_id, new_role)`, recording `MemberRoleChanged` event with `old_role` and `new_role`. Outbox handles SpiceDB update.
+- **Tests:** `TestUpdateMemberRole.test_updates_member_role` (domain); `TestUpdateMemberRole.test_updates_role_with_manage_permission` (service); `TestGroupMemberRoutes.test_update_member_role_returns_200` (presentation); `TestUpdateGroupMemberRole.test_admin_can_update_member_role` (integration — verifies MANAGE permission gained after promotion).
+
+### COVERED: Group Member Management — Remove member
+- **Code:** `GroupService.remove_member()` checks MANAGE, calls `group.remove_member(user_id)` recording `MemberRemoved` event.
+- **Tests:** `TestRemoveMember.test_removes_existing_member` (domain); `TestRemoveMember.test_removes_member_with_manage_permission` (service); `TestGroupMemberRoutes.test_remove_member_returns_204` (presentation); `TestRemoveGroupMember.test_admin_can_remove_member` (integration).
+
+### COVERED: Group Member Management — Demote or remove last admin
+- **Code:** `Group.remove_member()` and `Group.update_member_role()` count admins and raise `ValueError("Cannot … the last admin")` when count == 1. `Group.add_member()` guards role replacement as well.
+- **Tests:** `TestRemoveMember.test_prevents_removing_last_admin`, `TestUpdateMemberRole.test_prevents_demoting_last_admin`, `TestAddMemberRoleReplacement.test_prevents_demoting_last_admin_via_role_replacement` (all domain). The ValueError propagates through the service and route returns 400 (covered by `TestGroupMemberRoutes.test_remove_member_returns_400_on_value_error`).
+
+### COVERED: Group Member Listing — List members
+- **Code:** `GroupService.list_members()` checks VIEW, calls `read_relationships` to fetch explicit SpiceDB tuples, returns `GroupAccessGrant` list with user_id and role.
+- **Tests:** `TestListMembers.test_lists_members_with_view_permission` (service); `TestGroupMemberRoutes.test_list_members_returns_200` (presentation); `TestListGroupMembers.test_can_list_group_members` (integration — verifies Alice=admin, Bob=member in response).
+
+### COVERED: Workspace Access Inheritance — Group added to workspace
+- **Code:** SpiceDB schema: `workspace` supports `group` subjects in editor/viewer/admin relations. `group#member = admin + member_relation`, so all group members inherit workspace permissions.
+- **Tests:** `TestGroupWorkspaceInheritance.test_group_member_gets_workspace_access_via_group` (integration — Bob as member gets EDIT after group added as editor). `test_group_admin_gets_workspace_access_via_group_member_permission` (integration — Bob as admin also gets EDIT via `group#member = admin + member_relation`).
+
+### **PARTIAL: Workspace Access Inheritance — Member added to group with workspace assignments**
+
+**Spec says:**
+> GIVEN a group assigned to a workspace with role `editor`
+> WHEN a new user is added to the group
+> THEN that user immediately receives `editor`-level permissions on the workspace
+
+**What is tested:** All existing integration tests in `test_group_workspace_inheritance.py` use the reverse sequence — member is added to the group *before* the group is added to the workspace. The tests verify the permission chain exists once both relationships are in place, but none follow the specified GIVEN→WHEN→THEN order:
+
+- `test_group_member_gets_workspace_access_via_group`: creates group+member first, then adds group to workspace.
+- `test_group_admin_gets_workspace_access_via_group_member_permission`: same reversed order.
+
+**What is missing:** An integration test that:
+1. Creates a workspace.
+2. Creates a group.
+3. Adds the group to the workspace with role `editor`.
+4. **Then** adds a new user to the group.
+5. Verifies the new user immediately has `editor`-level permissions on the workspace.
+
+This ordering matters: it would catch any regression where the member-added event processing fails to propagate workspace permissions when the group is already a workspace member. The SpiceDB schema computes permissions lazily (at check time), so the mechanism *should* work, but it is not explicitly validated by any test in this sequence.
+
+**What is needed to fix:** Add an integration test to `test_group_workspace_inheritance.py` with the sequence above (group in workspace, then member added, then permission verified).
+
+### COVERED: Workspace Access Inheritance — Member removed from group
+- **Code:** `MemberRemoved` outbox event removes SpiceDB relationship; workspace access via group is then revoked.
+- **Tests:** `TestGroupWorkspaceInheritance.test_removing_user_from_group_revokes_workspace_access` (integration — full end-to-end: group in workspace → member removed → access revoked via `wait_for_permission_revoked`).
+
+### COVERED: Group Roles — Admin role
+- **Code:** SpiceDB schema: `manage = admin`, `view = admin + member_relation + tenant->view`, `member = admin + member_relation`. Admins have both manage and view, and are included in workspace inheritance via `member`.
+- **Tests:** `TestGroupRoleEnforcement.test_group_admin_can_delete_group` (MANAGE); `TestGroupRoleEnforcement.test_group_admin_can_rename_group` (MANAGE); `TestGroupWorkspaceInheritance.test_group_admin_gets_workspace_access_via_group_member_permission` (workspace inheritance).
+
+### COVERED: Group Roles — Member role
+- **Code:** SpiceDB schema: `view = admin + member_relation + tenant->view`. Members have view, not manage. They are in `member_relation`, which is part of `member`, so they are included in workspace inheritance.
+- **Tests:** `TestAddGroupMember.test_admin_can_add_member_to_group` verifies member has VIEW but NOT MANAGE; `TestGroupWorkspaceInheritance.test_group_member_gets_workspace_access_via_group` verifies workspace inheritance.
+
+---
+
+## Verdict: FAIL
+
+One SHALL requirement scenario is PARTIAL:
+
+**Workspace Access Inheritance — "Member added to group with workspace assignments"** has no test covering the specified sequence (group already in workspace, then member added). All existing integration tests use the reverse sequence. To pass, an integration test must be added that:
+1. Assigns the group to a workspace first.
+2. Adds a new member to the group.
+3. Asserts the new member immediately has the inherited workspace permission.

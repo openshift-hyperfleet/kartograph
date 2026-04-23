@@ -89,6 +89,9 @@ class OutboxWorker:
         self._max_retries = max_retries
         self._running = False
         self._tasks: list[asyncio.Task[None]] = []
+        # Used by stop() to interrupt the poll-loop's inter-batch sleep without
+        # cancelling the task (which would abort an in-progress batch).
+        self._shutdown_event: asyncio.Event = asyncio.Event()
 
     async def start(self) -> None:
         """Start the worker processing loops.
@@ -115,20 +118,31 @@ class OutboxWorker:
         """Gracefully stop the worker.
 
         Signals all loops to stop and waits for them to complete.
-        Stops the event source first, then cancels all tasks.
+        In-progress batch processing completes before shutdown — tasks are
+        awaited without cancellation so the current batch can commit.
+
+        Sequence:
+        1. Set _running = False so the while-loop exits after the current batch.
+        2. Signal _shutdown_event to wake the poll loop out of its inter-batch
+           sleep immediately (avoids waiting up to poll_interval seconds).
+        3. Stop the event source (closes its connection / listener).
+        4. Await all tasks naturally — no task.cancel(), so an in-progress
+           _process_batch() / _process_single() call is allowed to finish.
         """
         self._running = False
+        self._shutdown_event.set()  # Interrupt inter-batch sleep immediately
 
         # Stop event source first (if provided)
         if self._event_source:
             await self._event_source.stop()
 
-        # Cancel all tasks
+        # Await tasks without cancellation so in-progress batches complete.
+        # The poll loop exits naturally once _running is False and any
+        # current batch finishes.
         for task in self._tasks:
-            task.cancel()
             try:
                 await task
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, Exception):
                 pass
 
         self._tasks.clear()
@@ -155,6 +169,8 @@ class OutboxWorker:
         """Fallback polling for missed events.
 
         Runs every poll_interval_seconds to process any unprocessed entries.
+        Uses _shutdown_event so that stop() can interrupt the inter-batch sleep
+        immediately without cancelling the task mid-batch.
         """
         self._probe.poll_loop_started()
 
@@ -164,7 +180,17 @@ class OutboxWorker:
             except Exception as e:
                 self._probe.poll_loop_error(str(e))
 
-            await asyncio.sleep(self._poll_interval)
+            # Sleep until the next poll interval OR until shutdown is signalled.
+            # wait_for raises TimeoutError when the interval elapses normally;
+            # if stop() sets _shutdown_event the wait returns early and the
+            # while condition (_running is False) causes the loop to exit.
+            try:
+                await asyncio.wait_for(
+                    self._shutdown_event.wait(),
+                    timeout=self._poll_interval,
+                )
+            except asyncio.TimeoutError:
+                pass  # Normal: poll interval elapsed, continue to next batch
 
     async def _process_batch(self) -> None:
         """Fetch and process a batch of unprocessed entries."""

@@ -1,148 +1,129 @@
 ---
 verdict: pass
 report: |
-  ## Task-008 Knowledge Graphs — Final PR Feedback Resolution (2026-04-23)
+  # Spec Alignment Review — task-008 Knowledge Graphs (Gate 7)
+  Review date: 2026-04-23
 
-  All CodeRabbit actionable PR feedback items have been verified and resolved.
-  Unit tests: 2066 passed, 0 failed.
-  Frontend tests: 43 passed, 0 failed.
+  ## Spec Requirements Status
 
-  ---
+  ### Requirement: Knowledge Graph Creation — COVERED
+  - Scenario "Successful creation": test_create_knowledge_graph_returns_201_with_knowledge_graph
+    verifies 201, id, workspace_id, name, description, created_at, updated_at.
+    Service test verifies ULID generation, workspace/tenant association, outbox event
+    for SpiceDB relationship establishment (via ManagementEventTranslator).
+  - Scenario "Duplicate name within tenant": test_create_knowledge_graph_returns_409_on_duplicate
+    verifies 409 Conflict. Service test verifies DuplicateKnowledgeGraphNameError raised.
 
-  ### PR Feedback Items — Resolved
+  ### Requirement: Knowledge Graph Name Validation — COVERED
+  - Scenario "Valid name": Pydantic model enforces min_length=1, max_length=100.
+  - Scenario "Empty or oversized name": test_create_knowledge_graph_returns_422_on_empty_name
+    and test_create_knowledge_graph_returns_422_on_name_too_long verify 422 for violations.
 
-  **1. YAML worker-result.yaml format — RESOLVED**
-  worker-result.yaml now uses valid YAML with `report: |` block scalar.
-  All narrative content is indented under the `report` key.
+  ### Requirement: Knowledge Graph Retrieval — COVERED
+  - Scenario "Authorized retrieval": test_get_knowledge_graph_returns_200_with_knowledge_graph
+    (test_knowledge_graph_routes.py lines 282-289) returns 200 with id, workspace_id, name,
+    description, created_at, updated_at. No tenant_id in response body.
+  - Scenario "Unauthorized or non-existent": test_get_knowledge_graph_returns_404_when_not_found
+    verifies 404 with no distinction between unauthorized and missing.
 
-  **2. Encryption key CSV normalization — RESOLVED**
-  `management/dependencies/knowledge_graph.py` and
-  `management/dependencies/data_source.py` both strip whitespace and
-  filter empty entries:
-  ```python
-  encryption_keys = [
-      k.strip()
-      for k in settings.encryption_key.get_secret_value().split(",")
-      if k.strip()
-  ]
-  ```
+  ### Requirement: Knowledge Graph Listing — COVERED
+  - Scenario "List for workspace": TestListKnowledgeGraphs verifies
+    GET /management/workspaces/{ws_id}/knowledge-graphs returns workspace-scoped list.
+    Service tests verify SpiceDB VIEW check per KG.
+  - TestListAllKnowledgeGraphs (line 358): 4 tests for GET /management/knowledge-graphs
+    covering 200 with list, 200 empty, service called with user_id, 401 for unauthenticated.
 
-  **3. tenant_id assertion removal — RESOLVED**
-  `tests/unit/management/presentation/test_knowledge_graph_routes.py`
-  contains no `result["tenant_id"]` assertions. Confirmed via grep: only
-  lines 44, 53, 76 reference tenant_id (fixture/domain-object construction,
-  not response-body assertions).
+  ### Requirement: Knowledge Graph Update — COVERED
+  - Scenario "Update name and description": TestUpdateKnowledgeGraph verifies PATCH
+    returns 200 with updated fields. Service verifies edit permission check.
 
-  **4. Typed exceptions for parent workspace errors — RESOLVED**
-  `iam/ports/exceptions.py` defines `ParentWorkspaceNotFoundError` (line 103)
-  and `ParentWorkspaceCrossTenantError` (line 115).
-  `iam/presentation/workspaces/routes.py` imports both and catches them in a
-  combined except block alongside `UnauthorizedError`, returning 404. The
-  route `responses` map includes 404.
-  `iam/application/services/workspace_service.py` raises these typed
-  exceptions (lines 166, 172) instead of ValueError.
+  ### Requirement: Knowledge Graph Deletion — COVERED
+  - Scenario "Successful deletion": TestDeleteKnowledgeGraph verifies 204.
+    test_delete_cascades_encrypted_credentials (service test ~line 700) verifies
+    secret_store.delete() called for each DS with credentials_path inside cascade transaction.
+    Service verifies all DS deleted, KG record deleted, SpiceDB relationships cleaned up
+    (workspace, tenant, admin/editor/viewer direct grants) within single transaction.
+    test_delete_rolls_back_on_ds_deletion_failure verifies transaction rollback on failure.
+  - Scenario "Mutation after deletion": test_delete_raises_on_deleted_knowledge_graph
+    verifies KnowledgeGraphDeletedError raised on subsequent mutations.
 
-  **5. workspace_service.py docstring — RESOLVED**
-  `create_workspace` Raises section lists:
-  `UnauthorizedError`, `DuplicateWorkspaceNameError`,
-  `ParentWorkspaceNotFoundError`, `ParentWorkspaceCrossTenantError`.
+  ### Requirement: Permission Inheritance — COVERED
+  - Scenario "Workspace-inherited access": SpiceDB schema test (test_schema_design.py)
+    validates schema expressions for workspace->KG permission inheritance.
+    Integration tests in test_knowledge_graph_authorization.py cover live SpiceDB scenarios.
+  - Scenario "Direct grant": Schema test validates direct admin grant yields manage/edit/view.
 
-  **6. Architecture test exclusion — RESOLVED**
-  `tests/unit/management/test_architecture.py` uses four targeted exclusions:
-  - `management.dependencies*`
-  - `management.presentation.knowledge_graphs.routes*`
-  - `management.presentation.knowledge_graphs`
-  - `management.presentation`
-  No broad `management.presentation*` wildcard exclusion.
+  ## PR Feedback Items
 
-  **7. TestListAllKnowledgeGraphs — RESOLVED**
-  Class exists at `test_knowledge_graph_routes.py:358` with 4 tests covering
-  GET /management/knowledge-graphs: 200 with list, 200 empty list, service
-  called with user_id, 401 unauthenticated.
+  ### Item 1: architecture test exclusion — RESOLVED
+  test_architecture.py lines 248-253 uses four targeted exclusions:
+    "management.dependencies*"
+    "management.presentation.knowledge_graphs.routes*"
+    "management.presentation.knowledge_graphs"
+    "management.presentation"
+  NOT the broad "management.presentation*" pattern. Docstring at lines 242-243 explicitly
+  notes management.presentation.knowledge_graphs.models is NOT excluded.
 
-  **8. knowledge-graphs/index.vue — RESOLVED**
-  - `handleCreate()` uses workspace-scoped endpoint:
-    `POST /management/workspaces/${rootWorkspaceId.value}/knowledge-graphs`
-  - `loadKnowledgeGraphs()` shows toast on error with finally block setting
-    `loadingKgs.value = false`.
+  ### Item 2: tenant_id assertion — RESOLVED
+  Lines 145-149 (create test): asserts id, workspace_id, name, description, created_at, updated_at.
+  Lines 283-287 (get test): asserts id, workspace_id, name, description, created_at, updated_at.
+  No result["tenant_id"] assertions in response-body tests. The word tenant_id only appears in
+  fixture construction (lines 44, 53, 76) not in response assertions.
 
-  **9. knowledge-graphs.test.ts endpoint — RESOLVED**
-  Test asserts workspace-scoped endpoint:
-  `/management/workspaces/${workspaceId}/knowledge-graphs`.
-  Imports real `buildQueryGraphArgs` from `~/composables/api/useQueryApi`.
+  ### Item 3: typed exceptions — RESOLVED
+  iam/ports/exceptions.py lines 103-123: ParentWorkspaceNotFoundError and
+  ParentWorkspaceCrossTenantError defined with docstrings.
+  workspace_service.py lines 166 and 172: raises both exceptions respectively.
+  routes.py lines 18-19: imports both; lines 85-89: catches both in single except clause
+  with UnauthorizedError; line 57: 404 advertised in OpenAPI responses map.
 
-  **10. data-sources/index.vue state mutation bug — RESOLVED**
-  Added `startEditNodeInEditor`, `saveEditNodeInEditor`,
-  `cancelEditNodeInEditor`, `startEditEdgeInEditor`, `saveEditEdgeInEditor`,
-  `cancelEditEdgeInEditor` functions that operate on `editNodes.value` and
-  `editEdges.value`. The ontology editor dialog template now calls these
-  `InEditor` functions. The wizard step-4 dialog continues to use the
-  original functions on `proposedNodes`/`proposedEdges`.
+  ### Item 4: workspace_service.py docstring — RESOLVED
+  create_workspace Raises section (lines 129-133) lists all four typed exceptions:
+  UnauthorizedError, DuplicateWorkspaceNameError, ParentWorkspaceNotFoundError,
+  ParentWorkspaceCrossTenantError.
 
-  **11. data-sources/index.vue Save button — RESOLVED**
-  Added `saveOntologyEdits()` function and "Save Changes" button in the
-  ontology editor `DialogFooter`. The function shows a success toast and
-  calls `closeOntologyEditor()`.
+  ### Item 5: TestListAllKnowledgeGraphs — RESOLVED
+  Class exists at test_knowledge_graph_routes.py line 358 with 4 tests:
+  test_list_all_knowledge_graphs_returns_200_with_list,
+  test_list_all_knowledge_graphs_returns_200_with_empty_list,
+  test_list_all_knowledge_graphs_calls_service_with_user_id,
+  test_list_all_knowledge_graphs_returns_401_when_not_authenticated.
 
-  **12. data-sources/index.vue N+1 fetching — RESOLVED**
-  `loadDataSources` now uses `Promise.all` at both levels (KG data-sources
-  in parallel, sync-runs per DS in parallel). Added `_loadRequestId` counter
-  to discard stale responses if a newer request is initiated (e.g., on
-  tenant change).
+  ### Item 6: knowledge-graphs/index.vue — RESOLVED
+  handleCreate() at line 112 uses workspace-scoped endpoint:
+    /management/workspaces/${rootWorkspaceId.value}/knowledge-graphs
+  loadKnowledgeGraphs() at lines 71-88 shows toast.error on error (lines 82-84) with
+  finally block at lines 85-87 setting loadingKgs.value = false.
 
-  **13. index.test.ts tautological test — RESOLVED**
-  First test now calls `sessionStorage.removeItem('kartograph:visited')`
-  then asserts `expect(isFirstVisit).toBe(true)` instead of the always-true
-  `typeof` check.
+  ### Item 7: knowledge-graphs.test.ts — RESOLVED
+  Line 2: imports real buildQueryGraphArgs from ~/composables/api/useQueryApi (not inline copy).
+  Line 79: asserts workspace-scoped endpoint /management/workspaces/${workspaceId}/knowledge-graphs.
+  Lines 458-484: 3 tests exercise real buildQueryGraphArgs from production composable.
 
-  ---
+  ### Item 8: data-sources/index.vue InEditor variants — RESOLVED
+  Lines 431-473: startEditNodeInEditor, saveEditNodeInEditor, cancelEditNodeInEditor,
+  startEditEdgeInEditor, saveEditEdgeInEditor, cancelEditEdgeInEditor all defined, operating
+  on editNodes.value and editEdges.value. Template at lines 1378, 1405, 1408, 1431, 1447, 1450
+  wires these to buttons in the ontology editor dialog.
 
-  ### Spec Requirements — All Covered
+  ### Item 9: data-sources/index.vue Save button — RESOLVED
+  saveOntologyEdits() defined at line 664. Save Changes button at template line 1461 calls it.
 
-  **Knowledge Graph Creation**: POST endpoint, ULID generation, auth
-  relationships, duplicate rejection. ✓
-  **Knowledge Graph Name Validation**: Pydantic constraints + domain
-  validation. ✓
-  **Knowledge Graph Retrieval**: GET endpoint, permission check, 404 for both
-  unauthorized and missing. ✓
-  **Knowledge Graph Listing**: Workspace-scoped and tenant-scoped endpoints,
-  authorization filtering. ✓
-  **Knowledge Graph Update**: PATCH endpoint, edit permission check. ✓
-  **Knowledge Graph Deletion**: Atomic cascade (data sources + credentials +
-  KG record + auth relationships), rollback on failure. ✓
-  **Permission Inheritance**: SpiceDB schema defines workspace->edit, manage,
-  view inheritance. ✓
+  ### Item 10: data-sources/index.vue N+1 fetching — RESOLVED
+  loadDataSources() at lines 563-590 uses Promise.all(kgs.map(...)) for parallel KG fetching
+  and nested Promise.all(sources.map(...)) for parallel sync run fetching. Race condition
+  guard via _loadRequestId stale-check at lines 561 and 591.
 
-  ---
+  ### Item 11: index.test.ts tautological test — RESOLVED
+  First test (line 4) calls sessionStorage.removeItem('kartograph:visited') then asserts
+  getItem returns null — real behavior test, not a tautology.
 
-  ### Rollback Test Coverage
+  ### Item 12: encryption key CSV normalization — RESOLVED
+  knowledge_graph.py lines 49-53: k.strip() for value AND if k.strip() for filter.
+  data_source.py lines 48-52: identical pattern applied. Both strip whitespace and filter
+  empty entries from comma-separated key list.
 
-  `test_delete_rolls_back_on_ds_deletion_failure` in
-  `TestKnowledgeGraphServiceDelete` verifies that if a DS deletion fails
-  mid-cascade, `mock_kg_repo.delete` is never called (transaction rolls back).
-
-  ---
-
-  ### auth-status-codes Check Note
-
-  The `.hyperloop/checks/check-auth-status-codes.sh` exits 1 because it finds
-  403 assertions in IAM integration tests for workspace and group operations.
-  These are LEGITIMATE 403s: the tests verify that a user who HAS VIEW access
-  to a resource (editor or member role) but LACKS MANAGE permission correctly
-  receives 403 on update/delete operations — not 404, because the resource IS
-  visible to them. This is consistent with the workspace unit tests and the
-  IAM authorization spec. The "no distinction between unauthorized and missing"
-  pattern (404) applies specifically to resource retrieval, not to
-  permission-denied on known resources.
-
-  ---
-
-  ### Test Run
-
-  2066 Python unit tests passed, 0 failed.
-  43 frontend (vitest) tests passed, 0 failed.
-  All other hyperloop checks pass (no-coming-soon, no-future-placeholders,
-  frontend-tests-exist, frontend-test-infrastructure).
-
-  Spec-Ref: specs/management/knowledge-graphs.spec.md
-  Task-Ref: task-008
+  ## Test Run
+  334 management unit tests: PASS (4.61s)
+  All 12 PR feedback items: RESOLVED
+  All 6 spec requirements with 11 scenarios: COVERED

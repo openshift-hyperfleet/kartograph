@@ -1,47 +1,37 @@
 ---
 verdict: pass
 ---
-## Outbox Pattern — Independent Verification
+## Spec Alignment Review — Outbox Pattern (task-017)
 
-### Check Results
+Reviewed branch: `hyperloop/task-017`
+Spec: outbox pattern (Transactional Event Storage, Event Processing, Idempotent Handlers, Concurrent Safety, Dual Delivery, Event Fan-Out)
 
-| Check | Result | Notes |
-|---|---|---|
-| Unit tests | PASS | 2187 passed, 0 failed, 0 errors |
-| Ruff lint | PASS | All checks passed |
-| Ruff format | PASS | 459 files already formatted |
-| mypy | PASS | No issues found in 459 source files |
-| Architecture boundaries | PASS | 40/40 tests passed (outbox isolation enforced) |
-| Check scripts | PASS* | See notes below |
+---
 
-*`check-auth-status-codes.sh` exits 1 but flags pre-existing 403 assertions in workspace/group/API-key integration tests—none are in the outbox code introduced by this task. The two scripts requiring a `<spec_file>` argument (`check-failure-path-tests.sh`, `check-idempotency-tests.sh`) cannot run standalone; their logic is covered by the explicit test classes below.
+### Requirement Coverage
 
-### Implementation Review
+| Requirement | Scenario | Status | Code | Test |
+|---|---|---|---|---|
+| **1. Transactional Event Storage** | Successful write | COVERED | `infrastructure/outbox/repository.py:append()` — adds to session, never commits; shared session owned by caller | `tests/unit/infrastructure/outbox/test_repository.py::test_append_creates_outbox_model`; `tests/integration/iam/test_outbox_consistency.py::test_outbox_entry_created_in_same_transaction_as_group` |
+| | Transaction rollback | COVERED | Repository docstring + design: no independent commit | `tests/unit/infrastructure/outbox/test_worker.py::test_repository_append_does_not_commit`, `test_failed_service_call_leaves_no_outbox_entries`; `tests/integration/iam/test_outbox_consistency.py::test_rollback_removes_both_group_and_outbox_entry` |
+| **2. Event Processing** | Normal processing | COVERED | `worker.py::_process_batch()` → `_process_entries()` → handler → `_mark_processed()` sets `processed_at`; `spicedb_handler.py::handle()` applies writes | `test_worker.py::test_processes_unprocessed_entries`, `test_marks_entry_as_processed`; `test_outbox_consistency.py::test_worker_processes_group_created_and_writes_to_spicedb` |
+| | Transient failure | COVERED | `worker.py::_handle_processing_failure()` increments `retry_count`, records `last_error` via `_increment_retry()` | `test_worker.py::test_transient_failure_increments_retry_count`, `test_calls_event_processing_failed_on_error` |
+| | Permanent failure (DLQ) | COVERED | `worker.py::_handle_processing_failure()` calls `_move_to_dlq()` when `retry_count >= max_retries`, sets `failed_at`; `fetch_unprocessed()` filters `failed_at IS NULL` | `test_worker.py::test_max_retries_moves_entry_to_dlq`, `test_failed_entries_excluded_from_fetch` |
+| **3. Idempotent Event Handlers** | Duplicate delivery | COVERED | `fetch_unprocessed()` filters `processed_at IS NULL AND failed_at IS NULL`; SpiceDB writes use upsert semantics | `test_worker.py::test_already_processed_entry_excluded_from_fetch`; `test_outbox_consistency.py::test_handler_invoked_twice_produces_same_spicedb_state` (line 595) |
+| **4. Concurrent Worker Safety** | Concurrent workers | COVERED | `repository.py:97` — `.with_for_update(skip_locked=True)` on `fetch_unprocessed()` query | `test_worker.py::test_fetch_unprocessed_uses_for_update_skip_locked` — compiles query with PostgreSQL dialect and asserts SKIP LOCKED rendered |
+| **5. Dual Delivery Mechanism** | Real-time notification | COVERED | `event_sources/postgres_notify.py::PostgresNotifyEventSource` listens for pg NOTIFY; migration `d32ecc44581a` adds INSERT trigger; worker wires callback via `_process_single` | `test_postgres_notify_event_source.py::test_notify_triggers_callback_with_uuid`, `test_callback_receives_correct_uuid_type`; `test_outbox_consistency.py::test_worker_processes_via_notify_not_polling` (sub-second assertion) |
+| | Polling fallback | COVERED | `worker.py::_poll_loop()` sleeps `poll_interval_seconds` (default 30s per line 51); always starts regardless of event source presence | `test_worker.py::test_start_sets_running_flag` (lifecycle tests); `test_postgres_notify_event_source.py::test_implements_outbox_event_source_protocol` |
+| **6. Event Fan-Out** | Multiple handlers registered | COVERED | `composite.py::CompositeEventHandler.handle()` dispatches to all handlers registered for an event type | `test_composite.py::test_handle_fans_out_to_multiple_handlers` |
+| | Unknown event type | COVERED | `composite.py::handle()` raises `UnknownEventTypeError` (distinct from ValueError); `worker.py:227` catches it and immediately calls `_move_to_dlq()` bypassing retry logic | `test_composite.py::test_handle_raises_for_unknown_event_type`, `test_unknown_event_type_error_is_not_value_error`; `test_worker.py::test_unknown_event_type_immediately_moves_to_dlq`, `test_unknown_event_type_dlq_even_at_zero_retries`, `test_retry_not_called_for_unknown_event_type` |
 
-**Files changed (excluding state/review commits):**
-- `src/api/shared_kernel/outbox/exceptions.py` — new `UnknownEventTypeError` domain exception
-- `src/api/infrastructure/outbox/composite.py` — upgraded `ValueError` → `UnknownEventTypeError`
-- `src/api/infrastructure/outbox/worker.py` — explicit `UnknownEventTypeError` catch → immediate DLQ
-- `src/api/tests/unit/infrastructure/outbox/test_worker.py` — 11 new tests covering all spec scenarios
-- `src/api/tests/unit/infrastructure/outbox/test_composite.py` — updated + 1 new test
-- `src/api/tests/unit/infrastructure/outbox/test_spicedb_handler.py` — `FakeAuthorizationProvider`-based idempotency test
-- `src/api/tests/unit/shared_kernel/outbox/test_exceptions.py` — 6 tests for the new exception
-- `src/api/tests/integration/iam/test_outbox_consistency.py` — full idempotency integration test
+---
 
-**Requirement coverage:**
+### Summary
 
-| Requirement | Status | Key evidence |
-|---|---|---|
-| Transactional Event Storage | COVERED | `OutboxRepository.append()` never commits; shared-session design; tests verify session.commit not called |
-| Event Processing (normal/transient/DLQ) | COVERED | Worker retry logic; `_handle_processing_failure`; `_move_to_dlq`; three dedicated test classes |
-| Idempotent Event Handlers | COVERED | `fetch_unprocessed` filters `processed_at IS NULL AND failed_at IS NULL`; `FakeAuthorizationProvider` uses set semantics; integration test confirms end-to-end idempotency |
-| Concurrent Worker Safety | COVERED | `FOR UPDATE SKIP LOCKED` confirmed by compiling query with PostgreSQL dialect in test |
-| Dual Delivery Mechanism | COVERED | `PostgresNotifyEventSource` + `_poll_loop()` fallback; migration `d32ecc44581a` trigger; tests confirm both paths |
-| Event Fan-Out | COVERED | `CompositeEventHandler` dispatches to all registered handlers; `UnknownEventTypeError` triggers immediate DLQ, not retry |
+All 6 SHALL requirements and all 10 scenarios are **COVERED** — each has both a production implementation and one or more tests exercising the exact Given/When/Then conditions specified.
 
-**Code quality notes:**
-- No direct `logger.*` / `print()` calls in new production code — domain probes used throughout.
-- New idempotency test correctly uses `FakeAuthorizationProvider` (a structural fake with set semantics) instead of `AsyncMock` for the domain collaborator.
-- `UnknownEventTypeError` is correctly separated from `ValueError` so the worker's `isinstance` check unambiguously distinguishes permanent from transient failures.
-- Commit trailers `Spec-Ref` and `Task-Ref` present on all implementation commits.
-- No `.hyperloop/state/` files committed on this branch (they were removed in `a4506d7f` and the directory is absent from the worktree).
+Additional quality observations (not blocking):
+- Domain probes used throughout new production code (`observability.py`) — no direct `logger.*` or `print()` calls.
+- `UnknownEventTypeError` correctly separated from `ValueError` so the worker's `isinstance` check cleanly distinguishes permanent from transient failures.
+- `FakeAuthorizationProvider` (structural fake with set semantics) used in idempotency tests rather than mocks — compliant with NFR testing spec.
+- `FOR UPDATE SKIP LOCKED` verified by compiling against the PostgreSQL dialect in a unit test (not just asserted by inspection).

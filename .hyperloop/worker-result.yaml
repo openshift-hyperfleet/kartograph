@@ -48,52 +48,47 @@ details: |
 
   ### Requirement Coverage (all 10 SHALL/MUST)
 
-  | # | Requirement | Status |
-  |---|-------------|--------|
-  | 1 | Per-Tenant Graph Isolation | PASS |
-  | 2 | KnowledgeGraph Scoping | PASS |
-  | 3 | Mutation Log Format (JSONL) | PASS |
-  | 4 | DEFINE Operation | PASS |
-  | 5 | CREATE Operation | PASS |
-  | 6 | UPDATE Operation | PASS |
-  | 7 | DELETE Operation | PASS |
-  | 8 | Mandatory System Properties | PASS |
-  | 9 | Deterministic Entity IDs | PASS |
-  | 10 | Referential Integrity Ordering | PASS |
+  | # | Requirement | Status | Implementation | Tests |
+  |---|-------------|--------|----------------|-------|
+  | 1 | Per-Tenant Graph Isolation | COVERED | `graph/dependencies.py` — `get_tenant_graph_name()` derives `tenant_{tenant_id}`; passed to `AgeGraphClient` | `test_routes.py::TestTenantGraphRouting` |
+  | 2 | KnowledgeGraph Scoping | COVERED | `routes.py` enforces SpiceDB `edit` check; `graph_mutation_service.py::_stamp_knowledge_graph_id()` stamps before validation, overwrites caller value | `test_routes.py` (lines 328-472), `test_mutation_service.py::TestKnowledgeGraphIdStamping` |
+  | 3 | Mutation Log Format (JSONL) | COVERED | `apply_mutations_from_jsonl()` — blank-line skip, `enumerate(start=1)` for line numbers, preview in error | `test_mutation_service.py` (lines 482-635) |
+  | 4 | DEFINE Operation | COVERED | `_apply_define()` merges system props from `get_system_properties_for_entity()` into `required_properties` | `test_mutation_service.py` (lines 69-157), `test_system_properties.py` |
+  | 5 | CREATE Operation | COVERED | `_validate_create_op()` checks type def, required props; infra uses MERGE for idempotency; `_discover_optional_properties()` for schema learning | `test_mutation_service.py`, `test_schema_learning.py`, `test_create_define_same_batch_validation.py`, `test_domain_value_objects.py` |
+  | 6 | UPDATE Operation | COVERED | `validate_operation()` requires set_properties XOR remove_properties; `_discover_optional_properties()` covers UPDATE | `test_domain_value_objects.py` (lines 388-429), `test_schema_learning.py` (lines 196-243) |
+  | 7 | DELETE Operation | COVERED | `delete_node_with_detach()` issues two queries (edges then node); `delete_edge()` removes edge only; sort order edges-before-nodes | `test_age_query_builder_deletes.py`, `test_mutation_applier_sort.py` |
+  | 8 | Mandatory System Properties | COVERED | `validate_operation()` in `value_objects.py` enforces `data_source_id`, `source_path`, `slug` (nodes), `knowledge_graph_id` on CREATE | `test_domain_value_objects.py` (lines 267-371), `test_create_define_same_batch_validation.py` |
+  | 9 | Deterministic Entity IDs | COVERED | Pydantic pattern `r"^[0-9a-z_]+:[0-9a-f]{16}$"` on all CREATE/UPDATE/DELETE `id` fields | `test_domain_value_objects.py` (lines 465-483) |
+  | 10 | Referential Integrity Ordering | COVERED | `_sort_operations()` in `mutation_applier.py` — sort key encodes DEFINE→DELETE(edge/node)→CREATE(node/edge)→UPDATE | `test_mutation_applier_sort.py` — comprehensive ordering tests |
 
   ### CodeRabbit PR Feedback — Assessment
 
-  CodeRabbit raised four actionable comments and one nitpick. None represent
-  spec violations; all are design suggestions or code quality observations:
-
-  1. **YAML format in worker-result.yaml** — Corrected in this commit: the
-     details field now uses a YAML block scalar so the file is valid YAML.
+  1. **YAML format in worker-result.yaml** — Fixed: details field now uses
+     YAML block scalar so the file parses cleanly with `yaml.safe_load_all`.
 
   2. **`_stamp_knowledge_graph_id` not stamping DELETE match properties** —
-     Not a spec requirement. The spec requires `knowledge_graph_id` to be
-     stamped on CREATE/UPDATE `set_properties`. DELETE operations have no
-     `set_properties`; they are scoped by the route-level authorization
-     (SpiceDB `edit` check on the KG) and tenant-level graph isolation.
-     Acknowledged as a potential future hardening; not a blocker.
+     NOT a spec violation. The spec explicitly says stamping applies to
+     CREATE/UPDATE `set_properties`. DELETE operations have no `set_properties`
+     by design (value_objects.py enforces this). Scoping for DELETE is provided
+     by tenant-level graph isolation and route-level SpiceDB authorization.
+     Test `test_does_not_stamp_on_delete_operation()` confirms the behavior is
+     intentional. Acknowledged as a potential future hardening; not a blocker.
 
-  3. **Error message at `value_objects.py:265-268` is misleading** — The
-     message says "The system stamps the correct value" but the error fires
-     when `knowledge_graph_id` is absent at validation time. In normal flow
-     the service stamps the value before validation, so this error is only
-     reachable if `apply_batch` is called directly (bypassing the service).
-     Wording could be clearer; not a spec violation.
+  3. **Error message at `value_objects.py:265-268` is misleading** — Wording
+     could be clearer; in normal flow the service stamps before validation so
+     this path is only reachable if `apply_batch` is called directly.
+     Not a spec violation.
 
   4. **`_build_mutation_error_response` uses keyword matching on error text** —
-     Acknowledged as fragile. A future improvement would be a structured
-     `error_kind` field on `MutationResult`. Not a spec violation; extraction
-     into a helper function (from inline duplication) is already an
-     improvement over the prior state.
+     Fragile; a structured `error_kind` field would be cleaner. Not a spec
+     violation; extraction into a helper is already an improvement.
 
   5. **Test helper `_make_op` missing `start_id`/`end_id` for edge CREATE**
-     (nitpick) — Tests pass; this is a minor test fixture quality issue.
-     Does not affect coverage or correctness.
+     (nitpick) — Tests pass; coverage and correctness unaffected.
+     Not a spec violation.
 
   ### Conclusion
 
-  All required verification checks pass. The implementation is complete and
-  correct. CodeRabbit comments are non-blocking quality suggestions.
+  All 10 SHALL/MUST requirements are COVERED with both implementation and
+  test coverage. All CodeRabbit comments are non-blocking quality suggestions,
+  not spec violations. Verdict: PASS.

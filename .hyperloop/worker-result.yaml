@@ -1,34 +1,57 @@
 ---
 verdict: pass
 ---
-Both reviewer-identified failures have been resolved.
+All previously identified FAILs resolved. Full verification suite passes.
 
-## Fix 1 — vitest version constraint (FAIL → PASS)
+## Check Results
+
+| Check | Result | Detail |
+|---|---|---|
+| Unit tests (2254) | PASS | All pass, 0 failures |
+| Ruff linting | PASS | Zero violations |
+| Ruff formatting | PASS | 470 files formatted |
+| Mypy type checking | PASS | Zero errors in 470 source files |
+| Architecture boundary tests (40) | PASS | All pass |
+| check-frontend-deps-resolve | PASS | All package.json deps resolved in lockfile |
+| check-frontend-tests-exist | PASS | 2 test files found |
+| check-frontend-test-infrastructure | PASS | vitest in package.json |
+| check-no-coming-soon-stubs | PASS | No stub markers |
+| check-no-future-placeholder-comments | PASS | No placeholders |
+| check-auth-status-codes | REVIEW | Pre-existing on alpha; not introduced by this branch |
+| check-weak-test-assertions | NOTE | Pre-existing on alpha (test_query_mcp.py:225); not introduced by this branch |
+| Frontend tests (16) | PASS | pnpm install succeeds; vitest 2.1.9 runs all 16 tests |
+
+## Fix 1 Verified — vitest version constraint (FAIL → PASS)
 
 `src/dev-ui/package.json` `devDependencies.vitest` changed from
-`"^2.2.5"` (non-existent in npm) to `"^2.1.9"` (highest valid 2.x release).
+`"^2.2.5"` (non-existent in npm registry) to `"^2.1.9"`.
 `pnpm install` now resolves and installs vitest 2.1.9 successfully.
 All 16 frontend tests execute and pass (`vitest run`).
 
-## Fix 2 — loadDataSources() stub replaced with real API calls (FAIL → PASS)
+## Fix 2 Verified — loadDataSources() stub replaced with real API calls (FAIL → PASS)
 
-`src/dev-ui/app/pages/data-sources/index.vue` — the stub body that always
-set `dataSources.value = []` was replaced with a three-step fetch sequence:
+`src/dev-ui/app/pages/data-sources/index.vue` now:
 
-1. `GET /management/knowledge-graphs` — enumerate all KGs in the tenant.
-2. `GET /management/knowledge-graphs/{id}/data-sources` — collect data
-   sources for each KG (errors per-KG are swallowed so one bad KG doesn't
-   break the whole list).
-3. `GET /management/data-sources/{id}/sync-runs` — attach sync history to
-   each data source so the card can render status badges and history rows.
+1. Calls `GET /management/knowledge-graphs` to enumerate all KGs in the tenant.
+2. Calls `GET /management/knowledge-graphs/{id}/data-sources` for each KG
+   (per-KG errors swallowed to prevent one bad KG from breaking the whole list).
+3. Calls `GET /management/data-sources/{id}/sync-runs` to attach sync history
+   to each data source so cards render status badges and history rows.
+4. Calls `loadDataSources()` from `onMounted` for initial page load.
+5. Watches `tenantVersion` so the list refreshes on tenant switch.
 
-`onMounted` was added to trigger an initial load when the page renders.
-A `watch(tenantVersion, ...)` was added so the list refreshes automatically
-whenever the user switches tenants (using the `tenantVersion` counter that
-`useTenant()` already exposes for this purpose).
+All four Sync Monitoring spec scenarios are now functionally reachable.
 
-## Verification
+## New Code Quality Notes (Non-Blocking)
 
-- `pnpm test` → 16/16 tests pass (up from 0 executable due to broken install).
-- `uv run pytest tests/unit -q` → 2195/2195 backend unit tests pass (no regressions).
-- Pre-commit hooks (ruff, mypy, conventional-commit) all passed on both commits.
+- `KnowledgeGraphService.list_all()` added in the application layer lacks a
+  dedicated service-level unit test. The method is small, delegates entirely to
+  already-tested sub-methods (`find_by_tenant`, `_check_permission`, probe), and
+  is covered at the presentation layer via mock contract. Not blocking, but
+  worth adding a test in `test_knowledge_graph_service.py` in a follow-on task.
+
+- `AsyncMock(spec=...)` used in presentation-layer route tests — consistent with
+  the established IAM presentation test patterns; acceptable at this layer.
+
+- `check-auth-status-codes.sh` and `check-weak-test-assertions.sh` flag items
+  that exist on the `alpha` base branch and were not modified by this branch.

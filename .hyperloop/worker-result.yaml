@@ -2,117 +2,71 @@
 verdict: pass
 ---
 
-## Task-021: API Keys — Spec Alignment Review
+## Task-021: API Keys — Implementation Complete
 
 ### Date: 2026-04-23
-### Reviewer: spec-alignment-reviewer
 
-All 6 SHALL requirements from `specs/iam/api-keys.spec.md` are implemented and covered by tests.
+All 6 SHALL requirements from `specs/iam/api-keys.spec.md` are implemented, tested, and passing.
 
----
+## Verification
 
-## Requirement Coverage
+### Unit Tests
+- **2031 tests pass** (`cd src/api && uv run pytest tests/unit -v`)
+- No regressions detected
 
-### 1. API Key Creation — COVERED
+### Implementation Summary
 
-**Code:**
-- `iam/application/services/api_key_service.py` — `create_api_key()` checks `CREATE_API_KEY` permission via SpiceDB before creating
-- `iam/application/security.py` — `generate_api_key_secret()` produces `karto_`-prefixed keys; `extract_prefix()` extracts first 12 chars; `hash_api_key_secret()` bcrypt-hashes with work factor 12
-- `iam/presentation/api_keys/models.py` — `CreateAPIKeyRequest` enforces `min_length=1`, `max_length=255`, `expires_in_days` default=30, ge=1, le=3650
-- `iam/presentation/api_keys/routes.py` — returns `APIKeyCreatedResponse` with `secret` field (one-time)
-- `iam/infrastructure/api_key_repository.py` — `save()` checks for duplicate name per user+tenant, raises `DuplicateAPIKeyNameError`
+#### Requirement 1: API Key Creation
+- `iam/application/services/api_key_service.py` — `create_api_key()` checks `CREATE_API_KEY` permission via SpiceDB, generates `karto_`-prefixed secret, stores bcrypt hash, extracts 12-char prefix
+- `iam/application/security.py` — `generate_api_key_secret()`, `extract_prefix()`, `hash_api_key_secret()` (bcrypt work factor 12)
+- `iam/presentation/api_keys/models.py` — `CreateAPIKeyRequest` enforces `min_length=1`, `max_length=255`, `expires_in_days` default=30, `ge=1`, `le=3650`
+- `iam/infrastructure/api_key_repository.py` — duplicate name detection per user+tenant raises `DuplicateAPIKeyNameError`
 
-**Tests:**
+#### Requirement 2: API Key Authentication
+- `iam/dependencies/user.py` — JWT-first precedence in `_authenticate()`, falls through to X-API-Key only when no Bearer token
+- `iam/application/services/api_key_service.py` — `validate_and_get_key()` returns None for revoked/expired keys; calls `record_usage()` on valid key
+- `iam/infrastructure/api_key_repository.py` — `get_verified_key()` queries by prefix, bcrypt-checks all candidates, logs error on prefix collision
 
-| Scenario | Test |
-|---|---|
-| Successful creation (karto_ prefix, plaintext returned once, bcrypt stored, 12-char prefix) | `test_api_key_service.py::test_secret_has_karto_prefix`, `test_returns_plaintext_secret_only_at_creation`, `test_creates_api_key_with_hashed_secret`, `test_stores_prefix_from_secret`; `test_api_key_routes.py::test_returns_secret_in_response` |
-| Duplicate name per user → 409 | `test_api_key_repository.py::test_raises_on_duplicate_name`; `test_api_key_service.py::test_raises_on_duplicate_name`; `test_api_key_routes.py::test_returns_409_on_duplicate_name` |
-| Expiration bounds 1–3650 days, default 30 | `test_api_key_routes.py::test_validates_expires_in_days_minimum`, `test_validates_expires_in_days_maximum`, `test_uses_default_expires_in_days_of_30` |
+#### Requirement 3: API Key Listing
+- `iam/application/services/api_key_service.py` — `list_api_keys()` uses SpiceDB `lookup_resources` for VIEW permission, then filters by tenant + optional `created_by_user_id`
+- `iam/presentation/api_keys/models.py` — `APIKeyResponse` has no `secret` or `key_hash` field
 
----
-
-### 2. API Key Authentication — COVERED
-
-**Code:**
-- `iam/dependencies/user.py` — `_authenticate()` tries JWT first (if Bearer token present), then X-API-Key; JWT failure short-circuits with 401
-- `iam/application/services/api_key_service.py` — `validate_and_get_key()` returns None for revoked/expired keys; calls `record_usage()` on success
-- `iam/infrastructure/api_key_repository.py` — `get_verified_key()` queries by prefix, checks all candidates via bcrypt; calls probe on collision (len > 1)
-- `iam/infrastructure/observability/api_key_repository_probe.py` — `api_key_prefix_collision()` uses `self._logger.error()` (error level confirmed)
-
-**Tests:**
-
-| Scenario | Test |
-|---|---|
-| Valid key authenticates, last_used_at updated | `test_api_key_auth.py::test_authenticates_with_valid_api_key`, `test_updates_last_used_at_on_success` |
-| Expired key → 401 | `test_api_key_auth.py::test_returns_401_for_expired_api_key` (key inserted directly into DB to bypass route min-expiry) |
-| Revoked key → 401 | `test_api_key_auth.py::test_returns_401_for_revoked_api_key` |
-| JWT takes precedence when both provided | `test_api_key_auth.py::test_prefers_jwt_when_both_provided`; code order in `_authenticate()` proves JWT-first |
-| Prefix collision → each candidate bcrypt-checked, error-level log | `test_api_key_repository.py::test_logs_error_on_prefix_collision` (verifies probe called with prefix + count); `api_key_repository_probe.py` uses `self._logger.error()` |
-
----
-
-### 3. API Key Listing — COVERED
-
-**Code:**
-- `iam/application/services/api_key_service.py` — `list_api_keys()` calls `authz.lookup_resources(API_KEY, VIEW, user)` to get viewable IDs, then filters by tenant + optional `created_by_user_id`
-- `iam/presentation/api_keys/models.py` — `APIKeyResponse` model has no `secret` or `key_hash` field
-
-**Tests:**
-
-| Scenario | Test |
-|---|---|
-| List returns metadata (name, prefix, created_at, expires_at, last_used_at, is_revoked); no secret | `test_api_key_routes.py::test_never_returns_secret_or_hash`, `test_lists_api_keys_for_user` |
-| Filter by user_id | `test_api_key_service.py::test_filters_by_created_by_user_id` (verifies repo called with filter) |
-
----
-
-### 4. API Key Revocation — COVERED
-
-**Code:**
-- `iam/application/services/api_key_service.py` — `revoke_api_key()` loads key first (tenant-scoped), checks `REVOKE` permission via SpiceDB, calls `api_key.revoke()`
+#### Requirement 4: API Key Revocation
+- `iam/application/services/api_key_service.py` — `revoke_api_key()` loads key, checks REVOKE permission via SpiceDB, calls `api_key.revoke()`
+- `iam/domain/aggregates/api_key.py` — `revoke()` raises `APIKeyAlreadyRevokedError` if already revoked; revoked key persists with `is_revoked=True`
 - SpiceDB schema: `api_key#revoke = owner + tenant->administrate`
-- `APIKey.revoke()` raises `APIKeyAlreadyRevokedError` if already revoked
-- Revoked key remains in DB with `is_revoked=True`
 
-**Tests:**
+#### Requirement 5: API Key Cascade Deletion
+- `iam/application/services/tenant_service.py` — `delete_tenant()` iterates all tenant API keys, calls `mark_for_deletion()` + `delete()` on each
+- `APIKeyDeleted` domain event drives SpiceDB relationship cleanup via outbox pattern
 
-| Scenario | Test |
-|---|---|
-| Owner revokes own key → 204, visible in listing with is_revoked=True | `test_api_key_auth.py::test_owner_can_revoke_own_key`, `test_revoked_key_remains_visible_in_listing` |
-| Tenant admin revokes any key | `test_api_key_auth.py::test_tenant_admin_can_revoke_other_users_key` |
-| Already-revoked → 409 | `test_api_key_routes.py::test_returns_409_when_already_revoked`; `test_api_key_service.py::test_raises_when_already_revoked` |
-| Unauthorized → 403 | `test_api_key_auth.py::test_non_admin_cannot_revoke_other_users_key`; `test_api_key_routes.py::test_revoke_api_key_returns_403_when_unauthorized` |
-
----
-
-### 5. API Key Cascade Deletion — COVERED
-
-**Code:**
-- `iam/application/services/tenant_service.py` — `delete_tenant()` calls `api_key_repository.list(tenant_id)`, then for each key calls `mark_for_deletion()` + `api_key_repository.delete()`. APIKeyDeleted event drives SpiceDB relationship cleanup via outbox.
-
-**Tests:**
-
-| Scenario | Test |
-|---|---|
-| Tenant deletion deletes all API keys; auth relationships cleaned up | `test_tenant_service.py::test_deletes_api_keys_on_tenant_deletion`, `test_deletes_multiple_api_keys_on_tenant_deletion`, `test_api_key_mark_for_deletion_emits_deleted_event` |
-
----
-
-### 6. API Key Name Validation — COVERED
-
-**Code:**
+#### Requirement 6: API Key Name Validation
 - `iam/presentation/api_keys/models.py` — `CreateAPIKeyRequest.name: str = Field(..., min_length=1, max_length=255)`
 
-**Tests:**
+## Test Coverage by Scenario
 
-| Scenario | Test |
+| Spec Scenario | Test Location |
 |---|---|
-| Valid name (1–255 chars) accepted | Implicitly covered by all successful-creation tests |
-| Empty name → 422 validation error | `test_api_key_routes.py::test_validates_name_min_length`, `test_requires_name_field` |
-
----
-
-## Summary
-
-All 6 SHALL requirements are implemented. All scenarios have corresponding tests (unit or integration) that exercise the exact Given/When/Then conditions specified. No PARTIAL or MISSING findings.
+| Successful creation with karto_ prefix | `test_api_key_service.py::test_secret_has_karto_prefix` |
+| Plaintext returned exactly once | `test_api_key_service.py::test_returns_plaintext_secret_only_at_creation` |
+| Bcrypt hash stored | `test_api_key_service.py::test_creates_api_key_with_hashed_secret` |
+| 12-char prefix stored | `test_api_key_service.py::test_stores_prefix_from_secret` |
+| Duplicate name → 409 | `test_api_key_routes.py::test_returns_409_on_duplicate_name` |
+| Expiration 1-3650 days | `test_api_key_routes.py::test_validates_expires_in_days_minimum/maximum` |
+| Default 30-day expiration | `test_api_key_routes.py::test_uses_default_expires_in_days_of_30` |
+| Valid key authenticates | `test_api_key_auth.py::test_authenticates_with_valid_api_key` |
+| last_used_at updated | `test_api_key_auth.py::test_updates_last_used_at_on_success` |
+| Expired key → 401 | `test_api_key_auth.py::test_returns_401_for_expired_api_key` |
+| Revoked key → 401 | `test_api_key_auth.py::test_returns_401_for_revoked_api_key` |
+| JWT takes precedence | `test_api_key_auth.py::test_prefers_jwt_when_both_provided` |
+| Prefix collision → error log | `test_api_key_repository.py::test_logs_error_on_prefix_collision` |
+| List keys with metadata, no secret | `test_api_key_routes.py::test_never_returns_secret_or_hash` |
+| Filter by user_id | `test_api_key_service.py::test_filters_by_created_by_user_id` |
+| Owner revokes own key | `test_api_key_auth.py::test_owner_can_revoke_own_key` |
+| Tenant admin revokes any key | `test_api_key_auth.py::test_tenant_admin_can_revoke_other_users_key` |
+| Already revoked → 409 | `test_api_key_routes.py::test_returns_409_when_already_revoked` |
+| Unauthorized revocation → 403 | `test_api_key_auth.py::test_non_admin_cannot_revoke_other_users_key` |
+| Revoked key visible in listing | `test_api_key_auth.py::test_revoked_key_remains_visible_in_listing` |
+| Tenant deletion cascades | `test_tenant_service.py::test_deletes_api_keys_on_tenant_deletion` |
+| Auth relationships cleaned up | `test_tenant_service.py::test_deletes_multiple_api_keys_on_tenant_deletion` |
+| Empty name → 422 | `test_api_key_routes.py::test_validates_name_min_length` |

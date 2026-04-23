@@ -138,10 +138,10 @@ def mock_age_pool():
 
 @pytest.fixture
 def mock_mcp_inner():
-    """Mock for mcp_http_app_proxy that provides an async lifespan."""
-    proxy = MagicMock()
-    proxy._app.lifespan.return_value = _make_async_ctx_manager()
-    return proxy
+    """Mock for mcp_http_app_inner that provides an async lifespan."""
+    app_inner = MagicMock()
+    app_inner.lifespan.return_value = _make_async_ctx_manager()
+    return app_inner
 
 
 def _base_patches(
@@ -174,7 +174,7 @@ def _base_patches(
         ("main.SpiceDBClient", dict()),
         ("main.get_iam_settings", dict(return_value=iam_settings)),
         ("main.get_outbox_worker_settings", dict(return_value=outbox_settings)),
-        ("main.mcp_http_app_proxy", dict(new=mcp_inner)),
+        ("main.mcp_http_app_inner", dict(new=mcp_inner)),
         ("main.get_age_connection_pool", dict(new=mock_age_pool_fn)),
     ]
 
@@ -602,7 +602,7 @@ class TestDatabaseConnectionLifecycle:
                 "main.get_outbox_worker_settings",
                 dict(return_value=mock_outbox_settings_disabled),
             ),
-            ("main.mcp_http_app_proxy", dict(new=mock_mcp_inner)),
+            ("main.mcp_http_app_inner", dict(new=mock_mcp_inner)),
             ("main.get_age_connection_pool", dict(new=mock_age_pool_fn)),
         ]
 
@@ -651,7 +651,7 @@ class TestDatabaseConnectionLifecycle:
                 "main.get_outbox_worker_settings",
                 dict(return_value=mock_outbox_settings_disabled),
             ),
-            ("main.mcp_http_app_proxy", dict(new=mock_mcp_inner)),
+            ("main.mcp_http_app_inner", dict(new=mock_mcp_inner)),
             ("main.get_age_connection_pool", dict(new=mock_age_pool_fn)),
         ]
 

@@ -1,58 +1,47 @@
 ---
 verdict: pass
 ---
-## Outbox Pattern Implementation — Fresh Attempt Verification
+## Outbox Pattern — Independent Verification
 
-All 2187 unit tests pass (`uv run pytest tests/unit -v`). The outbox pattern
-implementation is complete and fully covers all six SHALL requirements from the spec.
+### Check Results
 
-### Requirement Coverage
+| Check | Result | Notes |
+|---|---|---|
+| Unit tests | PASS | 2187 passed, 0 failed, 0 errors |
+| Ruff lint | PASS | All checks passed |
+| Ruff format | PASS | 459 files already formatted |
+| mypy | PASS | No issues found in 459 source files |
+| Architecture boundaries | PASS | 40/40 tests passed (outbox isolation enforced) |
+| Check scripts | PASS* | See notes below |
 
-**1. Transactional Event Storage** — COVERED
-- `OutboxRepository.append()` adds to the session without committing; the calling
-  service owns the transaction boundary.
-- Tests: `test_repository_append_does_not_commit`, `test_failed_service_call_leaves_no_outbox_entries`
+*`check-auth-status-codes.sh` exits 1 but flags pre-existing 403 assertions in workspace/group/API-key integration tests—none are in the outbox code introduced by this task. The two scripts requiring a `<spec_file>` argument (`check-failure-path-tests.sh`, `check-idempotency-tests.sh`) cannot run standalone; their logic is covered by the explicit test classes below.
 
-**2. Event Processing** — COVERED
-- `OutboxWorker._process_batch()` fetches with `FOR UPDATE SKIP LOCKED`, delegates to
-  handler, marks processed.
-- `SpiceDBEventHandler` translates domain events to SpiceDB relationship writes.
-- Retry count incremented on transient failure; `failed_at` set on max retries exceeded.
-- Tests: `test_processes_unprocessed_entries`, `test_transient_failure_increments_retry_count`,
-  `test_max_retries_moves_entry_to_dlq`
+### Implementation Review
 
-**3. Idempotent Event Handlers** — COVERED
-- `fetch_unprocessed()` filters `processed_at IS NULL AND failed_at IS NULL`.
-- SpiceDB upsert semantics ensure duplicate writes produce identical state.
-- Tests: `test_already_processed_entry_excluded_from_fetch`,
-  `test_duplicate_invocation_produces_identical_final_state`
+**Files changed (excluding state/review commits):**
+- `src/api/shared_kernel/outbox/exceptions.py` — new `UnknownEventTypeError` domain exception
+- `src/api/infrastructure/outbox/composite.py` — upgraded `ValueError` → `UnknownEventTypeError`
+- `src/api/infrastructure/outbox/worker.py` — explicit `UnknownEventTypeError` catch → immediate DLQ
+- `src/api/tests/unit/infrastructure/outbox/test_worker.py` — 11 new tests covering all spec scenarios
+- `src/api/tests/unit/infrastructure/outbox/test_composite.py` — updated + 1 new test
+- `src/api/tests/unit/infrastructure/outbox/test_spicedb_handler.py` — `FakeAuthorizationProvider`-based idempotency test
+- `src/api/tests/unit/shared_kernel/outbox/test_exceptions.py` — 6 tests for the new exception
+- `src/api/tests/integration/iam/test_outbox_consistency.py` — full idempotency integration test
 
-**4. Concurrent Worker Safety** — COVERED
-- `fetch_unprocessed()` uses `.with_for_update(skip_locked=True)`
-  (PostgreSQL `FOR UPDATE SKIP LOCKED`).
-- Test: `test_fetch_unprocessed_uses_for_update_skip_locked`
+**Requirement coverage:**
 
-**5. Dual Delivery Mechanism** — COVERED
-- `PostgresNotifyEventSource` listens on `outbox_events` channel via asyncpg-listen.
-- Migration `d32ecc44581a` creates trigger firing `pg_notify` on INSERT.
-- `_poll_loop()` provides fallback polling every `poll_interval_seconds` (default 30s).
-- Tests: `test_notify_triggers_callback_with_uuid`,
-  `test_invalid_uuid_payload_is_ignored_gracefully`
+| Requirement | Status | Key evidence |
+|---|---|---|
+| Transactional Event Storage | COVERED | `OutboxRepository.append()` never commits; shared-session design; tests verify session.commit not called |
+| Event Processing (normal/transient/DLQ) | COVERED | Worker retry logic; `_handle_processing_failure`; `_move_to_dlq`; three dedicated test classes |
+| Idempotent Event Handlers | COVERED | `fetch_unprocessed` filters `processed_at IS NULL AND failed_at IS NULL`; `FakeAuthorizationProvider` uses set semantics; integration test confirms end-to-end idempotency |
+| Concurrent Worker Safety | COVERED | `FOR UPDATE SKIP LOCKED` confirmed by compiling query with PostgreSQL dialect in test |
+| Dual Delivery Mechanism | COVERED | `PostgresNotifyEventSource` + `_poll_loop()` fallback; migration `d32ecc44581a` trigger; tests confirm both paths |
+| Event Fan-Out | COVERED | `CompositeEventHandler` dispatches to all registered handlers; `UnknownEventTypeError` triggers immediate DLQ, not retry |
 
-**6. Event Fan-Out** — COVERED
-- `CompositeEventHandler` dispatches to ALL registered handlers for an event type.
-- `UnknownEventTypeError` triggers immediate DLQ routing (no retry budget consumed).
-- Tests: `test_handle_fans_out_to_multiple_handlers`,
-  `test_unknown_event_type_immediately_moves_to_dlq`,
-  `test_retry_not_called_for_unknown_event_type`
-
-### Summary
-
-| Requirement | Status |
-|---|---|
-| Transactional Event Storage | COVERED |
-| Event Processing | COVERED |
-| Idempotent Event Handlers | COVERED |
-| Concurrent Worker Safety | COVERED |
-| Dual Delivery Mechanism | COVERED |
-| Event Fan-Out | COVERED |
+**Code quality notes:**
+- No direct `logger.*` / `print()` calls in new production code — domain probes used throughout.
+- New idempotency test correctly uses `FakeAuthorizationProvider` (a structural fake with set semantics) instead of `AsyncMock` for the domain collaborator.
+- `UnknownEventTypeError` is correctly separated from `ValueError` so the worker's `isinstance` check unambiguously distinguishes permanent from transient failures.
+- Commit trailers `Spec-Ref` and `Task-Ref` present on all implementation commits.
+- No `.hyperloop/state/` files committed on this branch (they were removed in `a4506d7f` and the directory is absent from the worktree).

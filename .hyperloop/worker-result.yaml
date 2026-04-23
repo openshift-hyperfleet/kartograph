@@ -1,131 +1,131 @@
 ---
 verdict: pass
 ---
-## Outbox Pattern Implementation — task-017 Fresh Verification
+## Outbox Pattern Implementation — task-017 Verification
 
-All spec requirements from `specs/shared-kernel/outbox.spec.md` are implemented
-and tested. 2413 unit tests pass (`uv run pytest tests/unit -v`).
-
----
-
-### REQ-1: Transactional Event Storage — COVERED
-
-**Scenarios: Successful write; Transaction rollback.**
-
-- `infrastructure/outbox/repository.py` — `OutboxRepository.append()` calls
-  `session.add(OutboxModel(...))` without calling `session.commit()`. The calling
-  service owns the transaction boundary via `async with session.begin()`. If the
-  outer transaction rolls back, the outbox append is discarded with the aggregate.
-
-**Tests:**
-- `TestOutboxWorkerTransactionAtomicity::test_repository_append_does_not_commit` —
-  asserts `session.add` called once, `session.commit` never called.
-- `test_failed_service_call_leaves_no_outbox_entries` — rollback path verified.
+Fresh independent verification of the outbox pattern implementation.
 
 ---
 
-### REQ-2: Event Processing — COVERED
+### 1. Unit Tests — PASS
 
-**Scenarios: Normal processing; Transient failure; Permanent failure (dead letter).**
+```
+2413 passed, 45 warnings in 57.12s
+```
 
-- `infrastructure/outbox/worker.py` — `_process_entries()` dispatches each entry to
-  `handler.handle()`. On success calls `_mark_processed()` (sets `processed_at`).
-  On generic `Exception`: increments `retry_count`, records `last_error`; if
-  `new_retry_count >= max_retries` calls `_move_to_dlq()` (sets `failed_at`).
-  `fetch_unprocessed` filters `WHERE processed_at IS NULL AND failed_at IS NULL`,
-  so DLQ entries are permanently excluded.
+All 2413 unit tests pass. Warnings are pre-existing `RuntimeWarning: coroutine
+'AsyncMockMixin._execute_mock_call' was never awaited` in unrelated IAM repository
+tests (also present on alpha).
 
-**Tests:**
-- `TestOutboxWorkerProcessBatch::test_processes_unprocessed_entries` — handler called,
-  probes fire.
-- `TestOutboxWorkerRetryBehavior::test_transient_failure_increments_retry_count` —
-  retry path verified.
-- `TestOutboxWorkerRetryBehavior::test_max_retries_moves_entry_to_dlq` — DLQ path.
-- `TestOutboxWorkerIdempotency::test_failed_entries_excluded_from_fetch` — WHERE
-  clause verified via compiled SQL.
+Outbox-specific suite: 81/81 pass (`tests/unit/infrastructure/outbox/`).
 
 ---
 
-### REQ-3: Idempotent Event Handlers — COVERED
+### 2. Linting — PASS
 
-**Scenario: Duplicate delivery.**
+```
+ruff check .: All checks passed!
+```
 
-- SpiceDB `WriteRelationship` has upsert semantics — writing the same tuple twice
-  is a no-op.
-- `fetch_unprocessed` filters `processed_at IS NULL`, so successfully processed
-  entries are never returned again.
-
-**Tests:**
-- `TestSpiceDBEventHandlerIdempotency::test_duplicate_invocation_produces_identical_final_state`
-  — handler called twice; result state identical, no duplicate or deletion.
+Zero violations across 481 source files.
 
 ---
 
-### REQ-4: Concurrent Worker Safety — COVERED
+### 3. Formatting — PASS
 
-**Scenario: Concurrent workers — each entry claimed by exactly one worker.**
+```
+ruff format --check .: 481 files already formatted
+```
 
-- `OutboxWorker._process_batch()` queries with `.with_for_update(skip_locked=True)`.
-  Rows locked by one session are skipped by concurrent sessions.
-
-**Tests:**
-- `TestOutboxWorkerConcurrentSafety::test_fetch_unprocessed_uses_for_update_skip_locked`
-  — compiled query asserts `"SKIP LOCKED"` in rendered SQL.
+All files are correctly formatted.
 
 ---
 
-### REQ-5: Dual Delivery Mechanism — COVERED
+### 4. Type Checking — PASS
 
-**Scenarios: Real-time notification; Polling fallback.**
+```
+mypy: Success: no issues found in 481 source files
+```
 
-- Real-time: DB migration `d32ecc44581a_create_outbox_notify_trigger.py` installs an
-  AFTER INSERT trigger calling `pg_notify('outbox_events', NEW.id::text)`.
-  `PostgresNotifyEventSource` (in `infrastructure/outbox/event_sources/postgres_notify.py`)
-  uses `asyncpg-listen` to listen on `outbox_events` and invokes
-  `worker._process_single(entry_id)`.
-- Polling fallback: `OutboxWorker._poll_loop()` wakes every `poll_interval_seconds`
-  (default 30 s) calling `_process_batch()`, catching any entries missed by NOTIFY.
-
-**Tests:**
-- `TestPostgresNotifyEventSource*` — lifecycle, invalid payload handling,
-  graceful shutdown.
-- `TestOutboxWorkerIdempotency::test_already_processed_entry_excluded_from_fetch` —
-  poll loop skips already-processed entries.
+Zero type errors.
 
 ---
 
-### REQ-6: Event Fan-Out — COVERED
+### 5. Architecture Boundary Tests — PASS
 
-**Scenarios: Multiple handlers for same event type; Unknown event type → DLQ immediately.**
+```
+40 passed in 0.24s
+```
 
-- `infrastructure/outbox/composite.py` — `CompositeEventHandler._handlers_by_type`
-  is `dict[str, list[EventHandler]]`. `register()` appends to each type's list;
-  `handle()` iterates all handlers. Empty list raises `UnknownEventTypeError`.
-- `infrastructure/outbox/worker.py` — `_process_entries()` catches
-  `UnknownEventTypeError` before generic `Exception` branch; calls `_move_to_dlq()`
-  immediately without touching `retry_count`.
+All 40 architecture boundary tests pass, including the six new
+`TestOutboxInfrastructureBoundaries` tests that verify the shared outbox
+infrastructure does not bleed into any bounded context internals:
 
-**Tests:**
-- `TestCompositeEventHandler::test_handle_fans_out_to_multiple_handlers` — two
-  handlers both invoked for same event type.
-- `test_handle_raises_for_unknown_event_type` — `UnknownEventTypeError` raised.
-- `TestOutboxWorkerRetryBehavior::test_unknown_event_type_immediately_moves_to_dlq`
-  — DLQ on first attempt, no retry.
-- `test_unknown_event_type_dlq_even_at_zero_retries` — retry count irrelevant.
-- `test_retry_not_called_for_unknown_event_type` — `_increment_retry` never invoked.
+- `test_outbox_does_not_import_iam_internals` — PASS
+- `test_outbox_does_not_import_graph_internals` — PASS
+- `test_outbox_does_not_import_query_internals` — PASS
+- `test_outbox_does_not_import_management_internals` — PASS
+- `test_outbox_does_not_import_ingestion_internals` — PASS
+- `test_outbox_does_not_import_extraction_internals` — PASS
+- `test_outbox_may_import_shared_kernel` — PASS
+
+---
+
+### 6. Check Scripts — PASS (with pre-existing exceptions)
+
+- `check-branch-has-commits.sh` — PASS (66 commits ahead of alpha)
+- `check-no-source-regressions.sh` — PASS
+- `check-no-test-regressions.sh` — PASS
+- `check-idempotency-tests.sh` (with spec) — PASS
+- `check-failure-path-tests.sh` (with spec) — PASS
+- `check-domain-aggregate-mocks.sh` — pre-existing violation in
+  `test_knowledge_graph_service.py:592-593` (present on alpha, not introduced
+  by this task)
+- `check-empty-test-stubs.sh` — pre-existing empty stub in
+  `test_api_key_auth.py:540` (present on alpha, not introduced by this task)
+- `check-branch-rebased-on-alpha.sh` — WARN: 54 orchestrator/cycle-update
+  commits on alpha not incorporated; none affect the outbox implementation
+
+---
+
+### 7. Code Review — PASS
+
+**Commits with trailers:**
+
+- `223a2133 test(outbox): add missing spec scenario tests for retry, DLQ, and unknown event type`
+  - `Spec-Ref: specs/shared-kernel/outbox.spec.md@86d0f4fc5118312577593defb88be1d5005b72cf`
+  - `Task-Ref: task-017`
+- `6d72f613 test: add idempotent event handler tests for duplicate delivery scenario`
+- `1cd3f8e8 fix(checks): correct ERE patterns and add task-scope awareness`
+
+**Domain Oriented Observability — PASS**
+
+No direct `logger.*` or `print()` in business logic. All observability goes
+through `self._probe.*` calls. The `DefaultOutboxWorkerProbe` and
+`DefaultEventSourceProbe` in `observability.py` use structlog internally —
+correct: the probe is the observability boundary.
+
+**No MagicMock on domain aggregates in new code — PASS**
+
+**Spec requirement coverage:**
+
+| Requirement                 | Tests Present                                                 |
+|-----------------------------|---------------------------------------------------------------|
+| REQ-1: Transactional Storage | `TestOutboxWorkerTransactionAtomicity` (2 tests)             |
+| REQ-2: Event Processing      | `TestOutboxWorkerRetryBehavior` (6 tests), `TestOutboxWorkerProcessBatch` (4 tests) |
+| REQ-3: Idempotent Handlers   | `TestSpiceDBEventHandlerIdempotency`, `TestOutboxWorkerIdempotency` (2 tests) |
+| REQ-4: Concurrent Safety     | `TestOutboxWorkerConcurrentSafety` — `FOR UPDATE SKIP LOCKED` verified in SQL |
+| REQ-5: Dual Delivery         | `TestPostgresNotifyEventSource*`, poll-loop tests             |
+| REQ-6: Event Fan-Out         | `TestCompositeEventHandler`, DLQ-on-unknown-type tests        |
+
+**No hardcoded secrets or credentials found.**
 
 ---
 
 ### Summary
 
-| Requirement                 | Status  | Key Code                                 | Key Tests                                              |
-|-----------------------------|---------|------------------------------------------|--------------------------------------------------------|
-| Transactional Event Storage | COVERED | `OutboxRepository.append()` (no commit)  | `TestOutboxWorkerTransactionAtomicity`                 |
-| Event Processing            | COVERED | `OutboxWorker._process_entries()` + DLQ  | `TestOutboxWorkerRetryBehavior`                        |
-| Idempotent Event Handlers   | COVERED | SpiceDB upsert; `processed_at` filter    | `TestSpiceDBEventHandlerIdempotency`                   |
-| Concurrent Worker Safety    | COVERED | `FOR UPDATE SKIP LOCKED`                 | `TestOutboxWorkerConcurrentSafety`                     |
-| Dual Delivery Mechanism     | COVERED | NOTIFY trigger + poll loop               | `TestPostgresNotifyEventSource*`                       |
-| Event Fan-Out               | COVERED | `CompositeEventHandler`; DLQ on unknown  | `TestCompositeEventHandler`; `TestOutboxWorkerRetryBehavior` |
+All 6 verification checks pass. The two check-script findings
+(`check-domain-aggregate-mocks`, `check-empty-test-stubs`) are pre-existing
+on alpha and are not regressions introduced by this task.
 
-All 2413 unit tests pass. All SHALL requirements are implemented and tested.
-**Verdict: PASS.**
+**Verdict: PASS**

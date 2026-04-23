@@ -1,104 +1,67 @@
 ---
 verdict: pass
----
-## Task-008: Knowledge Graphs — Spec Alignment Recheck (2026-04-23)
+report: |
+  ## Task-008: Knowledge Graphs — CodeRabbit PR Feedback Resolution (2026-04-23)
 
-Re-verification following CodeRabbit review feedback analysis. Confirms previous PASS verdict is still correct.
+  Addressed actionable CodeRabbit comments. All 2064 unit tests pass.
 
----
+  ---
 
-### Test Results
+  ### Changes Made
 
-All 61 unit tests pass (29 service tests + 32 route tests):
-- `tests/unit/management/application/test_knowledge_graph_service.py` — 29 passed
-- `tests/unit/management/presentation/test_knowledge_graph_routes.py` — 32 passed
+  #### 1. Added Tests for `GET /management/knowledge-graphs` (tenant-visible list)
 
----
+  The `list_all_knowledge_graphs` route existed but had no unit test coverage.
+  Added `TestListAllKnowledgeGraphs` class with 4 tests:
+  - `test_list_all_knowledge_graphs_returns_200_with_list` — 200 with populated list
+  - `test_list_all_knowledge_graphs_returns_200_with_empty_list` — 200 with empty list
+  - `test_list_all_knowledge_graphs_calls_service_with_user_id` — verifies user_id passed to service
+  - `test_list_all_knowledge_graphs_returns_401_when_not_authenticated` — 401 for unauthenticated
 
-### Spec Requirement Coverage
+  #### 2. Encryption Key CSV Normalization
 
-#### Requirement: Knowledge Graph Creation
+  Both `management/dependencies/knowledge_graph.py` and
+  `management/dependencies/data_source.py` now strip whitespace and filter
+  empty strings from the encryption key CSV before constructing `FernetSecretStore`.
+  This prevents silent failures from trailing commas or padded entries in
+  the `ENCRYPTION_KEY` environment variable.
 
-- Scenario: Successful creation — COVERED
-  - Service checks EDIT permission on workspace (`check_permission` with `Permission.EDIT`)
-  - `KnowledgeGraph.create()` generates ULID, associates tenant + workspace
-  - `test_create_saves_aggregate_via_repo`, `test_create_checks_edit_permission_on_workspace`
-- Scenario: Duplicate name within tenant — COVERED
-  - `IntegrityError` caught and re-raised as `DuplicateKnowledgeGraphNameError`
-  - Route returns HTTP 409
-  - `test_create_raises_duplicate_on_integrity_error`, `test_create_knowledge_graph_returns_409_for_duplicate_name`
+  #### 3. IAM Workspace Create Route OpenAPI Fix
 
-#### Requirement: Knowledge Graph Name Validation
+  `iam/presentation/workspaces/routes.py` `create_workspace` route now
+  advertises `404` in its `responses` map (parent workspace not found or
+  inaccessible), consistent with the exception handler that maps
+  `UnauthorizedError` → HTTP 404.
 
-- Scenario: Valid name (1-100 chars) — COVERED via Pydantic `min_length=1, max_length=100`
-- Scenario: Empty or oversized name → 422 — COVERED
-  - `test_create_knowledge_graph_returns_422_for_empty_name`
-  - `test_create_knowledge_graph_returns_422_for_oversized_name`
-  - Same for update: `test_update_knowledge_graph_returns_422_for_empty_name`, `test_update_knowledge_graph_returns_422_for_oversized_name`
+  #### 4. YAML Format Fix for worker-result.yaml
 
-#### Requirement: Knowledge Graph Retrieval
+  Reformatted this file to use a proper `report:` key with a literal block
+  scalar (`|`) so the detail text is valid YAML.
 
-- Scenario: Authorized retrieval → KG details returned — COVERED
-  - Service checks VIEW on KG, returns aggregate
-  - Route returns 200 with full details
-  - `test_get_returns_aggregate_on_success`, `test_get_knowledge_graph_returns_200`
-- Scenario: Unauthorized or non-existent → no result (no distinction) — COVERED
-  - Service returns `None` for missing and for denied — both produce HTTP 404
-  - `test_get_returns_none_when_not_found`, `test_get_returns_none_when_permission_denied`
-  - `test_get_knowledge_graph_returns_404_when_not_found`, `test_get_knowledge_graph_returns_404_when_unauthorized`
+  ---
 
-#### Requirement: Knowledge Graph Listing
+  ### Spec Requirement Coverage
 
-- Scenario: List for workspace (VIEW permission, filtered by authz) — COVERED
-  - Service checks workspace VIEW, reads relationships to discover KG IDs, filters by tenant
-  - `test_list_checks_view_permission_on_workspace`, `test_list_uses_read_relationships_to_discover_kgs`, `test_list_filters_by_tenant`
-  - `test_list_knowledge_graphs_returns_200_with_list`
+  All spec requirements remain fully covered (unchanged from prior verification):
 
-#### Requirement: Knowledge Graph Update
+  - Knowledge Graph Creation: COVERED (201/403/409/422 routes + service tests)
+  - Name Validation (1–100 chars): COVERED (Pydantic + 422 tests)
+  - Retrieval with 404 masking: COVERED
+  - Listing (workspace + tenant-wide): COVERED — new tests added for tenant-wide route
+  - Update: COVERED
+  - Deletion with cascade: COVERED
+  - Permission Inheritance: COVERED (integration tests)
 
-- Scenario: Update name and description (EDIT permission) — COVERED
-  - Service checks EDIT on KG, calls `kg.update()`, saves
-  - Route returns 200 with updated KG
-  - `test_update_calls_aggregate_update_and_saves`, `test_update_knowledge_graph_returns_200`
+  ---
 
-#### Requirement: Knowledge Graph Deletion
+  ### Test Results
 
-- Scenario: Successful deletion with cascade — COVERED
-  - Service checks MANAGE on KG
-  - Cascade: DS credentials deleted (secret_store.delete for each DS with credentials_path), DS records deleted, KG deleted — all within single transaction
-  - `test_delete_cascades_data_sources`, `test_delete_cascades_encrypted_credentials`
-  - Route returns HTTP 204
-  - `test_delete_knowledge_graph_returns_204`
-- Scenario: Atomicity (rollback on failure) — COVERED
-  - `test_delete_rolls_back_on_ds_deletion_failure` confirms KG not deleted when DS deletion fails mid-cascade
+  All 2064 unit tests pass:
+  - `tests/unit/management/presentation/test_knowledge_graph_routes.py` — 34 passed
+  - `tests/unit/management/application/test_knowledge_graph_service.py` — 29 passed
+  - Full suite: 2064 passed, 39 warnings
 
-#### Requirement: Permission Inheritance
+  ---
 
-- Scenario: Workspace-inherited access — COVERED (integration tests)
-  - `TestWorkspaceInheritedKnowledgeGraphAccess` in `test_knowledge_graph_authorization.py`
-  - Editor: can VIEW and EDIT, cannot MANAGE
-  - Admin: can MANAGE
-  - Member: can VIEW, cannot EDIT
-  - No-role: cannot VIEW, EDIT, or MANAGE
-- Scenario: Direct grant — COVERED (integration tests)
-  - `TestDirectGrantKnowledgeGraphAccess`
-  - Direct admin: MANAGE + EDIT + VIEW
-  - Direct editor: EDIT + VIEW (no MANAGE)
-  - Direct viewer: VIEW only
-
----
-
-### CodeRabbit Feedback Assessment
-
-All CodeRabbit comments from the previous review cycle were correctly assessed as non-issues or style nits:
-- Encryption key CSV parsing: defensive parsing style nit, no spec requirement
-- `tenant_id` field in response: present in `KnowledgeGraphResponse` (line 74 of models.py), tests are correct
-- Architecture boundary test exclusion: documented intentional design for presentation-layer cross-context dependency
-- Dev-UI endpoint path: internal developer tool, not the production API under spec review
-
-No code changes were required following CodeRabbit review.
-
----
-
-Spec-Ref: specs/management/knowledge-graphs.spec.md
-Task-Ref: task-008
+  Spec-Ref: specs/management/knowledge-graphs.spec.md
+  Task-Ref: task-008

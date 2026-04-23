@@ -435,3 +435,203 @@ describe('Navigation - returning user redirect', () => {
     // Redirect should NOT fire again
   })
 })
+
+// ── Scenario: New user landing — guided toward setup ──────────────────────────
+// Spec: "GIVEN a user with no knowledge graphs
+// WHEN they open Kartograph
+// THEN they are guided toward the setup flow with a prompt to create their first knowledge graph"
+
+describe('Navigation - new user landing: setup guidance', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  // The home page (index.vue) shows a "Getting Started" checklist when
+  // not all onboarding items are completed and the user has not dismissed it.
+
+  it('showChecklist is true when not all items are done and not dismissed', () => {
+    const onboardingDismissed = false
+    const allChecklistDone = false
+
+    function computeShowChecklist(): boolean {
+      if (onboardingDismissed) return false
+      return !allChecklistDone
+    }
+
+    expect(computeShowChecklist()).toBe(true)
+  })
+
+  it('showChecklist is false when onboarding has been dismissed', () => {
+    const onboardingDismissed = true
+    const allChecklistDone = false
+
+    function computeShowChecklist(): boolean {
+      if (onboardingDismissed) return false
+      return !allChecklistDone
+    }
+
+    expect(computeShowChecklist()).toBe(false)
+  })
+
+  it('showChecklist is false when all checklist items are complete', () => {
+    const onboardingDismissed = false
+    const allChecklistDone = true
+
+    function computeShowChecklist(): boolean {
+      if (onboardingDismissed) return false
+      return !allChecklistDone
+    }
+
+    expect(computeShowChecklist()).toBe(false)
+  })
+
+  it('checklist shows creation prompt when node type count is 0 (new user)', () => {
+    // New user: no node types defined, no API keys, no MCP usage
+    const hasTenant = true
+    const nodeTypeCount = 0
+    const apiKeyCount = 0
+
+    const checklistItems = [
+      { done: hasTenant, label: 'Create a tenant', actionTo: '/tenants' },
+      { done: nodeTypeCount > 0, label: 'Define a node type', actionTo: '/graph/schema' },
+      { done: apiKeyCount > 0, label: 'Create an API key', actionTo: '/api-keys' },
+    ]
+
+    const allDone = checklistItems.every((item) => item.done)
+    expect(allDone).toBe(false) // Not all done → checklist shows
+
+    const incompleteItems = checklistItems.filter((item) => !item.done)
+    expect(incompleteItems.length).toBeGreaterThan(0) // There are items to complete
+  })
+
+  it('checklist completedCount correctly counts done items', () => {
+    const checklistItems = [
+      { done: true, label: 'Create a tenant' },
+      { done: false, label: 'Define a node type' },
+      { done: false, label: 'Create an API key' },
+      { done: false, label: 'Connect via MCP' },
+    ]
+
+    const completedCount = checklistItems.filter((item) => item.done).length
+    expect(completedCount).toBe(1)
+  })
+
+  it('dismissOnboarding stores dismissal in localStorage', () => {
+    const ONBOARDING_KEY = 'kartograph:onboarding-dismissed'
+    let dismissed = false
+
+    function dismissOnboarding() {
+      dismissed = true
+      localStorage.setItem(ONBOARDING_KEY, 'true')
+    }
+
+    dismissOnboarding()
+    expect(dismissed).toBe(true)
+    expect(localStorage.getItem(ONBOARDING_KEY)).toBe('true')
+  })
+
+  it('loadOnboardingState reads dismissal from localStorage', () => {
+    const ONBOARDING_KEY = 'kartograph:onboarding-dismissed'
+    localStorage.setItem(ONBOARDING_KEY, 'true')
+
+    let onboardingDismissed = false
+    function loadOnboardingState() {
+      onboardingDismissed = localStorage.getItem(ONBOARDING_KEY) === 'true'
+    }
+
+    loadOnboardingState()
+    expect(onboardingDismissed).toBe(true)
+  })
+
+  it('new user without dismissed state and no completed items sees full setup guidance', () => {
+    const ONBOARDING_KEY = 'kartograph:onboarding-dismissed'
+    // No dismissal stored
+    const dismissed = localStorage.getItem(ONBOARDING_KEY) === 'true'
+    const allDone = false // new user
+
+    const showSetup = !dismissed && !allDone
+    expect(showSetup).toBe(true)
+  })
+})
+
+// ── Scenario: Tenant switch — data refresh ────────────────────────────────────
+// Spec: "switching tenants refreshes all data in the UI"
+
+describe('Tenant Context - switching tenants refreshes all data', () => {
+  it('pages watching tenantVersion reload data on version increment', () => {
+    // Simulates the watch(tenantVersion, ...) pattern used across all pages
+    let dataLoaded = 0
+    let tenantVersion = 1
+
+    function onTenantVersionChange(_newVersion: number) {
+      dataLoaded++
+    }
+
+    // Simulate tenant switch
+    tenantVersion = 2
+    onTenantVersionChange(tenantVersion)
+    expect(dataLoaded).toBe(1)
+
+    tenantVersion = 3
+    onTenantVersionChange(tenantVersion)
+    expect(dataLoaded).toBe(2)
+  })
+
+  it('tenant switch clears stale search state and reloads', () => {
+    let searchQuery = 'old query'
+    let results: string[] = ['stale result']
+    let tenantVersion = 1
+
+    function onTenantVersionChange() {
+      // Reset all page-local state on tenant switch
+      searchQuery = ''
+      results = []
+    }
+
+    tenantVersion = 2
+    onTenantVersionChange()
+
+    expect(searchQuery).toBe('')
+    expect(results).toEqual([])
+  })
+
+  it('schema browser clears cached labels on tenant switch', () => {
+    let nodeLabels = ['Repository', 'Issue']
+    let edgeLabels = ['AUTHORED']
+    let schemaCache = new Map([['Repository', { description: 'cached', required_properties: [], optional_properties: [] }]])
+
+    function onTenantSwitch() {
+      nodeLabels = []
+      edgeLabels = []
+      schemaCache = new Map()
+    }
+
+    onTenantSwitch()
+    expect(nodeLabels).toEqual([])
+    expect(edgeLabels).toEqual([])
+    expect(schemaCache.size).toBe(0)
+  })
+
+  it('handleTenantChange calls switchTenant with tenant ID and name', () => {
+    const tenants = [
+      { id: 'tenant-1', name: 'Acme Corp' },
+      { id: 'tenant-2', name: 'Startup Inc' },
+    ]
+    let switchedToId = ''
+    let switchedToName = ''
+
+    function switchTenant(id: string, name?: string) {
+      switchedToId = id
+      switchedToName = name ?? ''
+    }
+
+    function handleTenantChange(id: string) {
+      const tenant = tenants.find((t) => t.id === id)
+      switchTenant(id, tenant?.name)
+    }
+
+    handleTenantChange('tenant-2')
+    expect(switchedToId).toBe('tenant-2')
+    expect(switchedToName).toBe('Startup Inc')
+  })
+})

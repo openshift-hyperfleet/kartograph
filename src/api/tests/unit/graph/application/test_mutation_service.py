@@ -773,35 +773,6 @@ class TestKnowledgeGraphIdStamping:
         applied_ops = mock_applier.apply_batch.call_args[0][0]
         assert applied_ops[0].set_properties.get("knowledge_graph_id") == "kg-456"
 
-    def test_does_not_stamp_on_delete_operation(self):
-        """Service should NOT stamp knowledge_graph_id on DELETE operations."""
-        from graph.application.services import GraphMutationService
-
-        mock_applier = Mock()
-        mock_applier.apply_batch.return_value = MutationResult(
-            success=True, operations_applied=1
-        )
-        mock_type_def_repo = Mock()
-
-        service = GraphMutationService(
-            mutation_applier=mock_applier,
-            type_definition_repository=mock_type_def_repo,
-        )
-
-        operations = [
-            MutationOperation(
-                op=MutationOperationType.DELETE,
-                type=EntityType.NODE,
-                id="person:abc123def456789a",
-            ),
-        ]
-
-        service.apply_mutations(operations, knowledge_graph_id="kg-123")
-
-        # DELETE ops have no set_properties - stamping should not apply
-        applied_ops = mock_applier.apply_batch.call_args[0][0]
-        assert applied_ops[0].set_properties is None
-
     def test_does_not_stamp_when_knowledge_graph_id_not_provided(self):
         """Service should not inject knowledge_graph_id into CREATE/UPDATE when param is omitted.
 
@@ -809,6 +780,10 @@ class TestKnowledgeGraphIdStamping:
         path that stamps CREATE/UPDATE is actually reachable. The assertion verifies
         that knowledge_graph_id is absent from the applied operation — which would
         only be true if the service correctly skips stamping when the param is None.
+
+        This is distinct from test_does_not_stamp_on_delete_operation: here we test
+        that a stampable op-type (UPDATE) is not stamped simply because
+        knowledge_graph_id was not passed to apply_mutations().
         """
         from graph.application.services import GraphMutationService
 
@@ -847,6 +822,41 @@ class TestKnowledgeGraphIdStamping:
         mock_applier.apply_batch.assert_called_once()
         applied_ops = mock_applier.apply_batch.call_args[0][0]
         assert "knowledge_graph_id" not in applied_ops[0].set_properties
+
+    def test_does_not_stamp_on_delete_operation(self):
+        """Service should NOT stamp knowledge_graph_id on DELETE operations.
+
+        DELETE ops have no set_properties so there is nowhere to stamp the value.
+        This test verifies that knowledge_graph_id is NOT injected into a DELETE
+        operation even when the knowledge_graph_id parameter IS provided to
+        apply_mutations(). This is different from the no-param test above.
+        """
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True, operations_applied=1
+        )
+        mock_type_def_repo = Mock()
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.DELETE,
+                type=EntityType.NODE,
+                id="person:abc123def456789a",
+            ),
+        ]
+
+        service.apply_mutations(operations, knowledge_graph_id="kg-123")
+
+        # DELETE ops have no set_properties - stamping should not apply
+        applied_ops = mock_applier.apply_batch.call_args[0][0]
+        assert applied_ops[0].set_properties is None
 
     def test_stamps_knowledge_graph_id_in_jsonl_parse(self):
         """apply_mutations_from_jsonl should stamp knowledge_graph_id from parameter."""

@@ -60,7 +60,7 @@ fi
 
 # If there are no UI source files, nothing to enforce.
 ui_source_count=$(find "$UI_DIR" \
-  \( -name "*.vue" -o -name "*.ts" \) 2>/dev/null \
+  \( -name "*.vue" -o -name "*.ts" -o -name "*.js" \) 2>/dev/null \
   | grep -v node_modules \
   | grep -v ".nuxt" \
   | grep -v dist \

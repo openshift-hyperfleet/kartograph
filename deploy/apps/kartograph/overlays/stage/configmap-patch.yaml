@@ -4,6 +4,8 @@ metadata:
   name: kartograph-config
 data:
   # Stage-specific overrides (merged with base)
+  # FQDN required for TLS cert SAN matching (service cert issued for kartograph-spicedb.kartograph-stage.svc)
+  SPICEDB_ENDPOINT: "kartograph-spicedb.kartograph-stage.svc:50051"
   KARTOGRAPH_CORS_ORIGINS: "https://kartograph-stage.devshift.net,https://kartograph-dev-ui-kartograph-stage.apps.rosa.appsres09ue1.24ep.p3.openshiftapps.com"
   # Dev UI
   DEV_UI_API_BASE_URL: "https://kartograph-api-kartograph-stage.apps.rosa.appsres09ue1.24ep.p3.openshiftapps.com"

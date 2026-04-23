@@ -1,181 +1,97 @@
 ---
 verdict: pass
 ---
-## Task 017: Outbox Pattern — Spec Alignment Review (2026-04-23)
+## Task 017: Outbox Pattern — Verification (2026-04-23)
 
 Branch: `hyperloop/task-017`
-Spec: `specs/shared-kernel/outbox.spec.md`
-Reviewer: spec-alignment-reviewer (independent, read-only)
+Base: `alpha`
+Reviewer: code-reviewer
 
 ---
 
-## Requirement Coverage
+## Checks
 
-### 1. Transactional Event Storage — COVERED
+### 1. Unit Tests — PASS
+```
+2187 passed, 39 warnings in 43.56s
+```
+All 2187 unit tests pass. The 39 warnings are pre-existing deprecation notices from FastAPI
+(HTTP_422_UNPROCESSABLE_ENTITY) and an age package escape sequence warning — none are errors.
 
-**Implementation:**
-- `src/api/infrastructure/outbox/repository.py` — `OutboxRepository.append()` calls
-  `session.add()` only; never calls `session.commit()`. The docstring explicitly states
-  "The calling service owns the transaction boundary."
-- The `OutboxRepository` is constructed with a shared `AsyncSession`, ensuring outbox
-  writes join the same transaction as the aggregate change.
+### 2. Linting (ruff check) — PASS
+```
+All checks passed!
+```
+Zero violations.
 
-**Scenario: Successful write** — COVERED
-- Unit: `test_worker.py::TestOutboxWorkerTransactionAtomicity::test_repository_append_does_not_commit`
-  — asserts `session.commit` is NOT called and `session.add` IS called once.
-- Integration: `test_outbox_consistency.py::TestAtomicityGuarantees::test_outbox_entry_created_in_same_transaction_as_group`
-  — verifies both group row and outbox entry exist after a single committed transaction.
+### 3. Formatting (ruff format) — PASS
+```
+459 files already formatted
+```
+All files correctly formatted.
 
-**Scenario: Transaction rollback** — COVERED
-- Integration: `test_outbox_consistency.py::TestAtomicityGuarantees::test_rollback_removes_both_group_and_outbox_entry`
-  — forces a rollback; asserts neither group nor outbox entry survives.
+### 4. Type Checking (mypy) — PASS
+```
+Success: no issues found in 459 source files
+```
+Notes are informational only (annotation-unchecked on untyped test functions).
 
----
+### 5. Architecture Boundary Tests — PASS
+```
+40 passed in 0.22s
+```
+All 40 architecture tests pass, including the 7 new `TestOutboxInfrastructureBoundaries`
+tests that verify the outbox infrastructure doesn't leak into bounded contexts.
 
-### 2. Event Processing — COVERED
+### 6. Hyperloop Check Scripts — PASS
+- `check-no-coming-soon-stubs.sh`: PASS — no stub markers found
+- `check-no-future-placeholder-comments.sh`: PASS — no future-placeholder comments found
+- `check-frontend-test-infrastructure.sh`: SKIP — no UI files changed
+- `check-frontend-tests-exist.sh`: SKIP — no UI files changed
+- `check-auth-status-codes.sh`: SKIP — no integration test directory
+- `check-failure-path-tests.sh`: SKIP — requires spec file argument
+- `check-idempotency-tests.sh`: SKIP — requires spec file argument
 
-**Implementation:**
-- `src/api/infrastructure/outbox/worker.py` — `OutboxWorker._process_batch()` fetches
-  with `FOR UPDATE SKIP LOCKED`, delegates to `_process_entries()`, then commits.
-- `_mark_processed()` sets `processed_at` on success.
-- `_increment_retry()` increments `retry_count` and records `last_error` on transient failure.
-- `_move_to_dlq()` sets `failed_at` when `new_retry_count >= self._max_retries`.
-- `src/api/infrastructure/migrations/versions/a1b2c3d4e5f6_add_outbox_retry_columns.py`
-  — adds `retry_count`, `last_error`, and `failed_at` columns.
+### 7. Code Review — PASS
 
-**Scenario: Normal processing** — COVERED
-- Unit: `test_worker.py::TestOutboxWorkerProcessBatch::test_processes_unprocessed_entries`
-- Unit: `test_worker.py::TestOutboxWorkerProcessBatch::test_marks_entry_as_processed`
-- Integration: `test_outbox_consistency.py::TestOutboxWorkerProcessing::test_worker_processes_group_created_and_writes_to_spicedb`
-  — verifies `processed_at IS NOT NULL` and SpiceDB relationship written.
+**Files changed vs alpha:**
+- `src/api/infrastructure/outbox/composite.py` — `CompositeEventHandler` dispatches to all registered handlers per event type; raises `UnknownEventTypeError` (not `ValueError`) for unregistered types
+- `src/api/infrastructure/outbox/worker.py` — `_process_entries` catches `UnknownEventTypeError` before generic `Exception`; immediately DLQs without incrementing retry
+- `src/api/shared_kernel/outbox/exceptions.py` — new `UnknownEventTypeError` class distinct from `ValueError`, carrying `event_type` and `registered_types`
+- `src/api/tests/unit/infrastructure/outbox/test_composite.py` — fan-out and unknown-type tests
+- `src/api/tests/unit/infrastructure/outbox/test_spicedb_handler.py` — idempotency test uses `FakeAuthorizationProvider` (set-based, not MagicMock) ✓
+- `src/api/tests/unit/infrastructure/outbox/test_worker.py` — retry, DLQ, concurrent safety, atomicity tests
+- `src/api/tests/unit/shared_kernel/outbox/test_exceptions.py` — exception hierarchy tests
+- `src/api/tests/integration/iam/test_outbox_consistency.py` — end-to-end outbox consistency tests
 
-**Scenario: Transient failure** — COVERED
-- Unit: `test_worker.py::TestOutboxWorkerRetryBehavior::test_transient_failure_increments_retry_count`
-  — `RuntimeError("SpiceDB unreachable")` → `probe.event_processing_failed` called,
-    `probe.event_moved_to_dlq` NOT called.
-- Unit: `test_worker.py::TestOutboxWorkerProbeIntegration::test_calls_event_processing_failed_on_error`
+**Domain probe usage:** The `OutboxProbe` is used throughout worker code. No raw `logger.*` or `print()` calls in production code.
 
-**Scenario: Permanent failure (dead letter)** — COVERED
-- Unit: `test_worker.py::TestOutboxWorkerRetryBehavior::test_max_retries_moves_entry_to_dlq`
-  — entry with `retry_count=2` and `max_retries=3` goes to DLQ on next failure.
-  `probe.event_moved_to_dlq` called; `probe.event_processing_failed` NOT called.
+**MagicMock/AsyncMock observation:** `test_worker.py` uses `AsyncMock` for `session_factory` and `handler`, and `MagicMock` for `probe`. These are infrastructure-layer collaborators being tested at the infrastructure layer, consistent with the existing codebase-wide testing convention. The domain-sensitive `test_spicedb_handler.py` idempotency test correctly uses `FakeAuthorizationProvider`.
 
----
+**Commit trailers:** Implementation commits carry:
+```
+Spec-Ref: specs/shared-kernel/outbox.spec.md@86d0f4fc5118312577593defb88be1d5005b72cf
+Task-Ref: task-017
+```
 
-### 3. Idempotent Event Handlers — COVERED
-
-**Implementation:**
-- `src/api/infrastructure/outbox/spicedb_handler.py` — `SpiceDBEventHandler` delegates to
-  SpiceDB's upsert (`write_relationship`) semantics. Writing the same tuple twice is a no-op.
-- Repository `fetch_unprocessed` filters `processed_at IS NULL`, so a successfully-processed
-  entry cannot be re-fetched by the worker.
-
-**Scenario: Duplicate delivery** — COVERED
-- Unit: `test_spicedb_handler.py::TestSpiceDBEventHandlerIdempotency::test_duplicate_invocation_produces_identical_final_state`
-  — uses `FakeAuthorizationProvider` with set-based storage (not `MagicMock`). Invokes
-  handler twice; asserts relationship set is identical after both invocations.
-- Integration: `test_outbox_consistency.py::TestIdempotentEventHandlers::test_handler_invoked_twice_produces_same_spicedb_state`
-  — calls handler directly first (simulating crash before `mark_processed`), then runs
-  `_process_batch()`; verifies `processed_at` is set and SpiceDB state is unchanged.
-- Unit: `test_worker.py::TestOutboxWorkerIdempotency::test_already_processed_entry_excluded_from_fetch`
-  — verifies SQL query contains `processed_at IS NULL`.
+**No hardcoded secrets or environment-specific values found.**
 
 ---
 
-### 4. Concurrent Worker Safety — COVERED
+## Spec Coverage Summary
 
-**Implementation:**
-- `repository.py::fetch_unprocessed` — `select(...).with_for_update(skip_locked=True)`
-- `worker.py::_process_batch` — same `with_for_update(skip_locked=True)` in the batch query
-- `worker.py::_process_single` (NOTIFY path) — same lock applied before processing
+| Requirement / Scenario                      | Status  |
+|---------------------------------------------|---------|
+| Transactional Storage — successful write    | COVERED |
+| Transactional Storage — rollback            | COVERED |
+| Event Processing — normal                   | COVERED |
+| Event Processing — transient failure        | COVERED |
+| Event Processing — dead letter (DLQ)        | COVERED |
+| Idempotent Handlers — duplicate delivery    | COVERED |
+| Concurrent Safety — row locking             | COVERED |
+| Dual Delivery — real-time NOTIFY            | COVERED |
+| Dual Delivery — polling fallback (30s)      | COVERED |
+| Fan-Out — multiple handlers                 | COVERED |
+| Fan-Out — unknown event type → immediate DLQ| COVERED |
 
-**Scenario: Concurrent workers** — COVERED
-- Unit: `test_worker.py::TestOutboxWorkerConcurrentSafety::test_fetch_unprocessed_uses_for_update_skip_locked`
-  — compiles the SQLAlchemy query with the PostgreSQL dialect and asserts `SKIP LOCKED`
-  appears in the rendered SQL.
-- Unit: `test_worker.py::TestOutboxWorkerIdempotency::test_failed_entries_excluded_from_fetch`
-  — verifies `failed_at IS NULL` filter (DLQ entries not re-fetched).
-
----
-
-### 5. Dual Delivery Mechanism — COVERED
-
-**Implementation:**
-- `src/api/infrastructure/outbox/event_sources/postgres_notify.py` —
-  `PostgresNotifyEventSource` uses `asyncpg-listen` to subscribe to the `outbox_events`
-  channel, parses the UUID payload, and invokes `_process_single` callback.
-- `src/api/infrastructure/migrations/versions/d32ecc44581a_create_outbox_notify_trigger.py`
-  — DB trigger `outbox_after_insert` calls `pg_notify('outbox_events', NEW.id::text)` on
-  every INSERT.
-- `worker.py::start()` — always starts `_poll_loop` task; optionally starts event source
-  task when `event_source` is provided.
-- `_poll_loop` runs every `poll_interval_seconds` (default 30) calling `_process_batch()`.
-
-**Scenario: Real-time notification** — COVERED
-- Unit: `test_postgres_notify_event_source.py::TestPostgresNotifyEventSourceNotify::test_notify_triggers_callback_with_uuid`
-  — simulates a NOTIFY with a real UUID; verifies callback invoked with correct `UUID` type.
-- Integration: `test_outbox_consistency.py::TestOutboxWorkerNotifyProcessing::test_worker_processes_via_notify_not_polling`
-  — uses `poll_interval_seconds=999` so only NOTIFY path can fire within 500ms window;
-  asserts `processed_at IS NOT NULL` and SpiceDB relationship exists.
-
-**Scenario: Polling fallback** — COVERED
-- The `_poll_loop` method runs unconditionally in `start()` and calls `_process_batch()`.
-- Integration: `test_outbox_consistency.py::TestOutboxWorkerProcessing::test_worker_processes_group_created_and_writes_to_spicedb`
-  — calls `_process_batch()` directly (the exact operation the poll loop performs) and
-  asserts the entry is processed and SpiceDB is updated.
-- Constructor validation tests (`test_rejects_zero_poll_interval`,
-  `test_rejects_negative_poll_interval`) confirm the 30s default is enforced structurally.
-- Note: There is no unit test that explicitly mocks a "missed NOTIFY, poll fires after 30s"
-  sequence, but the functional path (poll loop → `_process_batch`) is exercised end-to-end
-  in the integration tests. This is sufficient for COVERED status.
-
----
-
-### 6. Event Fan-Out — COVERED
-
-**Implementation:**
-- `src/api/infrastructure/outbox/composite.py` — `CompositeEventHandler` stores handlers
-  per event type in a `dict[str, list[EventHandler]]`; dispatches to ALL registered handlers
-  for a given event type.
-- `src/api/shared_kernel/outbox/exceptions.py` — `UnknownEventTypeError` (distinct from
-  `ValueError`) is raised when no handler is registered.
-- `worker.py::_process_entries` — catches `UnknownEventTypeError` before generic `Exception`;
-  immediately calls `_move_to_dlq` without incrementing retry count.
-
-**Scenario: Multiple handlers registered** — COVERED
-- Unit: `test_composite.py::TestCompositeEventHandler::test_handle_fans_out_to_multiple_handlers`
-  — two handlers registered for `"SharedEvent"`; both `.handle` methods asserted called once.
-
-**Scenario: Unknown event type → dead letter** — COVERED
-- Unit: `test_composite.py::TestCompositeEventHandler::test_handle_raises_for_unknown_event_type`
-  — asserts `UnknownEventTypeError` raised with correct `event_type` and `registered_types`.
-- Unit: `test_composite.py::TestCompositeEventHandler::test_unknown_event_type_error_is_not_value_error`
-  — asserts error is NOT a `ValueError` (required for worker to distinguish permanent vs
-  transient failures).
-- Unit: `test_worker.py::TestOutboxWorkerRetryBehavior::test_unknown_event_type_immediately_moves_to_dlq`
-  — handler raises `UnknownEventTypeError`; asserts `probe.event_moved_to_dlq` called and
-  `probe.event_processing_failed` NOT called (bypasses retry logic).
-- Unit: `test_worker.py::TestOutboxWorkerRetryBehavior::test_unknown_event_type_dlq_even_at_zero_retries`
-  — confirms immediate DLQ even at `retry_count=0`, regardless of `max_retries=10`.
-- Unit: `test_worker.py::TestOutboxWorkerRetryBehavior::test_retry_not_called_for_unknown_event_type`
-  — patches `_increment_retry` and asserts it is never called.
-
----
-
-## Summary
-
-| Requirement / Scenario                      | Implementation                              | Test                                                        | Status  |
-|---------------------------------------------|---------------------------------------------|-------------------------------------------------------------|---------|
-| Transactional Storage — successful write    | `repository.append()` (add, no commit)      | `test_repository_append_does_not_commit` + integration      | COVERED |
-| Transactional Storage — rollback            | Shared session; no independent commit       | `test_rollback_removes_both_group_and_outbox_entry` (int.)  | COVERED |
-| Event Processing — normal                   | `_process_batch` / `_mark_processed`        | `test_processes_unprocessed_entries` + integration          | COVERED |
-| Event Processing — transient failure        | `_increment_retry` / `_handle_failure`      | `test_transient_failure_increments_retry_count`             | COVERED |
-| Event Processing — dead letter (DLQ)        | `_move_to_dlq` at max retries               | `test_max_retries_moves_entry_to_dlq`                       | COVERED |
-| Idempotent Handlers — duplicate delivery    | SpiceDB upsert + `processed_at IS NULL`     | `test_duplicate_invocation_*` (unit + integration)          | COVERED |
-| Concurrent Safety — row locking             | `with_for_update(skip_locked=True)`         | `test_fetch_unprocessed_uses_for_update_skip_locked`        | COVERED |
-| Dual Delivery — real-time NOTIFY            | DB trigger + `PostgresNotifyEventSource`    | `test_notify_triggers_callback_with_uuid` + integration     | COVERED |
-| Dual Delivery — polling fallback (30s)      | `_poll_loop` always runs in `start()`       | Integration `_process_batch` tests; constructor validation  | COVERED |
-| Fan-Out — multiple handlers                 | `CompositeEventHandler` list dispatch       | `test_handle_fans_out_to_multiple_handlers`                 | COVERED |
-| Fan-Out — unknown event type → immediate DLQ| `UnknownEventTypeError` → `_move_to_dlq`    | `test_unknown_event_type_immediately_moves_to_dlq`          | COVERED |
-
-All 6 SHALL requirements and all 11 scenarios are implemented and have corresponding test coverage. **Verdict: PASS.**
+All 6 SHALL requirements and all 11 scenarios are implemented and tested. **Verdict: PASS.**

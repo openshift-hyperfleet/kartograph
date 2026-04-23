@@ -263,6 +263,37 @@ class KnowledgeGraphService:
 
         return kgs
 
+    async def list_all(self, user_id: str) -> list[KnowledgeGraph]:
+        """List all knowledge graphs in the current tenant visible to the user.
+
+        Fetches all KGs in the tenant then filters to those the user can VIEW
+        via SpiceDB permission checks.
+
+        Args:
+            user_id: The user requesting the list
+
+        Returns:
+            List of KnowledgeGraph aggregates the user can view
+        """
+        all_kgs = await self._kg_repo.find_by_tenant(self._scope_to_tenant)
+
+        visible_kgs: list[KnowledgeGraph] = []
+        for kg in all_kgs:
+            has_view = await self._check_permission(
+                user_id=user_id,
+                resource_type=ResourceType.KNOWLEDGE_GRAPH,
+                resource_id=kg.id.value,
+                permission=Permission.VIEW,
+            )
+            if has_view:
+                visible_kgs.append(kg)
+
+        self._probe.knowledge_graphs_listed(
+            workspace_id=self._scope_to_tenant,
+            count=len(visible_kgs),
+        )
+        return visible_kgs
+
     async def update(
         self,
         user_id: str,

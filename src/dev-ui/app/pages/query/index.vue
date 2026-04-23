@@ -7,6 +7,7 @@ import { useLocalStorage } from '@vueuse/core'
 import {
   Terminal, Play, Trash2, Loader2, Clock, Hash,
   PanelRight, PanelRightClose, Database, Sparkles, BookOpen, Building2,
+  Layers,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -24,7 +25,7 @@ import {
   Sheet, SheetContent, SheetTitle, SheetHeader,
   SheetDescription,
 } from '@/components/ui/sheet'
-import type { CypherResult, HistoryEntry } from '~/types'
+import type { CypherResult, HistoryEntry, SchemaLabelsResponse } from '~/types'
 
 // Modifier key tracking
 import { useModifierKeys } from '@/composables/useModifierKeys'
@@ -65,6 +66,31 @@ const executionTime = ref<number | null>(null)
 const nodeLabels = ref<string[]>([])
 const edgeLabels = ref<string[]>([])
 const schemaLoading = ref(false)
+
+// Knowledge graph context selector
+// When a KG ID is selected, queries are scoped to that graph.
+// An empty string means "all knowledge graphs accessible in this tenant".
+const selectedKgId = ref('')
+
+const knowledgeGraphs = ref<Array<{ id: string; name: string }>>([])
+
+async function loadKnowledgeGraphs() {
+  if (!hasTenant.value) return
+  try {
+    const { apiFetch } = useApiClient()
+    const result = await apiFetch<{ knowledge_graphs: Array<{ id: string; name: string }> }>(
+      '/management/knowledge-graphs'
+    )
+    knowledgeGraphs.value = result.knowledge_graphs ?? []
+  } catch {
+    knowledgeGraphs.value = []
+  }
+}
+
+const kgScopeLabel = computed(() => {
+  if (!selectedKgId.value) return 'All knowledge graphs'
+  return knowledgeGraphs.value.find((kg) => kg.id === selectedKgId.value)?.name ?? 'Unknown graph'
+})
 
 // History
 const HISTORY_KEY = 'kartograph:query-history'
@@ -160,6 +186,7 @@ async function executeQuery() {
       cypherQuery,
       Number(timeout.value),
       Number(maxRows.value),
+      selectedKgId.value || undefined,
     )
     executionTime.value = Math.round(performance.now() - start)
     result.value = res
@@ -323,7 +350,10 @@ const route = useRoute()
 
 onMounted(() => {
   loadHistory()
-  if (hasTenant.value) fetchSchema()
+  if (hasTenant.value) {
+    fetchSchema()
+    loadKnowledgeGraphs()
+  }
   document.addEventListener('keydown', handleCtrlEnter)
   window.addEventListener('resize', onWindowResize)
 
@@ -333,7 +363,7 @@ onMounted(() => {
   }
 })
 
-// Re-fetch schema when tenant changes
+// Re-fetch schema and KG list when tenant changes
 watch(tenantVersion, () => {
   if (hasTenant.value) {
     result.value = null
@@ -342,6 +372,7 @@ watch(tenantVersion, () => {
     nodeLabels.value = []
     edgeLabels.value = []
     fetchSchema()
+    loadKnowledgeGraphs()
   }
 })
 
@@ -438,6 +469,30 @@ onBeforeUnmount(() => {
     <div class="flex items-start gap-4">
       <!-- Left: Editor + Results -->
       <div class="flex min-w-0 flex-1 flex-col gap-4">
+
+        <!-- Knowledge Graph Context Selector -->
+        <div class="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+          <Layers class="size-4 shrink-0 text-muted-foreground" />
+          <span class="shrink-0 text-xs text-muted-foreground">Scope:</span>
+          <Select v-model="selectedKgId" class="flex-1 min-w-0">
+            <SelectTrigger class="h-7 flex-1 min-w-0 border-none bg-transparent text-xs shadow-none focus:ring-0">
+              <SelectValue :placeholder="kgScopeLabel" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">All knowledge graphs</SelectItem>
+              <SelectItem
+                v-for="kg in knowledgeGraphs"
+                :key="kg.id"
+                :value="kg.id"
+              >
+                {{ kg.name }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <Badge v-if="selectedKgId" variant="secondary" class="shrink-0 text-[10px]">Scoped</Badge>
+          <Badge v-else variant="outline" class="shrink-0 text-[10px]">Unscoped</Badge>
+        </div>
+
         <!-- Query Editor -->
         <Card class="flex flex-col">
           <CardHeader class="pb-3">

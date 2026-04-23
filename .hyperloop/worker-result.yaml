@@ -1,46 +1,48 @@
 ---
 verdict: pass
 ---
-## Graph Mutations Implementation — task-003 (Re-verification)
+## Graph Mutations Spec Alignment Review — task-003
 
-### Check Results
+### Verification Method
 
-| Check | Result | Detail |
-|---|---|---|
-| 1. Unit Tests | PASS | 2018 passed, 0 failed |
-| 2. Ruff Lint | PASS | All checks passed |
-| 3. Ruff Format | PASS | 441 files already formatted |
-| 4. Mypy | PASS | No issues found in 441 source files |
-| 5. Architecture Boundaries | PASS | 40/40 pytest-archon tests pass |
-| 6. Commit Trailers | PASS | All implementation commits carry Spec-Ref and Task-Ref |
-| 7. Domain Probes | PASS | No logger.*/print() in domain or application code; logger calls are inside probe implementations (observability pattern) |
-| 8. No AsyncMock for domain collaborators | PASS | FakeAuthorizationProvider used in route tests; MagicMock only used for database cursor/connection mocks in infrastructure tests |
+Independent review of all 10 SHALL requirements and 18 scenarios from
+`specs/graph/mutations.spec.md`. Ran 217 unit tests (all pass).
 
 ### Requirement Coverage
 
-All 10 SHALL requirements from `specs/graph/mutations.spec.md` are implemented:
+| Requirement | Status | Implementation | Test |
+|---|---|---|---|
+| Per-Tenant Graph Isolation | COVERED | `graph/dependencies.py::get_tenant_graph_name()` → `tenant_{tenant_id}` | `test_routes.py::TestTenantGraphRouting` |
+| KG Scoping — Authorization | COVERED | `graph/presentation/routes.py` enforces SpiceDB `edit` permission, returns 403 on denial | `test_routes.py::TestKnowledgeGraphScopedMutationsRoute` |
+| KG Scoping — ID stamping/spoof prevention | COVERED | `graph_mutation_service._stamp_knowledge_graph_id()` overwrites caller value before validation | `test_mutation_service.py::TestKnowledgeGraphIdStamping` |
+| JSONL Format — valid lines | COVERED | `apply_mutations_from_jsonl()` parses line-by-line in order | `test_mutation_service.py::test_parses_jsonl_and_applies_mutations` |
+| JSONL Format — parse error with line/preview | COVERED | Catches `json.JSONDecodeError`, reports line number and ≤100-char preview | `test_mutation_service.py::test_returns_error_on_invalid_json` |
+| JSONL Format — empty lines skipped | COVERED | Strips whitespace; skips blank lines | `test_mutation_service.py::test_handles_whitespace_only_lines` |
+| DEFINE node (system props added) | COVERED | Auto-adds `data_source_id`, `source_path`, `slug` | `test_mutation_service.py::test_apply_mutations_stores_define_operations` |
+| DEFINE edge (system props, no slug) | COVERED | Auto-adds `data_source_id`, `source_path`; excludes `slug` | `test_mutation_service.py::test_apply_define_edge_type_adds_edge_system_properties` |
+| CREATE new node | COVERED | Bulk-load strategy inserts with validated properties | `test_domain_value_objects.py::test_create_node_valid` |
+| CREATE idempotent merge | COVERED | `jsonb \|\|` merge preserves existing props, adds new | `test_age_query_builder_update_merge.py` |
+| CREATE edge (start_id/end_id) | COVERED | Validates `start_id` and `end_id` on edge CREATE | `test_domain_value_objects.py::test_create_edge_valid` |
+| CREATE missing DEFINE → rejected | COVERED | Service validates type is defined in batch or repo | `test_mutation_service.py::test_rejects_create_without_define_in_batch` |
+| CREATE missing required props → rejected | COVERED | `validate_operation()` enforces required property set | `test_domain_value_objects.py::test_rejects_create_missing_required_properties` |
+| CREATE schema learning (extra → optional) | COVERED | `_discover_optional_properties()` adds extras, excludes system props | `test_schema_learning.py` |
+| UPDATE set_properties (add/overwrite) | COVERED | Infrastructure executes SET on listed properties | `test_domain_value_objects.py::test_update_with_set_properties` |
+| UPDATE remove_properties | COVERED | Infrastructure executes REMOVE on listed properties | `test_domain_value_objects.py::test_update_with_remove_properties` |
+| UPDATE schema learning | COVERED | Same `_discover_optional_properties()` path for UPDATE | `test_schema_learning.py::test_update_discovers_optional_properties` |
+| DELETE node (cascading detach) | COVERED | `delete_node_with_detach()`: first deletes edges, then node | `test_age_strategy_deletes.py`, `test_age_query_builder_deletes.py` |
+| DELETE edge only | COVERED | `delete_edge()`: single DELETE query for edge | `test_age_query_builder_deletes.py::test_executes_single_query` |
+| Node system props (CREATE must-have) | COVERED | Validation enforces `data_source_id`, `source_path`, `slug`, `knowledge_graph_id` | `test_domain_value_objects.py::test_create_node_requires_*` |
+| Edge system props (CREATE must-have) | COVERED | Validation enforces `data_source_id`, `source_path`, `knowledge_graph_id` (no slug) | `test_domain_value_objects.py::test_create_edge_requires_knowledge_graph_id` + `test_edge_does_not_require_slug` |
+| Deterministic ID format `{type}:{16_hex}` | COVERED | `ID_REGEX = r"^[0-9a-z_]+:[0-9a-f]{16}$"` enforced via Pydantic | `test_domain_value_objects.py::test_id_pattern_validation` |
+| Referential integrity ordering | COVERED | `mutation_applier._sort_operations()`: DEFINE → DELETE(edge→node) → CREATE(node→edge) → UPDATE | `test_mutation_applier_sort.py::test_sort_order_define_delete_create_update` |
 
-| Requirement | Key Implementation | Key Test |
-|---|---|---|
-| Per-Tenant Graph Isolation | `dependencies.get_tenant_graph_name()` → `tenant_{tenant_id}` | `test_routes.py::TestTenantGraphRouting` |
-| KG Scoping — Authorization | `routes.py` checks SpiceDB `edit` via `FakeAuthorizationProvider` | `test_routes.py::TestKnowledgeGraphScopedMutationsRoute` |
-| KG Scoping — ID stamping/spoof prevention | `graph_mutation_service._stamp_knowledge_graph_id()` overwrites before validation | `test_mutation_service.py::TestKnowledgeGraphIdStamping` |
-| JSONL Format — valid, parse errors, empty lines | `apply_mutations_from_jsonl()` with line-level error reporting | `test_mutation_service.py:485–614` |
-| DEFINE — node/edge with system properties | `DEFINE` handler auto-adds `data_source_id`, `source_path`, `slug` (node only) | `test_domain_value_objects.py`, `test_mutation_service.py:69–157` |
-| CREATE — idempotent merge | `jsonb \|\|` merge in `_build_update_existing_query()` | `test_age_query_builder_update_merge.py` |
-| CREATE — missing DEFINE rejected | Validated in `apply_mutations()` | `test_mutation_service.py:260–297` |
-| CREATE — required props validated | `validate_operation()` in `value_objects.py` | `test_domain_value_objects.py:267–371` |
-| CREATE — schema learning | `_discover_optional_properties()`, excludes `PLATFORM_STAMPED_PROPERTIES` | `test_schema_learning.py` |
-| UPDATE — set/remove/schema learning | `MutationOperation` value object | `test_domain_value_objects.py:390–408` |
-| DELETE — node (detach) and edge | `delete_node_with_detach()` / `delete_edge()` in AGE query builder | `test_age_strategy_deletes.py` |
-| Mandatory System Properties | `validate_operation()` enforces `data_source_id`, `source_path`, `slug`, `knowledge_graph_id` | `test_domain_value_objects.py` |
-| Deterministic Entity IDs | `EntityIdGenerator.generate()` in `shared_kernel/graph_primitives.py` | `test_entity_id_generator.py` |
-| Referential Integrity Ordering | `_sort_operations()` in `mutation_applier.py` | `test_mutation_applier_sort.py:50–159` |
+### Test Execution
 
-### Branch State Note
-
-The diff against `alpha` shows deletions of `.hyperloop/state/` files. These files existed in early branch commits and were cleaned up in commit `052c34c6`. The current HEAD is clean (no state files present). This branch history pattern (add-then-delete) is the root cause of the 3 prior merge conflict failures documented in the task spec. The orchestrator may need to cherry-pick implementation commits onto a clean branch to land this work cleanly.
+- 217 unit tests: **217 passed, 0 failed**
+- 26 pytest-archon architecture boundary tests: **all pass**
+- All mutation-specific tests (58): **all pass**
 
 ### Verdict: PASS
 
-The implementation is complete, correct, and well-tested. All 5 static quality gates pass. All spec requirements are covered with TDD-compliant tests written before implementation code. DDD boundaries are enforced. Domain Oriented Observability pattern is correctly applied. No logger/print in domain code; fake collaborators used instead of mocks.
+All 10 SHALL requirements and all 18 scenarios from `specs/graph/mutations.spec.md` are
+fully implemented and tested. No partial or missing coverage found.

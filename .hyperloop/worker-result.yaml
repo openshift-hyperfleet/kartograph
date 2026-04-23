@@ -1,79 +1,35 @@
 ---
 verdict: pass
 ---
-## Code Review Verdict: PASS
+Spec alignment review for `specs/iam/workspaces.spec.md` on branch `hyperloop/task-020`.
 
-Reviewed branch `hyperloop/task-020` against `alpha`.
-Spec: `specs/iam/workspaces.spec.md`
+Previously identified issue (403→404 for unauthorized workspace creation) is confirmed fixed:
+- `routes.py` lines 82-88: `UnauthorizedError` → `HTTP_404_NOT_FOUND` for `create_workspace`
+- Integration test `test_tenant_member_cannot_create_workspace_under_child_via_api` asserts `status_code == 404`
+- Unit test `test_create_workspace_returns_404_when_unauthorized` added and passing
+- All 2228 unit tests pass
 
----
-
-### Check Results
-
-| # | Check | Result | Notes |
-|---|-------|--------|-------|
-| 1 | Unit Tests | PASS | 2183 passed, 39 warnings (pre-existing coroutine warnings in infra tests) |
-| 2 | Linting (`ruff check`) | PASS | Zero violations |
-| 3 | Formatting (`ruff format --check`) | PASS | 458 files already formatted |
-| 4 | Type Checking (`mypy`) | PASS | Zero errors in 458 source files |
-| 5 | Architecture Boundaries | PASS | All 40 pytest-archon tests passed |
-| 6 | Check Scripts | PASS (with notes) | See below |
-| 7 | Code Review | PASS | See below |
-
----
-
-### Check Script Notes
-
-**`check-auth-status-codes.sh`** — exits 1 (review required), but all flagged instances are correct:
-
-- `test_workspace_authorization.py` lines 132, 171, 240, 279: These are DELETE and PATCH (update) operations where `UnauthorizedError → HTTP_403_FORBIDDEN`. The spec does NOT say "no distinction between unauthorized and missing" for delete or update — that language is only in the **Create** scenario. The implementation and tests are consistent.
-- `test_group_authorization.py` lines 116, 195: Group operations, out of scope for this workspace spec task. Pre-existing.
-- `test_api_key_auth.py` line 527 and `test_auth_enforcement.py` line 129: Unrelated to workspace spec.
-
-**`check-no-coming-soon-stubs.sh`** — flags `src/dev-ui/app/layouts/default.vue` for a conditional UI label `item.disabled ? ' (Coming Soon)' : ''`. This file is **not modified** in this branch's diff (`git diff alpha...HEAD -- src/dev-ui/` is empty). Pre-existing issue outside task scope.
-
-**`check-weak-test-assertions.sh`** — flags `src/api/tests/integration/test_query_mcp.py:225`. This file was **not modified** by task-020 (last touched in commits `19a59380`, `04556adc`). Pre-existing issue outside task scope.
-
-**`check-failure-path-tests.sh`** — PASS (no failure-path THEN conditions detected in spec).
-
-**`check-idempotency-tests.sh`** — PASS (no idempotency requirement in workspace spec).
-
----
-
-### Diff Review
-
-Three files changed from this task's work:
-
-**1. `src/api/iam/presentation/workspaces/routes.py`**
-- `create_workspace` route: `UnauthorizedError` now returns `HTTP_404_NOT_FOUND` instead of `HTTP_403_FORBIDDEN`.
-- Correct per spec: "no distinction is made between 'unauthorized' and 'missing parent'" — prevents leaking whether the parent workspace exists.
-- Comment added explaining the security rationale. Clean.
-
-**2. `src/api/tests/unit/iam/presentation/test_workspaces_routes.py`**
-- New test `test_create_workspace_returns_404_when_unauthorized` added with a thorough docstring quoting the spec scenario.
-- Uses `AsyncMock.side_effect = UnauthorizedError(...)` — no MagicMock/AsyncMock-on-domain-object violation; this is a presentation-layer test mocking the application service.
-- Asserts `HTTP_404_NOT_FOUND` and `"not found" in response.json()["detail"].lower()`. Both correct.
-
-**3. `src/api/tests/integration/iam/test_workspace_authorization.py`**
-- `test_tenant_member_cannot_create_workspace_under_child_via_api`: Changed assertion from `== 403` to `== 404` with updated explanatory message.
-- Correct alignment: spec, implementation, unit test, and now integration test all agree on 404.
-
-**Commit Trailers:** All substantive commits carry `Spec-Ref: specs/iam/workspaces.spec.md@b46589a2419c1bf08c2dd08c311ee95642139703` and `Task-Ref: task-020`. PASS.
-
-**Domain Probes:** No direct `logger.*` or `print()` calls introduced. PASS.
-
-**No hardcoded secrets or env-specific values.** PASS.
-
----
-
-### Summary
-
-The spec-reviewer correctly identified one integration test asserting 403 where the spec requires 404 for unauthorized workspace creation. The implementer:
-
-1. Fixed the route to return 404 for `UnauthorizedError` on `create_workspace`.
-2. Added a unit test explicitly documenting the spec requirement.
-3. Fixed the integration test assertion.
-
-All static analysis checks pass. The remaining 403 assertions flagged by the check script are legitimate per spec for delete/update operations. Pre-existing issues in unrelated files (dev-ui, test_query_mcp.py) are outside task scope.
-
-Verdict: **PASS**
+| Requirement | Status |
+|---|---|
+| Root Workspace auto-created on tenant creation | COVERED |
+| Root workspace has `creator_tenant` relationship (tenant members get `create_child`) | COVERED |
+| Root workspace cannot be deleted (409 conflict) | COVERED |
+| Child workspace creation with `create_child` permission | COVERED |
+| Creator granted `admin` role on new workspace | COVERED |
+| Duplicate name within tenant → 409 | COVERED |
+| Unauthorized creation → 404 (no distinction from missing parent) | COVERED |
+| Workspace name 1-512 characters enforced | COVERED |
+| Workspace retrieval filtered by `view` permission → 404 if unauthorized/missing | COVERED |
+| Workspace listing filtered by `view` permission | COVERED |
+| Workspace rename requires `manage` permission | COVERED |
+| Duplicate rename → 409 | COVERED |
+| Workspace deletion requires `manage` permission, no children | COVERED |
+| Workspace has children → 409 on delete | COVERED |
+| Member add (user/group) with role requires `manage` | COVERED |
+| Member role change (revoke old, grant new) | COVERED |
+| Member remove requires `manage` | COVERED |
+| Cannot remove last admin → 409 | COVERED |
+| Member listing requires `view` permission | COVERED |
+| Admin has `manage` + `edit` + `view` | COVERED |
+| Editor has `edit` + `view`, no `manage` | COVERED |
+| Member has `view` only | COVERED |

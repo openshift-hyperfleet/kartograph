@@ -1,0 +1,47 @@
+---
+verdict: pass
+---
+
+## Verification Summary
+
+All required checks pass. The implementation correctly satisfies all spec requirements for deterministic entity ID generation.
+
+### Check Results
+
+1. **Unit Tests**: PASS — 2280 passed, 0 failures (53 tests in the entity ID generator module specifically)
+2. **Linting (ruff check)**: PASS — All checks passed
+3. **Formatting (ruff format)**: PASS — All 462 files already formatted
+4. **Type Checking (mypy)**: PASS — No issues found in 462 source files
+5. **Architecture Boundary Tests**: PASS — 40 passed, shared_kernel boundaries respected
+6. **Check Scripts**:
+   - `check-no-future-placeholder-comments.sh`: PASS — No future-placeholder comments found
+   - `check-cross-task-deferral.sh`: PASS — No cross-task deferral comments found
+   - `check-weak-test-assertions.sh`: PASS — No weak categorical assertions found
+   - `check-fake-success-notifications.sh`: PASS
+   - `check-no-coming-soon-stubs.sh`: Pre-existing FAIL in `src/dev-ui/app/layouts/default.vue` — **not introduced by this task** (0 lines of dev-ui changed in this diff; this failure exists on alpha)
+   - `check-auth-status-codes.sh`: Pre-existing REVIEW REQUIRED in IAM integration tests — **not introduced by this task**
+7. **Commit Trailers**: PASS — Both `Spec-Ref` and `Task-Ref` present
+8. **Integration Tests**: NOT RUN — task only touches pure domain logic (shared_kernel), no infrastructure or presentation layer changes
+
+### Code Review Findings
+
+- **No logger/print usage**: domain logic uses no logging; pure computation only ✓
+- **No MagicMock/AsyncMock**: no test doubles in the new tests; all assertions against real `EntityIdGenerator` ✓
+- **DDD boundaries respected**: `shared_kernel.graph_primitives` imports only `hashlib` (stdlib); no bounded context imports ✓
+- **Conventional commits**: `test:` prefix with `Spec-Ref` and `Task-Ref` trailers ✓
+- **No hardcoded secrets or credentials** ✓
+
+### Spec Alignment
+
+All four spec requirements are correctly implemented and explicitly tested:
+
+- **Deterministic Node IDs**: `TestCanonicalHashInput::test_node_canonical_input_is_tenant_type_slug` verifies exact canonical format `{tenant_id}:{entity_type}:{entity_slug}` ✓
+- **Deterministic Edge IDs**: `test_edge_canonical_input_is_tenant_start_type_end` verifies `{tenant_id}:{start_id}:{edge_type}:{end_id}` ✓
+- **Canonical Hash Input**: Both node and edge canonical inputs explicitly tested against computed SHA256 values ✓
+- **SHA256-Based Hashing**: `TestSHA256HashDerivation` tests confirm first 16 chars of SHA256 hex digest are used, and explicitly assert the suffix is NOT the full digest ✓
+
+### Nature of the Change
+
+This is a test-only addition (+ doc comment clarification). The underlying `EntityIdGenerator` implementation was already correct — the misleading `TODO` comments implied tenant_id was not yet incorporated when it was. The commit:
+1. Removes those misleading TODO comments (replacing with accurate canonical format docs)
+2. Adds `TestCanonicalHashInput` and `TestSHA256HashDerivation` test classes that explicitly prove the spec scenarios hold against the actual SHA256 computation

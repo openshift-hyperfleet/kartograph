@@ -1,71 +1,49 @@
 ---
 verdict: pass
 ---
-## Independent Re-Review — Round 4
+## Spec Alignment Review — Round 5 (re-verification)
 
-All checks pass. The three PARTIAL coverage gaps from Round 3 have been fully addressed.
+All three previously-identified PARTIAL items are fully addressed.
+All 2012 unit tests pass.
 
-## Checklist Results
+## Requirement Status
 
-### 1. Unit Tests — PASS
-2012 tests, zero failures, zero errors.
-```
-====================== 2012 passed, 36 warnings in 45.07s ======================
-```
+### 1. Mutation Log Format — Parse error line number + content preview: COVERED
 
-### 2. Linting — PASS
-```
-All checks passed!
-```
+`test_returns_error_on_invalid_json` (test_mutation_service.py lines 531-565) now asserts:
+- `"1" in first_error` — line number present in first error message
+- `len(result.errors) >= 2` — second error entry exists for content preview
+- `"line content" in result.errors[1].lower()` — second entry contains "Line content:" preview
 
-### 3. Formatting — PASS
-```
-440 files already formatted
-```
+Implementation at graph_mutation_service.py lines 268-278 returns:
+  `errors=["JSON parse error on line {line_num}: ...", "Line content: {line_preview}"]`
 
-### 4. Type Checking — PASS
-```
-Success: no issues found in 440 source files
-```
+### 2. DEFINE (node type, system properties): COVERED
 
-### 5. Architecture Boundary Tests — PASS
-40 tests passing. All DDD layer rules enforced.
-
-### 6. Integration Tests — SKIPPED (no running instance)
-The task does touch presentation/infrastructure layers. Integration tests were not
-run due to no live instance. However, the integration test in `test_auth_enforcement.py`
-was updated to use the new route path `/graph/knowledge-graphs/{id}/mutations`.
-
-### 7. Code Review — PASS
-
-All three gaps from Round 3 are now covered:
-
-#### Gap 1: Parse error line number + content preview (FIXED)
-`test_returns_error_on_invalid_json` now asserts:
-- `"1" in first_error` — line number present in error message
-- `len(result.errors) >= 2` — second error entry exists
-- `"line content" in result.errors[1].lower()` — content preview present
-
-#### Gap 2: DEFINE node type system properties (FIXED)
-`test_apply_mutations_stores_define_operations` now asserts:
+`test_apply_mutations_stores_define_operations` (test_mutation_service.py lines 107-109) now asserts:
 - `"data_source_id" in saved_type_def.required_properties`
 - `"source_path" in saved_type_def.required_properties`
 - `"slug" in saved_type_def.required_properties`
 
-#### Gap 3: Referential Integrity Ordering (FIXED)
+Implementation at graph_mutation_service.py lines 196-204 calls
+`get_system_properties_for_entity(op.type)` and merges into `required_properties`.
+
+### 3. Referential Integrity Ordering — _sort_operations() unit test: COVERED
+
 New file `tests/unit/graph/infrastructure/test_mutation_applier_sort.py` with
 `TestSortOperationsReferentialIntegrity` containing three tests:
-- `test_sort_order_define_delete_create_update`: asserts spec-mandated positions
-  (DEFINE→DELETE-edge→DELETE-node→CREATE-node→CREATE-edge→UPDATE) on a maximally-mixed list
-- `test_sort_preserves_all_operations`: identity check — no ops dropped or duplicated
-- `test_sort_homogeneous_list_unchanged_length`: homogeneous batches pass through intact
+- `test_sort_order_define_delete_create_update`: creates a maximally-mixed 6-op batch
+  (UPDATE, CREATE-edge, DELETE-node, DEFINE, DELETE-edge, CREATE-node) and asserts
+  exact positional ordering: DEFINE→DELETE-edge→DELETE-node→CREATE-node→CREATE-edge→UPDATE
+- `test_sort_preserves_all_operations`: identity check via `id(op)` — no ops dropped or duplicated
+- `test_sort_homogeneous_list_unchanged_length`: homogeneous DELETE batch passes through intact
 
-#### Additional Observations
-- `MagicMock` appears in `test_mutation_applier_sort.py` only as a constructor stub for
-  `AgeGraphClient` and `AgeBulkLoadingStrategy` (infrastructure collaborators). The method
-  under test (`_sort_operations`) is pure and never touches these objects. This is
-  consistent with the fake-over-mock policy which targets domain/application collaborators.
-- Commit `57497b84` carries `Spec-Ref` and `Task-Ref` trailers as required.
-- No logger/print statements in implementation changes. Domain probes used throughout.
-- No hardcoded secrets or credentials.
-- Conventional commit messages used throughout.
+Implementation at mutation_applier.py lines 50-81: `_sort_operations()` present with correct
+priority map {"DEFINE":0, "DELETE":1, "CREATE":2, "UPDATE":3} and sub-ordering
+(DELETE: edge=0/node=1; CREATE/UPDATE: node=0/edge=1).
+
+## Test Run
+
+```
+2012 passed, 36 warnings in 43.74s
+```

@@ -1,129 +1,106 @@
 ---
 verdict: pass
 report: |
-  # Spec Alignment Review — task-008 Knowledge Graphs (Gate 7)
-  Review date: 2026-04-23
+  # Task-008 Knowledge Graphs — Final PR Feedback Resolution (2026-04-23)
 
-  ## Spec Requirements Status
+  All CodeRabbit actionable PR feedback items have been verified in the
+  current codebase. Unit tests: 2066 passed, 0 failed.
 
-  ### Requirement: Knowledge Graph Creation — COVERED
-  - Scenario "Successful creation": test_create_knowledge_graph_returns_201_with_knowledge_graph
-    verifies 201, id, workspace_id, name, description, created_at, updated_at.
-    Service test verifies ULID generation, workspace/tenant association, outbox event
-    for SpiceDB relationship establishment (via ManagementEventTranslator).
-  - Scenario "Duplicate name within tenant": test_create_knowledge_graph_returns_409_on_duplicate
-    verifies 409 Conflict. Service test verifies DuplicateKnowledgeGraphNameError raised.
+  ---
 
-  ### Requirement: Knowledge Graph Name Validation — COVERED
-  - Scenario "Valid name": Pydantic model enforces min_length=1, max_length=100.
-  - Scenario "Empty or oversized name": test_create_knowledge_graph_returns_422_on_empty_name
-    and test_create_knowledge_graph_returns_422_on_name_too_long verify 422 for violations.
+  ## Verified PR Feedback Items
 
-  ### Requirement: Knowledge Graph Retrieval — COVERED
-  - Scenario "Authorized retrieval": test_get_knowledge_graph_returns_200_with_knowledge_graph
-    (test_knowledge_graph_routes.py lines 282-289) returns 200 with id, workspace_id, name,
-    description, created_at, updated_at. No tenant_id in response body.
-  - Scenario "Unauthorized or non-existent": test_get_knowledge_graph_returns_404_when_not_found
-    verifies 404 with no distinction between unauthorized and missing.
+  ### Item 1: YAML format (worker-result.yaml) — RESOLVED
+  Current .hyperloop/worker-result.yaml uses `verdict: pass` + `report: |` block
+  scalar with consistent indentation throughout. No top-level markdown tokens.
 
-  ### Requirement: Knowledge Graph Listing — COVERED
-  - Scenario "List for workspace": TestListKnowledgeGraphs verifies
-    GET /management/workspaces/{ws_id}/knowledge-graphs returns workspace-scoped list.
-    Service tests verify SpiceDB VIEW check per KG.
-  - TestListAllKnowledgeGraphs (line 358): 4 tests for GET /management/knowledge-graphs
-    covering 200 with list, 200 empty, service called with user_id, 401 for unauthenticated.
+  ### Item 2: Encryption key CSV normalization — RESOLVED
+  management/dependencies/knowledge_graph.py lines 49-53:
+    encryption_keys = [k.strip() for k in settings.encryption_key.get_secret_value().split(",") if k.strip()]
+  management/dependencies/data_source.py lines 48-52: identical pattern applied.
+  Both strip whitespace AND filter empty strings from comma-separated key list.
 
-  ### Requirement: Knowledge Graph Update — COVERED
-  - Scenario "Update name and description": TestUpdateKnowledgeGraph verifies PATCH
-    returns 200 with updated fields. Service verifies edit permission check.
+  ### Item 3: tenant_id assertion removed from response tests — RESOLVED
+  test_knowledge_graph_routes.py lines 145-152 (create test): asserts id, workspace_id,
+  name, description, created_at, updated_at — no result["tenant_id"] assertion.
+  Lines 282-289 (get test): same fields only, no tenant_id. Word tenant_id only
+  appears in fixture construction (lines 44, 53, 76), not in response assertions.
 
-  ### Requirement: Knowledge Graph Deletion — COVERED
-  - Scenario "Successful deletion": TestDeleteKnowledgeGraph verifies 204.
-    test_delete_cascades_encrypted_credentials (service test ~line 700) verifies
-    secret_store.delete() called for each DS with credentials_path inside cascade transaction.
-    Service verifies all DS deleted, KG record deleted, SpiceDB relationships cleaned up
-    (workspace, tenant, admin/editor/viewer direct grants) within single transaction.
-    test_delete_rolls_back_on_ds_deletion_failure verifies transaction rollback on failure.
-  - Scenario "Mutation after deletion": test_delete_raises_on_deleted_knowledge_graph
-    verifies KnowledgeGraphDeletedError raised on subsequent mutations.
+  ### Item 4: loadDataSources N+1 fix — RESOLVED
+  data-sources/index.vue loadDataSources() at lines 551-599:
+  - Promise.all(kgs.map(...)) for parallel KG data-source fetching
+  - Nested Promise.all(sources.map(...)) for parallel sync-run fetching
+  - Stale-response guard via _loadRequestId at lines 554, 561, 591, 596
 
-  ### Requirement: Permission Inheritance — COVERED
-  - Scenario "Workspace-inherited access": SpiceDB schema test (test_schema_design.py)
-    validates schema expressions for workspace->KG permission inheritance.
-    Integration tests in test_knowledge_graph_authorization.py cover live SpiceDB scenarios.
-  - Scenario "Direct grant": Schema test validates direct admin grant yields manage/edit/view.
+  ### Item 5: InEditor variant handlers — RESOLVED
+  data-sources/index.vue lines 431-473 define:
+  startEditNodeInEditor, saveEditNodeInEditor, cancelEditNodeInEditor,
+  startEditEdgeInEditor, saveEditEdgeInEditor, cancelEditEdgeInEditor
+  All operate on editNodes.value and editEdges.value (not proposedNodes/proposedEdges).
+  Template (lines 1378, 1405, 1408, 1431, 1447, 1450) wires these to buttons
+  in the ontology editor dialog.
 
-  ## PR Feedback Items
+  ### Item 6: saveOntologyEdits + Save button — RESOLVED
+  saveOntologyEdits() defined at line 664: shows success toast and calls closeOntologyEditor().
+  Save Changes button at template line 1461 calls saveOntologyEdits.
+  closeOntologyEditor() at line 671 resets editOntologyOpen, editingDataSource,
+  pendingOntologyEditDsId, editNodes, editEdges.
 
-  ### Item 1: architecture test exclusion — RESOLVED
-  test_architecture.py lines 248-253 uses four targeted exclusions:
+  ### Item 7: knowledge-graphs handleCreate workspace-scoped endpoint — RESOLVED
+  knowledge-graphs/index.vue line 112: apiFetch uses
+    `/management/workspaces/${rootWorkspaceId.value}/knowledge-graphs`
+  Line 64: rootWorkspaceId set from listWorkspaces() root workspace.
+
+  ### Item 8: loadKnowledgeGraphs error handling — RESOLVED
+  knowledge-graphs/index.vue lines 80-87:
+  - catch block: sets knowledgeGraphs.value = [] AND calls toast.error('Failed to load
+    knowledge graphs', { description: extractErrorMessage(err) })
+  - finally block: sets loadingKgs.value = false
+
+  ### Item 9: index.test.ts real behavior tests — RESOLVED
+  Tests verify actual sessionStorage API behavior (remove + getItem returns null,
+  set + getItem not null) and real math logic (completedCount filter, percentage calc).
+  Not raw primitive tautologies.
+
+  ### Item 10: knowledge-graphs.test.ts workspace-scoped endpoint — RESOLVED
+  knowledge-graphs.test.ts line 63 calls apiFetch with:
+    `/management/workspaces/${workspaceId}/knowledge-graphs`
+  Line 79 asserts apiFetch was called with this exact workspace-scoped path.
+  Line 2: imports real buildQueryGraphArgs from ~/composables/api/useQueryApi.
+  Lines 458-484: 3 tests exercise real buildQueryGraphArgs (not local copies).
+
+  ### Item 11: TestListAllKnowledgeGraphs — RESOLVED
+  Class at test_knowledge_graph_routes.py line 358 with 4 tests:
+  test_list_all_knowledge_graphs_returns_200_with_list (lines 361-378),
+  test_list_all_knowledge_graphs_returns_200_with_empty_list (lines 380-393),
+  test_list_all_knowledge_graphs_calls_service_with_user_id (lines 395-408),
+  test_list_all_knowledge_graphs_returns_401_when_not_authenticated (lines 410-417).
+
+  ### Item 12: Architecture test targeted exclusions — RESOLVED
+  test_architecture.py lines 246-255 uses four targeted exclusions:
     "management.dependencies*"
     "management.presentation.knowledge_graphs.routes*"
     "management.presentation.knowledge_graphs"
     "management.presentation"
-  NOT the broad "management.presentation*" pattern. Docstring at lines 242-243 explicitly
-  notes management.presentation.knowledge_graphs.models is NOT excluded.
+  NOT the broad "management.presentation*" pattern. Docstring at lines 242-243
+  explicitly notes management.presentation.knowledge_graphs.models is NOT excluded.
 
-  ### Item 2: tenant_id assertion — RESOLVED
-  Lines 145-149 (create test): asserts id, workspace_id, name, description, created_at, updated_at.
-  Lines 283-287 (get test): asserts id, workspace_id, name, description, created_at, updated_at.
-  No result["tenant_id"] assertions in response-body tests. The word tenant_id only appears in
-  fixture construction (lines 44, 53, 76) not in response assertions.
+  ### Item 13: workspace routes typed exceptions — RESOLVED
+  iam/presentation/workspaces/routes.py lines 15-22: imports ParentWorkspaceCrossTenantError
+  and ParentWorkspaceNotFoundError. Lines 85-95: catches all three
+  (UnauthorizedError, ParentWorkspaceNotFoundError, ParentWorkspaceCrossTenantError)
+  in a single except clause → HTTP 404. No ValueError string parsing.
 
-  ### Item 3: typed exceptions — RESOLVED
-  iam/ports/exceptions.py lines 103-123: ParentWorkspaceNotFoundError and
-  ParentWorkspaceCrossTenantError defined with docstrings.
-  workspace_service.py lines 166 and 172: raises both exceptions respectively.
-  routes.py lines 18-19: imports both; lines 85-89: catches both in single except clause
-  with UnauthorizedError; line 57: 404 advertised in OpenAPI responses map.
-
-  ### Item 4: workspace_service.py docstring — RESOLVED
-  create_workspace Raises section (lines 129-133) lists all four typed exceptions:
+  ### Item 14: workspace_service.py docstring — RESOLVED
+  create_workspace Raises section (lines 128-133) lists all four typed exceptions:
   UnauthorizedError, DuplicateWorkspaceNameError, ParentWorkspaceNotFoundError,
   ParentWorkspaceCrossTenantError.
 
-  ### Item 5: TestListAllKnowledgeGraphs — RESOLVED
-  Class exists at test_knowledge_graph_routes.py line 358 with 4 tests:
-  test_list_all_knowledge_graphs_returns_200_with_list,
-  test_list_all_knowledge_graphs_returns_200_with_empty_list,
-  test_list_all_knowledge_graphs_calls_service_with_user_id,
-  test_list_all_knowledge_graphs_returns_401_when_not_authenticated.
-
-  ### Item 6: knowledge-graphs/index.vue — RESOLVED
-  handleCreate() at line 112 uses workspace-scoped endpoint:
-    /management/workspaces/${rootWorkspaceId.value}/knowledge-graphs
-  loadKnowledgeGraphs() at lines 71-88 shows toast.error on error (lines 82-84) with
-  finally block at lines 85-87 setting loadingKgs.value = false.
-
-  ### Item 7: knowledge-graphs.test.ts — RESOLVED
-  Line 2: imports real buildQueryGraphArgs from ~/composables/api/useQueryApi (not inline copy).
-  Line 79: asserts workspace-scoped endpoint /management/workspaces/${workspaceId}/knowledge-graphs.
-  Lines 458-484: 3 tests exercise real buildQueryGraphArgs from production composable.
-
-  ### Item 8: data-sources/index.vue InEditor variants — RESOLVED
-  Lines 431-473: startEditNodeInEditor, saveEditNodeInEditor, cancelEditNodeInEditor,
-  startEditEdgeInEditor, saveEditEdgeInEditor, cancelEditEdgeInEditor all defined, operating
-  on editNodes.value and editEdges.value. Template at lines 1378, 1405, 1408, 1431, 1447, 1450
-  wires these to buttons in the ontology editor dialog.
-
-  ### Item 9: data-sources/index.vue Save button — RESOLVED
-  saveOntologyEdits() defined at line 664. Save Changes button at template line 1461 calls it.
-
-  ### Item 10: data-sources/index.vue N+1 fetching — RESOLVED
-  loadDataSources() at lines 563-590 uses Promise.all(kgs.map(...)) for parallel KG fetching
-  and nested Promise.all(sources.map(...)) for parallel sync run fetching. Race condition
-  guard via _loadRequestId stale-check at lines 561 and 591.
-
-  ### Item 11: index.test.ts tautological test — RESOLVED
-  First test (line 4) calls sessionStorage.removeItem('kartograph:visited') then asserts
-  getItem returns null — real behavior test, not a tautology.
-
-  ### Item 12: encryption key CSV normalization — RESOLVED
-  knowledge_graph.py lines 49-53: k.strip() for value AND if k.strip() for filter.
-  data_source.py lines 48-52: identical pattern applied. Both strip whitespace and filter
-  empty entries from comma-separated key list.
+  ---
 
   ## Test Run
-  334 management unit tests: PASS (4.61s)
-  All 12 PR feedback items: RESOLVED
+  2066 management unit tests: PASS (56.55s)
+  check-no-coming-soon-stubs.sh: PASS
+  check-no-future-placeholder-comments.sh: PASS
+  All 14 PR feedback items: RESOLVED
   All 6 spec requirements with 11 scenarios: COVERED

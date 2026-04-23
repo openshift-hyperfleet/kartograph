@@ -23,6 +23,7 @@ from management.ports.repositories import (
     IDataSourceRepository,
     IKnowledgeGraphRepository,
 )
+from management.ports.secret_store import ISecretStoreRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
@@ -48,6 +49,7 @@ class KnowledgeGraphService:
         scope_to_tenant: str,
         probe: KnowledgeGraphServiceProbe | None = None,
         data_source_repository: IDataSourceRepository | None = None,
+        secret_store: ISecretStoreRepository | None = None,
     ) -> None:
         """Initialize KnowledgeGraphService with dependencies.
 
@@ -58,6 +60,7 @@ class KnowledgeGraphService:
             scope_to_tenant: Tenant ID string to scope this service to
             probe: Optional domain probe for observability
             data_source_repository: Optional DS repository for cascade delete
+            secret_store: Optional secret store for encrypted credential cleanup
         """
         self._session = session
         self._kg_repo = knowledge_graph_repository
@@ -65,6 +68,7 @@ class KnowledgeGraphService:
         self._scope_to_tenant = scope_to_tenant
         self._probe = probe or DefaultKnowledgeGraphServiceProbe()
         self._ds_repo = data_source_repository
+        self._secret_store = secret_store
 
     async def _check_permission(
         self,
@@ -370,6 +374,11 @@ class KnowledgeGraphService:
             if self._ds_repo is not None:
                 data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
                 for ds in data_sources:
+                    if ds.credentials_path and self._secret_store is not None:
+                        await self._secret_store.delete(
+                            path=ds.credentials_path,
+                            tenant_id=self._scope_to_tenant,
+                        )
                     ds.mark_for_deletion(deleted_by=user_id)
                     await self._ds_repo.delete(ds)
 

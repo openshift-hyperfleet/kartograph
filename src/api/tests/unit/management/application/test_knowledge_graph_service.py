@@ -54,6 +54,12 @@ def mock_ds_repo():
 
 
 @pytest.fixture
+def mock_secret_store():
+    """Create a mock ISecretStoreRepository."""
+    return AsyncMock()
+
+
+@pytest.fixture
 def mock_authz():
     """Create a mock AuthorizationProvider."""
     return AsyncMock()
@@ -82,13 +88,20 @@ def workspace_id():
 
 @pytest.fixture
 def service(
-    mock_session, mock_kg_repo, mock_ds_repo, mock_authz, mock_probe, tenant_id
+    mock_session,
+    mock_kg_repo,
+    mock_ds_repo,
+    mock_secret_store,
+    mock_authz,
+    mock_probe,
+    tenant_id,
 ):
     """Create a KnowledgeGraphService with mocked dependencies."""
     return KnowledgeGraphService(
         session=mock_session,
         knowledge_graph_repository=mock_kg_repo,
         data_source_repository=mock_ds_repo,
+        secret_store=mock_secret_store,
         authz=mock_authz,
         scope_to_tenant=tenant_id,
         probe=mock_probe,
@@ -638,7 +651,9 @@ class TestKnowledgeGraphServiceDelete:
         """
         kg = _make_kg(tenant_id=tenant_id)
         ds1 = MagicMock()
+        ds1.credentials_path = None
         ds2 = MagicMock()
+        ds2.credentials_path = None
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = kg
         mock_ds_repo.find_by_knowledge_graph.return_value = [ds1, ds2]
@@ -650,3 +665,43 @@ class TestKnowledgeGraphServiceDelete:
 
         # KG must NOT have been deleted — the transaction rolls back
         mock_kg_repo.delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_cascades_encrypted_credentials(
+        self,
+        service,
+        mock_authz,
+        mock_kg_repo,
+        mock_ds_repo,
+        mock_secret_store,
+        user_id,
+        tenant_id,
+    ):
+        """delete() calls secret_store.delete for each DS that has a credentials_path.
+
+        Verifies the cascade includes encrypted credential cleanup — not just the
+        repository record — mirroring the behavior of DataSourceService.delete().
+        Data sources without a credentials_path must NOT trigger a secret store call.
+        """
+        kg = _make_kg(tenant_id=tenant_id)
+        ds_with_creds = MagicMock()
+        ds_with_creds.credentials_path = "datasource/ds-001/credentials"
+        ds_no_creds = MagicMock()
+        ds_no_creds.credentials_path = None
+
+        mock_authz.check_permission.return_value = True
+        mock_kg_repo.get_by_id.return_value = kg
+        mock_ds_repo.find_by_knowledge_graph.return_value = [ds_with_creds, ds_no_creds]
+        mock_ds_repo.delete.return_value = True
+        mock_kg_repo.delete.return_value = True
+
+        result = await service.delete(user_id=user_id, kg_id=kg.id.value)
+
+        assert result is True
+        # Credentials must be deleted for the DS that has a path
+        mock_secret_store.delete.assert_awaited_once_with(
+            path="datasource/ds-001/credentials",
+            tenant_id=tenant_id,
+        )
+        # Both DS records should be deleted
+        assert mock_ds_repo.delete.call_count == 2

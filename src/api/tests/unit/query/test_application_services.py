@@ -1,16 +1,10 @@
 """Unit tests for Querying application services.
 
-Uses fakes (not mocks) for repository and probe collaborators, per
-testing.spec.md: "mocking is NOT acceptable for repositories or probe protocols".
-"""
-
-from __future__ import annotations
-
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, create_autospec
 
 import pytest
 
-from query.application.observability import DefaultQueryServiceProbe
+from query.application.observability import DefaultQueryServiceProbe, QueryServiceProbe
 from query.application.services import MCPQueryService
 from query.domain.value_objects import (
     CypherQueryResult,
@@ -556,10 +550,8 @@ class TestExecuteCypherQuery:
         assert result.query == "MATCH (n) RETURN n"
 
     def test_forbidden_error_includes_correlation_id_in_response(
-        self,
-        service: MCPQueryService,
-        fake_repository: FakeQueryGraphRepository,
-    ) -> None:
+        self, service, mock_repository
+    ):
         """Forbidden QueryError MUST carry a correlation ID (spec: keyword blacklist scenario).
 
         The error response includes a correlation ID so consumers can look up
@@ -569,7 +561,7 @@ class TestExecuteCypherQuery:
             "Query must be read-only. Found forbidden keyword: CREATE"
         )
         exc.correlation_id = "test-corr-id-abc123"
-        fake_repository.side_effect = exc
+        mock_repository.execute_cypher.side_effect = exc
 
         result = service.execute_cypher_query("CREATE (n:Test)")
 
@@ -577,32 +569,28 @@ class TestExecuteCypherQuery:
         assert result.correlation_id == "test-corr-id-abc123"
 
     def test_forbidden_error_correlation_id_included_in_probe_call(
-        self,
-        service: MCPQueryService,
-        fake_repository: FakeQueryGraphRepository,
-        fake_probe: FakeQueryServiceProbe,
-    ) -> None:
+        self, service, mock_repository, mock_probe
+    ):
         """The probe should receive the correlation ID so it can be logged."""
         exc = QueryForbiddenError(
             "Query must be read-only. Found forbidden keyword: CREATE"
         )
         exc.correlation_id = "probe-corr-id-xyz"
-        fake_repository.side_effect = exc
+        mock_repository.execute_cypher.side_effect = exc
 
         service.execute_cypher_query("CREATE (n:Test)")
 
-        assert len(fake_probe.rejected_calls) == 1
-        assert fake_probe.rejected_calls[0]["correlation_id"] == "probe-corr-id-xyz"
+        mock_probe.cypher_query_rejected.assert_called_once()
+        call_kwargs = mock_probe.cypher_query_rejected.call_args.kwargs
+        assert call_kwargs.get("correlation_id") == "probe-corr-id-xyz"
 
     def test_timeout_error_includes_correlation_id_in_response(
-        self,
-        service: MCPQueryService,
-        fake_repository: FakeQueryGraphRepository,
-    ) -> None:
+        self, service, mock_repository
+    ):
         """Timeout QueryError MUST carry a correlation ID (spec: timeout scenario)."""
         exc = QueryTimeoutError("Query exceeded 5s timeout")
         exc.correlation_id = "timeout-corr-id-456"
-        fake_repository.side_effect = exc
+        mock_repository.execute_cypher.side_effect = exc
 
         result = service.execute_cypher_query("MATCH (n) RETURN n")
 
@@ -610,25 +598,18 @@ class TestExecuteCypherQuery:
         assert result.correlation_id == "timeout-corr-id-456"
 
     def test_timeout_error_correlation_id_included_in_probe_call(
-        self,
-        service: MCPQueryService,
-        fake_repository: FakeQueryGraphRepository,
-        fake_probe: FakeQueryServiceProbe,
-    ) -> None:
+        self, service, mock_repository, mock_probe
+    ):
         """The probe should receive the correlation ID for timeout failures."""
         exc = QueryTimeoutError("Query exceeded 5s timeout")
         exc.correlation_id = "timeout-probe-corr-789"
-        fake_repository.side_effect = exc
+        mock_repository.execute_cypher.side_effect = exc
 
         service.execute_cypher_query("MATCH (n) RETURN n")
 
-        assert len(fake_probe.failed_calls) == 1
-        assert fake_probe.failed_calls[0]["correlation_id"] == "timeout-probe-corr-789"
-
-
-# ---------------------------------------------------------------------------
-# TestDefaultQueryServiceProbe
-# ---------------------------------------------------------------------------
+        mock_probe.cypher_query_failed.assert_called_once()
+        call_kwargs = mock_probe.cypher_query_failed.call_args.kwargs
+        assert call_kwargs.get("correlation_id") == "timeout-probe-corr-789"
 
 
 class TestDefaultQueryServiceProbe:
@@ -637,13 +618,9 @@ class TestDefaultQueryServiceProbe:
     Spec (Req 1B): When a forbidden query is rejected, a 'redacted reference'
     MUST be logged — not the raw query text. This class enforces that contract
     as an automated assertion rather than relying solely on code convention.
-
-    The structlog logger itself is mocked here because it is infrastructure
-    (analogous to an HTTP client); we are testing the probe's behaviour
-    toward its logger, not the logger itself.
     """
 
-    def test_cypher_query_rejected_does_not_log_raw_query(self) -> None:
+    def test_cypher_query_rejected_does_not_log_raw_query(self):
         """Raw query text MUST NOT appear in any log argument on rejection.
 
         The probe receives the raw query so callers don't need to omit it, but
@@ -683,7 +660,7 @@ class TestDefaultQueryServiceProbe:
                 f"but found it in: {val!r}"
             )
 
-    def test_cypher_query_rejected_logs_correlation_id(self) -> None:
+    def test_cypher_query_rejected_logs_correlation_id(self):
         """Correlation ID MUST be present in the log call for operator lookup."""
         mock_logger = MagicMock()
         probe = DefaultQueryServiceProbe(logger=mock_logger)
@@ -698,7 +675,7 @@ class TestDefaultQueryServiceProbe:
         call_kwargs = mock_logger.warning.call_args.kwargs
         assert call_kwargs.get("correlation_id") == "corr-id-abc-123"
 
-    def test_cypher_query_rejected_logs_reason(self) -> None:
+    def test_cypher_query_rejected_logs_reason(self):
         """Rejection reason MUST be present in the log call."""
         mock_logger = MagicMock()
         probe = DefaultQueryServiceProbe(logger=mock_logger)

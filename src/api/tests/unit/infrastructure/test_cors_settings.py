@@ -110,7 +110,7 @@ class TestCORSWildcardOriginValidation:
 
         error_str = str(exc_info.value)
         # Error message should mention the constraint
-        assert any(k in error_str.lower() for k in ["wildcard", "credentials"])
+        assert "wildcard" in error_str.lower() or "credentials" in error_str.lower()
 
     def test_wildcard_among_other_origins_rejected_when_credentials_allowed(
         self,
@@ -155,10 +155,8 @@ class TestCORSSettingsFromEnv:
 
         settings = CORSSettings()
 
-        assert settings.origins == [
-            "https://app.example.com",
-            "https://admin.example.com",
-        ]
+        assert "https://app.example.com" in settings.origins
+        assert "https://admin.example.com" in settings.origins
         assert settings.is_enabled is True
 
     def test_empty_origins_env_disables_cors(

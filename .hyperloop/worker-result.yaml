@@ -1,0 +1,113 @@
+---
+verdict: pass
+---
+## Spec Alignment Review — Outbox (outbox.spec.md)
+
+Reviewed branch: `hyperloop/task-017`
+Spec file: `specs/shared-kernel/outbox.spec.md`
+
+All SHALL/MUST requirements are implemented and tested.
+
+---
+
+## Requirement Status
+
+### REQ-1: Transactional Event Storage — COVERED
+
+**Scenario: Successful write**
+- Implementation: `OutboxRepository.append()` calls `session.add()` only; never calls `session.commit()`. The calling service owns the transaction boundary.
+- Unit test: `test_repository_append_does_not_commit`
+- Integration test: `TestAtomicityGuarantees.test_outbox_entry_created_in_same_transaction_as_group`
+
+**Scenario: Transaction rollback**
+- Implementation: Repository never commits; rollback by the caller's context manager discards pending entries.
+- Unit test: `test_failed_service_call_leaves_no_outbox_entries`
+- Integration test: `TestAtomicityGuarantees.test_rollback_removes_both_group_and_outbox_entry`
+
+---
+
+### REQ-2: Event Processing — COVERED
+
+**Scenario: Normal processing**
+- Implementation: `OutboxWorker._process_entries()` → `handler.handle()` → `_mark_processed()` sets `processed_at`
+- Unit tests: `test_processes_unprocessed_entries`, `test_marks_entry_as_processed`, `test_calls_event_processed_on_success`
+- Integration tests: `test_worker_processes_group_created_and_writes_to_spicedb`, `test_worker_processes_member_added_and_writes_to_spicedb`
+
+**Scenario: Transient failure**
+- Implementation: `except Exception` in `_process_entries()` → `_handle_processing_failure()` → `_increment_retry()` updates `retry_count` and `last_error`
+- Unit tests: `test_transient_failure_increments_retry_count`, `test_calls_event_processing_failed_on_error`, `test_transient_failure_does_not_dlq_immediately`
+
+**Scenario: Permanent failure (dead letter)**
+- Implementation: `_handle_processing_failure()` → when `new_retry_count >= max_retries` → `_move_to_dlq()` sets `failed_at`; `failed_at IS NULL` filter in `_process_batch()` excludes DLQ entries
+- Unit tests: `test_max_retries_moves_entry_to_dlq`, `test_failed_entries_excluded_from_fetch`
+
+---
+
+### REQ-3: Idempotent Event Handlers — COVERED
+
+**Scenario: Duplicate delivery**
+
+Previously PARTIAL in Round 0. Gap now closed with two tests added in commit `d9056203`:
+
+- **Unit test:** `tests/unit/infrastructure/outbox/test_spicedb_handler.py::TestSpiceDBEventHandlerIdempotency::test_duplicate_invocation_produces_identical_final_state` — uses a `FakeAuthorizationProvider` storing relationships in a Python set; invokes the handler twice with the same payload; asserts relationship set is unchanged and no duplicate side effects occur.
+
+- **Integration test:** `tests/integration/iam/test_outbox_consistency.py::TestIdempotentEventHandlers::test_handler_invoked_twice_produces_same_spicedb_state` — (1) creates a group, (2) directly invokes the SpiceDB handler (first execution — relationship written), (3) leaves outbox entry unprocessed (simulates partial failure before `_mark_processed`), (4) runs `worker._process_batch()` (second invocation + marks processed), (5) asserts `processed_at` is set and SpiceDB contains exactly the expected relationships with no duplicates.
+
+This integration test exercises the precise Given/When/Then described in the spec.
+
+Implementation correctness confirmed:
+- `write_relationship()` uses `OPERATION_TOUCH` (SpiceDB upsert) — duplicate writes are no-ops.
+- `_process_batch()` and `_process_single()` both filter `processed_at IS NULL AND failed_at IS NULL`, preventing re-delivery of already-processed entries.
+
+---
+
+### REQ-4: Concurrent Worker Safety — COVERED
+
+**Scenario: Concurrent workers**
+- Implementation: `OutboxRepository.fetch_unprocessed()` and `OutboxWorker._process_batch()` both use `.with_for_update(skip_locked=True)`.
+- Unit test: `test_fetch_unprocessed_uses_for_update_skip_locked` — compiles query with PostgreSQL dialect and asserts `"SKIP LOCKED"` appears in the rendered SQL.
+
+---
+
+### REQ-5: Dual Delivery Mechanism — COVERED
+
+**Scenario: Real-time notification**
+- Implementation: Migration `d32ecc44581a` creates `notify_outbox_insert()` trigger firing `AFTER INSERT ON outbox` with `pg_notify('outbox_events', NEW.id::text)`; `PostgresNotifyEventSource.start()` listens via `asyncpg-listen` and invokes callback with parsed UUID; `OutboxWorker.start()` wires event source to `_process_single`.
+- Unit tests: `test_notify_triggers_callback_with_uuid`, `test_callback_receives_correct_uuid_type`
+- Integration test: `test_worker_processes_via_notify_not_polling` — uses `poll_interval_seconds=999`, inserts group, waits 500 ms, verifies `processed_at` set and SpiceDB relationship exists.
+
+**Scenario: Polling fallback**
+- Implementation: `OutboxWorker._poll_loop()` runs every `poll_interval_seconds` (default 30 s) calling `_process_batch()`.
+- Integration test: `test_worker_processes_group_created_and_writes_to_spicedb` exercises the `_process_batch()` code path end-to-end (SpiceDB write + `processed_at` set).
+
+---
+
+### REQ-6: Event Fan-Out — COVERED
+
+**Scenario: Multiple handlers registered**
+- Implementation: `CompositeEventHandler.register()` appends to `_handlers_by_type[event_type]`; `handle()` iterates all handlers for the type.
+- Unit test: `test_handle_fans_out_to_multiple_handlers` — registers two handlers for the same event type, asserts both are awaited.
+
+**Scenario: Unknown event type**
+- Implementation: `CompositeEventHandler.handle()` raises `UnknownEventTypeError`; `OutboxWorker._process_entries()` catches it before the generic `except Exception` clause and calls `_move_to_dlq()` immediately, bypassing all retry logic.
+- Unit tests: `test_handle_raises_for_unknown_event_type`, `test_unknown_event_type_error_is_not_value_error`, `test_unknown_event_type_immediately_moves_to_dlq`, `test_unknown_event_type_dlq_even_at_zero_retries`, `test_retry_not_called_for_unknown_event_type`.
+
+---
+
+## Summary Table
+
+| Requirement | Status |
+|---|---|
+| Transactional Event Storage — Successful write | COVERED |
+| Transactional Event Storage — Transaction rollback | COVERED |
+| Event Processing — Normal processing | COVERED |
+| Event Processing — Transient failure | COVERED |
+| Event Processing — Permanent failure (DLQ) | COVERED |
+| Idempotent Event Handlers — Duplicate delivery | COVERED |
+| Concurrent Worker Safety — Concurrent workers | COVERED |
+| Dual Delivery — Real-time notification | COVERED |
+| Dual Delivery — Polling fallback | COVERED |
+| Event Fan-Out — Multiple handlers | COVERED |
+| Event Fan-Out — Unknown event type | COVERED |
+
+All SHALL requirements have implementation and test coverage. Verdict: PASS.

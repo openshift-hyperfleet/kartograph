@@ -28,6 +28,7 @@ import {
   Cable,
   Plug,
   Settings2,
+  BookOpen,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -178,25 +179,25 @@ const homeItem: NavItem = { label: 'Home', icon: LayoutDashboard, to: '/' }
 
 const navSections: NavSection[] = [
   {
-    title: 'Knowledge',
+    title: 'Explore',
     items: [
-      { label: 'Schema Browser', icon: Database, to: '/graph/schema' },
-      { label: 'Explorer', icon: Share2, to: '/graph/explorer' },
       { label: 'Query Console', icon: Terminal, to: '/query' },
-      { label: 'Mutations', icon: FileCode, to: '/graph/mutations' },
+      { label: 'Schema Browser', icon: Database, to: '/graph/schema' },
+      { label: 'Graph Explorer', icon: Share2, to: '/graph/explorer' },
+    ],
+  },
+  {
+    title: 'Data',
+    items: [
+      { label: 'Knowledge Graphs', icon: BookOpen, to: '/knowledge-graphs' },
+      { label: 'Data Sources', icon: Cable, to: '/data-sources' },
     ],
   },
   {
     title: 'Connect',
     items: [
-      { label: 'Data Sources', icon: Cable, to: '#', disabled: true, badge: 'Soon' },
-    ],
-  },
-  {
-    title: 'Integrate',
-    items: [
       { label: 'API Keys', icon: KeyRound, to: '/api-keys' },
-      { label: 'MCP Endpoints', icon: Plug, to: '/integrate/mcp' },
+      { label: 'MCP Integration', icon: Plug, to: '/integrate/mcp' },
     ],
   },
   {
@@ -492,7 +493,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
                       </NuxtLink>
                     </TooltipTrigger>
                     <TooltipContent side="right" :side-offset="8">
-                      {{ item.label }}{{ item.disabled ? ' (Coming Soon)' : '' }}
+                      {{ item.label }}
                     </TooltipContent>
                   </Tooltip>
                 </template>

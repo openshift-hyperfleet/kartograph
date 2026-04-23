@@ -742,3 +742,77 @@ class TestKnowledgeGraphServiceDelete:
         )
         # Both DS records should be deleted
         assert mock_ds_repo.delete.call_count == 2
+
+
+# ---- list_all ----
+
+
+class TestKnowledgeGraphServiceListAll:
+    """Tests for KnowledgeGraphService.list_all."""
+
+    @pytest.mark.asyncio
+    async def test_list_all_returns_all_visible_kgs(
+        self,
+        service,
+        mock_authz,
+        mock_kg_repo,
+        mock_probe,
+        user_id,
+        tenant_id,
+    ):
+        """list_all() returns KGs the user can VIEW in the scoped tenant."""
+        kg1 = _make_kg(kg_id="kg-001", tenant_id=tenant_id)
+        kg2 = _make_kg(kg_id="kg-002", tenant_id=tenant_id)
+        mock_kg_repo.find_by_tenant.return_value = [kg1, kg2]
+        mock_authz.check_permission.return_value = True
+
+        result = await service.list_all(user_id=user_id)
+
+        assert len(result) == 2
+        mock_kg_repo.find_by_tenant.assert_called_once_with(tenant_id)
+        mock_probe.knowledge_graphs_listed.assert_called_once_with(
+            workspace_id=tenant_id,
+            count=2,
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_all_filters_unauthorized_kgs(
+        self,
+        service,
+        mock_authz,
+        mock_kg_repo,
+        user_id,
+        tenant_id,
+    ):
+        """list_all() excludes KGs the user cannot VIEW."""
+        kg1 = _make_kg(kg_id="kg-001", tenant_id=tenant_id)
+        kg2 = _make_kg(kg_id="kg-002", tenant_id=tenant_id)
+        mock_kg_repo.find_by_tenant.return_value = [kg1, kg2]
+        # Only the first KG is viewable
+        mock_authz.check_permission.side_effect = [True, False]
+
+        result = await service.list_all(user_id=user_id)
+
+        assert len(result) == 1
+        assert result[0].id.value == "kg-001"
+
+    @pytest.mark.asyncio
+    async def test_list_all_returns_empty_when_no_kgs(
+        self,
+        service,
+        mock_authz,
+        mock_kg_repo,
+        mock_probe,
+        user_id,
+        tenant_id,
+    ):
+        """list_all() returns empty list when no KGs in tenant."""
+        mock_kg_repo.find_by_tenant.return_value = []
+
+        result = await service.list_all(user_id=user_id)
+
+        assert result == []
+        mock_probe.knowledge_graphs_listed.assert_called_once_with(
+            workspace_id=tenant_id,
+            count=0,
+        )

@@ -32,6 +32,43 @@ from management.presentation.knowledge_graphs.models import (
 router = APIRouter(tags=["knowledge-graphs"])
 
 
+@router.get(
+    "/knowledge-graphs",
+    response_model=KnowledgeGraphListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="List all knowledge graphs",
+    description="""
+List all knowledge graphs in the tenant visible to the current user.
+
+Results are filtered by VIEW permission — only knowledge graphs the caller
+can access are returned.
+""",
+    response_description="List of viewable knowledge graphs",
+    responses={
+        200: {"description": "Knowledge graphs listed successfully"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Internal server error"},
+    },
+)
+async def list_all_knowledge_graphs(
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> KnowledgeGraphListResponse:
+    """List all knowledge graphs visible to the current user in their tenant."""
+    try:
+        kgs = await service.list_all(user_id=current_user.user_id.value)
+        kg_responses = [KnowledgeGraphResponse.from_domain(kg) for kg in kgs]
+        return KnowledgeGraphListResponse(
+            knowledge_graphs=kg_responses,
+            count=len(kg_responses),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list knowledge graphs",
+        )
+
+
 @router.post(
     "/workspaces/{workspace_id}/knowledge-graphs",
     response_model=KnowledgeGraphResponse,

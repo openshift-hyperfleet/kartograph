@@ -43,6 +43,7 @@ for pattern in "${STUB_PATTERNS[@]}"; do
     --exclude-dir=.git \
     --exclude-dir=dist \
     --exclude-dir=".nuxt" \
+    --exclude-dir=.venv \
     "$pattern" "$SOURCE_DIR" 2>/dev/null || true)
 
   if [[ -n "$hits" ]]; then

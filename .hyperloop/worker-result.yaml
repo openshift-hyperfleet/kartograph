@@ -23,9 +23,25 @@ Re-verification pass incorporating CodeRabbit PR feedback analysis.
 
 ---
 
+### Requirement Coverage
+
+| Requirement | Status | Implementation | Tests |
+|---|---|---|---|
+| 1. Transactional Event Storage | COVERED | repository.py append() never calls commit; caller owns transaction | test_repository_append_does_not_commit, test_rollback_removes_both_group_and_outbox_entry |
+| 2. Event Processing (normal/retry/DLQ) | COVERED | worker.py _process_entries, _handle_processing_failure, _move_to_dlq | test_processes_unprocessed_entries, test_transient_failure_increments_retry_count, test_max_retries_moves_entry_to_dlq |
+| 3. Idempotent Event Handlers | COVERED | fetch_unprocessed filters processed_at IS NULL; SpiceDB upsert semantics | test_already_processed_entry_excluded_from_fetch, test_duplicate_invocation_produces_identical_final_state |
+| 4. Concurrent Worker Safety | COVERED | SELECT FOR UPDATE SKIP LOCKED in fetch_unprocessed | test_fetch_unprocessed_uses_for_update_skip_locked |
+| 5. Dual Delivery Mechanism | COVERED | polling loop + optional event_source for NOTIFY | test_worker_processes_via_notify_not_polling, polling tests |
+| 6. Event Fan-Out | COVERED | composite.py dispatches to all registered handlers; UnknownEventTypeError → immediate DLQ | test_handle_fans_out_to_multiple_handlers, test_unknown_event_type_immediately_moves_to_dlq |
+
+All 6 SHALL requirements are COVERED by unit tests and integration tests.
+Implementation is complete and consistent with the spec.
+
+---
+
 ### CodeRabbit PR Comment Analysis
 
-**Finding 1 & 2 — check-frontend-*.sh BASE_BRANCH fallback (style concern)**
+**Finding 1 and 2 — check-frontend-*.sh BASE_BRANCH fallback (style concern)**
 The scripts silently fall back when neither `origin/alpha` nor `origin/main` exists.
 This is a potential improvement but does not affect task-017 verification —
 the scripts correctly skip enforcement because this branch has no UI file changes.
@@ -33,33 +49,20 @@ Logged for future tooling improvement; not blocking.
 
 **Finding 3 — worker-result.yaml YAML formatting**
 The established project format uses YAML front-matter (`verdict: pass`) followed
-by a second document separator (`---`) and free-form markdown body text.
-The orchestrator reads only the verdict field from the front-matter document.
-This is the accepted format used across all hyperloop task branches.
+by free-form markdown body text. The orchestrator reads only the verdict field
+from the front-matter document. This is the accepted format used across all
+hyperloop task branches.
 
 **Finding 4 — dlq_at vs failed_at mismatch (FALSE POSITIVE)**
 CodeRabbit claimed the repository filters on `failed_at` while the worker sets
 `dlq_at`. This is incorrect. The codebase consistently uses `failed_at` as the
-DLQ marker throughout:
+DLQ marker throughout — verified by direct code inspection:
+
+- `infrastructure/outbox/models.py` defines `failed_at: Mapped[datetime | None]`
 - `infrastructure/outbox/worker.py` sets `failed_at=datetime.now(UTC)` in `_move_to_dlq()`
 - `infrastructure/outbox/worker.py` filters `.where(OutboxModel.failed_at.is_(None))`
 - `infrastructure/outbox/repository.py` filters `.where(OutboxModel.failed_at.is_(None))`
 - `tests/unit/infrastructure/outbox/test_worker.py` asserts `"failed_at IS NULL"` in the compiled query
-No file in the codebase uses `dlq_at`. CodeRabbit appears to have hallucinated
-a field name that does not exist.
 
----
-
-### Requirement Coverage
-
-| Requirement | Status | Key Test |
-|---|---|---|
-| 1. Transactional Event Storage | PASS | test_repository_append_does_not_commit |
-| 2. Event Processing (normal/retry/DLQ) | PASS | test_transient_failure_increments_retry_count, test_max_retries_moves_entry_to_dlq |
-| 3. Idempotent Event Handlers | PASS | test_already_processed_entry_excluded_from_fetch |
-| 4. Concurrent Worker Safety | PASS | test_fetch_unprocessed_uses_for_update_skip_locked |
-| 5. Dual Delivery Mechanism | PASS | test_notify_triggers_callback_with_uuid |
-| 6. Event Fan-Out | PASS | test_handle_fans_out_to_multiple_handlers, test_unknown_event_type_immediately_moves_to_dlq |
-
-All 6 SHALL requirements are COVERED by unit tests. Implementation is complete
-and consistent with the spec.
+No file in the codebase uses `dlq_at`. CodeRabbit hallucinated a field name
+that does not exist. No code change is warranted.

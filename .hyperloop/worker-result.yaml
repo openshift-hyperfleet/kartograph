@@ -1,7 +1,8 @@
 ---
 verdict: pass
 detail: |
-  task-017 Outbox Pattern -- all 6 SHALL requirements verified, all PR feedback addressed.
+  task-017 Outbox Pattern -- all 6 SHALL requirements verified.
+  All CodeRabbit PR feedback addressed across three review rounds.
 
   Requirements coverage:
   1. Transactional Event Storage: repository.append() never calls session.commit();
@@ -19,13 +20,32 @@ detail: |
      unknown event types immediately dead-letter (bypass retry).
      Verified by 6 unit tests.
 
-  Test run: 81 outbox unit tests passed, 0 failed.
+  Test run: 81 outbox unit tests passed, 2413 total unit tests passed, 0 failed.
 
-  CodeRabbit PR feedback (all addressed):
-  - check-frontend-test-infrastructure.sh: BASE_BRANCH fails loudly, git diff scoped to
-    UI_DIR, git errors surfaced (not masked), .js included in both trigger and count sets.
-  - check-frontend-tests-exist.sh: Same scoping and error-surfacing improvements applied.
-  - worker-result.yaml: Uses YAML block scalar (detail: |) -- validates cleanly with PyYAML.
-  - test_worker.py dlq_at vs failed_at: Confirmed false positive. The model defines
-    failed_at (no dlq_at column). The repository filters on failed_at IS NULL. The worker
-    sets failed_at when dead-lettering. All three are consistent on failed_at.
+  CodeRabbit PR feedback addressed (all three review rounds):
+
+  Round 1 feedback:
+  - check-frontend-test-infrastructure.sh: BASE_BRANCH now fails loudly (prints error + exit 1)
+    if neither origin/alpha nor origin/main exists. git diff is scoped to UI_DIR using the
+    -- "$UI_DIR" pathspec. git errors are surfaced by capturing git_diff_output in a separate
+    assignment with || { echo error; exit 1; } rather than masking with 2>/dev/null || true.
+    .js included in both task_ui_changes trigger set and ui_source_count find expression.
+  - check-frontend-tests-exist.sh: Same scoping, error-surfacing, and BASE_BRANCH improvements
+    applied. UI_SOURCE_DIR default defined. git diff runs with -- "$UI_SOURCE_DIR" pathspec.
+  - worker-result.yaml: Uses YAML block scalar (detail: |) so Markdown content does not
+    break YAML parsing. Validates cleanly with PyYAML.
+  - test_worker.py dlq_at vs failed_at: This was a false positive. The OutboxModel defines
+    failed_at (there is no dlq_at column). OutboxRepository.fetch_unprocessed filters on
+    failed_at IS NULL. The worker sets failed_at when dead-lettering an entry. All three
+    are consistent on failed_at. The test at line 780 correctly asserts "failed_at IS NULL".
+
+  Round 2 feedback:
+  - check-frontend-test-infrastructure.sh: git diff output captured in git_diff_output variable
+    with explicit error handling (|| { echo error; exit 1; }) before piping to grep pipeline.
+    2>/dev/null and || true masking removed from git diff invocation. Real git errors are now
+    surfaced and cause a non-zero exit.
+
+  Round 3 feedback:
+  - check-frontend-test-infrastructure.sh: ui_source_count find expression updated to include
+    -name "*.js" so the counted file types match the task_ui_changes trigger set
+    (\.(vue|ts|js)$). Both variables now use the same three extensions: .vue, .ts, .js.

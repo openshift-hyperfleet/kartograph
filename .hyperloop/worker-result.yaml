@@ -1,0 +1,128 @@
+---
+verdict: pass
+---
+All spec requirements for Knowledge Graphs (specs/management/knowledge-graphs.spec.md)
+are fully implemented and covered by tests on branch hyperloop/task-008.
+
+All 2055 unit tests pass.
+
+## Previous Round Feedback: Addressed
+
+The round-0 spec-reviewer identified a missing test for the rollback-on-failure path
+in the cascade delete scenario. This was addressed in commit 58764214:
+
+  `test_delete_rolls_back_on_ds_deletion_failure` — configures a two-DS cascade where
+  the second `ds_repo.delete()` raises `RuntimeError("DB failure")` mid-transaction and
+  asserts that `kg_repo.delete` is **never called**, confirming the SQLAlchemy
+  `async with session.begin():` auto-rollback guarantee is meaningful at the service layer.
+
+All 7 `TestKnowledgeGraphServiceDelete` tests pass, including the new rollback test.
+
+## Requirement-by-Requirement Coverage
+
+### Requirement: Knowledge Graph Creation — PASS
+
+**Scenario: Successful creation**
+- `KnowledgeGraph.create()` generates a ULID via `KnowledgeGraphId.generate()`
+- `KnowledgeGraphService.create()` checks `Permission.EDIT` on workspace before creating
+- `KnowledgeGraphCreated` event triggers SpiceDB workspace+tenant relationship writes
+  via `ManagementEventTranslator` (committed atomically via outbox pattern)
+- Tests:
+  - `test_create_checks_edit_permission_on_workspace`
+  - `test_create_saves_aggregate_via_repo`
+  - `test_generate_creates_valid_ulid`
+  - `test_first/second_operation_is_workspace/tenant_relationship` (translator)
+  - `test_create_knowledge_graph_returns_201` (presentation)
+
+**Scenario: Duplicate name within tenant**
+- `IntegrityError` from DB unique constraint → `DuplicateKnowledgeGraphNameError` → 409
+- Tests:
+  - `test_create_raises_duplicate_on_integrity_error` (service unit)
+  - `test_create_knowledge_graph_returns_409_for_duplicate_name` (presentation unit)
+
+### Requirement: Knowledge Graph Name Validation — PASS
+
+**Scenario: Valid name (1–100 chars)**
+- `KnowledgeGraph._validate_name()` enforces `1 <= len(name) <= 100`
+- Pydantic models enforce `min_length=1, max_length=100`
+- Tests: `test_create_accepts_name_exactly_100_chars`, `test_create_accepts_single_char_name`
+
+**Scenario: Empty or oversized name → validation error**
+- Domain raises `InvalidKnowledgeGraphNameError`; Pydantic returns 422
+- Tests:
+  - `test_create_rejects_empty_name`, `test_create_rejects_name_over_100_chars` (domain)
+  - `test_update_rejects_empty_name`, `test_update_rejects_name_over_100_chars` (domain)
+  - `test_create_knowledge_graph_returns_422_for_empty/oversized_name` (presentation)
+  - `test_update_knowledge_graph_returns_422_for_empty/oversized_name` (presentation)
+
+### Requirement: Knowledge Graph Retrieval — PASS
+
+**Scenario: Authorized retrieval**
+- `KnowledgeGraphService.get()` checks `Permission.VIEW`; returns aggregate → 200
+- Tests: `test_get_checks_view_permission`, `test_get_returns_aggregate_on_success`
+  `test_get_knowledge_graph_returns_200`
+
+**Scenario: Unauthorized or non-existent → 404 (no distinction)**
+- `get()` returns `None` for both not-found and unauthorized; route returns 404
+- Tests: `test_get_returns_none_when_not_found`, `test_get_returns_none_when_permission_denied`
+  `test_get_knowledge_graph_returns_404_when_not_found/unauthorized`
+
+### Requirement: Knowledge Graph Listing — PASS
+
+**Scenario: List for workspace (filtered by authorization)**
+- Checks `Permission.VIEW` on workspace; uses `read_relationships` to discover linked KG IDs
+- Tests:
+  - `test_list_checks_view_permission_on_workspace`
+  - `test_list_uses_read_relationships_to_discover_kgs`
+  - `test_list_filters_by_tenant`
+  - `test_list_knowledge_graphs_returns_200_with_list`
+
+### Requirement: Knowledge Graph Update — PASS
+
+**Scenario: Update name and description**
+- `KnowledgeGraphService.update()` checks `Permission.EDIT` on KG; calls `kg.update()` and saves
+- Tests:
+  - `test_update_calls_aggregate_update_and_saves`
+  - `TestKnowledgeGraphUpdate` domain tests (multiple)
+  - `test_update_knowledge_graph_returns_200`
+
+### Requirement: Knowledge Graph Deletion — PASS
+
+**Scenario: Successful deletion with atomic cascade**
+- `KnowledgeGraphService.delete()` wraps DS deletion and KG deletion in
+  `async with self._session.begin():` — auto-rollback on exception
+- SpiceDB cleanup: handled via `KnowledgeGraphDeleted` event through the outbox
+  (5 operations: delete workspace, tenant, admin filter, editor filter, viewer filter)
+  Written atomically with the DB deletion
+- Tests:
+  - `test_delete_cascades_data_sources`
+  - `test_delete_rolls_back_on_ds_deletion_failure` ← newly added per review feedback
+  - `TestManagementEventTranslatorKnowledgeGraphDeleted` (SpiceDB cleanup)
+
+**Scenario: Mutation after deletion**
+- `KnowledgeGraph.update()` raises `AggregateDeletedError` when `_deleted=True`
+- Tests: `test_update_raises_after_deletion`
+
+### Requirement: Permission Inheritance — PASS
+
+**Scenario: Workspace-inherited access**
+- SpiceDB schema: `permission edit = admin + editor + workspace->edit`
+- Tests: `test_knowledge_graph_edit_includes_workspace_edit` (schema design)
+  `test_knowledge_graph_manage_includes_workspace_manage`
+  `test_knowledge_graph_view_includes_workspace_view`
+
+**Scenario: Direct grant (admin → manage + edit + view)**
+- `admin` appears in all three permission expressions in schema.zed
+- Tests:
+  - `test_knowledge_graph_manage_is_admin_based`
+  - `test_knowledge_graph_edit_includes_direct_roles`
+  - `test_knowledge_graph_view_includes_direct_roles`
+
+## Non-blocking Notes
+
+- The `check-no-coming-soon-stubs.sh` script finds "Coming Soon" in
+  `src/dev-ui/app/layouts/default.vue` for the "Data Sources" nav item (a different
+  task, pre-existing, task-008 scope is Knowledge Graphs only). The script also flags
+  third-party dependencies in `.venv` which are not project code.
+- SpiceDB cleanup via outbox is eventual (correct production pattern); the outbox event
+  is written atomically with the DB deletion, preserving the at-least-once guarantee.

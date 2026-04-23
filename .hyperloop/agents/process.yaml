@@ -13,10 +13,10 @@ pipeline:
       - action: post-pr-comment
         args:
           body: "@coderabbit recheck"
-      - check: pr-feedback-addressed
+      - check: pr-review
+        evaluator: pr-reviewer
         args:
           require_reviewers: [ "coderabbitai" ]
-          feedback_from: [ "coderabbitai" ]
   - action: merge-pr
 
 hooks:

@@ -3,27 +3,13 @@ kind: Process
 metadata:
   name: default
 
-phases:
-  implement:
-    run: agent implementer
-    on_pass: verify
-    on_fail: implement
-  verify:
-    run: agent verifier
-    on_pass: spec-review
-    on_fail: implement
-  spec-review:
-    run: agent spec-reviewer
-    on_pass: mark-ready
-    on_fail: implement
-  mark-ready:
-    run: action mark-ready
-    on_pass: merge
-    on_fail: implement
-  merge:
-    run: action merge
-    on_pass: done
-    on_fail: implement
+pipeline:
+  - loop:
+      - agent: implementer
+      - agent: verifier
+      - gate: pr-require-label
+      - check: pr-feedback-addressed
+  - action: merge-pr
 
 hooks:
   after_reap:

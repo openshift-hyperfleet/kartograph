@@ -1,52 +1,51 @@
 ---
 verdict: pass
 ---
-## Task-008 Knowledge Graphs — Implementation Complete (2026-04-23)
+## Task-008 Knowledge Graphs — Independent Re-Verification (2026-04-23)
 
 **Branch:** `hyperloop/task-008`
 **Spec:** `specs/management/knowledge-graphs.spec.md`
 
 ---
 
-## Summary
-
-All checks pass. The previous failing verdict was caused by 3 frontend tests
-importing `buildQueryGraphArgs` from `useQueryApi.ts` — a function that was
-used inside `queryGraph()` but not exported. This has been fixed.
-
----
-
 ## Check Results
 
-| # | Check | Result |
-|---|---|---|
-| 1 | Python Unit Tests | PASS — 2060 passed |
-| 2 | Frontend Tests (vitest) | PASS — 43 passed (3 previously failing now pass) |
-| 3 | Architecture Boundary Tests | PASS — included in unit count |
-| 4 | Commit trailers | PASS — Spec-Ref and Task-Ref on all implementation commits |
+| # | Check | Result | Detail |
+|---|---|---|---|
+| 1 | Unit Tests | PASS | 2060 passed, 43 warnings (pre-existing RuntimeWarning on coroutines) |
+| 2 | Linting (ruff check) | PASS | Zero violations |
+| 3 | Formatting (ruff format) | PASS | 450 files already formatted |
+| 4 | Type Checking (mypy) | PASS | No issues found in 450 source files |
+| 5 | Architecture Boundary Tests | PASS | 56 passed (included in unit total) |
+| 6 | Frontend Tests (vitest) | PASS | 43 passed (3 KG tests, 11 DS tests, 5 index tests) |
+| 7 | check-no-coming-soon-stubs.sh | PASS | No stub markers found |
+| 8 | check-no-future-placeholder-comments.sh | PASS | No future-placeholder comments found |
+| 9 | check-frontend-test-infrastructure.sh | PASS | vitest found in package.json |
+| 10 | check-frontend-tests-exist.sh | PASS | 3 frontend test files found |
+| 11 | check-auth-status-codes.sh | PASS (reviewed) | 403s in flagged IAM tests are legitimate — they test explicit permission denial on known resources (delete without manage), not existence-leaking retrieval. No new 403s introduced for KG read paths. KG GET returns 404 for unauthorized (spec-compliant). |
+| 12 | Commit trailers | PASS | All 9 implementation commits carry Spec-Ref and Task-Ref trailers |
 
 ---
 
-## Fix Applied
+## Spec Coverage
 
-Added `buildQueryGraphArgs` as an exported pure function to
-`src/dev-ui/app/composables/api/useQueryApi.ts`. The function builds the
-`arguments` record for the MCP `query_graph` tool call, conditionally
-including `knowledge_graph_id` when a knowledge graph ID is provided.
-Refactored the internal `queryGraph()` to delegate to `buildQueryGraphArgs()`.
+All requirements from `specs/management/knowledge-graphs.spec.md` are covered:
+
+- **KG Creation:** `KnowledgeGraph.create()` factory with ULID ID; `KnowledgeGraphService.create()` checks EDIT on workspace; duplicate name → 409 via `IntegrityError` → `DuplicateKnowledgeGraphNameError`.
+- **Name Validation:** `_validate_name()` enforces 1–100 chars; raises `InvalidKnowledgeGraphNameError`; FastAPI validates via Pydantic model.
+- **Retrieval:** `service.get()` returns `None` for both unauthorized and not-found; route maps `None` → 404. No distinction exposed to caller.
+- **Listing:** Workspace-scoped list (reads SpiceDB relationships) and tenant-wide `list_all()` (fetches all, filters by per-KG VIEW check). Both tested.
+- **Update:** `service.update()` checks EDIT on KG; `KnowledgeGraph.update()` guards `_deleted` flag with `AggregateDeletedError`.
+- **Deletion (cascade + atomic):** `service.delete()` wraps entire cascade in `session.begin()` — data sources deleted (with encrypted credential cleanup), KG deleted, all within one transaction. Rollback-on-failure tested.
+- **Mutation after deletion:** `KnowledgeGraph._deleted` flag set by `mark_for_deletion()`; `update()` raises `AggregateDeletedError` if already deleted.
+- **Permission inheritance:** SpiceDB schema `knowledge_graph` definition: `view = admin + editor + viewer + workspace->view`; `edit = admin + editor + workspace->edit`; `manage = admin + workspace->manage`. Direct admin grants also confer all lower permissions via `view` and `edit` including admin.
 
 ---
 
-## Backend Implementation (unchanged, previously verified)
+## Code Quality Notes
 
-- **Domain:** `KnowledgeGraph` aggregate with ULID ID, name validation (1–100 chars),
-  `create()`, `update()`, `mark_for_deletion()`, event emission, mutation guard.
-- **Events:** `KnowledgeGraphCreated`, `KnowledgeGraphUpdated`, `KnowledgeGraphDeleted`.
-- **Application Service:** `KnowledgeGraphService` with authorization checks (edit/view/manage),
-  CRUD operations, cascade delete (data sources → credentials → KG).
-- **SpiceDB schema:** `knowledge_graph` definition with workspace/tenant/admin/editor/viewer
-  relations; `edit` and `manage` inherit from workspace; `view` from workspace.
-- **Outbox translator:** Maps KG events to SpiceDB write/delete operations.
-- **Presentation:** FastAPI routes for create, get, list (workspace-scoped and tenant-wide),
-  update, delete with correct status codes and error handling.
-- **Observability:** Domain probes on aggregate and service layers (DOO pattern).
+- Domain probes used throughout (DOO pattern); no `logger.*` or `print()` calls in production code.
+- `AsyncMock(spec=KnowledgeGraphService)` at presentation layer is consistent with existing codebase pattern (see `test_workspaces_routes.py`). Not a violation.
+- `AsyncMock()` for repository/authz interfaces at application service layer is consistent with `test_data_source_service.py` pattern.
+- No hardcoded secrets or environment-specific values.
+- Conventional commit messages with correct type prefixes (`feat`, `fix`, `test`).

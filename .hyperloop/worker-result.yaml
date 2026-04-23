@@ -1,0 +1,26 @@
+---
+verdict: pass
+---
+All three PR review findings addressed:
+
+1. **builder.py — fail-fast consistency check**: Added a pre-write validation in
+   `build()` that collects every `ChangesetEntry.content_ref` whose `hex_digest`
+   is absent from `self._content` and raises `ValueError` listing the missing
+   refs. This prevents producing a ZIP that would silently raise `KeyError`
+   inside `read_content()`.
+
+2. **reader.py — lazy streaming of changeset.jsonl**: Replaced the
+   `zf.read("changeset.jsonl").decode("utf-8")` + `splitlines()` approach with
+   `zf.open("changeset.jsonl")` wrapped in `io.TextIOWrapper`, yielding lines
+   lazily. The ZIP file and entry are held open only for the lifetime of the
+   generator, satisfying the spec's streaming-friendly design requirement.
+
+3. **test_reader.py — tightened path-safety tests**:
+   - Both tests now use `pytest.raises(ValueError)` (not the broad
+     `pytest.raises((ValueError, Exception))`), matching `PathSafetyError`
+     which is already a `ValueError` subclass.
+   - `test_reader_rejects_absolute_path_entry` now passes `"/evil"` as the
+     tampered entry, exercising the absolute-path check in
+     `validate_zip_entry_name` rather than duplicating the traversal-path check.
+
+All 2127 unit tests pass with no regressions.

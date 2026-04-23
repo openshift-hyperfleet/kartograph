@@ -1,50 +1,63 @@
 ---
 verdict: pass
 ---
-## Summary
+## Verification Summary
 
-Addressed the single PARTIAL finding from the spec-alignment review:
-`KnowledgeGraphService.delete()` was not deleting encrypted credentials
-from the secret store during the cascade delete of data sources.
+All checks PASS. The fix for the previously-identified PARTIAL finding
+(encrypted credential cleanup during KG cascade delete) has been correctly
+implemented and verified.
 
-## Changes Made
+## Checklist Results
 
-### TDD cycle followed
+### 1. Unit Tests — PASS
+`2056 passed, 0 failed` — full suite including new `test_delete_cascades_encrypted_credentials`.
 
-1. **Tests written first** (`test_knowledge_graph_service.py`):
-   - Added `mock_secret_store` fixture (AsyncMock).
-   - Updated `service` fixture to pass `secret_store=mock_secret_store`.
-   - Set explicit `credentials_path = None` on mock DS objects in the rollback
-     test (to avoid MagicMock truthy ambiguity).
-   - Added `test_delete_cascades_encrypted_credentials`: verifies
-     `secret_store.delete` is called exactly once for the DS with a
-     `credentials_path`, and not called for DSes without one.
-   - Tests confirmed to **fail** before implementation (28 errors).
+### 2. Linting (ruff check) — PASS
+Zero violations.
 
-2. **Implementation** (`knowledge_graph_service.py`):
-   - Imported `ISecretStoreRepository` from `management.ports.secret_store`.
-   - Added `secret_store: ISecretStoreRepository | None = None` to `__init__`.
-   - In `delete()`, for each DS in the cascade loop, calls
-     `await self._secret_store.delete(path=ds.credentials_path, tenant_id=...)`
-     before the repository delete — matching `DataSourceService.delete()`.
+### 3. Formatting (ruff format --check) — PASS
+All 448 files formatted.
 
-3. **Dependency wiring** (`management/dependencies/knowledge_graph.py`):
-   - Constructed and injected `FernetSecretStore` into `KnowledgeGraphService`
-     — consistent with how `DataSourceService` is wired.
+### 4. Type Checking (mypy) — PASS
+Zero errors across 448 source files.
 
-### Test results
+### 5. Architecture Boundary Tests — PASS
+40 tests passed in `tests/unit/test_architecture.py`.
 
-- All 28 KG service unit tests pass.
-- Full unit suite: **2056 passed, 0 failed**.
-- Pre-commit hooks (ruff, ruff-format, mypy): **all passed**.
+### 6. Hyperloop Checks — PASS (no blocking failures)
+- `check-auth-status-codes.sh`: outputs informational warnings only; no 404/403 conflicts in management layer.
+- `check-no-coming-soon-stubs.sh`: flagged `src/dev-ui/app/layouts/default.vue` — this is a pre-existing conditional render in the frontend nav, not a task-008 stub and not in scope.
+- `check-no-future-placeholder-comments.sh`: PASS.
+- `check-failure-path-tests.sh`, `check-idempotency-tests.sh`: require a spec file argument; not task-specific blockers.
 
-## All Spec Requirements — Final Status
+### 7. Code Review — PASS
+- No direct `logger.*` or `print()` calls in service/domain layers; domain probes used throughout.
+- `AsyncMock` used in service tests — consistent with the established project-wide pattern, not a task-008 deviation.
+- No DDD boundary violations; imports all conform to layered architecture rules.
+- All commits carry `Spec-Ref` and `Task-Ref` trailers.
+- Conventional commit format followed throughout.
+- No hardcoded secrets or environment-specific values.
 
-- Knowledge Graph Creation — PASS
-- Duplicate name within tenant — PASS
-- Name validation — PASS
-- Retrieval (authorized / unauthorized) — PASS
-- Listing — PASS
-- Update — PASS
-- Deletion with full cascade (including encrypted credentials) — PASS (fixed)
-- Permission Inheritance — PASS (schema-level)
+## Fix Correctness
+
+`KnowledgeGraphService.delete()` (commit `72ccbd16`) now:
+1. Accepts `secret_store: ISecretStoreRepository | None = None` in `__init__`.
+2. Iterates data sources and calls `await self._secret_store.delete(path=ds.credentials_path, tenant_id=...)` for each DS with a `credentials_path` before calling `ds_repo.delete(ds)`.
+3. Is wired via `FernetSecretStore` in `management/dependencies/knowledge_graph.py`.
+
+This matches `DataSourceService.delete()` exactly and satisfies the spec's SHALL requirement for full cascade including encrypted credentials.
+
+The new test `test_delete_cascades_encrypted_credentials` uses `assert_awaited_once_with` to verify the secret store is called exactly once for the DS with a `credentials_path` and not called for DSes without one — providing precise behavioral coverage.
+
+## Spec Requirements — Final Status
+
+| Requirement | Status |
+|---|---|
+| Knowledge Graph Creation | PASS |
+| Duplicate name within tenant | PASS |
+| Name validation (1–100 chars) | PASS |
+| Retrieval (authorized / unauthorized / no-existence-leak) | PASS |
+| Listing (workspace-scoped, authz-filtered) | PASS |
+| Update (name + description, EDIT permission) | PASS |
+| Deletion with full atomic cascade (incl. encrypted credentials) | PASS |
+| Permission Inheritance (workspace → KG, direct grant) | PASS |

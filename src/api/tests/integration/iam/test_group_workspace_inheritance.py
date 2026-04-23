@@ -422,6 +422,129 @@ class TestGroupWorkspaceInheritance:
             "Bob should NOT have EDIT permission after being removed from group"
         )
 
+    @pytest.mark.asyncio
+    async def test_member_added_after_group_assigned_to_workspace_gets_access(
+        self,
+        async_client: AsyncClient,
+        tenant_auth_headers: dict,
+        bob_tenant_auth_headers: dict,
+        spicedb_client: AuthorizationProvider,
+        alice_user_id: str,
+        bob_user_id: str,
+        clean_iam_data,
+    ):
+        """New member added to group AFTER group is in workspace immediately gets access.
+
+        Spec scenario: "Member added to group with workspace assignments"
+            GIVEN a group assigned to a workspace with role `editor`
+            WHEN a new user is added to the group
+            THEN that user immediately receives `editor`-level permissions on the workspace.
+
+        This tests the reverse ordering of other inheritance tests: the group is
+        assigned to the workspace first, then the new member is added.  SpiceDB
+        evaluates permissions lazily at check time, so the relationship chain
+        workspace#editor@group:{id}#member -> group#member_relation@user:{bob}
+        must hold regardless of the order in which the two tuples were written.
+        """
+        # 1. Create workspace (alice is admin)
+        ws_id = await create_child_workspace(
+            async_client,
+            tenant_auth_headers,
+            spicedb_client,
+            alice_user_id,
+            name="late_member_ws",
+        )
+
+        # 2. Create an empty group (alice is creator/admin)
+        group_resp = await async_client.post(
+            "/iam/groups",
+            headers=tenant_auth_headers,
+            json={"name": "late_member_group"},
+        )
+        assert group_resp.status_code == 201
+        group_id = group_resp.json()["id"]
+
+        # Wait for alice's manage permission on the group before proceeding
+        group_resource = format_resource(ResourceType.GROUP, group_id)
+        alice_subject = format_subject(ResourceType.USER, alice_user_id)
+        await wait_for_permission(
+            spicedb_client,
+            group_resource,
+            Permission.MANAGE,
+            alice_subject,
+            timeout=5.0,
+        )
+
+        # 3. Add the group to the workspace as editor (BEFORE bob is a member)
+        add_group_resp = await async_client.post(
+            f"/iam/workspaces/{ws_id}/members",
+            headers=tenant_auth_headers,
+            json={
+                "member_id": group_id,
+                "member_type": "group",
+                "role": "editor",
+            },
+        )
+        assert add_group_resp.status_code == 201
+
+        # Wait for alice (group admin) to have EDIT on workspace via group membership
+        # (group.member = admin + member_relation, so alice as group admin is also a member)
+        ws_resource = format_resource(ResourceType.WORKSPACE, ws_id)
+        alice_ws_edit_ready = await wait_for_permission(
+            spicedb_client,
+            ws_resource,
+            Permission.EDIT,
+            alice_subject,
+            timeout=5.0,
+        )
+        assert alice_ws_edit_ready, (
+            "Alice (group admin) should have EDIT on workspace via group.member "
+            "after group is added to workspace"
+        )
+
+        # 4. NOW ensure bob is JIT-provisioned and add him to the group
+        await ensure_user_provisioned(async_client, bob_tenant_auth_headers)
+
+        add_member_resp = await async_client.post(
+            f"/iam/groups/{group_id}/members",
+            headers=tenant_auth_headers,
+            json={"user_id": bob_user_id, "role": "member"},
+        )
+        assert add_member_resp.status_code == 201
+
+        # 5. Wait for bob's VIEW permission on the group (outbox processed)
+        bob_subject = format_subject(ResourceType.USER, bob_user_id)
+        await wait_for_permission(
+            spicedb_client,
+            group_resource,
+            Permission.VIEW,
+            bob_subject,
+            timeout=5.0,
+        )
+
+        # 6. Bob should now have EDIT on the workspace via the group assignment
+        edit_ready = await wait_for_permission(
+            spicedb_client,
+            ws_resource,
+            Permission.EDIT,
+            bob_subject,
+            timeout=5.0,
+        )
+        assert edit_ready, (
+            "Bob should have EDIT permission on workspace immediately after being "
+            "added to a group that is already assigned to the workspace as editor"
+        )
+
+        # Confirm bob does NOT have MANAGE (editor role only)
+        has_manage = await spicedb_client.check_permission(
+            ws_resource,
+            Permission.MANAGE,
+            bob_subject,
+        )
+        assert has_manage is False, (
+            "Bob (group member via editor role) should NOT have MANAGE on workspace"
+        )
+
 
 class TestExplicitTupleListing:
     """Tests verifying workspace member lists show groups, not expanded users."""

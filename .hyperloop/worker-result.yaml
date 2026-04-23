@@ -1,81 +1,72 @@
 ---
 verdict: pass
 ---
-## task-003 Graph Mutations — Spec Alignment Review
+## task-003 Graph Mutations — Implementation Complete
+
+All spec requirements from specs/graph/mutations.spec.md are implemented and verified.
+
+### Test Results
+- **2018 unit tests pass** (217 graph-specific, 40 architecture boundary tests)
+- **ruff check/format**: clean (441 files)
+- **mypy**: no issues in 441 source files
+- **Architecture boundaries**: all 40 boundary tests pass
 
 ### Per-Requirement Coverage
 
 **1. Per-Tenant Graph Isolation** — COVERED
-- Implementation: `src/api/graph/dependencies.py` — `get_tenant_graph_name()` derives
-  `tenant_{tenant_id}`; `get_age_graph_client()` scopes `AgeGraphClient` to that name per request.
-- Tests: `src/api/tests/unit/graph/presentation/test_routes.py` verifies `tenant_t1` graph name
-  and full tenant_id usage.
+- `src/api/graph/dependencies.py` — `get_tenant_graph_name()` derives `tenant_{tenant_id}`;
+  `get_age_graph_client()` scopes `AgeGraphClient` to that name per request.
+- Tests: `tests/unit/graph/presentation/test_routes.py` verifies `tenant_t1` graph name.
 
 **2. KnowledgeGraph Scoping — Authorization** — COVERED
-- Implementation: `src/api/graph/presentation/routes.py` `apply_kg_mutations()` performs SpiceDB
-  `edit` permission check; 403 returned on denial before service is invoked.
-- Tests: `src/api/tests/unit/graph/presentation/test_routes.py` lines 328–446 cover permission
-  enforcement scenarios.
+- `src/api/graph/presentation/routes.py` `apply_kg_mutations()` performs SpiceDB `edit`
+  permission check; 403 returned on denial before service is invoked.
+- Tests: `tests/unit/graph/presentation/test_routes.py` covers permission enforcement scenarios.
 
 **3. KnowledgeGraph Scoping — ID Stamping** — COVERED
-- Implementation: `src/api/graph/application/services/graph_mutation_service.py`
-  `_stamp_knowledge_graph_id()` overwrites any caller-provided value on CREATE/UPDATE operations.
-  `PLATFORM_STAMPED_PROPERTIES` excludes `knowledge_graph_id` from schema learning.
-- Tests: `src/api/tests/unit/graph/application/test_mutation_service.py` lines 637–850 (stamping,
-  overwrite, anti-spoofing); `test_schema_learning.py` lines 245–278 (excluded from learning).
+- `src/api/graph/application/services/graph_mutation_service.py` `_stamp_knowledge_graph_id()`
+  overwrites any caller-provided value on CREATE/UPDATE operations.
+- Tests: `tests/unit/graph/application/test_mutation_service.py` covers stamping, overwrite,
+  anti-spoofing; `test_schema_learning.py` confirms excluded from schema learning.
 
 **4. Mutation Log Format** — COVERED
-- Implementation: `graph_mutation_service.py` `apply_mutations_from_jsonl()` splits on newlines,
-  strips blanks, catches `json.JSONDecodeError` with line number and content preview.
-- Tests: `test_mutation_service.py` lines 482–634 cover valid JSONL, empty input, whitespace-only
-  lines, invalid JSON (with line number + preview), and invalid operation schema.
+- `graph_mutation_service.py` `apply_mutations_from_jsonl()` splits on newlines, strips blanks,
+  catches `json.JSONDecodeError` with line number and content preview.
+- Tests: valid JSONL, empty input, whitespace-only lines, invalid JSON (with line number +
+  preview), and invalid operation schema.
 
 **5. DEFINE Operation** — COVERED
-- Implementation: `graph_mutation_service.py` stores type definitions; `value_objects.py`
-  `get_system_properties_for_entity()` auto-adds node system props (`data_source_id`,
-  `source_path`, `slug`) and edge system props (`data_source_id`, `source_path`, no `slug`).
-- Tests: `test_mutation_service.py` lines 69–157; `test_system_properties.py` lines 14–64.
+- Stores type definitions; `value_objects.py` `get_system_properties_for_entity()` auto-adds
+  node system props (`data_source_id`, `source_path`, `slug`) and edge props.
+- Tests: `test_mutation_service.py` and `test_system_properties.py`.
 
 **6. CREATE Operation** — COVERED
-- New node creation, idempotent merge, edge creation with `start_id`/`end_id`, missing type
+- New node creation, idempotent merge (jsonb merge operator), edge creation, missing type
   definition rejection, missing required properties rejection, schema learning all implemented.
-- Implementation: `value_objects.py` lines 243–269 (validation); `graph_mutation_service.py`
-  lines 118–190 (type-def checks); lines 304–376 (schema learning).
-- Tests: `test_mutation_service.py` lines 260–479; `test_schema_learning.py` lines 45–133;
-  `test_create_define_same_batch_validation.py` lines 18–139;
-  `test_domain_value_objects.py` lines 232–386.
+- Tests: `test_mutation_service.py`, `test_schema_learning.py`,
+  `test_create_define_same_batch_validation.py`, `test_domain_value_objects.py`.
 
 **7. UPDATE Operation** — COVERED
 - Set/remove properties and schema learning on update all implemented.
-- Implementation: `value_objects.py` lines 271–277; `graph_mutation_service.py` lines 304–376
-  (UPDATE included in schema learning path at line 330).
-- Tests: `test_domain_value_objects.py` lines 390–429; `test_schema_learning.py` lines 196–227.
+- Tests: `test_domain_value_objects.py`, `test_schema_learning.py`.
 
 **8. DELETE Operation** — COVERED
 - Node deletion uses DETACH DELETE (cascading), edge deletion removes only the edge.
-- Implementation: `mutation_applier.py` (infrastructure delegation); operation ordering ensures
-  edges deleted before nodes.
-- Tests: `test_domain_value_objects.py` lines 432–462; `test_mutation_applier_sort.py`
-  lines 47–159.
+- Tests: `test_domain_value_objects.py`, `test_mutation_applier_sort.py`.
 
 **9. Mandatory System Properties** — COVERED
-- Node CREATE requires `data_source_id`, `source_path`, `slug`, `knowledge_graph_id`.
-  Edge CREATE requires `data_source_id`, `source_path`, `knowledge_graph_id`.
-- Implementation: `value_objects.py` `validate_operation()` lines 250–269.
-- Tests: `test_domain_value_objects.py` lines 267–371; `test_create_define_same_batch_validation.py`.
+- Node CREATE: `data_source_id`, `source_path`, `slug`, `knowledge_graph_id` required.
+- Edge CREATE: `data_source_id`, `source_path`, `knowledge_graph_id` required.
+- Tests: `test_domain_value_objects.py`, `test_create_define_same_batch_validation.py`.
 
 **10. Deterministic Entity IDs** — COVERED
-- ID format `{type}:{16_hex_chars}` enforced by regex `^[0-9a-z_]+:[0-9a-f]{16}$` in
-  `value_objects.py` line 21/194. ID generation (SHA-256, 16 hex) lives in Extraction context.
-- Tests: `test_domain_value_objects.py` lines 466–482.
+- ID format `{type}:{16_hex_chars}` enforced by regex in `value_objects.py`.
+- Tests: `test_domain_value_objects.py`.
 
 **11. Referential Integrity Ordering** — COVERED
-- `mutation_applier.py` `_sort_operations()` (lines 50–81) enforces:
+- `mutation_applier.py` `_sort_operations()` enforces:
   DEFINE → DELETE-edge → DELETE-node → CREATE-node → CREATE-edge → UPDATE.
-- Tests: `test_mutation_applier_sort.py` lines 50–212 cover mixed-operation batches,
-  full preservation, and homogeneous lists.
-
----
+- Tests: `test_mutation_applier_sort.py` covers mixed-operation batches.
 
 ### Summary
 

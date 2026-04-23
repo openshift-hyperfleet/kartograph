@@ -1,62 +1,157 @@
 ---
 verdict: pass
 ---
-Independent code review of task-024 (Groups feature). All verification checks pass.
+Spec alignment review for task-024 (Groups feature). All spec requirements are COVERED.
 
-## Check Results
+## Summary
 
-| Check | Result | Notes |
-|---|---|---|
-| Unit Tests (2272 tests) | PASS | 0 failures, 0 errors |
-| Ruff Linting | PASS | Zero violations |
-| Ruff Format | PASS | All 460 files formatted |
-| Mypy Type Checking | PASS | Zero errors in 460 source files |
-| Architecture Boundary Tests (40) | PASS | All DDD layer rules enforced |
-| Check Scripts | See below | Two scripts flag pre-existing issues |
-| Code Review | PASS | No violations introduced by this task |
-| Commit Trailers | PASS | Spec-Ref + Task-Ref present on substantive commits |
+Every requirement and scenario from `specs/iam/groups.spec.md` has been verified
+against the implementation code and its tests.
 
-## Check Script Analysis
+## Spec Scenario Coverage
 
-Two scripts exit non-zero, but both flag **pre-existing issues not introduced by this task**:
+### Group Creation
+- SHALL allow authenticated users to create groups within their tenant
+  - **COVERED**: `TestCreateGroup` in `test_group_service.py` (service layer);
+    `TestCreateGroupRoute` in `test_group_routes.py` (presentation layer).
+- Scenario: Successful creation — ULID generated, creator gets admin role
+  - **COVERED**: `test_creates_group_with_creator_as_admin` (unit); factory method
+    `Group.create()` generates a ULID-based `GroupId`; `test_factory_creates_group_with_generated_id`
+    in `test_group_aggregate.py`; `test_create_group_returns_201_with_group_details` in routes.
+- Scenario: Duplicate name within tenant — rejected with conflict error
+  - **COVERED**: `test_records_failure_probe_event` (unit service); `test_create_group_returns_409_on_duplicate_name`
+    (routes); `test_duplicate_name_in_same_tenant_raises_error` (integration repository).
 
-- `check-auth-status-codes.sh`: Flags 403 assertions in `test_group_authorization.py`,
-  `test_workspace_authorization.py`, `test_api_key_auth.py`, and `test_auth_enforcement.py`.
-  Confirmed via `git diff alpha..HEAD --name-only`: none of these files were modified by
-  this task. The flagged lines all exist on `alpha` already.
+### Group Name Validation
+- SHALL enforce constraints on group names
+  - **COVERED**: `TestGroupNameValidation` class in `test_group_aggregate.py` (9 tests).
+- Scenario: Valid name (1–255 chars after trimming) — accepted
+  - **COVERED**: `test_create_accepts_single_character_name`, `test_create_accepts_exactly_255_character_name`,
+    `test_create_accepts_255_characters_after_trimming`, `test_create_trims_whitespace_from_name`.
+- Scenario: Empty or whitespace-only — rejected with validation error
+  - **COVERED**: `test_create_rejects_empty_name`, `test_create_rejects_whitespace_only_name`,
+    `test_create_rejects_single_space_name`; `test_create_group_returns_422_for_empty_name`,
+    `test_create_group_returns_422_for_whitespace_only_name` (routes). Also `TestGroupRename`
+    in `test_group_rename.py` for the rename path.
 
-- `check-no-coming-soon-stubs.sh`: Flags `src/dev-ui/app/layouts/default.vue:495`. This
-  file was not touched by this task; the pattern exists on `alpha`.
+### Group Retrieval
+- SHALL return group details only to users with `view` permission
+  - **COVERED**: `TestGetGroup` in `test_group_service.py`; `TestGetGroupRoute` in `test_group_routes.py`.
+- Scenario: Authorized retrieval — returns group details
+  - **COVERED**: `test_returns_group_when_found_and_user_has_view_permission` (service unit);
+    `test_get_group_returns_200_when_found` (routes).
+- Scenario: Unauthorized or non-existent — returns not-found
+  - **COVERED**: `test_returns_none_when_user_lacks_view_permission` (service),
+    `test_get_group_returns_404_when_not_found` (routes).
 
-- `check-failure-path-tests.sh` and `check-idempotency-tests.sh`: Printed usage errors
-  (no spec file passed as argument), not actual test failures.
+### Group Listing
+- SHALL return only groups the requesting user has `view` permission on
+  - **COVERED**: `TestListGroups` in `test_group_service_list.py`; `TestListGroupsWithViewFiltering`
+    in `test_group_routes.py`.
+- Scenario: Tenant member lists groups — all tenant groups returned
+  - **COVERED**: `test_group_listing_only_shows_accessible_groups` in
+    `test_group_authorization.py` (integration); SpiceDB schema `group.view = admin + member_relation + tenant->view`
+    ensures tenant members inherit view. `test_returns_view_filtered_groups` (service unit).
 
-## What This Task Delivered
+### Group Rename
+- SHALL allow users with `manage` permission to rename
+  - **COVERED**: `TestUpdateGroup` in `test_group_service_update.py`; `TestUpdateGroupRoute`
+    in `test_group_routes.py`; `test_group_admin_can_rename_group` / `test_group_member_cannot_rename_group`
+    (integration authorization).
+- Scenario: Successful rename — group name updated
+  - **COVERED**: `test_renames_group_with_manage_permission` (service unit);
+    `test_update_group_returns_200` (routes); `test_updates_group_name` (repository integration).
+- Scenario: Duplicate name — rejected with conflict error
+  - **COVERED**: `test_raises_duplicate_name_error_when_name_exists` (service unit);
+    `test_update_group_returns_409_on_duplicate_name` (routes).
 
-Files changed vs `alpha`:
-- `src/api/iam/domain/aggregates/group.py` — `Group.create()` now trims whitespace
-  and raises `ValueError` for empty/whitespace-only or >255 char names, consistent
-  with the existing `Group.rename()` behavior.
-- `src/api/iam/presentation/groups/models.py` — Added `field_validator` to both
-  `CreateGroupRequest` and `UpdateGroupRequest` to strip whitespace and reject
-  whitespace-only names at the API boundary (HTTP 422).
-- `src/api/tests/unit/iam/domain/test_group_aggregate.py` — 9 new domain tests
-  covering all `Group.create()` name validation scenarios.
-- `src/api/tests/unit/iam/presentation/test_group_routes.py` — 16 new presentation
-  tests covering POST /groups, GET /groups/{id}, and DELETE /groups/{id} routes
-  (previously untested).
-- `src/api/tests/integration/iam/test_group_workspace_inheritance.py` — New integration
-  test `test_member_added_after_group_assigned_to_workspace_gets_access` covering the
-  previously PARTIAL spec scenario (group in workspace first, then member added, then
-  permission verified).
+### Group Deletion
+- SHALL allow users with `manage` permission to delete
+  - **COVERED**: `TestDeleteGroup` in `test_group_service.py`; `TestDeleteGroupRoute`
+    in `test_group_routes.py`; `test_group_admin_can_delete_group` / `test_group_member_cannot_delete_group`
+    (integration).
+- Scenario: Successful deletion — group removed AND snapshot of all members captured
+  - **COVERED**: `test_group_deleted_event_includes_member_snapshot` in `test_group_aggregate.py`
+    verifies `GroupDeleted` event includes `MemberSnapshot` for every member;
+    `test_deletes_group_and_members` (repository integration); `test_delete_group_returns_204_on_success` (routes).
 
-## Spec Coverage
+### Group Member Management
+- SHALL allow users with `manage` permission to add, remove, and update members
+  - **COVERED**: `TestAddMember`, `TestRemoveMember`, `TestUpdateMemberRole` in
+    `test_group_service_members.py`; corresponding presentation tests in `test_group_routes.py`;
+    integration tests throughout `test_group_members_api.py`.
+- Scenario: Add member — new member granted member role
+  - **COVERED**: `test_adds_member_with_manage_permission` (service); `test_add_member_returns_201` (routes);
+    `test_admin_can_add_member_to_group` (integration).
+- Scenario: Change member role — old role revoked, new role granted
+  - **COVERED**: `TestAddMemberRoleReplacement` in `test_group_aggregate.py` verifies
+    `MemberRemoved` + `MemberAdded` events emitted; `test_admin_can_update_member_role` (integration);
+    `test_update_member_role_returns_200` (routes).
+- Scenario: Remove member — member's role revoked
+  - **COVERED**: `test_removes_member_with_manage_permission` (service); `test_admin_can_remove_member` (integration);
+    `test_remove_member_returns_204` (routes).
+- Scenario: Demote or remove last admin — rejected, admin's role unchanged
+  - **COVERED**: `test_prevents_demoting_last_admin_via_role_replacement`,
+    `test_prevents_removing_last_admin`, `test_prevents_demoting_last_admin` in `test_group_aggregate.py`.
 
-All 20 spec scenarios from `specs/iam/groups.spec.md` are COVERED. The previously
-PARTIAL scenario — "Workspace Access Inheritance: Member added to group with workspace
-assignments" — is now fully covered by the new integration test that follows the exact
-GIVEN→WHEN→THEN sequence from the spec.
+### Group Member Listing
+- SHALL allow users with `view` permission to list members
+  - **COVERED**: `TestListMembers` in `test_group_service.py` and `test_group_service_members.py`;
+    `test_list_members_returns_200` (routes).
+- Scenario: List members — all members returned with user IDs and roles
+  - **COVERED**: `test_can_list_group_members` (integration), `test_list_members_returns_admin_and_member_roles` (service unit).
+  - Members-only view enforcement: `test_tenant_member_can_list_group_members` (integration).
 
-No logger/print usage, no MagicMock for domain collaborators (AsyncMock for GroupService
-in presentation tests follows the pre-existing codebase convention), no hardcoded
-secrets, no DDD boundary violations, proper conventional commits with trailers.
+### Workspace Access Inheritance
+- SHALL propagate group membership to workspace permissions when group assigned to workspace
+  - **COVERED**: SpiceDB schema has `workspace.editor: user | group#member` enabling the chain;
+    `TestGroupWorkspaceInheritance` in `test_group_workspace_inheritance.py` (integration).
+- Scenario: Group added to workspace — all members get editor-level permissions
+  - **COVERED**: `test_group_member_gets_workspace_access_via_group` (integration); verifies
+    bob receives EDIT but not MANAGE after group assigned as editor.
+- Scenario: Member added to group with workspace assignments — new user immediately gets editor permissions
+  - **COVERED** (KEY SCENARIO): `test_member_added_after_group_assigned_to_workspace_gets_access`
+    (integration). Follows the EXACT GIVEN→WHEN→THEN sequence: (1) group assigned to workspace,
+    (2) bob then added to group, (3) bob's EDIT permission verified. SpiceDB evaluates lazily so
+    order of tuple insertion does not matter — both orderings work.
+- Scenario: Member removed from group — user loses inherited workspace permissions
+  - **COVERED**: `test_removing_user_from_group_revokes_workspace_access` (integration);
+    verifies EDIT permission is revoked after group membership removed.
+
+### Group Roles
+- SHALL support two roles for group membership
+  - **COVERED**: `GroupRole` value object with `ADMIN` and `MEMBER` values; SpiceDB schema
+    `group.manage = admin`, `group.view = admin + member_relation + tenant->view`,
+    `group.member = admin + member_relation`.
+- Scenario: Admin role — has manage+view permissions AND included in workspace inheritance
+  - **COVERED**: `test_group_admin_gets_workspace_access_via_group_member_permission` (integration);
+    admin is part of `group.member = admin + member_relation` so inherits workspace access.
+    `test_group_admin_can_delete_group`, `test_group_admin_can_rename_group` confirm manage access.
+- Scenario: Member role — has view permission AND included in workspace inheritance
+  - **COVERED**: `test_admin_can_add_member_to_group` verifies member has VIEW but not MANAGE;
+    `test_group_member_gets_workspace_access_via_group` confirms member inherits workspace EDIT.
+
+## Key Finding: "Member Added After Group Assigned" Scenario
+
+The prior review flagged this as PARTIAL because all existing tests added the member
+BEFORE adding the group to the workspace. Commit `23c6dc6f` (on this branch) adds:
+
+  `test_member_added_after_group_assigned_to_workspace_gets_access`
+  in `src/api/tests/integration/iam/test_group_workspace_inheritance.py`
+
+This test:
+1. Creates workspace
+2. Creates empty group and assigns it to workspace AS EDITOR (before any member other than alice)
+3. Verifies alice (group admin) already has EDIT on workspace
+4. Then adds bob to the group as "member"
+5. Waits for bob's VIEW on group (outbox processed)
+6. Verifies bob now has EDIT on workspace and does NOT have MANAGE
+
+The sequence is now correct and the scenario is FULLY COVERED.
+
+## Verdict
+
+All 20 spec scenarios are COVERED by appropriate unit and/or integration tests.
+No scenarios are PARTIAL or MISSING. The implementation correctly follows DDD
+boundaries (verified by architecture tests), and the SpiceDB schema correctly
+models all group permission semantics.

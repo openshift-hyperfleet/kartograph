@@ -22,11 +22,20 @@ UI_TEST_DIR="${2:-src/dev-ui}"
 if [[ -z "${BASE_BRANCH:-}" ]]; then
   if git rev-parse --verify origin/alpha &>/dev/null; then
     BASE_BRANCH="origin/alpha"
-  else
+  elif git rev-parse --verify origin/main &>/dev/null; then
     BASE_BRANCH="origin/main"
+  else
+    echo "ERROR: Neither origin/alpha nor origin/main found. Cannot determine base branch." >&2
+    exit 1
   fi
 fi
-task_ui_changes=$(git diff "${BASE_BRANCH}...HEAD" --name-only 2>/dev/null \
+
+if ! git rev-parse --verify "${BASE_BRANCH}" &>/dev/null; then
+  echo "ERROR: BASE_BRANCH '${BASE_BRANCH}' does not exist. Cannot run UI diff." >&2
+  exit 1
+fi
+
+task_ui_changes=$(git diff "${BASE_BRANCH}...HEAD" --name-only -- "$UI_SOURCE_DIR" 2>/dev/null \
   | grep -E '\.(vue|ts|js)$' \
   | grep -v node_modules \
   | grep -v '\.nuxt' \

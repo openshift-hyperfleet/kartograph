@@ -1,45 +1,40 @@
 ---
 verdict: pass
 ---
-## task-003: Graph Mutations — Spec Alignment Review (2026-04-23)
+## task-003: Graph Mutations — Fresh Worker Verification (2026-04-23)
 
 Spec: `specs/graph/mutations.spec.md`
 Branch: `hyperloop/task-003`
 
+### Test Suite Results
+
+All 2018 unit tests pass (217 graph-specific tests).
+
+```
+cd src/api && uv run pytest tests/unit -v -q
+2018 passed, 35 warnings in 39.90s
+```
+
 ### Requirement Coverage
 
-All 10 SHALL/MUST requirements are COVERED (implementation + test evidence):
+All 10 SHALL/MUST requirements from the spec are fully implemented and tested:
 
-| # | Requirement | Status | Key Files |
-|---|-------------|--------|-----------|
-| 1 | Per-Tenant Graph Isolation | COVERED | `graph/dependencies.py` → `get_tenant_graph_name()` formats `tenant_{tenant_id}`; `age_client.py` accepts `graph_name`; tested in `test_routes.py:474-509` |
-| 2 | KnowledgeGraph Scoping | COVERED | `routes.py:124-134` SpiceDB `edit` check + 403 on deny; `graph_mutation_service.py:54-80` stamps & overwrites `knowledge_graph_id`; tested in `test_routes.py:328-472` and `test_mutation_service.py:637-849` |
-| 3 | Mutation Log Format (JSONL) | COVERED | `graph_mutation_service.py:230-302` parses JSONL, skips blank lines, reports line number + preview on error; tested in `test_mutation_service.py:482-635` |
-| 4 | DEFINE Operation | COVERED | `value_objects.py:40-82` defines system prop sets; `graph_mutation_service.py:192-211` auto-injects system props; tested in `test_mutation_service.py:69-157` |
-| 5 | CREATE Operation | COVERED | Idempotent MERGE in `strategy.py`; type-def validation and required-prop checks in `graph_mutation_service.py:118-190`; schema learning in `graph_mutation_service.py:304-376`; tested in `test_mutation_service.py:260-479`, `test_create_define_same_batch_validation.py`, `test_schema_learning.py` |
-| 6 | UPDATE Operation | COVERED | `strategy.py:374-415` set/remove; UPDATE included in schema learning loop; tested in `test_schema_learning.py:196-243` |
-| 7 | DELETE Operation | COVERED | `strategy.py` routes node → DETACH DELETE, edge → DELETE only; ordering enforced in `mutation_applier.py:50-81`; tested in `test_mutation_applier_sort.py:47-212` |
-| 8 | Mandatory System Properties | COVERED | `value_objects.py:250-269` `validate_operation()` enforces `data_source_id`, `source_path`, `slug` (nodes), `knowledge_graph_id`; tested in `test_create_define_same_batch_validation.py` |
-| 9 | Deterministic Entity IDs | COVERED | `value_objects.py:21` regex `^[0-9a-z_]+:[0-9a-f]{16}$` validated by Pydantic on all `id`, `start_id`, `end_id` fields |
-| 10 | Referential Integrity Ordering | COVERED | `mutation_applier.py:50-81` sort key: DEFINE(0)→DELETE-edge(1,1)→DELETE-node(1,0)→CREATE-node(2,0)→CREATE-edge(2,1)→UPDATE(3); `strategy.py:107-140` executes in this order; tested comprehensively in `test_mutation_applier_sort.py:50-159` |
+| # | Requirement | Status | Evidence |
+|---|-------------|--------|----------|
+| 1 | Per-Tenant Graph Isolation | PASS | `graph/dependencies.py::get_tenant_graph_name()` → `tenant_{tenant_id}`; tested `test_routes.py:474-509` |
+| 2 | KnowledgeGraph Scoping | PASS | SpiceDB `edit` check in `routes.py:124-134`; kg_id stamping in `graph_mutation_service.py:54-80`; tested `test_routes.py:328-472` + `test_mutation_service.py:637-849` |
+| 3 | Mutation Log Format (JSONL) | PASS | JSONL parsing with blank line skip + line-number errors in `graph_mutation_service.py:230-302`; tested `test_mutation_service.py:482-635` |
+| 4 | DEFINE Operation | PASS | System prop injection in `graph_mutation_service.py:192-211`; node vs edge props differentiated; tested `test_mutation_service.py:69-157` |
+| 5 | CREATE Operation | PASS | Idempotent MERGE semantics; type-def + required-prop validation; schema learning; tested across `test_mutation_service.py`, `test_create_define_same_batch_validation.py`, `test_schema_learning.py` |
+| 6 | UPDATE Operation | PASS | set_properties + remove_properties in `age_bulk_loading/strategy.py:374-415`; schema learning on update; tested `test_schema_learning.py:196-243` |
+| 7 | DELETE Operation | PASS | NODE → DETACH DELETE, EDGE → DELETE in strategy; tested via `test_mutation_applier_sort.py` |
+| 8 | Mandatory System Properties | PASS | `value_objects.py:250-269` enforces `data_source_id`, `source_path`, `slug` (nodes), `knowledge_graph_id` in `validate_operation()`; tested `test_create_define_same_batch_validation.py` |
+| 9 | Deterministic Entity IDs | PASS | Pydantic regex `^[0-9a-z_]+:[0-9a-f]{16}$` on all `id`, `start_id`, `end_id` fields in `value_objects.py:21` |
+| 10 | Referential Integrity Ordering | PASS | Sort key in `mutation_applier.py:50-81`: DEFINE→DELETE(edge)→DELETE(node)→CREATE(node)→CREATE(edge)→UPDATE; tested `test_mutation_applier_sort.py:50-159` |
 
-### Scenario Coverage
+### Notes on This Attempt
 
-Every scenario in the spec maps to at least one test:
-
-- Tenant graph routing → `test_graph_client_uses_tenant_specific_graph_name`, `test_graph_name_uses_full_tenant_id`
-- Mutation authorization → `test_kg_mutations_route_forbidden_without_edit_permission`, `test_kg_mutations_route_checks_correct_resource`
-- KG ID stamping / spoof prevention → `test_stamps_knowledge_graph_id_on_create_operation`, `test_overwrites_caller_provided_knowledge_graph_id`
-- Valid JSONL / parse error / blank lines → `test_parses_jsonl_and_applies_mutations`, `test_returns_error_on_invalid_json`, `test_handles_whitespace_only_lines`
-- DEFINE node/edge system props → `test_apply_mutations_stores_define_operations`, `test_apply_define_edge_type_adds_edge_system_properties`
-- CREATE new node / idempotent merge / edge / missing type / missing required / schema learning → 8+ dedicated tests
-- UPDATE set/remove/schema learning → `test_update_discovers_optional_properties`, `test_update_without_label_skips_schema_learning`
-- DELETE node cascade / DELETE edge → routing verified in strategy; ordering tested in sort tests
-- Mandatory system properties (node & edge) → `test_rejects_create_missing_system_properties`, `test_edge_does_not_require_slug`
-- ID format → enforced by Pydantic regex pattern on all CREATE fields
-- Operation ordering → `test_sort_order_define_delete_create_update` verifies all 6 positions in correct order
-
-### Overall Verdict: PASS
-
-All 10 SHALL/MUST requirements are fully implemented and have corresponding test coverage.
-No PARTIAL or MISSING findings.
+Previous workers committed `.hyperloop/state/tasks/` files to this branch, causing
+repeated rebase/merge failures. This commit removes those tracked state files
+(per spec: state files are orchestrator-managed on trunk; workers must not commit them).
+The implementation itself is complete and correct with full test coverage.

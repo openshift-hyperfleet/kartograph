@@ -1,77 +1,232 @@
 ---
 verdict: pass
 ---
-## Verification Report — task-022: Secure Enclave Per-Entity Graph Authorization
+## Spec Alignment Review — specs/iam/authorization.spec.md
+### Branch: hyperloop/task-022
 
-### Check Results
+---
 
-1. **Unit Tests** — PASS
-   - 2069 tests passed, 0 failed, 39 warnings (all pre-existing deprecation warnings from Starlette)
-   - Includes 26 new tests for `GraphSecureEnclaveService` and 19 new schema design tests
+## Requirement Status Summary
 
-2. **Linting (`ruff check`)** — PASS
-   - Zero violations across all 444 source files
+| Requirement | Status | Notes |
+|---|---|---|
+| Tenant Permissions | COVERED | Schema design tests + integration tests |
+| Workspace Permissions | COVERED | Schema design tests + integration tests |
+| Root Workspace Create-Child Access | COVERED | Integration tests (SpiceDB + API level) |
+| Group-to-Workspace Permission Inheritance | COVERED | Full integration tests including revoke |
+| Knowledge Graph Permissions | COVERED | Schema design tests + service unit tests |
+| Data Source Permissions | COVERED | Schema design tests + service unit tests |
+| API Key Permissions | COVERED | Schema design tests + service unit tests |
+| Secure Enclave — Per-Entity Graph Authorization | COVERED | Full unit test suite |
+| Single-Role Enforcement | COVERED | Integration tests for workspace, group, tenant |
+| Information Hiding on Authorization Failure | COVERED | Service layer + route layer unit tests |
+| Group Permissions | COVERED | Schema design tests + integration tests |
 
-3. **Formatting (`ruff format --check`)** — PASS
-   - All 444 files correctly formatted
+---
 
-4. **Type Checking (`mypy`)** — PASS
-   - Zero errors in 444 source files
+## Detailed Findings
 
-5. **Architecture Boundary Tests** — PASS
-   - All 40 archon boundary tests pass
-   - `GraphSecureEnclaveService` lives in `graph.application.services` (correct layer)
-   - `RedactedNodeRecord` / `RedactedEdgeRecord` live in `graph.domain.value_objects` (correct layer)
-   - No DDD boundary violations detected
+### Requirement: Tenant Permissions — COVERED
 
-6. **Check Scripts** — PARTIAL
-   - `check-no-coming-soon-stubs.sh`: PASS
-   - `check-no-future-placeholder-comments.sh`: PASS
-   - `check-frontend-tests-exist.sh`: FAIL (pre-existing; dev-ui has Vue/TS files but no vitest tests — unrelated to this backend-only task)
-   - `check-frontend-test-infrastructure.sh`: FAIL (same pre-existing issue)
-   - `check-failure-path-tests.sh` / `check-idempotency-tests.sh`: require a spec file argument; not invoked with one (inapplicable in isolation)
+**Scenario: Admin permissions**
+- Schema: `tenant.view = admin + member`, `tenant.create_api_key = admin + member`, `tenant.manage = admin`, `tenant.administrate = admin`
+- Schema design tests: `TestTenantSchemaDesign` in `tests/unit/shared_kernel/authorization/spicedb/test_schema_design.py`
+  - `test_tenant_admin_has_view_permission` ✓
+  - `test_tenant_member_has_view_permission` ✓
+  - `test_tenant_admin_has_create_api_key_permission` ✓
+  - `test_tenant_member_has_create_api_key_permission` ✓
+  - `test_tenant_manage_is_admin_only` ✓
+  - `test_tenant_administrate_is_admin_only` ✓
+- Integration: `test_tenant_authorization.py` → `TestTenantCreationAutoGrant` verifies admin grant propagates to SpiceDB.
 
-   The frontend failures are pre-existing (introduced before this branch) and out of scope for a backend-only authorization task.
+**Scenario: Member permissions**
+- Schema design test confirms `manage` and `administrate` do NOT include `member`.
+- Integration: `test_adding_tenant_member_does_not_grant_root_workspace_admin` verifies member doesn't gain MANAGE.
 
-7. **Commit Trailers** — PASS
-   - All 6 implementation commits carry both `Spec-Ref` and `Task-Ref` trailers
-   - Commits are atomic and follow conventional-commit format
+---
 
-8. **Code Review** — PASS
+### Requirement: Workspace Permissions — COVERED
 
-   **Secure Enclave implementation** (`graph_secure_enclave.py`):
-   - Per-entity `knowledge_graph_id` drives a SpiceDB `VIEW` permission check — correct per spec
-   - `_extract_kg_id` denies on missing, `None`, empty, or non-string values — correct fail-safe per spec
-   - `_check_kg_view` catches all exceptions and denies — correct fail-safe for SpiceDB errors
-   - Permission results cached per `kg_id` within a single request — good N+1 avoidance
-   - Unauthorized entities are redacted, not removed — graph topology preserved per spec
-   - `RedactedNodeRecord`: exposes only `id` — matches spec
-   - `RedactedEdgeRecord`: exposes only `id`, `start_id`, `end_id` — matches spec
+**Scenario: Admin permissions (view, edit, manage, create_child)**
+- Schema: `workspace.view = admin + editor + member + tenant->view`, `workspace.edit = admin + editor`, `workspace.manage = admin`, `workspace.create_child = admin + editor + creator_tenant->view`
+- Schema design tests: `TestWorkspaceViewPermission` verifies `tenant->view` is included and edit/manage exclude `tenant->member`.
+- Integration tests: `TestWorkspaceRoleEnforcement` verifies:
+  - `test_workspace_admin_can_delete_workspace` ✓ (MANAGE permission)
+  - `test_workspace_admin_can_update_workspace` ✓ (MANAGE permission)
 
-   **Dependency injection** (`graph/dependencies.py`):
-   - `get_graph_secure_enclave_service()` correctly composes `GraphQueryService` + `AuthorizationProvider` + `user_id`
-   - Routes now depend on enclave service instead of bare query service
+**Scenario: Editor permissions (view, edit, create_child; NOT manage)**
+- Integration tests:
+  - `test_workspace_editor_cannot_delete_workspace` → 403 ✓
+  - `test_workspace_editor_cannot_update_workspace` → 403 ✓
+  - `test_workspace_editor_can_create_under_child_workspace_via_api` → 201 ✓
 
-   **Routes** (`graph/presentation/routes.py`):
-   - `find_by_slug` and `get_neighbors` both route through `GraphSecureEnclaveService` — no unguarded query service exposure
+**Scenario: Member permissions (view only)**
+- Integration tests:
+  - `test_workspace_member_can_view_workspace` → 200 ✓
+  - `test_workspace_member_cannot_delete_workspace` → 403 ✓
+  - `test_workspace_member_cannot_update_workspace` → 403 ✓
 
-   **Schema design tests**:
-   - `TestTenantSchemaDesign`: covers admin/member permission hierarchy (view, create_api_key, manage, administrate)
-   - `TestAPIKeySchemaDesign`: covers owner + tenant admin access for view/revoke
-   - `TestGroupSchemaDesign`: covers admin manage, member view-only, computed member union
+**Scenario: Tenant member visibility**
+- Schema design test: `test_workspace_view_includes_tenant_member` verifies `tenant->view` ✓
+- Integration test: `test_workspace_listing_only_shows_accessible_workspaces` verifies Bob sees workspaces via tenant->view ✓
 
-   **No direct `logger.*` or `print()` calls** in any new production code — domain probes pattern followed.
+---
 
-   **Minor observation** (non-blocking): `test_graph_secure_enclave.py` uses `MagicMock(spec=GraphQueryService)` and `AsyncMock(spec=AuthorizationProvider)` rather than hand-written fakes. This pattern is consistent with existing application-layer tests in the codebase (e.g., `test_mutation_service.py`, `test_schema_service.py` use `Mock` / `create_autospec`). No fakes for these types exist yet in the codebase. Noted for future improvement but not a blocker.
+### Requirement: Root Workspace Create-Child Access — COVERED
 
-### Spec Coverage
+**Scenario: Tenant member creates child of root**
+- SpiceDB integration: `TestCreateChildPermission.test_tenant_member_can_create_workspace_under_root` directly verifies `CREATE_CHILD` permission via SpiceDB check ✓
+- API integration: `test_tenant_member_can_create_workspace_under_root_via_api` → 201 ✓
+- Repository integration: `TestRootWorkspaceCreatorTenantRelation.test_root_workspace_has_creator_tenant_relation` verifies `creator_tenant` relationship is written ✓
 
-All spec scenarios for the Secure Enclave requirement are covered by tests:
-- Authorized entity → full properties returned ✓
-- Unauthorized node → ID-only redaction ✓
-- Unauthorized edge → endpoint-preserving redaction (ID + start_id + end_id) ✓
-- Permission derivation from `knowledge_graph_id` ✓
-- Missing/null/malformed `knowledge_graph_id` → deny ✓
-- Graph topology preserved (entities never removed) ✓
+**Scenario: Non-root workspace restricts creation**
+- SpiceDB integration: `test_tenant_member_cannot_create_under_child_workspace` verifies no `CREATE_CHILD` permission on child ✓
+- API integration: `test_tenant_member_cannot_create_workspace_under_child_via_api` → 403 ✓
+- Repository integration: `test_child_workspace_has_no_creator_tenant_relation` verifies `creator_tenant` is NOT written ✓
 
-Schema design tests cover: Tenant, API Key, and Group resource permission hierarchies per spec.
+---
+
+### Requirement: Group-to-Workspace Permission Inheritance — COVERED
+
+**Scenario: Group member inherits workspace access**
+- Integration: `test_group_member_gets_workspace_access_via_group` — writes group as editor on workspace, verifies member has EDIT, not MANAGE ✓
+
+**Scenario: Group admin inherits workspace access**
+- Integration: `test_group_admin_gets_workspace_access_via_group_member_permission` — verifies group admin (included in `group.member = admin + member_relation`) inherits workspace EDIT ✓
+
+**Scenario: Removing user from group revokes inherited access**
+- Integration: `test_removing_user_from_group_revokes_workspace_access` — removes user from group, verifies EDIT is revoked via `wait_for_permission_revoked` ✓
+
+---
+
+### Requirement: Knowledge Graph Permissions — COVERED
+
+**Scenario: Workspace-inherited access**
+- Schema: `knowledge_graph.view = admin + editor + viewer + workspace->view`, `knowledge_graph.edit = admin + editor + workspace->edit`
+- Schema design tests: `TestKnowledgeGraphSchemaDesign`
+  - `test_knowledge_graph_view_includes_workspace_view` ✓
+  - `test_knowledge_graph_edit_includes_workspace_edit` ✓
+- Service unit tests: `TestKnowledgeGraphServiceCreate.test_create_checks_edit_permission_on_workspace` verifies service enforces EDIT on workspace ✓
+
+**Scenario: Direct grant (admin → manage, edit, view)**
+- Schema: `knowledge_graph.manage = admin + workspace->manage`, `knowledge_graph.edit = admin + editor + workspace->edit`, `knowledge_graph.view = admin + ...`
+- Schema design tests:
+  - `test_knowledge_graph_manage_is_admin_based` ✓
+  - `test_knowledge_graph_view_includes_direct_roles` (admin, editor, viewer) ✓
+  - `test_knowledge_graph_edit_includes_direct_roles` (admin, editor) ✓
+  - `test_knowledge_graph_edit_excludes_viewer` ✓
+- Service unit tests: `test_delete_checks_manage_permission_on_kg`, `test_update_checks_edit_permission_on_kg`, `test_get_checks_view_permission` ✓
+
+Note: No integration-level SpiceDB tests that write a `knowledge_graph#admin@user` relationship and verify all three permissions. Coverage is at schema design + service unit test level.
+
+---
+
+### Requirement: Data Source Permissions — COVERED
+
+**Scenario: Inherited access (KG edit → DS edit and view)**
+- Schema: `data_source.view = knowledge_graph->view`, `data_source.edit = knowledge_graph->edit`
+- Schema design tests: `TestDataSourceSchemaDesign`
+  - `test_data_source_view_inherits_from_knowledge_graph` — asserts `view_expr == "knowledge_graph->view"` ✓
+  - `test_data_source_edit_inherits_from_knowledge_graph` — asserts `edit_expr == "knowledge_graph->edit"` ✓
+  - `test_data_source_has_no_direct_user_relations` — verifies no direct admin/editor/viewer on DS ✓
+- Service unit tests: `test_get_checks_view_permission`, `test_list_checks_view_permission_on_kg`, `test_create_checks_edit_permission_on_kg` ✓
+
+Note: Same gap as KG — no integration SpiceDB tests walking the KG→DS chain. Schema design tests provide the contract verification.
+
+---
+
+### Requirement: API Key Permissions — COVERED
+
+**Scenario: Owner access (view, revoke)**
+- Schema: `api_key.view = owner + tenant->administrate`, `api_key.revoke = owner + tenant->administrate`
+- Schema design tests: `TestAPIKeySchemaDesign`
+  - `test_api_key_owner_has_view_permission` ✓
+  - `test_api_key_owner_has_revoke_permission` ✓
+  - `test_api_key_view_and_revoke_have_same_grantees` ✓
+
+**Scenario: Tenant admin access (view, revoke on all keys)**
+- Schema design tests:
+  - `test_api_key_tenant_admin_has_view_permission` (via `tenant->administrate`) ✓
+  - `test_api_key_tenant_admin_has_revoke_permission` (via `tenant->administrate`) ✓
+- Service unit tests: `TestAPIKeyServiceRevokeAuthorization.test_revoke_checks_api_key_revoke_permission` verifies SpiceDB REVOKE check ✓
+- Service unit tests: `TestAPIKeyServiceList.test_lists_api_keys_using_authz` verifies SpiceDB lookup with VIEW permission ✓
+
+---
+
+### Requirement: Secure Enclave — Per-Entity Graph Authorization — COVERED
+
+All 5 scenarios fully covered by `tests/unit/graph/application/test_graph_secure_enclave.py` (26 tests).
+
+**Scenario: Authorized entity — full properties**
+- `TestAuthorizedNodeReturnsFullProperties`: 2 tests ✓
+- `TestAuthorizedEdgeReturnsFullProperties`: 2 tests ✓
+
+**Scenario: Unauthorized node — ID-only redaction**
+- `TestUnauthorizedNodeReturnsIdOnly`: 4 tests verifying RedactedNodeRecord type, ID preserved, all properties stripped, node not removed from result set ✓
+
+**Scenario: Unauthorized edge — endpoint-preserving redaction**
+- `TestUnauthorizedEdgeEndpointPreservingRedaction`: 6 tests verifying RedactedEdgeRecord type, ID/start_id/end_id preserved, properties stripped, edge not removed ✓
+
+**Scenario: Permission derivation for graph entities**
+- `TestPermissionDerivation`: 3 tests verifying SpiceDB call uses knowledge_graph resource, VIEW permission, and current user subject ✓
+
+**Scenario: Missing or unresolvable knowledge_graph_id**
+- `TestMissingKnowledgeGraphIdDenied`: 5 tests covering missing, null, non-string (int), empty string ✓
+
+Implementation in `graph/application/services/graph_secure_enclave.py` is wired into routes and DI. No bypasses observed.
+
+---
+
+### Requirement: Single-Role Enforcement — COVERED
+
+**Scenario: Role replacement**
+- Integration: `TestWorkspaceSingleRole.test_adding_user_with_different_role_replaces_old_role` — bob starts as member, updated to editor; verifies EDIT granted, member permissions replaced ✓
+- Integration: `TestGroupSingleRole.test_adding_user_with_different_group_role_replaces_old` — verifies group role replacement ✓
+- Integration: `TestTenantSingleRole.test_adding_user_with_different_tenant_role_replaces_old` — verifies tenant role replacement; ADMINISTRATE granted after member replaced by admin ✓
+
+---
+
+### Requirement: Information Hiding on Authorization Failure — COVERED
+
+**Scenario: Unauthorized access → 404 not 403**
+
+The implementation uses a consistent pattern:
+1. Service layer: returns `None` when user lacks VIEW permission (treating unauthorized like not-found)
+   - `test_get_workspace_returns_none_without_view_permission` (workspace service) ✓
+   - `test_returns_none_when_user_lacks_view_permission` (group service, tenant service) ✓
+2. Route layer: converts `None` → 404
+   - `test_get_workspace_returns_404_when_not_found` ✓
+   - `test_get_workspace_returns_404_for_different_tenant` — explicitly verifies cross-tenant access returns 404 (not 403), "don't leak existence" ✓
+   - Integration: `test_returns_404_for_nonexistent_group` (GET) ✓
+
+**Observation (non-blocking):** `TestDeleteGroup.test_returns_403_for_nonexistent_group` asserts 403 for DELETE on a nonexistent group. The spec's GIVEN says "without permission to VIEW a resource" — the DELETE scenario is a management operation (MANAGE permission), not a view operation. The spec's scenario specifically targets read/view access. The delete path consistently returns 403 regardless of whether the group exists, so existence is not leaked. This is distinct from the spec's stated VIEW scenario and does not constitute a FAIL.
+
+---
+
+### Requirement: Group Permissions — COVERED
+
+**Scenario: Admin permissions (view, manage)**
+- Schema design tests: `TestGroupSchemaDesign`
+  - `test_group_admin_has_manage_permission` ✓
+  - `test_group_admin_has_view_permission` ✓
+- Integration: `test_group_admin_can_delete_group`, `test_group_admin_can_rename_group` ✓
+
+**Scenario: Member permissions (view only)**
+- Schema design tests:
+  - `test_group_member_does_not_have_manage_permission` ✓
+  - `test_group_member_relation_has_view_permission` ✓
+- Integration: `test_group_member_cannot_delete_group` → 403 ✓, `test_group_member_cannot_rename_group` → 403 ✓
+
+**Scenario: Tenant member visibility**
+- Schema design test: `test_group_view_includes_tenant_member` (verifies `tenant->view` in `group.view`) ✓
+- Integration: `test_group_listing_only_shows_accessible_groups` — Bob (tenant member) sees alice's group via `tenant->view` ✓
+
+---
+
+## Overall Assessment
+
+**PASS.** All 11 SHALL/MUST requirements are implemented and covered by tests. Every spec scenario has corresponding test coverage — via schema design tests (SpiceDB schema validation), application service unit tests (permission enforcement verification), and integration tests (end-to-end API + SpiceDB verification for the primary access control flows).
+
+The schema design tests (`TestKnowledgeGraphSchemaDesign`, `TestDataSourceSchemaDesign`, `TestTenantSchemaDesign`, `TestAPIKeySchemaDesign`, `TestGroupSchemaDesign`) constitute legitimate spec coverage because they verify the SpiceDB schema file — the authoritative source of truth for the permission model. If the schema expressions are correct (which the tests verify), SpiceDB will evaluate the permissions correctly.
+
+No missing implementations were found. No spec scenario lacks coverage.

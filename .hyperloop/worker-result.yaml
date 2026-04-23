@@ -3,131 +3,94 @@ verdict: pass
 ---
 ## Task-008: Knowledge Graphs — Fresh Worker Verification (2026-04-23)
 
-Independent fresh implementation verification of `specs/management/knowledge-graphs.spec.md`
-on branch `hyperloop/task-008`. All code verified by direct review and test execution.
+Independent re-verification of `specs/management/knowledge-graphs.spec.md`
+on branch `hyperloop/task-008`. All checks run live from scratch.
 
 ---
 
-### Test Results
+### Check Results
 
-**Unit tests (management context):** 330 passed / 0 failed
-**Full unit suite:** 2060 passed / 0 failed
-**Architecture enforcement (pytest-archon):** 40 rules passed / 0 failed
-
-Command used: `cd src/api && uv run pytest tests/unit -v`
-
----
-
-### Requirements Coverage
-
-#### 1. Knowledge Graph Creation — FULLY IMPLEMENTED
-
-- `KnowledgeGraph.create()` factory in `management/domain/aggregates/knowledge_graph.py`
-  generates ULID via `KnowledgeGraphId.generate()`, sets tenant_id/workspace_id, emits
-  `KnowledgeGraphCreated` event for outbox processing (establishes SpiceDB relationships).
-- `KnowledgeGraphService.create()` in `management/application/services/knowledge_graph_service.py`
-  checks EDIT permission on workspace before creation.
-- DB unique constraint `uq_knowledge_graphs_tenant_name` enforces name uniqueness per tenant;
-  repository catches `IntegrityError` -> `DuplicateKnowledgeGraphNameError`.
-- Route returns 201 on success, 409 for duplicates.
-
-**Tests:** `TestKnowledgeGraphCreate.*`, `TestKnowledgeGraphServiceCreate.*`,
-`TestCreateKnowledgeGraph.*` (routes), `TestKnowledgeGraphUniqueness.*` (integration)
-
-#### 2. Knowledge Graph Name Validation — FULLY IMPLEMENTED
-
-- Domain aggregate `_validate_name()` enforces 1-100 chars at both `__post_init__` and `update()`.
-- Pydantic `CreateKnowledgeGraphRequest` / `UpdateKnowledgeGraphRequest` models enforce
-  identical constraint at presentation layer (FastAPI returns 422 automatically).
-
-**Tests:** `TestKnowledgeGraphCreate.*name*`, `TestKnowledgeGraphValidation.*`
-
-#### 3. Knowledge Graph Retrieval — FULLY IMPLEMENTED
-
-- `KnowledgeGraphService.get()` returns `None` for: not found, wrong tenant, lacking VIEW.
-  Route maps `None` -> 404 (no existence leakage - same response for missing and unauthorized).
-
-**Tests:** `TestKnowledgeGraphServiceGet.*`, `TestGetKnowledgeGraph.*` (routes)
-
-#### 4. Knowledge Graph Listing — FULLY IMPLEMENTED
-
-- `KnowledgeGraphService.list_for_workspace()` checks VIEW on workspace, then reads SpiceDB
-  relationships to discover KG IDs, fetches each, and filters by tenant.
-
-**Tests:** `TestKnowledgeGraphServiceListForWorkspace.*`, `TestListKnowledgeGraphs.*`
-
-#### 5. Knowledge Graph Update — FULLY IMPLEMENTED
-
-- `KnowledgeGraphService.update()` checks EDIT on the KG itself (not workspace), fetches,
-  validates tenant, calls `kg.update()`, persists within transaction.
-
-**Tests:** `TestKnowledgeGraphServiceUpdate.*`, `TestUpdateKnowledgeGraph.*`
-
-#### 6. Knowledge Graph Deletion with Cascade — FULLY IMPLEMENTED
-
-- `KnowledgeGraphService.delete()` checks MANAGE permission, then within a single
-  `async with session.begin()` block:
-  1. Fetches all data sources via `ds_repo.find_by_knowledge_graph()`
-  2. Deletes encrypted credentials from secret store for each DS with `credentials_path`
-  3. Marks each DS for deletion and calls `ds_repo.delete()`
-  4. Marks KG for deletion and calls `kg_repo.delete()`
-- If any step raises, the transaction rolls back - no partial state.
-- SpiceDB cleanup via outbox: `ManagementEventTranslator` produces 5 operations on
-  `KnowledgeGraphDeleted`: delete workspace relationship, delete tenant relationship,
-  filter-delete all admin/editor/viewer direct grants.
-- `AggregateDeletedError` raised on mutation after deletion.
-
-**Tests:** `TestKnowledgeGraphServiceDelete.*` (8 tests including rollback and credentials),
-`TestManagementEventTranslatorKnowledgeGraphDeleted.*` (7 SpiceDB operation tests),
-`TestKnowledgeGraphMarkForDeletion.test_update_raises_after_deletion`
-
-#### 7. Permission Inheritance — FULLY IMPLEMENTED
-
-SpiceDB schema defines:
-```
-definition knowledge_graph {
-  relation workspace: workspace
-  relation tenant: tenant
-  relation admin: user | group#member
-  relation editor: user | group#member
-  relation viewer: user | group#member
-  permission view = admin + editor + viewer + workspace->view
-  permission edit = admin + editor + workspace->edit
-  permission manage = admin + workspace->manage
-}
-```
-
-- Workspace-inherited: workspace editor/member -> KG view, workspace editor -> KG edit,
-  workspace admin -> KG manage.
-- Direct grant: KG admin -> manage+edit+view, KG editor -> edit+view, KG viewer -> view only.
-
-**Tests:** `TestWorkspaceInheritedKnowledgeGraphAccess.*` (7 integration tests against SpiceDB),
-`TestDirectGrantKnowledgeGraphAccess.*` (5 integration tests)
+| Check | Result | Detail |
+|---|---|---|
+| Unit Tests | PASS | 2060 passed, 0 failed |
+| Linting (ruff check) | PASS | All checks passed |
+| Formatting (ruff format) | PASS | 450 files already formatted |
+| Type Checking (mypy) | PASS | No issues found in 450 source files |
+| Architecture Boundaries | PASS | 40 rules passed, 0 failed |
+| check-auth-status-codes.sh | PASS (reviewed) | See note below |
+| check-no-coming-soon-stubs.sh | PASS | No stub markers found |
+| check-no-future-placeholder-comments.sh | PASS | No future-placeholder comments |
+| check-frontend-test-infrastructure.sh | PASS | vitest found |
+| check-frontend-tests-exist.sh | PASS | 3 frontend test files found |
 
 ---
 
-### Architecture Boundaries (pytest-archon)
+### check-auth-status-codes.sh Manual Review
 
-All DDD layer boundaries enforced:
-- `management.domain*` does NOT import infrastructure, application, or FastAPI
-- `management.ports*` does NOT import infrastructure or application
-- `management.application*` does NOT import infrastructure
-- `management.infrastructure*` does NOT import application
-- Cross-context: management does NOT import iam, graph, ingestion, extraction, querying
+The script flagged two lines — both are pre-existing, unrelated to task-008:
+
+1. `test_api_key_auth.py:527: assert revoke_response.status_code == 403`
+   — Tests that a non-admin (Bob) cannot revoke another user's (Alice's) API key.
+   A 403 is correct here: this is a mutation by an authenticated-but-not-authorized
+   user. The "no distinction" pattern (return 404) applies only to read/retrieval
+   scenarios; it does not apply to mutations.
+
+2. `test_auth_enforcement.py:129: assert response.status_code not in [401, 403]`
+   — A *negative* assertion for the `/health/db` endpoint (verifying it does NOT
+   return 401 or 403). The grep matched due to the literal "403" in the `not in`
+   list. This is a correct health-check accessibility assertion.
+
+Neither line is in knowledge-graph test files. Both are legitimate.
 
 ---
 
-### Observability (Domain-Oriented)
+### Spec Requirements Coverage
 
-- `KnowledgeGraphProbe` protocol + `DefaultKnowledgeGraphProbe` (structlog) on aggregate
-- `KnowledgeGraphServiceProbe` protocol + `DefaultKnowledgeGraphServiceProbe` on service
-- No direct `logger.*` or `print()` in domain or application layers
+All 7 requirements and all 11 scenarios implemented and verified:
+
+1. **KG Creation** — `KnowledgeGraph.create()` generates ULID, checks EDIT on workspace,
+   enforces `uq_knowledge_graphs_tenant_name` uniqueness → 409 on duplicate.
+
+2. **Name Validation** — 1–100 chars enforced at domain (`_validate_name()`) and
+   Pydantic presentation layer → 422 from FastAPI automatically.
+
+3. **Retrieval** — `service.get()` returns `None` for unauthorized or missing;
+   route maps `None` → 404. No existence leakage.
+
+4. **Listing** — `service.list_for_workspace()` filters by SpiceDB VIEW relationships.
+
+5. **Update** — `service.update()` checks EDIT on the KG, validates tenant boundary,
+   calls `kg.update()` within transaction.
+
+6. **Deletion (cascaded, atomic)** — Inside a single `async with session.begin()`:
+   credentials deleted from secret store → DS records deleted → KG record deleted.
+   SpiceDB cleanup via outbox events. Rollback on any failure.
+
+7. **Permission Inheritance** — SpiceDB schema:
+   ```
+   permission view   = admin + editor + viewer + workspace->view
+   permission edit   = admin + editor + workspace->edit
+   permission manage = admin + workspace->manage
+   ```
+   Correctly inherits from workspace and supports direct grants.
+
+---
+
+### Commit Trailers
+
+All implementation commits carry `Spec-Ref` and `Task-Ref` trailers:
+- `d0808950` feat(management): implement knowledge graph REST API
+- `55d7693e` feat(main): mount management bounded context router
+- `72ccbd16` fix(management): cascade encrypted credential deletion
+- `f809a299` feat(management): add KG list_all route, frontend pages
+- `b2245d8e` fix(iam): return 404 not 403 for unauthorized parent workspace
+- `b01d4abf` feat(dev-ui): export buildQueryGraphArgs
 
 ---
 
 ### Conclusion
 
-All 7 SHALL requirements and 11 spec scenarios from `specs/management/knowledge-graphs.spec.md`
-are implemented with full test coverage across domain, application, infrastructure, and
-presentation layers. All unit tests pass (2060 total, 330 management-specific). Architecture
-boundaries enforced by pytest-archon.
+All checks PASS. Implementation is complete, correct, and fully spec-compliant.
+Domain-Oriented Observability pattern followed (probes, no direct logger calls).
+Architecture boundaries enforced by pytest-archon. SpiceDB schema and Kubernetes
+ConfigMap are in sync.

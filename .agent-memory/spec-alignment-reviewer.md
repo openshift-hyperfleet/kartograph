@@ -17,3 +17,10 @@
 **Action:** Verdict updated to PASS. No gaps remain.
 
 **Context:** Authorization relationships at create time are established via outbox pattern (ManagementEventTranslator), not inline in the service. This is the correct architectural approach for the project. SpiceDB relationship cleanup at delete covers workspace, tenant, and all direct grants (admin/editor/viewer) via filter-based deletion. Integration tests in `test_knowledge_graph_authorization.py` cover live SpiceDB permission inheritance scenarios.
+
+### 2026-04-23 | task-008 Knowledge Graphs full spec alignment review — PASS (confirmed stable)
+**Pattern:** All 6 SHALL requirements and 11 scenarios verified against implementation. No deviations found. Implementation stable across multiple review cycles.
+
+**Action:** Verdict PASS. Wrote detailed per-requirement coverage report to worker-result.yaml.
+
+**Context:** Key architectural patterns to recognize as correct (not deviations): (1) list_for_workspace uses workspace VIEW check + SpiceDB read_relationships rather than per-KG VIEW checks — valid because workspace VIEW implies KG VIEW via schema inheritance; (2) outbox pattern for SpiceDB writes at create time (not inline in service) is intentional; (3) AsyncMock in unit tests (not fakes) is established project pattern.

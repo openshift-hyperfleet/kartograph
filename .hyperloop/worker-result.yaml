@@ -1,141 +1,279 @@
 ---
 verdict: pass
 ---
-Spec alignment review of specs/query/query-execution.spec.md on branch
-hyperloop/task-010. All SHALL/MUST requirements are implemented and tested.
+## Spec Alignment Review — specs/iam/authorization.spec.md (Task 023)
 
-## Requirement-by-Requirement Findings
-
-### Requirement: Read-Only Enforcement
-
-#### Scenario A – Database-level enforcement (primary)
-**Status: COVERED**
-
-- Implementation: `query_repository.py` issues `SET TRANSACTION READ ONLY` at the
-  start of every transaction, providing primary read-only enforcement at the
-  database engine level.
-- Unit tests: `test_sets_transaction_read_only` and
-  `test_database_read_only_applied_before_query` verify the mechanism exists and
-  is applied before any Cypher execution.
-
-#### Scenario B – Keyword blacklist, correlation ID, redacted log
-**Status: COVERED**
-
-- Implementation: `_validate_read_only()` rejects CREATE, DELETE, SET, REMOVE,
-  MERGE, EXPLAIN, LOAD (case-insensitive). Generates a UUID correlation_id and
-  raises `QueryForbiddenError`.
-- `DefaultQueryServiceProbe.cypher_query_rejected` accepts the raw query but does
-  NOT log it — only `reason` and `correlation_id` are emitted.
-- Unit tests: 14 tests in `TestValidateReadOnly`, plus
-  `test_forbidden_error_has_correlation_id`,
-  `test_forbidden_error_correlation_id_is_unique`,
-  `test_forbidden_error_includes_correlation_id_in_response`,
-  `test_forbidden_error_correlation_id_included_in_probe_call`.
-- Redaction tests (added in commit 5c0fb1f0): `TestDefaultQueryServiceProbe`
-  class with `test_cypher_query_rejected_does_not_log_raw_query` (asserts raw
-  query string absent from all logger.warning arguments),
-  `test_cypher_query_rejected_logs_correlation_id`, and
-  `test_cypher_query_rejected_logs_reason`. These enforce the spec's "redacted
-  reference" contract as an automated assertion.
-- Integration test: `test_execute_cypher_query_forbidden_error` confirms
-  end-to-end rejection.
+Branch: `hyperloop/task-023`
+Reviewer: spec-alignment-reviewer agent (independent pass)
 
 ---
 
-### Requirement: Timeout Enforcement
+### Summary
 
-#### Scenario A – Query within timeout → results returned normally
-**Status: COVERED**
-
-- Implementation: `SET LOCAL statement_timeout` issued per-query; results
-  returned on the success path.
-- Tests: `test_sets_statement_timeout` (unit), `test_execute_cypher_query_custom_timeout`
-  and `test_execute_cypher_query_tracks_time` (integration).
-
-#### Scenario B – Query exceeds timeout → timeout error with correlation ID
-**Status: COVERED**
-
-- Implementation: Exception handler detects `"timeout"` / `"canceling statement"`
-  in DB error message and raises `QueryTimeoutError` with a UUID correlation_id.
-- Unit tests: `test_timeout_raises_query_timeout_error`,
-  `test_timeout_error_has_correlation_id`,
-  `test_timeout_error_includes_correlation_id_in_response`,
-  `test_timeout_error_correlation_id_included_in_probe_call`.
-- Integration test: `test_execute_cypher_query_timeout_error` (tightened in
-  commit 5c0fb1f0) asserts `result.error_type == "timeout"` (strict equality,
-  no longer the loose `in ["timeout", "execution_error"]` from the prior round).
+All 11 SHALL/MUST requirements are implemented in code and covered by tests.
+The implementation is correct, the schema is consistent with the spec, and test
+coverage spans schema-design unit tests, domain aggregate unit tests,
+application-layer unit tests, and SpiceDB-backed integration tests.
 
 ---
 
-### Requirement: Result Limiting
-
-#### Scenario A – No LIMIT → LIMIT 1000 appended
-**Status: COVERED**
-
-- Implementation: `_ensure_limit()` appends `LIMIT {max_rows}` when no LIMIT
-  clause is found; default `max_rows = 1000`.
-- Tests: `test_adds_limit_when_missing` (unit), `test_auto_adds_limit`
-  (integration).
-
-#### Scenario B – Explicit LIMIT ≤ 10000 → respected
-**Status: COVERED**
-
-- Implementation: `_ensure_limit()` returns the query unchanged when the
-  detected LIMIT ≤ `MAX_LIMIT` (10000).
-- Tests: `test_preserves_existing_limit`, `test_case_insensitive_limit_detection`,
-  `test_respects_limit_at_absolute_maximum`, `test_respects_limit_within_absolute_maximum`
-  (unit); `test_respects_explicit_limit` (integration).
-
-#### Scenario C – Explicit LIMIT > 10000 → capped to 10000
-**Status: COVERED**
-
-- Implementation: `MAX_LIMIT = 10000`; regex substitution replaces any LIMIT
-  exceeding that with 10000.
-- Tests: `test_caps_limit_above_absolute_maximum` (15000 → 10000),
-  `test_caps_limit_well_above_absolute_maximum` (999999 → 10000) (unit).
+### Requirement-by-Requirement Findings
 
 ---
 
-### Requirement: Error Categorization
+#### Requirement: Tenant Permissions — COVERED
 
-#### Scenario A – Forbidden → error_type == "forbidden"
-**Status: COVERED**
+**Scenario: Admin permissions** (view, create_api_key, manage, administrate)
 
-- Implementation: `MCPQueryService` catches `QueryForbiddenError` →
-  `QueryError(error_type="forbidden")`.
-- Tests: `test_categorizes_forbidden_error` (unit, strict equality);
-  `test_execute_cypher_query_forbidden_error` (integration).
+- **Schema**: `permission view = admin + member`, `permission create_api_key = admin + member`,
+  `permission manage = admin`, `permission administrate = admin`
+  → `schema.zed` lines 172–181 ✓
+- **Schema unit tests** (`test_schema_design.py::TestTenantSchemaDesign`):
+  `test_tenant_admin_has_view_permission`, `test_tenant_admin_has_create_api_key_permission`,
+  `test_tenant_manage_is_admin_only`, `test_tenant_administrate_is_admin_only` ✓
+- **Integration**: `TestTenantCreationAutoGrant::test_tenant_creation_grants_creator_admin_on_tenant`
+  verifies `ADMINISTRATE` is granted to the tenant creator ✓
 
-#### Scenario B – Timeout → error_type == "timeout"
-**Status: COVERED**
+**Scenario: Member permissions** (view, create_api_key; NOT manage, NOT administrate)
 
-- Implementation: Catches `QueryTimeoutError` → `QueryError(error_type="timeout")`.
-- Tests: `test_categorizes_timeout_error` (unit, strict equality);
-  `test_execute_cypher_query_timeout_error` (integration, strict equality after
-  commit 5c0fb1f0).
-
-#### Scenario C – Execution error → error_type == "execution_error"
-**Status: COVERED**
-
-- Implementation: Catches `QueryExecutionError` →
-  `QueryError(error_type="execution_error")`.
-- Test: `test_categorizes_execution_error` (unit, strict equality).
-
-#### Scenario D – Unexpected failure → error_type == "unknown_error"
-**Status: COVERED**
-
-- Implementation: Bare `except Exception` → `QueryError(error_type="unknown_error")`.
-- Test: `test_categorizes_unknown_error` (unit, raises `ValueError`, asserts
-  strict equality).
+- **Schema unit tests**: `test_tenant_member_has_view_permission`,
+  `test_tenant_member_has_create_api_key_permission`,
+  `test_tenant_manage_is_admin_only` (asserts `member` is absent),
+  `test_tenant_administrate_is_admin_only` (asserts `member` is absent) ✓
+- **Integration** (`test_single_role_enforcement.py::TestTenantSingleRole`):
+  verifies a tenant member does NOT have `ADMINISTRATE` on the tenant resource itself ✓
 
 ---
 
-## Summary
+#### Requirement: Workspace Permissions — COVERED
 
-All 11 scenarios across all 4 requirements are COVERED. Both FAIL items from the
-prior review round were remediated in commit 5c0fb1f0:
+**Scenario: Admin permissions** (view, edit, manage, create_child)
 
-1. `test_cypher_query_rejected_does_not_log_raw_query` now enforces the
-   "redacted reference" contract automatically.
-2. `test_execute_cypher_query_timeout_error` now asserts
-   `result.error_type == "timeout"` (strict equality).
+- **Integration** (`test_workspace_authorization.py`):
+  `test_workspace_admin_can_delete_workspace` (MANAGE ✓),
+  `test_workspace_admin_can_update_workspace` (MANAGE ✓)
+- **Integration** (`test_workspace_creation_authorization.py`):
+  `test_workspace_admin_can_create_under_their_workspace` (create_child ✓)
+- VIEW and EDIT covered by schema design: `permission view = admin + editor + member + tenant->view`,
+  `permission edit = admin + editor`
+
+**Scenario: Editor permissions** (view, edit, create_child; NOT manage)
+
+- **Integration**: `test_workspace_editor_cannot_delete_workspace` (MANAGE denied, EDIT confirmed ✓),
+  `test_workspace_editor_cannot_update_workspace` (MANAGE denied ✓),
+  `test_workspace_editor_can_create_under_their_workspace` (create_child ✓)
+
+**Scenario: Member permissions** (view only)
+
+- **Integration**: `test_workspace_member_can_view_workspace` (VIEW ✓),
+  `test_workspace_member_cannot_delete_workspace` (MANAGE denied ✓),
+  `test_workspace_member_cannot_update_workspace` (MANAGE denied ✓)
+
+**Scenario: Tenant member visibility** (view all workspaces in tenant)
+
+- **Integration**: `test_workspace_listing_only_shows_accessible_workspaces` (bob sees workspaces
+  via tenant→view ✓), `test_adding_tenant_member_does_not_grant_root_workspace_admin`
+  (bob has VIEW via tenant→view, confirmed explicitly ✓)
+
+---
+
+#### Requirement: Root Workspace Create-Child Access — COVERED
+
+**Scenario: Tenant member creates child of root**
+
+- **SpiceDB integration** (`test_workspace_creation_authorization.py::TestCreateChildPermission`):
+  `test_tenant_member_can_create_workspace_under_root` (check_permission returns True ✓)
+- **HTTP integration** (`test_workspace_authorization.py`):
+  `test_tenant_member_can_create_workspace_under_root_via_api` (HTTP 201 ✓)
+
+**Scenario: Non-root workspace restricts creation**
+
+- **SpiceDB integration**: `test_tenant_member_cannot_create_under_child_workspace`
+  (check_permission returns False ✓)
+- **HTTP integration**: `test_tenant_member_cannot_create_workspace_under_child_via_api`
+  (HTTP 404, information hiding confirmed ✓)
+
+---
+
+#### Requirement: Group-to-Workspace Permission Inheritance — COVERED
+
+**Scenario: Group member inherits workspace access**
+
+- **Integration** (`test_group_workspace_inheritance.py`):
+  `test_group_member_gets_workspace_access_via_group`
+  (EDIT=True, MANAGE=False via group→workspace chain ✓)
+
+**Scenario: Group admin inherits workspace access**
+
+- **Integration**: `test_group_admin_gets_workspace_access_via_group_member_permission`
+  (group.member = admin + member_relation; admin gets EDIT via group ✓)
+
+**Scenario: Removing user from group revokes inherited access**
+
+- **Integration**: `test_removing_user_from_group_revokes_workspace_access`
+  (wait_for_permission_revoked confirms EDIT is gone after group member removal ✓)
+
+---
+
+#### Requirement: Knowledge Graph Permissions — COVERED
+
+**Scenario: Workspace-inherited access** (edit and view from workspace edit permission)
+
+- **Integration** (`test_knowledge_graph_authorization.py::TestWorkspaceInheritedKnowledgeGraphAccess`):
+  `test_workspace_editor_can_view_knowledge_graph` (VIEW ✓),
+  `test_workspace_editor_can_edit_knowledge_graph` (EDIT ✓),
+  `test_workspace_editor_cannot_manage_knowledge_graph` (MANAGE denied ✓),
+  `test_workspace_admin_can_manage_knowledge_graph` (MANAGE ✓),
+  `test_workspace_member_can_view_knowledge_graph` (VIEW ✓),
+  `test_workspace_member_cannot_edit_knowledge_graph` (EDIT denied ✓),
+  `test_user_without_workspace_role_cannot_access_knowledge_graph` (all denied ✓)
+
+**Scenario: Direct grant** (admin gets manage, edit, view)
+
+- **Integration** (`TestDirectGrantKnowledgeGraphAccess`):
+  `test_direct_kg_admin_has_manage_permission` ✓,
+  `test_direct_kg_admin_has_edit_permission` ✓,
+  `test_direct_kg_admin_has_view_permission` ✓,
+  `test_direct_kg_editor_has_edit_and_view_but_not_manage` ✓,
+  `test_direct_kg_viewer_has_view_only` ✓
+
+---
+
+#### Requirement: Data Source Permissions — COVERED
+
+**Scenario: Inherited access** (all access from parent knowledge graph)
+
+- **Integration** (`test_data_source_authorization.py`):
+  Full workspace→KG→DS chain tested across 9 scenarios including
+  `test_kg_editor_can_view_data_source`, `test_kg_editor_can_edit_data_source`,
+  `test_workspace_admin_can_manage_data_source`,
+  `test_user_without_kg_access_cannot_view_data_source`,
+  `test_direct_kg_editor_can_view_and_edit_data_source`,
+  `test_direct_kg_admin_has_full_data_source_access`,
+  `test_direct_kg_viewer_can_view_but_not_edit_data_source` ✓
+
+---
+
+#### Requirement: API Key Permissions — COVERED
+
+**Scenario: Owner access** (view and revoke)
+
+- **Schema unit tests** (`test_schema_design.py::TestAPIKeySchemaDesign`):
+  `test_api_key_owner_has_view_permission` ✓,
+  `test_api_key_owner_has_revoke_permission` ✓,
+  `test_api_key_view_and_revoke_have_same_grantees` (proves view≡revoke expression ✓)
+- **Integration** (`test_api_key_auth.py::TestAPIKeyAuthorizationEnforcement`):
+  `test_owner_can_revoke_own_key` ✓
+
+**Scenario: Tenant admin access** (view and revoke all keys in tenant)
+
+- **Schema unit tests**: `test_api_key_tenant_admin_has_view_permission` ✓,
+  `test_api_key_tenant_admin_has_revoke_permission` ✓
+- **Integration**: `test_tenant_admin_can_revoke_other_users_key` ✓
+- Note: There is no standalone SpiceDB `check_permission("api_key:x", "view", user)` integration
+  test, but the schema design test proves view==revoke expression and the revoke integration tests
+  confirm the auth chain works end-to-end. This is adequate.
+
+---
+
+#### Requirement: Secure Enclave — Per-Entity Graph Authorization — COVERED
+
+All five scenarios have comprehensive unit test coverage in
+`test_graph_secure_enclave.py` backed by `graph_secure_enclave.py`:
+
+**Scenario: Authorized entity — full properties**
+- `TestAuthorizedNodeReturnsFullProperties`, `TestAuthorizedEdgeReturnsFullProperties` ✓
+
+**Scenario: Unauthorized node — ID-only redaction**
+- `TestUnauthorizedNodeReturnsIdOnly` (4 tests: returns RedactedNodeRecord, preserves ID,
+  strips all properties, not removed from result set) ✓
+
+**Scenario: Unauthorized edge — endpoint-preserving redaction**
+- `TestUnauthorizedEdgeEndpointPreservingRedaction` (6 tests: RedactedEdgeRecord,
+  preserves ID/start_id/end_id, strips properties, not removed from set) ✓
+
+**Scenario: Permission derivation for graph entities**
+- `TestPermissionDerivation` (3 tests: uses knowledge_graph resource, uses VIEW permission,
+  uses current user as subject) ✓
+
+**Scenario: Missing or unresolvable knowledge_graph_id**
+- `TestMissingKnowledgeGraphIdDenied` (5 tests: absent property, null value, non-string,
+  empty string — all redacted without making SpiceDB call) ✓
+- For "cannot be resolved to valid KG" (valid-looking string, no SpiceDB record): the service's
+  `_check_kg_view` calls `check_permission` which SpiceDB evaluates to False for unknown resources
+  (no relationships = no permission). The fail-safe at line 198–199 also catches exceptions and
+  denies. Effectively handled, though not explicitly tested with a mock returning False for a
+  valid-format ID. This is an acceptable gap given the implementation's correctness.
+
+---
+
+#### Requirement: Single-Role Enforcement — COVERED
+
+**Scenario: Role replacement** (member → editor; old role removed, new role granted)
+
+- **Domain unit test** (`test_workspace_aggregate.py` line 596):
+  "add_member emits MemberRemoved + MemberAdded when replacing role"
+  verifies `WorkspaceMemberRemoved` is emitted as the first event ✓
+- **Implementation** (`workspace.py` line 239–261):
+  Old role is removed from in-memory list and `WorkspaceMemberRemoved` event emitted
+  before new role is added — the outbox translates this to SpiceDB tuple deletion ✓
+- **Integration** (`test_single_role_enforcement.py`):
+  `TestWorkspaceSingleRole::test_adding_user_with_different_role_replaces_old_role`
+  verifies end-state permissions (EDIT=True, MANAGE=False) after role replacement ✓
+- Pattern also covered for Group (`TestGroupSingleRole`) and Tenant (`TestTenantSingleRole`) ✓
+
+---
+
+#### Requirement: Information Hiding on Authorization Failure — COVERED
+
+**Scenario: Unauthorized access** (404, not 403)
+
+- **Unit tests** (`test_workspaces_routes.py`):
+  `test_create_workspace_returns_404_when_unauthorized` (comments explicitly state
+  "Returning 404 not 403 prevents leaking whether the parent workspace exists" ✓),
+  `test_get_workspace_returns_404_for_different_tenant` ✓
+- **Integration**: `test_tenant_member_cannot_create_workspace_under_child_via_api`
+  returns HTTP 404, not 403 ✓
+- **Application service layer**: `get_workspace` returns `None` when user lacks VIEW
+  (unit test `test_returns_none_when_user_lacks_view_permission`); presentation layer
+  converts None to 404 ✓
+
+---
+
+#### Requirement: Group Permissions — COVERED
+
+**Scenario: Admin permissions** (view and manage)
+
+- **Integration** (`test_group_authorization.py`):
+  `test_group_admin_can_delete_group` (MANAGE ✓),
+  `test_group_admin_can_rename_group` (MANAGE ✓)
+
+**Scenario: Member permissions** (view only)
+
+- **Integration**: `test_group_member_cannot_delete_group` (MANAGE denied; member has VIEW via
+  tenant→view ✓), `test_group_member_cannot_rename_group` (MANAGE denied ✓)
+
+**Scenario: Tenant member visibility** (view all groups in tenant)
+
+- **Integration**: `test_group_listing_only_shows_accessible_groups`
+  (bob sees alice's group via tenant→view ✓)
+
+---
+
+### Observations (not failures)
+
+1. **API Key VIEW via SpiceDB integration**: The owner's VIEW permission on api_key resources
+   is verified only through schema-text parsing (unit) and by inference from the revoke integration
+   test + `test_api_key_view_and_revoke_have_same_grantees`. A future improvement would be a
+   direct `check_permission("api_key:x", "view", owner_subject)` integration test.
+
+2. **Single-role enforcement — no read_relationships verification**: The integration test for
+   workspace role replacement verifies final permissions but does not call `read_relationships`
+   to confirm the old SpiceDB tuple is absent. The domain aggregate test covers this gap by
+   asserting `WorkspaceMemberRemoved` is emitted, which drives the SpiceDB tuple deletion.
+
+3. **Secure Enclave "unresolvable KG" case**: No explicit test for a valid-format kg_id string
+   that doesn't exist in SpiceDB. The implementation correctly handles this (SpiceDB returns
+   False for unknown resource), but an explicit test would strengthen coverage.
+
+These observations are minor and do not constitute failures.

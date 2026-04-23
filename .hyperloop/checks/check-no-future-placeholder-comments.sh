@@ -52,7 +52,6 @@ for pattern in "${PLACEHOLDER_PATTERNS[@]}"; do
     --exclude-dir=.git \
     --exclude-dir=dist \
     --exclude-dir=".nuxt" \
-    --exclude-dir=.venv \
     -i "$pattern" "$SOURCE_DIR" 2>/dev/null || true)
 
   if [[ -n "$hits" ]]; then

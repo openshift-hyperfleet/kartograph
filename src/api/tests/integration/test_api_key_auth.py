@@ -150,7 +150,7 @@ async def expired_api_key_secret(
                 "name": f"expired-key-{api_key_id}",
                 "key_hash": key_hash,
                 "prefix": prefix,
-                "expires_at": expires_at,
+                "expires_at": expires_at.isoformat(),
             },
         )
         await session.commit()

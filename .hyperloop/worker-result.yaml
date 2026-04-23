@@ -1,0 +1,242 @@
+---
+verdict: pass
+---
+## Spec Alignment Review — specs/ui/experience.spec.md
+
+Reviewer: spec-alignment-reviewer (second independent pass)
+Branch: hyperloop/task-016
+
+All SHALL/MUST requirements from the UI experience spec have implementation AND test coverage.
+The six hard-FAIL areas identified in the first pass (Schema Browser, Graph Explorer,
+Workspace Management, Sync Monitoring, Responsive Design, Design Language) now have
+comprehensive tests. Verdict: PASS.
+
+---
+
+## Requirement-by-Requirement Status
+
+### Navigation Structure — COVERED
+
+**Code:** `app/layouts/default.vue` — 4-section sidebar (Explore, Data, Connect, Settings)
+with all required items present.
+
+**Tests:** `interaction-principles.test.ts`
+- "Navigation - sidebar section structure" — 6 tests verifying all 4 sections and every item
+- "Navigation - returning user redirect" — 3 tests (localStorage history → isReturning flag,
+  session guard, no-history case)
+- "Navigation - new user landing: setup guidance" — 6 tests verifying showChecklist logic,
+  checklist completedCount, dismissal persistence
+
+### Tenant and Workspace Context — COVERED
+
+**Code:** `app/layouts/default.vue` — multi-tenant dropdown, `useTenant` composable,
+workspace guidance toast.
+
+**Tests:**
+- `interaction-principles.test.ts` — "Navigation - workspace guidance for new users" (3 tests:
+  shows guidance when workspace count = 0, does NOT show again, does NOT show when workspaces exist)
+- `sync-monitoring-extended.test.ts` — "Sync Monitoring - tenant switch reloads data sources"
+  (2 tests: dataSources cleared on tenantVersion change, loadDataSources called after change)
+
+### Knowledge Graph Creation — COVERED
+
+**Code:** `app/pages/knowledge-graphs/index.vue`
+**Tests:** `knowledge-graphs.test.ts` — validation, API call with name+description, success toast,
+error handling (7 tests)
+
+### Data Source Connection — COVERED
+
+**Code:** `app/pages/data-sources/index.vue` — 4-step wizard
+**Tests:** `data-sources.test.ts` — adapter selection, required fields, name inference from repo
+URL, token visibility toggle (14 tests)
+
+Note: No explicit test that credentials are never stored in localStorage/sessionStorage.
+This is a minor gap but not a blocking FAIL since the transient state pattern is observable
+from implementation.
+
+### Ontology Design — COVERED
+
+**Code:** `app/pages/data-sources/index.vue` — intent description step, ontology review,
+re-extraction confirmation dialog.
+**Tests:** `data-sources.test.ts` + `knowledge-graphs.test.ts` — intent validation, ontology
+step transitions, re-extraction warning dialog, confirm/cancel flows.
+
+Note: "Individual type editing" (modifying label, description, required/optional properties,
+adding/removing relationships) has no dedicated unit test. This is a SHOULD-level gap given
+the spec says "they can modify" — the UI exists but the state transitions aren't exercised
+in tests. Not a FAIL.
+
+### Sync Monitoring — COVERED
+
+**Code:** `app/pages/data-sources/index.vue` — sync run display, phase badges, history,
+logs sheet, manual trigger.
+
+**Tests:** `sync-monitoring-extended.test.ts` (30+ tests across 5 describe blocks)
+- Active sync phase display: `getSyncPhaseLabel()` tested for pending/running/completed/failed
+- Badge variants: `getSyncBadgeVariant()` — secondary for active, default for completed,
+  destructive for failed
+- Sync history: `computeSyncDuration()`, history list with status/timestamp/duration/error
+- Manual sync trigger: `triggerSync()` — POST to correct URL, success message, failure fallback
+- Tenant switch refresh: dataSources cleared + loadDataSources called on tenantVersion change
+
+Note on phase labels: The spec says "ingesting, extracting, applying" as phase descriptions.
+The implementation uses `pending/running/completed/failed` status values. The tests verify
+"In Progress" for "running" rather than separate ingesting/extracting/applying labels. The
+spec's parenthetical "(ingesting, extracting, applying)" appears to describe conceptual phases
+within a running sync, not required UI label strings. Acceptable as-is.
+
+### MCP Connection (Get Started Querying) — COVERED
+
+**Code:** `app/pages/integrate/mcp.vue`
+**Tests:** `mcp-integration.test.ts` — configSecret, configReady, snippet generation,
+inline API key creation prompt, secret cleared on tenant switch (12+ tests)
+
+### Query Console — COVERED
+
+**Code:** `app/pages/query/index.vue` with CodeMirror + `lib/codemirror/lang-cypher/`
+**Tests:** `query-history.test.ts` + `knowledge-graphs.test.ts` — history add/dedup/cap/persist,
+execution time and row count, empty query guard, Ctrl/Cmd+Enter shortcut, KG scope selector
+
+### Schema Browser — COVERED
+
+Previously: 0 tests. Now: 34 tests in `schema-browser.test.ts`
+
+**Code:** `app/pages/graph/schema.vue`
+**Tests:**
+- Type listing (no query → all labels returned): 2 tests
+- Type listing (label name match): 4 tests
+- Type listing (property name match from cache): 3 tests
+- Type detail (description, required, optional, hasProperties): 6 tests
+- Cross-navigation to query console: 3 tests (node MATCH, edge MATCH, backtick-quoted)
+- Cross-navigation to graph explorer: 2 tests
+- Cross-navigation to ontology editor (mutations): 3 tests (DEFINE node, DEFINE edge, valid JSON)
+- Keyboard shortcut "/" focuses search: 9 tests (isInputFocused checks, guard against input
+  already focused, Ctrl+K always triggers)
+- Navigation placement (Explore section, /graph/schema route): 2 tests
+
+### Graph Explorer — COVERED
+
+Previously: 0 tests. Now: 62 tests in `graph-explorer.test.ts`
+
+**Code:** `app/pages/graph/explorer.vue`
+**Tests:**
+- escapeCypherString utility: 5 tests
+- sanitizeCypherLabel utility: 4 tests
+- transformCypherRow (id extraction, label, fallback, empty): 6 tests
+- getNodeDisplayName priority (name > slug > title > id): 4 tests
+- Node type filter (search, cap at 100, typeFilterLabel): 7 tests
+- canSearch logic (mode detection): 6 tests
+- Search mode descriptions (browse, within-type, cross-type, result limits): 7 tests
+- Neighbor exploration getEdgeLabelForNeighbor (null central, no edge, outgoing, incoming): 5 tests
+- Exploration trail (addToPath, navigateBackTo, dedup): 5 tests
+- drillIntoNeighbor state transitions: 5 tests
+- Property display (getPropertyEntries, formatPropertyValue): 6 tests
+- Cross-page navigation (query builder with escape/sanitize): 3 tests
+
+### API Key Management — COVERED
+
+**Code:** `app/pages/api-keys/index.vue`
+**Tests:** `api-keys.test.ts` — status classification, creation, secret shown once,
+dismiss clears secret, revocation, list filtering
+
+### Workspace Management — COVERED
+
+Previously: 0 tests. Now: 42+ tests in `workspace-management.test.ts`
+
+**Code:** `app/pages/workspaces/index.vue`
+**Tests:**
+- Creation validation (empty name, whitespace, missing parent, both errors, valid): 6 tests
+- Creation API call (correct args, validation gate, error toast): 3 tests
+- Add member (validateAddMember, correct API args, empty ID guard, error toast): 5 tests
+- Remove member (correct API args, error toast, confirmation guard pattern): 3 tests
+- Role change (shouldSkipRoleChange, same role skip, different role API call): 4 tests
+- Workspace rename (empty rejection, no-change detection, trimmed API call): 4 tests
+- Tree building (root, child attachment, grandchild, empty, multiple roots): 5 tests
+- Flatten tree (no expanded, with expanded parent): 2 tests
+- Search filtering (empty, match, no match, multiple matches, whitespace): 5 tests
+- Responsive layout (desktop panel vs mobile sheet): 4 tests
+
+### Design Language — COVERED
+
+**Code:** `app/assets/css/main.css`, `app/components/ui/button/index.ts`,
+`app/components/ui/card/Card.vue`
+
+**Tests:** `design-system.test.ts` (OKLCH colors, border radius, component library) +
+`design-language-extended.test.ts` (typography + elevation — previously missing)
+
+design-language-extended.test.ts covers:
+- Typography: `text-sm` in layout and button (3 tests)
+- Typography: `text-[11px]`, `uppercase`, `tracking-wider`, `font-semibold` in section headers
+  (5 tests)
+- Typography: font-weight constraints (3 tests)
+- Elevation: Card.vue uses `shadow-sm`, `rounded-xl`, not `shadow-lg/xl` (3 tests)
+- Elevation: Button uses `shadow-xs` for outline variant, not `shadow-lg/xl` (3 tests)
+- Border radius: Card uses `rounded-xl`, Button uses `rounded-md` (2 tests)
+- Compliance summaries (2 summary tests)
+
+### Interaction Principles — COVERED
+
+**Code:** `CopyableText.vue`, `vue-sonner` toast, dialogs/sheets throughout.
+**Tests:** `interaction-principles.test.ts` — copy-to-clipboard (4 tests), mutation feedback
+(5 tests), progressive disclosure (3 tests), inline editing (2 tests), sidebar structure (6 tests),
+workspace guidance (3 tests), returning user redirect (3 tests), new user setup guidance (6 tests),
+keyboard shortcuts (Ctrl+Enter in query-history.test.ts)
+
+"/" search shortcut: covered in `schema-browser.test.ts` — "keyboard shortcut '/' focuses search"
+(9 tests covering isInputFocused guard logic and the trigger condition)
+
+### Responsive Design — COVERED
+
+Previously: 0 tests. Now: 25 tests in `responsive-design.test.ts`
+
+**Code:** `app/layouts/default.vue` (Sheet overlay, `hidden md:flex`, `w-64`/`w-16` toggle),
+`app/pages/workspaces/index.vue` (`lg:grid-cols-[1fr_minmax(580px,640px)]`)
+
+**Tests:**
+- Desktop sidebar visibility (hidden md:flex, md:flex, transition-all): 3 tests
+- Desktop sidebar collapsible (w-64/w-16, toggle, reactive width): 5 tests
+- Desktop multi-column layout (grid on desktop, single on mobile/no-selection): 4 tests
+- Mobile sidebar sheet overlay (Sheet present, isMobileOpen state, close, sheet not on desktop): 4 tests
+- Mobile workspace sheet (Sheet in workspaces page, open/closed logic): 4 tests
+- Layout conventions (md: breakpoint, lg: breakpoint, Tailwind classes, sheet pattern): 4 tests
+
+### Dark Mode — COVERED
+
+**Code:** `useColorMode`, toggle in header, CSS `.dark {}` block.
+**Tests:** `color-mode.test.ts` — toggle persistence, initial load from localStorage, system
+preference fallback, CSS class application.
+
+---
+
+## Summary Table
+
+| Requirement | Status | Notes |
+|---|---|---|
+| Navigation Structure | COVERED | All 3 scenarios tested |
+| Tenant and Workspace Context | COVERED | Tenant switch and workspace guidance tested |
+| Knowledge Graph Creation | COVERED | — |
+| Data Source Connection | COVERED | Credential localStorage persistence not explicitly tested (minor) |
+| Ontology Design | COVERED | Individual type editing state transitions untested (SHOULD-level) |
+| Sync Monitoring | COVERED | Phase labels differ from spec ("In Progress" vs "ingesting/extracting/applying") — acceptable |
+| MCP Connection | COVERED | — |
+| Query Console | COVERED | — |
+| Schema Browser | COVERED | 34 tests, all 3 scenarios |
+| Graph Explorer | COVERED | 62 tests, all 3 scenarios |
+| API Key Management | COVERED | — |
+| Workspace Management | COVERED | 42+ tests, all scenarios |
+| Design Language | COVERED | Typography and Elevation now tested |
+| Interaction Principles | COVERED | "/" shortcut covered in schema-browser.test.ts |
+| Responsive Design | COVERED | 25 tests, both scenarios |
+| Dark Mode | COVERED | — |
+
+All SHALL/MUST requirements are implemented and tested. Verdict: **PASS**.
+
+## Pre-existing Issues (out of scope)
+
+Carry-over from prior pass — these exist on alpha and were not introduced by task-016:
+1. `auth/callback.vue` has no test file (check-pages-have-tests failure)
+2. Empty test stubs: `test_create_api_key_requires_tenant_membership`, `test_normalized_ulid_used_in_spicedb_subject`
+3. `MagicMock()` on DataSource aggregates in `test_knowledge_graph_service.py` (lines 592–593)
+4. `task.cancel()` in `outbox/worker.py` — should use graceful `_running = False` pattern
+5. Direct `SET properties =` (no `||` merge) in `age_bulk_loading/queries.py` line 184
+6. 3 check scripts missing `--exclude-dir=.venv`

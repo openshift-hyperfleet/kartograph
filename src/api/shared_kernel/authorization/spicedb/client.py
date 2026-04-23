@@ -27,7 +27,7 @@ from authzed.api.v1 import (
     WriteRelationshipsRequest,
 )
 from authzed.api.v1.permission_service_pb2 import CheckPermissionResponse
-from grpcutil import insecure_bearer_token_credentials
+import grpc.aio
 
 from shared_kernel.authorization.observability import (
     AuthorizationProbe,
@@ -43,6 +43,49 @@ from shared_kernel.authorization.types import (
     RelationshipTuple,
     SubjectRelation,
 )
+
+
+class _BearerTokenInterceptor(
+    grpc.aio.UnaryUnaryClientInterceptor,
+    grpc.aio.UnaryStreamClientInterceptor,
+):
+    """Injects bearer token into gRPC metadata for insecure channels.
+
+    grpc.local_channel_credentials rejects non-loopback addresses, but
+    in-cluster SpiceDB serves plaintext gRPC on pod IPs. This interceptor
+    attaches the preshared key as bearer token metadata on every call.
+    """
+
+    def __init__(self, token: str):
+        self._metadata = (("authorization", f"Bearer {token}"),)
+
+    def _inject_metadata(self, client_call_details):
+        metadata = list(client_call_details.metadata or [])
+        metadata.extend(self._metadata)
+        return grpc.aio.ClientCallDetails(
+            client_call_details.method,
+            client_call_details.timeout,
+            metadata,
+            client_call_details.credentials,
+            client_call_details.wait_for_ready,
+        )
+
+    async def intercept_unary_unary(self, continuation, client_call_details, request):
+        return await continuation(self._inject_metadata(client_call_details), request)
+
+    async def intercept_unary_stream(self, continuation, client_call_details, request):
+        return await continuation(self._inject_metadata(client_call_details), request)
+
+
+def _create_insecure_channel(endpoint: str, preshared_key: str) -> grpc.aio.Channel:
+    """Create an insecure gRPC channel with bearer token metadata injection.
+
+    Unlike grpc.local_channel_credentials (which restricts to loopback),
+    this works for any address — necessary for in-cluster connections
+    where SpiceDB serves plaintext gRPC on pod/service IPs.
+    """
+    interceptor = _BearerTokenInterceptor(preshared_key)
+    return grpc.aio.insecure_channel(endpoint, interceptors=[interceptor])
 
 
 class RelationshipOperation(IntEnum):
@@ -244,22 +287,25 @@ class SpiceDBClient(AuthorizationProvider):
                     try:
                         from authzed.api.v1 import AsyncClient
 
-                        # Create credentials with preshared key
                         if self._use_tls:
                             credentials = _create_tls_credentials(
                                 self._preshared_key, self._cert_path
                             )
-                        else:
-                            credentials = insecure_bearer_token_credentials(
-                                self._preshared_key
+                            self._client = AsyncClient(
+                                self._endpoint,
+                                credentials,
                             )
+                        else:
                             self._probe.insecure_connection_used(self._endpoint)
-
-                        # Initialize client
-                        self._client = AsyncClient(
-                            self._endpoint,
-                            credentials,
-                        )
+                            # AsyncClient.__init__ calls grpc.aio.secure_channel
+                            # which doesn't support insecure mode. We bypass it
+                            # and init stubs directly on an insecure channel.
+                            # Pinned to authzed >= 1.24.0 API surface.
+                            channel = _create_insecure_channel(
+                                self._endpoint, self._preshared_key
+                            )
+                            self._client = AsyncClient.__new__(AsyncClient)
+                            self._client.init_stubs(channel)
                     except Exception as e:
                         self._probe.connection_failed(
                             endpoint=self._endpoint,

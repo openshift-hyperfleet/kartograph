@@ -78,7 +78,7 @@ class CompositeEventHandler:
             payload: The serialized event data
 
         Raises:
-            ValueError: If no handler is registered for the event type
+            UnknownEventTypeError: If no handler is registered for the event type
         """
         handlers = self._handlers_by_type.get(event_type)
         if handlers is None:

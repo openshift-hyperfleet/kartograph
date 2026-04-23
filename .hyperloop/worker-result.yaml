@@ -4,7 +4,7 @@ task: task-003
 spec: specs/graph/mutations.spec.md
 branch: hyperloop/task-003
 date: "2026-04-23"
-round: 14
+round: 15
 
 checks:
   unit_tests:
@@ -118,11 +118,22 @@ pr_feedback_addressed:
       Independently verified in round 14: lines 263-273 contain ValueError message that
       explicitly states 'The system stamps this value when apply_mutations() is called
       with a knowledge_graph_id parameter.' Message accurately describes conditional stamping.
+  - issue: "invalid-JSON assertions brittle (assert '1' in first_error, strict index check)"
+    file: "src/api/tests/unit/graph/application/test_mutation_service.py"
+    status: fixed
+    verified: true
+    note: >
+      Fixed in round 15: replaced 'assert "1" in first_error' with
+      're.search(r"\bline\s*1\b", first_error, re.IGNORECASE)' for precise line-number
+      matching. Replaced strict result.errors[1] index check with
+      'any("line content" in err.lower() for err in result.errors)' to make the
+      assertion order-agnostic. All 2027 unit tests pass (re-run in round 15: 58.42s).
 
 open_items: []
 
 summary: >
   PASS. All 11 spec requirements implemented and covered by 2027 passing unit tests
-  (independently re-run in round 14: 2027 passed, 0 failed, 55.45s). All 7 PR feedback
-  items independently verified in actual source code — each flagged location is correct.
-  No open items.
+  (re-run in round 15: 2027 passed, 0 failed, 58.42s). All 8 PR feedback items
+  independently verified — the final nitpick about brittle invalid-JSON assertions
+  (lines 606-617) has been fixed by using regex for line-number matching and an
+  order-agnostic any() check for the content preview. No open items.

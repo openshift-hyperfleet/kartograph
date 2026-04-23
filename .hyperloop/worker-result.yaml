@@ -1,62 +1,103 @@
 ---
 verdict: pass
 ---
-## Task-008: Knowledge Graphs — Implementation Complete
+## Task-008: Knowledge Graphs — Independent Verification (Fresh Worker)
 
-All requirements from `specs/management/knowledge-graphs.spec.md` are implemented
-and verified. Unit test suite: **2060 passed, 0 failed**.
-
----
-
-### Requirements Coverage
-
-**1. Knowledge Graph Creation**
-- `KnowledgeGraph.create()` factory generates ULID, sets tenant+workspace, emits
-  `KnowledgeGraphCreated` event with all required fields.
-- `KnowledgeGraphService.create()` checks EDIT permission on workspace before
-  creating; catches `IntegrityError` → `DuplicateKnowledgeGraphNameError` (409).
-- Authorization relationships (workspace + tenant) written via outbox translator
-  on `KnowledgeGraphCreated` event.
-
-**2. Name Validation**
-- `_validate_name()` enforces 1–100 characters; raises
-  `InvalidKnowledgeGraphNameError` for violations.
-- Pydantic models enforce same constraint at HTTP layer (422).
-
-**3. Retrieval**
-- `get()` returns `None` for both missing and unauthorized KGs (no existence
-  leakage). Returns 404 in both cases from the route.
-
-**4. Listing**
-- `list_for_workspace()` checks VIEW on workspace, reads SpiceDB relationships
-  to discover KG IDs, filters by tenant.
-- `list_all()` returns only KGs the user can VIEW in the tenant.
-
-**5. Update**
-- `update()` checks EDIT permission on the KG; validates name; saves via repo.
-- `AggregateDeletedError` raised when updating a deleted KG.
-
-**6. Deletion (Atomic Cascade)**
-- `delete()` checks MANAGE permission. Within a single `session.begin()`
-  transaction: deletes encrypted credentials, cascade-deletes all data sources,
-  marks KG for deletion, deletes KG record.
-- `KnowledgeGraphDeleted` event includes `workspace_id` for full SpiceDB cleanup
-  (workspace relation + tenant relation + all direct grants via filter deletes).
-- Rollback test verifies KG is NOT deleted if a data source deletion fails.
-
-**7. Permission Inheritance**
-- SpiceDB schema: `view = admin + editor + viewer + workspace->view`,
-  `edit = admin + editor + workspace->edit`, `manage = admin + workspace->manage`.
-- Direct admin grant satisfies all three permissions regardless of workspace role.
+Full verification run completed. All checks passed.
 
 ---
 
-### Test Summary
+### Check Results
 
-```
-tests/unit/management/ -> 330 passed
-Full unit suite        -> 2060 passed
-```
+| # | Check | Result | Detail |
+|---|-------|--------|--------|
+| 1 | Unit Tests | **PASS** | 2060 passed, 0 failed |
+| 2 | Linting (`ruff check`) | **PASS** | Zero violations |
+| 3 | Formatting (`ruff format --check`) | **PASS** | 450 files clean |
+| 4 | Type Checking (`mypy`) | **PASS** | Zero errors across 450 files |
+| 5 | Architecture Boundary Tests | **PASS** | 40 tests passed |
+| 6 | Hyperloop Check Scripts | **PASS** | All applicable checks pass |
+| 7 | Code Review | **PASS** | See findings below |
+| 8 | Commit Trailers | **PASS** | All implementation commits carry Spec-Ref + Task-Ref |
 
-Integration tests exist for repository, authorization, and API scenarios and
-require the live dev instance (`make instance-up`).
+---
+
+### Code Review Findings
+
+**TDD Adherence — PASS**
+Commit order is correct: `test(management): add unit tests for knowledge graph presentation layer`
+(37b6ced1) precedes `feat(management): implement knowledge graph REST API presentation layer`
+(d0808950). Tests-first discipline maintained.
+
+**Domain Oriented Observability — PASS**
+No direct `logger.*` or `print()` calls in business logic. All observability flows through
+`KnowledgeGraphServiceProbe` / `DefaultKnowledgeGraphServiceProbe`. The probe's logger calls
+are inside the probe implementation (acceptable), not in services or aggregates directly.
+
+**No MagicMock on Domain Aggregates — PASS**
+After `fd7dc1d0`, all `DataSource` instances in tests are real domain objects created via
+`_make_ds()`. `KnowledgeGraph` instances use real `KnowledgeGraph(...)` constructors.
+`AsyncMock(spec=KnowledgeGraphService)` is acceptable for the service mock at the
+presentation layer boundary.
+
+**No Hardcoded Secrets — PASS**
+Encryption keys injected via settings (`get_management_settings()`), not hardcoded.
+
+**DDD Boundaries — PASS**
+`management.application` and `management.domain` do not import from `management.infrastructure`.
+`management.presentation` and `management.dependencies` are correctly excluded from the IAM
+isolation rule (legitimate cross-context dependency for auth wiring).
+
+---
+
+### Spec Requirement Coverage
+
+**1. Knowledge Graph Creation — PASS**
+`KnowledgeGraph.create()` generates ULID, associates tenant + workspace. `KnowledgeGraphService.create()`
+enforces EDIT permission on workspace before persisting. `KnowledgeGraphCreated` event triggers
+SpiceDB workspace + tenant relationship writes via outbox translator.
+
+**2. Name Validation — PASS**
+Domain-level `_validate_name()` rejects empty or >100-char names with `InvalidKnowledgeGraphNameError`.
+Pydantic models enforce same constraint at HTTP layer → 422.
+
+**3. Duplicate Name Rejection — PASS**
+`IntegrityError` on `uq_knowledge_graphs_tenant_name` unique constraint → `DuplicateKnowledgeGraphNameError` → 409.
+
+**4. Retrieval — PASS**
+`service.get()` returns `None` for both missing records and unauthorized access. Route returns 404 in both
+cases — no existence leakage.
+
+**5. Listing — PASS**
+`list_for_workspace()` checks VIEW permission on workspace, then reads SpiceDB relationships to discover
+KG IDs, fetches them, and filters by tenant. AuthZ-gated results.
+
+**6. Update — PASS**
+EDIT permission checked on the KG resource. `kg.update()` raises `AggregateDeletedError` if aggregate
+was previously marked for deletion, satisfying "mutation after deletion is rejected".
+
+**7. Deletion (Atomic Cascade) — PASS**
+`service.delete()` requires MANAGE permission. Within a single `session.begin()` transaction block:
+encrypted credentials are deleted, each data source is marked and deleted, then the KG itself is deleted.
+If any step raises, the transaction rolls back (verified by `test_delete_rolls_back_on_ds_deletion_failure`).
+`KnowledgeGraphDeleted` event schedules SpiceDB cleanup of workspace relation, tenant relation, and
+all direct admin/editor/viewer grants via the transactional outbox.
+
+**8. Permission Inheritance — PASS**
+SpiceDB schema defines `view = admin + editor + viewer + workspace->view`,
+`edit = admin + editor + workspace->edit`, `manage = admin + workspace->manage`.
+Workspace-inherited access and direct grants both covered.
+
+---
+
+### Minor Observations (Non-blocking)
+
+- The `fix(iam)` commit (b2245d8e) modifies IAM workspace routes to return 404 instead of 403
+  when the parent workspace is unauthorized, with the Spec-Ref pointing to the KG spec. This
+  is a legitimate security improvement (no existence leakage) but is technically outside the
+  KG spec scope. It does not harm correctness.
+- The `list_all` route (`GET /management/knowledge-graphs`) is additive — not specified in the
+  spec but does not violate any requirement.
+- SpiceDB relationship cleanup on deletion is eventual (via outbox), not strictly within the same
+  DB transaction. This is the established codebase-wide pattern and provides atomicity at the DB
+  level with guaranteed-delivery for SpiceDB via the outbox.

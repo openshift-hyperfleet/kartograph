@@ -1,30 +1,69 @@
 ---
 verdict: pass
 detail: |
-  task-017 Outbox Pattern — spec alignment re-review PASS (round 4).
+  task-017 Outbox Pattern — spec alignment re-review PASS (round 5).
 
-  All 6 SHALL requirements covered. All CodeRabbit feedback from rounds 1–3
-  verified addressed in current branch code.
+  All 6 SHALL requirements covered. All CodeRabbit feedback rounds 1-4
+  verified addressed in current branch code (HEAD: 84445906).
 
-  ## Spec Requirements
+  ## CodeRabbit Feedback — Round-by-Round Verification
+
+  Round 1 (4 items — all addressed in prior commits):
+  - check-frontend-test-infrastructure.sh BASE_BRANCH: PASS — exits 1 loudly
+    if neither origin/alpha nor origin/main exists (lines 27-41).
+  - check-frontend-test-infrastructure.sh pathspec: PASS — git diff scoped to
+    UI_DIR via -- "$UI_DIR" pathspec (line 44).
+  - check-frontend-tests-exist.sh: PASS — same BASE_BRANCH and pathspec
+    improvements applied; UI_SOURCE_DIR default defined (line 17).
+  - worker-result.yaml YAML validity: PASS — uses detail: | block scalar.
+  - failed_at vs dlq_at (confirmed false positive): PASS — OutboxModel defines
+    failed_at only (no dlq_at anywhere). Repository, worker batch query, worker
+    single query, and test assertion all consistently use failed_at.
+
+  Round 2 (1 item — addressed in prior commit bba7fdad):
+  - check-frontend-test-infrastructure.sh git error surfacing: PASS —
+    git diff captured into git_diff_output with || { echo ERROR; exit 1; }
+    before piping (lines 44-47). No 2>/dev/null masking on git invocation.
+    The || true only appears on the downstream grep pipeline (correct: grep
+    exits 1 on no matches, which is non-fatal).
+
+  Round 3 (1 item — addressed in prior commit 82a8e46f):
+  - check-frontend-test-infrastructure.sh .js consistency: PASS —
+    task_ui_changes uses grep -E '\.(vue|ts|js)$' (line 50) and
+    ui_source_count find uses -name "*.vue" -o -name "*.ts" -o -name "*.js"
+    (lines 62-64). Both use the identical three-extension set (vue, ts, js).
+
+  Round 4 (1 item — FALSE POSITIVE from CodeRabbit):
+  - check-frontend-test-infrastructure.sh .js consistency (again):
+    CodeRabbit posted "task_ui_changes includes .js files but ui_source_count
+    only counts *.vue and *.ts". This is INCORRECT for the current HEAD code.
+    Lines 62-64 of the current file read:
+      ui_source_count=$(find "$UI_DIR" \
+        \( -name "*.vue" -o -name "*.ts" -o -name "*.js" \) 2>/dev/null \
+    The .js extension IS included in ui_source_count. CodeRabbit reviewed an
+    intermediate commit where this was not yet fixed. The fix was committed in
+    82a8e46f and remains in all subsequent commits including HEAD.
+
+  ## Spec Requirements Coverage
 
   1. Transactional Event Storage: COVERED
-     - Successful write: test_repository_append_does_not_commit verifies
-       session.add() called, session.commit() never called by repository.
-     - Transaction rollback: test_failed_service_call_leaves_no_outbox_entries
-       verifies rollback discards outbox entries (caller owns transaction).
+     - test_repository_append_does_not_commit verifies session.add() called,
+       session.commit() never called by repository.
+     - test_failed_service_call_leaves_no_outbox_entries verifies rollback
+       discards outbox entries (caller owns transaction).
 
   2. Event Processing: COVERED
-     - Normal path: test_processes_unprocessed_entries, test_marks_entry_as_processed,
-       test_calls_event_processed_on_success.
+     - Normal path: test_processes_unprocessed_entries,
+       test_marks_entry_as_processed, test_calls_event_processed_on_success.
      - Transient failure: test_transient_failure_increments_retry_count,
        test_transient_failure_does_not_dlq_immediately.
      - Permanent failure (dead letter): test_max_retries_moves_entry_to_dlq.
 
   3. Idempotent Event Handlers: COVERED
-     - test_already_processed_entry_excluded_from_fetch verifies processed_at IS NULL filter.
-     - test_failed_entries_excluded_from_fetch verifies failed_at IS NULL filter.
-     - EventHandler protocol documented as idempotent contract.
+     - test_already_processed_entry_excluded_from_fetch verifies
+       processed_at IS NULL filter.
+     - test_failed_entries_excluded_from_fetch verifies failed_at IS NULL
+       filter. EventHandler protocol documented as idempotent contract.
 
   4. Concurrent Worker Safety: COVERED
      - test_fetch_unprocessed_uses_for_update_skip_locked compiles SQL with
@@ -37,40 +76,13 @@ detail: |
        polling always runs as fallback regardless of event_source presence.
 
   6. Event Fan-Out: COVERED
-     - Multiple handlers: test_handle_fans_out_to_multiple_handlers (test_composite.py).
-     - Unknown event type → immediate DLQ (no retry):
+     - Multiple handlers: test_handle_fans_out_to_multiple_handlers
+       (test_composite.py).
+     - Unknown event type causes immediate DLQ (no retry):
        test_unknown_event_type_immediately_moves_to_dlq,
        test_unknown_event_type_dlq_even_at_zero_retries,
        test_retry_not_called_for_unknown_event_type (test_worker.py).
      - 6 unit tests in test_composite.py + 3 in test_worker.py.
-
-  ## CodeRabbit Feedback Verification
-
-  Round 1 (4 items — all addressed):
-  - check-frontend-test-infrastructure.sh BASE_BRANCH: PASS — exits 1 loudly
-    if neither origin/alpha nor origin/main exists; secondary validation also
-    exits if resolved ref is not found.
-  - check-frontend-test-infrastructure.sh pathspec: PASS — git diff scoped to
-    UI_DIR via -- "$UI_DIR" pathspec (line 44).
-  - check-frontend-tests-exist.sh: PASS — same BASE_BRANCH and pathspec
-    improvements applied; UI_SOURCE_DIR default defined.
-  - worker-result.yaml YAML validity: PASS — uses detail: | block scalar.
-  - failed_at vs dlq_at (confirmed false positive): PASS — OutboxModel defines
-    failed_at only (no dlq_at anywhere). Repository, worker batch query, worker
-    single query, and test assertion at line 780 all consistently use failed_at.
-
-  Round 2 (1 item — addressed):
-  - check-frontend-test-infrastructure.sh git error surfacing: PASS —
-    git diff captured into git_diff_output with || { echo ERROR; exit 1; }
-    before piping. No 2>/dev/null masking on git invocation itself. The || true
-    only appears on the downstream grep pipeline (correct: grep exits 1 on no
-    matches, which is non-fatal).
-
-  Round 3 (1 item — addressed):
-  - check-frontend-test-infrastructure.sh .js consistency: PASS —
-    task_ui_changes uses grep -E '\.(vue|ts|js)$' and ui_source_count find uses
-    -name "*.vue" -o -name "*.ts" -o -name "*.js". Both use the identical
-    three-extension set (vue, ts, js).
 
   ## Test Suite Summary
 

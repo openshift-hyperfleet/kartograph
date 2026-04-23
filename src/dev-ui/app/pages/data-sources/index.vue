@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   Cable,
@@ -98,7 +98,7 @@ interface ProposedEdgeType {
 
 // ── Composables ────────────────────────────────────────────────────────────
 
-const { hasTenant } = useTenant()
+const { hasTenant, tenantVersion } = useTenant()
 
 // ── Available adapters ─────────────────────────────────────────────────────
 
@@ -492,10 +492,54 @@ const dataSources = ref<DataSourceItem[]>([])
 const loadingDataSources = ref(false)
 
 async function loadDataSources() {
-  // Data sources are loaded per-KG, but for this view we show all.
-  // When management routes are available, they'll be fetched from the API.
-  dataSources.value = []
+  if (!hasTenant.value) return
+  loadingDataSources.value = true
+  try {
+    const { apiFetch } = useApiClient()
+    // Fetch all knowledge graphs, then collect data sources for each.
+    const kgResult = await apiFetch<{ knowledge_graphs: Array<{ id: string; name: string }> }>(
+      '/management/knowledge-graphs'
+    )
+    const kgs = kgResult.knowledge_graphs ?? []
+    const all: DataSourceItem[] = []
+    for (const kg of kgs) {
+      try {
+        const dsResult = await apiFetch<{ data_sources: DataSourceItem[] }>(
+          `/management/knowledge-graphs/${kg.id}/data-sources`
+        )
+        const sources = dsResult.data_sources ?? []
+        // Fetch sync runs for each data source so the card can show history.
+        for (const ds of sources) {
+          try {
+            const runResult = await apiFetch<{ sync_runs: SyncRun[] }>(
+              `/management/data-sources/${ds.id}/sync-runs`
+            )
+            ds.sync_runs = runResult.sync_runs ?? []
+          } catch {
+            ds.sync_runs = []
+          }
+          all.push(ds)
+        }
+      } catch {
+        // Skip KGs whose data sources cannot be fetched.
+      }
+    }
+    dataSources.value = all
+  } catch {
+    dataSources.value = []
+  } finally {
+    loadingDataSources.value = false
+  }
 }
+
+onMounted(() => {
+  loadDataSources()
+})
+
+// Reload data sources whenever the user switches tenants.
+watch(tenantVersion, () => {
+  loadDataSources()
+})
 
 async function triggerSync(dsId: string) {
   try {

@@ -1,57 +1,75 @@
 ---
 verdict: pass
 ---
-## Verification Summary — task-014 (UI Experience: Query Console KG Scoping Fix)
+## Spec Alignment Review — specs/ui/experience.spec.md
 
-Reviewed commit `70c3c21f` ("fix: wire KG context selector to query execution in Query Console") against the spec FAIL 4 from the prior spec-alignment review.
+Branch: hyperloop/task-014
+Commit reviewed: 3f192a96 ("fix: wire KG context selector to query execution in Query Console")
+Test run: 43 passed, 0 failed (3 test files)
 
 ---
 
-## Check Results
+## Requirement Status
 
-| Check | Result | Notes |
+| # | Requirement | Status |
 |---|---|---|
-| 1. Unit Tests (Python) | PASS | 2274 passed, 0 failures |
-| 2. Linting (ruff check) | PASS | Zero violations |
-| 3. Formatting (ruff format) | PASS | 470 files already formatted |
-| 4. Type Checking (mypy) | PASS | No issues found in 470 source files |
-| 5. Architecture Boundary Tests | PASS | 40 passed |
-| 6. UI Tests (pnpm test) | PASS | 43 tests passed, 3 files (up from 42; 1 net new test) |
-| check-auth-status-codes | INFO | Pre-existing; flagged files not touched by this PR |
-| check-cross-task-deferral | PASS | No deferral comments found |
-| check-failure-path-tests | INFO | Script requires spec file arg; tooling issue, not regression |
-| check-fake-success-notifications | PASS | All success notifications co-located with real API calls |
-| check-frontend-deps-resolve | PASS | All deps resolved in lockfile |
-| check-frontend-test-infrastructure | PASS | Vitest present |
-| check-frontend-tests-exist | PASS | 3 test files found |
-| check-idempotency-tests | INFO | Script requires spec file arg; tooling issue, not regression |
-| check-no-coming-soon-stubs | PASS | No stub markers found |
-| check-no-future-placeholder-comments | PASS | No future placeholders found |
-| check-partial-error-assertions | INFO | Pre-existing OR-chained assertions; files not touched by this PR |
-| check-route-handler-mock-coverage | PASS | No bare service mocks in route test files |
-| check-selector-forwarding | PASS | All selected* refs forwarded to async action bodies |
-| check-weak-test-assertions | PASS | No weak categorical assertions found |
+| 1 | Navigation Structure | COVERED |
+| 2 | Tenant and Workspace Context | COVERED |
+| 3 | Knowledge Graph Creation | COVERED |
+| 4 | Data Source Connection | COVERED |
+| 5 | Ontology Design | COVERED |
+| 6 | Sync Monitoring | COVERED |
+| 7 | Get Started Querying (MCP) | COVERED |
+| 8 | Query Console — KG context selector | COVERED (previously PARTIAL — now resolved) |
+| 9 | Schema Browser | COVERED |
+| 10 | Graph Explorer | COVERED |
+| 11 | API Key Management | COVERED |
+| 12 | Workspace Management | COVERED |
+| 13 | Design Language | COVERED |
+| 14 | Interaction Principles | COVERED |
+| 15 | Responsive Design | COVERED |
+| 16 | Dark Mode | COVERED |
 
 ---
 
-## Spec Compliance — Requirement 8 (Query Console KG Context)
+## Requirement 8 — Resolution of Prior PARTIAL
 
-The prior review identified FAIL 4 (PARTIAL): `selectedKgId` was populated in the UI but never forwarded to `queryGraph()`, and the test exercised a standalone stub rather than real production code.
+The prior review identified three gaps. All three are now addressed:
 
-The fix correctly addresses all three required changes:
+### 1. `buildQueryGraphArgs()` extracted and `knowledgeGraphId` parameter added
 
-1. **`useQueryApi.ts`** — `buildQueryGraphArgs()` extracted as a pure exported function; `queryGraph()` now accepts `knowledgeGraphId?: string` as a fourth parameter and passes it through as `knowledge_graph_id` in the MCP tool arguments.
+`src/dev-ui/app/composables/api/useQueryApi.ts` lines 17–28:
+- `buildQueryGraphArgs(cypher, timeoutSeconds?, maxRows?, knowledgeGraphId?)` is now a
+  pure, exported function.
+- When `knowledgeGraphId !== undefined`, it sets `args.knowledge_graph_id = knowledgeGraphId`.
+- `queryGraph()` (lines 57–62) now accepts `knowledgeGraphId?: string` as a fourth
+  parameter and delegates argument construction to `buildQueryGraphArgs`.
 
-2. **`query/index.vue`** — `executeQuery()` now passes `selectedKgId.value || undefined` as the fourth argument to `queryGraph()`. An empty string (unscoped) correctly becomes `undefined`, so no `knowledge_graph_id` field is emitted in the MCP call.
+### 2. `selectedKgId` forwarded to `queryGraph()` in `executeQuery()`
 
-3. **`knowledge-graphs.test.ts`** — Tests now import `buildQueryGraphArgs` from the real production module. Three targeted tests verify: (a) KG ID included when scoped, (b) `knowledge_graph_id` absent when unscoped, (c) empty-string-to-`undefined` gate matches component behavior.
+`src/dev-ui/app/pages/query/index.vue` lines 185–190:
+```typescript
+const res = await queryGraph(
+  cypherQuery,
+  Number(timeout.value),
+  Number(maxRows.value),
+  selectedKgId.value || undefined,
+)
+```
+The `|| undefined` gate correctly converts an empty string (unscoped) to `undefined`,
+ensuring no `knowledge_graph_id` field is emitted in the MCP tool call when the user
+has not selected a specific graph.
 
-All 16 requirements from `specs/ui/experience.spec.md` are now COVERED.
+### 3. Tests exercise real production code (not a standalone stub)
 
----
+`src/dev-ui/app/tests/knowledge-graphs.test.ts` line 2:
+```typescript
+import { buildQueryGraphArgs } from '~/composables/api/useQueryApi'
+```
 
-## Commit Trailers
+Three targeted tests (lines 450–476) use the real helper:
+- **Scoped**: `buildQueryGraphArgs(..., 'kg-1')` → `knowledge_graph_id === 'kg-1'` ✓
+- **Unscoped**: `buildQueryGraphArgs(..., undefined)` → `knowledge_graph_id` absent ✓
+- **Empty-string gate**: `'' || undefined` → `knowledge_graph_id` absent ✓
 
-Both new commits carry correct trailers:
-- `Spec-Ref: specs/ui/experience.spec.md@85d49a379a52479b33f9b39994d76795066899a6`
-- `Task-Ref: task-014`
+All 43 tests pass (`pnpm test`). All 16 SHALL requirements are COVERED.

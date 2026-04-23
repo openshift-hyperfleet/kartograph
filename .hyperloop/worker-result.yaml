@@ -1,130 +1,109 @@
 ---
 verdict: pass
 detail: |
-  ## Verification — task-017 Outbox Pattern (Round 7 / Final)
+  ## Spec Alignment Review — task-017 Outbox Pattern (Final Round)
 
-  All CodeRabbit feedback items confirmed addressed. All numbered checks pass.
-
-  ---
-
-  ### Check 1 — Unit Tests
-
-  STATUS: PASS
-
-  cd src/api && uv run pytest tests/unit -v
-  2413 passed, 45 warnings in 63.08s
-
-  Outbox-specific suite:
-  cd src/api && uv run pytest tests/unit/infrastructure/outbox/ -v --tb=short
-  81 passed in 1.38s
+  All CodeRabbit PR feedback confirmed addressed. All 6 SHALL requirements
+  implemented and tested. Verdict: PASS.
 
   ---
 
-  ### Check 2 — Linting (ruff check)
+  ### PR Feedback Resolution
 
-  STATUS: PASS
-
-  All checks passed.
-
-  ---
-
-  ### Check 3 — Formatting (ruff format --check)
-
-  STATUS: PASS
-
-  481 files already formatted.
-
-  ---
-
-  ### Check 4 — Type Checking (mypy)
-
-  STATUS: PASS
-
-  Success: no issues found in 481 source files.
-
-  ---
-
-  ### Check 5 — Architecture Boundary Tests
-
-  STATUS: PASS
-
-  40 passed in 0.28s — all outbox boundary and IAM layer boundary tests pass.
-
-  ---
-
-  ### Check 6 — Check Scripts
-
-  STATUS: PASS (for task-017 scope)
-
-  - check-frontend-test-infrastructure.sh: PASS (no UI changes in this task)
-  - check-frontend-tests-exist.sh: PASS (no UI changes in this task)
-  - check-no-source-regressions.sh: PASS
-  - check-no-test-regressions.sh: PASS
-  - check-branch-has-commits.sh: PASS (78 commits ahead of alpha)
-  - check-domain-aggregate-mocks.sh: FAIL (pre-existing on alpha — violation in
-    test_knowledge_graph_service.py lines 592-593, unchanged by this task)
-  - check-empty-test-stubs.sh: FAIL (pre-existing on alpha — stub in
-    test_api_key_auth.py:540, unchanged by this task)
-  - check-auth-status-codes.sh: FAIL (pre-existing on alpha — unchanged files)
-
-  All three failing check scripts flag violations in files that exist identically
-  on origin/alpha. Task-017 did not modify those files. The violations are
-  pre-existing technical debt, not introduced by this task.
-
-  ---
-
-  ### Check 7 — CodeRabbit PR Feedback (all rounds)
-
-  STATUS: ALL ADDRESSED
-
-  Finding 1 — check-frontend-test-infrastructure.sh: git diff separation
-    FIXED in commit bba7fdad: git_diff_output captured separately with
-    || { echo "ERROR"; exit 1; }. || true retained only on grep/filter pipeline.
+  Finding 1 — check-frontend-test-infrastructure.sh: git diff error masking
+    STATUS: FIXED (commit bba7fdad)
+    git_diff_output is captured separately with explicit error exit before
+    the grep/filter pipeline. Real git errors are now surfaced.
 
   Finding 2 — check-frontend-test-infrastructure.sh: .js file-type consistency
-    FIXED in commit 82a8e46f: Added -o -name "*.js" to the find command
-    computing ui_source_count so both task_ui_changes and ui_source_count
-    use the same file-type set (.vue, .ts, .js).
+    STATUS: FIXED (commit 82a8e46f)
+    The find command computing ui_source_count now includes -o -name "*.js"
+    so both task_ui_changes and ui_source_count use the same file-type set
+    (.vue, .ts, .js).
 
   Finding 3 — check-frontend-tests-exist.sh: BASE_BRANCH validation + pathspec
-    FIXED: BASE_BRANCH verified before git diff call; git diff restricted to
-    UI_SOURCE_DIR pathspec.
+    STATUS: FIXED
+    BASE_BRANCH verified with git rev-parse before use (exits 1 if missing).
+    git diff restricted to UI_SOURCE_DIR pathspec.
 
   Finding 4 — worker-result.yaml: raw Markdown tokens breaking YAML parsing
-    FIXED: worker-result.yaml uses YAML literal block scalar (|) properly.
+    STATUS: FIXED
+    File uses YAML literal block scalar (|). No raw backtick or bold markers
+    in the YAML scalar body. File parses cleanly.
 
-  Finding 5 — dlq_at vs failed_at: CONFIRMED FALSE POSITIVE
-    The codebase uses failed_at consistently throughout all layers (OutboxModel,
-    OutboxRepository, worker.py). No dlq_at field exists anywhere. CodeRabbit
-    hallucinated this finding.
+  Finding 5 — dlq_at vs failed_at field mismatch
+    STATUS: CONFIRMED FALSE POSITIVE
+    No dlq_at field exists anywhere in the codebase. failed_at is used
+    consistently across value_objects.py, models.py, repository.py, and
+    worker.py. Repository filters on failed_at IS NULL; worker sets
+    failed_at when dead-lettering. All layers agree.
 
   ---
 
   ### Spec Coverage (all 6 SHALL requirements)
 
-  1. Transactional Event Storage: COVERED
-  2. Event Processing (normal/retry/DLQ): COVERED
-  3. Idempotent Event Handlers: COVERED
-  4. Concurrent Worker Safety (SELECT FOR UPDATE SKIP LOCKED): COVERED
-  5. Dual Delivery Mechanism (polling + NOTIFY): COVERED
-  6. Event Fan-Out (composite dispatcher): COVERED
+  Requirement 1 — Transactional Event Storage: COVERED
+    Implementation: infrastructure/outbox/repository.py (append method,
+    no independent commit — caller owns transaction boundary).
+    Tests:
+      - test_repository_append_does_not_commit (unit)
+      - test_failed_service_call_leaves_no_outbox_entries (unit)
+      - test_outbox_consistency (integration)
+    Scenarios: successful write COVERED, transaction rollback COVERED.
 
-  ---
+  Requirement 2 — Event Processing: COVERED
+    Implementation: infrastructure/outbox/worker.py
+      (_process_single, _mark_processed, _increment_retry, _move_to_dlq)
+    Tests:
+      - test_processes_unprocessed_entries (normal processing)
+      - test_transient_failure_increments_retry_count
+      - test_max_retries_moves_entry_to_dlq (permanent failure / DLQ)
+    Scenarios: normal COVERED, transient failure COVERED, permanent DLQ COVERED.
 
-  ### Commit Trailers
+  Requirement 3 — Idempotent Event Handlers: COVERED
+    Implementation: repository.py and worker.py filter on processed_at IS NULL
+    and failed_at IS NULL, ensuring already-handled entries are excluded.
+    Tests:
+      - test_already_processed_entry_excluded_from_fetch
+      - test_failed_entries_excluded_from_fetch
+    Scenario: duplicate delivery COVERED.
 
-  STATUS: PASS
+  Requirement 4 — Concurrent Worker Safety: COVERED
+    Implementation: repository.py and worker.py use
+    .with_for_update(skip_locked=True) on fetch queries.
+    Tests:
+      - test_fetch_unprocessed_uses_for_update_skip_locked (compiles SQL
+        against PostgreSQL dialect, asserts "SKIP LOCKED" in output)
+    Scenario: concurrent workers COVERED.
 
-  Implementation commits carry Spec-Ref and Task-Ref trailers.
-  Most recent fix commit (82a8e46f):
-    Spec-Ref: specs/shared-kernel/outbox.spec.md@86d0f4fc5118312577593defb88be1d5005b72cf
-    Task-Ref: task-017
+  Requirement 5 — Dual Delivery Mechanism: COVERED
+    Implementation:
+      - Real-time: infrastructure/outbox/event_sources/postgres_notify.py
+        (LISTEN/NOTIFY handler); worker.py starts event_source with callback.
+      - Polling: worker.py _poll_loop with asyncio.wait_for timeout (30s).
+    Tests:
+      - test_postgres_notify_event_source.py (notification handling, UUID
+        extraction, callback invocation)
+      - test_worker.py lifecycle tests (polling fallback path)
+    Scenarios: real-time notification COVERED, polling fallback COVERED.
+
+  Requirement 6 — Event Fan-Out: COVERED
+    Implementation: infrastructure/outbox/composite.py
+      register() accumulates handlers per event_type;
+      handle() dispatches to ALL registered handlers for the type;
+      raises UnknownEventTypeError for unregistered types.
+      worker.py catches UnknownEventTypeError and calls _move_to_dlq()
+      immediately (no retry increment).
+    Tests:
+      - test_handle_fans_out_to_multiple_handlers
+      - test_unknown_event_type_raises_error (composite)
+      - test_unknown_event_type_immediately_moves_to_dlq (worker)
+    Scenarios: multiple handlers COVERED, unknown type → immediate DLQ COVERED.
 
   ---
 
   ### Summary
 
-  All 7 verification checks pass for task-017's scope. The three check-script
-  failures are pre-existing violations on origin/alpha in files not touched by
-  this task. All CodeRabbit findings are either fixed or confirmed false
-  positives. All 6 spec SHALL requirements are implemented and tested.
+  All 5 CodeRabbit findings are resolved (4 fixed, 1 confirmed false positive).
+  All 6 spec SHALL requirements are implemented and tested with explicit
+  scenario coverage. No partial or missing requirements found.

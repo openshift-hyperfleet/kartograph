@@ -1,49 +1,83 @@
 ---
 verdict: pass
 ---
-## Spec Alignment Review — Round 5 (re-verification)
+## Fresh Attempt — Full Spec Verification
 
-All three previously-identified PARTIAL items are fully addressed.
-All 2012 unit tests pass.
+Branch was reset to not-started due to prior state-file merge conflicts.
+Implementation from previous successful rounds is intact on the branch.
+This fresh pass re-verifies every spec requirement is implemented and tested.
 
-## Requirement Status
+## Requirement Coverage
 
-### 1. Mutation Log Format — Parse error line number + content preview: COVERED
+### 1. Per-Tenant Graph Isolation
+- `apply_kg_mutations` in `routes.py` passes `knowledge_graph_id` to the service;
+  the AGE client uses `tenant_{tenant_id}` as the graph name for full isolation.
+- No cross-tenant data leakage possible — each AGE graph is a separate namespace.
+- COVERED.
 
-`test_returns_error_on_invalid_json` (test_mutation_service.py lines 531-565) now asserts:
-- `"1" in first_error` — line number present in first error message
-- `len(result.errors) >= 2` — second error entry exists for content preview
-- `"line content" in result.errors[1].lower()` — second entry contains "Line content:" preview
+### 2. KnowledgeGraph Scoping
+- SpiceDB `edit` permission check via `authz.check_permission()` before any write.
+- `GraphMutationService._stamp_knowledge_graph_id()` overwrites any
+  caller-provided `knowledge_graph_id` on all CREATE/UPDATE operations.
+- Tests: `TestKnowledgeGraphIdStamping` (6 tests including overwrite scenario).
+- COVERED.
 
-Implementation at graph_mutation_service.py lines 268-278 returns:
-  `errors=["JSON parse error on line {line_num}: ...", "Line content: {line_preview}"]`
+### 3. Mutation Log Format (JSONL)
+- `apply_mutations_from_jsonl` parses line-by-line, skips blank/whitespace lines,
+  reports parse errors with line number AND content preview (two-entry errors list).
+- Tests: `TestGraphMutationServiceApplyFromJSONL` (5 tests).
+- COVERED.
 
-### 2. DEFINE (node type, system properties): COVERED
+### 4. DEFINE Operation
+- System properties auto-added: nodes get `data_source_id`, `source_path`, `slug`;
+  edges get `data_source_id`, `source_path`.
+- `test_apply_mutations_stores_define_operations` asserts all three node system
+  properties appear in the saved TypeDefinition's required_properties.
+- `TestCreateDefineValidationInBatch` covers edge rules (no `slug` required).
+- COVERED.
 
-`test_apply_mutations_stores_define_operations` (test_mutation_service.py lines 107-109) now asserts:
-- `"data_source_id" in saved_type_def.required_properties`
-- `"source_path" in saved_type_def.required_properties`
-- `"slug" in saved_type_def.required_properties`
+### 5. CREATE Operation
+- Validates type definition exists (current batch or repository); rejects with error if missing.
+- Validates required properties present on the operation.
+- Idempotent merge semantics delegated to `AgeBulkLoadingStrategy` (MERGE semantics).
+- Schema learning triggered on success via `_discover_optional_properties`.
+- COVERED.
 
-Implementation at graph_mutation_service.py lines 196-204 calls
-`get_system_properties_for_entity(op.type)` and merges into `required_properties`.
+### 6. UPDATE Operation
+- `set_properties` (add/overwrite) and `remove_properties` (remove) both supported.
+- Schema learning on UPDATE: `test_update_discovers_optional_properties`.
+- Unlisted properties preserved (MATCH + SET/REMOVE only specified fields).
+- COVERED.
 
-### 3. Referential Integrity Ordering — _sort_operations() unit test: COVERED
+### 7. DELETE Operation
+- DETACH DELETE for nodes (cascades connected edges), DELETE for edges only.
+- Implemented in `AgeQueryBuilder.delete_node_with_detach()` and `delete_edge()`.
+- Tests: `TestDeleteNodeWithDetach`, `TestDeleteEdge`.
+- COVERED.
 
-New file `tests/unit/graph/infrastructure/test_mutation_applier_sort.py` with
-`TestSortOperationsReferentialIntegrity` containing three tests:
-- `test_sort_order_define_delete_create_update`: creates a maximally-mixed 6-op batch
-  (UPDATE, CREATE-edge, DELETE-node, DEFINE, DELETE-edge, CREATE-node) and asserts
-  exact positional ordering: DEFINE→DELETE-edge→DELETE-node→CREATE-node→CREATE-edge→UPDATE
-- `test_sort_preserves_all_operations`: identity check via `id(op)` — no ops dropped or duplicated
-- `test_sort_homogeneous_list_unchanged_length`: homogeneous DELETE batch passes through intact
+### 8. Mandatory System Properties
+- `MutationOperation.validate_operation()` enforces `data_source_id`, `source_path`,
+  `slug` (nodes), `knowledge_graph_id`, and `start_id`/`end_id` (edges) on CREATE.
+- Each missing-property path covered in `TestMutationOperation`.
+- COVERED.
 
-Implementation at mutation_applier.py lines 50-81: `_sort_operations()` present with correct
-priority map {"DEFINE":0, "DELETE":1, "CREATE":2, "UPDATE":3} and sub-ordering
-(DELETE: edge=0/node=1; CREATE/UPDATE: node=0/edge=1).
+### 9. Deterministic Entity IDs
+- `GraphExtractionReadOnlyRepository.generate_id()` uses SHA-256 of type+slug,
+  yielding `{type}:{16_hex_chars}` — deterministic and collision-resistant.
+- Tests: `TestGenerateId` (5 tests: determinism, format, type prefix, slug diff).
+- COVERED.
+
+### 10. Referential Integrity Ordering
+- `MutationApplier._sort_operations()`: DEFINE→DELETE-edges→DELETE-nodes→
+  CREATE-nodes→CREATE-edges→UPDATE.
+- Tests: `TestSortOperationsReferentialIntegrity` (3 tests with maximally mixed
+  batches asserting exact positional ordering).
+- COVERED.
 
 ## Test Run
 
 ```
-2012 passed, 36 warnings in 43.74s
+2012 passed, 35 warnings in 43.69s
 ```
+
+All unit tests pass. Implementation is complete and fully spec-aligned.

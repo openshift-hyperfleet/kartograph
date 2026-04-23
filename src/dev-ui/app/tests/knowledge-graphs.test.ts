@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { buildQueryGraphArgs } from '~/composables/api/useQueryApi'
 
 // ── FAIL 1: Knowledge Graph Creation ──────────────────────────────────────────
 // Spec: "AND the knowledge graph is created within the current workspace"
@@ -443,27 +444,34 @@ describe('Query Console - KG Selector Population', () => {
     expect(knowledgeGraphs).toHaveLength(0)
   })
 
-  it('passes selectedKgId to query execution when scoped', async () => {
-    const selectedKgId = { value: 'kg-1' }
-    const queryGraph = vi.fn().mockResolvedValue({ rows: [], row_count: 0 })
-
-    async function executeQuery(cypher: string) {
-      return queryGraph(cypher, 30, 1000, selectedKgId.value || undefined)
-    }
-
-    await executeQuery('MATCH (n) RETURN n')
-    expect(queryGraph).toHaveBeenCalledWith('MATCH (n) RETURN n', 30, 1000, 'kg-1')
+  // These tests import and exercise the real buildQueryGraphArgs helper from
+  // useQueryApi.ts — not a standalone copy — so regressions in the actual
+  // production code are caught immediately.
+  it('includes knowledge_graph_id in MCP args when a KG is selected', () => {
+    const args = buildQueryGraphArgs('MATCH (n) RETURN n', 30, 1000, 'kg-1')
+    expect(args.cypher).toBe('MATCH (n) RETURN n')
+    expect(args.timeout_seconds).toBe(30)
+    expect(args.max_rows).toBe(1000)
+    expect(args.knowledge_graph_id).toBe('kg-1')
   })
 
-  it('passes undefined for kgId when unscoped (all KGs)', async () => {
-    const selectedKgId = { value: '' }
-    const queryGraph = vi.fn().mockResolvedValue({ rows: [], row_count: 0 })
+  it('omits knowledge_graph_id from MCP args when unscoped (all KGs)', () => {
+    const args = buildQueryGraphArgs('MATCH (n) RETURN n', 30, 1000, undefined)
+    expect(args.cypher).toBe('MATCH (n) RETURN n')
+    expect(args).not.toHaveProperty('knowledge_graph_id')
+  })
 
-    async function executeQuery(cypher: string) {
-      return queryGraph(cypher, 30, 1000, selectedKgId.value || undefined)
-    }
+  it('maps selectedKgId to knowledgeGraphId via || undefined gate', () => {
+    // Simulates the expression used in query/index.vue:
+    //   selectedKgId.value || undefined
+    // An empty string must become undefined (unscoped), not a falsy string.
+    const scopedId = 'kg-1'
+    const unscopedId = ''
 
-    await executeQuery('MATCH (n) RETURN n')
-    expect(queryGraph).toHaveBeenCalledWith('MATCH (n) RETURN n', 30, 1000, undefined)
+    const scopedArgs = buildQueryGraphArgs('MATCH (n) RETURN n', 30, 1000, scopedId || undefined)
+    expect(scopedArgs.knowledge_graph_id).toBe('kg-1')
+
+    const unscopedArgs = buildQueryGraphArgs('MATCH (n) RETURN n', 30, 1000, unscopedId || undefined)
+    expect(unscopedArgs).not.toHaveProperty('knowledge_graph_id')
   })
 })

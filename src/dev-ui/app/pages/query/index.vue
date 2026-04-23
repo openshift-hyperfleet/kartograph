@@ -186,6 +186,7 @@ async function executeQuery() {
       cypherQuery,
       Number(timeout.value),
       Number(maxRows.value),
+      selectedKgId.value || undefined,
     )
     executionTime.value = Math.round(performance.now() - start)
     result.value = res

@@ -15,6 +15,7 @@ Content integrity is verified on every :meth:`read_content` call.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import zipfile
 from collections.abc import Iterator
@@ -74,20 +75,21 @@ class JobPackageReader:
         """Iterate over ``changeset.jsonl``, yielding one entry per line.
 
         Consumers can process entries without loading the entire file into
-        memory — the file is read once and lines are yielded lazily.
+        memory — the ZIP entry is opened and wrapped in a text stream so
+        lines are yielded lazily one at a time.
 
         Yields:
             ChangesetEntry objects in the order they appear in the file.
         """
         with zipfile.ZipFile(self._archive_path) as zf:
-            raw = zf.read("changeset.jsonl").decode("utf-8")
-
-        for line in raw.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            record = json.loads(line)
-            yield ChangesetEntry.from_dict(record)
+            with zf.open("changeset.jsonl") as entry_file:
+                text_stream = io.TextIOWrapper(entry_file, encoding="utf-8")
+                for line in text_stream:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    record = json.loads(line)
+                    yield ChangesetEntry.from_dict(record)
 
     # ------------------------------------------------------------------
     # Content

@@ -277,13 +277,15 @@ class TestJobPackageReaderPathSafety:
     def test_reader_rejects_path_traversal_entry(self, tmp_path: Path):
         """JobPackageReader raises on archives containing path traversal entries."""
         evil_zip = self._build_tampered_zip(tmp_path, "content/../../../etc/passwd")
-        with pytest.raises((ValueError, Exception)):
+        with pytest.raises(ValueError):
             JobPackageReader(evil_zip)
 
     def test_reader_rejects_absolute_path_entry(self, tmp_path: Path):
         """JobPackageReader raises on archives with absolute path entries."""
-        # Note: Python's zipfile may normalize leading slashes, but we test
-        # our own validate logic is triggered.
-        evil_zip = self._build_tampered_zip(tmp_path, "content/subdir/../../../evil")
-        with pytest.raises((ValueError, Exception)):
+        # Note: Python's zipfile.writestr() stores entry names verbatim —
+        # it normalises backslashes on Windows but does NOT strip leading
+        # slashes.  namelist() therefore returns "/evil" unchanged, so our
+        # validate_zip_entry_name check is correctly exercised here.
+        evil_zip = self._build_tampered_zip(tmp_path, "/evil")
+        with pytest.raises(ValueError):
             JobPackageReader(evil_zip)

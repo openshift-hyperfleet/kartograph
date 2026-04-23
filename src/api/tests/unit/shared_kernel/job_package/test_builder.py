@@ -467,6 +467,38 @@ class TestJobPackageBuilderCheckpoint:
         with pytest.raises(ValueError, match="[Cc]heckpoint"):
             builder.build(tmp_path)
 
+    def test_build_raises_when_content_ref_not_added(self, tmp_path: Path):
+        """build() raises if a changeset entry references content not in builder.
+
+        Scenario: Content-Addressable Storage — consistency check.
+        Adding a ChangesetEntry whose content_ref was never passed to
+        add_content() must fail-fast before any ZIP is written, so consumers
+        never receive a package that would raise KeyError in read_content().
+        """
+        builder = JobPackageBuilder(
+            data_source_id="ds-01",
+            knowledge_graph_id="kg-01",
+            sync_mode=SyncMode.INCREMENTAL,
+        )
+        # Construct a ContentRef without ever calling builder.add_content()
+        content = b"some unregistered content"
+        ref = ContentRef.from_bytes(content)
+
+        entry = ChangesetEntry(
+            operation=ChangeOperation.ADD,
+            id="item-orphan",
+            type="io.kartograph.change.file",
+            path="src/orphan.py",
+            content_ref=ref,
+            content_type="text/x-python",
+            metadata={},
+        )
+        builder.add_changeset_entry(entry)
+        builder.set_checkpoint(AdapterCheckpoint(schema_version="1.0.0", data={}))
+
+        with pytest.raises(ValueError, match="[Cc]ontent"):
+            builder.build(tmp_path)
+
 
 class TestJobPackageBuilderZipPathSafety:
     """Tests that the builder produces safe ZIP entry names."""

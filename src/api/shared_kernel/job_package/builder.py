@@ -136,6 +136,21 @@ class JobPackageBuilder:
 
         archive_path = output_dir / self._package_id.archive_name()
 
+        # Consistency check: every changeset entry's content_ref must exist in
+        # the in-memory content store.  Fail-fast here so consumers never
+        # receive a ZIP that would raise KeyError inside read_content().
+        missing_refs = [
+            entry.content_ref.ref_string
+            for entry in self._changeset_entries
+            if entry.content_ref.hex_digest not in self._content
+        ]
+        if missing_refs:
+            raise ValueError(
+                "Content refs referenced in changeset entries were never added "
+                f"to the builder via add_content(): {missing_refs!r}. "
+                "Call add_content() for each content_ref before build()."
+            )
+
         # Compute content checksum from in-memory store
         content_checksum = self._compute_content_checksum()
 

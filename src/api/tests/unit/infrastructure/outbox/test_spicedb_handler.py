@@ -7,6 +7,7 @@ extracting the _apply_operation pattern match from OutboxWorker.
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
@@ -245,3 +246,163 @@ class TestSpiceDBEventHandler:
         authz.write_relationship.assert_not_awaited()
         authz.delete_relationship.assert_not_awaited()
         authz.delete_relationships_by_filter.assert_not_awaited()
+
+
+class TestSpiceDBEventHandlerIdempotency:
+    """Tests for idempotent write semantics of the SpiceDB handler.
+
+    Covers spec: Requirement: Idempotent Event Handlers — duplicate delivery scenario.
+
+    SpiceDB relationships form a set: writing the same tuple twice is a no-op.
+    The handler must tolerate being invoked twice for the same payload (e.g.,
+    when a process crashes after writing to SpiceDB but before marking the
+    outbox entry as processed, and the worker later retries the entry).
+    """
+
+    @pytest.mark.asyncio
+    async def test_duplicate_invocation_produces_identical_final_state(self) -> None:
+        """Spec: Duplicate delivery — two handler invocations produce the same outcome.
+
+        GIVEN an outbox entry that was partially processed (handler ran but
+              mark_processed was not called due to a transient failure)
+        WHEN the worker retries the same entry
+        THEN reprocessing produces the same final state as a single successful run
+        AND no duplicate side effects are created (e.g., duplicate SpiceDB relationships)
+
+        Uses a FakeAuthorizationProvider whose write_relationship stores tuples in a
+        Python set, mirroring SpiceDB's upsert / set-membership semantics.
+        """
+
+        class FakeAuthorizationProvider:
+            """Fake authz provider with set-based relationship storage (upsert semantics).
+
+            Implements the full AuthorizationProvider protocol so that mypy's
+            structural subtype check accepts it.  Only write_relationship and
+            delete_relationship carry meaningful logic for this test; all other
+            methods are stubs that satisfy the protocol signature.
+            """
+
+            def __init__(self) -> None:
+                self.relationships: set[tuple[str, str, str]] = set()
+
+            async def write_relationship(
+                self,
+                resource: str,
+                relation: str,
+                subject: str,
+            ) -> None:
+                # set.add is idempotent — adding the same tuple twice leaves it once
+                self.relationships.add((resource, relation, subject))
+
+            async def write_relationships(
+                self,
+                relationships: list[Any],
+            ) -> None:
+                for rel in relationships:
+                    self.relationships.add((rel.resource, rel.relation, rel.subject))
+
+            async def check_permission(
+                self,
+                resource: str,
+                permission: str,
+                subject: str,
+            ) -> bool:
+                return (resource, permission, subject) in self.relationships
+
+            async def bulk_check_permission(
+                self,
+                requests: list[Any],
+            ) -> set[str]:
+                return set()
+
+            async def delete_relationship(
+                self,
+                resource: str,
+                relation: str,
+                subject: str,
+            ) -> None:
+                self.relationships.discard((resource, relation, subject))
+
+            async def delete_relationships(
+                self,
+                relationships: list[Any],
+            ) -> None:
+                for rel in relationships:
+                    self.relationships.discard(
+                        (rel.resource, rel.relation, rel.subject)
+                    )
+
+            async def delete_relationships_by_filter(
+                self,
+                resource_type: str,
+                resource_id: str | None = None,
+                relation: str | None = None,
+                subject_type: str | None = None,
+                subject_id: str | None = None,
+            ) -> None:
+                pass
+
+            async def lookup_subjects(
+                self,
+                resource: str,
+                relation: str,
+                subject_type: str,
+                optional_subject_relation: str | None = None,
+            ) -> list[Any]:
+                return []
+
+            async def lookup_resources(
+                self,
+                resource_type: str,
+                permission: str,
+                subject: str,
+            ) -> list[str]:
+                return []
+
+            async def read_relationships(
+                self,
+                resource_type: str,
+                resource_id: str | None = None,
+                relation: str | None = None,
+                subject_type: str | None = None,
+                subject_id: str | None = None,
+            ) -> list[Any]:
+                return []
+
+        write_op = WriteRelationship(
+            resource_type=ResourceType.GROUP,
+            resource_id="group-idempotent",
+            relation=RelationType.TENANT,
+            subject_type=ResourceType.TENANT,
+            subject_id="tenant-abc",
+        )
+        translator = MagicMock()
+        translator.translate.return_value = [write_op]
+
+        fake_authz = FakeAuthorizationProvider()
+        handler = SpiceDBEventHandler(translator=translator, authz=fake_authz)
+
+        payload: dict[str, Any] = {
+            "group_id": "group-idempotent",
+            "tenant_id": "tenant-abc",
+        }
+
+        # --- First invocation: handler writes the relationship to SpiceDB ---
+        await handler.handle("GroupCreated", payload)
+        state_after_first = frozenset(fake_authz.relationships)
+
+        # --- Second invocation: retry after partial failure (mark_processed skipped) ---
+        await handler.handle("GroupCreated", payload)
+        state_after_second = frozenset(fake_authz.relationships)
+
+        # Final state is identical to post-first-invocation state
+        assert state_after_second == state_after_first, (
+            "Duplicate handler invocation must not alter the final relationship state "
+            "(idempotent: no duplicate or missing relationships)"
+        )
+        # And the expected relationship is present
+        assert (
+            "group:group-idempotent",
+            "tenant",
+            "tenant:tenant-abc",
+        ) in state_after_second

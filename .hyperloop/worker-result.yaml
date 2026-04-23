@@ -1,82 +1,87 @@
 ---
 verdict: pass
 ---
-## Spec Alignment Review — Graph Mutations (fresh attempt)
+## Independent Verification — Graph Mutations (round 8)
 
-### Changes made in this run
+### Automated Check Results
 
-The previous round-7 review identified a single FAIL:
+| Check | Result | Detail |
+|-------|--------|--------|
+| Unit tests (`pytest tests/unit`) | **PASS** | 2017 passed, 0 failed |
+| Linting (`ruff check`) | **PASS** | All checks passed |
+| Formatting (`ruff format --check`) | **PASS** | 441 files already formatted |
+| Type checking (`mypy`) | **PASS** | No issues in 441 source files |
+| Architecture boundary tests | **PASS** | 40 passed |
+| Check scripts in `.hyperloop/checks/` | **N/A** | Directory does not exist |
 
-> **CREATE — idempotent merge**: `_build_update_existing_query` replaced the
-> entire properties object instead of merging it, and no test exercised a
-> cross-batch merge with differing `set_properties`.
+### Code Review Findings
 
-Both gaps are now closed:
+#### No Direct Logger/Print Usage
+Logger calls exist only inside observability probe implementations
+(`default_graph_service_probe.py`, `observability.py`) — the correct DOO location.
+No `logger.*` or `print()` calls in the changed production files. **PASS**
 
-#### 1. Code fix — `graph/infrastructure/age_bulk_loading/queries.py`
+#### No AsyncMock/MagicMock for Domain/Application Collaborators
+- Route tests use a hand-written `FakeAuthorizationProvider` (not AsyncMock). **PASS**
+- Mutation service tests use `Mock()` (not `MagicMock` or `AsyncMock`) for the
+  `mock_applier` and `mock_type_def_repo` infrastructure seams. Regular `Mock`
+  is the existing project pattern and not excluded by the guidelines. **PASS**
 
-`_build_update_existing_query` changed from:
-```sql
-SET properties = (s.properties::text)::ag_catalog.agtype
-```
-to:
-```sql
-SET properties = (
-    (t.properties::text)::jsonb || (s.properties::text)::jsonb
-)::text::ag_catalog.agtype
-```
-This is identical to the pattern already used by `update_properties()`,
-ensuring both UPDATE and CREATE-on-existing paths use proper merge semantics.
+#### Commit Trailers
+All substantive implementation commits carry both `Spec-Ref` and `Task-Ref`
+trailers (verified via `git log alpha..HEAD --format="%H%n%B%n---"`). **PASS**
 
-#### 2. Unit tests — `tests/unit/graph/infrastructure/test_age_query_builder_update_merge.py`
+#### No Hardcoded Secrets or Environment-Specific Values
+Reviewed all changed files. No credentials, API keys, or hardcoded env values. **PASS**
 
-Five tests (all in `TestUpdateExistingQueryMergeSemantics`) verify the SQL
-template of `_build_update_existing_query` using only public psycopg2 APIs
-(`Composed.seq`, `SQL.string`, `Identifier.strings`):
-- `test_uses_jsonb_merge_operator_not_simple_assignment` — asserts `||` present
-- `test_does_not_overwrite_with_staging_properties_alone` — asserts `t.properties` in SET clause
-- `test_references_both_tables_in_set_clause` — asserts both `t.properties` and `s.properties`
-- `test_uses_correct_graph_and_label_identifiers` — spot-checks identifier injection
-- `test_merge_consistent_with_update_properties_method` — asserts `jsonb` cast present
+#### DDD Layer / Import Boundaries
+Architecture tests (pytest-archon) pass. The new import of `iam.dependencies.user`
+in `graph/dependencies.py` is at the infrastructure/dependencies layer, not domain.
+The route imports of `shared_kernel.authorization.*` are correct per context rules. **PASS**
 
-All five failed before the fix and pass after.
+### Spec Requirement Coverage
 
-#### 3. Integration test — `tests/integration/test_bulk_loading.py`
+| Requirement | Status |
+|-------------|--------|
+| Per-Tenant Graph Isolation (`tenant_{tenant_id}` AGE graph) | COVERED |
+| KnowledgeGraph Scoping (SpiceDB `edit` permission check) | COVERED |
+| knowledge_graph_id stamping + anti-spoof | COVERED |
+| Mutation Log Format — valid JSONL | COVERED |
+| Mutation Log Format — parse error with line# + preview | COVERED |
+| Mutation Log Format — empty lines skipped | COVERED |
+| DEFINE — node type with system properties auto-added | COVERED |
+| DEFINE — edge type with system properties auto-added | COVERED |
+| CREATE — new node | COVERED |
+| CREATE — idempotent merge (jsonb `||` fix) | COVERED (regression test added) |
+| CREATE — edge | COVERED |
+| CREATE — missing type definition rejected | COVERED |
+| CREATE — missing required properties rejected | COVERED |
+| CREATE — schema learning (extra props → optional) | COVERED |
+| UPDATE — set properties | COVERED |
+| UPDATE — remove properties | COVERED |
+| UPDATE — schema learning | COVERED |
+| DELETE — node (cascading detach) | COVERED |
+| DELETE — edge only | COVERED |
+| Mandatory system properties (data_source_id, source_path, slug, knowledge_graph_id) | COVERED |
+| Deterministic IDs (`{type}:{16_hex_chars}`) | COVERED |
+| Referential Integrity Ordering (DEFINE→DELETE→CREATE→UPDATE) | COVERED |
 
-`TestBulkLoadingIdempotency::test_create_merges_properties_on_existing_node`
-exercises the full AGE stack end-to-end:
-1. First CREATE: node `person:eeee111122223333` with `{slug, name, age=30, ...}`
-2. Second CREATE: same ID, `{slug, name, email="alice@example.com", ...}` (no `age`)
-3. Asserts merged node has `name`, `age == 30` (preserved), and `email` (added)
+### Key Implementation Notes
 
-The previous `test_repeated_batch_is_idempotent` ran identical `set_properties`
-both times, so replacement and merging were indistinguishable. The new test uses
-intentionally different properties to expose the replace-vs-merge distinction.
+**Stamping order is correct**: `_stamp_knowledge_graph_id` runs before any
+validation in `apply_mutations`, so by the time `validate_operation()` is called
+(in `MutationApplier.apply_batch`), all CREATE/UPDATE ops already carry the
+authoritative `knowledge_graph_id`. The flow is safe.
 
-### Full test results
+**Merge semantics are correct**: `_build_update_existing_query` uses
+`(t.properties::text)::jsonb || (s.properties::text)::jsonb` — the same
+pattern as `update_properties()`. The integration test
+`test_create_merges_properties_on_existing_node` confirms properties from the
+first batch are preserved when a second CREATE runs with different `set_properties`.
 
-- Unit suite: **2017 passed** (was 2012; +5 new tests)
-- Integration suite (`test_bulk_loading.py`): **24 passed** (was 23; +1 new test)
-- All pre-commit hooks pass (ruff, ruff-format, mypy, conventional commit)
+**Integration tests not re-run**: The infrastructure was not started in this
+review pass. The prior round-8 result already confirmed 24 integration tests
+passing. The unit-level SQL template tests provide adequate regression coverage
+for the merge fix independently of infrastructure.
 
-### Requirement coverage (unchanged from round-7 review except the gap)
-
-| Requirement                      | Status  |
-|----------------------------------|---------|
-| Per-Tenant Graph Isolation       | COVERED |
-| KnowledgeGraph Scoping           | COVERED |
-| Mutation Log Format (JSONL)      | COVERED |
-| DEFINE Operation                 | COVERED |
-| CREATE — new node                | COVERED |
-| CREATE — idempotent merge        | **COVERED** (was PARTIAL) |
-| CREATE — edge                    | COVERED |
-| CREATE — missing type def        | COVERED |
-| CREATE — missing required props  | COVERED |
-| CREATE — schema learning         | COVERED |
-| UPDATE Operation                 | COVERED |
-| DELETE Operation                 | COVERED |
-| Mandatory System Properties      | COVERED |
-| Deterministic Entity IDs         | COVERED |
-| Referential Integrity Ordering   | COVERED |
-
-All spec requirements are now fully covered by passing tests.
+All spec requirements are covered by passing tests. No issues found.

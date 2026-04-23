@@ -38,6 +38,10 @@ def _make_op(
             "slug": "x",
             "knowledge_graph_id": "kg-1",
         }
+        if entity_type == EntityType.EDGE:
+            # Edge CREATE requires start_id and end_id for full validity
+            kwargs["start_id"] = "node:0000000000000001"
+            kwargs["end_id"] = "node:0000000000000002"
     elif op == MutationOperationType.UPDATE:
         kwargs["set_properties"] = {"name": "updated"}
     # DELETE needs only op, type, id

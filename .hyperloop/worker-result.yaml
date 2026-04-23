@@ -1,63 +1,102 @@
 ---
 verdict: pass
 detail: |
-  ## Verification — task-017 Outbox Pattern (Round 6 / Final)
+  ## Verification — task-017 Outbox Pattern (Round 7 / Final)
 
-  All prior round findings confirmed addressed. Round 6 fix applied.
-
-  ---
-
-  ### Check 1 — check-frontend-test-infrastructure.sh (.js file-type consistency)
-
-  STATUS: PASS (fix applied)
-
-  CodeRabbit identified that task_ui_changes matched .vue/.ts/.js files but
-  ui_source_count only counted .vue and .ts — allowing .js-only UI edits to
-  bypass vitest enforcement without triggering the count gate.
-
-  Fix: Added -o -name "*.js" to the find command that computes ui_source_count
-  (line 62-68), so both task_ui_changes and ui_source_count use the same
-  file-type set (.vue, .ts, .js).
+  All CodeRabbit feedback items confirmed addressed. All numbered checks pass.
 
   ---
 
-  ### Check 2 — check-frontend-test-infrastructure.sh (git diff separation)
+  ### Check 1 — Unit Tests
 
-  STATUS: PASS (confirmed from Round 5)
+  STATUS: PASS
 
-  Lines 43-54 confirm the fix is present:
-  - git_diff_output=$(git diff ...) captured separately with
-    || { echo "ERROR: git diff failed unexpectedly." >&2; exit 1; }.
-  - || true retained only on the grep/filter pipeline.
-  - Real git failures are surfaced and cause a non-zero exit.
+  cd src/api && uv run pytest tests/unit -v
+  2413 passed, 45 warnings in 63.08s
 
-  ---
-
-  ### Check 3 — check-frontend-tests-exist.sh
-
-  STATUS: PASS (confirmed from Round 5)
-
-  Script is clean. BASE_BRANCH validation occurs before the git diff call.
-  The git diff line uses 2>/dev/null which is acceptable here since the
-  earlier validation already exits non-zero on missing base refs.
-
-  ---
-
-  ### Check 4 — Dead-letter field consistency (failed_at vs dlq_at)
-
-  STATUS: PASS (confirmed false positive from prior rounds)
-
-  worker.py uses OutboxModel.failed_at consistently. No dlq_at field exists
-  anywhere. The CodeRabbit finding was a hallucination.
-
-  ---
-
-  ### Check 5 — Outbox unit tests
-
-  STATUS: PASS (confirmed from Round 5)
-
+  Outbox-specific suite:
   cd src/api && uv run pytest tests/unit/infrastructure/outbox/ -v --tb=short
-  81 passed in 1.20s
+  81 passed in 1.38s
+
+  ---
+
+  ### Check 2 — Linting (ruff check)
+
+  STATUS: PASS
+
+  All checks passed.
+
+  ---
+
+  ### Check 3 — Formatting (ruff format --check)
+
+  STATUS: PASS
+
+  481 files already formatted.
+
+  ---
+
+  ### Check 4 — Type Checking (mypy)
+
+  STATUS: PASS
+
+  Success: no issues found in 481 source files.
+
+  ---
+
+  ### Check 5 — Architecture Boundary Tests
+
+  STATUS: PASS
+
+  40 passed in 0.28s — all outbox boundary and IAM layer boundary tests pass.
+
+  ---
+
+  ### Check 6 — Check Scripts
+
+  STATUS: PASS (for task-017 scope)
+
+  - check-frontend-test-infrastructure.sh: PASS (no UI changes in this task)
+  - check-frontend-tests-exist.sh: PASS (no UI changes in this task)
+  - check-no-source-regressions.sh: PASS
+  - check-no-test-regressions.sh: PASS
+  - check-branch-has-commits.sh: PASS (78 commits ahead of alpha)
+  - check-domain-aggregate-mocks.sh: FAIL (pre-existing on alpha — violation in
+    test_knowledge_graph_service.py lines 592-593, unchanged by this task)
+  - check-empty-test-stubs.sh: FAIL (pre-existing on alpha — stub in
+    test_api_key_auth.py:540, unchanged by this task)
+  - check-auth-status-codes.sh: FAIL (pre-existing on alpha — unchanged files)
+
+  All three failing check scripts flag violations in files that exist identically
+  on origin/alpha. Task-017 did not modify those files. The violations are
+  pre-existing technical debt, not introduced by this task.
+
+  ---
+
+  ### Check 7 — CodeRabbit PR Feedback (all rounds)
+
+  STATUS: ALL ADDRESSED
+
+  Finding 1 — check-frontend-test-infrastructure.sh: git diff separation
+    FIXED in commit bba7fdad: git_diff_output captured separately with
+    || { echo "ERROR"; exit 1; }. || true retained only on grep/filter pipeline.
+
+  Finding 2 — check-frontend-test-infrastructure.sh: .js file-type consistency
+    FIXED in commit 82a8e46f: Added -o -name "*.js" to the find command
+    computing ui_source_count so both task_ui_changes and ui_source_count
+    use the same file-type set (.vue, .ts, .js).
+
+  Finding 3 — check-frontend-tests-exist.sh: BASE_BRANCH validation + pathspec
+    FIXED: BASE_BRANCH verified before git diff call; git diff restricted to
+    UI_SOURCE_DIR pathspec.
+
+  Finding 4 — worker-result.yaml: raw Markdown tokens breaking YAML parsing
+    FIXED: worker-result.yaml uses YAML literal block scalar (|) properly.
+
+  Finding 5 — dlq_at vs failed_at: CONFIRMED FALSE POSITIVE
+    The codebase uses failed_at consistently throughout all layers (OutboxModel,
+    OutboxRepository, worker.py). No dlq_at field exists anywhere. CodeRabbit
+    hallucinated this finding.
 
   ---
 
@@ -72,9 +111,20 @@ detail: |
 
   ---
 
+  ### Commit Trailers
+
+  STATUS: PASS
+
+  Implementation commits carry Spec-Ref and Task-Ref trailers.
+  Most recent fix commit (82a8e46f):
+    Spec-Ref: specs/shared-kernel/outbox.spec.md@86d0f4fc5118312577593defb88be1d5005b72cf
+    Task-Ref: task-017
+
+  ---
+
   ### Summary
 
-  All 6 spec requirements are implemented and tested. The Round 6 fix aligns
-  the .js file-type set between task_ui_changes and ui_source_count in
-  check-frontend-test-infrastructure.sh. All prior CodeRabbit findings are
-  addressed or confirmed as false positives.
+  All 7 verification checks pass for task-017's scope. The three check-script
+  failures are pre-existing violations on origin/alpha in files not touched by
+  this task. All CodeRabbit findings are either fixed or confirmed false
+  positives. All 6 spec SHALL requirements are implemented and tested.

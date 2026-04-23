@@ -1,7 +1,113 @@
 ---
 task_id: task-008
 round: 0
-role: orchestrator
+role: verifier
 verdict: fail
 ---
-Branch reset: 3 consecutive rebase/merge failures. The branch likely has state files in its commit history that cause permanent conflicts. Task reset to not-started for a fresh attempt.
+## Task-008 Knowledge Graphs — Independent Verification (2026-04-23)
+
+**Branch:** `hyperloop/task-008`
+**Spec:** `specs/management/knowledge-graphs.spec.md`
+
+---
+
+## Check Results
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Unit Tests (Python) | PASS — 2060 passed |
+| 2 | Linting (`ruff check`) | PASS — 0 violations |
+| 3 | Formatting (`ruff format --check`) | PASS — 450 files formatted |
+| 4 | Type Checking (`mypy`) | PASS — 0 errors in 450 files |
+| 5 | Architecture Boundary Tests | PASS — 16 passed |
+| 6 | Frontend Tests (`vitest`) | **FAIL — 3 tests failing** |
+| 7 | Check scripts | PASS (all applicable checks pass) |
+| 8 | Commit trailers | PASS — Spec-Ref and Task-Ref present on implementation commits |
+
+---
+
+## Failure Detail
+
+### Frontend test failure: `buildQueryGraphArgs` not exported
+
+Running `pnpm run test` in `src/dev-ui/` produces:
+
+```
+FAIL  app/tests/knowledge-graphs.test.ts > Query Console - KG Selector Population > includes knowledge_graph_id in MCP args when a KG is selected
+TypeError: buildQueryGraphArgs is not a function
+
+FAIL  app/tests/knowledge-graphs.test.ts > Query Console - KG Selector Population > omits knowledge_graph_id from MCP args when unscoped (all KGs)
+TypeError: buildQueryGraphArgs is not a function
+
+FAIL  app/tests/knowledge-graphs.test.ts > Query Console - KG Selector Population > maps selectedKgId to knowledgeGraphId via || undefined gate
+TypeError: buildQueryGraphArgs is not a function
+
+Test Files  1 failed | 2 passed (3)
+Tests       3 failed | 40 passed (43)
+```
+
+**Root cause:** `app/tests/knowledge-graphs.test.ts` line 2 imports:
+```typescript
+import { buildQueryGraphArgs } from '~/composables/api/useQueryApi'
+```
+
+But `buildQueryGraphArgs` does not exist anywhere in `src/dev-ui/`. The file
+`app/composables/api/useQueryApi.ts` only exports `useQueryApi()` (a composable),
+not the `buildQueryGraphArgs` pure helper the tests expect. The `queryGraph` function
+inside the composable also has no `knowledge_graph_id` parameter.
+
+The query console page (`src/dev-ui/app/pages/query/index.vue`) has no KG
+selector UI at all — `selectedKgId` is referenced only in the test file.
+
+---
+
+## What Must Be Fixed
+
+**Finding 1 (blocking):** Add `buildQueryGraphArgs` as an exported pure function to
+`src/dev-ui/app/composables/api/useQueryApi.ts`. Based on the tests, the signature should be:
+
+```typescript
+export function buildQueryGraphArgs(
+  cypher: string,
+  timeoutSeconds: number,
+  maxRows: number,
+  knowledgeGraphId?: string,
+): Record<string, unknown> {
+  const args: Record<string, unknown> = {
+    cypher,
+    timeout_seconds: timeoutSeconds,
+    max_rows: maxRows,
+  }
+  if (knowledgeGraphId) {
+    args.knowledge_graph_id = knowledgeGraphId
+  }
+  return args
+}
+```
+
+Refactor the internal `queryGraph()` function to call `buildQueryGraphArgs()`.
+
+**Finding 2 (blocking):** Add a KG context selector to the query console page
+(`src/dev-ui/app/pages/query/index.vue`) so the user can optionally scope queries
+to a specific knowledge graph. The selector should populate from
+`GET /management/knowledge-graphs` and pass `selectedKgId || undefined` to
+`queryGraph()` (which must be updated to accept `knowledgeGraphId?` as a
+parameter and forward it to `buildQueryGraphArgs`).
+
+**Finding 3 (minor):** The `pnpm-lock.yaml` is stale relative to `package.json`.
+Running `pnpm install --frozen-lockfile` fails because the lockfile specifiers
+section does not include the newly-added devDependencies. After fixing the above,
+run `pnpm install` in `src/dev-ui/` and commit the regenerated lockfile.
+
+---
+
+## Python / Backend Assessment
+
+All Python backend work is correct and complete:
+- 330 management unit tests pass (service, presentation, architecture boundary)
+- KG creation, retrieval, listing, update, delete all tested and implemented
+- Atomic cascade delete (credentials → DS → KG → SpiceDB rels) implemented
+- Permission inheritance wired via SpiceDB schema
+- Commit trailers (Spec-Ref, Task-Ref) present on all implementation commits
+
+The failure is exclusively in the frontend tier.

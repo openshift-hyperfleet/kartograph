@@ -45,36 +45,37 @@ from shared_kernel.authorization.types import (
 )
 
 
-class _BearerTokenInterceptor(
-    grpc.aio.UnaryUnaryClientInterceptor,
-    grpc.aio.UnaryStreamClientInterceptor,
-):
-    """Injects bearer token into gRPC metadata for insecure channels.
+def _inject_bearer_metadata(client_call_details, token_metadata):
+    """Inject bearer token metadata into gRPC call details."""
+    metadata = list(client_call_details.metadata or [])
+    metadata.extend(token_metadata)
+    return grpc.aio.ClientCallDetails(
+        client_call_details.method,
+        client_call_details.timeout,
+        metadata,
+        client_call_details.credentials,
+        client_call_details.wait_for_ready,
+    )
 
-    grpc.local_channel_credentials rejects non-loopback addresses, but
-    in-cluster SpiceDB serves plaintext gRPC on pod IPs. This interceptor
-    attaches the preshared key as bearer token metadata on every call.
-    """
 
+class _UnaryUnaryTokenInterceptor(grpc.aio.UnaryUnaryClientInterceptor):
     def __init__(self, token: str):
         self._metadata = (("authorization", f"Bearer {token}"),)
 
-    def _inject_metadata(self, client_call_details):
-        metadata = list(client_call_details.metadata or [])
-        metadata.extend(self._metadata)
-        return grpc.aio.ClientCallDetails(
-            client_call_details.method,
-            client_call_details.timeout,
-            metadata,
-            client_call_details.credentials,
-            client_call_details.wait_for_ready,
+    async def intercept_unary_unary(self, continuation, client_call_details, request):
+        return await continuation(
+            _inject_bearer_metadata(client_call_details, self._metadata), request
         )
 
-    async def intercept_unary_unary(self, continuation, client_call_details, request):
-        return await continuation(self._inject_metadata(client_call_details), request)
+
+class _UnaryStreamTokenInterceptor(grpc.aio.UnaryStreamClientInterceptor):
+    def __init__(self, token: str):
+        self._metadata = (("authorization", f"Bearer {token}"),)
 
     async def intercept_unary_stream(self, continuation, client_call_details, request):
-        return await continuation(self._inject_metadata(client_call_details), request)
+        return await continuation(
+            _inject_bearer_metadata(client_call_details, self._metadata), request
+        )
 
 
 def _create_insecure_channel(endpoint: str, preshared_key: str) -> grpc.aio.Channel:
@@ -83,9 +84,18 @@ def _create_insecure_channel(endpoint: str, preshared_key: str) -> grpc.aio.Chan
     Unlike grpc.local_channel_credentials (which restricts to loopback),
     this works for any address — necessary for in-cluster connections
     where SpiceDB serves plaintext gRPC on pod/service IPs.
+
+    Uses separate interceptor classes because grpc.aio.Channel uses elif
+    dispatch on isinstance checks — a single class inheriting from multiple
+    interceptor types only registers for the first matching type.
     """
-    interceptor = _BearerTokenInterceptor(preshared_key)
-    return grpc.aio.insecure_channel(endpoint, interceptors=[interceptor])
+    return grpc.aio.insecure_channel(
+        endpoint,
+        interceptors=[
+            _UnaryUnaryTokenInterceptor(preshared_key),
+            _UnaryStreamTokenInterceptor(preshared_key),
+        ],
+    )
 
 
 class RelationshipOperation(IntEnum):

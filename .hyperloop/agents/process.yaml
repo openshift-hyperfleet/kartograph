@@ -15,7 +15,8 @@ pipeline:
           body: "@coderabbit recheck"
       - check: pr-feedback-addressed
         args:
-          require_reviewers: [ "coderabbit[bot]" ]
+          require_reviewers: [ "coderabbitai" ]
+          feedback_from: [ "coderabbitai" ]
   - action: merge-pr
 
 hooks:

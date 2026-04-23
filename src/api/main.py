@@ -17,6 +17,7 @@ from infrastructure.database.dependencies import (
 from infrastructure.dependencies import get_age_connection_pool
 from infrastructure.logging import configure_logging
 from infrastructure.settings import (
+    CORSSettings,
     get_cors_settings,
     get_database_settings,
     get_oidc_settings,
@@ -45,6 +46,25 @@ from query.presentation.mcp import mcp_http_app_inner, query_mcp_app
 
 # Configure structlog before any loggers are created
 configure_logging()
+
+
+def configure_cors(app: FastAPI, cors_settings: CORSSettings) -> None:
+    """Install CORSMiddleware when allowed origins are configured.
+
+    CORS is enabled only when at least one origin is explicitly listed.
+    Using a wildcard origin ('*') with credentials is rejected at settings
+    validation time (see CORSSettings.validate_no_wildcard_origin_with_credentials).
+    """
+    if cors_settings.is_enabled:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_settings.origins,
+            allow_credentials=cors_settings.allow_credentials,
+            allow_methods=cors_settings.allow_methods,
+            allow_headers=cors_settings.allow_headers,
+            expose_headers=cors_settings.expose_headers,
+            max_age=cors_settings.max_age,
+        )
 
 
 @asynccontextmanager
@@ -209,19 +229,8 @@ app = FastAPI(
     version=__version__,
     lifespan=kartograph_lifespan,
 )
-# Configure CORS if origins are specified
-cors_settings = get_cors_settings()
-
-if cors_settings.is_enabled:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=cors_settings.origins,
-        allow_credentials=cors_settings.allow_credentials,
-        allow_methods=cors_settings.allow_methods,
-        allow_headers=cors_settings.allow_headers,
-        expose_headers=cors_settings.expose_headers,
-        max_age=cors_settings.max_age,
-    )
+# Configure CORS middleware based on current settings
+configure_cors(app, get_cors_settings())
 
 app.mount(path="/query", app=query_mcp_app)
 

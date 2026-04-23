@@ -1,0 +1,90 @@
+---
+verdict: pass
+---
+
+## Spec Alignment Review — task-030 (specs/nfr/cors.spec.md)
+
+Reviewer independently verified all SHALL/MUST requirements against code on
+branch `hyperloop/task-030`. All 23 CORS unit tests pass.
+
+---
+
+### Requirement: Configurable CORS Origins
+> The system SHALL enable CORS middleware only when allowed origins are configured.
+
+**Status: COVERED**
+
+**Implementation:**
+- `CORSSettings.is_enabled` property (`src/api/infrastructure/settings.py:138-141`)
+  returns `True` only when `len(self.origins) > 0`.
+- `configure_cors()` (`src/api/main.py:51-67`) conditionally installs
+  `CORSMiddleware` guarded by `cors_settings.is_enabled`.
+- Called at module level (`main.py:233`): `configure_cors(app, get_cors_settings())`.
+
+#### Scenario: Origins configured — **COVERED**
+- GIVEN: `CORSSettings(origins=["https://app.example.com"])` constructs valid settings.
+- WHEN/THEN CORS headers present:
+  `TestCORSWithOriginsConfigured::test_cors_headers_present_for_allowed_origin` —
+  asserts `access-control-allow-origin == ALLOWED_ORIGIN`.
+- AND credentials allowed:
+  `TestCORSWithOriginsConfigured::test_credentials_allowed_in_cors_response` —
+  asserts `access-control-allow-credentials == "true"`.
+- AND wildcard MUST NOT be used:
+  `TestCORSWithOriginsConfigured::test_wildcard_not_used_in_origin_header` —
+  asserts origin header != "*".
+  `TestCORSWildcardOriginValidation::test_wildcard_origin_rejected_when_credentials_allowed` —
+  asserts `ValidationError` raised when `origins=["*"]` and `allow_credentials=True`.
+  `TestCORSWildcardOriginValidation::test_wildcard_among_other_origins_rejected_when_credentials_allowed` —
+  also covers mixed wildcard case.
+  `CORSSettings.validate_no_wildcard_origin_with_credentials` model validator
+  (`settings.py:121-136`) enforces this at configuration time.
+
+#### Scenario: No origins configured — **COVERED**
+- GIVEN: `CORSSettings(origins=[])` → `is_enabled == False`.
+- WHEN application starts: `TestConfigureCorsFunction::test_middleware_not_added_when_origins_empty`
+  confirms `CORSMiddleware` not present in `app.user_middleware`.
+- AND no CORS headers on cross-origin request:
+  `TestCORSWithNoOriginsConfigured::test_no_cors_headers_when_origins_not_configured` —
+  asserts `access-control-allow-origin` absent.
+  `TestCORSWithNoOriginsConfigured::test_no_allow_credentials_header_when_cors_disabled` —
+  asserts `access-control-allow-credentials` absent.
+
+---
+
+### Requirement: CORS Defaults
+> The system SHALL use permissive defaults for methods and headers when CORS is enabled.
+
+**Status: COVERED**
+
+**Implementation:**
+- `allow_methods` defaults to `["*"]` (`settings.py:104-107`).
+- `allow_headers` defaults to `["*"]` (`settings.py:108-111`).
+- Both wildcards are passed directly to `CORSMiddleware` in `configure_cors()`.
+
+#### Scenario: Default policy — **COVERED**
+- GIVEN CORS enabled: `CORSSettings(origins=["https://app.example.com"])`.
+- THEN all HTTP methods allowed:
+  `TestCORSSettingsDefaults::test_allow_methods_uses_wildcard_for_all_methods` —
+  asserts `settings.allow_methods == ["*"]`.
+  `TestCORSDefaultPolicy::test_preflight_allows_requested_method` —
+  sends OPTIONS with `Access-Control-Request-Method: DELETE`, confirms
+  `access-control-allow-methods` contains "DELETE" or "*".
+- AND all request headers allowed:
+  `TestCORSSettingsDefaults::test_allow_headers_defaults_to_wildcard` —
+  asserts `settings.allow_headers == ["*"]`.
+  `TestCORSDefaultPolicy::test_preflight_allows_requested_headers` —
+  sends OPTIONS with `Access-Control-Request-Headers: X-Custom-Header, Authorization`,
+  confirms headers echoed or "*" returned.
+
+---
+
+### Test Execution
+```
+23 passed, 0 failed, 0 errors
+src/api/tests/unit/infrastructure/test_cors_settings.py  — 14 tests
+src/api/tests/unit/test_cors_middleware.py               —  9 tests
+```
+
+All spec scenarios have dedicated tests that exercise the exact
+Given/When/Then conditions. No mocks used — real `CORSSettings` objects
+and `TestClient` HTTP calls confirm actual middleware behavior.

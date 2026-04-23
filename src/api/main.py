@@ -20,6 +20,7 @@ from infrastructure.settings import (
     CORSSettings,
     get_cors_settings,
     get_database_settings,
+    get_iam_settings,
     get_oidc_settings,
     get_outbox_worker_settings,
     get_spicedb_settings,
@@ -100,15 +101,14 @@ async def kartograph_lifespan(app: FastAPI):
     )
 
     # Startup: ensure default tenant and root workspace exist (single-tenant mode)
-    if hasattr(app.state, "write_sessionmaker"):
+    iam_settings = get_iam_settings()
+    if hasattr(app.state, "write_sessionmaker") and iam_settings.single_tenant_mode:
         from iam.application.services import TenantBootstrapService
         from iam.infrastructure.tenant_repository import TenantRepository
         from iam.infrastructure.workspace_repository import WorkspaceRepository
         from infrastructure.observability.startup_probe import DefaultStartupProbe
         from infrastructure.outbox.repository import OutboxRepository
-        from infrastructure.settings import get_iam_settings
 
-        iam_settings = get_iam_settings()
         startup_probe = DefaultStartupProbe()
 
         async with app.state.write_sessionmaker() as session:

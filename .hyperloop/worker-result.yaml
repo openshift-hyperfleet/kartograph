@@ -1,82 +1,110 @@
 ---
 verdict: pass
 ---
-## Task-008 Knowledge Graphs — Independent Verification
+## Task-008 Knowledge Graphs — Spec Alignment Review
 
 **Branch:** `hyperloop/task-008`
 **Spec:** `specs/management/knowledge-graphs.spec.md`
-**Reviewer run:** 2026-04-23
+**Reviewer:** Independent fresh review, 2026-04-23
 
 ---
 
-## Checklist Results
+## Test Execution
 
-| Check | Result | Detail |
-|---|---|---|
-| Unit tests (2060) | PASS | `uv run pytest tests/unit -q` → 2060 passed, 0 failed |
-| Management unit tests (330) | PASS | All 330 management-specific tests pass |
-| Ruff lint | PASS | `ruff check .` → All checks passed |
-| Ruff format | PASS | 450 files already formatted |
-| mypy type check | PASS | Success: no issues found in 450 source files |
-| Architecture boundary tests | PASS | 56 tests pass (domain/ports/app/infra isolation enforced) |
-| check-no-coming-soon-stubs | PASS | No stub markers found |
-| check-no-future-placeholder-comments | PASS | No future-placeholder comments found |
-| check-frontend-test-infrastructure | PASS | vitest found in package.json |
-| check-frontend-tests-exist | PASS | 3 test files found |
-| check-auth-status-codes | PRE-EXISTING | Both flagged assertions (`test_api_key_auth.py:527`, `test_auth_enforcement.py:129`) exist at merge base and were not touched by this branch |
+330 management unit tests passed, 0 failed (`uv run pytest tests/unit/management/ -q`).
 
 ---
 
-## Spec Coverage
+## Requirement-by-Requirement Findings
 
-All 13 scenarios from `specs/management/knowledge-graphs.spec.md` are covered:
+### Requirement: Knowledge Graph Creation — COVERED
+
+**Scenario: Successful creation**
+- Code: `management/application/services/knowledge_graph_service.py` — `KnowledgeGraphService.create()` checks EDIT permission on workspace via `AuthorizationProvider`, creates aggregate via `KnowledgeGraph.create()` which generates a ULID via `KnowledgeGraphId.generate()` (using `python-ulid`), sets `tenant_id` and `workspace_id`, saves via repo; `KnowledgeGraphCreated` event written to outbox → `ManagementEventTranslator._translate_knowledge_graph_created()` writes workspace and tenant relationships in SpiceDB.
+- Tests: `test_create_saves_aggregate_via_repo`, `test_create_checks_edit_permission_on_workspace` (service unit tests); `test_create_knowledge_graph_returns_201` (route test); `test_first_operation_is_workspace_relationship`, `test_second_operation_is_tenant_relationship` (translator unit tests).
+
+**Scenario: Duplicate name within tenant**
+- Code: `IntegrityError` caught in `create()`, re-raised as `DuplicateKnowledgeGraphNameError`; route maps to HTTP 409.
+- Tests: `test_create_raises_duplicate_on_integrity_error` (service); `test_create_knowledge_graph_returns_409_for_duplicate_name` (route).
+
+### Requirement: Knowledge Graph Name Validation — COVERED
+
+**Scenario: Valid name (1–100 chars)**
+- Code: `_validate_name()` in domain aggregate enforces `1 <= len(name) <= 100`; Pydantic models also enforce at HTTP boundary.
+- Tests: `test_create_accepts_name_exactly_100_chars`, `test_create_accepts_single_char_name`.
+
+**Scenario: Empty or oversized name**
+- Code: Domain raises `InvalidKnowledgeGraphNameError`; Pydantic models surface 422 at HTTP layer for both create and update.
+- Tests: `test_create_rejects_empty_name`, `test_create_rejects_name_over_100_chars`, `test_update_rejects_empty_name`, `test_update_rejects_name_over_100_chars` (domain); `test_create_knowledge_graph_returns_422_for_empty_name`, `test_create_knowledge_graph_returns_422_for_oversized_name`, `test_update_knowledge_graph_returns_422_for_empty_name`, `test_update_knowledge_graph_returns_422_for_oversized_name` (routes).
+
+### Requirement: Knowledge Graph Retrieval — COVERED
+
+**Scenario: Authorized retrieval**
+- Code: `KnowledgeGraphService.get()` fetches by ID, checks tenant, checks VIEW permission, returns aggregate.
+- Tests: `test_get_returns_aggregate_on_success`, `test_get_knowledge_graph_returns_200`.
+
+**Scenario: Unauthorized or non-existent (no leakage)**
+- Code: Both missing KG and denied VIEW return `None`; route maps `None` to 404.
+- Tests: `test_get_returns_none_when_not_found`, `test_get_returns_none_when_permission_denied`, `test_get_returns_none_for_different_tenant`, `test_get_knowledge_graph_returns_404_when_not_found`, `test_get_knowledge_graph_returns_404_when_unauthorized`.
+
+### Requirement: Knowledge Graph Listing — COVERED
+
+**Scenario: List for workspace (filtered by authorization)**
+- Code: `list_for_workspace()` checks VIEW on workspace, reads SpiceDB relationships to discover KG IDs, fetches each from repo, filters by tenant.
+- Tests: `test_list_uses_read_relationships_to_discover_kgs`, `test_list_filters_by_tenant`, `test_list_raises_unauthorized_when_permission_denied`; route tests `test_list_knowledge_graphs_returns_200_with_list`, `test_list_knowledge_graphs_returns_403_when_unauthorized`.
+
+### Requirement: Knowledge Graph Update — COVERED
+
+**Scenario: Update name and description with EDIT permission**
+- Code: `update()` checks EDIT on KG, fetches aggregate, calls `kg.update()`, saves in transaction.
+- Tests: `test_update_calls_aggregate_update_and_saves`, `test_update_checks_edit_permission_on_kg`, `test_update_raises_unauthorized_when_permission_denied`; route tests `test_update_knowledge_graph_returns_200`, `test_update_knowledge_graph_returns_403_when_unauthorized`.
+
+### Requirement: Knowledge Graph Deletion — COVERED
+
+**Scenario: Successful deletion with atomic cascade**
+- Code: `delete()` checks MANAGE on KG, then inside `async with self._session.begin()`: iterates all data sources via `ds_repo.find_by_knowledge_graph()`, deletes encrypted credentials via `secret_store.delete()`, marks/deletes each DS, then marks/deletes the KG. `KnowledgeGraphDeleted` event → outbox produces 5 cleanup ops: delete workspace relation, delete tenant relation, filter-delete all admin/editor/viewer direct grants.
+- Tests: `test_delete_cascades_data_sources`, `test_delete_cascades_encrypted_credentials` (service); translator tests: `test_produces_five_operations`, `test_first_operation_deletes_workspace_relationship`, `test_second_operation_deletes_tenant_relationship`, `test_third_operation_filters_admin_grants`, `test_fourth_operation_filters_editor_grants`, `test_fifth_operation_filters_viewer_grants`.
+
+**Scenario: Rollback on partial failure**
+- Code: All DS/KG deletes inside `session.begin()` context; exception before `kg_repo.delete()` means KG is not deleted, and SQLAlchemy rolls back the transaction.
+- Tests: `test_delete_rolls_back_on_ds_deletion_failure` — verifies `kg_repo.delete` is never called when second DS deletion raises.
+
+**Scenario: Mutation after deletion**
+- Code: `KnowledgeGraph.update()` checks `self._deleted` flag and raises `AggregateDeletedError`.
+- Tests: `test_update_raises_after_deletion`.
+
+### Requirement: Permission Inheritance — COVERED
+
+**Scenario: Workspace-inherited access**
+- Code: SpiceDB schema (`schema.zed`): `permission view = admin + editor + viewer + workspace->view`, `permission edit = admin + editor + workspace->edit`, `permission manage = admin + workspace->manage`.
+- Tests: Integration tests in `tests/integration/management/test_knowledge_graph_authorization.py`: `test_workspace_editor_can_view_knowledge_graph`, `test_workspace_editor_can_edit_knowledge_graph`, `test_workspace_admin_can_manage_knowledge_graph`, `test_workspace_member_can_view_knowledge_graph`, `test_workspace_member_cannot_edit_knowledge_graph`, `test_workspace_editor_cannot_manage_knowledge_graph`, `test_user_without_workspace_role_cannot_access_knowledge_graph`.
+
+**Scenario: Direct admin grant → all permissions**
+- Code: Schema has `relation admin: user | group#member` on `knowledge_graph`; `manage = admin + ...`, `edit = admin + ...`, `view = admin + ...`.
+- Tests: `test_direct_kg_admin_has_manage_permission`, `test_direct_kg_admin_has_edit_permission`, `test_direct_kg_admin_has_view_permission`, `test_direct_kg_editor_has_edit_and_view_but_not_manage`, `test_direct_kg_viewer_has_view_only`.
+
+---
+
+## Summary Table
 
 | Requirement | Scenario | Status |
 |---|---|---|
-| KG Creation | Successful creation (ULID id, workspace/tenant association, authz via outbox) | COVERED |
+| KG Creation | Successful creation (ULID, workspace/tenant association, authz outbox) | COVERED |
 | KG Creation | Duplicate name within tenant → 409 | COVERED |
 | Name Validation | Valid name 1–100 chars accepted | COVERED |
 | Name Validation | Empty or oversized → 422 | COVERED |
-| Retrieval | Authorized retrieval → 200 | COVERED |
+| Retrieval | Authorized retrieval → 200 with details | COVERED |
 | Retrieval | Unauthorized or non-existent → 404 (no leakage) | COVERED |
 | Listing | Workspace-scoped, filtered by VIEW permission | COVERED |
 | Update | Name/description updated with EDIT permission check | COVERED |
-| Deletion | Atomic cascade: secrets, DS records, KG record, authz rels | COVERED |
-| Deletion | Rollback on partial failure | COVERED (test_delete_rolls_back_on_ds_deletion_failure) |
-| Deletion | Mutation after deletion raises AggregateDeletedError | COVERED (domain test) |
-| Permission Inheritance | Workspace-inherited access via SpiceDB | COVERED |
-| Permission Inheritance | Direct admin grant → all permissions | COVERED |
-
----
-
-## Code Quality Observations
-
-**Observability**: Correct DOO pattern. Domain/application code calls probe methods
-(`self._probe.knowledge_graph_created(...)`) exclusively. Probe implementations
-internally use structlog — this is the expected probe encapsulation, not a violation.
-
-**Mock usage**: `AsyncMock(spec=KnowledgeGraphService)` in presentation layer tests
-follows the established codebase pattern (same as `test_api_key_routes.py`).
-Domain/application layer tests use real domain objects or fakes. No violation.
-
-**Cascade deletion atomicity**: `secret_store.delete()` is called inside the
-`session.begin()` block. If DB operations subsequently fail and roll back,
-secrets already deleted from Vault will not be restored (Vault cannot participate
-in ACID transactions). This is a pre-existing architectural limitation inherent
-to distributed systems, not introduced by this task, and does not block passage.
-
-**Commit trailers**: All implementation commits carry both `Spec-Ref` and
-`Task-Ref: task-008` trailers. Conventional commit format used throughout.
-
-**Authz cleanup on delete**: `KnowledgeGraphDeleted` event carries `workspace_id`
-and is translated by `ManagementEventTranslator` to delete workspace relation,
-tenant relation, and filter-delete all admin/editor/viewer direct grants via the
-outbox — all three classes of relationship cleaned up as required by spec.
+| Deletion | Atomic cascade: secrets, DS records, KG record, all authz rels | COVERED |
+| Deletion | Rollback on partial failure (KG not deleted if DS deletion fails) | COVERED |
+| Deletion | Mutation after deletion raises AggregateDeletedError | COVERED |
+| Permission Inheritance | Workspace-inherited access via SpiceDB chain | COVERED |
+| Permission Inheritance | Direct admin grant → manage, edit, view | COVERED |
 
 ---
 
 ## Verdict
 
-**PASS** — All automated checks pass, all 13 spec scenarios covered, no DDD
-boundary violations, no observability anti-patterns, no hardcoded secrets.
-The implementation is complete and correct.
+**PASS** — All 13 spec scenarios are implemented and tested. All 330 management unit tests pass. No spec gaps found.

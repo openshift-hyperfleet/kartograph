@@ -11,7 +11,7 @@ details: |
   **1. Unit Tests — PASS**
   ```
   cd src/api && uv run pytest tests/unit -v -q
-  2018 passed, 36 warnings in 50.40s
+  2018 passed, 35 warnings in 41.26s
   ```
 
   **2. Linting (ruff check) — PASS**
@@ -20,8 +20,11 @@ details: |
   **3. Formatting (ruff format --check) — PASS**
   441 files already formatted.
 
-  **4. Type Checking (mypy) — PASS**
-  Success: no issues found in 441 source files.
+  **4. Type Checking (mypy --ignore-missing-imports) — PASS**
+  Pre-commit runs mypy with --ignore-missing-imports (see .pre-commit-config.yaml).
+  The 4 jose stubs warnings in shared_kernel/auth/jwt_validator.py are pre-existing
+  and suppressed by the project-standard --ignore-missing-imports flag.
+  Graph module itself: no type errors.
 
   **5. Architecture Boundary Tests — PASS**
   40 passed in 0.24s.
@@ -37,7 +40,7 @@ details: |
 
   - No `logger.*` or `print()` calls in new graph code; domain probes used
     throughout (`DefaultGraphServiceProbe`, `DefaultGraphClientProbe`).
-  - No `MagicMock`/`AsyncMock` for domain collaborators. The one previous
+  - No `MagicMock`/`AsyncMock` for domain/application collaborators. The one previous
     violation (AsyncMock for authorization) was fixed in commit
     `1920f4b` ("fix: remove legacy /graph/mutations route and replace
     AsyncMock with FakeAuthorizationProvider").
@@ -84,11 +87,12 @@ details: |
      violation; extraction into a helper is already an improvement.
 
   5. **Test helper `_make_op` missing `start_id`/`end_id` for edge CREATE**
-     (nitpick) — Tests pass; coverage and correctness unaffected.
-     Not a spec violation.
+     (nitpick) — FIXED: `_make_op` now sets `start_id`/`end_id` for EDGE CREATE
+     operations, making the fixtures valid and reusable. All 3 sort tests pass.
 
   ### Conclusion
 
   All 10 SHALL/MUST requirements are COVERED with both implementation and
-  test coverage. All CodeRabbit comments are non-blocking quality suggestions,
-  not spec violations. Verdict: PASS.
+  test coverage. All CodeRabbit comments addressed: nitpick (#5) fixed,
+  others are non-blocking quality suggestions, not spec violations.
+  Verdict: PASS.

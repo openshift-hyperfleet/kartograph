@@ -1,60 +1,79 @@
 ---
 verdict: pass
 report: |
-  ## Task-008 Knowledge Graphs — Final Reviewer Verification (2026-04-23)
+  ## Task-008 Knowledge Graphs — Independent PR Feedback Verification (2026-04-23)
 
   Validated against: specs/management/knowledge-graphs.spec.md
   Unit tests: 2066 unit tests passed, 0 failed
 
   ---
 
-  ### Checks
-
-  | Check | Result |
-  |---|---|
-  | Unit tests (2066 total) | PASS — 2066 passed, 0 failed |
-  | ruff lint | PASS |
-  | ruff format | PASS |
-  | mypy (450 files) | PASS — no issues |
-  | Architecture boundary tests (16 tests) | PASS |
-  | check-no-coming-soon-stubs | PASS |
-  | check-no-future-placeholder-comments | PASS |
-  | Commit trailers (Spec-Ref, Task-Ref) | PASS |
-
-  ---
-
-  ### PR Feedback Verification
-
-  #### MAJOR: Typed exceptions for parent workspace errors (VERIFIED RESOLVED)
+  ### MAJOR Issue 1: Typed exceptions for parent workspace errors (VERIFIED RESOLVED)
 
   - `ParentWorkspaceNotFoundError` and `ParentWorkspaceCrossTenantError` defined
-    in `iam/ports/exceptions.py` with clear docstrings.
-  - `workspace_service.py` raises these typed exceptions (lines 165, 171) instead
-    of `ValueError` for missing/cross-tenant parent workspace cases.
-  - `routes.py` `create_workspace` handler catches them in a single `except` clause
-    alongside `UnauthorizedError` — no fragile string parsing remains.
-  - Route advertises `404` in OpenAPI `responses` map for create.
-  - Tests updated: `test_workspace_service.py` and `test_workspaces_routes.py`
-    assert the typed exceptions.
+    in `iam/ports/exceptions.py` lines 103-123 with clear docstrings.
+  - `workspace_service.py` raises `ParentWorkspaceNotFoundError` at line 165
+    and `ParentWorkspaceCrossTenantError` at line 171 — no `ValueError` string parsing.
+  - `routes.py` imports both exceptions at lines 18-19, catches them in a single
+    `except` clause at lines 87-93 returning HTTP 404 — no fragile string parsing.
+  - Route advertises `404` in OpenAPI `responses` map at line 57.
+  - `test_workspace_service.py` uses `pytest.raises(ParentWorkspaceNotFoundError)`
+    at line 203 and `pytest.raises(ParentWorkspaceCrossTenantError)` at line 234.
+  - `test_workspaces_routes.py` asserts typed exceptions at lines 198 and 225.
 
-  #### NITPICK: Architecture test exclusion narrowed (VERIFIED RESOLVED)
+  ### MAJOR Issue 2: Architecture test exclusion narrowed (VERIFIED RESOLVED)
 
-  The `.exclude("management.presentation*")` blanket has been replaced with three
-  targeted exclusions:
+  The `test_management_does_not_import_iam` test in
+  `tests/unit/management/test_architecture.py` uses three targeted exclusions
+  (lines 249-253):
   - `management.presentation.knowledge_graphs.routes*`
   - `management.presentation.knowledge_graphs`
   - `management.presentation`
 
-  `management.presentation.knowledge_graphs.models` is NOT excluded and is subject
-  to the isolation check (verified — it has no IAM imports).
+  The blanket `.exclude("management.presentation*")` is NOT present.
+  `management.presentation.knowledge_graphs.models` is NOT excluded and remains
+  subject to the isolation check — confirmed by reading the test file directly.
 
   ---
 
-  ### Spec Coverage
+  ### Spec Coverage (all 6 SHALL requirements)
 
-  All 6 SHALL requirements verified: creation, name validation, retrieval,
-  listing, update, and deletion (with atomic cascade). Permission inheritance
-  tested via SpiceDB relationship rules.
+  #### Requirement: Knowledge Graph Creation — COVERED
+  - Scenarios: successful creation (ULID, workspace/tenant association, auth
+    relationships via outbox) and duplicate name rejection — both tested.
+
+  #### Requirement: Knowledge Graph Name Validation — COVERED
+  - Scenarios: valid name (1-100 chars accepted) and empty/oversized name
+    rejected with validation error — both tested.
+
+  #### Requirement: Knowledge Graph Retrieval — COVERED
+  - Scenarios: authorized retrieval returns details; unauthorized/non-existent
+    returns no result (no distinction between missing and forbidden) — tested.
+
+  #### Requirement: Knowledge Graph Listing — COVERED
+  - Scenario: list for workspace returns only VIEW-authorized KGs — tested.
+    list_all() for tenant-wide listing also implemented and tested.
+
+  #### Requirement: Knowledge Graph Update — COVERED
+  - Scenario: update name and description with edit permission — tested.
+
+  #### Requirement: Knowledge Graph Deletion (atomic cascade) — COVERED
+  - Scenario: cascade deletes data sources including encrypted credentials,
+    deletes KG record, cleans up SpiceDB relationships — all within one
+    transaction. Rollback on failure tested. Verified credential deletion
+    in KnowledgeGraphService.delete() calls secret_store.delete() for each DS.
+  - Scenario: mutation after deletion rejected — tested.
+
+  #### Requirement: Permission Inheritance — COVERED
+  - Workspace-inherited access and direct grant scenarios verified via
+    SpiceDB schema unit tests and integration tests in
+    test_knowledge_graph_authorization.py.
+
+  ---
+
+  ### Test Run
+
+  2066 unit tests passed, 0 failed, 39 warnings (2026-04-23).
 
   Spec-Ref: specs/management/knowledge-graphs.spec.md
   Task-Ref: task-008

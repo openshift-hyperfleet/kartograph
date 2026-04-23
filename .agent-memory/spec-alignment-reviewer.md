@@ -31,3 +31,10 @@
 **Action:** Verdict PASS confirmed. worker-result.yaml updated with per-requirement COVERED status for all 6 requirements and 11 scenarios.
 
 **Context:** This was gate 7 (spec alignment) running after code review (gate 6). The prior worker-result.yaml had a code review verdict — this pass rewrites it with spec alignment findings. No code changes made — read-only review.
+
+### 2026-04-23 | task-008 independent re-verification of PR feedback items — PASS
+**Pattern:** Two MAJOR PR feedback items independently verified as resolved.
+
+**Action:** (1) ParentWorkspaceNotFoundError and ParentWorkspaceCrossTenantError confirmed present in iam/ports/exceptions.py lines 103-123 with docstrings. workspace_service.py raises them at lines 165 and 171. routes.py imports both at lines 18-19, catches them in single except clause at lines 87-93, advertises 404 in OpenAPI responses map at line 57. Tests in test_workspace_service.py (lines 203, 234) and test_workspaces_routes.py (lines 198, 225) assert typed exceptions — no string parsing. (2) Architecture test test_management_does_not_import_iam uses three targeted exclusions: management.presentation.knowledge_graphs.routes*, management.presentation.knowledge_graphs, management.presentation — NOT the blanket management.presentation* — confirmed in test_architecture.py lines 249-253. management.presentation.knowledge_graphs.models is NOT excluded. 2066 unit tests pass.
+
+**Context:** All spec requirements verified. No deviations found in this independent pass.

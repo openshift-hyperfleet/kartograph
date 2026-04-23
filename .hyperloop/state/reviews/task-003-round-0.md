@@ -1,131 +1,176 @@
 ---
 task_id: task-003
 round: 0
-role: verifier
+role: spec-reviewer
 verdict: fail
 ---
-## Verification Results
+## Spec Alignment Review — Graph Mutations
 
-### Check 1 – Unit Tests: PASS
-2013 tests passed, 0 failed, 0 errors.
+Reviewer performed a fresh, independent read of all implementation files and
+tests. One SHALL requirement has a code-level implementation gap AND missing
+test coverage; all other requirements are covered.
+
+---
+
+## Requirement Coverage
+
+### Req: Per-Tenant Graph Isolation — COVERED
+- `src/api/graph/dependencies.py` `get_tenant_graph_name()` derives
+  `tenant_{tenant_id}`; scoped `AgeGraphClient` is constructed per request.
+- Tests: `test_routes.py::TestTenantGraphRouting` (2 tests verify naming
+  contract for `tenant_t1` and `tenant_my-org-tenant-123`).
+
+### Req: KnowledgeGraph Scoping — COVERED
+- **Mutation authorization**: `graph/presentation/routes.py`
+  `apply_kg_mutations()` calls `authz.check_permission(resource, Permission.EDIT,
+  subject)` before any write; returns HTTP 403 on denial.
+- Tests: `TestKnowledgeGraphScopedMutationsRoute` (5 tests: allowed 200,
+  denied 403, correct resource, kg_id forwarded, service not called on deny).
+- **KG ID stamping**: `graph_mutation_service.py` `_stamp_knowledge_graph_id()`
+  overwrites any caller-supplied value on CREATE/UPDATE. `PLATFORM_STAMPED_PROPERTIES`
+  prevents schema learning from exposing it.
+- Tests: `TestKnowledgeGraphIdStamping` (6 tests: stamp on CREATE/UPDATE,
+  overwrite spoofed value, no stamp on DELETE, stamp in JSONL path);
+  `test_domain_value_objects.py` tests `test_create_node_requires_knowledge_graph_id`
+  and `test_create_edge_requires_knowledge_graph_id`.
+
+### Req: Mutation Log Format (JSONL) — COVERED
+- Valid JSONL: `apply_mutations_from_jsonl()` parses line-by-line.
+  Tests: `test_parses_jsonl_and_applies_mutations`.
+- Parse error with line number + preview: JSON decode errors emit two error
+  entries with line number and `Line content:` preview.
+  Tests: `test_returns_error_on_invalid_json`.
+- Empty lines: `if not line: continue` skips blanks.
+  Tests: `test_handles_whitespace_only_lines`.
+
+### Req: DEFINE Operation — COVERED
+- Node: system props `data_source_id`, `source_path`, `slug` auto-added.
+  Tests: `test_apply_mutations_stores_define_operations` asserts all three.
+- Edge: `slug` NOT added for edges.
+  Tests: `test_edge_does_not_require_slug`, `test_returns_edge_system_properties`.
+
+### Req: CREATE Operation — PARTIAL (causes FAIL)
+
+#### Create a new node — COVERED
+Integration test `test_repeated_batch_is_idempotent` confirms no duplicate
+nodes are created.
+
+#### Create an existing node (idempotent merge) — MISSING TEST, CODE DEVIATION
+The spec mandates:
+> THEN existing properties are preserved
+> AND new properties from `set_properties` are added
+
+**Code gap:** `AgeQueryBuilder._build_update_existing_query()`
+(`src/api/graph/infrastructure/age_bulk_loading/queries.py`, lines 181–195)
+executes:
+```sql
+SET properties = (s.properties::text)::ag_catalog.agtype
 ```
-cd src/api && uv run pytest tests/unit -v
-====================== 2013 passed, 38 warnings in 45.73s ======================
-```
+This **replaces** the entire properties object with the staging row's value.
+It does NOT merge existing properties with the new `set_properties`.
+By contrast, the UPDATE path (`update_properties()`, lines 449–451) correctly
+uses `(t.properties::text)::jsonb || %s::jsonb` for merge semantics.
 
-### Check 2 – Linting: PASS
-```
-cd src/api && uv run ruff check .
-All checks passed!
-```
+**Consequence:** If node "person:abc123" already has `{name: "Alice", age: 30}`
+and a new CREATE arrives with `{name: "Alice", email: "alice@example.com"}`,
+the result will be `{name: "Alice", email: "alice@example.com"}` — `age` is
+silently dropped, violating "existing properties are preserved."
 
-### Check 3 – Formatting: PASS
-```
-cd src/api && uv run ruff format --check .
-439 files already formatted
-```
+**Test gap:** No test exercises a CREATE on an already-existing node with a
+_different_ (non-identical) `set_properties` and asserts that the original
+properties not present in the new batch are preserved. The only idempotency
+test (`test_repeated_batch_is_idempotent`) runs the same batch twice with
+identical `set_properties` — replacement and merging produce identical results
+in that case, so the gap is invisible.
 
-### Check 4 – Type Checking: PASS
-```
-cd src/api && uv run mypy . --config-file pyproject.toml --ignore-missing-imports
-Success: no issues found in 439 source files
-```
-
-### Check 5 – Architecture Boundary Tests: PASS
-All 40 pytest-archon tests pass. No DDD layer violations.
-
-### Check 6 – Integration Tests: SKIPPED
-No graph-mutations integration tests exist. The only integration test touching mutations
-(`test_auth_enforcement.py`) only checks for 401 (unauthenticated) and does not exercise
-the service or applier.
-
-### Check 7 – Code Review: FAIL
-
-#### FAIL – Regression in legacy `/graph/mutations` route for CREATE operations
-
-The implementation adds `knowledge_graph_id` validation to `validate_operation()` in
-`graph/domain/value_objects.py`:
-
-```python
-if "knowledge_graph_id" not in self.set_properties:
-    raise ValueError(
-        "CREATE requires 'knowledge_graph_id' in set_properties. ..."
-    )
-```
-
-This is correct for the new KG-scoped route, where the service stamps `knowledge_graph_id`
-**before** the applier validates. However, the legacy `POST /graph/mutations` route calls:
-
-```python
-service.apply_mutations_from_jsonl(jsonl_content=jsonl_content)  # no knowledge_graph_id
-```
-
-With no `knowledge_graph_id` argument, `_stamp_knowledge_graph_id` is never called. The
-real `MutationApplier.apply_batch()` then calls `op.validate_operation()` on each operation
-and will reject every CREATE operation with:
-
-> "CREATE requires 'knowledge_graph_id' in set_properties."
-
-The old route is now silently broken for CREATE operations in real (non-mocked) use.
-
-**Why unit tests don't catch it:** `TestApplyMutationsRoute` uses `mock_mutation_service`
-(a `Mock()`), which returns the pre-configured `MutationResult` without invoking real
-service/applier logic. The service-layer tests (`TestGraphMutationServiceApplyMutations`)
-use `mock_applier` (another `Mock()`), which skips `validate_operation()`. The regression
-is invisible to the unit test suite.
-
-**Spec obligation:** The spec states "The system SHALL require a target KnowledgeGraph for
-all mutations." Leaving the old route in place without a KG requirement means the system
-does not fully enforce this SHALL.
-
-**Actionable fix — pick one:**
-
-1. **Remove the old route** (`POST /graph/mutations`) entirely. Since the spec requires all
-   mutations to be KG-scoped, the old route is no longer spec-compliant. Its two existing
-   tests (`TestApplyMutationsRoute`) should be deleted alongside it.
-
-2. **Block CREATE on the old route** — add a guard in the old route handler or in
-   `apply_mutations_from_jsonl` that rejects the operation when no `knowledge_graph_id`
-   is provided but CREATE ops are present, and add a unit test that exercises this guard
-   using the real service + mock applier.
-
-3. **Move the `knowledge_graph_id` check out of `validate_operation()`** into the new
-   KG-scoped route's service call path only (e.g., check it in a separate method called
-   only when a KG ID is expected). This is the most invasive change and carries risk of
-   weakening the invariant.
-
-Option 1 is strongly preferred given the spec wording.
-
-#### CONCERN – `AsyncMock` used for `AuthorizationProvider` in route tests
-
-```python
-authz = AsyncMock()
-authz.check_permission.return_value = True
+**Fix needed (implementation):** Change `_build_update_existing_query` to use
+the `jsonb ||` merge operator:
+```sql
+SET properties = (
+    (t.properties::text)::jsonb || (s.properties::text)::jsonb
+)::text::ag_catalog.agtype
 ```
 
-`AuthorizationProvider` is a protocol/infrastructure boundary, so this is borderline
-acceptable (the guideline restricts AsyncMock for *domain/application* collaborators).
-This is logged as a concern, not a hard FAIL, but a lightweight fake or a real
-`FakeAuthorizationProvider` would be preferred for consistency with the project's
-fake-over-mock policy.
+**Fix needed (test):** Add an integration test in `TestBulkLoadingIdempotency`
+that:
+1. Creates a node with `{slug: "alice", name: "Alice", age: 30, ...}`.
+2. Issues a second CREATE for the same `id` with `{slug: "alice", name: "Alice",
+   email: "alice@example.com", ...}` (no `age`).
+3. Asserts the resulting node has `name`, `age`, AND `email` all present.
 
-#### PASS – All new spec requirements correctly implemented
+#### Create an edge — COVERED
+Validation enforces `start_id`/`end_id`. Integration tests in
+`TestEdgeLabelPreCreation` and `TestOrphanedEdgeDetection`.
 
-- **Per-tenant graph isolation:** `get_tenant_graph_name()` → `tenant_{tenant_id}` ✅
-- **KG authorization:** SpiceDB `edit` permission checked on `knowledge_graph:{id}` ✅
-- **403 when permission denied, service never called** ✅
-- **`knowledge_graph_id` stamping on CREATE/UPDATE** ✅
-- **Anti-spoofing (overwrites caller-supplied value)** ✅
-- **Schema learning exclusion via `PLATFORM_STAMPED_PROPERTIES`** ✅
-- **Commit trailers (Spec-Ref, Task-Ref)** present on all implementation commits ✅
-- **No logger/print usage** (domain probes used) ✅
-- **No hardcoded secrets** ✅
+#### Missing type definition — COVERED
+`test_rejects_create_without_define_in_batch` asserts rejection.
+
+#### Missing required properties — COVERED
+`test_rejects_create_missing_required_properties`,
+`test_rejects_create_missing_system_properties`.
+
+#### Schema learning on CREATE — COVERED
+`_discover_optional_properties()` adds extra properties to optional set.
+Tests: `test_schema_learning.py` (5 tests).
+
+### Req: UPDATE Operation — COVERED
+- Set properties (unlisted preserved): `update_properties()` uses `jsonb ||`.
+  Integration tests: `test_update_node_adds_properties`,
+  `test_update_node_modifies_existing_properties`.
+- Remove properties: `remove_properties()` uses `jsonb - text[]`.
+  Integration tests: `test_update_node_removes_properties`,
+  `test_multiple_property_removal_in_single_operation`.
+- Schema learning on UPDATE: `_discover_optional_properties()` handles UPDATE.
+  Tests: `test_update_discovers_optional_properties`.
+
+### Req: DELETE Operation — COVERED
+- Node (cascading): `delete_node_with_detach()`. Integration tests:
+  `test_delete_node`, `test_delete_node_detaches_edges`.
+- Edge only: `test_delete_edge` verifies edge gone, both nodes remain.
+
+### Req: Mandatory System Properties — COVERED
+- Node: `validate_operation()` checks `data_source_id`, `source_path`, `slug`,
+  `knowledge_graph_id`. Tests: 4 separate unit tests in
+  `test_domain_value_objects.py`.
+- Edge: `slug` check is conditioned on `self.type == "node"`.
+  Tests: `test_create_edge_valid`, `test_create_define_same_batch_validation.py`.
+
+### Req: Deterministic Entity IDs — COVERED
+`EntityIdGenerator` in shared_kernel uses SHA-256, format
+`{type}:{16_hex_chars}`. Tests: `test_entity_id_generator.py` (comprehensive:
+determinism confirmed over 100 calls, format, type prefix, slug difference,
+edge IDs, validation edge cases).
+
+### Req: Referential Integrity Ordering — COVERED
+`mutation_applier.py` `_sort_operations()`: DEFINE=0, DELETE edges then nodes,
+CREATE nodes then edges, UPDATE last. Tests: `test_mutation_applier_sort.py`
+(3 tests with full positional assertions).
+
+---
 
 ## Summary
 
-The new KG-scoped mutations route is correct and well-tested. The failure is a regression:
-adding `knowledge_graph_id` validation to `validate_operation()` silently breaks the
-legacy `POST /graph/mutations` route for CREATE operations in real (non-mocked) use.
-The unit test suite does not expose this because both the route-layer and service-layer
-tests use mocks that bypass the real applier. The fix is straightforward — preferably
-remove the old route as required by the spec's "all mutations need a KG" requirement.
+| Requirement                      | Status  |
+|----------------------------------|---------|
+| Per-Tenant Graph Isolation       | COVERED |
+| KnowledgeGraph Scoping           | COVERED |
+| Mutation Log Format (JSONL)      | COVERED |
+| DEFINE Operation                 | COVERED |
+| CREATE — new node                | COVERED |
+| CREATE — idempotent merge        | PARTIAL (code replaces instead of merging; no test covers cross-batch property preservation) |
+| CREATE — edge                    | COVERED |
+| CREATE — missing type def        | COVERED |
+| CREATE — missing required props  | COVERED |
+| CREATE — schema learning         | COVERED |
+| UPDATE Operation                 | COVERED |
+| DELETE Operation                 | COVERED |
+| Mandatory System Properties      | COVERED |
+| Deterministic Entity IDs         | COVERED |
+| Referential Integrity Ordering   | COVERED |
+
+**Verdict: FAIL**
+
+One SHALL requirement ("Create an existing node — idempotent merge") has both
+a code-level deviation (replace vs. merge in `_build_update_existing_query`)
+and no test that would catch it. The fix is straightforward — change the SQL
+operator and add one integration test scenario.

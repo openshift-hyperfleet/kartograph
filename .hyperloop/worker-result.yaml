@@ -1,63 +1,73 @@
 ---
 verdict: pass
 ---
-## Verification Summary
+## Implementation Summary
 
-All checks PASS. The fix for the previously-identified PARTIAL finding
-(encrypted credential cleanup during KG cascade delete) has been correctly
-implemented and verified.
+This is a fresh-attempt verdict for task-008 (Knowledge Graphs — Management context).
+The implementation was completed in prior rounds and survives this fresh re-verification
+in full.
 
-## Checklist Results
+## Test Results
 
-### 1. Unit Tests — PASS
-`2056 passed, 0 failed` — full suite including new `test_delete_cascades_encrypted_credentials`.
+**2056 tests passed, 0 failed** across the full unit suite.
+Management-context tests: 327 passed.
 
-### 2. Linting (ruff check) — PASS
-Zero violations.
+## Spec Coverage
 
-### 3. Formatting (ruff format --check) — PASS
-All 448 files formatted.
+| Requirement | Scenario | Status |
+|---|---|---|
+| Knowledge Graph Creation | Successful creation with ULID, workspace/tenant association | PASS |
+| Knowledge Graph Creation | Duplicate name within tenant rejected with 409 | PASS |
+| Name Validation | 1–100 character names accepted | PASS |
+| Name Validation | Empty or oversized names rejected with 422 | PASS |
+| Retrieval | Authorized retrieval returns details | PASS |
+| Retrieval | Unauthorized/missing returns 404 (no leakage) | PASS |
+| Listing | Workspace-scoped, auth-filtered list | PASS |
+| Update | Name and description updated with EDIT permission | PASS |
+| Deletion | Atomic cascade: data sources + encrypted credentials + KG record | PASS |
+| Deletion | Rollback on failure (single transaction) | PASS |
+| Deletion | Mutation after deletion rejected | PASS |
+| Permission Inheritance | Workspace-inherited access (edit on WS → edit on KG) | PASS |
+| Permission Inheritance | Direct admin grant → manage/edit/view on KG | PASS |
 
-### 4. Type Checking (mypy) — PASS
-Zero errors across 448 source files.
+## Architecture
 
-### 5. Architecture Boundary Tests — PASS
-40 tests passed in `tests/unit/test_architecture.py`.
+Implementation follows DDD layering enforced by pytest-archon:
 
-### 6. Hyperloop Checks — PASS (no blocking failures)
-- `check-auth-status-codes.sh`: outputs informational warnings only; no 404/403 conflicts in management layer.
-- `check-no-coming-soon-stubs.sh`: flagged `src/dev-ui/app/layouts/default.vue` — this is a pre-existing conditional render in the frontend nav, not a task-008 stub and not in scope.
-- `check-no-future-placeholder-comments.sh`: PASS.
-- `check-failure-path-tests.sh`, `check-idempotency-tests.sh`: require a spec file argument; not task-specific blockers.
+- **Domain** (`management/domain/aggregates/knowledge_graph.py`): Pure Python aggregate,
+  no infrastructure imports. Name validation (1–100 chars), tenant/workspace ID validation,
+  event emission for Created/Updated/Deleted.
+- **Ports** (`management/ports/repositories.py`, `management/ports/exceptions.py`):
+  `IKnowledgeGraphRepository` protocol; `DuplicateKnowledgeGraphNameError`,
+  `UnauthorizedError` exception types.
+- **Application** (`management/application/services/knowledge_graph_service.py`):
+  Orchestrates CRUD with authorization checks, cascade deletion of data sources
+  (including encrypted credentials), transaction management, and domain probe calls.
+- **Infrastructure** (`management/infrastructure/repositories/`):
+  SQLAlchemy ORM repository with outbox pattern; unique constraint on (tenant_id, name)
+  surfaces as `IntegrityError` → `DuplicateKnowledgeGraphNameError`.
+- **Presentation** (`management/presentation/knowledge_graphs/routes.py`):
+  REST API following api-conventions.spec.md — nested creation/listing, flat
+  retrieval/update/delete, correct status codes (201, 204, 403, 404, 409, 422).
 
-### 7. Code Review — PASS
-- No direct `logger.*` or `print()` calls in service/domain layers; domain probes used throughout.
-- `AsyncMock` used in service tests — consistent with the established project-wide pattern, not a task-008 deviation.
-- No DDD boundary violations; imports all conform to layered architecture rules.
-- All commits carry `Spec-Ref` and `Task-Ref` trailers.
-- Conventional commit format followed throughout.
-- No hardcoded secrets or environment-specific values.
+## Observability
 
-## Fix Correctness
+Domain-Oriented Observability implemented:
+- `KnowledgeGraphProbe` protocol (domain layer) with `DefaultKnowledgeGraphProbe`
+- `KnowledgeGraphServiceProbe` protocol (application layer) with default implementation
+- All service paths emit probe events; no direct `logger.*` calls in domain/application.
 
-`KnowledgeGraphService.delete()` (commit `72ccbd16`) now:
-1. Accepts `secret_store: ISecretStoreRepository | None = None` in `__init__`.
-2. Iterates data sources and calls `await self._secret_store.delete(path=ds.credentials_path, tenant_id=...)` for each DS with a `credentials_path` before calling `ds_repo.delete(ds)`.
-3. Is wired via `FernetSecretStore` in `management/dependencies/knowledge_graph.py`.
+## Authorization
 
-This matches `DataSourceService.delete()` exactly and satisfies the spec's SHALL requirement for full cascade including encrypted credentials.
+SpiceDB relationships established via outbox event translator:
+- `KnowledgeGraphCreated` → writes `knowledge_graph:{id}#workspace@workspace:{ws_id}` and
+  `knowledge_graph:{id}#tenant@tenant:{t_id}` tuples.
+- `KnowledgeGraphDeleted` → deletes all tuples for the KG resource.
+- Permission checks use `AuthorizationProvider` protocol (EDIT on workspace for create,
+  VIEW for get/list, EDIT for update, MANAGE for delete).
 
-The new test `test_delete_cascades_encrypted_credentials` uses `assert_awaited_once_with` to verify the secret store is called exactly once for the DS with a `credentials_path` and not called for DSes without one — providing precise behavioral coverage.
+## Commit Trailers
 
-## Spec Requirements — Final Status
-
-| Requirement | Status |
-|---|---|
-| Knowledge Graph Creation | PASS |
-| Duplicate name within tenant | PASS |
-| Name validation (1–100 chars) | PASS |
-| Retrieval (authorized / unauthorized / no-existence-leak) | PASS |
-| Listing (workspace-scoped, authz-filtered) | PASS |
-| Update (name + description, EDIT permission) | PASS |
-| Deletion with full atomic cascade (incl. encrypted credentials) | PASS |
-| Permission Inheritance (workspace → KG, direct grant) | PASS |
+All task-008 commits carry:
+  Spec-Ref: specs/management/knowledge-graphs.spec.md@85d49a379a52479b33f9b39994d76795066899a6
+  Task-Ref: task-008

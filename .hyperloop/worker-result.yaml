@@ -1,63 +1,60 @@
 ---
 verdict: pass
 report: |
-  ## Task-008 Knowledge Graphs — Final PR Feedback Resolution (2026-04-23)
+  ## Task-008 Knowledge Graphs — Final Reviewer Verification (2026-04-23)
 
   Validated against: specs/management/knowledge-graphs.spec.md
   Unit tests: 2066 unit tests passed, 0 failed
 
   ---
 
-  ### PR Feedback Resolution
-
-  #### MAJOR: Typed exceptions for parent workspace errors (RESOLVED)
-
-  Replaced fragile `ValueError` string parsing in `iam/presentation/workspaces/routes.py`
-  with typed domain exceptions. The previous code parsed free-form message text
-  (`msg.lower()` containing "parent workspace" + "does not exist") which coupled
-  security-sensitive HTTP status code assignment to message wording.
-
-  Changes made:
-  - Added `ParentWorkspaceNotFoundError` and `ParentWorkspaceCrossTenantError`
-    to `iam/ports/exceptions.py` with clear docstrings explaining 404 normalization
-  - Updated `workspace_service.py` to raise typed exceptions instead of `ValueError`
-    for missing/cross-tenant parent workspace cases
-  - Updated `routes.py` `create_workspace` handler to catch typed exceptions by type
-    (combined with `UnauthorizedError` in a single `except` clause); generic
-    `except ValueError` fallback retained for other validation errors
-  - Updated `test_workspace_service.py` to assert `ParentWorkspaceNotFoundError`
-    and `ParentWorkspaceCrossTenantError` (not `ValueError`)
-  - Updated `test_workspaces_routes.py` mocks to raise typed exceptions
-
-  #### NITPICK: Architecture test exclusion narrowed (RESOLVED)
-
-  Narrowed `.exclude("management.presentation*")` in `test_architecture.py` to
-  explicitly list only the three modules that carry a transitive IAM import:
-  - `management.presentation.knowledge_graphs.routes*` (direct IAM importer)
-  - `management.presentation.knowledge_graphs` (re-exports router — transitive)
-  - `management.presentation` (aggregates sub-routers — transitive)
-
-  `management.presentation.knowledge_graphs.models` is NO LONGER excluded and
-  is now subject to the isolation check (correctly — it has no IAM imports).
-
-  ---
-
-  ### Spec Coverage (unchanged — all 6 SHALL requirements verified)
-
-  All 6 knowledge graph requirements from the spec remain fully implemented and
-  tested. See prior review cycles for full coverage details.
-
-  ---
-
-  ### Automated Check Results
+  ### Checks
 
   | Check | Result |
   |---|---|
-  | Full unit test suite | PASS — 2066 passed, 0 failed |
+  | Unit tests (2066 total) | PASS — 2066 passed, 0 failed |
   | ruff lint | PASS |
   | ruff format | PASS |
-  | mypy | PASS |
-  | pre-commit hooks | PASS |
+  | mypy (450 files) | PASS — no issues |
+  | Architecture boundary tests (16 tests) | PASS |
+  | check-no-coming-soon-stubs | PASS |
+  | check-no-future-placeholder-comments | PASS |
+  | Commit trailers (Spec-Ref, Task-Ref) | PASS |
+
+  ---
+
+  ### PR Feedback Verification
+
+  #### MAJOR: Typed exceptions for parent workspace errors (VERIFIED RESOLVED)
+
+  - `ParentWorkspaceNotFoundError` and `ParentWorkspaceCrossTenantError` defined
+    in `iam/ports/exceptions.py` with clear docstrings.
+  - `workspace_service.py` raises these typed exceptions (lines 165, 171) instead
+    of `ValueError` for missing/cross-tenant parent workspace cases.
+  - `routes.py` `create_workspace` handler catches them in a single `except` clause
+    alongside `UnauthorizedError` — no fragile string parsing remains.
+  - Route advertises `404` in OpenAPI `responses` map for create.
+  - Tests updated: `test_workspace_service.py` and `test_workspaces_routes.py`
+    assert the typed exceptions.
+
+  #### NITPICK: Architecture test exclusion narrowed (VERIFIED RESOLVED)
+
+  The `.exclude("management.presentation*")` blanket has been replaced with three
+  targeted exclusions:
+  - `management.presentation.knowledge_graphs.routes*`
+  - `management.presentation.knowledge_graphs`
+  - `management.presentation`
+
+  `management.presentation.knowledge_graphs.models` is NOT excluded and is subject
+  to the isolation check (verified — it has no IAM imports).
+
+  ---
+
+  ### Spec Coverage
+
+  All 6 SHALL requirements verified: creation, name validation, retrieval,
+  listing, update, and deletion (with atomic cascade). Permission inheritance
+  tested via SpiceDB relationship rules.
 
   Spec-Ref: specs/management/knowledge-graphs.spec.md
   Task-Ref: task-008

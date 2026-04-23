@@ -353,6 +353,73 @@ class TestGetKnowledgeGraph:
 
 
 # ---------------------------------------------------------------------------
+# List All Knowledge Graphs (tenant-visible): GET /management/knowledge-graphs
+# ---------------------------------------------------------------------------
+
+
+class TestListAllKnowledgeGraphs:
+    """Tests for GET /management/knowledge-graphs (tenant-scoped, auth-filtered)."""
+
+    def test_list_all_knowledge_graphs_returns_200_with_list(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+    ) -> None:
+        """Returns 200 with all tenant-visible knowledge graphs and count."""
+        kg1 = _make_kg(kg_id="01JT0000000000000000000001", name="Graph A")
+        kg2 = _make_kg(kg_id="01JT0000000000000000000003", name="Graph B")
+        mock_kg_service.list_all.return_value = [kg1, kg2]
+
+        response = test_client.get("/management/knowledge-graphs")
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["count"] == 2
+        assert len(result["knowledge_graphs"]) == 2
+        assert result["knowledge_graphs"][0]["name"] == "Graph A"
+        assert result["knowledge_graphs"][1]["name"] == "Graph B"
+
+    def test_list_all_knowledge_graphs_returns_200_with_empty_list(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+    ) -> None:
+        """Returns 200 with empty list when user can view no knowledge graphs."""
+        mock_kg_service.list_all.return_value = []
+
+        response = test_client.get("/management/knowledge-graphs")
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["count"] == 0
+        assert result["knowledge_graphs"] == []
+
+    def test_list_all_knowledge_graphs_calls_service_with_user_id(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """Route passes user_id from the current user to the service."""
+        mock_kg_service.list_all.return_value = []
+
+        test_client.get("/management/knowledge-graphs")
+
+        mock_kg_service.list_all.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+        )
+
+    def test_list_all_knowledge_graphs_returns_401_when_not_authenticated(
+        self,
+        unauthenticated_test_client: TestClient,
+    ) -> None:
+        """Returns 401 Unauthorized when no credentials are provided."""
+        response = unauthenticated_test_client.get("/management/knowledge-graphs")
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+# ---------------------------------------------------------------------------
 # List Knowledge Graphs: GET /management/workspaces/{ws_id}/knowledge-graphs
 # ---------------------------------------------------------------------------
 

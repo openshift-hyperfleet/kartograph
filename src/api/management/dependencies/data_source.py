@@ -45,7 +45,11 @@ def get_data_source_service(
     outbox = OutboxRepository(session=session)
     ds_repo = DataSourceRepository(session=session, outbox=outbox)
     kg_repo = KnowledgeGraphRepository(session=session, outbox=outbox)
-    encryption_keys = settings.encryption_key.get_secret_value().split(",")
+    encryption_keys = [
+        k.strip()
+        for k in settings.encryption_key.get_secret_value().split(",")
+        if k.strip()
+    ]
     secret_store = FernetSecretStore(
         session=session,
         encryption_keys=encryption_keys,

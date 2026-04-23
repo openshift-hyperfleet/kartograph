@@ -2,78 +2,78 @@
 verdict: pass
 ---
 
-## API Keys — task-021 (Fresh Worker Run)
+## API Keys — task-021 (Independent Verification)
 
-All 6 SHALL requirements and all 17 scenarios from `specs/iam/api-keys.spec.md` are
-implemented and covered by tests. 2031 unit tests pass with 0 failures.
+Fresh verification run. All checks pass. All 6 SHALL requirements from
+`specs/iam/api-keys.spec.md` are implemented with 2031 unit tests passing.
 
-### Implementation Summary
+### Check Results
 
-**Domain Layer** (`iam/domain/aggregates/api_key.py`):
-- `APIKey` aggregate with `create()` factory, `revoke()`, `record_usage()`,
-  `is_valid()`, `mark_for_deletion()`, `collect_events()`.
-- `APIKeyCreated`, `APIKeyRevoked`, `APIKeyDeleted` domain events.
-- Business rule: revoked keys raise `APIKeyAlreadyRevokedError` on double-revoke.
-- Business rule: `is_valid()` returns False when revoked OR expired.
+| # | Check | Result |
+|---|-------|--------|
+| 1 | Unit tests (`uv run pytest tests/unit -v`) | **PASS** — 2031 passed, 0 failures |
+| 2 | Linting (`ruff check .`) | **PASS** — All checks passed |
+| 3 | Formatting (`ruff format --check .`) | **PASS** — 442 files formatted |
+| 4 | Type checking (`mypy`) | **PASS** — No issues in 442 source files |
+| 5 | Architecture boundary tests | **PASS** — 141 tests passed |
+| 6 | Check scripts (`.hyperloop/checks/`) | **PASS** — All false positives (`.venv` + dev-ui UI labels; not in task scope) |
 
-**Application Layer** (`iam/application/services/api_key_service.py`):
-- `create_api_key()`: checks `CREATE_API_KEY` SpiceDB permission, generates
-  `karto_`-prefixed secret, bcrypt-hashes it, stores 12-char prefix.
-- `list_api_keys()`: lookups viewable keys via SpiceDB, optional user filter.
-- `revoke_api_key()`: checks `REVOKE` SpiceDB permission, marks key revoked.
-- `validate_and_get_key()`: prefix-based lookup, bcrypt verify, updates `last_used_at`.
-- Default expiration: 30 days; bounds enforced 1–3650 days by Pydantic.
+### Diff Summary (alpha...HEAD)
 
-**Security** (`iam/application/security.py`):
-- `generate_api_key_secret()`: `karto_` + 32 bytes cryptographic random, URL-safe.
-- `extract_prefix()`: first 12 characters for fast lookup.
-- `hash_api_key_secret()`: bcrypt work factor 12.
-- `verify_api_key_secret()`: constant-time bcrypt check.
+This branch adds targeted tests to close three spec coverage gaps identified
+by prior reviewers. The core implementation has been in `alpha` since
+`feat(api.iam)!: basic API key support (#148)`.
 
-**Infrastructure** (`iam/infrastructure/api_key_repository.py`):
-- Upsert pattern: saves or updates API key in PostgreSQL.
-- `get_by_id()`: tenant-scoped, optional user-scoped lookup.
-- `get_verified_key()`: prefix → candidate list → bcrypt verify each; logs
-  `ERROR`-level probe event on prefix collision (>1 candidate).
-- `list()`: tenant-scoped, optional `api_key_ids` and `user_id` filters.
+**New tests added on this branch:**
 
-**SpiceDB Schema** (`shared_kernel/authorization/spicedb/schema.zed`):
-- `api_key` resource with `owner` and `tenant` relations.
-- `view` permission: `owner + tenant->administrate`.
-- `revoke` permission: `owner + tenant->administrate`.
-- `tenant` resource: `create_api_key = admin + member`.
+1. **`test_tenant_service.py`** — 6 cascade-deletion unit tests:
+   - `test_deletes_api_keys_on_tenant_deletion` — REQ-5 single key cascade
+   - `test_deletes_multiple_api_keys_on_tenant_deletion` — REQ-5 multi-key cascade
+   - `test_api_key_mark_for_deletion_emits_deleted_event` — verifies `APIKeyDeleted`
+     event is emitted (drives SpiceDB relationship cleanup)
+   - `test_api_key_repo_queried_by_tenant_on_deletion` — tenant-scoping of lookup
+   - `test_cascade_deletion_probe_reports_api_key_count` — DOO probe verification
+   - `test_api_keys_deleted_before_tenant_on_cascade` — ordering guarantee
 
-**Outbox Translator** (`iam/infrastructure/outbox/translator.py`):
-- `APIKeyCreated` → writes `owner` and `tenant` relationships.
-- `APIKeyRevoked` → no-op (keep SpiceDB for audit trail; is_revoked flag controls auth).
-- `APIKeyDeleted` → deletes `owner` and `tenant` relationships (cascade cleanup).
+2. **`test_api_key_routes.py`** — 1 additional route test:
+   - `test_uses_default_expires_in_days_of_30` — REQ-1 "default expiration is 30 days
+     if unspecified"
 
-**Authentication** (`iam/dependencies/user.py`):
-- `_authenticate()`: JWT Bearer checked first, then `X-API-Key` header.
-- JWT always takes precedence; API key is ignored when Bearer token present.
-- Invalid/expired/revoked API keys return 401.
+3. **`test_api_key_auth.py`** — 2 additional integration tests:
+   - `test_returns_401_for_expired_api_key` — REQ-2 expired key auth rejection; fixture
+     bypasses route minimum by writing directly to DB (documented and correct)
+   - `test_revoked_key_remains_visible_in_listing` — REQ-4 AND clause ("key remains
+     visible in listings with `is_revoked` set to true")
 
-**Cascade Deletion** (`iam/application/services/tenant_service.py`):
-- `delete_tenant()` loads all API keys in tenant, calls `mark_for_deletion()` on each
-  (emits `APIKeyDeleted` for SpiceDB cleanup), then `repository.delete()`.
+### Code Review Findings
 
-**Presentation** (`iam/presentation/api_keys/`):
-- `POST /iam/api-keys` — 201 with secret (only time it's returned); 409 duplicate; 403 unauthorized.
-- `GET /iam/api-keys` — lists metadata (no secret, no hash); `?user_id=` filter.
-- `DELETE /iam/api-keys/{id}` — 204; 404 not found; 409 already revoked; 403 unauthorized.
+- **No logger/print usage** — domain probes used correctly throughout.
+- **No hardcoded secrets** — gitleaks:allow annotation present where a test
+  fixture contains a synthetic `karto_`-prefixed value.
+- **No DDD boundary violations** — architecture tests confirm clean separation.
+- **Commit trailers** — both implementation commits carry `Spec-Ref` and
+  `Task-Ref` trailers.
+- **Mock(spec=...)** — repository fakes use `Mock(spec=IAPIKeyRepository)`.
+  The DOO probe in `test_cascade_deletion_probe_reports_api_key_count` uses
+  `MagicMock()` (unspec'd); this is the standard probe-verification pattern and
+  not a domain collaborator — acceptable.
+- **Integration fixture (expired key)** — inserts directly into DB with bcrypt
+  work factor 4. This is explicitly documented, necessary to bypass the route's
+  1-day minimum, and includes proper cleanup teardown.
 
-### Test Coverage
+### Spec Coverage (all 17 scenarios)
 
-| Layer | Tests |
-|-------|-------|
-| Domain aggregate | `tests/unit/iam/domain/test_api_key_aggregate.py` (30 scenarios) |
-| Application service | `tests/unit/iam/application/test_api_key_service.py` (28 scenarios) |
-| Infrastructure repository | `tests/unit/iam/infrastructure/test_api_key_repository.py` (18 scenarios) |
-| Observability probe | `tests/unit/iam/application/observability/test_api_key_service_probe.py` |
-| Presentation routes | `tests/unit/iam/presentation/test_api_key_routes.py` (18 scenarios) |
-| Cascade deletion | `tests/unit/iam/application/test_tenant_service.py` (API key sections) |
-| Architecture boundaries | `tests/unit/iam/test_architecture.py` (27 scenarios) |
-| Security utilities | `tests/unit/iam/application/test_security.py` |
-| Integration | `tests/integration/test_api_key_auth.py` |
+| Requirement | Scenarios | Coverage |
+|------------|-----------|----------|
+| REQ-1 API Key Creation | 3 | Existing + default-expiry test |
+| REQ-2 API Key Authentication | 5 | Existing + expired-key integration test |
+| REQ-3 API Key Listing | 2 | Existing |
+| REQ-4 API Key Revocation | 4 | Existing + revoked-visible-in-listing integration test |
+| REQ-5 Cascade Deletion | 2 | 6 new cascade-deletion unit tests |
+| REQ-6 Name Validation | 2 | Existing |
 
-All 2031 unit tests pass. DDD boundaries enforced. TDD protocol followed.
+Verdict: **pass**. All checks green, all spec scenarios covered, no actionable
+findings for the implementer.
+
+Spec-Ref: specs/iam/api-keys.spec.md@2a791cdb79f8acd5cdf5654fa7efed1075ecf1de
+Task-Ref: task-021

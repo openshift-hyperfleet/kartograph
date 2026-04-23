@@ -70,6 +70,12 @@ class UserRepository(IUserRepository):
                 )
                 self._session.add(model)
 
+            # Flush so the INSERT reaches the DB within this try block.
+            # Without an explicit flush, SQLAlchemy defers the INSERT until
+            # the transaction commits (outside save()), which means the
+            # IntegrityError would escape uncaught.
+            await self._session.flush()
+
             self._probe.user_saved(user.id.value, user.username)
 
         except IntegrityError:

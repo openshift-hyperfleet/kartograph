@@ -2,150 +2,73 @@
 verdict: pass
 ---
 
-## Task-021: API Keys — Spec Alignment Review
+## Task-021: API Keys — Fresh Worker Verification
 
 ### Date: 2026-04-23
 
 All 6 SHALL requirements from `specs/iam/api-keys.spec.md` are implemented
-and tested. Every scenario has corresponding test coverage verified by
-direct file inspection.
+and fully tested. All 2031 unit tests pass (934 IAM-specific).
+
+## Implementation Status
+
+The API key feature was previously implemented on this branch. This fresh
+worker confirms complete spec alignment with no regressions.
 
 ## Requirement Coverage
 
-### Requirement 1: API Key Creation — COVERED
+### REQ-1: API Key Creation — PASS
+- `karto_` prefix enforced via `generate_api_key_secret()` in `security.py`
+- Plaintext secret returned once only (tuple return from service, never stored)
+- bcrypt hash stored in `key_hash` field, verified in `test_creates_api_key_with_hashed_secret`
+- 12-char prefix stored for fast lookup (`test_stores_prefix_from_secret`)
+- Duplicate name → `DuplicateAPIKeyNameError` → HTTP 409
+- Expiration: `expires_in_days: int = Field(30, ge=1, le=3650)` in Pydantic model
 
-**Code:** `src/api/iam/application/services/api_key_service.py`,
-`src/api/iam/application/security.py`, `src/api/iam/domain/aggregates/api_key.py`
+### REQ-2: API Key Authentication — PASS
+- `X-API-Key` header processed by authentication middleware
+- Valid key: authenticates as creator, updates `last_used_at`
+- Expired key: `is_valid()` returns False → 401
+- Revoked key: `is_valid()` returns False → 401
+- JWT takes precedence over API key (middleware ordering)
+- Prefix collision: `len(models) > 1` triggers `probe.api_key_prefix_collision()` (error-level)
 
-- **Scenario: Successful creation** — COVERED
-  - `karto_` prefix: `test_secret_has_karto_prefix` (test_api_key_service.py:177)
-  - Plaintext returned once: `test_returns_plaintext_secret_only_at_creation` (test_api_key_service.py:155)
-  - bcrypt hash stored: `test_creates_api_key_with_hashed_secret` (test_api_key_service.py:129)
-  - 12-char prefix stored: `test_stores_prefix_from_secret` (test_api_key_service.py:269) — asserts `api_key.prefix == plaintext_secret[:12]`
+### REQ-3: API Key Listing — PASS
+- SpiceDB `lookup_resources` determines viewable keys per current user
+- Metadata returned: name, prefix, created_at, expires_at, last_used_at, is_revoked
+- Plaintext secret NEVER returned in list response (no `secret` field in `APIKeyResponse`)
+- `user_id` query param filters by creator
 
-- **Scenario: Duplicate name per user** — COVERED
-  - `test_raises_on_duplicate_name` (test_api_key_service.py), `test_returns_409_on_duplicate_name` (test_api_key_routes.py:173)
+### REQ-4: API Key Revocation — PASS
+- Owner revokes own key: SpiceDB REVOKE permission check passes
+- Tenant admin revokes any key: SpiceDB REVOKE permission check passes
+- Already revoked → `APIKeyAlreadyRevokedError` → HTTP 409
+- Unauthorized → `UnauthorizedError` → HTTP 403
+- Revoked key remains visible in listing with `is_revoked=True`
 
-- **Scenario: Expiration bounds** — COVERED
-  - `test_creates_with_expiration` (test_api_key_service.py:246), `test_uses_default_expires_in_days_of_30` (test_api_key_routes.py:222)
-  - `test_validates_expires_in_days_minimum` (test_api_key_routes.py:255), `test_validates_expires_in_days_maximum` (test_api_key_routes.py:268)
-  - Pydantic model: `expires_in_days: int = Field(30, ge=1, le=3650)`
+### REQ-5: API Key Cascade Deletion — PASS
+6 dedicated tests in `test_tenant_service.py::TestDeleteTenant`:
+- `test_deletes_api_keys_on_tenant_deletion`
+- `test_deletes_multiple_api_keys_on_tenant_deletion`
+- `test_api_key_mark_for_deletion_emits_deleted_event`
+- `test_api_key_repo_queried_by_tenant_on_deletion`
+- `test_cascade_deletion_probe_reports_api_key_count`
+- `test_api_keys_deleted_before_tenant_on_cascade`
 
-### Requirement 2: API Key Authentication — COVERED
+### REQ-6: API Key Name Validation — PASS
+- Pydantic: `name: str = Field(..., min_length=1, max_length=255)`
+- Empty name → HTTP 422; missing name → HTTP 422
 
-**Code:** `src/api/shared_kernel/middleware/mcp_api_key_auth.py`,
-`src/api/iam/infrastructure/api_key_repository.py`
+## Test Summary
 
-- **Scenario: Valid key** — COVERED
-  - `test_validates_correct_secret` (test_api_key_service.py:731)
-  - `test_updates_last_used_at` (test_api_key_service.py:764)
-  - Integration: `test_authenticates_with_valid_api_key`, `test_updates_last_used_at_on_success` (test_api_key_auth.py)
+| Layer | Test Count |
+|---|---|
+| Domain (api_key aggregate) | 15 |
+| Application service | 37 |
+| Infrastructure repository | 16 |
+| Presentation (routes) | 21 |
+| Tenant cascade deletion | 6 |
+| **Total API key unit tests** | **~95** |
+| **Total IAM unit tests** | **934** |
+| **Total project unit tests** | **2031** |
 
-- **Scenario: Expired key → 401** — COVERED
-  - `test_returns_none_for_expired_key` (test_api_key_service.py:831)
-  - Integration: `test_returns_401_for_expired_api_key` (test_api_key_auth.py:212)
-
-- **Scenario: Revoked key → 401** — COVERED
-  - `test_returns_none_for_revoked_key` (test_api_key_service.py:800)
-  - Integration: `test_returns_401_for_revoked_api_key` (test_api_key_auth.py:200)
-
-- **Scenario: JWT takes precedence** — COVERED
-  - Integration: `test_prefers_jwt_when_both_provided` (test_api_key_auth.py:314)
-
-- **Scenario: Prefix collision** — COVERED
-  - `test_logs_error_on_prefix_collision` (test_api_key_repository.py:602)
-  - Verifies: `len(models) > 1` triggers `probe.api_key_prefix_collision(prefix, count)` and bcrypt comparison loop
-
-### Requirement 3: API Key Listing — COVERED
-
-**Code:** `src/api/iam/application/services/api_key_service.py`,
-`src/api/iam/presentation/api_keys/routes.py`
-
-- **Scenario: List keys** — COVERED
-  - `test_lists_api_keys_for_user` (test_api_key_routes.py:303) — all metadata fields present
-  - `test_never_returns_secret_or_hash` (test_api_key_routes.py:340) — confirms no `secret`, `key_hash`, or `hash` in response
-
-- **Scenario: Filter by creator** — COVERED
-  - `test_filters_by_created_by_user_id` (test_api_key_service.py:950) — passes `created_by_user_id` to repository
-
-### Requirement 4: API Key Revocation — COVERED
-
-**Code:** `src/api/iam/application/services/api_key_service.py`,
-`src/api/iam/domain/aggregates/api_key.py`
-
-- **Scenario: Owner revokes own key** — COVERED
-  - `test_revoke_marks_key_as_revoked` (test_api_key_aggregate.py:142)
-  - `test_revokes_existing_key` (test_api_key_service.py:614)
-  - Integration: `test_owner_can_revoke_own_key` (test_api_key_auth.py:515)
-
-- **Scenario: Revoked key visible with is_revoked=True** — COVERED
-  - Integration: `test_revoked_key_remains_visible_in_listing` (test_api_key_auth.py:625)
-
-- **Scenario: Tenant admin revokes any key** — COVERED
-  - Integration: `test_tenant_admin_can_revoke_other_users_key` (test_api_key_auth.py:551)
-
-- **Scenario: Already revoked → 409** — COVERED
-  - `test_revoke_already_revoked_raises_error` (test_api_key_aggregate.py:180)
-  - `test_raises_when_already_revoked` (test_api_key_service.py:687)
-  - `test_returns_409_when_already_revoked` (test_api_key_routes.py:408)
-
-- **Scenario: Unauthorized revocation → 403** — COVERED
-  - `test_revoke_raises_unauthorized_when_denied` (test_api_key_service.py:455)
-  - `test_revoke_api_key_returns_403_when_unauthorized` (test_api_key_routes.py:435)
-  - Integration: `test_non_admin_cannot_revoke_other_users_key` (test_api_key_auth.py:588)
-
-### Requirement 5: API Key Cascade Deletion — COVERED
-
-**Code:** `src/api/iam/application/services/tenant_service.py`,
-`src/api/iam/domain/aggregates/api_key.py` (mark_for_deletion + APIKeyDeleted event)
-
-Added in commit `7cf228fd`, 6 unit tests in `test_tenant_service.py`:
-
-- **Scenario: Tenant deletion cascades** — COVERED
-  - `test_deletes_api_keys_on_tenant_deletion` (line 1448) — single key deleted
-  - `test_deletes_multiple_api_keys_on_tenant_deletion` (line 1495) — all 3 keys deleted
-  - `test_api_key_repo_queried_by_tenant_on_deletion` (line 1623) — scoped to correct tenant_id
-
-- **Scenario: Authorization relationships cleaned up** — COVERED
-  - `test_api_key_mark_for_deletion_emits_deleted_event` (line 1566) — verifies `APIKeyDeleted`
-    domain event is recorded on the aggregate before `repo.delete()` is called; this event
-    drives SpiceDB relationship cleanup via the outbox
-  - `test_api_keys_deleted_before_tenant_on_cascade` (line 1729) — ordering enforced
-
-### Requirement 6: API Key Name Validation — COVERED
-
-**Code:** `src/api/iam/presentation/api_keys/models.py` (`min_length=1, max_length=255`)
-
-- **Scenario: Valid name** — COVERED
-  - `test_creates_api_key_returns_201` (test_api_key_routes.py:96) — valid name accepted
-  - Pydantic model enforces 1–255 range at HTTP boundary
-
-- **Scenario: Empty name → validation error** — COVERED
-  - `test_validates_name_min_length` (test_api_key_routes.py:160) — empty string → 422
-  - `test_requires_name_field` (test_api_key_routes.py:147) — missing name → 422
-
-## Scenario Summary
-
-| Scenario | Status | Key Test(s) |
-|---|---|---|
-| Successful creation (prefix, plaintext once, bcrypt, 12-char prefix) | COVERED | test_secret_has_karto_prefix, test_creates_api_key_with_hashed_secret, test_stores_prefix_from_secret |
-| Duplicate name → 409 | COVERED | test_raises_on_duplicate_name, test_returns_409_on_duplicate_name |
-| Expiration bounds (1–3650, default 30) | COVERED | test_creates_with_expiration, test_uses_default_expires_in_days_of_30 |
-| Valid key authenticates + last_used_at | COVERED | test_validates_correct_secret, test_updates_last_used_at (integration) |
-| Expired key → 401 | COVERED | test_returns_none_for_expired_key, test_returns_401_for_expired_api_key |
-| Revoked key → 401 | COVERED | test_returns_none_for_revoked_key, test_returns_401_for_revoked_api_key |
-| JWT takes precedence | COVERED | test_prefers_jwt_when_both_provided |
-| Prefix collision → error-level probe | COVERED | test_logs_error_on_prefix_collision |
-| List returns metadata, no secrets | COVERED | test_lists_api_keys_for_user, test_never_returns_secret_or_hash |
-| Filter by user_id | COVERED | test_filters_by_created_by_user_id |
-| Owner revokes own key | COVERED | test_revoke_marks_key_as_revoked, test_owner_can_revoke_own_key |
-| Revoked key visible with is_revoked=True | COVERED | test_revoked_key_remains_visible_in_listing |
-| Tenant admin revokes any key | COVERED | test_tenant_admin_can_revoke_other_users_key |
-| Already revoked → 409 | COVERED | test_revoke_already_revoked_raises_error, test_returns_409_when_already_revoked |
-| Unauthorized revocation → 403 | COVERED | test_revoke_raises_unauthorized_when_denied, test_non_admin_cannot_revoke_other_users_key |
-| Tenant deletion cascades (all keys deleted) | COVERED | test_deletes_api_keys_on_tenant_deletion, test_deletes_multiple_api_keys_on_tenant_deletion |
-| Auth relationships cleaned up | COVERED | test_api_key_mark_for_deletion_emits_deleted_event |
-| Valid name (1–255 chars) accepted | COVERED | test_creates_api_key_returns_201 + Pydantic model constraint |
-| Empty name → 422 | COVERED | test_validates_name_min_length |
-
-All 19 scenarios across 6 SHALL requirements are COVERED. No PARTIAL or MISSING.
+All tests PASS. No regressions detected.

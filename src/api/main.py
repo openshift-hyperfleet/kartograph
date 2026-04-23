@@ -421,35 +421,6 @@ async def kartograph_lifespan(app: FastAPI):
         )
         handler.register(tenant_graph_handler, handler_name="tenant_graph")
 
-        # Register sync lifecycle handler: updates DataSourceSyncRun status
-        # as events flow through the pipeline (pending → ingesting → ai_extracting
-        # → applying → completed / failed).
-        sync_lifecycle_handler = _SessionedSyncLifecycleHandler(
-            session_factory=app.state.write_sessionmaker
-        )
-        handler.register(sync_lifecycle_handler, handler_name="sync_lifecycle")
-
-        # Register ingestion handler: processes SyncStarted events by running
-        # the adapter extract → package pipeline.
-        ingestion_handler = _SessionedIngestionEventHandler(
-            session_factory=app.state.write_sessionmaker
-        )
-        handler.register(ingestion_handler, handler_name="ingestion")
-
-        # Register extraction handler: processes JobPackageProduced events by
-        # signaling the Extraction context to run AI entity extraction.
-        extraction_handler = _SessionedExtractionEventHandler(
-            session_factory=app.state.write_sessionmaker
-        )
-        handler.register(extraction_handler, handler_name="extraction")
-
-        # Register graph mutation handler: processes MutationLogProduced events
-        # by applying the mutation log to the Apache AGE graph database.
-        graph_mutation_handler = _SessionedGraphMutationEventHandler(
-            session_factory=app.state.write_sessionmaker
-        )
-        handler.register(graph_mutation_handler, handler_name="graph_mutation")
-
         # Create event source for real-time NOTIFY processing
         event_source = PostgresNotifyEventSource(
             db_url=db_url,

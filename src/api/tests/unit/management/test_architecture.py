@@ -227,22 +227,30 @@ class TestManagementBoundedContextIsolation:
         IAM manages authentication and authorization. Management should
         not couple to IAM's user, tenant, or API key domain objects.
 
-        Two packages are excluded from this restriction:
+        Excluded modules (those that legitimately bridge authentication):
         - management.dependencies: DI wiring that extracts CurrentUser from
           IAM for tenant scoping (e.g., scope_to_tenant=current_user.tenant_id).
-        - management.presentation: Route handlers that enforce authentication
-          by declaring get_current_user as a FastAPI dependency and using
-          CurrentUser to extract user_id for service calls. Only
-          knowledge_graphs.routes legitimately imports IAM, but
-          management.presentation.__init__ aggregates sub-routers, causing
-          pytest-archon to propagate the IAM import up to the root package.
-          The entire presentation tree must be excluded because of this
-          transitive propagation through the router aggregation __init__.
+        - management.presentation.knowledge_graphs.routes: The only route module
+          that directly imports IAM — it declares get_current_user as a FastAPI
+          dependency and uses CurrentUser to extract user_id for service calls.
+        - management.presentation.knowledge_graphs (package __init__): Re-exports
+          the router from routes, creating a transitive IAM dependency that
+          pytest-archon propagates to the package itself.
+        - management.presentation (package __init__): Aggregates sub-routers
+          including knowledge_graphs, inheriting the transitive IAM import.
+
+        Note: management.presentation.knowledge_graphs.models is NOT excluded
+        and remains subject to the isolation check.
         """
         (
             archrule("management_no_iam")
             .match("management*")
-            .exclude("management.dependencies*", "management.presentation*")
+            .exclude(
+                "management.dependencies*",
+                "management.presentation.knowledge_graphs.routes*",
+                "management.presentation.knowledge_graphs",
+                "management.presentation",
+            )
             .should_not_import("iam*")
             .check("management")
         )

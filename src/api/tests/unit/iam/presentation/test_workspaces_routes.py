@@ -20,6 +20,8 @@ from iam.domain.value_objects import TenantId, UserId, WorkspaceId
 from iam.ports.exceptions import (
     CannotDeleteRootWorkspaceError,
     DuplicateWorkspaceNameError,
+    ParentWorkspaceCrossTenantError,
+    ParentWorkspaceNotFoundError,
     UnauthorizedError,
     WorkspaceHasChildrenError,
 )
@@ -192,8 +194,10 @@ class TestCreateWorkspace:
         both return 404 to avoid leaking existence information.
         """
         fake_parent_id = WorkspaceId.generate().value
-        mock_workspace_service.create_workspace.side_effect = ValueError(
-            f"Parent workspace {fake_parent_id} does not exist"
+        mock_workspace_service.create_workspace.side_effect = (
+            ParentWorkspaceNotFoundError(
+                f"Parent workspace {fake_parent_id} does not exist"
+            )
         )
 
         response = test_client.post(
@@ -217,9 +221,10 @@ class TestCreateWorkspace:
         Cross-tenant access is indistinguishable from missing — both return 404.
         """
         fake_parent_id = WorkspaceId.generate().value
-        mock_workspace_service.create_workspace.side_effect = ValueError(
-            "Parent workspace belongs to different tenant - "
-            "cannot create child workspace across tenant boundaries"
+        mock_workspace_service.create_workspace.side_effect = (
+            ParentWorkspaceCrossTenantError(
+                f"Parent workspace {fake_parent_id} belongs to a different tenant"
+            )
         )
 
         response = test_client.post(

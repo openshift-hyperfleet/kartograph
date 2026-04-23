@@ -15,6 +15,8 @@ from iam.domain.exceptions import CannotRemoveLastAdminError
 from iam.ports.exceptions import (
     CannotDeleteRootWorkspaceError,
     DuplicateWorkspaceNameError,
+    ParentWorkspaceCrossTenantError,
+    ParentWorkspaceNotFoundError,
     UnauthorizedError,
     WorkspaceHasChildrenError,
 )
@@ -80,7 +82,11 @@ async def create_workspace(
 
         return WorkspaceResponse.from_domain(workspace)
 
-    except UnauthorizedError:
+    except (
+        UnauthorizedError,
+        ParentWorkspaceNotFoundError,
+        ParentWorkspaceCrossTenantError,
+    ):
         # No distinction between unauthorized and missing — a parent workspace the
         # user cannot access is indistinguishable from one that does not exist.
         raise HTTPException(
@@ -93,17 +99,6 @@ async def create_workspace(
             detail=str(e),
         )
     except ValueError as e:
-        msg = str(e).lower()
-        if "parent workspace" in msg and (
-            "does not exist" in msg
-            or "doesn't exist" in msg
-            or "different tenant" in msg
-        ):
-            # Parent-not-found and cross-tenant cases are indistinguishable from missing.
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Parent workspace not found",
-            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),

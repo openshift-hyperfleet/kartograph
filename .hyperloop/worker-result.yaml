@@ -1,119 +1,142 @@
 ---
 verdict: pass
 ---
-## Spec Alignment Review — JobPackage Shared Kernel
+# Spec Alignment Review — Task 007: Bulk Loading
 
-All 103 unit tests pass. All spec requirements are covered by implementation
-and tests. All three PR feedback items have been fully addressed.
+Spec: `specs/graph/bulk-loading.spec.md`
+Branch: `hyperloop/task-007`
+Review cycle: pr-feedback-addressed loop
 
-### Requirement: Package Structure — COVERED
+## Requirement Coverage
 
-- Scenario: Package contents — builder writes exactly manifest.json,
-  changeset.jsonl, content/{hex}, state.json. Tests:
-  test_built_zip_contains_manifest, test_built_zip_contains_changeset,
-  test_built_zip_contains_state, test_built_zip_contains_content_files.
+### Requirement: Operation Partitioning — COVERED
 
-- Scenario: Package naming — archive_name() returns "job-package-{ULID}.zip".
-  Tests: test_archive_name_follows_convention, test_archive_is_a_zip_file.
+**Code:** `src/api/graph/infrastructure/age_bulk_loading/strategy.py` lines 87–174
+- DELETEs: edges deleted first (l. 141–144), then nodes (l. 145–148)
+- CREATEs: nodes created first (l. 152–159), then edges (l. 161–168)
+- UPDATEs: execute last (l. 171–174)
 
-- Scenario: ZIP entry path safety — validate_zip_entry_name enforces no
-  leading slash, no drive letters, no backslash, no null bytes, no ".."
-  segments. Builder validates before write; reader validates all names on
-  construction. Tests: full TestValidateZipEntryName suite (15 tests),
-  TestJobPackageBuilderZipPathSafety, TestJobPackageReaderPathSafety.
+**Tests:** `tests/unit/graph/infrastructure/test_age_bulk_loading_strategy_partitioning.py`
+- `TestOperationPartitioning::test_deletes_execute_before_creates`
+- `TestOperationPartitioning::test_creates_execute_before_updates`
+- `TestOperationPartitioning::test_deletes_execute_before_updates`
+- `TestOperationPartitioning::test_full_ordering_delete_create_update`
+- `TestDeleteOrderingEdgesBeforeNodes::test_delete_edges_before_delete_nodes`
+- `TestCreateOrderingNodesBeforeEdges::test_create_nodes_before_create_edges`
 
-### Requirement: Manifest — COVERED
+All 6 tests pass.
 
-- Scenario: Manifest fields — Manifest dataclass has format_version,
-  data_source_id, knowledge_graph_id, sync_mode, entry_count,
-  content_checksum. Tests: test_manifest_contains_required_fields,
-  test_manifest_data_source_id, test_manifest_entry_count_matches_changeset.
+---
 
-- Scenario: Content checksum computation — builder._compute_content_checksum()
-  and compute_content_checksum() both follow the spec algorithm: sorted
-  lexicographic walk, hex-only filenames, path+"\n"+bytes stream, SHA-256.
-  Symlink resolution, cycle detection, out-of-tree skip all implemented.
-  Tests: full TestComputeContentChecksum suite (11 tests).
+### Requirement: Label and Index Pre-Creation — COVERED
 
-### Requirement: Changeset Format — COVERED
+**Code:**
+- `strategy.py` lines 215–234: `_pre_create_labels_and_indexes()` — computes new labels, creates them via SQL, then creates indexes via `AgeIndexingStrategy`
+- Called at line 338, before label upserts at line 358 — ordering is enforced
 
-- Scenario: Add operation — ChangeOperation.ADD, all fields present.
-  Tests: test_add_entry_serialized_correctly, test_add_entry_fields.
+**Tests:** `tests/unit/graph/infrastructure/test_age_indexing_strategy.py`
+- `TestCreateLabelIndexesForNodes` — 5 tests (btree on id, GIN on properties, btree on prop id text, no start/end indexes, returns count)
+- `TestCreateLabelIndexesForEdges` — 5 tests (btree id, btree start_id, btree end_id, GIN properties, returns count)
+- `TestSkipsExistingIndexes::test_skips_existing_indexes`
+- `TestSkipsExistingIndexes::test_creates_only_missing_indexes`
 
-- Scenario: Modify operation — ChangeOperation.MODIFY, same fields.
-  Tests: test_modify_entry_fields.
+Integration: `tests/integration/test_bulk_loading.py::TestEdgeLabelPreCreation::test_creates_edge_label_tables_on_empty_database`
 
-- Scenario: Rename represented as modify — previous_path in metadata.
-  Tests: test_rename_as_modify_with_previous_path.
+All tests pass.
 
-- Scenario: No delete operation — ChangeOperation enum has only ADD and
-  MODIFY. Tests: test_no_delete_operation, test_only_add_and_modify.
+---
 
-- Scenario: Entry type — reverse-DNS notation enforced by convention.
-  Tests: test_type_uses_reverse_dns_notation.
+### Requirement: Staging-Based Ingestion — COVERED
 
-- Scenario: Content reference — content_ref serialised as "sha256:{hex}".
-  Tests: test_content_ref_in_changeset_uses_sha256_prefix,
-  test_content_ref_format_in_entry.
+**Code:** `src/api/graph/infrastructure/age_bulk_loading/staging.py`
+- `create_node_staging_table()` (l. 23–36): TEMP table with `ON COMMIT DROP`
+- `copy_nodes_to_staging()` (l. 57–97): uses `cursor.copy_from()` — COPY protocol
+- `create_edge_staging_table()` (l. 38–55): TEMP table with graphid columns, `ON COMMIT DROP`
+- `create_graphid_lookup_table()` (l. 200–247): queries `_ag_label_vertex`, `ON COMMIT DROP`, creates index on logical_id
 
-### Requirement: Content-Addressable Storage — COVERED
+**Critical spec requirement — same-batch node materialization:**
+- `strategy.py` line 152–159: CREATE nodes executes first (upsert to graph)
+- `strategy.py` line 161–168: CREATE edges executes second — `create_graphid_lookup_table()` is called at line 294–295 AFTER nodes are inserted
+- PostgreSQL transaction visibility ensures same-batch nodes appear in `_ag_label_vertex` at lookup time
 
-- Scenario: Content file naming — filename is hex digest only, no prefix.
-  Tests: test_content_file_named_by_hex_digest_only, test_filename_is_hex_only.
+**Tests:** `tests/unit/graph/infrastructure/test_staging_table_manager.py`
+- `TestNodeStagingTableCreation` — 4 tests (ON COMMIT DROP, is TEMP, name contains session_id, returns name)
+- `TestEdgeStagingTableCreation` — 3 tests (ON COMMIT DROP, is TEMP, has graphid columns)
+- `TestGraphidLookupTableCreation::test_lookup_table_uses_on_commit_drop`
+- `TestGraphidLookupTableCreation::test_lookup_table_queries_ag_label_vertex` — explicitly verifies `_ag_label_vertex` is queried so same-batch nodes are included
+- `TestGraphidLookupTableCreation::test_lookup_table_creates_index_on_logical_id`
+- `TestGraphidLookupTableCreation::test_returns_tuple_of_name_and_row_count`
 
-- Scenario: Deduplication — add_content() is idempotent on identical bytes.
-  Tests: test_identical_content_stored_once.
+Integration: `test_bulk_loading.py::TestEdgeLabelPreCreation::test_creates_edge_label_tables_on_empty_database` — single batch contains nodes and edges referencing those same-batch nodes; proves same-batch visibility.
 
-- Scenario: Integrity verification — read_content() recomputes SHA-256 and
-  raises ValueError on mismatch. Tests: test_read_content_verifies_integrity.
+All tests pass.
 
-### Requirement: Adapter Checkpoint — COVERED
+---
 
-- Scenario: Checkpoint structure — schema_version required; from_dict raises
-  ValueError if absent. Tests: test_state_json_contains_schema_version,
-  test_requires_schema_version.
+### Requirement: Duplicate and Orphan Detection — COVERED
 
-- Scenario: Opaque ownership — data field is opaque dict; no inspection by
-  other components. Tests: test_state_json_opaque_data_preserved,
-  test_opaque_data_is_dict.
+**Code:** `staging.py`
+- `check_for_duplicate_ids()` (l. 344–374): GROUP BY id HAVING COUNT(*) > 1; calls `probe.duplicate_ids_detected()`; raises `ValueError`
+- `check_for_orphaned_edges()` (l. 293–342): detects NULL start_graphid or end_graphid; calls `probe.orphaned_edges_detected()`; raises `ValueError`
+- `strategy.py` line 321: `check_for_duplicate_ids()` called; line 312: `check_for_orphaned_edges()` called
 
-- Scenario: Snapshot vs authoritative state — documented in docstring;
-  no code enforcement needed (architectural convention).
+**Tests:** `tests/unit/graph/infrastructure/test_staging_table_manager.py`
+- `TestDuplicateIdDetection` — 5 tests (raises ValueError, calls probe, reports multiple, no error when clean, entity type passed to probe)
+- `TestOrphanedEdgeDetection` — 7 tests (raises ValueError, calls probe with IDs, reports missing node IDs, detects missing start, detects missing end, no error when clean, reports multiple orphans)
 
-- Scenario: Schema version mismatch — schema_version field allows adapter to
-  detect and handle version differences. Tests:
-  test_schema_version_mismatch_detectable.
+Integration: `test_bulk_loading.py`
+- `TestBulkLoadingDuplicateDetection::test_duplicate_node_ids_in_same_batch_raises_error`
+- `TestBulkLoadingDuplicateDetection::test_duplicate_edge_ids_in_same_batch_raises_error`
+- `TestOrphanedEdgeDetection::test_edge_to_nonexistent_node_raises_error`
+- `TestOrphanedEdgeDetection::test_edge_from_nonexistent_node_raises_error`
+- `TestOrphanedEdgeDetection::test_multiple_orphaned_edges_lists_all_in_error`
 
-### Requirement: Streaming-Friendly Design — COVERED
+All tests pass.
 
-- Scenario: JSONL streaming — iter_changeset() opens ZIP entry with zf.open(),
-  wraps in io.TextIOWrapper, yields lines lazily one at a time. No full-file
-  buffering. Tests: test_iter_changeset_is_a_generator,
-  test_iter_changeset_multiple_entries.
+---
 
-- Scenario: ZIP random access — read_manifest() uses ZipFile.read() on a
-  named entry without extractall(). Tests:
-  test_read_manifest_without_reading_full_archive.
+### Requirement: Concurrency Safety — COVERED
 
-### PR Feedback Items — ALL ADDRESSED
+**Code:** `strategy.py`
+- Lines 112–115: `sorted(all_labels)` — alphabetical sort before lock acquisition; sort computed once and reused across retry
+- Lines 137–138: locks acquired in `sorted_labels` order — strictly alphabetical
+- Lines 119–196: retry loop — `client.raw_connection.rollback()` at line 194 releases ALL transaction-scoped advisory locks before retry
 
-1. builder.py fail-fast consistency check (lines 140-152): Before writing the
-   ZIP, build() collects all ChangesetEntry content_refs whose hex_digest is
-   absent from self._content and raises ValueError listing all missing refs.
-   Test: test_build_raises_when_content_ref_not_added uses
-   pytest.raises(ValueError, match="[Cc]ontent").
+`queries.py` lines 82–94: `acquire_advisory_lock()` — `pg_advisory_xact_lock()` (transaction-scoped, released on rollback)
 
-2. reader.py streaming iter_changeset (lines 84-92): Uses
-   zf.open("changeset.jsonl") + io.TextIOWrapper for lazy line iteration.
-   No full-file read into memory.
+**Tests:** `tests/unit/graph/infrastructure/test_age_bulk_loading_strategy_partitioning.py`
 
-3. test_reader.py tightened path-safety tests (lines 277-291):
-   - test_reader_rejects_path_traversal_entry: pytest.raises(ValueError).
-   - test_reader_rejects_absolute_path_entry: tampered entry is "/evil"
-     (genuine absolute path, not traversal), pytest.raises(ValueError).
-     Both are specific, not broad (ValueError, Exception).
+Deterministic ordering:
+- `TestAdvisoryLockOrdering::test_labels_acquired_in_alphabetical_order`
+- `TestAdvisoryLockOrdering::test_labels_sorted_before_first_lock`
+- `TestAdvisoryLockOrdering::test_lock_order_is_deterministic_regardless_of_operation_input_order`
+- `TestAdvisoryLockOrdering::test_advisory_locks_acquired_for_create_nodes`
+- `TestAdvisoryLockOrdering::test_advisory_locks_acquired_for_create_edges`
+- `TestAdvisoryLockOrdering::test_each_unique_label_locked_exactly_once`
+- `TestAdvisoryLockOrdering::test_no_locks_acquired_for_delete_only_batch`
 
-### Test Run
+Rollback and retry (critical spec clause: "all previously acquired locks released before retry"):
+- `TestAdvisoryLockRetry::test_retries_on_lock_acquisition_failure_and_succeeds`
+- `TestAdvisoryLockRetry::test_rollback_called_on_lock_failure_before_retry` — explicitly asserts `rollback.assert_called_once()`
+- `TestAdvisoryLockRetry::test_returns_failure_after_all_retries_exhausted`
+- `TestAdvisoryLockRetry::test_retry_attempts_are_bounded_by_max_retries`
+- `TestAdvisoryLockRetry::test_second_lock_failure_triggers_rollback_of_all_held_locks` — two-label scenario; first lock succeeds, second fails; asserts rollback releases both
 
-103 tests collected, 103 passed, 0 failed, 0 errors.
-Command: cd src/api && uv run pytest tests/unit/shared_kernel/job_package/ -v
+Integration: `TestStableAdvisoryLocks` — 4 tests verifying hash determinism and bigint range
+
+All 12 unit + 4 integration tests pass.
+
+---
+
+## Overall Verdict
+
+All SHALL/MUST requirements from `specs/graph/bulk-loading.spec.md` are implemented and tested.
+No PARTIAL or MISSING findings.
+
+| Requirement | Status |
+|---|---|
+| Operation Partitioning | COVERED |
+| Label and Index Pre-Creation | COVERED |
+| Staging-Based Ingestion | COVERED |
+| Duplicate and Orphan Detection | COVERED |
+| Concurrency Safety | COVERED |

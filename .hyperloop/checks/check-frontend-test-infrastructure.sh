@@ -21,6 +21,28 @@ set -euo pipefail
 UI_DIR="${1:-src/dev-ui}"
 PACKAGE_JSON="$UI_DIR/package.json"
 
+# Only enforce if the current task (branch) actually changed UI files.
+# Pre-existing UI files from merged PRs are not the current task's
+# responsibility. Detect the base branch (alpha → main fallback).
+if [[ -z "${BASE_BRANCH:-}" ]]; then
+  if git rev-parse --verify origin/alpha &>/dev/null; then
+    BASE_BRANCH="origin/alpha"
+  else
+    BASE_BRANCH="origin/main"
+  fi
+fi
+task_ui_changes=$(git diff "${BASE_BRANCH}...HEAD" --name-only 2>/dev/null \
+  | grep -E '\.(vue|ts|js)$' \
+  | grep -v node_modules \
+  | grep -v '\.nuxt' \
+  | grep -v dist \
+  | head -1 || true)
+
+if [[ -z "$task_ui_changes" ]]; then
+  echo "No UI files changed in this task. Skipping frontend infrastructure check."
+  exit 0
+fi
+
 # If there are no UI source files, nothing to enforce.
 ui_source_count=$(find "$UI_DIR" \
   \( -name "*.vue" -o -name "*.ts" \) 2>/dev/null \

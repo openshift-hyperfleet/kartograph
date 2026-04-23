@@ -2,72 +2,176 @@
 verdict: pass
 ---
 
-## API Keys — Independent Verification (task-021)
+## Spec Alignment Review — API Keys (task-021)
 
-Fresh end-to-end verification pass. All 6 SHALL requirements and all 17 scenarios
-from the spec confirmed implemented with complete test coverage.
-
----
-
-### Check Results
-
-| # | Check | Result | Details |
-|---|-------|--------|---------|
-| 1 | Unit Tests | **PASS** | 2031 passed, 0 failed, 39 warnings |
-| 2 | Linting (ruff check) | **PASS** | All checks passed |
-| 3 | Formatting (ruff format) | **PASS** | 442 files already formatted |
-| 4 | Type Checking (mypy) | **PASS** | No issues found in 442 source files |
-| 5 | Architecture Boundaries | **PASS** | 40/40 archon tests passed |
-| 6 | Integration Tests | **N/A** | Require running instance; marked `integration` + `keycloak` |
-
-### Code Review
-
-**Domain probes**: All observability goes through typed probe protocols
-(`APIKeyServiceProbe`, `APIKeyRepositoryProbe`). No `logger.*` or `print()` in
-domain or application layers. ✅
-
-**Prefix collision**: `DefaultAPIKeyRepositoryProbe.api_key_prefix_collision()` calls
-`self._logger.error(...)` — correct error-level event as required by spec. ✅
-
-**Plaintext secret**: `APIKeyCreatedResponse` extends `APIKeyResponse` with the
-`secret` field. All list/revoke responses use `APIKeyResponse` which excludes
-`key_hash` and `secret`. The plaintext is only ever returned from the service
-as a tuple, never stored. ✅
-
-**JWT precedence**: `iam/dependencies/user.py` checks `token is not None` before
-`x_api_key is not None`. Integration test confirms invalid JWT with valid API key
-returns 401 (JWT failure takes precedence, no fallthrough). ✅
-
-**Cascade deletion**: Implemented at application layer in `TenantService.delete_tenant()`.
-DB FK uses RESTRICT (not CASCADE) to enforce application-layer handling. Events emitted
-via `mark_for_deletion()` trigger SpiceDB relationship cleanup through the outbox. ✅
-
-**Soft revocation**: `APIKey.revoke()` sets `is_revoked = True`; key remains in DB
-and visible in listings. Integration test (`test_revoked_key_remains_visible_in_listing`)
-chains create → process-outbox → revoke → list to confirm. ✅
-
-**Commit trailers**: Both implementation commits carry correct trailers:
-- `Spec-Ref: specs/iam/api-keys.spec.md@2a791cdb79f8acd5cdf5654fa7efed1075ecf1de`
-- `Task-Ref: task-021`
-
-**Mocking**: `IAPIKeyRepository` and `AuthorizationProvider` mocked with
-`create_autospec` (not plain `AsyncMock`), which enforces the interface contract.
-`AsyncSession` is infrastructure and acceptable to mock directly. ✅
+Independent review of all 6 SHALL requirements and 17 scenarios from
+`specs/iam/api-keys.spec.md` against the implementation on branch
+`hyperloop/task-021`.
 
 ---
 
-### Spec Coverage
+### Requirement 1: API Key Creation — COVERED
 
-| # | Requirement | Scenarios | Status |
-|---|-------------|-----------|--------|
-| 1 | API Key Creation | 3 | COVERED |
-| 2 | API Key Authentication | 5 | COVERED |
-| 3 | API Key Listing | 2 | COVERED |
-| 4 | API Key Revocation | 4 | COVERED |
-| 5 | Cascade Deletion | 1 | COVERED |
-| 6 | Name Validation | 2 | COVERED |
+**Implementation:**
+- `iam/application/security.py`: `API_KEY_PREFIX = "karto_"`, `generate_api_key_secret()`,
+  `hash_api_key_secret()` (bcrypt, work factor 12), `extract_prefix()` (first 12 chars)
+- `iam/application/services/api_key_service.py`: `create_api_key()` checks
+  `CREATE_API_KEY` permission via SpiceDB before creating; returns `(APIKey, plaintext_secret)` tuple
+- `iam/presentation/api_keys/models.py`: `CreateAPIKeyRequest` enforces `min_length=1`,
+  `max_length=255`, `expires_in_days` range `ge=1, le=3650` with default `30`
+- `APIKeyCreatedResponse` adds `secret` field on top of `APIKeyResponse` (which never includes secret)
 
-**Minor observation (non-blocking):** The integration test
-`test_invalid_jwt_with_valid_api_key_uses_api_key` has a misleading name — its
-docstring and assertion correctly describe "JWT error takes precedence" behavior,
-but the method name implies API key is used. No behavior defect; naming only.
+**Scenario: Successful creation** — COVERED
+- Tests: `test_secret_has_karto_prefix`, `test_creates_api_key_with_hashed_secret`,
+  `test_returns_plaintext_secret_only_at_creation`, `test_stores_prefix_from_secret`
+  (all in `tests/unit/iam/application/test_api_key_service.py`)
+
+**Scenario: Duplicate name per user** — COVERED
+- Implementation: Repository `_get_by_name()` checks name/user/tenant uniqueness, raises
+  `DuplicateAPIKeyNameError`; route maps to 409 Conflict
+- Tests: `test_raises_on_duplicate_name` (service), `test_returns_409_on_duplicate_name` (route)
+
+**Scenario: Expiration bounds** — COVERED
+- Implementation: Pydantic `ge=1, le=3650`, default `30`
+- Tests: `test_validates_expires_in_days_minimum`, `test_validates_expires_in_days_maximum`,
+  `test_uses_default_expires_in_days_of_30`, `test_accepts_optional_expires_in_days` (route tests)
+
+---
+
+### Requirement 2: API Key Authentication — COVERED
+
+**Implementation:**
+- `iam/dependencies/user.py` `_authenticate()`: checks JWT (`token is not None`) first,
+  then X-API-Key (`x_api_key is not None`); JWT errors raise immediately, no fallthrough
+- `iam/application/services/api_key_service.py` `validate_and_get_key()`: calls
+  `get_verified_key()`, checks `is_valid()`, calls `record_usage()`, saves
+- `iam/domain/aggregates/api_key.py` `is_valid()`: returns False if revoked or expired
+- `iam/infrastructure/api_key_repository.py` `get_verified_key()`: prefix lookup, bcrypt
+  verification per candidate, logs ERROR probe on collision
+
+**Scenario: Valid key** — COVERED
+- Tests: `test_authenticates_with_valid_api_key` (integration),
+  `test_updates_last_used_at` (service unit)
+
+**Scenario: Expired key** — COVERED
+- Tests: `test_returns_401_for_expired_api_key` (integration — uses direct DB insertion to
+  create past-expired key), `test_returns_none_for_expired_key` (service unit)
+
+**Scenario: Revoked key** — COVERED
+- Tests: `test_returns_401_for_revoked_api_key` (integration), `test_returns_none_for_revoked_key`
+  (service unit)
+
+**Scenario: JWT takes precedence** — COVERED
+- Implementation: `if token is not None:` branch runs and raises 401 on invalid JWT before
+  API key is ever checked
+- Tests: `test_prefers_jwt_when_both_provided` (integration — both auth methods, JWT wins),
+  `test_invalid_jwt_with_valid_api_key_uses_api_key` (integration — confirms JWT error
+  takes precedence, returns 401 rather than falling through to API key)
+
+**Scenario: Prefix collision** — COVERED
+- Implementation: `get_verified_key()` logs `api_key_prefix_collision()` at ERROR level when
+  `len(models) > 1`; iterates all candidates with bcrypt verification
+- Tests: `test_logs_error_on_prefix_collision` (repository unit test — verifies probe called
+  with prefix and count of 2)
+
+---
+
+### Requirement 3: API Key Listing — COVERED
+
+**Implementation:**
+- `list_api_keys()`: uses SpiceDB `lookup_resources()` for permission-scoped key IDs, then
+  repository `list()` with optional `created_by_user_id` filter
+- `APIKeyResponse`: exposes `name`, `prefix`, `created_at`, `expires_at`, `last_used_at`,
+  `is_revoked`; never includes `secret` or `key_hash`
+
+**Scenario: List keys** — COVERED
+- Tests: `test_lists_api_keys_for_user`, `test_never_returns_secret_or_hash` (route tests)
+
+**Scenario: Filter by creator** — COVERED
+- Tests: `test_filters_by_created_by_user_id` (service unit), route-level validation of
+  `user_id` query parameter (empty/whitespace rejected with 400)
+
+---
+
+### Requirement 4: API Key Revocation — COVERED
+
+**Implementation:**
+- `revoke_api_key()`: loads key by tenant (user_id=None for admin path), checks
+  `REVOKE` permission via SpiceDB, calls `api_key.revoke()` which raises
+  `APIKeyAlreadyRevokedError` if already revoked
+- SpiceDB schema: `api_key#revoke = owner + tenant->administrate` (tenant admin path)
+- Soft delete: `is_revoked = True`, row stays in database
+
+**Scenario: Owner revokes own key** — COVERED
+- Tests: `test_owner_can_revoke_own_key` (integration — alice as member/owner, not admin),
+  `test_revokes_existing_key` (service unit)
+
+**Scenario: Tenant admin revokes any key** — COVERED
+- Tests: `test_tenant_admin_can_revoke_other_users_key` (integration — bob creates, alice
+  admin revokes)
+
+**Scenario: Already revoked** — COVERED
+- Tests: `test_raises_when_already_revoked` (service unit), `test_returns_409_when_already_revoked`
+  (route test)
+
+**Scenario: Unauthorized revocation** — COVERED
+- Tests: `test_non_admin_cannot_revoke_other_users_key` (integration — bob tries to revoke
+  alice's key, gets 403), `test_revoke_raises_unauthorized_when_denied` (service unit),
+  `test_revoke_api_key_returns_403_when_unauthorized` (route test)
+
+**Bonus: Revoked key visible in listing** — COVERED
+- Test: `test_revoked_key_remains_visible_in_listing` (integration — full chain: create →
+  process outbox → revoke → list → assert `is_revoked=True`)
+
+---
+
+### Requirement 5: API Key Cascade Deletion — COVERED
+
+**Implementation:**
+- `iam/application/services/tenant_service.py` `delete_tenant()`: lists all API keys for
+  the tenant, calls `mark_for_deletion()` on each, then `api_key_repository.delete()`
+- DB FK is RESTRICT (not CASCADE) so application layer controls ordering
+- `APIKey.mark_for_deletion()` emits `APIKeyDeleted` domain event → outbox →
+  `SpiceDBEventHandler` cleans up relationships
+
+**Scenario: Tenant deletion** — COVERED
+- Tests: `test_deletes_api_keys_on_tenant_deletion`, `test_deletes_multiple_api_keys_on_tenant_deletion`,
+  `test_api_key_mark_for_deletion_emits_deleted_event` (verifies `APIKeyDeleted` event
+  reaches the repository for SpiceDB cleanup),
+  `test_api_key_repo_queried_by_tenant_on_deletion`
+  (all in `tests/unit/iam/application/test_tenant_service.py`)
+
+---
+
+### Requirement 6: API Key Name Validation — COVERED
+
+**Implementation:**
+- `CreateAPIKeyRequest.name`: `min_length=1`, `max_length=255` (Pydantic Field)
+- FastAPI returns 422 for constraint violations before service is called
+
+**Scenario: Valid name** — COVERED
+- Covered implicitly by all successful creation tests (201 responses with valid names)
+
+**Scenario: Empty name** — COVERED
+- Test: `test_validates_name_min_length` (route test — empty string → 422)
+
+---
+
+### Summary
+
+| # | Requirement             | Scenarios | Status  |
+|---|-------------------------|-----------|---------|
+| 1 | API Key Creation        | 3         | COVERED |
+| 2 | API Key Authentication  | 5         | COVERED |
+| 3 | API Key Listing         | 2         | COVERED |
+| 4 | API Key Revocation      | 4         | COVERED |
+| 5 | Cascade Deletion        | 1         | COVERED |
+| 6 | Name Validation         | 2         | COVERED |
+
+All 6 SHALL requirements and all 17 scenarios are implemented and tested.
+No gaps found. Verdict: **PASS**.
+
+**Minor observation (non-blocking):** `test_invalid_jwt_with_valid_api_key_uses_api_key`
+has a misleading name — its docstring and behavior correctly describe "JWT error
+takes precedence (returns 401)", but the name implies the API key is used. Naming only;
+no behavioral defect.

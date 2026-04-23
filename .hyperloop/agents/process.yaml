@@ -18,6 +18,10 @@ pipeline:
           require_reviewers: [ "coderabbit[bot]" ]
   - action: merge-pr
 
+hooks:
+  after_reap:
+    - type: process-improver
+
 gates:
   pr-require-label:
     type: label

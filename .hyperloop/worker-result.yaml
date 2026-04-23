@@ -1,68 +1,203 @@
 ---
 verdict: pass
 details: |
-  ## task-003: Graph Mutations — Independent PR Feedback Verification (2026-04-23)
+  ## task-003: Graph Mutations — Full Spec Alignment Review (2026-04-23)
 
   Spec: `specs/graph/mutations.spec.md`
   Branch: `hyperloop/task-003`
-  Unit tests: 2027 passed, 39 warnings
-  Linting: ruff check/format — no issues
-  Type checking: mypy — no issues (441 source files)
+  Unit tests run: 226 graph-context unit tests — ALL PASS
 
-  ### PR Feedback Item Verification
+  ### Requirement 1: Per-Tenant Graph Isolation — COVERED
 
-  #### 1. worker-result.yaml YAML format — PASS
-  Verified: `/usr/bin/python3 -c "import yaml; data=open('.hyperloop/worker-result.yaml').read(); docs=list(yaml.safe_load_all(data)); print(f'OK: {len(docs)} docs, keys={list(docs[0].keys())}')"` returns `OK: 1 docs, keys=['verdict', 'details']`.
-  File uses `details: |` block scalar — valid YAML, parseable by `yaml.safe_load_all`.
+  Implementing code:
+  - `src/api/graph/dependencies.py:40-54` — `get_tenant_graph_name()` returns
+    `f"tenant_{current_user.tenant_id.value}"`
+  - `src/api/graph/dependencies.py:75-102` — `get_age_graph_client()` derives
+    graph name from current user's tenant_id and passes it to AgeGraphClient
+  - `src/api/graph/infrastructure/mutation_applier.py:131-136` — `apply_batch()`
+    passes `graph_name=self._client.graph_name` to the bulk loading strategy,
+    which uses it in every AGE SQL query
 
-  #### 2. _stamp_knowledge_graph_id not stamping DELETE — PASS (intentional)
-  Verified in `graph_mutation_service.py` lines 72-80: the loop only stamps ops where
-  `op.op in (MutationOperationType.CREATE, MutationOperationType.UPDATE)` AND
-  `op.set_properties is not None`. DELETE ops are passed through unchanged.
-  Test `test_does_not_stamp_on_delete_operation` (line 764 of
-  `tests/unit/graph/application/test_mutation_service.py`) explicitly documents and
-  verifies this intentional behavior: DELETE has no set_properties, and stamping on
-  DELETE would be semantically incorrect.
+  Tests:
+  - `src/api/tests/unit/graph/presentation/test_routes.py:612-640`
+    `TestTenantGraphRouting.test_graph_client_uses_tenant_specific_graph_name`
+    verifies `get_tenant_graph_name` returns `"tenant_t1"` for tenant "t1"
+  - `test_graph_name_uses_full_tenant_id` verifies longer tenant IDs are preserved
 
-  #### 3. Misleading error message in value_objects.py — PASS
-  Verified in `graph/domain/value_objects.py` lines 263-273: the ValueError for
-  missing `knowledge_graph_id` in CREATE now reads:
-    "CREATE requires 'knowledge_graph_id' in set_properties. The system stamps this
-    value when apply_mutations() is called with a knowledge_graph_id parameter.
-    Ensure the caller passes knowledge_graph_id to the service, or include it in
-    set_properties."
-  This clearly explains the stamping mechanism rather than just requiring the field
-  without explanation.
+  ### Requirement 2: KnowledgeGraph Scoping — COVERED
 
-  #### 4. _build_mutation_error_response keyword matching — PASS
-  Verified in `graph/presentation/routes.py` lines 48-64: `_build_mutation_error_response`
-  now uses `result.error_kind == "validation"` to select 422 vs 500. No text scanning.
-  Verified in `graph/domain/value_objects.py` lines 323-340: `MutationResult` has
-  an explicit `error_kind: Literal["validation", "server"] | None = None` field.
-  All failure paths in `graph_mutation_service.py` set `error_kind="validation"` for
-  validation errors (missing type def, missing required props, JSON/Pydantic errors)
-  and `error_kind="server"` for the unexpected catch-all.
-  Tests `TestMutationResultErrorKind` (line 852 of test_mutation_service.py) and
-  `TestKGMutationsErrorStatusCodes` (line 474 of test_routes.py) exist and pass.
+  Scenario: Mutation authorization
+  - `src/api/graph/presentation/routes.py:111-121` — checks SpiceDB `edit`
+    permission on the knowledge graph resource, raises 403 if denied
+  Tests:
+  - `test_routes.py:363-386` `test_kg_mutations_route_forbidden_without_edit_permission`
+  - `test_routes.py:388-416` `test_kg_mutations_route_checks_correct_resource`
 
-  #### 5. _make_op missing start_id/end_id for edge CREATE — PASS
-  Verified in `tests/unit/graph/infrastructure/test_mutation_applier_sort.py`
-  lines 41-44: EDGE CREATE operations include `start_id="node:0000000000000001"` and
-  `end_id="node:0000000000000002"`. Commit `c7ec6f6c` addressed this.
+  Scenario: KnowledgeGraph ID stamping
+  - `src/api/graph/application/services/graph_mutation_service.py:54-80`
+    `_stamp_knowledge_graph_id()` overwrites any caller-provided `knowledge_graph_id`
+    on CREATE/UPDATE ops; does NOT stamp DELETE (DELETE has no set_properties)
+  - `routes.py:124-128` passes `knowledge_graph_id` from path param to service
+  Tests:
+  - `test_mutation_service.py:644-688` `test_stamps_knowledge_graph_id_on_create_operation`
+  - `test_mutation_service.py:690-732` `test_overwrites_caller_provided_knowledge_graph_id`
+  - `test_mutation_service.py:734-762` `test_stamps_knowledge_graph_id_on_update_operation`
+  - `test_mutation_service.py:764-791` `test_does_not_stamp_on_delete_operation`
+  - `test_routes.py:418-446` `test_kg_mutations_route_passes_knowledge_graph_id_to_service`
 
-  ### Git Log — Conventional Commits Verified
-  - `9c95110f refactor(graph): address PR feedback — explicit error_kind on MutationResult`
-  - `c7ec6f6c fix(test): add start_id/end_id to edge CREATE operations in sort test helper`
+  Spec note on DELETE + knowledge_graph_id: The spec (lines 27-31) states
+  knowledge_graph_id is stamped on CREATE/UPDATE only. DELETE has no set_properties
+  and no KG match criteria per spec — omitting the stamp from DELETE is CORRECT.
+  CodeRabbit's flag is NOT a spec violation.
 
-  Both commits are present with conventional commit format (type(scope): message).
+  ### Requirement 3: Mutation Log Format — COVERED
 
-  ### Full Test Suite
-  2027 unit tests passed, 39 warnings (only harmless coroutine RuntimeWarnings from
-  unrelated IAM infrastructure tests using older async mock patterns).
-  ruff check: all checks passed.
-  ruff format: 441 files already formatted.
-  mypy: no issues found in 441 source files.
+  Scenario: Valid JSONL
+  - `graph_mutation_service.py:254-299` — parses lines via `json.loads`, creates
+    `MutationOperation` objects in order, calls `apply_mutations()`
+  Test: `test_mutation_service.py:485-521` `test_parses_jsonl_and_applies_mutations`
+
+  Scenario: Parse error on a line
+  - `graph_mutation_service.py:271-282` — JSONDecodeError returns
+    `errors=["JSON parse error on line {line_num}: ...", "Line content: {preview}"]`
+  Test: `test_mutation_service.py:579-613` `test_returns_error_on_invalid_json`
+  verifies: line number present, content preview in second error entry
+
+  Scenario: Empty lines
+  - `graph_mutation_service.py:258-260` — strips and skips blank lines with `continue`
+  Test: `test_mutation_service.py:545-577` `test_handles_whitespace_only_lines`
+
+  ### Requirement 4: DEFINE Operation — COVERED
+
+  Scenario: Define a node type
+  - `graph_mutation_service.py:198-213` — for DEFINE, computes system props via
+    `get_system_properties_for_entity(op.type)`, unions with declared required_props,
+    saves TypeDefinition to repository
+  - `value_objects.py:61-81` — `get_system_properties_for_entity(NODE)` returns
+    `{data_source_id, source_path, slug}`
+  Tests:
+  - `test_mutation_service.py:69-109` `test_apply_mutations_stores_define_operations`
+    verifies all three node system properties are in `required_properties`
+
+  Scenario: Define an edge type
+  - `get_system_properties_for_entity(EDGE)` returns `{data_source_id, source_path}` (no slug)
+  Test: `test_mutation_service.py:111-157` `test_apply_define_edge_type_adds_edge_system_properties`
+
+  ### Requirement 5: CREATE Operation — COVERED
+
+  Scenario: Create a new node (idempotent merge)
+  - `age_bulk_loading/strategy.py:303-329` — `_execute_creates()` calls
+    `execute_label_upsert()` which uses a MERGE/upsert approach
+  - `age_bulk_loading/queries.py` — `_build_update_existing_query` uses jsonb `||`
+    merge operator (not replacement), preserving existing properties
+  Test: `test_age_query_builder_update_merge.py:50-67`
+  `test_uses_jsonb_merge_operator_not_simple_assignment`
+
+  Scenario: Create an existing node (idempotent merge)
+  - Same `execute_label_upsert` path: existing props preserved via jsonb `||`
+  Test: `test_age_query_builder_update_merge.py:69-94`
+  `test_does_not_overwrite_with_staging_properties_alone`
+
+  Scenario: Create an edge
+  - `strategy.py:79-83, 222-330` — EDGE CREATE path uses edge staging table,
+    resolves graphids from start_id/end_id, inserts edge
+  - `value_objects.py:259-262` — `validate_operation()` requires `start_id` and `end_id`
+  Test: `test_domain_value_objects.py:249-265` `test_create_edge_valid`
+
+  Scenario: Missing type definition
+  - `graph_mutation_service.py:119-135` — returns failure with `error_kind="validation"`
+  Test: `test_mutation_service.py:260-297` `test_rejects_create_without_define_in_batch`
+
+  Scenario: Missing required properties
+  - `graph_mutation_service.py:136-155` — validates required props from type def
+  Test: `test_mutation_service.py:392-436` `test_rejects_create_missing_required_properties`
+
+  Scenario: Schema learning
+  - `graph_mutation_service.py:310-382` `_discover_optional_properties()` — adds
+    extra props to type def's optional_properties after successful mutations
+  Tests: `test_schema_learning.py:45-98` `test_extra_properties_added_to_optional`
+
+  ### Requirement 6: UPDATE Operation — COVERED
+
+  Scenario: Set properties
+  - `age_bulk_loading/strategy.py:396-399` — calls `update_properties()` for set_properties
+  Test: `test_domain_value_objects.py:390-398` `test_update_with_set_properties`
+
+  Scenario: Remove properties
+  - `age_bulk_loading/strategy.py:401-404` — calls `remove_properties()` for remove_properties
+  Test: `test_domain_value_objects.py:400-409` `test_update_with_remove_properties`
+
+  Scenario: Schema learning on update
+  - `graph_mutation_service.py:336` — schema learning loop includes UPDATE ops
+  Test: `test_schema_learning.py:196-227` `test_update_discovers_optional_properties`
+
+  ### Requirement 7: DELETE Operation — COVERED
+
+  Scenario: Delete a node (cascading)
+  - `age_bulk_loading/queries.py` `delete_node_with_detach()` — executes two queries:
+    first deletes edges (WHERE start_id=X OR end_id=X), then deletes the node
+  Test: `test_age_query_builder_deletes.py:23-108`
+  `TestDeleteNodeWithDetach` — verifies two-query approach, edge deletion references
+  both start_id and end_id (cascading)
+
+  Scenario: Delete an edge
+  - `age_bulk_loading/queries.py` `delete_edge()` — single query, edge only
+  Test: `test_age_query_builder_deletes.py:124-188` `TestDeleteEdge`
+
+  ### Requirement 8: Mandatory System Properties — COVERED
+
+  Scenario: Node system properties
+  - `value_objects.py:243-272` `validate_operation()` for CREATE — checks
+    `data_source_id`, `source_path`, `slug`, `knowledge_graph_id` in set_properties
+  Tests:
+  - `test_domain_value_objects.py:267-282` `test_create_node_requires_knowledge_graph_id`
+  - `test_domain_value_objects.py:328-341` `test_create_requires_data_source_id`
+  - `test_domain_value_objects.py:343-356` `test_create_requires_source_path`
+  - `test_domain_value_objects.py:358-371` `test_create_node_requires_slug`
+
+  Scenario: Edge system properties
+  - `value_objects.py:250-262` — data_source_id, source_path, knowledge_graph_id checked;
+    slug explicitly NOT required for edges (`if self.type == "node":`)
+  Tests:
+  - `test_domain_value_objects.py:284-300` `test_create_edge_requires_knowledge_graph_id`
+  - `test_create_define_same_batch_validation.py:100-139` `test_edge_does_not_require_slug`
+
+  ### Requirement 9: Deterministic Entity IDs — COVERED
+
+  Scenario: ID format
+  - `value_objects.py:21` — `ID_REGEX = r"^[0-9a-z_]+:[0-9a-f]{16}$"` enforced via Pydantic
+  - `shared_kernel/graph_primitives/entity_id_generator.py:58-128` — `EntityIdGenerator.generate()`
+    produces `{normalized_type}:{sha256_first_16_hex}` — deterministic (same inputs = same ID)
+  Tests:
+  - `test_domain_value_objects.py:466-482` — ID pattern validation and acceptance
+  - `test_graph_repository.py:72-117` — determinism, type prefix, hex chars verified
+
+  ### Requirement 10: Referential Integrity Ordering — COVERED
+
+  Scenario: Operation ordering
+  - `mutation_applier.py:50-81` `_sort_operations()` — sort key: DEFINE=0, DELETE=1,
+    CREATE=2, UPDATE=3; DELETE edges (type_priority=0) before nodes (1);
+    CREATE nodes (0) before edges (1)
+  Tests:
+  - `test_mutation_applier_sort.py:54-163`
+    `TestSortOperationsReferentialIntegrity.test_sort_order_define_delete_create_update`
+    asserts exact position of each op type in full 6-op mixed batch
+  - `test_mutation_applier_sort.py:165-195` `test_sort_preserves_all_operations`
+  - `test_mutation_applier_sort.py:197-216` `test_sort_homogeneous_list_unchanged_length`
+
+  ### CodeRabbit-Flagged Items — All Resolved or Non-Issues
+
+  1. DELETE not stamped with knowledge_graph_id: SPEC-CORRECT. Spec lines 27-31
+     state stamping applies to CREATE/UPDATE only. DELETE has no set_properties.
+     Explicit test `test_does_not_stamp_on_delete_operation` confirms intentional.
+
+  2. worker-result.yaml YAML format (`details: |` block scalar): VALID YAML.
+     The `|` block scalar is standard YAML 1.2. Previously confirmed by yaml.safe_load_all.
+
+  3. Missing start_id/end_id in sort test helper: FIXED in commit c7ec6f6c.
+     `test_mutation_applier_sort.py:41-44` now includes `start_id` and `end_id`
+     for EDGE CREATE operations.
 
   ### Verdict
-  All 5 PR feedback items are properly addressed. The implementation is clean,
-  tests pass, linting is clean, and type checking passes with no errors.
+  PASS. All 10 spec requirements are fully implemented and tested. All 226
+  graph-context unit tests pass. No spec deviations detected.

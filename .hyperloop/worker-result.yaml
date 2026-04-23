@@ -1,56 +1,72 @@
 ---
 verdict: pass
 ---
-## Task 017: Outbox Pattern — Worker Implementation Verdict
+## Task 017: Outbox Pattern — Independent Reviewer Verdict
 
 Branch: `hyperloop/task-017`
+Base: `alpha`
 Spec: `specs/shared-kernel/outbox.spec.md`
 
 ---
 
-### Implementation Summary
+### Checklist
 
-The transactional outbox pattern is fully implemented across the shared-kernel,
-infrastructure, IAM, and management bounded contexts.
-
----
-
-### Requirement Coverage
-
-| # | Requirement | Verdict | Key Files |
-|---|---|---|---|
-| REQ-1 | Transactional Event Storage | PASS | `infrastructure/outbox/repository.py` — `append()` never commits; caller owns the transaction boundary |
-| REQ-2 | Event Processing (normal / transient / DLQ) | PASS | `infrastructure/outbox/worker.py` — `_mark_processed`, `_increment_retry`, `_move_to_dlq` |
-| REQ-3 | Idempotent Event Handlers | PASS | `infrastructure/outbox/spicedb_handler.py` — SpiceDB write_relationship is an upsert |
-| REQ-4 | Concurrent Worker Safety | PASS | `OutboxRepository.fetch_unprocessed` uses `SELECT … FOR UPDATE SKIP LOCKED` |
-| REQ-5 | Dual Delivery (NOTIFY + polling) | PASS | `OutboxWorker.start()` spawns both `_poll_loop` and `PostgresNotifyEventSource` tasks |
-| REQ-6 | Event Fan-Out + Unknown Type DLQ | PASS | `infrastructure/outbox/composite.py` — `CompositeEventHandler` fans out; unknown types raise `UnknownEventTypeError` → immediate DLQ |
+| # | Check | Result |
+|---|---|---|
+| 1 | Unit tests (`uv run pytest tests/unit -v`) | **PASS** — 2187 passed, 0 failures, 0 errors |
+| 2 | Linting (`ruff check .`) | **PASS** — All checks passed |
+| 3 | Formatting (`ruff format --check .`) | **PASS** — 459 files already formatted |
+| 4 | Type checking (`mypy`) | **PASS** — No issues in 459 source files |
+| 5 | Architecture boundaries (`test_architecture.py`) | **PASS** — 40 passed |
+| 6 | Hyperloop check scripts | **PASS** — All applicable scripts passed |
+| 7 | Commit trailers | **PASS** — All 3 implementation commits carry `Spec-Ref` and `Task-Ref` |
+| 8 | No direct `logger.*`/`print()` in changed source | **PASS** — Domain probes used exclusively |
+| 9 | No `MagicMock`/`AsyncMock` for pure domain objects | **PASS** — Infra-level ports mocked; `FakeAuthorizationProvider` used for domain collaborator in idempotency test |
 
 ---
 
-### Test Summary
+### What Changed (diff vs `alpha`)
 
-- **268 outbox-specific unit tests** pass (shared_kernel, infrastructure, iam, management layers).
-- **2187 total unit tests** pass — zero regressions.
-- Integration tests in `tests/integration/iam/test_outbox_consistency.py` cover:
-  - Atomicity: both aggregate and outbox entry commit or roll back together.
-  - Worker processing: `_process_batch()` marks entries processed and writes SpiceDB relationships.
-  - Idempotency: double-invocation of `handle()` produces identical final state.
-  - NOTIFY-driven processing: sub-second pickup via `asyncpg-listen`.
+Three implementation commits since `alpha`:
 
-### Architecture
+1. **`cf70ecb8`** `test(outbox)`: Missing spec scenario unit tests for retry, DLQ, unknown
+   event type (`TestOutboxWorkerRetryBehavior`, `TestOutboxWorkerConcurrentSafety`,
+   `TestOutboxWorkerIdempotency`).
 
-- Shared-kernel ports in `shared_kernel/outbox/` — no framework imports.
-- Infrastructure in `infrastructure/outbox/` — implements ports, may import domain.
-- Bounded-context translators in `iam/infrastructure/outbox/` and `management/infrastructure/outbox/`.
-- Architecture boundaries enforced by `pytest-archon` tests in `test_architecture.py`.
+2. **`5a272f03`** `test`: Idempotent event handler integration test
+   (`TestIdempotentEventHandlers`) in `tests/integration/iam/test_outbox_consistency.py`.
 
-### Observability
+3. **`1f5515e1`** `fix(checks)`: ERE pattern corrections and task-scope awareness in
+   `.hyperloop/checks/` scripts.
 
-Domain-Oriented Observability implemented: `DefaultOutboxWorkerProbe` and
-`DefaultEventSourceProbe` use structlog internally; business logic calls only probe
-methods — no `logger.*` or `print()` in non-probe code.
+New/modified source files:
+- `shared_kernel/outbox/exceptions.py` — `UnknownEventTypeError` (permanent-failure
+  sentinel, not a `ValueError` subclass).
+- `infrastructure/outbox/composite.py` — raises `UnknownEventTypeError` instead of
+  `ValueError` for unregistered event types.
+- `infrastructure/outbox/worker.py` — catches `UnknownEventTypeError` *before* the
+  generic `Exception` handler and immediately moves the entry to DLQ (no retry
+  increment), satisfying the spec's "unknown types are permanent failures" requirement.
+- `tests/unit/shared_kernel/outbox/test_exceptions.py` — 6 unit tests for
+  `UnknownEventTypeError`.
 
-### Working Tree
+---
 
-Clean — no `.hyperloop/state/` files tracked. No uncommitted changes.
+### Minor Fix Applied by Reviewer
+
+`infrastructure/outbox/composite.py` docstring (line 74) still said "raises ValueError"
+after the type was changed to `UnknownEventTypeError`. Fixed in-place; all tests still
+pass, linting and formatting clean.
+
+---
+
+### Spec Requirement Coverage
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| REQ-1: Transactional Event Storage | PASS | `OutboxRepository.append()` never commits; caller owns the transaction boundary |
+| REQ-2: Event Processing (normal / transient / DLQ) | PASS | `_mark_processed`, `_increment_retry`, `_move_to_dlq`; unit tests cover all three scenarios |
+| REQ-3: Idempotent Event Handlers | PASS | SpiceDB `write_relationship` is an upsert; integration test confirms identical state on double-invocation |
+| REQ-4: Concurrent Worker Safety | PASS | `fetch_unprocessed` uses `SELECT … FOR UPDATE SKIP LOCKED` (verified by SQL compilation test) |
+| REQ-5: Dual Delivery (NOTIFY + polling) | PASS | `OutboxWorker.start()` runs both poll loop and `PostgresNotifyEventSource` |
+| REQ-6: Event Fan-Out / Unknown Type DLQ | PASS | `CompositeEventHandler` fans out to multiple handlers; unknown type → `UnknownEventTypeError` → immediate DLQ (bypass retry logic) |

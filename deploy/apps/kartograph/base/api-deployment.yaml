@@ -115,6 +115,13 @@ spec:
                   key: SPICEDB_USE_TLS
             - name: SPICEDB_CERT_PATH
               value: /etc/spicedb-ca/service-ca.crt
+            # CORS config
+            - name: KARTOGRAPH_CORS_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: kartograph-config
+                  key: KARTOGRAPH_CORS_ORIGINS
+                  optional: true
             # Outbox worker config
             - name: KARTOGRAPH_OUTBOX_ENABLED
               valueFrom:

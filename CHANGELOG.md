@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.32.4](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.3...v3.32.4) (2026-04-23)
+
+
+### Bug Fixes
+
+* **deploy:** use metrics port 9090 /metrics for SpiceDB health probes ([#438](https://github.com/openshift-hyperfleet/kartograph/issues/438)) ([b442785](https://github.com/openshift-hyperfleet/kartograph/commit/b44278515e9e896c03a4bf6a5f2e5a59dfd2c856))
+
 ## [3.32.3](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.2...v3.32.3) (2026-04-23)
 
 

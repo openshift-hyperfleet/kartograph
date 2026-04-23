@@ -435,9 +435,10 @@ class TestWorkspaceCreationAuthorization:
             headers=bob_tenant_auth_headers,
             json={"name": "bob_child_child", "parent_workspace_id": child_ws_id},
         )
-        assert resp.status_code == 403, (
-            f"Tenant member without workspace role should NOT be able to create "
-            f"under child workspace, got {resp.status_code}: {resp.text}"
+        assert resp.status_code == 404, (
+            f"Tenant member without workspace role should get 404 (not-found) when "
+            f"attempting to create under child workspace (per spec: no distinction "
+            f"between unauthorized and missing parent), got {resp.status_code}: {resp.text}"
         )
 
     @pytest.mark.asyncio

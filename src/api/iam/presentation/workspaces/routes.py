@@ -80,9 +80,11 @@ async def create_workspace(
         return WorkspaceResponse.from_domain(workspace)
 
     except UnauthorizedError:
+        # No distinction between unauthorized and missing — a parent workspace the
+        # user cannot access is indistinguishable from one that does not exist.
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to perform this action",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Parent workspace not found",
         )
     except DuplicateWorkspaceNameError as e:
         raise HTTPException(

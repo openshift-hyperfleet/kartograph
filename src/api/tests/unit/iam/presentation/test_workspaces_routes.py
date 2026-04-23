@@ -221,6 +221,31 @@ class TestCreateWorkspace:
         # Pydantic validation catches empty name (min_length=1)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
+    def test_create_workspace_returns_404_when_unauthorized_on_parent(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+        root_workspace: Workspace,
+    ) -> None:
+        """Test POST /workspaces returns 404 when user lacks permission on parent.
+
+        Per spec: no distinction between unauthorized and missing — a workspace
+        the user cannot access is indistinguishable from one that doesn't exist.
+        """
+        mock_workspace_service.create_workspace.side_effect = UnauthorizedError(
+            "User lacks create_child permission on parent workspace"
+        )
+
+        response = test_client.post(
+            "/iam/workspaces",
+            json={
+                "name": "Engineering",
+                "parent_workspace_id": root_workspace.id.value,
+            },
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_create_workspace_returns_401_when_not_authenticated(
         self,
         unauthenticated_test_client: TestClient,

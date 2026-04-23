@@ -1,29 +1,12 @@
 ---
 verdict: pass
 detail: |
-  task-017 Outbox Pattern — spec alignment re-review PASS (round 11).
+  task-017 Outbox Pattern — spec alignment re-review PASS (round 12).
 
   All 6 SHALL requirements covered. All CodeRabbit feedback rounds 1-5
   verified addressed or confirmed as false positives.
   Fresh test run: 2413/2413 passed (full suite), 81/81 outbox-specific
   tests passed.
-
-  ## Changes This Round
-
-  Fixed unescaped dot in grep patterns across both check scripts:
-  - check-frontend-test-infrastructure.sh: grep -v ".nuxt" → grep -v "\.nuxt"
-    (ui_source_count block, line ~65)
-  - check-frontend-tests-exist.sh: grep -v ".nuxt" → grep -v "\.nuxt"
-    (ui_source_count block and test_files block)
-
-  Both scripts already used grep -v '\.nuxt' (escaped) in the task_ui_changes
-  block; the ui_source_count / test_files blocks were inconsistent.
-  Without escaping, the dot matches any character (grep regex semantics),
-  allowing paths like "anuxt/" to be incorrectly excluded.
-
-  Added comment to ui_source_count in check-frontend-test-infrastructure.sh
-  clarifying it counts *.vue, *.ts, AND *.js (same set as task_ui_changes)
-  to prevent recurring CodeRabbit false positive on this point.
 
   ## Check Results
 
@@ -42,7 +25,25 @@ detail: |
   10. Commit trailers: PASS — Spec-Ref and Task-Ref present on all
       implementation commits.
 
-  ## CodeRabbit dlq_at Claim — False Positive (Verified Again)
+  ## Latest Changes (Round 11 → Round 12)
+
+  The round 11 fix (dae883c5) addressed the unescaped dot bug in both
+  check scripts:
+  - check-frontend-test-infrastructure.sh: grep -v ".nuxt" → grep -v "\.nuxt"
+    in ui_source_count block
+  - check-frontend-tests-exist.sh: grep -v ".nuxt" → grep -v "\.nuxt"
+    in ui_source_count block and test_files block
+
+  Both scripts already used grep -v '\.nuxt' (escaped) in the task_ui_changes
+  block. The fix ensures consistency across all three occurrence sites.
+
+  An explicit comment was added to ui_source_count in
+  check-frontend-test-infrastructure.sh confirming it counts *.vue, *.ts,
+  AND *.js — the same file-type set as task_ui_changes.
+
+  Round 12 confirms all checks still pass after round 11 fixes.
+
+  ## CodeRabbit dlq_at Claim — False Positive (Verified)
 
   CodeRabbit claimed the worker sets dlq_at but repository filters on
   failed_at. Verified false positive by reading the actual source:
@@ -55,7 +56,7 @@ detail: |
   consistent: worker, repository, and tests all use failed_at as the
   dead-letter marker.
 
-  ## CodeRabbit .js Consistency — False Positive (Now Also Documented)
+  ## CodeRabbit .js Consistency — False Positive (Documented)
 
   CodeRabbit repeatedly claimed ui_source_count only counted *.vue and *.ts.
   In fact, the *.js pattern has been present since round 3:
@@ -63,9 +64,9 @@ detail: |
     ui_source_count=$(find "$UI_DIR" \
       \( -name "*.vue" -o -name "*.ts" -o -name "*.js" \) 2>/dev/null \
 
-  This round adds an explicit comment on that block and fixes the unescaped
-  dot bug (grep -v ".nuxt" → grep -v "\.nuxt") to give CodeRabbit a clear
-  diff that is unambiguously correct.
+  Round 11 added an explicit comment on that block and fixed the unescaped
+  dot bug (grep -v ".nuxt" → grep -v "\.nuxt") to provide a clear diff
+  that is unambiguously correct.
 
   ## All CodeRabbit Rounds Summary
 
@@ -82,8 +83,8 @@ detail: |
     surfacing — FIXED in commit ad4d23a0.
 
   Round 5: Re-raises check-frontend-test-infrastructure.sh .js consistency —
-    FALSE POSITIVE. Fix in place since round 3. This round adds an explicit
-    comment and fixes the unescaped-dot bug to provide a clear diff.
+    FALSE POSITIVE. Fix in place since round 3. Round 11 adds explicit
+    comment and fixes unescaped-dot bug to provide clear diff.
 
   ## Spec Requirements Coverage
 

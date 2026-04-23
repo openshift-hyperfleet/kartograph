@@ -241,3 +241,38 @@ class TestSchemaLearning:
         # Should NOT attempt schema learning
         mock_type_repo.get.assert_not_called()
         mock_type_repo.save.assert_not_called()
+
+    def test_knowledge_graph_id_excluded_from_schema_learning(
+        self, service, mock_type_repo
+    ):
+        """knowledge_graph_id should NOT be added to type definition's optional props."""
+        existing_type_def = TypeDefinition(
+            label="person",
+            entity_type=EntityType.NODE,
+            description="A person",
+            required_properties={"slug", "name"},
+        )
+        mock_type_repo.get.return_value = existing_type_def
+
+        create_op = MutationOperation(
+            op=MutationOperationType.CREATE,
+            type=EntityType.NODE,
+            id="person:abc123def456789a",
+            label="person",
+            set_properties={
+                "slug": "alice",
+                "name": "Alice",
+                "data_source_id": "ds-123",
+                "source_path": "people/alice.md",
+                "knowledge_graph_id": "kg-123",  # Platform-stamped, should NOT be learned
+                "custom_field": "value",  # User prop - SHOULD be learned
+            },
+        )
+
+        service.apply_mutations([create_op])
+
+        # custom_field should be added as optional, but knowledge_graph_id should NOT
+        mock_type_repo.save.assert_called_once()
+        updated_type_def = mock_type_repo.save.call_args[0][0]
+        assert "custom_field" in updated_type_def.optional_properties
+        assert "knowledge_graph_id" not in updated_type_def.optional_properties

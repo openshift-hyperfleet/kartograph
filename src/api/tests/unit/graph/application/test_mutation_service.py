@@ -562,3 +562,218 @@ class TestGraphMutationServiceApplyFromJSONL:
         assert result.success is False
         assert result.operations_applied == 0
         assert len(result.errors) > 0
+
+
+class TestKnowledgeGraphIdStamping:
+    """Tests for knowledge_graph_id stamping behavior in GraphMutationService.
+
+    The system stamps knowledge_graph_id on all CREATE and UPDATE operations,
+    ensuring callers cannot spoof the graph ID.
+    """
+
+    def test_stamps_knowledge_graph_id_on_create_operation(self):
+        """Service should stamp knowledge_graph_id on CREATE operations."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True, operations_applied=1
+        )
+        mock_type_def_repo = Mock()
+        mock_type_def_repo.get.return_value = TypeDefinition(
+            label="person",
+            entity_type=EntityType.NODE,
+            description="A person",
+            required_properties={"slug", "name"},
+        )
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.CREATE,
+                type=EntityType.NODE,
+                id="person:abc123def456789a",
+                label="person",
+                set_properties={
+                    "slug": "alice",
+                    "name": "Alice",
+                    "data_source_id": "ds-123",
+                    "source_path": "people/alice.md",
+                    # No knowledge_graph_id - service should stamp it
+                },
+            ),
+        ]
+
+        service.apply_mutations(operations, knowledge_graph_id="kg-123")
+
+        # The applier should receive ops with knowledge_graph_id stamped
+        mock_applier.apply_batch.assert_called_once()
+        applied_ops = mock_applier.apply_batch.call_args[0][0]
+        assert len(applied_ops) == 1
+        assert applied_ops[0].set_properties is not None
+        assert applied_ops[0].set_properties.get("knowledge_graph_id") == "kg-123"
+
+    def test_overwrites_caller_provided_knowledge_graph_id(self):
+        """Service should overwrite any caller-provided knowledge_graph_id."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True, operations_applied=1
+        )
+        mock_type_def_repo = Mock()
+        mock_type_def_repo.get.return_value = TypeDefinition(
+            label="person",
+            entity_type=EntityType.NODE,
+            description="A person",
+            required_properties={"slug", "name"},
+        )
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.CREATE,
+                type=EntityType.NODE,
+                id="person:abc123def456789a",
+                label="person",
+                set_properties={
+                    "slug": "alice",
+                    "name": "Alice",
+                    "data_source_id": "ds-123",
+                    "source_path": "people/alice.md",
+                    "knowledge_graph_id": "SPOOFED-ID",  # Caller tries to spoof!
+                },
+            ),
+        ]
+
+        service.apply_mutations(operations, knowledge_graph_id="kg-123")
+
+        # The applier should receive ops with CORRECT knowledge_graph_id
+        applied_ops = mock_applier.apply_batch.call_args[0][0]
+        assert applied_ops[0].set_properties.get("knowledge_graph_id") == "kg-123"
+        assert applied_ops[0].set_properties.get("knowledge_graph_id") != "SPOOFED-ID"
+
+    def test_stamps_knowledge_graph_id_on_update_operation(self):
+        """Service should stamp knowledge_graph_id on UPDATE operations with set_properties."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True, operations_applied=1
+        )
+        mock_type_def_repo = Mock()
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.UPDATE,
+                type=EntityType.NODE,
+                id="person:abc123def456789a",
+                set_properties={"name": "Alice Updated"},
+            ),
+        ]
+
+        service.apply_mutations(operations, knowledge_graph_id="kg-456")
+
+        # UPDATE with set_properties should also be stamped
+        applied_ops = mock_applier.apply_batch.call_args[0][0]
+        assert applied_ops[0].set_properties.get("knowledge_graph_id") == "kg-456"
+
+    def test_does_not_stamp_on_delete_operation(self):
+        """Service should NOT stamp knowledge_graph_id on DELETE operations."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True, operations_applied=1
+        )
+        mock_type_def_repo = Mock()
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.DELETE,
+                type=EntityType.NODE,
+                id="person:abc123def456789a",
+            ),
+        ]
+
+        service.apply_mutations(operations, knowledge_graph_id="kg-123")
+
+        # DELETE ops have no set_properties - stamping should not apply
+        applied_ops = mock_applier.apply_batch.call_args[0][0]
+        assert applied_ops[0].set_properties is None
+
+    def test_does_not_stamp_when_knowledge_graph_id_not_provided(self):
+        """Service should not stamp knowledge_graph_id when param is not given."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True, operations_applied=1
+        )
+        mock_type_def_repo = Mock()
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.DELETE,
+                type=EntityType.NODE,
+                id="person:abc123def456789a",
+            ),
+        ]
+
+        # No knowledge_graph_id provided
+        service.apply_mutations(operations)
+
+        # Should still call applier with the operations as-is
+        mock_applier.apply_batch.assert_called_once()
+
+    def test_stamps_knowledge_graph_id_in_jsonl_parse(self):
+        """apply_mutations_from_jsonl should stamp knowledge_graph_id from parameter."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True, operations_applied=1
+        )
+        mock_type_def_repo = Mock()
+        mock_type_def_repo.get.return_value = TypeDefinition(
+            label="person",
+            entity_type=EntityType.NODE,
+            description="A person",
+            required_properties={"slug", "name"},
+        )
+
+        jsonl_content = '{"op":"DEFINE","type":"node","label":"person","description":"A person","required_properties":["slug","name"]}\n{"op":"CREATE","type":"node","id":"person:abc123def456789a","label":"person","set_properties":{"slug":"alice","name":"Alice","data_source_id":"ds-123","source_path":"people/alice.md"}}'
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        service.apply_mutations_from_jsonl(jsonl_content, knowledge_graph_id="kg-789")
+
+        # Applier should receive CREATE op with knowledge_graph_id stamped
+        applied_ops = mock_applier.apply_batch.call_args[0][0]
+        create_op = next(o for o in applied_ops if o.op == MutationOperationType.CREATE)
+        assert create_op.set_properties.get("knowledge_graph_id") == "kg-789"

@@ -49,7 +49,7 @@ fi
 
 # Check whether there are any Vue/TS source files in the UI directory
 ui_source_count=$(find "$UI_SOURCE_DIR" \
-  -name "*.vue" -o -name "*.ts" 2>/dev/null \
+  \( -name "*.vue" -o -name "*.ts" \) 2>/dev/null \
   | grep -v node_modules \
   | grep -v ".nuxt" \
   | grep -v dist \

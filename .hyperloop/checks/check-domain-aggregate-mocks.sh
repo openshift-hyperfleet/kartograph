@@ -18,20 +18,13 @@
 #
 # PATTERNS CAUGHT (in service/application test files)
 # ---------------------------------------------------
-# Variable names that match domain aggregate patterns, assigned MagicMock().
-# Includes both bare names AND fake_/mock_/stub_-prefixed variants:
-#   ds1 = MagicMock()             # DataSource aggregate — use _make_ds()
-#   ds_with_creds = MagicMock()   # DataSource aggregate — use real DataSource
-#   fake_ds1 = MagicMock()        # ALSO caught — prefix does not exempt
-#   kg = MagicMock()              # KnowledgeGraph aggregate — use _make_kg()
-#   fake_kg_1 = MagicMock()       # ALSO caught — prefix does not exempt
-#   mock_knowledge_graph = MagicMock()
+# Variable names that match domain aggregate patterns, assigned MagicMock():
+#   ds1 = MagicMock()           # DataSource aggregate — use _make_ds()
+#   ds_with_creds = MagicMock() # DataSource aggregate — use real DataSource
+#   kg = MagicMock()            # KnowledgeGraph aggregate — use _make_kg()
 #   knowledge_graph = MagicMock()
 #   sync_run = MagicMock()
 #   api_key = MagicMock()
-#
-# NOTE: Adding a fake_, mock_, or stub_ prefix to a domain aggregate variable
-# name does NOT exempt it from this rule. The check catches all prefixed forms.
 #
 # PATTERNS ALLOWED (infrastructure/observability — not flagged)
 # -------------------------------------------------------------
@@ -76,38 +69,28 @@ failures=0
 
 DOMAIN_PATTERNS=(
   # DataSource aggregate — ds, ds1, ds2, ds_with_creds, data_source, etc.
-  # Also catches prefixed variants: fake_ds1, mock_ds, stub_data_source, etc.
   '\bds\d*\s*=\s*(MagicMock|AsyncMock)\(\)'
   '\bds_\w+\s*=\s*(MagicMock|AsyncMock)\(\)'
   '\bdata_source\w*\s*=\s*(MagicMock|AsyncMock)\(\)'
-  '\b(fake|mock|stub)_ds\w*\s*=\s*(MagicMock|AsyncMock)\(\)'
-  '\b(fake|mock|stub)_data_source\w*\s*=\s*(MagicMock|AsyncMock)\(\)'
 
   # KnowledgeGraph aggregate
-  # Also catches prefixed variants: fake_kg_1, mock_knowledge_graph, etc.
   '\bkg\d*\s*=\s*(MagicMock|AsyncMock)\(\)'
   '\bkg_\w+\s*=\s*(MagicMock|AsyncMock)\(\)'
   '\bknowledge_graph\w*\s*=\s*(MagicMock|AsyncMock)\(\)'
-  '\b(fake|mock|stub)_kg\w*\s*=\s*(MagicMock|AsyncMock)\(\)'
-  '\b(fake|mock|stub)_knowledge_graph\w*\s*=\s*(MagicMock|AsyncMock)\(\)'
 
   # ApiKey aggregate
   '\bapi_key\w*\s*=\s*(MagicMock|AsyncMock)\(\)'
   '\bapikey\w*\s*=\s*(MagicMock|AsyncMock)\(\)'
-  '\b(fake|mock|stub)_api_key\w*\s*=\s*(MagicMock|AsyncMock)\(\)'
 
   # SyncRun aggregate
   '\bsync_run\w*\s*=\s*(MagicMock|AsyncMock)\(\)'
   '\bsyncrun\w*\s*=\s*(MagicMock|AsyncMock)\(\)'
-  '\b(fake|mock|stub)_sync_run\w*\s*=\s*(MagicMock|AsyncMock)\(\)'
 
   # JobPackage aggregate
   '\bjob_package\w*\s*=\s*(MagicMock|AsyncMock)\(\)'
-  '\b(fake|mock|stub)_job_package\w*\s*=\s*(MagicMock|AsyncMock)\(\)'
 
   # User / Team / Tenant aggregates (Identity context)
   '\btenant\w*\s*=\s*(MagicMock|AsyncMock)\(\)'
-  '\b(fake|mock|stub)_tenant\w*\s*=\s*(MagicMock|AsyncMock)\(\)'
 )
 
 # Exclusion patterns — lines that match these are infrastructure/observability

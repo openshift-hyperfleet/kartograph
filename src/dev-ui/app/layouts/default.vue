@@ -529,7 +529,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
                       </NuxtLink>
                     </TooltipTrigger>
                     <TooltipContent side="right" :side-offset="8">
-                      {{ item.label }}{{ item.disabled ? ' (Coming Soon)' : '' }}
+                      {{ item.label }}
                     </TooltipContent>
                   </Tooltip>
                 </template>

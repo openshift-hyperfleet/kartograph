@@ -42,6 +42,25 @@ import {
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+interface SyncRun {
+  id: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  started_at: string
+  completed_at: string | null
+  error: string | null
+  created_at: string
+}
+
+interface DataSourceItem {
+  id: string
+  name: string
+  adapter_type: string
+  knowledge_graph_id: string
+  last_sync_at: string | null
+  created_at: string
+  sync_runs?: SyncRun[]
+}
+
 interface AdapterType {
   id: string
   label: string
@@ -115,6 +134,12 @@ const WIZARD_STEPS = 4
 
 // Step 1 – Adapter selection
 const selectedAdapterId = ref('')
+const selectedKnowledgeGraphId = ref('')
+const knowledgeGraphs = ref<Array<{ id: string; name: string }>>([])
+const loadingKgs = ref(false)
+
+// Step 4 – Approval state
+const approvingOntology = ref(false)
 
 // Step 2 – Connection configuration
 const connName = ref('')
@@ -247,6 +272,8 @@ watch(connRepoUrl, (url) => {
 function openWizard() {
   wizardStep.value = 1
   selectedAdapterId.value = ''
+  selectedKnowledgeGraphId.value = ''
+  approvingOntology.value = false
   connName.value = ''
   connRepoUrl.value = ''
   connToken.value = ''
@@ -261,6 +288,7 @@ function openWizard() {
   proposedNodes.value = []
   proposedEdges.value = []
   wizardOpen.value = true
+  loadKnowledgeGraphs()
 }
 
 function selectAdapter(id: string) {
@@ -270,6 +298,7 @@ function selectAdapter(id: string) {
 function nextStep() {
   if (wizardStep.value === 1) {
     if (!selectedAdapterId.value) return
+    if (!selectedKnowledgeGraphId.value) return
     wizardStep.value = 2
     return
   }
@@ -388,24 +417,96 @@ function removeEdge(index: number) {
   proposedEdges.value.splice(index, 1)
 }
 
+// ── Knowledge graph loader ─────────────────────────────────────────────────
+
+async function loadKnowledgeGraphs() {
+  loadingKgs.value = true
+  try {
+    const { apiFetch } = useApiClient()
+    const result = await apiFetch<{ knowledge_graphs: Array<{ id: string; name: string }> }>(
+      '/management/knowledge-graphs'
+    )
+    knowledgeGraphs.value = result.knowledge_graphs ?? []
+  } catch {
+    knowledgeGraphs.value = []
+  } finally {
+    loadingKgs.value = false
+  }
+}
+
+// ── Data source API helpers ────────────────────────────────────────────────
+
+async function createDataSource(params: {
+  kg_id: string
+  name: string
+  adapter_type: string
+  connection_config: Record<string, string>
+  credentials?: Record<string, string>
+}) {
+  const { apiFetch } = useApiClient()
+  return apiFetch(`/management/knowledge-graphs/${params.kg_id}/data-sources`, {
+    method: 'POST',
+    body: {
+      name: params.name,
+      adapter_type: params.adapter_type,
+      connection_config: params.connection_config,
+      credentials: params.credentials,
+    },
+  })
+}
+
 // ── Final approval ─────────────────────────────────────────────────────────
 
-function approveOntology() {
-  // The full data source + ontology pipeline is not yet wired to the backend.
-  // The API adapters will be available in the Ingestion bounded context.
-  toast.info('Data source connection coming soon', {
-    description:
-      'Your configuration and ontology have been reviewed. The full ingestion pipeline will be available in an upcoming release.',
-    duration: 8000,
-  })
-  wizardOpen.value = false
+async function approveOntology() {
+  if (!selectedKnowledgeGraphId.value) {
+    toast.error('Please select a knowledge graph first')
+    return
+  }
+
+  approvingOntology.value = true
+  try {
+    await createDataSource({
+      kg_id: selectedKnowledgeGraphId.value,
+      name: connName.value,
+      adapter_type: selectedAdapterId.value,
+      connection_config: {
+        repo_url: connRepoUrl.value,
+      },
+      credentials: connToken.value ? { access_token: connToken.value } : undefined,
+    })
+    toast.success('Data source connected', {
+      description: `${connName.value} has been connected and extraction will begin shortly.`,
+    })
+    wizardOpen.value = false
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Failed to connect data source'
+    toast.error('Connection failed', { description: msg })
+  } finally {
+    approvingOntology.value = false
+  }
 }
 
 // ── Sync monitoring state ──────────────────────────────────────────────────
 
-// No data sources exist yet (backend not implemented).
-// The list is intentionally empty to reflect real system state.
-const dataSources = ref<never[]>([])
+const dataSources = ref<DataSourceItem[]>([])
+const loadingDataSources = ref(false)
+
+async function loadDataSources() {
+  // Data sources are loaded per-KG, but for this view we show all.
+  // When management routes are available, they'll be fetched from the API.
+  dataSources.value = []
+}
+
+async function triggerSync(dsId: string) {
+  try {
+    const { apiFetch } = useApiClient()
+    await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
+    toast.success('Sync triggered', { description: 'The data source sync has been initiated.' })
+    await loadDataSources()
+  } catch {
+    toast.error('Failed to trigger sync')
+  }
+}
 </script>
 
 <template>
@@ -460,7 +561,45 @@ const dataSources = ref<never[]>([])
 
       <!-- Data source list (shown when sources exist) -->
       <div v-else class="space-y-3">
-        <!-- Future: data source cards with sync status, history, trigger -->
+        <div v-for="ds in dataSources" :key="ds.id" class="rounded-lg border bg-card">
+          <div class="flex items-center justify-between p-4">
+            <div class="flex items-center gap-3">
+              <div class="rounded-md bg-muted p-2">
+                <Cable class="size-4 text-muted-foreground" />
+              </div>
+              <div>
+                <p class="font-medium text-sm">{{ ds.name }}</p>
+                <p class="text-xs text-muted-foreground">{{ ds.adapter_type }}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <Badge
+                :variant="ds.sync_runs?.[0]?.status === 'completed' ? 'default' : ds.sync_runs?.[0]?.status === 'failed' ? 'destructive' : 'secondary'"
+              >
+                {{ ds.sync_runs?.[0]?.status ?? 'idle' }}
+              </Badge>
+              <Button size="sm" variant="outline" @click="triggerSync(ds.id)">
+                Sync Now
+              </Button>
+            </div>
+          </div>
+          <!-- Sync history -->
+          <div v-if="ds.sync_runs && ds.sync_runs.length > 0" class="border-t px-4 py-3">
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Sync History</p>
+            <div class="space-y-1">
+              <div v-for="run in ds.sync_runs" :key="run.id" class="flex items-center gap-2 text-xs text-muted-foreground">
+                <Badge :variant="run.status === 'completed' ? 'default' : run.status === 'failed' ? 'destructive' : 'secondary'" class="text-[10px]">
+                  {{ run.status }}
+                </Badge>
+                <span>{{ new Date(run.started_at).toLocaleString() }}</span>
+                <span v-if="run.completed_at">
+                  ({{ Math.round((new Date(run.completed_at).getTime() - new Date(run.started_at).getTime()) / 1000) }}s)
+                </span>
+                <span v-if="run.error" class="text-destructive">{{ run.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </template>
 
@@ -504,6 +643,25 @@ const dataSources = ref<never[]>([])
           <div>
             <h3 class="text-sm font-semibold">Select an adapter type</h3>
             <p class="text-xs text-muted-foreground">Choose the system you want to import data from.</p>
+          </div>
+
+          <!-- Knowledge graph selection -->
+          <div class="space-y-1.5">
+            <Label>Knowledge Graph <span class="text-destructive">*</span></Label>
+            <select
+              v-if="!loadingKgs && knowledgeGraphs.length > 0"
+              v-model="selectedKnowledgeGraphId"
+              class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            >
+              <option value="">Select a knowledge graph...</option>
+              <option v-for="kg in knowledgeGraphs" :key="kg.id" :value="kg.id">{{ kg.name }}</option>
+            </select>
+            <div v-else-if="loadingKgs" class="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 class="size-4 animate-spin" /> Loading knowledge graphs...
+            </div>
+            <p v-else class="text-sm text-muted-foreground">
+              No knowledge graphs found. <NuxtLink to="/knowledge-graphs" class="text-primary underline">Create one first</NuxtLink>.
+            </p>
           </div>
 
           <div class="grid gap-3 sm:grid-cols-2">

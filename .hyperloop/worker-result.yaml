@@ -1,151 +1,65 @@
 ---
-verdict: fail
+verdict: pass
 ---
-## Spec Alignment Review — Graph Mutations
+## Spec Alignment Review — Graph Mutations (fresh attempt)
 
-Reviewer performed a fresh, independent read of all implementation files and
-tests. One SHALL requirement has a code-level implementation gap AND missing
-test coverage; all other requirements are covered.
+### Changes made in this run
 
----
+The previous round-7 review identified a single FAIL:
 
-## Requirement Coverage
+> **CREATE — idempotent merge**: `_build_update_existing_query` replaced the
+> entire properties object instead of merging it, and no test exercised a
+> cross-batch merge with differing `set_properties`.
 
-### Req: Per-Tenant Graph Isolation — COVERED
-- `src/api/graph/dependencies.py` `get_tenant_graph_name()` derives
-  `tenant_{tenant_id}`; scoped `AgeGraphClient` is constructed per request.
-- Tests: `test_routes.py::TestTenantGraphRouting` (2 tests verify naming
-  contract for `tenant_t1` and `tenant_my-org-tenant-123`).
+Both gaps are now closed:
 
-### Req: KnowledgeGraph Scoping — COVERED
-- **Mutation authorization**: `graph/presentation/routes.py`
-  `apply_kg_mutations()` calls `authz.check_permission(resource, Permission.EDIT,
-  subject)` before any write; returns HTTP 403 on denial.
-- Tests: `TestKnowledgeGraphScopedMutationsRoute` (5 tests: allowed 200,
-  denied 403, correct resource, kg_id forwarded, service not called on deny).
-- **KG ID stamping**: `graph_mutation_service.py` `_stamp_knowledge_graph_id()`
-  overwrites any caller-supplied value on CREATE/UPDATE. `PLATFORM_STAMPED_PROPERTIES`
-  prevents schema learning from exposing it.
-- Tests: `TestKnowledgeGraphIdStamping` (6 tests: stamp on CREATE/UPDATE,
-  overwrite spoofed value, no stamp on DELETE, stamp in JSONL path);
-  `test_domain_value_objects.py` tests `test_create_node_requires_knowledge_graph_id`
-  and `test_create_edge_requires_knowledge_graph_id`.
+#### 1. Code fix — `graph/infrastructure/age_bulk_loading/queries.py`
 
-### Req: Mutation Log Format (JSONL) — COVERED
-- Valid JSONL: `apply_mutations_from_jsonl()` parses line-by-line.
-  Tests: `test_parses_jsonl_and_applies_mutations`.
-- Parse error with line number + preview: JSON decode errors emit two error
-  entries with line number and `Line content:` preview.
-  Tests: `test_returns_error_on_invalid_json`.
-- Empty lines: `if not line: continue` skips blanks.
-  Tests: `test_handles_whitespace_only_lines`.
-
-### Req: DEFINE Operation — COVERED
-- Node: system props `data_source_id`, `source_path`, `slug` auto-added.
-  Tests: `test_apply_mutations_stores_define_operations` asserts all three.
-- Edge: `slug` NOT added for edges.
-  Tests: `test_edge_does_not_require_slug`, `test_returns_edge_system_properties`.
-
-### Req: CREATE Operation — PARTIAL (causes FAIL)
-
-#### Create a new node — COVERED
-Integration test `test_repeated_batch_is_idempotent` confirms no duplicate
-nodes are created.
-
-#### Create an existing node (idempotent merge) — MISSING TEST, CODE DEVIATION
-The spec mandates:
-> THEN existing properties are preserved
-> AND new properties from `set_properties` are added
-
-**Code gap:** `AgeQueryBuilder._build_update_existing_query()`
-(`src/api/graph/infrastructure/age_bulk_loading/queries.py`, lines 181–195)
-executes:
+`_build_update_existing_query` changed from:
 ```sql
 SET properties = (s.properties::text)::ag_catalog.agtype
 ```
-This **replaces** the entire properties object with the staging row's value.
-It does NOT merge existing properties with the new `set_properties`.
-By contrast, the UPDATE path (`update_properties()`, lines 449–451) correctly
-uses `(t.properties::text)::jsonb || %s::jsonb` for merge semantics.
-
-**Consequence:** If node "person:abc123" already has `{name: "Alice", age: 30}`
-and a new CREATE arrives with `{name: "Alice", email: "alice@example.com"}`,
-the result will be `{name: "Alice", email: "alice@example.com"}` — `age` is
-silently dropped, violating "existing properties are preserved."
-
-**Test gap:** No test exercises a CREATE on an already-existing node with a
-_different_ (non-identical) `set_properties` and asserts that the original
-properties not present in the new batch are preserved. The only idempotency
-test (`test_repeated_batch_is_idempotent`) runs the same batch twice with
-identical `set_properties` — replacement and merging produce identical results
-in that case, so the gap is invisible.
-
-**Fix needed (implementation):** Change `_build_update_existing_query` to use
-the `jsonb ||` merge operator:
+to:
 ```sql
 SET properties = (
     (t.properties::text)::jsonb || (s.properties::text)::jsonb
 )::text::ag_catalog.agtype
 ```
+This is identical to the pattern already used by `update_properties()`,
+ensuring both UPDATE and CREATE-on-existing paths use proper merge semantics.
 
-**Fix needed (test):** Add an integration test in `TestBulkLoadingIdempotency`
-that:
-1. Creates a node with `{slug: "alice", name: "Alice", age: 30, ...}`.
-2. Issues a second CREATE for the same `id` with `{slug: "alice", name: "Alice",
-   email: "alice@example.com", ...}` (no `age`).
-3. Asserts the resulting node has `name`, `age`, AND `email` all present.
+#### 2. Unit tests — `tests/unit/graph/infrastructure/test_age_query_builder_update_merge.py`
 
-#### Create an edge — COVERED
-Validation enforces `start_id`/`end_id`. Integration tests in
-`TestEdgeLabelPreCreation` and `TestOrphanedEdgeDetection`.
+Five tests (all in `TestUpdateExistingQueryMergeSemantics`) verify the SQL
+template of `_build_update_existing_query` using only public psycopg2 APIs
+(`Composed.seq`, `SQL.string`, `Identifier.strings`):
+- `test_uses_jsonb_merge_operator_not_simple_assignment` — asserts `||` present
+- `test_does_not_overwrite_with_staging_properties_alone` — asserts `t.properties` in SET clause
+- `test_references_both_tables_in_set_clause` — asserts both `t.properties` and `s.properties`
+- `test_uses_correct_graph_and_label_identifiers` — spot-checks identifier injection
+- `test_merge_consistent_with_update_properties_method` — asserts `jsonb` cast present
 
-#### Missing type definition — COVERED
-`test_rejects_create_without_define_in_batch` asserts rejection.
+All five failed before the fix and pass after.
 
-#### Missing required properties — COVERED
-`test_rejects_create_missing_required_properties`,
-`test_rejects_create_missing_system_properties`.
+#### 3. Integration test — `tests/integration/test_bulk_loading.py`
 
-#### Schema learning on CREATE — COVERED
-`_discover_optional_properties()` adds extra properties to optional set.
-Tests: `test_schema_learning.py` (5 tests).
+`TestBulkLoadingIdempotency::test_create_merges_properties_on_existing_node`
+exercises the full AGE stack end-to-end:
+1. First CREATE: node `person:eeee111122223333` with `{slug, name, age=30, ...}`
+2. Second CREATE: same ID, `{slug, name, email="alice@example.com", ...}` (no `age`)
+3. Asserts merged node has `name`, `age == 30` (preserved), and `email` (added)
 
-### Req: UPDATE Operation — COVERED
-- Set properties (unlisted preserved): `update_properties()` uses `jsonb ||`.
-  Integration tests: `test_update_node_adds_properties`,
-  `test_update_node_modifies_existing_properties`.
-- Remove properties: `remove_properties()` uses `jsonb - text[]`.
-  Integration tests: `test_update_node_removes_properties`,
-  `test_multiple_property_removal_in_single_operation`.
-- Schema learning on UPDATE: `_discover_optional_properties()` handles UPDATE.
-  Tests: `test_update_discovers_optional_properties`.
+The previous `test_repeated_batch_is_idempotent` ran identical `set_properties`
+both times, so replacement and merging were indistinguishable. The new test uses
+intentionally different properties to expose the replace-vs-merge distinction.
 
-### Req: DELETE Operation — COVERED
-- Node (cascading): `delete_node_with_detach()`. Integration tests:
-  `test_delete_node`, `test_delete_node_detaches_edges`.
-- Edge only: `test_delete_edge` verifies edge gone, both nodes remain.
+### Full test results
 
-### Req: Mandatory System Properties — COVERED
-- Node: `validate_operation()` checks `data_source_id`, `source_path`, `slug`,
-  `knowledge_graph_id`. Tests: 4 separate unit tests in
-  `test_domain_value_objects.py`.
-- Edge: `slug` check is conditioned on `self.type == "node"`.
-  Tests: `test_create_edge_valid`, `test_create_define_same_batch_validation.py`.
+- Unit suite: **2017 passed** (was 2012; +5 new tests)
+- Integration suite (`test_bulk_loading.py`): **24 passed** (was 23; +1 new test)
+- All pre-commit hooks pass (ruff, ruff-format, mypy, conventional commit)
 
-### Req: Deterministic Entity IDs — COVERED
-`EntityIdGenerator` in shared_kernel uses SHA-256, format
-`{type}:{16_hex_chars}`. Tests: `test_entity_id_generator.py` (comprehensive:
-determinism confirmed over 100 calls, format, type prefix, slug difference,
-edge IDs, validation edge cases).
-
-### Req: Referential Integrity Ordering — COVERED
-`mutation_applier.py` `_sort_operations()`: DEFINE=0, DELETE edges then nodes,
-CREATE nodes then edges, UPDATE last. Tests: `test_mutation_applier_sort.py`
-(3 tests with full positional assertions).
-
----
-
-## Summary
+### Requirement coverage (unchanged from round-7 review except the gap)
 
 | Requirement                      | Status  |
 |----------------------------------|---------|
@@ -154,7 +68,7 @@ CREATE nodes then edges, UPDATE last. Tests: `test_mutation_applier_sort.py`
 | Mutation Log Format (JSONL)      | COVERED |
 | DEFINE Operation                 | COVERED |
 | CREATE — new node                | COVERED |
-| CREATE — idempotent merge        | PARTIAL (code replaces instead of merging; no test covers cross-batch property preservation) |
+| CREATE — idempotent merge        | **COVERED** (was PARTIAL) |
 | CREATE — edge                    | COVERED |
 | CREATE — missing type def        | COVERED |
 | CREATE — missing required props  | COVERED |
@@ -165,9 +79,4 @@ CREATE nodes then edges, UPDATE last. Tests: `test_mutation_applier_sort.py`
 | Deterministic Entity IDs         | COVERED |
 | Referential Integrity Ordering   | COVERED |
 
-**Verdict: FAIL**
-
-One SHALL requirement ("Create an existing node — idempotent merge") has both
-a code-level deviation (replace vs. merge in `_build_update_existing_query`)
-and no test that would catch it. The fix is straightforward — change the SQL
-operator and add one integration test scenario.
+All spec requirements are now fully covered by passing tests.

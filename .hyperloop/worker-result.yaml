@@ -1,70 +1,68 @@
 ---
 verdict: pass
 details: |
-  ## task-003: Graph Mutations — PR Feedback Address Pass (2026-04-23)
+  ## task-003: Graph Mutations — Independent PR Feedback Verification (2026-04-23)
 
   Spec: `specs/graph/mutations.spec.md`
   Branch: `hyperloop/task-003`
   Unit tests: 2027 passed, 39 warnings
+  Linting: ruff check/format — no issues
+  Type checking: mypy — no issues (441 source files)
 
-  ### PR Feedback Items Addressed
+  ### PR Feedback Item Verification
 
-  #### 1. worker-result.yaml YAML format — ALREADY CORRECT
-  The file uses `details: |` block scalar which is valid YAML. Python
-  `yaml.safe_load_all` parses it as `{'verdict': 'pass', 'details': '...'}`.
-  No change needed.
+  #### 1. worker-result.yaml YAML format — PASS
+  Verified: `/usr/bin/python3 -c "import yaml; data=open('.hyperloop/worker-result.yaml').read(); docs=list(yaml.safe_load_all(data)); print(f'OK: {len(docs)} docs, keys={list(docs[0].keys())}')"` returns `OK: 1 docs, keys=['verdict', 'details']`.
+  File uses `details: |` block scalar — valid YAML, parseable by `yaml.safe_load_all`.
 
-  #### 2. _stamp_knowledge_graph_id not stamping DELETE — INTENTIONAL (not a spec violation)
-  CodeRabbit suggested injecting `knowledge_graph_id` into DELETE/UPDATE match
-  properties. `MutationOperation` has no `match_properties` field — DELETE is
-  scoped by (a) tenant graph isolation (`tenant_{tenant_id}`) and (b) SpiceDB
-  `edit` permission check at route level. The spec (Requirement 2) only mandates
-  stamping on CREATE/UPDATE. Test `test_does_not_stamp_on_delete_operation`
-  confirms this is intentional. No change made.
+  #### 2. _stamp_knowledge_graph_id not stamping DELETE — PASS (intentional)
+  Verified in `graph_mutation_service.py` lines 72-80: the loop only stamps ops where
+  `op.op in (MutationOperationType.CREATE, MutationOperationType.UPDATE)` AND
+  `op.set_properties is not None`. DELETE ops are passed through unchanged.
+  Test `test_does_not_stamp_on_delete_operation` (line 764 of
+  `tests/unit/graph/application/test_mutation_service.py`) explicitly documents and
+  verifies this intentional behavior: DELETE has no set_properties, and stamping on
+  DELETE would be semantically incorrect.
 
-  #### 3. Misleading error message in value_objects.py — FIXED
-  Updated the `ValueError` message for missing `knowledge_graph_id` in CREATE
-  `set_properties` to clarify that stamping is conditional on the caller passing
-  `knowledge_graph_id` to `apply_mutations()`. Previously said "callers must not
-  omit it" without explaining the mechanism. Now clearly states the service stamps
-  the value when `apply_mutations()` is called with a `knowledge_graph_id`
-  parameter.
+  #### 3. Misleading error message in value_objects.py — PASS
+  Verified in `graph/domain/value_objects.py` lines 263-273: the ValueError for
+  missing `knowledge_graph_id` in CREATE now reads:
+    "CREATE requires 'knowledge_graph_id' in set_properties. The system stamps this
+    value when apply_mutations() is called with a knowledge_graph_id parameter.
+    Ensure the caller passes knowledge_graph_id to the service, or include it in
+    set_properties."
+  This clearly explains the stamping mechanism rather than just requiring the field
+  without explanation.
 
-  #### 4. _build_mutation_error_response keyword matching — FIXED
-  Replaced fragile error-text keyword matching (scanning for "json", "parse",
-  "missing", etc.) with an explicit `error_kind: Literal["validation", "server"]`
-  field on `MutationResult`.
+  #### 4. _build_mutation_error_response keyword matching — PASS
+  Verified in `graph/presentation/routes.py` lines 48-64: `_build_mutation_error_response`
+  now uses `result.error_kind == "validation"` to select 422 vs 500. No text scanning.
+  Verified in `graph/domain/value_objects.py` lines 323-340: `MutationResult` has
+  an explicit `error_kind: Literal["validation", "server"] | None = None` field.
+  All failure paths in `graph_mutation_service.py` set `error_kind="validation"` for
+  validation errors (missing type def, missing required props, JSON/Pydantic errors)
+  and `error_kind="server"` for the unexpected catch-all.
+  Tests `TestMutationResultErrorKind` (line 852 of test_mutation_service.py) and
+  `TestKGMutationsErrorStatusCodes` (line 474 of test_routes.py) exist and pass.
 
-  Changes:
-  - `value_objects.py`: Added `error_kind` field to `MutationResult` (None by
-    default for backward compat; "validation" or "server" for failures).
-  - `graph_mutation_service.py`: All validation error returns (missing type def,
-    missing required props, JSON parse errors, Pydantic schema violations) now
-    set `error_kind="validation"`. Unexpected catch-all sets `error_kind="server"`.
-  - `routes.py`: `_build_mutation_error_response` now uses `result.error_kind`
-    to choose 422 vs 500. No more text scanning.
-  - New tests in `TestMutationResultErrorKind` (5 tests) and
-    `TestKGMutationsErrorStatusCodes` (4 tests) verify the explicit field
-    end-to-end.
+  #### 5. _make_op missing start_id/end_id for edge CREATE — PASS
+  Verified in `tests/unit/graph/infrastructure/test_mutation_applier_sort.py`
+  lines 41-44: EDGE CREATE operations include `start_id="node:0000000000000001"` and
+  `end_id="node:0000000000000002"`. Commit `c7ec6f6c` addressed this.
 
-  #### 5. _make_op missing start_id/end_id for edge CREATE — ALREADY FIXED
-  Commit `c7ec6f6c` already added `start_id`/`end_id` to the `_make_op` helper
-  for EDGE CREATE operations (lines 41-44 of `test_mutation_applier_sort.py`).
-  No change needed.
+  ### Git Log — Conventional Commits Verified
+  - `9c95110f refactor(graph): address PR feedback — explicit error_kind on MutationResult`
+  - `c7ec6f6c fix(test): add start_id/end_id to edge CREATE operations in sort test helper`
 
-  ### All 10 Requirements — Still COVERED
+  Both commits are present with conventional commit format (type(scope): message).
 
-  All spec requirements remain covered (see previous pass for full details).
-  The new `error_kind` field is additive and does not change any mutation
-  semantics.
-
-  ### Test Summary
-
-  Unit tests: 2027 passed (9 new tests added), 39 warnings.
-  No regressions. mypy: no issues on the 3 changed source files.
+  ### Full Test Suite
+  2027 unit tests passed, 39 warnings (only harmless coroutine RuntimeWarnings from
+  unrelated IAM infrastructure tests using older async mock patterns).
+  ruff check: all checks passed.
+  ruff format: 441 files already formatted.
+  mypy: no issues found in 441 source files.
 
   ### Verdict
-
-  All PR feedback has been addressed. Either fixed (items 3 and 4) or documented
-  as intentional non-violations (items 1, 2, 5). All spec requirements remain
-  covered with full test coverage.
+  All 5 PR feedback items are properly addressed. The implementation is clean,
+  tests pass, linting is clean, and type checking passes with no errors.

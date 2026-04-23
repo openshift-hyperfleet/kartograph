@@ -1,6 +1,6 @@
 """Unit tests for Graph HTTP routes."""
 
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 import pytest
 from fastapi import status
@@ -13,6 +13,86 @@ from graph.domain.value_objects import (
 )
 from iam.application.value_objects import CurrentUser
 from iam.domain.value_objects import TenantId, UserId
+
+
+class FakeAuthorizationProvider:
+    """Fake AuthorizationProvider for testing route-level authorization.
+
+    Avoids AsyncMock for this infrastructure boundary, consistent with
+    the project's fake-over-mock policy. Stores all check_permission
+    calls so tests can assert on the exact arguments received.
+    """
+
+    def __init__(self, *, allow_all: bool = True) -> None:
+        self._allow_all = allow_all
+        self._check_calls: list[tuple[str, str, str]] = []
+
+    @property
+    def check_permission_calls(self) -> list[tuple[str, str, str]]:
+        """Return recorded (resource, permission, subject) tuples."""
+        return list(self._check_calls)
+
+    async def check_permission(
+        self, resource: str, permission: str, subject: str
+    ) -> bool:
+        self._check_calls.append((resource, permission, subject))
+        return self._allow_all
+
+    async def write_relationship(
+        self, resource: str, relation: str, subject: str
+    ) -> None:
+        pass
+
+    async def write_relationships(self, relationships: list) -> None:
+        pass
+
+    async def delete_relationship(
+        self, resource: str, relation: str, subject: str
+    ) -> None:
+        pass
+
+    async def delete_relationships(self, relationships: list) -> None:
+        pass
+
+    async def delete_relationships_by_filter(
+        self,
+        resource_type: str,
+        resource_id: str | None = None,
+        relation: str | None = None,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+    ) -> None:
+        pass
+
+    async def bulk_check_permission(self, requests: list) -> set[str]:
+        return set()
+
+    async def lookup_subjects(
+        self,
+        resource: str,
+        relation: str,
+        subject_type: str,
+        optional_subject_relation: str | None = None,
+    ) -> list:
+        return []
+
+    async def lookup_resources(
+        self,
+        resource_type: str,
+        permission: str,
+        subject: str,
+    ) -> list[str]:
+        return []
+
+    async def read_relationships(
+        self,
+        resource_type: str,
+        resource_id: str | None = None,
+        relation: str | None = None,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+    ) -> list:
+        return []
 
 
 @pytest.fixture
@@ -39,18 +119,14 @@ def mock_current_user():
 
 @pytest.fixture
 def mock_authz_allowed():
-    """Mock AuthorizationProvider that allows all permission checks."""
-    authz = AsyncMock()
-    authz.check_permission.return_value = True
-    return authz
+    """Fake AuthorizationProvider that allows all permission checks."""
+    return FakeAuthorizationProvider(allow_all=True)
 
 
 @pytest.fixture
 def mock_authz_denied():
-    """Mock AuthorizationProvider that denies all permission checks."""
-    authz = AsyncMock()
-    authz.check_permission.return_value = False
-    return authz
+    """Fake AuthorizationProvider that denies all permission checks."""
+    return FakeAuthorizationProvider(allow_all=False)
 
 
 @pytest.fixture
@@ -85,7 +161,7 @@ def test_client(
 def _make_kg_test_client(
     mock_query_service, mock_mutation_service, mock_current_user, mock_authz
 ):
-    """Helper to build a TestClient with a specific authz mock."""
+    """Helper to build a TestClient with a specific authz provider."""
     from fastapi import FastAPI
 
     from graph import dependencies
@@ -105,95 +181,6 @@ def _make_kg_test_client(
 
     app.include_router(routes.router)
     return TestClient(app)
-
-
-class TestApplyMutationsRoute:
-    """Tests for POST /graph/mutations endpoint."""
-
-    def test_apply_mutations_success(self, test_client, mock_mutation_service):
-        """Should apply mutations from JSONL and return success result."""
-        mock_mutation_service.apply_mutations_from_jsonl.return_value = MutationResult(
-            success=True,
-            operations_applied=2,
-        )
-
-        jsonl_data = '{"op": "CREATE", "type": "node", "id": "person:abc123def456789a", "label": "person", "set_properties": {"slug": "alice", "name": "Alice", "data_source_id": "ds-123", "source_path": "people/alice.md"}}\n{"op": "UPDATE", "type": "node", "id": "person:abc123def456789a", "set_properties": {"email": "alice@example.com"}}'
-
-        response = test_client.post(
-            "/graph/mutations",
-            content=jsonl_data,
-            headers={"Content-Type": "application/jsonlines"},
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        result = response.json()
-        assert result["success"] is True
-        assert result["operations_applied"] == 2
-
-        # Verify service was called with JSONL string
-        mock_mutation_service.apply_mutations_from_jsonl.assert_called_once_with(
-            jsonl_content=jsonl_data
-        )
-
-    def test_apply_mutations_failure_returns_500(
-        self, test_client, mock_mutation_service
-    ):
-        """Should return 500 when mutation application fails."""
-        mock_mutation_service.apply_mutations_from_jsonl.return_value = MutationResult(
-            success=False,
-            operations_applied=0,
-            errors=["Database connection failed"],
-        )
-
-        jsonl_data = '{"op": "DELETE", "type": "node", "id": "person:abc123def456789a"}'
-
-        response = test_client.post(
-            "/graph/mutations",
-            content=jsonl_data,
-            headers={"Content-Type": "application/jsonlines"},
-        )
-
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        assert "errors" in response.json()["detail"]
-
-    def test_apply_whitespace_only_jsonl(self, test_client, mock_mutation_service):
-        """Should handle JSONL with only whitespace/newlines."""
-        mock_mutation_service.apply_mutations_from_jsonl.return_value = MutationResult(
-            success=True,
-            operations_applied=0,
-        )
-
-        response = test_client.post(
-            "/graph/mutations",
-            content="\n\n  \n",  # Whitespace only
-            headers={"Content-Type": "application/jsonlines"},
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        result = response.json()
-        assert result["success"] is True
-        assert result["operations_applied"] == 0
-
-    def test_apply_mutations_validation_error_returns_422(
-        self, test_client, mock_mutation_service
-    ):
-        """Should return 422 for validation errors."""
-        mock_mutation_service.apply_mutations_from_jsonl.return_value = MutationResult(
-            success=False,
-            operations_applied=0,
-            errors=["JSON parse error: Invalid syntax"],
-        )
-
-        invalid_jsonl = "not valid json"
-
-        response = test_client.post(
-            "/graph/mutations",
-            content=invalid_jsonl,
-            headers={"Content-Type": "application/jsonlines"},
-        )
-
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-        assert "errors" in response.json()["detail"]
 
 
 class TestFindBySlugRoute:
@@ -423,10 +410,8 @@ class TestKnowledgeGraphScopedMutationsRoute:
         )
 
         # Check that authz was called with the correct resource
-        mock_authz_allowed.check_permission.assert_called_once()
-        call_args = mock_authz_allowed.check_permission.call_args
-        # First positional arg is the resource: "knowledge_graph:my-graph-456"
-        resource_arg = call_args[0][0]
+        assert len(mock_authz_allowed.check_permission_calls) == 1
+        resource_arg = mock_authz_allowed.check_permission_calls[0][0]
         assert "my-graph-456" in resource_arg
         assert "knowledge_graph" in resource_arg
 

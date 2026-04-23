@@ -1,68 +1,55 @@
 ---
 verdict: pass
 ---
-## task-003 Graph Mutations — Fresh Implementation Verification
+## task-003 Graph Mutations — Independent Verification
 
-### Approach
+### Checks Run
 
-Fresh independent trace of every SHALL/MUST requirement in
-`specs/graph/mutations.spec.md` through source code and unit tests.
-All 2018 unit tests confirmed passing on branch `hyperloop/task-003`.
-
----
-
-### Requirement Coverage
-
-| # | Requirement / Scenario | Status | Evidence |
+| # | Check | Result | Detail |
 |---|---|---|---|
-| 1 | Per-Tenant Graph Isolation — `tenant_{tenant_id}` graph routing | ✅ COVERED | `dependencies.get_tenant_graph_name()` → `f"tenant_{current_user.tenant_id.value}"`; `get_age_graph_client()` passes this to `AgeGraphClient`; tests: `TestTenantGraphRouting` (2 tests) |
-| 2 | KG Scoping — SpiceDB `edit` check before mutations, 403 on deny | ✅ COVERED | `routes.apply_kg_mutations()` calls `authz.check_permission(..., Permission.EDIT, ...)` and raises 403; `FakeAuthorizationProvider` used to avoid AsyncMock; tests: `TestKnowledgeGraphScopedMutationsRoute` (5 tests) |
-| 3 | KG Scoping — `knowledge_graph_id` stamped, caller value overwritten | ✅ COVERED | `GraphMutationService._stamp_knowledge_graph_id()` overwrites any caller value on all CREATE/UPDATE ops with `set_properties` before validation; test: `TestKnowledgeGraphIdStamping.test_overwrites_caller_provided_knowledge_graph_id` |
-| 4 | JSONL — valid lines parsed and applied in order | ✅ COVERED | `apply_mutations_from_jsonl()` splits on `\n`, parses and builds `MutationOperation` per line, calls `apply_mutations()`; test: `test_parses_jsonl_and_applies_mutations` |
-| 5 | JSONL — parse error reported with line number + content preview | ✅ COVERED | `json.JSONDecodeError` handler returns `[f"JSON parse error on line {line_num}: ...", f"Line content: {line_preview}"]`; test: `test_returns_error_on_invalid_json` |
-| 6 | JSONL — blank lines skipped without error | ✅ COVERED | `if not line: continue` in parser loop; tests: `test_handles_whitespace_only_lines`, `test_handles_empty_jsonl` |
-| 7 | DEFINE node — `data_source_id`, `source_path`, `slug` auto-added to required_properties | ✅ COVERED | `get_system_properties_for_entity(EntityType.NODE)` = `COMMON_SYSTEM_PROPERTIES ∪ NODE_SYSTEM_PROPERTIES`; service merges these before saving; test: `test_apply_mutations_stores_define_operations` |
-| 8 | DEFINE edge — `data_source_id`, `source_path` auto-added; `slug` NOT added | ✅ COVERED | `get_system_properties_for_entity(EntityType.EDGE)` = `COMMON_SYSTEM_PROPERTIES` only; test: `test_apply_define_edge_type_adds_edge_system_properties` asserts `"slug" not in required_properties` |
-| 9 | CREATE — new node created with specified properties | ✅ COVERED | `AgeBulkLoadingStrategy._execute_creates()` uses staging tables + SQL INSERT/upsert; integration tests present |
-| 10 | CREATE — existing node idempotent merge (existing props preserved + new added) | ✅ COVERED | `AgeQueryBuilder.execute_label_upsert()` uses `t.properties::jsonb \|\| s.properties::jsonb`; `TestUpdateExistingQueryMergeSemantics` (5 tests) |
-| 11 | CREATE — edge with `start_id`/`end_id` | ✅ COVERED | `MutationOperation.validate_operation()` enforces `start_id`/`end_id` for edge CREATE; `AgeBulkLoadingStrategy` resolves graphids for edges; test: `test_create_edge_valid` |
-| 12 | CREATE — missing type definition rejected | ✅ COVERED | Service checks `(label, type) in defines_in_batch` OR `type_def_repo.get()`; returns `MutationResult(success=False, ...)` if neither found; test: `test_rejects_create_without_define_in_batch` |
-| 13 | CREATE — missing required properties rejected | ✅ COVERED | Service computes `required_props - provided_props`; returns failure with error message; tests: `test_rejects_create_missing_required_properties`, `TestCreateDefineValidationInBatch` (3 tests) |
-| 14 | CREATE — schema learning (extra props → optional_properties) | ✅ COVERED | `GraphMutationService._discover_optional_properties()` runs post-success; excludes `PLATFORM_STAMPED_PROPERTIES` and system props; test: `TestSchemaLearning.test_extra_properties_added_to_optional` |
-| 15 | UPDATE — set_properties added/overwritten; unlisted preserved | ✅ COVERED | `AgeQueryBuilder.update_properties()` uses jsonb merge `\|\|` (not replace); test: `TestUpdateExistingQueryMergeSemantics.test_uses_jsonb_merge_operator_not_simple_assignment` |
-| 16 | UPDATE — remove_properties removes specified properties | ✅ COVERED | `AgeQueryBuilder.remove_properties()` uses `jsonb - text[]`; test: `test_update_with_remove_properties` (validation) + integration |
-| 17 | UPDATE — schema learning on update | ✅ COVERED | `_discover_optional_properties()` processes `op.op in ("CREATE", "UPDATE")`; test: `test_update_discovers_optional_properties` |
-| 18 | DELETE node — cascading detach delete (connected edges + node) | ✅ COVERED | `AgeQueryBuilder.delete_node_with_detach()` executes two queries: deletes connected edges then node; tests: `TestDeleteNodeWithDetach` (8 tests including `test_executes_two_queries`) |
-| 19 | DELETE edge — only the edge removed | ✅ COVERED | `AgeQueryBuilder.delete_edge()` single DELETE from `_ag_label_edge`; tests: `TestDeleteEdge` (6 tests) |
-| 20 | Mandatory system props — node CREATE needs `data_source_id`, `source_path`, `slug`, `knowledge_graph_id` | ✅ COVERED | `MutationOperation.validate_operation()` explicitly checks all four for node CREATE; tests: `test_create_node_requires_slug`, `test_create_requires_data_source_id`, `test_create_requires_source_path`, `test_create_node_requires_knowledge_graph_id` |
-| 21 | Mandatory system props — edge CREATE needs `data_source_id`, `source_path`, `knowledge_graph_id` (no slug) | ✅ COVERED | Same `validate_operation()` path; slug only checked for `type == "node"`; tests: `test_create_edge_valid` passes without slug, `test_create_edge_requires_knowledge_graph_id` |
-| 22 | Deterministic IDs — `{type}:{16_hex_chars}` pattern; same input → same ID | ✅ COVERED | `EntityIdGenerator.generate()` uses SHA-256 truncated to 16 hex chars; `ID_REGEX = r"^[0-9a-z_]+:[0-9a-f]{16}$"` enforced by Pydantic; tests: `test_is_deterministic`, `test_id_pattern_validation` |
-| 23 | Referential Integrity Ordering — DEFINE → DELETE(edge/node) → CREATE(node/edge) → UPDATE | ✅ COVERED | `MutationApplier._sort_operations()` implements exact spec sequence; `TestSortOperationsReferentialIntegrity.test_sort_order_define_delete_create_update` asserts all 6 positions |
+| 1 | Unit Tests | ✅ PASS | 2018 passed, 0 failures, 36 warnings (all 3rd-party) |
+| 2 | Linting (ruff check) | ✅ PASS | All checks passed |
+| 3 | Formatting (ruff format) | ✅ PASS | 441 files already formatted |
+| 4 | Type Checking (mypy) | ✅ PASS | No issues found in 441 source files |
+| 5 | Architecture Boundaries | ✅ PASS | 40 pytest-archon tests passed |
+| 6 | Check Scripts | ✅ N/A | No .hyperloop/checks/ directory present |
+| 7 | Commit Trailers | ✅ PASS | All 9 implementation commits carry Spec-Ref and Task-Ref trailers |
 
----
+### Code Review Findings
 
-### NFR Compliance
+**No logger/print violations**: grep over implementation diff confirms zero
+direct `logger.*` or `print()` calls in domain/application/infrastructure code.
+Domain-Oriented Observability probes used throughout.
 
-**Observability (Domain-Oriented)**: All application/domain code uses probe
-protocols exclusively. `GraphMutationService` → `GraphServiceProbe.mutations_applied()`.
-`MutationApplier` → `MutationProbe.apply_batch_completed()` and `batch_applied()`.
-`AgeBulkLoadingStrategy` → `AgeBulkLoadingProbe`. No direct `logger.*` or
-`print()` calls in domain/application layers.
+**MagicMock usage**: Three test methods in `test_mutation_applier_sort.py` use
+`MagicMock()` for `client` and `bulk_loading_strategy` on `MutationApplier`.
+These are infrastructure-layer collaborators (not domain/application), and the
+mocks are used only to instantiate `MutationApplier` so `_sort_operations()`
+can be exercised — no behavior is verified on the mocks themselves. This
+satisfies the guideline ("no MagicMock for domain/application collaborators").
 
-**Architecture Boundaries**: `test_architecture.py` uses `pytest-archon` to
-enforce that graph domain/application/infrastructure/presentation layers do
-not import from `iam`, `management`, `extraction`, `ingestion`, or `querying`
-bounded contexts. All 15 architecture tests pass.
+**No .hyperloop/state/ files committed**: State directory does not exist on
+this branch. The diff shows state files were deleted (pre-existing conflict
+cleanup), not added.
 
-**TDD**: Every spec scenario maps to at least one unit test. Tests were written
-to reflect domain behavior, not implementation details.
+**Conventional commits**: All 9 implementation commits use conventional format
+(`feat:`, `fix:`, `test:`, `chore:`), with Spec-Ref and Task-Ref trailers.
 
----
+### Spec Coverage
 
-### Test Summary
+All 23 SHALL/MUST requirements verified through source code and tests:
 
-- **Graph unit tests**: 217 passed
-- **Full unit suite**: 2018 passed, 35 deprecation warnings (in 3rd-party libs, not our code)
-- **0 failures**
+- Per-Tenant Graph Isolation (tenant_{tenant_id} routing): COVERED
+- KG Scoping (SpiceDB edit check, 403 on deny): COVERED
+- KG Scoping (knowledge_graph_id stamping, caller value overwritten): COVERED
+- JSONL parsing (valid, parse error with line/preview, blank lines): COVERED
+- DEFINE node (data_source_id, source_path, slug auto-added): COVERED
+- DEFINE edge (data_source_id, source_path; slug NOT added): COVERED
+- CREATE (new node, idempotent merge, edge, missing typedef, missing req props, schema learning): COVERED
+- UPDATE (set_properties merge, remove_properties, schema learning): COVERED
+- DELETE (node cascading detach delete, edge-only delete): COVERED
+- Mandatory system properties (node: 4 props; edge: 3 props): COVERED
+- Deterministic IDs ({type}:{16_hex_chars}, SHA-256): COVERED
+- Referential Integrity Ordering (DEFINE→DELETE→CREATE→UPDATE): COVERED
 
-**Verdict: PASS** — All 23 spec requirements fully implemented and tested.
+**Verdict: PASS** — All checks green, all 23 spec requirements implemented and tested.

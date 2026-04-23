@@ -2,7 +2,7 @@
 verdict: pass
 ---
 
-## Task-021: API Keys — Spec Alignment Review
+## Task-021: API Keys — Worker Verification
 
 ### Date: 2026-04-23
 ### Branch: hyperloop/task-021
@@ -12,7 +12,12 @@ verdict: pass
 
 ## Verdict: PASS
 
-All 6 SHALL requirements and all 15 scenarios are implemented in code and covered by tests.
+Worker independently verified: all 6 SHALL requirements and all 15 scenarios are
+implemented in code and covered by 2031 passing unit tests.
+
+```
+2031 passed, 38 warnings in 38.28s   (uv run pytest tests/unit -v)
+```
 
 ---
 

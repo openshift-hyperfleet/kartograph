@@ -2,55 +2,83 @@
 verdict: pass
 ---
 
-## Fix Applied
+## Verification Results (Round 2 — Post-Fix)
 
-Addressed the FAIL and CONCERN from the review cycle.
+All checks independently verified by this reviewer. The regression identified in
+the prior FAIL round has been addressed. The implementation is correct and complete.
 
-### FAIL – Legacy `/graph/mutations` route regression: RESOLVED
-
-Removed the `POST /graph/mutations` route entirely from
-`graph/presentation/routes.py`. The spec mandates "The system SHALL require
-a target KnowledgeGraph for all mutations" — the legacy route was
-non-compliant and silently broken for CREATE operations after
-`knowledge_graph_id` validation was added to `validate_operation()`.
-
-- Deleted `apply_mutations` route handler and its inline error classification
-  logic (the helper `_build_mutation_error_response` is retained for the KG-
-  scoped route).
-- Deleted the `TestApplyMutationsRoute` class (4 tests) whose mocks masked
-  the regression.
-- Updated `test_auth_enforcement.py` integration test to verify the
-  KG-scoped route (`/graph/knowledge-graphs/kg-123/mutations`) returns 401
-  without auth, preserving auth enforcement coverage.
-
-### CONCERN – `AsyncMock` for `AuthorizationProvider`: RESOLVED
-
-Replaced `AsyncMock` fixtures with a `FakeAuthorizationProvider` class
-in `tests/unit/graph/presentation/test_routes.py`. The fake:
-- Implements the full `AuthorizationProvider` protocol
-- Stores all `check_permission` calls as `(resource, permission, subject)` tuples
-- Returns a configurable `allow_all` boolean
-- Allows precise assertions without `call_args` mock internals
-
-Updated `test_kg_mutations_route_checks_correct_resource` to use
-`mock_authz_allowed.check_permission_calls[0][0]` instead of Mock's
-`call_args` API.
-
-### Verification
-
+### Check 1 – Unit Tests: PASS
 ```
-cd src/api && uv run pytest tests/unit -v
-====================== 2009 passed, 36 warnings in 46.91s ======================
+uv run pytest tests/unit -v
+====================== 2009 passed, 36 warnings in 43.14s ======================
+```
+The 4-test drop from 2013 → 2009 is correct: `TestApplyMutationsRoute` was deleted
+alongside the removed legacy route.
 
-cd src/api && uv run ruff check .
+### Check 2 – Linting: PASS
+```
+uv run ruff check .
 All checks passed!
+```
 
-cd src/api && uv run ruff format --check .
+### Check 3 – Formatting: PASS
+```
+uv run ruff format --check .
 439 files already formatted
+```
 
-cd src/api && uv run mypy . --config-file pyproject.toml --ignore-missing-imports
+### Check 4 – Type Checking: PASS
+```
+uv run mypy . --config-file pyproject.toml --ignore-missing-imports
 Success: no issues found in 439 source files
 ```
 
-Test count drop from 2013 → 2009 is correct: 4 `TestApplyMutationsRoute`
-tests were deleted alongside the route they tested.
+### Check 5 – Architecture Boundary Tests: PASS
+All 40 pytest-archon tests pass. No DDD layer violations.
+
+### Check 6 – Integration Tests: SKIPPED
+No graph-mutations integration tests require a live instance. The auth enforcement
+integration test now correctly targets the KG-scoped route
+(`/graph/knowledge-graphs/kg-123/mutations`), verified by inspection.
+
+### Check 7 – Code Review: PASS
+
+#### RESOLVED – Legacy route regression (prior FAIL)
+The `POST /graph/mutations` route has been removed entirely from
+`graph/presentation/routes.py`. This is the correct fix: the spec mandates "The
+system SHALL require a target KnowledgeGraph for all mutations," making the legacy
+route non-compliant. The `TestApplyMutationsRoute` test class (4 tests) was deleted
+alongside the route. The `_build_mutation_error_response` helper is retained and
+used by the KG-scoped route.
+
+#### RESOLVED – AsyncMock concern (prior CONCERN)
+`AsyncMock` has been replaced with a `FakeAuthorizationProvider` class that fully
+implements the `AuthorizationProvider` protocol. The fake: stores all
+`check_permission` calls as `(resource, permission, subject)` tuples, returns a
+configurable `allow_all` boolean, and implements all protocol methods. Tests now
+use `mock_authz_allowed.check_permission_calls[0][0]` for precise, non-mock
+assertions.
+
+#### All spec requirements implemented correctly
+
+- **Per-tenant graph isolation:** `get_tenant_graph_name()` → `tenant_{tenant_id}`
+  wired into `get_age_graph_client` dependency. ✅
+- **KG authorization:** SpiceDB `edit` permission checked on
+  `knowledge_graph:{id}` before service is ever called. ✅
+- **403 when permission denied, service never called:** confirmed by
+  `test_kg_mutations_route_forbidden_without_edit_permission` which asserts
+  `apply_mutations_from_jsonl.assert_not_called()`. ✅
+- **`knowledge_graph_id` stamping on CREATE/UPDATE:** `_stamp_knowledge_graph_id`
+  overwrites any caller-supplied value before validation runs. ✅
+- **Anti-spoofing:** `validate_operation()` requires `knowledge_graph_id` in
+  `set_properties`; service stamps it before validation, callers cannot omit or
+  spoof it. ✅
+- **Schema learning exclusion:** `PLATFORM_STAMPED_PROPERTIES` excludes
+  `knowledge_graph_id` from being added to type definition optional properties. ✅
+- **TDD adherence:** Red commit (`ecc0547a`) exists with 15 failing tests before
+  implementation. ✅
+- **Commit trailers:** All implementation commits carry `Spec-Ref` and `Task-Ref`
+  trailers. ✅
+- **No logger/print usage:** Confirmed by diff inspection — domain probes used. ✅
+- **No hardcoded secrets:** None found. ✅
+- **Conventional commits:** All commit messages follow conventional commit format. ✅

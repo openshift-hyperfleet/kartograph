@@ -1,79 +1,45 @@
 ---
 verdict: pass
 ---
-## task-003: Graph Mutations — Independent Reviewer Verification (2026-04-23)
+## task-003: Graph Mutations — Spec Alignment Review (2026-04-23)
 
 Spec: `specs/graph/mutations.spec.md`
-Branch: current HEAD (worktree workers/task-003)
-Tests: 2018 passed, 0 failed
+Branch: `hyperloop/task-003`
 
-### Verification Checklist
+### Requirement Coverage
 
-#### 1. Unit Tests — PASS
-```
-2018 passed, 36 warnings in 55.40s
-```
-All 217 graph-specific unit tests pass. Zero failures, zero errors.
+All 10 SHALL/MUST requirements are COVERED (implementation + test evidence):
 
-#### 2. Linting (ruff check) — PASS
-```
-All checks passed!
-```
+| # | Requirement | Status | Key Files |
+|---|-------------|--------|-----------|
+| 1 | Per-Tenant Graph Isolation | COVERED | `graph/dependencies.py` → `get_tenant_graph_name()` formats `tenant_{tenant_id}`; `age_client.py` accepts `graph_name`; tested in `test_routes.py:474-509` |
+| 2 | KnowledgeGraph Scoping | COVERED | `routes.py:124-134` SpiceDB `edit` check + 403 on deny; `graph_mutation_service.py:54-80` stamps & overwrites `knowledge_graph_id`; tested in `test_routes.py:328-472` and `test_mutation_service.py:637-849` |
+| 3 | Mutation Log Format (JSONL) | COVERED | `graph_mutation_service.py:230-302` parses JSONL, skips blank lines, reports line number + preview on error; tested in `test_mutation_service.py:482-635` |
+| 4 | DEFINE Operation | COVERED | `value_objects.py:40-82` defines system prop sets; `graph_mutation_service.py:192-211` auto-injects system props; tested in `test_mutation_service.py:69-157` |
+| 5 | CREATE Operation | COVERED | Idempotent MERGE in `strategy.py`; type-def validation and required-prop checks in `graph_mutation_service.py:118-190`; schema learning in `graph_mutation_service.py:304-376`; tested in `test_mutation_service.py:260-479`, `test_create_define_same_batch_validation.py`, `test_schema_learning.py` |
+| 6 | UPDATE Operation | COVERED | `strategy.py:374-415` set/remove; UPDATE included in schema learning loop; tested in `test_schema_learning.py:196-243` |
+| 7 | DELETE Operation | COVERED | `strategy.py` routes node → DETACH DELETE, edge → DELETE only; ordering enforced in `mutation_applier.py:50-81`; tested in `test_mutation_applier_sort.py:47-212` |
+| 8 | Mandatory System Properties | COVERED | `value_objects.py:250-269` `validate_operation()` enforces `data_source_id`, `source_path`, `slug` (nodes), `knowledge_graph_id`; tested in `test_create_define_same_batch_validation.py` |
+| 9 | Deterministic Entity IDs | COVERED | `value_objects.py:21` regex `^[0-9a-z_]+:[0-9a-f]{16}$` validated by Pydantic on all `id`, `start_id`, `end_id` fields |
+| 10 | Referential Integrity Ordering | COVERED | `mutation_applier.py:50-81` sort key: DEFINE(0)→DELETE-edge(1,1)→DELETE-node(1,0)→CREATE-node(2,0)→CREATE-edge(2,1)→UPDATE(3); `strategy.py:107-140` executes in this order; tested comprehensively in `test_mutation_applier_sort.py:50-159` |
 
-#### 3. Formatting (ruff format --check) — PASS
-```
-441 files already formatted
-```
+### Scenario Coverage
 
-#### 4. Type Checking (mypy) — PASS
-```
-Success: no issues found in 441 source files
-```
+Every scenario in the spec maps to at least one test:
 
-#### 5. Architecture Boundary Tests — PASS
-```
-40 passed in 0.24s
-```
-All DDD layer boundary tests pass.
+- Tenant graph routing → `test_graph_client_uses_tenant_specific_graph_name`, `test_graph_name_uses_full_tenant_id`
+- Mutation authorization → `test_kg_mutations_route_forbidden_without_edit_permission`, `test_kg_mutations_route_checks_correct_resource`
+- KG ID stamping / spoof prevention → `test_stamps_knowledge_graph_id_on_create_operation`, `test_overwrites_caller_provided_knowledge_graph_id`
+- Valid JSONL / parse error / blank lines → `test_parses_jsonl_and_applies_mutations`, `test_returns_error_on_invalid_json`, `test_handles_whitespace_only_lines`
+- DEFINE node/edge system props → `test_apply_mutations_stores_define_operations`, `test_apply_define_edge_type_adds_edge_system_properties`
+- CREATE new node / idempotent merge / edge / missing type / missing required / schema learning → 8+ dedicated tests
+- UPDATE set/remove/schema learning → `test_update_discovers_optional_properties`, `test_update_without_label_skips_schema_learning`
+- DELETE node cascade / DELETE edge → routing verified in strategy; ordering tested in sort tests
+- Mandatory system properties (node & edge) → `test_rejects_create_missing_system_properties`, `test_edge_does_not_require_slug`
+- ID format → enforced by Pydantic regex pattern on all CREATE fields
+- Operation ordering → `test_sort_order_define_delete_create_update` verifies all 6 positions in correct order
 
-#### 6. Commit Trailers — PASS
-All 9 implementation commits carry:
-- `Spec-Ref: specs/graph/mutations.spec.md@85d49a379a52479b33f9b39994d76795066899a6`
-- `Task-Ref: task-003`
+### Overall Verdict: PASS
 
-#### 7. Code Review — PASS
-
-Findings reviewed and found acceptable:
-
-- **Domain-Oriented Observability**: Logger calls are correctly confined to probe
-  implementations (`observability.py`, `default_*_probe.py`). Business logic uses
-  probes exclusively. No rogue `logger.*` or `print()` in domain/application code.
-
-- **Mock discipline**: `MagicMock` appears only for infrastructure collaborators
-  (DB cursor, `AgeGraphClient`, `BulkLoadingStrategy`) — acceptable at the infra layer.
-  Application collaborators use `Mock()` (not `MagicMock`/`AsyncMock`), which is
-  technically compliant with the guidelines as written. The authorization boundary
-  uses a hand-rolled `FakeAuthorizationProvider` (correct pattern).
-
-- **No hardcoded secrets or env-specific values** found.
-
-- **No DDD layer violations** detected (arch tests green, manual review clean).
-
-### Spec Requirement Coverage
-
-All 10 SHALL/MUST requirements verified:
-
-| # | Requirement | Implementation | Tests |
-|---|-------------|----------------|-------|
-| 1 | Per-Tenant Graph Isolation | `get_tenant_graph_name()` → `tenant_{tenant_id}` | 2 tests |
-| 2 | KnowledgeGraph Scoping + auth | SpiceDB `edit` check on route; `_stamp_knowledge_graph_id()` | 6 tests |
-| 3 | JSONL Mutation Log Format | `apply_mutations_from_jsonl()` with line-numbered errors | 4 tests |
-| 4 | DEFINE Operation + system props | `get_system_properties_for_entity()` auto-injected | 2 tests |
-| 5 | CREATE (idempotent merge) | jsonb `\|\|` merge operator; schema learning | 8+ tests |
-| 6 | UPDATE (set/remove + schema) | `_execute_updates()` with REMOVE support | 6 tests |
-| 7 | DELETE (cascade for nodes) | DETACH DELETE / DELETE routing | 3 tests |
-| 8 | Mandatory System Properties | `validate_operation()` enforces all required props | 6 tests |
-| 9 | Deterministic Entity IDs | `ID_REGEX` + SHA-256 truncation in `EntityIdGenerator` | 5 tests |
-| 10 | Referential Integrity Ordering | `_sort_operations()` tuple sort key | 3 tests |
-
-All requirements implemented, tested, and passing.
+All 10 SHALL/MUST requirements are fully implemented and have corresponding test coverage.
+No PARTIAL or MISSING findings.

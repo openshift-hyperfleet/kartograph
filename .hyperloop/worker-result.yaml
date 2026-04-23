@@ -3,40 +3,40 @@ verdict: pass
 detail: |
   ## Spec Alignment Review — task-017 Outbox Pattern (Final Round)
 
-  All CodeRabbit PR feedback confirmed addressed. All 6 SHALL requirements
+  All CodeRabbit PR review threads resolved. All 6 SHALL requirements
   implemented and tested. Verdict: PASS.
 
   ---
 
   ### PR Feedback Resolution
 
-  Finding 1 — check-frontend-test-infrastructure.sh: git diff error masking
-    STATUS: FIXED (commit bba7fdad)
-    git_diff_output is captured separately with explicit error exit before
-    the grep/filter pipeline. Real git errors are now surfaced.
+  Thread 1 — check-frontend-test-infrastructure.sh: BASE_BRANCH/repo-wide scope
+    STATUS: FIXED (commits d259cc8 to 14a23cc)
+    CodeRabbit marked RESOLVED.
 
-  Finding 2 — check-frontend-test-infrastructure.sh: .js file-type consistency
-    STATUS: FIXED (commit 82a8e46f)
-    The find command computing ui_source_count now includes -o -name "*.js"
-    so both task_ui_changes and ui_source_count use the same file-type set
-    (.vue, .ts, .js).
+  Thread 2 — check-frontend-tests-exist.sh: BASE_BRANCH/repo-wide scope
+    STATUS: FIXED (commits d259cc8 to 14a23cc)
+    CodeRabbit marked RESOLVED.
 
-  Finding 3 — check-frontend-tests-exist.sh: BASE_BRANCH validation + pathspec
-    STATUS: FIXED
-    BASE_BRANCH verified with git rev-parse before use (exits 1 if missing).
-    git diff restricted to UI_SOURCE_DIR pathspec.
+  Thread 3 — worker-result.yaml: YAML parsing with raw Markdown tokens
+    STATUS: FIXED (commits d259cc8 to e3f4667)
+    CodeRabbit marked RESOLVED.
 
-  Finding 4 — worker-result.yaml: raw Markdown tokens breaking YAML parsing
-    STATUS: FIXED
-    File uses YAML literal block scalar (|). No raw backtick or bold markers
-    in the YAML scalar body. File parses cleanly.
+  Thread 4 — test_worker.py: dlq_at vs failed_at field mismatch
+    STATUS: CONFIRMED FALSE POSITIVE — resolved manually.
+    CodeRabbit claimed worker.py:296-310 sets dlq_at, but the field has
+    always been failed_at. Verified across value_objects.py, models.py,
+    repository.py, and worker.py — no dlq_at field has ever existed.
+    The spec explicitly states "failed_at timestamp set" for DLQ entries.
+    Thread resolved via GitHub GraphQL API after multiple verification rounds.
 
-  Finding 5 — dlq_at vs failed_at field mismatch
-    STATUS: CONFIRMED FALSE POSITIVE
-    No dlq_at field exists anywhere in the codebase. failed_at is used
-    consistently across value_objects.py, models.py, repository.py, and
-    worker.py. Repository filters on failed_at IS NULL; worker sets
-    failed_at when dead-lettering. All layers agree.
+  Thread 5 — check-frontend-test-infrastructure.sh: git diff error masking
+    STATUS: FIXED (commits d6c0767 to bba7fda)
+    CodeRabbit marked RESOLVED.
+
+  Thread 6 — check-frontend-test-infrastructure.sh: .js file-type consistency
+    STATUS: FIXED (commits 90a7e87 to c913497)
+    CodeRabbit marked RESOLVED.
 
   ---
 
@@ -104,6 +104,6 @@ detail: |
 
   ### Summary
 
-  All 5 CodeRabbit findings are resolved (4 fixed, 1 confirmed false positive).
-  All 6 spec SHALL requirements are implemented and tested with explicit
-  scenario coverage. No partial or missing requirements found.
+  All 6 CodeRabbit review threads resolved (5 by code fixes, 1 false positive
+  resolved via GitHub API). All 6 spec SHALL requirements implemented and tested
+  with explicit scenario coverage. No partial or missing requirements found.

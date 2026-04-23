@@ -1,50 +1,78 @@
 ---
 verdict: pass
 ---
-## Graph Mutations — task-003 Implementation (Fresh Attempt)
+## task-003 Graph Mutations — Independent Verification
 
-### Summary
+### Checks
 
-All 2018 unit tests pass (217 graph-specific). Implementation fully covers
-every requirement and scenario in `specs/graph/mutations.spec.md`.
-
-### Test Run
-
+**1. Unit Tests — PASS**
 ```
-cd src/api && uv run pytest tests/unit -q
-2018 passed, 35 warnings in 37.19s
+2018 passed, 36 warnings in 39.49s
+```
+All 2018 unit tests pass with zero failures or errors. Graph-specific tests: 217 (including new task-003 tests).
+
+**2. Linting (ruff check) — PASS**
+Zero violations across 441 files.
+
+**3. Formatting (ruff format --check) — PASS**
+441 files already formatted.
+
+**4. Type Checking (mypy) — PASS**
+```
+Success: no issues found in 441 source files
 ```
 
-### Requirement Coverage
+**5. Architecture Boundary Tests — PASS**
+```
+40 passed in 0.20s
+```
+All pytest-archon DDD boundary tests pass.
 
-| Requirement | Implementation | Tests | Status |
-|---|---|---|---|
-| Per-Tenant Graph Isolation | `dependencies.py::get_tenant_graph_name` → `tenant_{tenant_id}`; wired into `get_age_graph_client` | `test_routes.py::TestTenantGraphRouting` | PASS |
-| KnowledgeGraph Scoping — edit permission | `routes.py::apply_kg_mutations` → `authz.check_permission(Permission.EDIT)` → 403 on deny | `test_routes.py::TestKnowledgeGraphScopedMutationsRoute` (5 tests) | PASS |
-| KnowledgeGraph ID stamping | `graph_mutation_service.py::_stamp_knowledge_graph_id` overwrites any caller value before validation | `test_mutation_service.py::TestKnowledgeGraphIdStamping` | PASS |
-| JSONL valid parsing | `apply_mutations_from_jsonl` parses line-by-line, applies in order | `test_mutation_service.py::TestGraphMutationServiceApplyFromJSONL` | PASS |
-| JSONL parse error with line number + preview | `JSONDecodeError` caught, includes line number and content preview | `test_mutation_service.py::test_returns_error_on_invalid_json` | PASS |
-| JSONL empty line skipping | Blank/whitespace lines skipped without error | `test_mutation_service.py::test_handles_whitespace_only_lines` | PASS |
-| DEFINE node system properties | `get_system_properties_for_entity(NODE)` → `{data_source_id, source_path, slug}` auto-added | `test_mutation_service.py::test_apply_mutations_stores_define_operations` | PASS |
-| DEFINE edge system properties | `get_system_properties_for_entity(EDGE)` → `{data_source_id, source_path}` auto-added | `test_mutation_service.py::test_apply_define_edge_type_adds_edge_system_properties` | PASS |
-| CREATE new node | Bulk loading strategy executes MERGE/create path | `test_mutation_service.py::test_apply_mutations_delegates_to_applier` | PASS |
-| CREATE idempotent merge | JSONB merge preserves existing unlisted properties | `test_age_query_builder_update_merge.py` | PASS |
-| CREATE edge with start_id/end_id | `validate_operation()` enforces start_id and end_id for edge CREATE | `test_domain_value_objects.py::test_create_edge_valid` | PASS |
-| CREATE missing type definition rejected | `apply_mutations()` checks batch + repository; returns error if absent | `test_mutation_service.py::test_rejects_create_without_define_in_batch` | PASS |
-| CREATE missing required properties rejected | Validation checks `set_properties` against `required_properties` | `test_mutation_service.py::test_rejects_create_missing_required_properties` | PASS |
-| CREATE schema learning | `_discover_optional_properties()` adds extra properties after success | `test_schema_learning.py::TestSchemaLearning::test_extra_properties_added_to_optional` | PASS |
-| UPDATE set properties | `validate_operation()` accepts `set_properties`; strategy applies SET | `test_domain_value_objects.py::test_update_with_set_properties` | PASS |
-| UPDATE remove properties | `validate_operation()` accepts `remove_properties` | `test_domain_value_objects.py::test_update_with_remove_properties` | PASS |
-| UPDATE schema learning | `_discover_optional_properties()` covers UPDATE ops | `test_schema_learning.py::test_update_discovers_optional_properties` | PASS |
-| DELETE node cascading | Strategy uses DETACH DELETE; ordering runs edge deletes before node deletes | `test_mutation_applier_sort.py` | PASS |
-| DELETE edge only | Edge DELETE priority 0, node DELETE priority 1 | `test_mutation_applier_sort.py` | PASS |
-| Mandatory system props — node CREATE | `validate_operation()` requires `data_source_id`, `source_path`, `slug`, `knowledge_graph_id` | `test_create_define_same_batch_validation.py`, `test_domain_value_objects.py` | PASS |
-| Mandatory system props — edge CREATE | `validate_operation()` requires `data_source_id`, `source_path`, `knowledge_graph_id` (no slug for edges) | `test_create_define_same_batch_validation.py::test_edge_does_not_require_slug` | PASS |
-| Deterministic IDs — `{type}:{16_hex_chars}` | `ID_REGEX = r"^[0-9a-z_]+:[0-9a-f]{16}$"` enforced via Pydantic `pattern=` | `test_domain_value_objects.py::test_id_pattern_validation` | PASS |
-| Referential Integrity Ordering | `mutation_applier.py::_sort_operations`: DEFINE→DELETE-edge→DELETE-node→CREATE-node→CREATE-edge→UPDATE | `test_mutation_applier_sort.py::test_sort_order_define_delete_create_update` | PASS |
+**6. Integration Tests — NOT RUN**
+Task does not require integration tests at this review cycle (no infrastructure spin-up was performed). Unit tests and route tests with fakes provide sufficient coverage for the changed surface area.
+
+**7. Code Review — PASS**
+
+**Commits reviewed:** 9 task-003 commits (`ecc0547a`, `688379ff`, `b4284307`, `1920f4b0`, `57497b84`, `3b40ee7b`, `ee11b229`, `e70da33e`, `238f89ba`). All carry `Spec-Ref: specs/graph/mutations.spec.md@…` and `Task-Ref: task-003` trailers. Conventional commit format followed throughout.
+
+**Changed files:** `graph_mutation_service.py`, `dependencies.py`, `value_objects.py`, `age_bulk_loading/queries.py`, `age_client.py`, `routes.py`, plus corresponding test files.
+
+**Domain Probes:** No direct `logger.*` or `print()` calls introduced. Observability routed through existing probe pattern.
+
+**MagicMock usage:** Three occurrences in `test_mutation_applier_sort.py` — used exclusively to instantiate `MutationApplier` so that `_sort_operations` (a pure algorithm) can be called without real infrastructure. The mocks are never interacted with (no `.assert_called_*`, no configured return values). `FakeAuthorizationProvider` — a proper protocol-conformant fake — is used for the authorization boundary in route tests. This is consistent with the project's fake-over-mock policy (mocks for pure instantiation scaffolding only, fakes for collaborators under test).
+
+**Secrets / hardcoded values:** None.
+
+**DDD layer violations:** None. `graph.presentation` imports from `iam.application.value_objects` (allowed — same-level cross-context read of a value object), `infrastructure.authorization_dependencies` (allowed — infrastructure plumbing at the presentation composition root). Architecture tests confirm no boundary leaks.
+
+### Spec Requirement Coverage
+
+| Requirement | Status |
+|---|---|
+| Per-Tenant Graph Isolation (`tenant_{tenant_id}`) | PASS |
+| KnowledgeGraph Scoping — edit permission (SpiceDB → 403) | PASS |
+| KnowledgeGraph ID stamping (anti-spoofing) | PASS |
+| JSONL valid parsing | PASS |
+| JSONL parse error with line number + preview | PASS |
+| JSONL empty line skipping | PASS |
+| DEFINE node type with system properties | PASS |
+| DEFINE edge type with system properties | PASS |
+| CREATE new node (idempotent) | PASS |
+| CREATE idempotent merge (JSONB || operator) | PASS |
+| CREATE edge with start_id/end_id | PASS |
+| CREATE missing type definition rejected | PASS |
+| CREATE missing required properties rejected | PASS |
+| CREATE schema learning (optional properties) | PASS |
+| UPDATE set properties | PASS |
+| UPDATE remove properties | PASS |
+| UPDATE schema learning | PASS |
+| DELETE node (cascading DETACH DELETE) | PASS |
+| DELETE edge (edge only) | PASS |
+| Mandatory system props — node CREATE (data_source_id, source_path, slug, knowledge_graph_id) | PASS |
+| Mandatory system props — edge CREATE (data_source_id, source_path, knowledge_graph_id) | PASS |
+| Deterministic IDs ({type}:{16_hex_chars}) | PASS |
+| Referential Integrity Ordering (DEFINE→DELETE→CREATE→UPDATE) | PASS |
 
 ### Verdict: PASS
 
-All 10 SHALL/MUST requirements from `specs/graph/mutations.spec.md` are
-implemented and tested. Every scenario in the spec has at least one
-corresponding unit test. No gaps or missing coverage found.
+All 23 spec scenarios are implemented and tested. All automated checks pass. Code quality is high — TDD Red/Green cycle is evident from the commit history, fakes are used for application-layer collaborators, and domain probes replace direct logging. No blocking findings.

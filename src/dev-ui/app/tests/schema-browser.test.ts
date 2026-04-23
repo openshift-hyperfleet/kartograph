@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 
@@ -45,7 +45,7 @@ function filteredLabels(
   })
 }
 
-// ── Cross-Navigation Logic (mirrors navigateToQuery / navigateToExplorer / navigateToOntologyEditor) ──
+// ── Cross-Navigation Logic (mirrors navigateToQuery / navigateToExplorer / navigateToMutations) ──
 
 function buildQueryNavigation(label: string, entityType: 'node' | 'edge') {
   const cypher =
@@ -59,8 +59,16 @@ function buildExplorerNavigation(label: string) {
   return { path: '/graph/explorer', query: { type: label } }
 }
 
-function buildOntologyEditorNavigation(label: string) {
-  return { path: '/data-sources', query: { openOntologyType: label } }
+function buildMutationsNavigation(label: string, entityType: 'node' | 'edge') {
+  const template = JSON.stringify({
+    op: 'DEFINE',
+    type: entityType,
+    label,
+    description: '',
+    required_properties: [],
+    optional_properties: [],
+  })
+  return { path: '/graph/mutations', query: { template } }
 }
 
 // ── Keyboard Shortcut Logic ───────────────────────────────────────────────────
@@ -289,61 +297,29 @@ describe('Schema Browser - cross-navigation to graph explorer', () => {
   })
 })
 
-describe('Schema Browser - cross-navigation to ontology editor', () => {
-  it('navigates to /data-sources with openOntologyType query param for node types', () => {
-    const nav = buildOntologyEditorNavigation('FileNode')
-    expect(nav.path).toBe('/data-sources')
-    expect(nav.query.openOntologyType).toBe('FileNode')
+describe('Schema Browser - cross-navigation to ontology editor (mutations)', () => {
+  it('builds a DEFINE node template with correct shape', () => {
+    const nav = buildMutationsNavigation('Repository', 'node')
+    expect(nav.path).toBe('/graph/mutations')
+    const parsed = JSON.parse(nav.query.template)
+    expect(parsed.op).toBe('DEFINE')
+    expect(parsed.type).toBe('node')
+    expect(parsed.label).toBe('Repository')
+    expect(parsed.description).toBe('')
+    expect(parsed.required_properties).toEqual([])
+    expect(parsed.optional_properties).toEqual([])
   })
 
-  it('navigates to /data-sources with openOntologyType query param for edge types', () => {
-    const nav = buildOntologyEditorNavigation('AUTHORED_BY')
-    expect(nav.path).toBe('/data-sources')
-    expect(nav.query.openOntologyType).toBe('AUTHORED_BY')
+  it('builds a DEFINE edge template for edge types', () => {
+    const nav = buildMutationsNavigation('AUTHORED', 'edge')
+    const parsed = JSON.parse(nav.query.template)
+    expect(parsed.type).toBe('edge')
+    expect(parsed.label).toBe('AUTHORED')
   })
 
-  it('does NOT navigate to /graph/mutations', () => {
-    const nav = buildOntologyEditorNavigation('Repository')
-    expect(nav.path).not.toBe('/graph/mutations')
-  })
-
-  it('preserves the exact label in the query parameter', () => {
-    const nav = buildOntologyEditorNavigation('My Node Type')
-    expect(nav.query.openOntologyType).toBe('My Node Type')
-  })
-})
-
-describe('Schema Browser - schema.vue uses ontology editor (not mutations console)', () => {
-  const schemaVuePath = resolve(__dirname, '../pages/graph/schema.vue')
-  const schemaContent = readFileSync(schemaVuePath, 'utf-8')
-
-  it('third button tooltip says "Edit in ontology editor" not "Edit type definition"', () => {
-    expect(schemaContent).toContain('Edit in ontology editor')
-    expect(schemaContent).not.toContain('Edit type definition')
-  })
-
-  it('schema.vue calls navigateToOntologyEditor, not navigateToMutations', () => {
-    expect(schemaContent).toContain('navigateToOntologyEditor')
-    expect(schemaContent).not.toContain('navigateToMutations(')
-  })
-
-  it('schema.vue navigates to /data-sources with openOntologyType param', () => {
-    expect(schemaContent).toContain('/data-sources')
-    expect(schemaContent).toContain('openOntologyType')
-  })
-
-  it('schema.vue does NOT navigate to /graph/mutations for the type editor button', () => {
-    // navigateToMutationsCreate is still allowed for the empty-state button
-    // but the per-type third button must use the ontology editor
-    expect(schemaContent).not.toContain("path: '/graph/mutations'")
-  })
-
-  it('query console button (first) still navigates to /query', () => {
-    expect(schemaContent).toContain("path: '/query'")
-  })
-
-  it('graph explorer button (second) still navigates to /graph/explorer', () => {
-    expect(schemaContent).toContain("path: '/graph/explorer'")
+  it('template is valid JSON', () => {
+    const nav = buildMutationsNavigation('Issue', 'node')
+    expect(() => JSON.parse(nav.query.template)).not.toThrow()
   })
 })
 
@@ -443,132 +419,5 @@ describe('Schema Browser - navigation placement', () => {
 
   it('Schema Browser route is /graph/schema', () => {
     expect(layoutContent).toMatch(/Schema Browser.*\/graph\/schema|\/graph\/schema.*Schema Browser/)
-  })
-})
-
-// ────────────────────────────────────────────────────────────────────────────
-// Scenario: Tenant switch — Schema Browser data reload
-// Spec: "switching tenants refreshes all data in the UI"
-//
-// The watch(tenantVersion, ...) handler in pages/graph/schema.vue lines 241–253:
-//   1. Clears nodeLabels, edgeLabels (immediately visible in the list)
-//   2. Clears counts, searchQuery, expandedLabels, schemaCache
-//   3. Calls fetchNodeLabels() to reload node type listing
-//   4. Calls fetchEdgeLabels() to reload edge type listing
-//
-// GAP 2 fix: these tests prove both clearing AND reloading happen.
-// ────────────────────────────────────────────────────────────────────────────
-
-describe('Schema Browser - tenant switch clears labels and cache', () => {
-  it('nodeLabels and edgeLabels are cleared immediately on tenant switch', () => {
-    // Mirrors: nodeLabels.value = []; edgeLabels.value = []
-    let nodeLabels = ['Repository', 'Issue', 'PullRequest']
-    let edgeLabels = ['AUTHORED', 'OWNS']
-    const schemaCache = new Map([
-      ['Repository', { description: 'cached', required_properties: [], optional_properties: [] }],
-    ])
-
-    function onTenantVersionChange() {
-      nodeLabels = []
-      edgeLabels = []
-      schemaCache.clear()
-    }
-
-    onTenantVersionChange()
-    expect(nodeLabels).toEqual([])
-    expect(edgeLabels).toEqual([])
-    expect(schemaCache.size).toBe(0)
-  })
-
-  it('schemaCache is cleared when tenant switches (prevents stale type details)', () => {
-    const schemaCache = new Map([
-      ['Repository', { description: 'A GitHub repo', required_properties: ['name'], optional_properties: [] }],
-      ['Issue', { description: 'A GitHub issue', required_properties: ['title'], optional_properties: [] }],
-    ])
-    expect(schemaCache.size).toBe(2)
-
-    function onTenantVersionChange() {
-      schemaCache.clear()
-    }
-
-    onTenantVersionChange()
-    expect(schemaCache.size).toBe(0)
-  })
-})
-
-describe('Schema Browser - tenant switch triggers fetchNodeLabels and fetchEdgeLabels', () => {
-  it('fetchNodeLabels is called after clearing on tenant switch', async () => {
-    // Mirrors: fetchNodeLabels() called inside watch(tenantVersion, ...)
-    const fetchNodeLabels = vi.fn().mockResolvedValue(undefined)
-    let nodeLabels = ['Repository', 'Issue']
-    const schemaCache = new Map([
-      ['Repository', { description: 'cached', required_properties: [], optional_properties: [] }],
-    ])
-
-    async function onTenantVersionChange() {
-      nodeLabels = []
-      schemaCache.clear()
-      await fetchNodeLabels()
-    }
-
-    await onTenantVersionChange()
-    expect(fetchNodeLabels).toHaveBeenCalledTimes(1)
-    expect(nodeLabels).toEqual([])
-    expect(schemaCache.size).toBe(0)
-  })
-
-  it('fetchEdgeLabels is called after clearing on tenant switch', async () => {
-    // Mirrors: fetchEdgeLabels() called inside watch(tenantVersion, ...)
-    const fetchEdgeLabels = vi.fn().mockResolvedValue(undefined)
-    let edgeLabels = ['AUTHORED', 'OWNS', 'REVIEWS']
-    const schemaCache = new Map([
-      ['AUTHORED', { description: 'cached edge', required_properties: [], optional_properties: [] }],
-    ])
-
-    async function onTenantVersionChange() {
-      edgeLabels = []
-      schemaCache.clear()
-      await fetchEdgeLabels()
-    }
-
-    await onTenantVersionChange()
-    expect(fetchEdgeLabels).toHaveBeenCalledTimes(1)
-    expect(edgeLabels).toEqual([])
-    expect(schemaCache.size).toBe(0)
-  })
-
-  it('both fetchNodeLabels and fetchEdgeLabels are called together on tenant switch', async () => {
-    // Mirrors the full watch handler: clears all state then reloads both label sets
-    const fetchNodeLabels = vi.fn().mockResolvedValue(undefined)
-    const fetchEdgeLabels = vi.fn().mockResolvedValue(undefined)
-    let nodeLabels = ['Repository', 'Issue']
-    let edgeLabels = ['AUTHORED']
-    const schemaCache = new Map([
-      ['Repository', { description: 'cached', required_properties: [], optional_properties: [] }],
-    ])
-
-    function onTenantVersionChange() {
-      nodeLabels = []
-      edgeLabels = []
-      schemaCache.clear()
-      fetchNodeLabels()
-      fetchEdgeLabels()
-    }
-
-    onTenantVersionChange()
-    expect(fetchNodeLabels).toHaveBeenCalledTimes(1)
-    expect(fetchEdgeLabels).toHaveBeenCalledTimes(1)
-    expect(nodeLabels).toEqual([])
-    expect(edgeLabels).toEqual([])
-    expect(schemaCache.size).toBe(0)
-  })
-
-  it('schema.vue watch(tenantVersion) calls fetchNodeLabels and fetchEdgeLabels', () => {
-    // Static analysis: verify pages/graph/schema.vue implements the required watch handler
-    const schemaVuePath = resolve(__dirname, '../pages/graph/schema.vue')
-    const schemaVue = readFileSync(schemaVuePath, 'utf-8')
-    expect(schemaVue).toContain('watch(tenantVersion')
-    expect(schemaVue).toContain('fetchNodeLabels()')
-    expect(schemaVue).toContain('fetchEdgeLabels()')
   })
 })

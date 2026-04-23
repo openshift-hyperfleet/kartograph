@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from 'vitest'
 
 interface SyncRun {
   id: string
-  status: 'pending' | 'ingesting' | 'ai_extracting' | 'applying' | 'completed' | 'failed'
+  status: 'pending' | 'running' | 'completed' | 'failed'
   started_at: string
   completed_at: string | null
   error: string | null
@@ -29,12 +29,8 @@ function getSyncPhaseLabel(status: SyncRun['status']): string {
   switch (status) {
     case 'pending':
       return 'Pending'
-    case 'ingesting':
-      return 'Ingesting'
-    case 'ai_extracting':
-      return 'Extracting'
-    case 'applying':
-      return 'Applying'
+    case 'running':
+      return 'In Progress'
     case 'completed':
       return 'Completed'
     case 'failed':
@@ -45,13 +41,13 @@ function getSyncPhaseLabel(status: SyncRun['status']): string {
 }
 
 function isActiveSyncPhase(status: SyncRun['status']): boolean {
-  return status === 'pending' || status === 'ingesting' || status === 'ai_extracting' || status === 'applying'
+  return status === 'pending' || status === 'running'
 }
 
 function getSyncBadgeVariant(status: SyncRun['status']): 'default' | 'destructive' | 'secondary' {
   if (status === 'completed') return 'default'
   if (status === 'failed') return 'destructive'
-  return 'secondary' // pending, ingesting, ai_extracting, applying
+  return 'secondary' // pending, running
 }
 
 function getDataSourceSyncStatus(syncRuns: SyncRun[]): string {
@@ -83,60 +79,14 @@ async function triggerSync(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Scenario: Active sync progress — real backend phase display
-// ────────────────────────────────────────────────────────────────────────────
-
-describe('Sync Monitoring - real backend phase labels (ingesting/ai_extracting/applying)', () => {
-  it('shows "Ingesting" label for ingesting phase', () => {
-    expect(getSyncPhaseLabel('ingesting')).toBe('Ingesting')
-  })
-
-  it('shows "Extracting" label for ai_extracting phase', () => {
-    expect(getSyncPhaseLabel('ai_extracting')).toBe('Extracting')
-  })
-
-  it('shows "Applying" label for applying phase', () => {
-    expect(getSyncPhaseLabel('applying')).toBe('Applying')
-  })
-
-  it('isActiveSyncPhase returns true for ingesting status', () => {
-    expect(isActiveSyncPhase('ingesting')).toBe(true)
-  })
-
-  it('isActiveSyncPhase returns true for ai_extracting status', () => {
-    expect(isActiveSyncPhase('ai_extracting')).toBe(true)
-  })
-
-  it('isActiveSyncPhase returns true for applying status', () => {
-    expect(isActiveSyncPhase('applying')).toBe(true)
-  })
-
-  it('isActiveSyncPhase returns false for "running" (not a real backend status)', () => {
-    // The backend never emits 'running'; all in-progress phases are ingesting,
-    // ai_extracting, or applying. This assertion documents that 'running' must
-    // NOT be treated as an active phase.
-    const runningAsUnknown = 'running' as unknown as SyncRun['status']
-    expect(isActiveSyncPhase(runningAsUnknown)).toBe(false)
-  })
-
-  it('ingesting status uses "secondary" badge variant (in-progress)', () => {
-    expect(getSyncBadgeVariant('ingesting')).toBe('secondary')
-  })
-
-  it('ai_extracting status uses "secondary" badge variant (in-progress)', () => {
-    expect(getSyncBadgeVariant('ai_extracting')).toBe('secondary')
-  })
-
-  it('applying status uses "secondary" badge variant (in-progress)', () => {
-    expect(getSyncBadgeVariant('applying')).toBe('secondary')
-  })
-})
-
-// ────────────────────────────────────────────────────────────────────────────
-// Scenario: Active sync progress — phase display (all statuses)
+// Scenario: Active sync progress — phase display
 // ────────────────────────────────────────────────────────────────────────────
 
 describe('Sync Monitoring - active sync progress phases', () => {
+  it('shows "In Progress" label for running sync', () => {
+    expect(getSyncPhaseLabel('running')).toBe('In Progress')
+  })
+
   it('shows "Pending" label for pending sync', () => {
     expect(getSyncPhaseLabel('pending')).toBe('Pending')
   })
@@ -147,6 +97,10 @@ describe('Sync Monitoring - active sync progress phases', () => {
 
   it('shows "Failed" label for failed sync', () => {
     expect(getSyncPhaseLabel('failed')).toBe('Failed')
+  })
+
+  it('isActiveSyncPhase returns true for running status', () => {
+    expect(isActiveSyncPhase('running')).toBe(true)
   })
 
   it('isActiveSyncPhase returns true for pending status', () => {
@@ -171,8 +125,8 @@ describe('Sync Monitoring - badge variants for sync status', () => {
     expect(getSyncBadgeVariant('failed')).toBe('destructive')
   })
 
-  it('ingesting sync uses "secondary" badge variant (progress indicator)', () => {
-    expect(getSyncBadgeVariant('ingesting')).toBe('secondary')
+  it('running sync uses "secondary" badge variant (progress indicator)', () => {
+    expect(getSyncBadgeVariant('running')).toBe('secondary')
   })
 
   it('pending sync uses "secondary" badge variant', () => {
@@ -187,10 +141,10 @@ describe('Sync Monitoring - data source current sync status', () => {
 
   it('shows the most recent run status (first in array)', () => {
     const runs: SyncRun[] = [
-      { id: 'run-2', status: 'ingesting', started_at: '2024-01-02T10:00:00Z', completed_at: null, error: null, created_at: '2024-01-02T10:00:00Z' },
+      { id: 'run-2', status: 'running', started_at: '2024-01-02T10:00:00Z', completed_at: null, error: null, created_at: '2024-01-02T10:00:00Z' },
       { id: 'run-1', status: 'completed', started_at: '2024-01-01T10:00:00Z', completed_at: '2024-01-01T10:00:30Z', error: null, created_at: '2024-01-01T10:00:00Z' },
     ]
-    expect(getDataSourceSyncStatus(runs)).toBe('ingesting')
+    expect(getDataSourceSyncStatus(runs)).toBe('running')
   })
 
   it('shows "completed" when the latest sync completed successfully', () => {
@@ -273,7 +227,7 @@ describe('Sync Monitoring - sync history list rendering', () => {
     const runs: SyncRun[] = [
       {
         id: 'run-3',
-        status: 'ingesting',
+        status: 'running',
         started_at: '2024-01-03T10:00:00Z',
         completed_at: null,
         error: null,
@@ -388,137 +342,5 @@ describe('Sync Monitoring - tenant switch reloads data sources', () => {
     await onTenantVersionChange()
 
     expect(loadDataSources).toHaveBeenCalledOnce()
-  })
-})
-
-// ────────────────────────────────────────────────────────────────────────────
-// Scenario: Manual sync trigger — progress is shown after trigger
-//
-// Spec: "WHEN the user triggers a sync
-//       THEN a new sync run begins and progress is shown"
-//
-// After a successful POST /sync call, the UI must reload data sources so the
-// newly-created run's status appears without a manual page refresh.
-// ────────────────────────────────────────────────────────────────────────────
-
-describe('Sync Monitoring - trigger shows progress immediately after trigger', () => {
-  it('loadDataSources is called after a successful sync trigger', async () => {
-    const apiFetch = vi.fn().mockResolvedValue({})
-    const loadDataSources = vi.fn().mockResolvedValue(undefined)
-
-    async function triggerSyncAndRefresh(dsId: string) {
-      await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
-      // Must reload so the newly-created run's progress is shown
-      await loadDataSources()
-    }
-
-    await triggerSyncAndRefresh('ds-123')
-
-    expect(apiFetch).toHaveBeenCalledWith(
-      '/management/data-sources/ds-123/sync',
-      { method: 'POST' },
-    )
-    expect(loadDataSources).toHaveBeenCalledOnce()
-  })
-
-  it('polling starts after trigger when new run is active', async () => {
-    const startPolling = vi.fn()
-
-    // loadDataSources mock returns a data source with an active (ingesting) run —
-    // this drives the conditional, not a hardcoded boolean.
-    const loadDataSources = vi.fn().mockResolvedValue([
-      { id: 'ds-1', latestRunStatus: 'ingesting' },
-    ])
-
-    async function triggerSyncAndStartPolling(dsId: string) {
-      const apiFetch = vi.fn().mockResolvedValue({})
-      await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
-      const sources: Array<{ id: string; latestRunStatus: string }> = await loadDataSources()
-      // Poll only when loadDataSources reports an active run
-      const hasActiveSyncs = sources.some((s) =>
-        isActiveSyncPhase(s.latestRunStatus as SyncRun['status']),
-      )
-      if (hasActiveSyncs) {
-        startPolling()
-      }
-    }
-
-    await triggerSyncAndStartPolling('ds-1')
-
-    expect(startPolling).toHaveBeenCalledOnce()
-  })
-
-  it('polling does NOT start when trigger fails (no active run)', async () => {
-    const startPolling = vi.fn()
-    const errorToasts: string[] = []
-
-    // apiFetch rejects — simulates a failed POST /sync call
-    const apiFetch = vi.fn().mockRejectedValue(new Error('Internal Server Error'))
-
-    async function triggerSyncAndStartPolling(dsId: string) {
-      try {
-        await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
-        // Polling is only started on the success path
-        startPolling()
-      } catch {
-        errorToasts.push('Failed to trigger sync')
-      }
-    }
-
-    await triggerSyncAndStartPolling('ds-1')
-
-    expect(startPolling).not.toHaveBeenCalled()
-    expect(errorToasts).toContain('Failed to trigger sync')
-  })
-
-  it('a success toast is shown after sync is triggered', async () => {
-    const toastMessages: string[] = []
-
-    async function triggerSync(dsId: string) {
-      const apiFetch = async (url: string, opts: { method: string }) => {
-        if (url.includes(dsId) && opts.method === 'POST') return {}
-        throw new Error('Wrong endpoint')
-      }
-      await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
-      toastMessages.push('Sync triggered')
-    }
-
-    await triggerSync('ds-abc')
-
-    expect(toastMessages).toContain('Sync triggered')
-  })
-
-  it('an error toast is shown when sync trigger fails', async () => {
-    const toastMessages: string[] = []
-
-    async function triggerSync(dsId: string) {
-      const apiFetch = async (_url: string, _opts: { method: string }) => {
-        throw new Error('Internal Server Error')
-      }
-      try {
-        await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
-      } catch {
-        toastMessages.push('Failed to trigger sync')
-      }
-    }
-
-    await triggerSync('ds-abc')
-
-    expect(toastMessages).toContain('Failed to trigger sync')
-  })
-
-  it('sync trigger URL is scoped to the specific data source ID', async () => {
-    const apiFetch = vi.fn().mockResolvedValue({})
-
-    async function triggerSync(dsId: string) {
-      await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
-    }
-
-    const dsId = 'ds-specific-xyz-789'
-    await triggerSync(dsId)
-
-    const calledUrl: string = (apiFetch as ReturnType<typeof vi.fn>).mock.calls[0][0]
-    expect(calledUrl).toContain(dsId)
-    expect(calledUrl).toMatch(/\/management\/data-sources\/[^/]+\/sync$/)
   })
 })

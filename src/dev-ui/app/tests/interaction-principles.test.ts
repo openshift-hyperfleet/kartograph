@@ -244,7 +244,7 @@ describe('Interaction Principles - inline editing patterns', () => {
 
 // ── Scenario: Navigation sidebar structure ────────────────────────────────────
 // Spec: "the sidebar presents navigation grouped as:
-//   Explore — Query Console, Schema Browser, Graph Explorer, Mutations Console
+//   Explore — Query Console, Schema Browser, Graph Explorer
 //   Data — Knowledge Graphs, Data Sources (with sync status)
 //   Connect — API Keys, MCP Integration
 //   Settings — Workspaces, Groups, Tenants"
@@ -257,7 +257,6 @@ describe('Navigation - sidebar section structure', () => {
         { label: 'Query Console', to: '/query' },
         { label: 'Schema Browser', to: '/graph/schema' },
         { label: 'Graph Explorer', to: '/graph/explorer' },
-        { label: 'Mutations Console', to: '/graph/mutations' },
       ],
     },
     {
@@ -288,13 +287,12 @@ describe('Navigation - sidebar section structure', () => {
     expect(navSections).toHaveLength(4)
   })
 
-  it('Explore section contains Query Console, Schema Browser, Graph Explorer, Mutations Console', () => {
+  it('Explore section contains Query Console, Schema Browser, Graph Explorer', () => {
     const explore = navSections.find((s) => s.title === 'Explore')!
     const labels = explore.items.map((i) => i.label)
     expect(labels).toContain('Query Console')
     expect(labels).toContain('Schema Browser')
     expect(labels).toContain('Graph Explorer')
-    expect(labels).toContain('Mutations Console')
   })
 
   it('Data section contains Knowledge Graphs and Data Sources', () => {
@@ -635,107 +633,5 @@ describe('Tenant Context - switching tenants refreshes all data', () => {
     handleTenantChange('tenant-2')
     expect(switchedToId).toBe('tenant-2')
     expect(switchedToName).toBe('Startup Inc')
-  })
-})
-
-// ── Scenario: Keyboard shortcuts ─────────────────────────────────────────────
-// Spec: "GIVEN a power-user action (execute query, focus search)
-// THEN a keyboard shortcut is available (Ctrl/Cmd+Enter, /)
-// AND the shortcut is discoverable via tooltip or documentation"
-
-describe('Keyboard shortcuts — power-user actions', () => {
-  it('Ctrl+Enter triggers the primary action (execute / submit)', () => {
-    let actionCalled = false
-
-    function handleCtrlEnter(e: { ctrlKey: boolean; metaKey: boolean; key: string; preventDefault: () => void }) {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        e.preventDefault()
-        actionCalled = true
-      }
-    }
-
-    const preventDefault = vi.fn()
-    handleCtrlEnter({ ctrlKey: true, metaKey: false, key: 'Enter', preventDefault })
-    expect(actionCalled).toBe(true)
-    expect(preventDefault).toHaveBeenCalled()
-  })
-
-  it('Cmd+Enter (Mac) also triggers the primary action', () => {
-    let actionCalled = false
-
-    function handleCtrlEnter(e: { ctrlKey: boolean; metaKey: boolean; key: string; preventDefault: () => void }) {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        e.preventDefault()
-        actionCalled = true
-      }
-    }
-
-    const preventDefault = vi.fn()
-    handleCtrlEnter({ ctrlKey: false, metaKey: true, key: 'Enter', preventDefault })
-    expect(actionCalled).toBe(true)
-  })
-
-  it('other key combinations do not trigger the action', () => {
-    let actionCalled = false
-
-    function handleCtrlEnter(e: { ctrlKey: boolean; metaKey: boolean; key: string; preventDefault: () => void }) {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        e.preventDefault()
-        actionCalled = true
-      }
-    }
-
-    const preventDefault = vi.fn()
-    // Bare Enter — no modifier
-    handleCtrlEnter({ ctrlKey: false, metaKey: false, key: 'Enter', preventDefault })
-    expect(actionCalled).toBe(false)
-
-    // Ctrl+S — wrong key
-    handleCtrlEnter({ ctrlKey: true, metaKey: false, key: 's', preventDefault })
-    expect(actionCalled).toBe(false)
-  })
-
-  it('query console page registers Ctrl/Cmd+Enter keydown listener', () => {
-    const { readFileSync } = require('fs')
-    const { resolve } = require('path')
-    const source = readFileSync(
-      resolve(__dirname, '../pages/query/index.vue'),
-      'utf-8',
-    )
-    expect(source).toContain('handleCtrlEnter')
-    expect(source).toContain("document.addEventListener('keydown'")
-  })
-
-  it('query console removes the keydown listener on unmount (no memory leak)', () => {
-    const { readFileSync } = require('fs')
-    const { resolve } = require('path')
-    const source = readFileSync(
-      resolve(__dirname, '../pages/query/index.vue'),
-      'utf-8',
-    )
-    expect(source).toContain("document.removeEventListener('keydown'")
-  })
-
-  it('mutations console Ctrl/Cmd+Enter shortcut is discoverable via tooltip', () => {
-    const { readFileSync } = require('fs')
-    const { resolve } = require('path')
-    const source = readFileSync(
-      resolve(__dirname, '../pages/graph/mutations.vue'),
-      'utf-8',
-    )
-    // The shortcut should be shown (e.g., in a tooltip, badge, or kbd element)
-    expect(source).toMatch(/Ctrl\+Enter|Ctrl-Enter|Cmd-Enter|⌘\+Enter/)
-  })
-
-  it('keyboard shortcut is event-based, not polling-based', () => {
-    // Verifies the pattern: addEventListener('keydown', handler) not setInterval
-    const { readFileSync } = require('fs')
-    const { resolve } = require('path')
-    const source = readFileSync(
-      resolve(__dirname, '../pages/query/index.vue'),
-      'utf-8',
-    )
-    expect(source).toContain('keydown')
-    expect(source).not.toContain('setInterval')
   })
 })

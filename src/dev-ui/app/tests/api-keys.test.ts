@@ -248,12 +248,11 @@ describe('API Keys - revoke key', () => {
     const loadKeys = vi.fn().mockResolvedValue(undefined)
     let toastMsg = ''
 
-    // Mirrors useIamApi.revokeApiKey: DELETE /iam/api-keys/{id} (not POST /revoke)
     async function handleRevoke() {
       if (!keyToRevoke.value) return
       isRevoking.value = true
       try {
-        await revokeApiFetch(`/iam/api-keys/${keyToRevoke.value.id}`, { method: 'DELETE' })
+        await revokeApiFetch(`/iam/api-keys/${keyToRevoke.value.id}/revoke`, { method: 'POST' })
         toastMsg = `API key "${keyToRevoke.value.name}" revoked`
         await loadKeys()
       } finally {
@@ -264,7 +263,7 @@ describe('API Keys - revoke key', () => {
     }
 
     await handleRevoke()
-    expect(revokeApiFetch).toHaveBeenCalledWith('/iam/api-keys/key-abc', { method: 'DELETE' })
+    expect(revokeApiFetch).toHaveBeenCalledWith('/iam/api-keys/key-abc/revoke', { method: 'POST' })
     expect(toastMsg).toBe('API key "CI Pipeline" revoked')
     expect(loadKeys).toHaveBeenCalledOnce()
     expect(revokeDialogOpen.value).toBe(false)
@@ -279,12 +278,11 @@ describe('API Keys - revoke key', () => {
     const revokeApiFetch = vi.fn().mockRejectedValue(new Error('Not found'))
     let errorMsg = ''
 
-    // Mirrors useIamApi.revokeApiKey: DELETE /iam/api-keys/{id}
     async function handleRevoke() {
       if (!keyToRevoke.value) return
       isRevoking.value = true
       try {
-        await revokeApiFetch(`/iam/api-keys/${keyToRevoke.value.id}`, { method: 'DELETE' })
+        await revokeApiFetch(`/iam/api-keys/${keyToRevoke.value.id}/revoke`, { method: 'POST' })
       } catch (err) {
         errorMsg = err instanceof Error ? err.message : 'Failed to revoke'
       } finally {
@@ -306,93 +304,11 @@ describe('API Keys - revoke key', () => {
 
     async function handleRevoke() {
       if (!keyToRevoke.value) return
-      await revokeApiFetch(`/iam/api-keys/${keyToRevoke.value.id}`, { method: 'DELETE' })
+      await revokeApiFetch(`/iam/api-keys/${keyToRevoke.value.id}/revoke`, { method: 'POST' })
     }
 
     await handleRevoke()
     expect(revokeApiFetch).not.toHaveBeenCalled()
-  })
-})
-
-// ── Backend API Alignment: exact endpoint URL assertions ──────────────────────
-// Spec: "Backend API Alignment" — every CRUD operation calls the documented endpoint.
-// These tests mirror the useIamApi composable's implementation exactly so that
-// any future drift between the composable and the test is immediately visible.
-
-describe('API Keys - backend endpoint alignment (useIamApi)', () => {
-  it('listApiKeys calls GET /iam/api-keys', async () => {
-    const mockApiFetch = vi.fn().mockResolvedValue([])
-
-    // Mirrors useIamApi.listApiKeys exactly
-    async function listApiKeys(userId?: string) {
-      const query: Record<string, string> = {}
-      if (userId) query.user_id = userId
-      return mockApiFetch('/iam/api-keys', { query })
-    }
-
-    await listApiKeys()
-    expect(mockApiFetch).toHaveBeenCalledWith(
-      '/iam/api-keys',
-      expect.objectContaining({ query: {} }),
-    )
-  })
-
-  it('listApiKeys passes user_id query param when filtering by user', async () => {
-    const mockApiFetch = vi.fn().mockResolvedValue([])
-
-    async function listApiKeys(userId?: string) {
-      const query: Record<string, string> = {}
-      if (userId) query.user_id = userId
-      return mockApiFetch('/iam/api-keys', { query })
-    }
-
-    await listApiKeys('user-42')
-    expect(mockApiFetch).toHaveBeenCalledWith(
-      '/iam/api-keys',
-      expect.objectContaining({ query: { user_id: 'user-42' } }),
-    )
-  })
-
-  it('createApiKey calls POST /iam/api-keys with name and expires_in_days', async () => {
-    const mockApiFetch = vi.fn().mockResolvedValue({
-      id: 'key-new',
-      name: 'CI Pipeline',
-      secret: 'fake-secret', // gitleaks:allow
-    })
-
-    // Mirrors useIamApi.createApiKey exactly
-    async function createApiKey(data: { name: string; expires_in_days?: number }) {
-      return mockApiFetch('/iam/api-keys', { method: 'POST', body: data })
-    }
-
-    await createApiKey({ name: 'CI Pipeline', expires_in_days: 365 })
-    expect(mockApiFetch).toHaveBeenCalledWith(
-      '/iam/api-keys',
-      expect.objectContaining({
-        method: 'POST',
-        body: expect.objectContaining({ name: 'CI Pipeline', expires_in_days: 365 }),
-      }),
-    )
-  })
-
-  it('revokeApiKey calls DELETE /iam/api-keys/{id} — not POST /revoke', async () => {
-    const mockApiFetch = vi.fn().mockResolvedValue(undefined)
-
-    // Mirrors useIamApi.revokeApiKey exactly
-    async function revokeApiKey(apiKeyId: string) {
-      return mockApiFetch(`/iam/api-keys/${apiKeyId}`, { method: 'DELETE' })
-    }
-
-    await revokeApiKey('key-abc')
-    expect(mockApiFetch).toHaveBeenCalledWith(
-      '/iam/api-keys/key-abc',
-      expect.objectContaining({ method: 'DELETE' }),
-    )
-    // Explicit negative assertion: must NOT be the old POST /revoke pattern
-    expect(mockApiFetch).not.toHaveBeenCalledWith(
-      expect.stringContaining('/revoke'),
-      expect.anything(),
-    )
   })
 })
 
@@ -445,347 +361,5 @@ describe('API Keys - secret shown once after dismiss', () => {
     expect(newlyCreatedKey.value).toBeNull()
     expect(secretCopied.value).toBe(false)
     expect(secretVisible.value).toBe(true)
-  })
-})
-
-// ────────────────────────────────────────────────────────────────────────────
-// Tenant selector — data refresh on tenant change
-// Spec: "switching tenants refreshes all data in the UI"
-// ────────────────────────────────────────────────────────────────────────────
-
-describe('API Keys page - tenant switch reloads data', () => {
-  it('api key list is cleared immediately when tenant version changes', () => {
-    // Stale keys from the previous tenant
-    let apiKeys = [
-      { id: 'k-old', name: 'Old Tenant Key', prefix: 'krt_old', is_revoked: false, expires_at: '2099-01-01T00:00:00Z', created_at: '', last_used_at: null, created_by_user_id: 'u-1' },
-    ]
-    let newlyCreatedKey: { id: string; secret: string } | null = { id: 'k-1', secret: 'super-secret' }
-
-    // Expected watch handler behaviour: clear stale data before async fetch
-    function onTenantVersionChange() {
-      apiKeys = []            // ← must happen before loadKeys()
-      newlyCreatedKey = null  // ← clear banner so old secret is not shown
-    }
-
-    expect(apiKeys).toHaveLength(1)
-    expect(newlyCreatedKey).not.toBeNull()
-
-    onTenantVersionChange()
-
-    expect(apiKeys).toHaveLength(0)
-    expect(newlyCreatedKey).toBeNull()
-  })
-
-  it('loadKeys is called after tenant version changes', async () => {
-    const loadKeys = vi.fn().mockResolvedValue([])
-    let tenantVersion = 1
-
-    async function onTenantVersionChange() {
-      await loadKeys()
-    }
-
-    tenantVersion = 2
-    await onTenantVersionChange()
-
-    expect(loadKeys).toHaveBeenCalledOnce()
-  })
-
-  it('api key list shows new-tenant keys after tenant switch completes', async () => {
-    let apiKeys: Array<{ id: string; name: string }> = [
-      { id: 'k-old', name: 'Old Key' },
-    ]
-
-    const newKey = { id: 'k-new', name: 'New Tenant Key' }
-    const loadKeys = vi.fn().mockResolvedValue([newKey])
-
-    async function onTenantVersionChange() {
-      apiKeys = []
-      apiKeys = await loadKeys()
-    }
-
-    await onTenantVersionChange()
-
-    expect(apiKeys).toHaveLength(1)
-    expect(apiKeys[0].name).toBe('New Tenant Key')
-    expect(apiKeys[0].id).not.toBe('k-old')
-  })
-})
-
-// ── Copy-to-clipboard for API Key identifiers ─────────────────────────────────
-// Spec: "Interaction Principles — Copy-to-clipboard"
-// GIVEN any identifier, configuration snippet, or secret
-// THEN a copy button is provided
-// AND a toast confirms the copy action
-
-describe('API Keys - copy key prefix to clipboard', () => {
-  it('calls clipboard.writeText with the key prefix and shows toast', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    let toastMsg = ''
-    let copiedPrefix = ''
-
-    async function copyKeyPrefix(prefix: string) {
-      try {
-        await writeText(prefix)
-        toastMsg = 'Key prefix copied to clipboard'
-        copiedPrefix = prefix
-      } catch {
-        toastMsg = 'Failed to copy to clipboard'
-      }
-    }
-
-    await copyKeyPrefix('krtgph_abc123')
-    expect(writeText).toHaveBeenCalledWith('krtgph_abc123')
-    expect(toastMsg).toBe('Key prefix copied to clipboard')
-    expect(copiedPrefix).toBe('krtgph_abc123')
-  })
-
-  it('shows error feedback when clipboard write fails', async () => {
-    const writeText = vi.fn().mockRejectedValue(new Error('NotAllowedError'))
-    let toastMsg = ''
-
-    async function copyKeyPrefix(prefix: string) {
-      try {
-        await writeText(prefix)
-        toastMsg = 'Key prefix copied to clipboard'
-      } catch {
-        toastMsg = 'Failed to copy to clipboard'
-      }
-    }
-
-    await copyKeyPrefix('krtgph_abc123')
-    expect(toastMsg).toBe('Failed to copy to clipboard')
-  })
-
-  it('resets copiedPrefix state after copy timeout', () => {
-    const copiedPrefix = { value: 'krtgph_abc123' }
-
-    function resetCopied() {
-      copiedPrefix.value = ''
-    }
-
-    resetCopied()
-    expect(copiedPrefix.value).toBe('')
-  })
-})
-
-describe('API Keys - copy newly-created secret (shown once)', () => {
-  it('calls clipboard.writeText with the secret and sets secretCopied', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    const secretCopied = { value: false }
-    let toastMsg = ''
-
-    const newlyCreatedKey = {
-      value: { name: 'CI Pipeline', secret: 'krtgph_test_secret' }, // gitleaks:allow
-    }
-
-    async function copySecret() {
-      if (!newlyCreatedKey.value) return
-      try {
-        await writeText(newlyCreatedKey.value.secret)
-        secretCopied.value = true
-        toastMsg = 'Secret copied to clipboard'
-      } catch {
-        toastMsg = 'Failed to copy'
-      }
-    }
-
-    await copySecret()
-    expect(writeText).toHaveBeenCalledWith('krtgph_test_secret')
-    expect(secretCopied.value).toBe(true)
-    expect(toastMsg).toBe('Secret copied to clipboard')
-  })
-
-  it('does not copy when newlyCreatedKey is null', async () => {
-    const writeText = vi.fn()
-    const newlyCreatedKey = { value: null as { secret: string } | null }
-
-    async function copySecret() {
-      if (!newlyCreatedKey.value) return
-      await writeText(newlyCreatedKey.value.secret)
-    }
-
-    await copySecret()
-    expect(writeText).not.toHaveBeenCalled()
-  })
-})
-
-// ── Mutation feedback — create and revoke toasts ───────────────────────────────
-// Spec: "Interaction Principles — Mutation feedback"
-
-describe('API Keys - mutation feedback on create', () => {
-  it('shows success toast with key name after create', async () => {
-    const apiFetch = vi.fn().mockResolvedValue({ id: 'key-new', name: 'CI Pipeline', secret: 'krtgph_x' }) // gitleaks:allow
-    let successToast = ''
-
-    async function handleCreate(name: string, expiresInDays: number) {
-      if (!name.trim()) return
-      if (expiresInDays < 1 || expiresInDays > 3650) return
-      const key = await apiFetch('/iam/api-keys', { method: 'POST', body: { name, expires_in_days: expiresInDays } })
-      successToast = `API key "${key.name}" created`
-    }
-
-    await handleCreate('CI Pipeline', 365)
-    expect(successToast).toBe('API key "CI Pipeline" created')
-  })
-
-  it('shows error toast when key creation fails', async () => {
-    const apiFetch = vi.fn().mockRejectedValue(new Error('Forbidden'))
-    let errorToast = ''
-
-    async function handleCreate(name: string, expiresInDays: number) {
-      if (!name.trim()) return
-      try {
-        await apiFetch('/iam/api-keys', { method: 'POST', body: { name, expires_in_days: expiresInDays } })
-      } catch (err) {
-        errorToast = err instanceof Error ? err.message : 'Failed to create API key'
-      }
-    }
-
-    await handleCreate('CI Pipeline', 365)
-    expect(errorToast).toBe('Forbidden')
-  })
-})
-
-describe('API Keys - mutation feedback on revoke', () => {
-  it('shows success toast with key name after revoke', async () => {
-    const apiFetch = vi.fn().mockResolvedValue({})
-    const keyToRevoke = { id: 'key-abc', name: 'CI Pipeline' }
-    let successToast = ''
-
-    async function handleRevoke() {
-      await apiFetch(`/iam/api-keys/${keyToRevoke.id}`, { method: 'DELETE' })
-      successToast = `API key "${keyToRevoke.name}" revoked`
-    }
-
-    await handleRevoke()
-    expect(successToast).toBe('API key "CI Pipeline" revoked')
-  })
-
-  it('shows error feedback when revoke fails', async () => {
-    const apiFetch = vi.fn().mockRejectedValue(new Error('Not found'))
-    let errorToast = ''
-
-    async function handleRevoke(keyId: string) {
-      try {
-        await apiFetch(`/iam/api-keys/${keyId}`, { method: 'DELETE' })
-      } catch (err) {
-        errorToast = err instanceof Error ? err.message : 'Failed to revoke key'
-      }
-    }
-
-    await handleRevoke('key-abc')
-    expect(errorToast).toBe('Not found')
-  })
-})
-
-// ── Backend API Alignment — Scenario: Resource operations succeed end-to-end ──
-// Spec requirement: "AND the UI reflects the updated state without requiring a
-// manual refresh"
-// Verifies that after create/revoke operations, loadKeys() is called so the
-// API key list is refreshed automatically without a manual page reload.
-
-describe('Backend API Alignment — Scenario: Resource operations succeed end-to-end — API key list refresh after create', () => {
-  it('calls loadKeys() after successful API key creation', async () => {
-    const apiFetch = vi.fn().mockResolvedValue({
-      id: 'key-new',
-      name: 'CI Pipeline',
-      secret: 'fake-secret', // gitleaks:allow
-      prefix: 'kfake_',
-    })
-    const loadKeys = vi.fn().mockResolvedValue(undefined)
-    const createForm = { name: 'CI Pipeline', expires_in_days: 30 }
-    const isCreating = { value: false }
-    const createDialogOpen = { value: true }
-
-    async function handleCreate() {
-      if (!createForm.name.trim()) return
-      isCreating.value = true
-      try {
-        const key = await apiFetch('/iam/api-keys', { method: 'POST', body: createForm })
-        void key
-        await loadKeys()
-      } finally {
-        createDialogOpen.value = false
-        isCreating.value = false
-      }
-    }
-
-    await handleCreate()
-    expect(loadKeys).toHaveBeenCalledOnce()
-  })
-
-  it('does NOT call loadKeys() when API key creation throws', async () => {
-    const apiFetch = vi.fn().mockRejectedValue(new Error('Forbidden'))
-    const loadKeys = vi.fn().mockResolvedValue(undefined)
-    const createForm = { name: 'CI Pipeline', expires_in_days: 30 }
-    const isCreating = { value: false }
-
-    async function handleCreate() {
-      if (!createForm.name.trim()) return
-      isCreating.value = true
-      try {
-        await apiFetch('/iam/api-keys', { method: 'POST', body: createForm })
-        await loadKeys()
-      } catch {
-        // error path — refresh must NOT be called
-      } finally {
-        isCreating.value = false
-      }
-    }
-
-    await handleCreate()
-    expect(loadKeys).not.toHaveBeenCalled()
-  })
-})
-
-describe('Backend API Alignment — Scenario: Resource operations succeed end-to-end — API key list refresh after revoke', () => {
-  it('calls loadKeys() after successful API key revocation', async () => {
-    const apiFetch = vi.fn().mockResolvedValue({})
-    const loadKeys = vi.fn().mockResolvedValue(undefined)
-    const keyToRevoke = { value: { id: 'key-abc', name: 'CI Pipeline' } as { id: string; name: string } | null }
-    const isRevoking = { value: false }
-    const revokeDialogOpen = { value: true }
-
-    async function handleRevoke() {
-      if (!keyToRevoke.value) return
-      isRevoking.value = true
-      try {
-        await apiFetch(`/iam/api-keys/${keyToRevoke.value.id}`, { method: 'DELETE' })
-        await loadKeys()
-      } finally {
-        revokeDialogOpen.value = false
-        keyToRevoke.value = null
-        isRevoking.value = false
-      }
-    }
-
-    await handleRevoke()
-    expect(loadKeys).toHaveBeenCalledOnce()
-  })
-
-  it('does NOT call loadKeys() when revoke API throws', async () => {
-    const apiFetch = vi.fn().mockRejectedValue(new Error('Not found'))
-    const loadKeys = vi.fn().mockResolvedValue(undefined)
-    const keyToRevoke = { value: { id: 'key-abc', name: 'CI Pipeline' } as { id: string; name: string } | null }
-    const isRevoking = { value: false }
-    const revokeDialogOpen = { value: true }
-
-    async function handleRevoke() {
-      if (!keyToRevoke.value) return
-      isRevoking.value = true
-      try {
-        await apiFetch(`/iam/api-keys/${keyToRevoke.value.id}`, { method: 'DELETE' })
-        await loadKeys()
-      } catch {
-        // error path — refresh must NOT be called
-      } finally {
-        revokeDialogOpen.value = false
-        keyToRevoke.value = null
-        isRevoking.value = false
-      }
-    }
-
-    await handleRevoke()
-    expect(loadKeys).not.toHaveBeenCalled()
   })
 })

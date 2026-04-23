@@ -219,6 +219,39 @@ class TestCreateAPIKeyRoute:
             expires_in_days=30,
         )
 
+    def test_uses_default_expires_in_days_of_30(
+        self,
+        test_client: TestClient,
+        mock_api_key_service: AsyncMock,
+        sample_api_key: APIKey,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """Should default to 30 days expiration when expires_in_days is not specified.
+
+        Spec: 'the default expiration is 30 days if unspecified'
+        """
+        plaintext_secret = (
+            "karto_abc123def456ghi789jkl012mno345pqr678"  # gitleaks:allow
+        )
+        mock_api_key_service.create_api_key.return_value = (
+            sample_api_key,
+            plaintext_secret,
+        )
+
+        response = test_client.post(
+            "/iam/api-keys",
+            json={"name": "my-api-key"},  # No expires_in_days provided
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        # Verify the service was called with the default expires_in_days=30
+        mock_api_key_service.create_api_key.assert_called_once_with(
+            created_by_user_id=mock_current_user.user_id,
+            tenant_id=mock_current_user.tenant_id,
+            name="my-api-key",
+            expires_in_days=30,
+        )
+
     def test_validates_expires_in_days_minimum(
         self,
         test_client: TestClient,

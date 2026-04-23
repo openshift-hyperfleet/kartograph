@@ -8,14 +8,20 @@ enforcement for API key revocation.
 import os
 import uuid
 from collections.abc import AsyncGenerator, Callable, Coroutine
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import bcrypt
 import pytest
 import pytest_asyncio
 from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
+from jose import jwt as jose_jwt
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from iam.application.security import extract_prefix, generate_api_key_secret
+from iam.domain.value_objects import APIKeyId
 from iam.infrastructure.outbox import IAMEventTranslator
 from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.outbox.spicedb_handler import SpiceDBEventHandler
@@ -97,6 +103,74 @@ async def revoked_api_key_secret(
     return secret
 
 
+@pytest_asyncio.fixture
+async def expired_api_key_secret(
+    _authz_db_settings: DatabaseSettings,
+    default_tenant_id: str,
+    alice_token: str,
+) -> AsyncGenerator[str, None]:
+    """Create an expired API key by inserting directly into the database.
+
+    The API route enforces a 1-day minimum expiration, so this fixture
+    bypasses the route and writes directly to the DB to produce an already-
+    expired key for testing the authentication rejection path.
+
+    Uses bcrypt work factor 4 (vs. production factor 12) for test speed,
+    since verify_api_key_secret respects the cost stored in the hash.
+    """
+    claims = jose_jwt.get_unverified_claims(alice_token)
+    user_id = claims["sub"]
+
+    secret = generate_api_key_secret()
+    # Use low work factor for speed in tests — bcrypt.checkpw respects stored cost
+    key_hash = bcrypt.hashpw(secret.encode(), bcrypt.gensalt(4)).decode()
+    prefix = extract_prefix(secret)
+    api_key_id = APIKeyId.generate().value
+    expires_at = datetime.now(UTC) - timedelta(days=1)  # expired yesterday
+
+    engine = create_write_engine(_authz_db_settings)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with session_factory() as session:
+        await session.execute(
+            text("""
+                INSERT INTO api_keys
+                    (id, created_by_user_id, tenant_id, name,
+                     key_hash, prefix, expires_at, is_revoked,
+                     created_at, updated_at)
+                VALUES
+                    (:id, :user_id, :tenant_id, :name,
+                     :key_hash, :prefix, :expires_at, false,
+                     now(), now())
+            """),
+            {
+                "id": api_key_id,
+                "user_id": user_id,
+                "tenant_id": default_tenant_id,
+                "name": f"expired-key-{api_key_id}",
+                "key_hash": key_hash,
+                "prefix": prefix,
+                "expires_at": expires_at.isoformat(),
+            },
+        )
+        await session.commit()
+
+    await engine.dispose()
+
+    yield secret
+
+    # Cleanup: remove the directly-inserted key
+    engine = create_write_engine(_authz_db_settings)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        await session.execute(
+            text("DELETE FROM api_keys WHERE id = :id"),
+            {"id": api_key_id},
+        )
+        await session.commit()
+    await engine.dispose()
+
+
 class TestAPIKeyAuthentication:
     """Tests for X-API-Key header authentication."""
 
@@ -130,6 +204,27 @@ class TestAPIKeyAuthentication:
         response = await async_client.get(
             "/iam/tenants",
             headers={"X-API-Key": revoked_api_key_secret},
+        )
+
+        assert response.status_code == 401
+        assert response.headers.get("WWW-Authenticate") == "Bearer, API-Key"
+
+    @pytest.mark.asyncio
+    async def test_returns_401_for_expired_api_key(
+        self, async_client, expired_api_key_secret
+    ):
+        """Expired API key should return 401.
+
+        Spec: 'GIVEN an API key that has passed its expiration time
+               WHEN a request includes the key
+               THEN authentication fails with a 401 response'
+
+        The key is inserted directly into the DB (bypassing the route's
+        1-day minimum) so that expires_at is in the past at test time.
+        """
+        response = await async_client.get(
+            "/iam/tenants",
+            headers={"X-API-Key": expired_api_key_secret},
         )
 
         assert response.status_code == 401
@@ -525,6 +620,62 @@ class TestAPIKeyAuthorizationEnforcement:
         )
 
         assert revoke_response.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_revoked_key_remains_visible_in_listing(
+        self,
+        async_client: AsyncClient,
+        tenant_auth_headers: dict[str, str],
+        process_outbox: Callable[[], Coroutine[Any, Any, None]],
+    ):
+        """Revoked API keys should remain visible in listings with is_revoked=True.
+
+        Spec: 'GIVEN a user who created an API key
+               WHEN the user revokes the key
+               THEN the key is marked as revoked
+               AND the key remains visible in listings with `is_revoked` set to true'
+
+        Steps:
+          1. Create a key (alice owns it)
+          2. Process outbox so SpiceDB has owner + tenant relationships
+          3. Revoke the key (alice as owner)
+          4. List keys and assert the revoked entry is present with is_revoked=True
+        """
+        key_name = f"revoke-list-test-{uuid.uuid4().hex[:8]}"
+
+        # 1. Create a key
+        create_response = await async_client.post(
+            "/iam/api-keys",
+            json={"name": key_name, "expires_in_days": 1},
+            headers=tenant_auth_headers,
+        )
+        assert create_response.status_code == 201
+        key_id = create_response.json()["id"]
+
+        # 2. Process outbox so SpiceDB has the owner relationship (needed for revoke
+        #    and for lookup_resources to return this key in the listing)
+        await process_outbox()
+
+        # 3. Revoke the key (alice as owner)
+        revoke_response = await async_client.delete(
+            f"/iam/api-keys/{key_id}",
+            headers=tenant_auth_headers,
+        )
+        assert revoke_response.status_code == 204
+
+        # 4. List keys — the revoked key must still appear with is_revoked=True
+        list_response = await async_client.get(
+            "/iam/api-keys",
+            headers=tenant_auth_headers,
+        )
+        assert list_response.status_code == 200
+        keys = list_response.json()
+
+        revoked_key = next((k for k in keys if k["id"] == key_id), None)
+        assert revoked_key is not None, (
+            f"Revoked key {key_id} should still appear in the listing for audit purposes"
+        )
+        assert revoked_key["is_revoked"] is True
 
     @pytest.mark.asyncio
     @pytest.mark.skip(

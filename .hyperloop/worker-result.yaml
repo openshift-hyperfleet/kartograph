@@ -1,93 +1,80 @@
 ---
 verdict: pass
 ---
-Code review and verification of task-018 (Users spec) on branch hyperloop/task-018.
+Spec alignment review for `specs/iam/users.spec.md` on branch `hyperloop/task-018`.
 
-## Check Results
+## Requirement Coverage
 
-### 1. Unit Tests — PASS
-2038 tests pass, 0 failures, 0 errors.
-```
-====================== 2038 passed, 39 warnings in 46.58s ======================
-```
-Warnings are pre-existing DeprecationWarnings from pytest/FastAPI internals
-and RuntimeWarnings from AsyncMock on sync session.add() — both pre-existing.
+### Requirement: Just-In-Time Provisioning (SHALL) — COVERED
 
-### 2. Linting (ruff check) — PASS
-Zero violations across all 443 source files.
+All four scenarios are implemented and tested.
 
-### 3. Formatting (ruff format) — PASS
-443 files already formatted.
+**Scenario: First login**
+- Implementation: `src/api/iam/application/services/user_service.py` — `ensure_user()` creates `User(id=user_id, username=username)` and calls `await self._user_repository.save(user)` when `get_by_id()` returns None.
+- Unit test: `tests/unit/iam/application/test_user_service.py::TestEnsureUser::test_creates_new_user_when_not_found` — asserts `result.id == user_id`, `result.username == "bob"`, `save.assert_called_once()`, and probe called with `was_created=True, was_updated=False`.
+- Dependency test: `tests/unit/iam/test_authenticated_user_dependency.py::test_jit_provisions_user_for_jwt_auth` — asserts `mock_user_repo.save.assert_awaited_once()` and probe params with `was_created=True`.
 
-### 4. Type Checking (mypy) — PASS
-`Success: no issues found in 443 source files`
+**Scenario: Subsequent login (no changes)**
+- Implementation: `user_service.py` returns existing user without calling `save()` when username is unchanged.
+- Unit test: `test_user_service.py::test_returns_existing_user` — asserts `result == existing_user`, `save.assert_not_called()`, probe with `was_created=False, was_updated=False`.
+- Dependency test: `test_authenticated_user_dependency.py::test_jit_skips_creation_for_existing_user` — asserts `save.assert_not_awaited()`.
 
-### 5. Architecture Boundary Tests — PASS
-40/40 passed. IAM ports, domain, and infrastructure layer boundaries all
-respected. `iam.ports.exceptions.ProvisioningConflictError` is in the ports
-layer; infrastructure imports from ports (correct direction).
+**Scenario: Subsequent login (username changed)**
+- Implementation: `user_service.py` detects `existing.username != username`, creates new `User` with updated username, calls `save()`.
+- Unit test: `test_user_service.py::test_syncs_username_when_changed` — asserts `result.username == "alice_new"`, `save.assert_called_once()`, probe with `was_updated=True`.
+- Integration test: `tests/integration/iam/test_user_repository.py::test_updates_existing_user` — persists update to PostgreSQL and retrieves `"alice_smith"`.
+- Dependency test: `test_authenticated_user_dependency.py::test_jit_syncs_username_when_changed_in_sso` — asserts `save.assert_awaited_once()`, probe with `was_updated=True`.
 
-### 6. Hyperloop Check Scripts — Pre-existing failures only
-All script failures are for pre-existing issues not introduced by this task:
+**Scenario: Username fallback**
+- Implementation: `src/api/iam/dependencies/user.py` line 104 — `username = claims.preferred_username or claims.sub`.
+- Dependency test: `test_authenticated_user_dependency.py::test_uses_sub_as_username_fallback_when_preferred_username_absent` — constructs `_AuthResult` with `username == sub`, asserts `result.username == "some-uuid-format-sub-123"` and `was_created=True`.
 
-- **check-auth-status-codes.sh**: Flags 403 assertions in pre-existing
-  integration tests not touched by this diff.
-- **check-failure-path-tests.sh** / **check-idempotency-tests.sh**: Exit
-  with usage error (script requires positional spec-file argument not passed
-  by the runner).
-- **check-frontend-test-infrastructure.sh** / **check-frontend-tests-exist.sh**:
-  Flags missing vitest in src/dev-ui; this task makes no frontend changes.
-- **check-no-coming-soon-stubs.sh**: Only non-venv hit is pre-existing
-  dev-ui Vue component (not in this diff).
-- **check-no-future-placeholder-comments.sh**: All hits are in
-  src/api/.venv/ (third-party packages). No production code hits.
+---
 
-### 7. Code Review — PASS
+### Requirement: External Identity Format (SHALL) — COVERED
 
-**Domain Probes (no logger/print):** Confirmed. All observability goes
-through probe methods (`user_saved`, `user_provision_failed`, etc.).
-No direct `logger.*` or `print()` calls added by this task.
+**Scenario: UUID-format identity**
+- Implementation: `src/api/iam/domain/value_objects.py` — `UserId` stores `value: str` without ULID enforcement. `src/api/infrastructure/migrations/versions/361d2df03685_expand_users_id_for_external_sso.py` expanded the `users.id` column to `VARCHAR(255)`.
+- Domain test: `tests/unit/iam/domain/test_user_aggregate.py::TestExternalIdentityFormat::test_accepts_uuid_format_subject_identifier` — stores `"550e8400-e29b-41d4-a716-446655440000"` as-is.
+- Additional coverage: `test_accepts_arbitrary_string_subject_identifier` (Auth0 format) and `test_user_id_is_not_restricted_to_ulid_format`.
 
-**Mock usage:** MagicMock/AsyncMock used only for infrastructure
-collaborators (AsyncSession, IUserRepository, UserServiceProbe) in infra
-and presentation tests. Domain tests use no mocks. Consistent with the
-pre-existing codebase pattern.
+---
 
-**Conventional commits with Spec-Ref and Task-Ref trailers:** Present on
-all commits on this branch.
+### Requirement: Username Uniqueness (SHALL) — COVERED
 
-**No hardcoded secrets or credentials.**
+**Scenario: Unique username**
+- Implementation: `src/api/infrastructure/models/user.py` line 25 — `username: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)`.
+- Integration test: `test_user_repository.py::test_saves_and_retrieves_user` — unique username allows creation and retrieval.
 
-### 8. Spec Coverage — PASS
+**Scenario: Duplicate username**
+- Implementation: `src/api/iam/infrastructure/user_repository.py` — `save()` has `await self._session.flush()` at line 77 **inside the `try` block** (lines 56–84), ensuring `IntegrityError` is caught and translated to `ProvisioningConflictError(user.username)`. Message hides DB internals.
+- `src/api/iam/dependencies/user.py` — catches `ProvisioningConflictError` and raises `HTTPException(status_code=409)`.
+- Unit test (repository): `tests/unit/iam/infrastructure/test_user_repository.py::test_translates_integrity_error_to_provisioning_conflict` — verifies `ProvisioningConflictError` raised (not `IntegrityError`), `exc_info.value.username == "alice"`.
+- Integration test: `test_user_repository.py::test_duplicate_username_raises_provisioning_conflict_error` — verifies against live PostgreSQL; asserts `"IntegrityError" not in error_message` and `"duplicate key" not in error_message.lower()`.
+- Dependency test: `test_authenticated_user_dependency.py::test_raises_http_409_when_username_conflict_occurs` — asserts `status_code == 409`, no DB internals in `detail`.
 
-**Requirement: JIT Provisioning**
-- First login: new record created via `UserRepository.save()` ✓
-- Subsequent login (no changes): existing record returned without write ✓
-- Subsequent login (username changed): `model.username` updated in-place ✓
-- Username fallback: `test_uses_sub_as_username_fallback_when_preferred_username_absent` ✓
+---
 
-**Requirement: External Identity Format**
-- UUID-format and arbitrary string subject identifiers stored as-is ✓
+### Requirement: Multi-Tenant Access (SHALL) — COVERED
 
-**Requirement: Username Uniqueness**
-- Duplicate username raises `ProvisioningConflictError` (not `IntegrityError`) ✓
-- Error message hides DB internals ✓
-- HTTP 409 returned to caller via dependency layer ✓
-- Covered at unit (repository + dependency) and integration levels ✓
+**Scenario: Cross-tenant membership**
+- Implementation: `src/api/iam/domain/aggregates/user.py` — `User` dataclass has only `id: UserId` and `username: str`; no `tenant_id`. Tenant scoping is per-request via `CurrentUser` in the dependency layer (`src/api/iam/dependencies/user.py`).
+- Domain test: `test_user_aggregate.py::TestMultiTenantAccess::test_user_aggregate_has_no_tenant_field` — `assert not hasattr(user, "tenant_id")`.
+- Domain test: `test_user_aggregate.py::test_same_user_identity_is_reusable_across_tenants` — same `UserId` in two `User` instances (different tenant contexts) compares equal.
+- Dependency test: `test_authenticated_user_dependency.py::test_does_not_have_tenant_id` — `AuthenticatedUser` returned from `get_authenticated_user()` has no `tenant_id` attribute.
 
-**Requirement: Multi-Tenant Access**
-- `User` aggregate carries no `tenant_id`; membership managed externally ✓
-- `test_user_aggregate_has_no_tenant_field` and
-  `test_same_user_identity_is_reusable_across_tenants` ✓
+---
+
+## NFR Checks
+
+**Domain Probes (no direct logger/print):** PASS — All observability flows through `UserServiceProbe` and `UserRepositoryProbe` (`user_ensured`, `user_provision_failed`, `user_saved`, `user_retrieved`, `user_not_found`). No direct `logger.*` or `print()` calls in production code.
+
+**flush() inside try/except:** PASS — `await self._session.flush()` is at line 77, inside the `try` block that begins at line 56, ensuring `IntegrityError` from the deferred INSERT is caught within `save()`.
+
+**No tenant_id in User aggregate:** PASS — Confirmed by reading `user.py` directly.
+
+---
 
 ## Summary
 
-The PR feedback fix is correct: `UserRepository.save()` now calls
-`await self._session.flush()` inside the `try/except IntegrityError` block,
-ensuring SQLAlchemy's deferred INSERT fires immediately within the try scope.
-Without this, the `IntegrityError` would escape uncaught at transaction
-commit time (outside `save()`). Pattern is consistent with TenantRepository
-and other repositories in the codebase.
-
-All mandatory checks pass. Implementation is correct, complete, and
-well-tested per TDD requirements.
+All four SHALL requirements and every scenario are implemented in code and covered by tests (unit, integration, and dependency layers). No gaps found. The PR feedback (flush() placement) was correctly addressed.

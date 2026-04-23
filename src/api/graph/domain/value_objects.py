@@ -8,7 +8,7 @@ on their attribute values.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -260,12 +260,16 @@ class MutationOperation(BaseModel):
                 if not self.start_id or not self.end_id:
                     raise ValueError("CREATE edge requires 'start_id' and 'end_id'")
 
-            # knowledge_graph_id is always stamped by the service layer — validate
-            # it is present (the service guarantees this before calling apply_batch).
+            # knowledge_graph_id must be present in set_properties at validation time.
+            # The system stamps this value when apply_mutations() is called with a
+            # knowledge_graph_id parameter — callers must either pass that parameter
+            # to the service or supply the field directly in set_properties.
             if "knowledge_graph_id" not in self.set_properties:
                 raise ValueError(
                     "CREATE requires 'knowledge_graph_id' in set_properties. "
-                    "The system stamps the correct value — callers must not omit it."
+                    "The system stamps this value when apply_mutations() is called "
+                    "with a knowledge_graph_id parameter. Ensure the caller passes "
+                    "knowledge_graph_id to the service, or include it in set_properties."
                 )
 
         elif self.op == "UPDATE":
@@ -323,6 +327,9 @@ class MutationResult(BaseModel):
         success: Whether all operations succeeded
         operations_applied: Number of operations successfully applied
         errors: List of error messages (empty if success=True)
+        error_kind: Category of failure — "validation" for bad input (JSON parse,
+            schema violations, missing required fields) or "server" for
+            infrastructure/database errors. None when success=True.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -330,3 +337,4 @@ class MutationResult(BaseModel):
     success: bool
     operations_applied: int
     errors: list[str] = Field(default_factory=list)
+    error_kind: Literal["validation", "server"] | None = None

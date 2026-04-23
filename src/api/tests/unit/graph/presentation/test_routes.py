@@ -471,6 +471,137 @@ class TestKnowledgeGraphScopedMutationsRoute:
         assert "detail" in data
 
 
+class TestKGMutationsErrorStatusCodes:
+    """Tests for error_kind-based HTTP status code selection in KG mutations route.
+
+    The route must use MutationResult.error_kind to decide between 422 and 500,
+    not infer status from error text content.
+    """
+
+    def test_validation_error_kind_returns_422(
+        self,
+        mock_query_service,
+        mock_mutation_service,
+        mock_current_user,
+        mock_authz_allowed,
+    ):
+        """MutationResult with error_kind='validation' must yield 422."""
+        client = _make_kg_test_client(
+            mock_query_service,
+            mock_mutation_service,
+            mock_current_user,
+            mock_authz_allowed,
+        )
+        mock_mutation_service.apply_mutations_from_jsonl.return_value = MutationResult(
+            success=False,
+            operations_applied=0,
+            errors=["JSON parse error on line 1: Expecting value"],
+            error_kind="validation",
+        )
+
+        response = client.post(
+            "/graph/knowledge-graphs/kg-123/mutations",
+            content="not-valid-json",
+            headers={"Content-Type": "application/jsonlines"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        data = response.json()
+        assert "errors" in data["detail"]
+
+    def test_server_error_kind_returns_500(
+        self,
+        mock_query_service,
+        mock_mutation_service,
+        mock_current_user,
+        mock_authz_allowed,
+    ):
+        """MutationResult with error_kind='server' must yield 500."""
+        client = _make_kg_test_client(
+            mock_query_service,
+            mock_mutation_service,
+            mock_current_user,
+            mock_authz_allowed,
+        )
+        mock_mutation_service.apply_mutations_from_jsonl.return_value = MutationResult(
+            success=False,
+            operations_applied=0,
+            errors=["Database connection timeout"],
+            error_kind="server",
+        )
+
+        response = client.post(
+            "/graph/knowledge-graphs/kg-123/mutations",
+            content='{"op":"DELETE","type":"node","id":"node:1234567890abcdef"}',
+            headers={"Content-Type": "application/jsonlines"},
+        )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        data = response.json()
+        assert "errors" in data["detail"]
+
+    def test_none_error_kind_returns_500(
+        self,
+        mock_query_service,
+        mock_mutation_service,
+        mock_current_user,
+        mock_authz_allowed,
+    ):
+        """MutationResult with no error_kind (None) defaults to 500."""
+        client = _make_kg_test_client(
+            mock_query_service,
+            mock_mutation_service,
+            mock_current_user,
+            mock_authz_allowed,
+        )
+        mock_mutation_service.apply_mutations_from_jsonl.return_value = MutationResult(
+            success=False,
+            operations_applied=0,
+            errors=["Unknown failure"],
+            # error_kind is None (default)
+        )
+
+        response = client.post(
+            "/graph/knowledge-graphs/kg-123/mutations",
+            content='{"op":"DELETE","type":"node","id":"node:1234567890abcdef"}',
+            headers={"Content-Type": "application/jsonlines"},
+        )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+
+    def test_validation_error_detail_contains_errors_list(
+        self,
+        mock_query_service,
+        mock_mutation_service,
+        mock_current_user,
+        mock_authz_allowed,
+    ):
+        """Error response detail must include the errors list from MutationResult."""
+        client = _make_kg_test_client(
+            mock_query_service,
+            mock_mutation_service,
+            mock_current_user,
+            mock_authz_allowed,
+        )
+        error_messages = ["Missing required property: slug", "Line content: {...}"]
+        mock_mutation_service.apply_mutations_from_jsonl.return_value = MutationResult(
+            success=False,
+            operations_applied=0,
+            errors=error_messages,
+            error_kind="validation",
+        )
+
+        response = client.post(
+            "/graph/knowledge-graphs/kg-123/mutations",
+            content='{"op":"CREATE","type":"node","id":"node:1234567890abcdef"}',
+            headers={"Content-Type": "application/jsonlines"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        data = response.json()
+        assert data["detail"]["errors"] == error_messages
+
+
 class TestTenantGraphRouting:
     """Tests for per-tenant graph routing.
 

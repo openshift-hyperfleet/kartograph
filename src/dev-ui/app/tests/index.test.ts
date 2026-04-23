@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest'
 
 describe('Index Page - Navigation Logic', () => {
   it('detects first visit from session storage', () => {
-    // Simulate session storage check logic
+    sessionStorage.removeItem('kartograph:visited')
     const isFirstVisit = sessionStorage.getItem('kartograph:visited') === null
-    expect(typeof isFirstVisit).toBe('boolean')
+    expect(isFirstVisit).toBe(true)
   })
 
   it('returning user session detection', () => {

@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.32.3](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.2...v3.32.3) (2026-04-23)
+
+
+### Bug Fixes
+
+* **deploy:** use HTTP scheme for SpiceDB health probes ([#432](https://github.com/openshift-hyperfleet/kartograph/issues/432)) ([b444d6e](https://github.com/openshift-hyperfleet/kartograph/commit/b444d6ebdb2cd3ad32639eba266282d66c397ca1))
+
 ## [3.32.2](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.1...v3.32.2) (2026-04-23)
 
 

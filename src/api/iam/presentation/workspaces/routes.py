@@ -50,8 +50,9 @@ must be unique within the tenant.
     response_description="The created workspace with generated ID and timestamps",
     responses={
         201: {"description": "Workspace created successfully"},
-        400: {"description": "Invalid parent workspace or validation error"},
+        400: {"description": "Validation error"},
         401: {"description": "Authentication required"},
+        404: {"description": "Parent workspace not found or inaccessible"},
         409: {"description": "Workspace name already exists in tenant"},
         500: {"description": "Internal server error"},
     },

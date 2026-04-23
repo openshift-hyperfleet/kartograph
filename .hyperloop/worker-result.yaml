@@ -1,76 +1,119 @@
 ---
 verdict: pass
 report: |
-  ## Task-008: Knowledge Graphs — Code Review Verification (2026-04-23)
+  ## Spec Alignment Review — Task-008 Knowledge Graphs (2026-04-23)
 
-  Verified all automated checks and reviewed the diff. All checks pass.
-
-  ---
-
-  ### Check Results
-
-  | Check | Result |
-  |---|---|
-  | Unit tests (2064) | PASS — 2064 passed, 0 failed, 39 warnings |
-  | Linting (ruff check) | PASS — All checks passed |
-  | Formatting (ruff format) | PASS — 450 files already formatted |
-  | Type checking (mypy) | PASS — No issues found in 450 source files |
-  | Architecture boundary tests (40) | PASS — All 40 tests passed |
-  | check-no-coming-soon-stubs.sh | PASS |
-  | check-no-future-placeholder-comments.sh | PASS |
-  | check-auth-status-codes.sh | INFORMATIONAL — Flags pre-existing 403s in unmodified integration tests (group_authorization.py, api_key_auth.py); not introduced by this task |
-  | check-failure-path-tests.sh | PASS (candidate files found for rollback scenario) |
-  | check-frontend-test-infrastructure.sh | PASS — vitest present |
-  | check-frontend-tests-exist.sh | PASS — 3 frontend test files |
-  | check-idempotency-tests.sh | PASS — No idempotency requirement in spec |
-  | Commit trailers (Spec-Ref, Task-Ref) | PASS — Present on all commits |
+  Validated against: specs/management/knowledge-graphs.spec.md
+  Commits reviewed through: a4276e9a (includes 4fd5c66f — GET /management/knowledge-graphs tests)
 
   ---
 
-  ### Changes Verified
+  ### Requirement Coverage
 
-  #### 1. Tests for GET /management/knowledge-graphs (tenant-visible list)
-  `TestListAllKnowledgeGraphs` class added with 4 tests:
-  - 200 with populated list
-  - 200 with empty list
-  - verifies user_id passed to service
-  - 401 for unauthenticated requests
+  #### Requirement: Knowledge Graph Creation (SHALL allow users with `edit` permission to create KGs)
 
-  #### 2. Encryption Key CSV Normalization
-  Both `management/dependencies/knowledge_graph.py` and `management/dependencies/data_source.py`
-  strip whitespace and filter empty strings from CSV before constructing `FernetSecretStore`.
-  Prevents silent failures from trailing commas or padded entries in ENCRYPTION_KEY env var.
+  **Scenario: Successful creation** — COVERED
+  - Service checks EDIT on workspace via SpiceDB (`check_permission` with Permission.EDIT on ResourceType.WORKSPACE)
+  - `KnowledgeGraph.create()` generates ULID via `KnowledgeGraphId.generate()` (uses `ulid` library)
+  - `tenant_id` and `workspace_id` set at creation from service scope and parameter
+  - Auth relationships (workspace + tenant links) written via outbox pattern (ManagementEventTranslator._translate_knowledge_graph_created)
+  - Tests: test_create_checks_edit_permission_on_workspace, test_create_saves_aggregate_via_repo, test_create_emits_knowledge_graph_created_event
 
-  #### 3. IAM Workspace Create Route OpenAPI Fix
-  `create_workspace` route now advertises `404` in its `responses` map.
-  `UnauthorizedError` handler correctly returns HTTP 404 (not 403) per the
-  "no distinction between unauthorized and missing" pattern.
-  Integration test at line ~435 correctly updated from 403 → 404 assertion.
+  **Scenario: Duplicate name within tenant** — COVERED
+  - IntegrityError from DB unique constraint mapped to DuplicateKnowledgeGraphNameError at service layer
+  - Route returns HTTP 409
+  - Tests: test_create_raises_duplicate_on_integrity_error, test_create_returns_409_on_duplicate_name
 
-  #### 4. worker-result.yaml YAML Format
-  File uses valid `report: |` block scalar — parsed correctly.
+  #### Requirement: Knowledge Graph Name Validation (SHALL enforce 1-100 char constraint)
+
+  **Scenario: Valid name** — COVERED
+  - test_create_accepts_name_exactly_100_chars, test_create_accepts_single_char_name
+
+  **Scenario: Empty or oversized name** — COVERED
+  - Domain aggregate enforces via InvalidKnowledgeGraphNameError in __post_init__ and create/update
+  - Route returns HTTP 422 on validation error
+  - Tests: test_create_rejects_empty_name, test_create_rejects_name_over_100_chars, test_update_rejects_empty_name, test_update_rejects_name_over_100_chars
+
+  #### Requirement: Knowledge Graph Retrieval (SHALL return details only to users with `view` permission)
+
+  **Scenario: Authorized retrieval** — COVERED
+  - Service checks VIEW permission on KG; returns aggregate if authorized
+  - No distinction for unauthorized vs. non-existent (both return None → 404)
+  - Tests: test_get_checks_view_permission, test_get_returns_aggregate_on_success
+
+  **Scenario: Unauthorized or non-existent** — COVERED
+  - Service returns None for: KG not found, wrong tenant, VIEW denied
+  - Route maps None to HTTP 404 (no 403 leaked)
+  - Tests: test_get_returns_none_when_not_found, test_get_returns_none_for_different_tenant, test_get_returns_none_when_permission_denied, test_get_returns_404_when_not_found_or_unauthorized
+
+  #### Requirement: Knowledge Graph Listing (SHALL list within a workspace, filtered by authorization)
+
+  **Scenario: List for workspace** — COVERED
+  - Service checks VIEW on workspace; uses read_relationships to discover KG IDs linked to workspace via SpiceDB
+  - Filters by tenant; returns only authorized KGs
+  - Route: GET /management/workspaces/{ws_id}/knowledge-graphs
+  - Tests: test_list_checks_view_permission_on_workspace, test_list_uses_read_relationships_to_discover_kgs, test_list_filters_by_tenant, test_list_returns_200_with_knowledge_graphs
+
+  **Tenant-visible list** — COVERED (concern from CodeRabbit, addressed in commit 4fd5c66f)
+  - Route: GET /management/knowledge-graphs (list_all_knowledge_graphs)
+  - Service: list_all() fetches by tenant then filters per-KG VIEW permission
+  - Tests (TestListAllKnowledgeGraphs): test_list_all_knowledge_graphs_returns_200_with_list, test_list_all_knowledge_graphs_returns_200_with_empty_list, test_list_all_knowledge_graphs_calls_service_with_user_id, test_list_all_knowledge_graphs_returns_401_when_not_authenticated
+  - Service unit tests: test_list_all_returns_all_visible_kgs, test_list_all_filters_unauthorized_kgs, test_list_all_returns_empty_when_no_kgs
+
+  #### Requirement: Knowledge Graph Update (SHALL allow users with `edit` permission to update metadata)
+
+  **Scenario: Update name and description** — COVERED
+  - Service checks EDIT on KG; calls kg.update(); saves via repo
+  - Route: PATCH /management/knowledge-graphs/{id}
+  - Tests: test_update_checks_edit_permission_on_kg, test_update_calls_aggregate_update_and_saves, test_update_returns_200_on_success
+
+  #### Requirement: Knowledge Graph Deletion (SHALL allow users with `manage` permission to delete, cascading)
+
+  **Scenario: Successful deletion** — COVERED
+  - Service checks MANAGE on KG
+  - Cascade within single transaction: finds all DS by KG, deletes credentials (secret_store.delete) for each DS with credentials_path, marks DS for deletion and calls ds_repo.delete, marks KG for deletion and calls kg_repo.delete
+  - Auth cleanup via outbox (KnowledgeGraphDeleted event): deletes workspace + tenant relationships + filter-deletes admin/editor/viewer direct grants
+  - Tests: test_delete_checks_manage_permission_on_kg, test_delete_cascades_data_sources, test_delete_cascades_encrypted_credentials, test_delete_rolls_back_on_ds_deletion_failure
+
+  **Scenario: Mutation after deletion** — COVERED
+  - KnowledgeGraph.update() raises AggregateDeletedError after mark_for_deletion()
+  - Test: test_update_raises_after_deletion
+
+  #### Requirement: Permission Inheritance (SHALL be inheritable from parent workspace)
+
+  **Scenario: Workspace-inherited access** — COVERED
+  - Integration tests (test_knowledge_graph_authorization.py, TestWorkspaceInheritedKnowledgeGraphAccess):
+    - test_workspace_editor_can_view_knowledge_graph
+    - test_workspace_editor_can_edit_knowledge_graph
+    - test_workspace_admin_can_manage_knowledge_graph
+    - test_workspace_member_can_view_knowledge_graph
+    - test_workspace_editor_cannot_manage_knowledge_graph
+    - test_workspace_member_cannot_edit_knowledge_graph
+    - test_user_without_workspace_role_cannot_access_knowledge_graph
+
+  **Scenario: Direct grant** — COVERED
+  - Integration tests (TestDirectGrantKnowledgeGraphAccess):
+    - test_direct_kg_admin_has_manage_permission
+    - test_direct_kg_admin_has_edit_permission
+    - test_direct_kg_admin_has_view_permission
+    - test_direct_kg_editor_has_edit_and_view_but_not_manage
+    - test_direct_kg_viewer_has_view_only
 
   ---
 
-  ### Code Review Notes
+  ### Test Run Results
 
-  - No direct logger/print usage — domain probes used throughout
-  - No MagicMock/AsyncMock for domain collaborators where fakes should be used
-  - No imports that violate DDD layer rules (architecture tests pass)
-  - Architecture test exclusion broadened to `management.presentation*` is justified:
-    all presentation route handlers legitimately reference `CurrentUser`/`get_current_user`
-    for auth. CodeRabbit flagged this as a nitpick — acceptable trade-off.
-  - No hardcoded secrets or environment-specific values
+  Unit tests: 334 passed, 0 failed (management package only)
+  Full unit suite: 2064 passed (from prior code review verification)
 
   ---
 
-  ### Remaining CodeRabbit Comments (Deferred — Out of Scope)
+  ### Summary
 
-  The following CodeRabbit nitpicks are valid but go beyond the spec requirements
-  for task-008 and should be addressed in a follow-up task:
-  - O(n) per-KG authz checks in `list_all` (LookupResources optimization)
-  - Frontend error handling improvements (toast notifications on load failure)
-  - Frontend tests asserting wrong POST endpoint and re-implementing local stubs
+  All 6 SHALL requirements and all 11 scenarios from the spec are COVERED by
+  implementation and tests. The specific concern about GET /management/knowledge-graphs
+  being untested was resolved in commit 4fd5c66f (TestListAllKnowledgeGraphs, 4 tests).
+  No spec deviations found in completed work.
 
   Spec-Ref: specs/management/knowledge-graphs.spec.md
   Task-Ref: task-008

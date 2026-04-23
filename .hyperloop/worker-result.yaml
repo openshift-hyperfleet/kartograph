@@ -1,0 +1,84 @@
+---
+verdict: pass
+---
+# Worker Result — Task 007: Bulk Loading
+
+Spec: `specs/graph/bulk-loading.spec.md`
+Branch: `hyperloop/task-007`
+
+## Summary
+
+All spec requirements are implemented and all 2065 unit tests pass.
+
+Note: Previous worker-result.yaml commits wrote the file to the wrong path
+(`src/api/.hyperloop/worker-result.yaml`) and deleted the correct root-level
+`.hyperloop/worker-result.yaml`. This commit corrects that by writing the
+verdict to the canonical location.
+
+## Requirement Coverage
+
+### Requirement: Operation Partitioning — PASS
+`strategy.py:apply_batch` (lines 89–174) partitions into `delete_edges`,
+`delete_nodes`, `create_nodes`, `create_edges`, and `update_ops`, executing
+them in exactly that order: DELETEs (edges before nodes), CREATEs (nodes
+before edges), UPDATEs last.
+
+**Tests:** `test_age_bulk_loading_strategy_partitioning.py`:
+- `TestOperationPartitioning::test_full_ordering_delete_create_update`
+- `TestDeleteOrderingEdgesBeforeNodes::test_delete_edges_before_delete_nodes`
+- `TestCreateOrderingNodesBeforeEdges::test_create_nodes_before_create_edges`
+
+### Requirement: Label and Index Pre-Creation — PASS
+`strategy.py:_pre_create_labels_and_indexes` fetches existing labels, creates
+new ones via `create_label`, then calls `create_label_indexes` on each new
+label — all before `execute_label_upsert` writes rows.
+
+**Tests:** `test_age_indexing_strategy.py`:
+- `TestCreateLabelIndexesForNodes`
+- `TestCreateLabelIndexesForEdges`
+- `TestSkipsExistingIndexes`
+
+### Requirement: Staging-Based Ingestion — PASS
+
+**Node bulk create:** `staging.py:create_node_staging_table` uses
+`CREATE TEMP TABLE ... ON COMMIT DROP`; `copy_nodes_to_staging` uses
+`cursor.copy_from()` (COPY protocol); upsert uses direct SQL INSERT.
+
+**Edge bulk create with ID resolution:** Nodes are always created before edges
+in `apply_batch`. `create_graphid_lookup_table` queries `_ag_label_vertex`
+(includes same-transaction inserts via PostgreSQL read-your-own-writes).
+
+**Tests:** `test_staging_table_manager.py`:
+- `TestNodeStagingTableCreation::test_node_staging_table_uses_on_commit_drop`
+- `TestGraphidLookupTableCreation::test_lookup_table_queries_ag_label_vertex`
+- `TestGraphidLookupTableCreation::test_lookup_table_creates_index_on_logical_id`
+
+### Requirement: Duplicate and Orphan Detection — PASS
+`staging.py:check_for_duplicate_ids` detects and raises on duplicate entity IDs.
+`staging.py:check_for_orphaned_edges` detects NULL graphids after resolution.
+
+**Tests:** `test_staging_table_manager.py`:
+- `TestDuplicateIdDetection` (5 unit tests)
+- `TestOrphanedEdgeDetection` (7 unit tests)
+
+### Requirement: Concurrency Safety — PASS
+`queries.py:acquire_advisory_lock` calls `pg_advisory_xact_lock(%s)`
+(transaction-scoped). Labels are sorted alphabetically (`sorted_labels = sorted(all_labels)`)
+before lock acquisition. On any exception, `client.raw_connection.rollback()`
+releases all held locks before retry. Bounded retry loop runs up to
+`_max_retries + 1` times.
+
+**Tests:** `test_age_bulk_loading_strategy_partitioning.py::TestAdvisoryLockRetry`:
+- `test_retries_on_lock_acquisition_failure_and_succeeds`
+- `test_rollback_called_on_lock_failure_before_retry`
+- `test_returns_failure_after_all_retries_exhausted`
+- `test_retry_attempts_are_bounded_by_max_retries`
+- `test_second_lock_failure_triggers_rollback_of_all_held_locks`
+
+## Test Results
+
+```
+2065 passed, 38 warnings
+```
+
+All unit tests pass. Implementation is complete and spec-aligned.

@@ -4,17 +4,12 @@ task: task-003
 spec: specs/graph/mutations.spec.md
 branch: hyperloop/task-003
 date: "2026-04-23"
-round: 7
+round: 8
 
 checks:
   unit_tests:
     count: 2027
     passed: 2027
-    failed: 0
-    status: pass
-  graph_unit_tests:
-    count: 226
-    passed: 226
     failed: 0
     status: pass
 
@@ -64,64 +59,43 @@ spec_requirements:
     status: pass
     note: "MutationApplier sorts: DEFINE first, then DELETE (edges before nodes), CREATE (nodes before edges), UPDATE last."
 
-pr_feedback_items:
-  - id: 1
-    description: "worker-result.yaml YAML validity"
-    resolution: fixed
-    note: "Pure structured YAML; validated."
-  - id: 2
-    description: "test_mutation_applier_sort.py missing start_id/end_id for edge CREATE"
-    resolution: fixed
-    commit: c7ec6f6c
-    note: "_make_op injects start_id and end_id for EntityType.EDGE CREATE ops."
-  - id: 3
-    description: "test_mutation_service.py enum vs string inconsistency (line 517)"
-    resolution: fixed
-    commit: 2a39aed0
-    note: "Line 517 now uses MutationOperationType.UPDATE enum, not raw string."
-  - id: 4
-    description: "routes.py error_kind field inference"
-    resolution: fixed
-    commit: 9c95110f
-    note: "_build_mutation_error_response uses explicit result.error_kind field."
-  - id: 5
-    description: "value_objects.py knowledge_graph_id error message clarity"
-    resolution: fixed
-    note: "Error message at lines 268-273 explains stamping is conditional on apply_mutations(knowledge_graph_id=...)."
-  - id: 6
-    description: "_stamp_knowledge_graph_id for DELETE/UPDATE match_properties"
-    resolution: non-actionable
-    note: "MutationOperation has no match_properties field. Spec scopes KG ID stamping to CREATE/UPDATE set_properties only."
-  - id: 7
-    description: ".hyperloop/state/tasks/task-003.md PR reference"
-    resolution: non-actionable
-    note: "Files under .hyperloop/state/ are managed exclusively by the orchestrator on trunk."
+open_items:
   - id: A
-    description: "test_does_not_stamp_when_knowledge_graph_id_not_provided uses DELETE op which cannot exercise stamping logic"
-    resolution: open
+    description: "test_does_not_stamp_when_knowledge_graph_id_not_provided uses DELETE op — cannot exercise stamping-suppression logic"
+    status: open
     note: >
-      Test at lines 793-821 uses MutationOperationType.DELETE. DELETE never has
-      set_properties, so the test cannot detect whether the service accidentally
-      stamps knowledge_graph_id on a CREATE or UPDATE when no knowledge_graph_id
-      param is provided. The only assertion is assert_called_once() which gives
-      no signal about stamping behavior. The test must use a CREATE or UPDATE with
-      set_properties and assert that knowledge_graph_id is NOT present in the
-      applied operation's set_properties.
+      File: src/api/tests/unit/graph/application/test_mutation_service.py, lines 793-821.
+      The test constructs a MutationOperationType.DELETE operation. DELETE has no
+      set_properties, so the service's _stamp_knowledge_graph_id code path is never
+      reached. The sole assertion is mock_applier.apply_batch.assert_called_once(),
+      which gives zero signal about whether the service would incorrectly stamp
+      knowledge_graph_id onto a CREATE or UPDATE when the apply_mutations()
+      knowledge_graph_id param is omitted.
+      FIX: Replace the DELETE op with a CREATE or UPDATE that includes set_properties
+      (e.g., data_source_id, source_path, slug, but NOT knowledge_graph_id). Call
+      service.apply_mutations(operations) with no knowledge_graph_id argument. Assert
+      that the operation passed to mock_applier.apply_batch does NOT contain
+      knowledge_graph_id in its set_properties.
   - id: B
-    description: "test_apply_mutations_stores_define_operations includes slug in provided required_properties so injection cannot be detected"
-    resolution: open
+    description: "test_apply_mutations_stores_define_operations includes slug in caller-provided required_properties — injection cannot be detected"
+    status: open
     note: >
-      Test at lines 80-109 passes required_properties={"slug", "name"} to the
-      DEFINE operation. The assertion checks "slug" in saved_type_def.required_properties.
-      Because slug is already in the caller-provided set, removing the system
-      property injection code from the service would not cause this test to fail.
-      The test must exclude slug from the caller-provided required_properties so
-      the assertion can only pass if the service injects it automatically.
+      File: src/api/tests/unit/graph/application/test_mutation_service.py, lines 80-109.
+      The MutationOperation is constructed with required_properties={"slug", "name"}.
+      Because "slug" is already in the caller-provided set, the assertion
+      assert "slug" in saved_type_def.required_properties would pass even if the
+      service's system-property injection code were deleted entirely. The test cannot
+      detect an injection regression.
+      FIX: Remove "slug" from the caller-provided required_properties (pass only
+      {"name"} or another non-system property). The assertion
+      assert "slug" in saved_type_def.required_properties will then only pass if the
+      service actually injects it automatically, which is the behavior the test is
+      supposed to guard.
 
 summary: >
-  FAIL. All 11 spec requirements are covered by passing implementation and tests.
-  All 2027 unit tests pass. However, two actionable PR feedback items from round 6
-  remain unaddressed: Item A (test_does_not_stamp_when_knowledge_graph_id_not_provided
-  uses DELETE and cannot detect missing stamping-suppression for CREATE/UPDATE) and
-  Item B (test_apply_mutations_stores_define_operations includes slug in caller input
-  so cannot detect injection regression). Worker must fix both tests.
+  FAIL. All 11 spec requirements are implemented and covered by passing tests.
+  All 2027 unit tests pass. However, two test-quality defects from round 7 remain
+  unaddressed: Item A (test_does_not_stamp_when_knowledge_graph_id_not_provided uses
+  DELETE — cannot detect missing suppression for CREATE/UPDATE) and Item B
+  (test_apply_mutations_stores_define_operations includes slug in caller input so
+  cannot detect injection regression). Both must be fixed before this task can pass.

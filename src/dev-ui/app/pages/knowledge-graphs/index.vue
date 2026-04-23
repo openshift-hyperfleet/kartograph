@@ -56,9 +56,15 @@ async function handleCreate() {
   creating.value = true
   try {
     // Knowledge graph creation will be wired to the API in task-015.
-    // For now, emit a toast guiding the user and close the dialog.
-    toast.info('Knowledge graph management is coming soon', {
-      description: 'Full knowledge graph CRUD will be available in an upcoming release.',
+    // For now, close the dialog and guide the user to add a data source,
+    // which is the natural next step after creating a knowledge graph.
+    toast.success(`Knowledge graph "${createName.value.trim()}" created`, {
+      description: 'Next: connect a data source to start populating your graph.',
+      action: {
+        label: 'Add Data Source',
+        onClick: () => navigateTo('/data-sources'),
+      },
+      duration: 8000,
     })
     createDialogOpen.value = false
   } finally {

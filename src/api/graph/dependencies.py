@@ -29,10 +29,29 @@ from graph.infrastructure.type_definition_repository import (
     InMemoryTypeDefinitionRepository,
 )
 from graph.ports.repositories import ITypeDefinitionRepository
+from iam.application.value_objects import CurrentUser
+from iam.dependencies.user import get_current_user
 from infrastructure.database.connection import ConnectionFactory
 from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.dependencies import get_age_connection_pool
 from infrastructure.settings import get_database_settings
+
+
+def get_tenant_graph_name(current_user: CurrentUser) -> str:
+    """Derive the tenant-specific AGE graph name from the current user's tenant.
+
+    Kartograph uses per-tenant graph isolation. Each tenant's data is stored
+    in an AGE graph named ``tenant_{tenant_id}``, ensuring that no data bleeds
+    across tenant boundaries.
+
+    Args:
+        current_user: The authenticated user with a resolved tenant_id.
+
+    Returns:
+        Graph name string in the form ``tenant_{tenant_id}``
+        (e.g., ``tenant_t1`` for tenant ID ``t1``).
+    """
+    return f"tenant_{current_user.tenant_id.value}"
 
 
 def get_graph_service_probe() -> GraphServiceProbe:
@@ -55,21 +74,27 @@ def get_schema_service_probe() -> SchemaServiceProbe:
 
 def get_age_graph_client(
     pool: Annotated[ConnectionPool, Depends(get_age_connection_pool)],
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> Generator[AgeGraphClient, None, None]:
-    """Get request-scoped AGE graph client.
+    """Get request-scoped AGE graph client scoped to the current tenant.
 
     Each request gets its own client with a connection from the pool.
+    The graph name is derived from the user's tenant_id for per-tenant isolation:
+    ``tenant_{tenant_id}`` (e.g., ``tenant_t1`` for tenant ``t1``).
+
     Connection is automatically returned to pool on cleanup.
 
     Args:
         pool: Application-scoped connection pool
+        current_user: Authenticated user used to derive the tenant-specific graph name.
 
     Yields:
-        Connected AgeGraphClient instance
+        Connected AgeGraphClient instance scoped to the tenant's graph.
     """
     settings = get_database_settings()
+    graph_name = get_tenant_graph_name(current_user)
     factory = ConnectionFactory(settings, pool=pool)
-    client = AgeGraphClient(settings, connection_factory=factory)
+    client = AgeGraphClient(settings, connection_factory=factory, graph_name=graph_name)
     client.connect()
     try:
         yield client

@@ -1,5 +1,6 @@
 resources:
   - github.com/jsell-rh/hyperloop//base?ref=v0.34.0
+  - spec-reviewer.yaml
 
 patches:
   - path: process.yaml

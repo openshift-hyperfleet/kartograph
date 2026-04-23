@@ -580,6 +580,138 @@ class TestOutboxWorkerNotifyProcessing:
             await async_session.commit()
 
 
+class TestIdempotentEventHandlers:
+    """Integration tests for idempotent event handling on duplicate delivery.
+
+    Covers spec: Requirement: Idempotent Event Handlers — duplicate delivery scenario.
+
+    Simulates the scenario where the outbox worker invokes a handler (which writes
+    to SpiceDB) but then crashes before marking the entry as processed.  On retry,
+    the worker finds the still-unprocessed entry, calls the handler again, and
+    the final SpiceDB state must be identical to a single successful run.
+    """
+
+    @pytest.mark.asyncio
+    async def test_handler_invoked_twice_produces_same_spicedb_state(
+        self,
+        async_session: AsyncSession,
+        session_factory,
+        spicedb_client: AuthorizationProvider,
+        spicedb_event_handler: SpiceDBEventHandler,
+        test_tenant,
+        clean_iam_data,
+    ):
+        """Spec: Duplicate delivery — idempotent final state in SpiceDB.
+
+        GIVEN an outbox entry that was partially processed (handler ran, SpiceDB
+              relationship written, but mark_processed was NOT called due to a crash)
+        WHEN the worker retries the same still-unprocessed entry
+        THEN the final SpiceDB state is identical to a single successful run
+        AND processed_at is set on the outbox entry after the retry
+        AND no duplicate relationships are created (SpiceDB upsert semantics)
+        """
+        outbox_repo = OutboxRepository(async_session)
+        group_repo = GroupRepository(
+            session=async_session,
+            authz=spicedb_client,
+            outbox=outbox_repo,
+        )
+
+        # Step 1: Create a group — this appends a GroupCreated event to the outbox
+        group = Group.create(
+            name="Idempotent Handler Test Group", tenant_id=test_tenant
+        )
+        async with async_session.begin():
+            await group_repo.save(group)
+
+        # Step 2: Read the unprocessed outbox entry
+        stmt = select(OutboxModel).where(
+            OutboxModel.aggregate_id == group.id.value,
+            OutboxModel.event_type == "GroupCreated",
+        )
+        result = await async_session.execute(stmt)
+        outbox_entry = result.scalar_one_or_none()
+        assert outbox_entry is not None
+        assert outbox_entry.processed_at is None
+
+        entry_id = outbox_entry.id
+        event_type = outbox_entry.event_type
+        payload = outbox_entry.payload
+
+        # Step 3: First handler invocation — simulates the handler writing to
+        # SpiceDB but the process crashing before _mark_processed could run.
+        await spicedb_event_handler.handle(event_type, payload)
+
+        group_resource = format_resource(ResourceType.GROUP, group.id.value)
+        tenant_resource = format_resource(ResourceType.TENANT, test_tenant.value)
+
+        has_relationship = await spicedb_client.check_permission(
+            resource=group_resource,
+            permission=RelationType.TENANT,
+            subject=tenant_resource,
+        )
+        assert has_relationship is True, (
+            "SpiceDB relationship must exist after first handler invocation"
+        )
+
+        # The entry is still unprocessed (mark_processed was never called)
+        # Confirm this by re-querying; the outbox_entry object may be cached.
+        result_check = await async_session.execute(
+            select(OutboxModel).where(OutboxModel.id == entry_id)
+        )
+        still_unprocessed = result_check.scalar_one()
+        assert still_unprocessed.processed_at is None, (
+            "Entry must remain unprocessed (mark_processed was not called)"
+        )
+
+        # Step 4: Worker retries — it picks up the still-unprocessed entry and
+        # calls the handler again (second invocation with the same payload).
+        worker = OutboxWorker(
+            session_factory=session_factory,
+            handler=spicedb_event_handler,
+            probe=DefaultOutboxWorkerProbe(),
+        )
+        await worker._process_batch()
+
+        # Step 5a: Entry must now be marked as processed
+        async_session.expire_all()  # Expire session cache to force a fresh DB read
+        result_after = await async_session.execute(
+            select(OutboxModel).where(OutboxModel.id == entry_id)
+        )
+        processed_entry = result_after.scalar_one()
+        assert processed_entry.processed_at is not None, (
+            "Entry must be marked as processed after the worker retries it"
+        )
+
+        # Step 5b: SpiceDB relationship still exists and is correct (idempotent)
+        # The duplicate write_relationship call must not have removed or duplicated it.
+        has_relationship_after_retry = await spicedb_client.check_permission(
+            resource=group_resource,
+            permission=RelationType.TENANT,
+            subject=tenant_resource,
+        )
+        assert has_relationship_after_retry is True, (
+            "SpiceDB relationship must still exist after duplicate handler invocation "
+            "(write_relationship is an upsert — same tuple written twice stays once)"
+        )
+
+        # Clean up
+        await spicedb_client.delete_relationship(
+            resource=group_resource,
+            relation=RelationType.TENANT,
+            subject=tenant_resource,
+        )
+        await async_session.execute(
+            text("DELETE FROM outbox WHERE aggregate_id = :id"),
+            {"id": group.id.value},
+        )
+        await async_session.execute(
+            text("DELETE FROM groups WHERE id = :id"),
+            {"id": group.id.value},
+        )
+        await async_session.commit()
+
+
 class TestUnprocessedEventsRetry:
     """Tests for verifying unprocessed events are retried."""
 

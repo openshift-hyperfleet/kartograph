@@ -2,6 +2,14 @@
 
 ## Entries
 
+### 2026-04-23 | task-031 Tenant Context Spec | PASS | All requirements covered
+- Pattern: Full-flow tests (calling the real dependency function with mocks) are the preferred approach for ULID normalization verification — unit tests on `_validate_ulid` alone are insufficient; the full-flow test asserts both SpiceDB call and TenantContext carry normalized value.
+- Action: Confirmed `test_normalized_ulid_used_in_spicedb_subject` is complete with 3 assertions: SpiceDB resource string uses uppercase, `result.tenant_id == valid_tenant_id.value`, and `result.tenant_id == lowercase_header.upper()`.
+- Context: Implementation at `src/api/iam/dependencies/tenant_context.py`; MCP auth at `src/api/shared_kernel/middleware/mcp_api_key_auth.py` + `src/api/infrastructure/mcp_dependencies.py`.
+- Key test file: `src/api/tests/unit/iam/test_tenant_context_dependency.py` (42 tests) + `src/api/tests/unit/shared_kernel/middleware/test_mcp_auth_middleware.py` (17 tests).
+- MCP "Authentication failure" (401) and "Service unavailability" (503) are covered in the middleware test suite, not the tenant_context test file.
+- Run: `cd src/api && uv run pytest tests/unit/iam/test_tenant_context_dependency.py tests/unit/shared_kernel/middleware/test_mcp_auth_middleware.py -v`.
+
 ### 2026-04-22 | task-001 JobPackage Shared Kernel | PASS | All requirements covered
 - Pattern: Shared kernel modules tend to have comprehensive test suites organized by scenario class.
 - Action: Checked all 102 tests passed; verified each spec requirement had implementation + test.

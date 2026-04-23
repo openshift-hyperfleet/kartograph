@@ -10,6 +10,11 @@ from typing import Annotated
 
 from fastapi import Depends
 
+from iam.application.value_objects import CurrentUser
+from iam.dependencies.user import get_current_user
+from infrastructure.authorization_dependencies import get_spicedb_client
+from shared_kernel.authorization.protocols import AuthorizationProvider
+
 from graph.application.observability import (
     DefaultGraphServiceProbe,
     DefaultSchemaServiceProbe,
@@ -20,6 +25,7 @@ from graph.application.services import (
     GraphMutationService,
     GraphQueryService,
     GraphSchemaService,
+    GraphSecureEnclaveService,
 )
 from graph.infrastructure.age_bulk_loading import AgeBulkLoadingStrategy
 from graph.infrastructure.age_client import AgeGraphClient
@@ -97,6 +103,33 @@ def get_graph_query_service(
         graph_id=graph_id,
     )
     return GraphQueryService(repository=repository, probe=probe)
+
+
+def get_graph_secure_enclave_service(
+    query_service: Annotated[GraphQueryService, Depends(get_graph_query_service)],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> GraphSecureEnclaveService:
+    """Get GraphSecureEnclaveService for authorized read operations.
+
+    The secure enclave wraps the GraphQueryService and applies per-entity
+    authorization based on each entity's knowledge_graph_id property.
+    Unauthorized entities are redacted rather than removed, preserving
+    graph topology while protecting sensitive content.
+
+    Args:
+        query_service: Underlying graph query service.
+        authz: Authorization provider (SpiceDB client).
+        current_user: The authenticated user making the request.
+
+    Returns:
+        GraphSecureEnclaveService instance scoped to the requesting user.
+    """
+    return GraphSecureEnclaveService(
+        query_service=query_service,
+        authz=authz,
+        user_id=current_user.user_id.value,
+    )
 
 
 def get_mutation_applier(

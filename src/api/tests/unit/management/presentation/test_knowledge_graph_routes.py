@@ -228,7 +228,7 @@ class TestCreateKnowledgeGraph:
             json={"name": "", "description": "desc"},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     def test_create_knowledge_graph_returns_422_for_oversized_name(
         self,
@@ -244,7 +244,7 @@ class TestCreateKnowledgeGraph:
             json={"name": long_name, "description": "desc"},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     def test_create_knowledge_graph_returns_401_when_not_authenticated(
         self,
@@ -575,7 +575,7 @@ class TestUpdateKnowledgeGraph:
             json={"name": "", "description": "desc"},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     def test_update_knowledge_graph_returns_422_for_oversized_name(
         self,
@@ -591,7 +591,7 @@ class TestUpdateKnowledgeGraph:
             json={"name": long_name, "description": "desc"},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     def test_update_knowledge_graph_returns_401_when_not_authenticated(
         self,

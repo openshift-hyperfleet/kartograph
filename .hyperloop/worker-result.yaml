@@ -1,0 +1,58 @@
+---
+verdict: pass
+---
+
+## Verification Summary — task-030 (CORS NFR)
+
+### 1. Unit Tests — PASS
+2376 tests passed, 0 failures, 0 errors.
+23 new tests added across two new test files covering all spec scenarios.
+
+### 2. Linting (ruff check) — PASS
+Zero violations.
+
+### 3. Formatting (ruff format --check) — PASS
+All 478 files formatted correctly.
+
+### 4. Type Checking (mypy) — PASS
+Zero errors across 478 source files.
+
+### 5. Architecture Boundary Tests — PASS
+All 40 pytest-archon tests passed. No DDD layer boundary violations introduced.
+
+### 6. Integration Tests — NOT RUN
+Task only touches `infrastructure/settings.py`, `main.py`, and pure unit tests.
+No repository, database, or authorization layer changes — integration tests not required.
+
+### 7. Check Scripts — PASS (pre-existing violation excluded)
+- `check-no-source-regressions.sh` — PASS
+- `check-no-test-regressions.sh` — PASS
+- `check-no-future-placeholder-comments.sh` — PASS
+- `check-no-coming-soon-stubs.sh` — PASS
+- `check-weak-test-assertions.sh` — PASS
+- `check-failure-path-tests.sh` — PASS (no failure-path THEN conditions in spec)
+- `check-domain-aggregate-mocks.sh` — pre-existing violation in
+  `tests/unit/management/application/test_knowledge_graph_service.py`
+  (last touched by a prior commit; zero diff against alpha for that file).
+  This task introduced no new MagicMock/AsyncMock usage.
+
+### 8. Code Review — PASS
+- `configure_cors()` extracted cleanly as a testable function from `main.py`.
+- No `logger.*` or `print()` calls added.
+- No MagicMock/AsyncMock in the new test files; all collaborators use real objects.
+- `CORSSettings.validate_no_wildcard_origin_with_credentials` model validator
+  correctly enforces the spec requirement that `*` must not be used with credentials.
+- `allow_methods` default changed from explicit list to `["*"]` — satisfies the
+  spec's "all HTTP methods are allowed" requirement.
+- Conditional middleware installation via `is_enabled` satisfies the "no origins →
+  no CORS headers" scenario.
+- Commit trailers present: `Spec-Ref: specs/nfr/cors.spec.md@b46589a2...` and
+  `Task-Ref: task-030`.
+- Conventional commit message format followed: `feat(nfr): ...`.
+- `website/src/data/env-vars.json` updated to reflect new JSON-list env var
+  format and `allow_methods` wildcard default — documentation kept in sync.
+
+All spec requirements are implemented and verified:
+- Origins configured → CORS headers present, credentials allowed, no wildcard.
+- No origins → middleware not installed, no CORS headers.
+- Default policy → all methods (`["*"]`) and all headers (`["*"]`) allowed.

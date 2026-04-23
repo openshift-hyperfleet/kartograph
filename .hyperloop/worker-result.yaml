@@ -1,96 +1,41 @@
 ---
-verdict: pass
+verdict: fail
 ---
 ## Implementation Verification — task-008 (Knowledge Graphs, Management Context)
 
 Branch: `hyperloop/task-008`
 Spec: `specs/management/knowledge-graphs.spec.md@85d49a379a52479b33f9b39994d76795066899a6`
 
-### Test Suite Results
+### Check Results
 
-All 2056 unit tests pass (`uv run pytest tests/unit -v`), including:
-- 327 management context tests (aggregate, service, routes, outbox, probes)
-- 16 management architecture tests (DDD boundary enforcement via pytest-archon)
-- 66 shared_kernel authorization tests (SpiceDB schema design + types)
+| Check | Result | Detail |
+|---|---|---|
+| Unit Tests | PASS | 2056 passed, 0 failed |
+| Ruff Linting | PASS | `All checks passed!` |
+| Ruff Formatting | PASS | `448 files already formatted` |
+| Mypy Type Checking | PASS | `Success: no issues found in 448 source files` |
+| Architecture Boundary Tests | PASS | 16 passed |
+| Hyperloop Checks | PASS | All stub/placeholder failures are in `.venv` (third-party libs) or unrelated `dev-ui` code — not in task-008 implementation |
+| Commit Trailers | PASS | Spec-Ref and Task-Ref present on all substantive commits |
+| No logger/print usage | PASS | No direct logger/print calls found |
+| MagicMock for domain collaborators | **FAIL** | See below |
 
-### Spec Coverage
+---
 
-#### Requirement: Knowledge Graph Creation — COVERED
+### Finding: MagicMock Used for DataSource Domain Aggregates
 
-**Successful creation:**
-- `KnowledgeGraph.create()` generates a ULID via `KnowledgeGraphId.generate()`
-- `KnowledgeGraphService.create()` checks `Permission.EDIT` on the workspace
-- KG saved with `tenant_id`, `workspace_id`, and generated ULID `id`
-- Authorization relationships (workspace + tenant links) established via transactional outbox
-- Key tests: `test_create_generates_unique_id`, `test_create_checks_edit_permission_on_workspace`, `test_first_operation_is_workspace_relationship`, `test_second_operation_is_tenant_relationship`
+**File:** `tests/unit/management/application/test_knowledge_graph_service.py`
 
-**Duplicate name within tenant:**
-- DB constraint `uq_knowledge_graphs_tenant_name` catches duplicates
-- `IntegrityError` → `DuplicateKnowledgeGraphNameError` → HTTP 409
-- Key tests: `test_create_raises_duplicate_on_integrity_error`, `test_create_knowledge_graph_returns_409_for_duplicate_name`
+**Guideline violated:** "No MagicMock/AsyncMock for domain/application collaborators (use fakes)"
 
-#### Requirement: Knowledge Graph Name Validation — COVERED
+Three test methods construct `DataSource` domain aggregates using `MagicMock()` instead of real domain objects:
 
-- `KnowledgeGraph._validate_name()` enforces 1–100 character constraint
-- Pydantic model enforces same constraint at HTTP boundary (returns 422)
-- Key tests: `test_create_rejects_empty_name`, `test_create_rejects_name_over_100_chars`, `test_create_accepts_name_exactly_100_chars`
+- `test_delete_cascades_data_sources` — lines 605–606: `ds1 = MagicMock()`, `ds2 = MagicMock()`
+- `test_delete_rolls_back_on_ds_deletion_failure` — lines 653, 655: same
+- `test_delete_cascades_encrypted_credentials` — lines 687, 689: `ds_with_creds = MagicMock()`, `ds_no_creds = MagicMock()`
 
-#### Requirement: Knowledge Graph Retrieval — COVERED
+**Established pattern:** `tests/unit/management/application/test_data_source_service.py` defines a `_make_ds()` factory (lines 128–150) that returns real `DataSource` domain objects. The same tests that exercise cascading data source operations use `_make_ds()` — not mocks.
 
-- `KnowledgeGraphService.get()` checks `Permission.VIEW` on the KG
-- Returns `None` for both missing and unauthorized KGs (no existence leakage)
-- Route maps `None` → HTTP 404
-- Key tests: `test_get_checks_view_permission`, `test_get_returns_none_when_permission_denied`, `test_get_knowledge_graph_returns_404_when_not_found`
+**Required fix:** Add a `_make_ds()` helper to `test_knowledge_graph_service.py` mirroring the one in `test_data_source_service.py`, then replace all six `MagicMock()` instances above with real `DataSource` objects. Use attribute assignment (e.g. `ds.credentials_path = "..."`) on real objects where the test needs to control field values.
 
-#### Requirement: Knowledge Graph Listing — COVERED
-
-- Checks `Permission.VIEW` on workspace first
-- Reads SpiceDB relationships to discover KG IDs linked to workspace
-- Filters by tenant ID
-- Key tests: `test_list_checks_view_permission_on_workspace`, `test_list_uses_read_relationships_to_discover_kgs`, `test_list_filters_by_tenant`
-
-#### Requirement: Knowledge Graph Update — COVERED
-
-- `KnowledgeGraphService.update()` checks `Permission.EDIT` on the KG
-- Calls `kg.update()` then saves inside a transaction
-- Key tests: `test_update_checks_edit_permission_on_kg`, `test_update_calls_aggregate_update_and_saves`
-
-#### Requirement: Knowledge Graph Deletion — COVERED
-
-**Atomic cascade:**
-- All operations inside single `async with self._session.begin()` block:
-  1. Fetch all data sources for KG
-  2. Delete encrypted credentials (`secret_store.delete`) for each DS with credentials_path
-  3. `ds.mark_for_deletion()` + `ds_repo.delete(ds)` for each DS
-  4. `kg.mark_for_deletion()` + `kg_repo.delete(kg)`
-- Authorization cleanup via outbox: 5 SpiceDB ops (workspace rel, tenant rel, filter-delete admin/editor/viewer grants)
-- Key tests: `test_delete_cascades_data_sources`, `test_delete_cascades_encrypted_credentials`, `test_produces_five_operations`
-
-**Rollback on failure:**
-- Exception from any cascade step propagates before `kg_repo.delete()` is reached
-- SQLAlchemy `async with session.begin()` rolls back on exception
-- Key test: `test_delete_rolls_back_on_ds_deletion_failure`
-
-**Mutation after deletion:**
-- `_deleted` flag set in `mark_for_deletion()`; checked in `update()` → `AggregateDeletedError`
-- Key test: `test_update_raises_after_deletion`
-
-#### Requirement: Permission Inheritance — COVERED
-
-SpiceDB schema:
-- `permission view = admin + editor + viewer + workspace->view`
-- `permission edit = admin + editor + workspace->edit`
-- `permission manage = admin + workspace->manage`
-
-Workspace edit → KG edit (and view) inherited. Direct admin grant → all three permissions.
-Key tests: `test_knowledge_graph_edit_includes_workspace_edit`, `test_knowledge_graph_manage_includes_workspace_manage`, `test_knowledge_graph_view_includes_direct_roles`
-
-### DDD Architecture Compliance
-
-All management architecture tests pass:
-- Domain does not import infrastructure, application, or FastAPI
-- Ports do not import infrastructure or application
-- Application does not import infrastructure
-- Management context does not import IAM, graph, ingestion, extraction, or querying
-
-All SHALL/MUST requirements from the spec are implemented and covered by tests.
+The `MagicMock` for `session` (line 34) and `mock_probe` (line 71) are acceptable because those are infrastructure/observability collaborators, not domain objects.

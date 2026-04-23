@@ -12,4 +12,4 @@ data:
   DEV_UI_MCP_ENDPOINT_URL: "https://kartograph-api-kartograph-stage.apps.rosa.appsres09ue1.24ep.p3.openshiftapps.com/query/mcp"
   DEV_UI_KEYCLOAK_URL: "https://auth.stage.redhat.com/auth"
   DEV_UI_KEYCLOAK_REALM: "EmployeeIDP"
-  DEV_UI_KEYCLOAK_CLIENT_ID: "kartograph-ui"
+  DEV_UI_KEYCLOAK_CLIENT_ID: "e84a630e-cd5c-4bb9-bec6-7609d795fd2f"

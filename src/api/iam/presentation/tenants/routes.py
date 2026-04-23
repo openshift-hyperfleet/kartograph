@@ -252,6 +252,9 @@ async def delete_tenant(
         404: {
             "description": "Tenant not found",
         },
+        409: {
+            "description": "Cannot demote the last admin of the tenant",
+        },
         500: {
             "description": "Internal server error",
         },
@@ -316,6 +319,11 @@ async def add_tenant_member(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Insufficient permissions",
+        )
+    except CannotRemoveLastAdminError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot demote the last admin of the tenant",
         )
     except ValueError:
         raise HTTPException(

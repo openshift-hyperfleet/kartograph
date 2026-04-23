@@ -1,10 +1,10 @@
 ---
-verdict: pass
+verdict: fail
 task: task-003
 spec: specs/graph/mutations.spec.md
 branch: hyperloop/task-003
 date: "2026-04-23"
-round: 6
+round: 7
 
 checks:
   unit_tests:
@@ -12,63 +12,63 @@ checks:
     passed: 2027
     failed: 0
     status: pass
-  linting:
-    tool: ruff check
-    violations: 0
-    status: pass
-  formatting:
-    tool: ruff format --check
-    files_checked: 441
-    status: pass
-  type_checking:
-    tool: mypy
-    errors: 0
-    files_checked: 441
-    status: pass
-  architecture_boundary_tests:
-    count: 40
+  graph_unit_tests:
+    count: 226
+    passed: 226
+    failed: 0
     status: pass
 
 spec_requirements:
   - id: 1
     name: Per-Tenant Graph Isolation
     status: pass
+    note: "GraphMutationService routes via tenant-specific AGE graph (tenant_{tenant_id}); integration test verifies isolation."
   - id: 2
     name: KnowledgeGraph Scoping and Authorization
     status: pass
+    note: "apply_kg_mutations route enforces SpiceDB edit permission; 403 on denial."
   - id: 3
     name: KnowledgeGraph ID Stamping
     status: pass
+    note: "_stamp_knowledge_graph_id overwrites caller-supplied value on CREATE/UPDATE; test_stamps_knowledge_graph_id_on_create_operation verifies spoofed ID is rejected."
   - id: 4
     name: Mutation Log Format
     status: pass
+    note: "apply_mutations_from_jsonl handles JSONL; error on invalid JSON includes line number and preview; blank lines skipped."
   - id: 5
     name: DEFINE Operation
     status: pass
+    note: "DEFINE stores TypeDefinition with injected system properties; implementation correct."
   - id: 6
     name: CREATE Operation
     status: pass
+    note: "CREATE validates type definition, required properties, and system properties; idempotent merge semantics."
   - id: 7
     name: UPDATE Operation
     status: pass
+    note: "UPDATE supports set_properties and remove_properties; schema learning triggered on success."
   - id: 8
     name: DELETE Operation
     status: pass
+    note: "DELETE cascades (DETACH DELETE nodes, DELETE edges); implementation in mutation applier."
   - id: 9
     name: Mandatory System Properties
     status: pass
+    note: "validate_operation enforces data_source_id, source_path, slug (node), knowledge_graph_id in set_properties."
   - id: 10
     name: Deterministic Entity IDs
     status: pass
+    note: "generate_id produces {type}:{16_hex_chars}; deterministic hash from slug+type."
   - id: 11
     name: Referential Integrity Ordering
     status: pass
+    note: "MutationApplier sorts: DEFINE first, then DELETE (edges before nodes), CREATE (nodes before edges), UPDATE last."
 
 pr_feedback_items:
   - id: 1
     description: "worker-result.yaml YAML validity"
     resolution: fixed
-    note: "Restructured to pure structured YAML; no Markdown block scalars."
+    note: "Pure structured YAML; validated."
   - id: 2
     description: "test_mutation_applier_sort.py missing start_id/end_id for edge CREATE"
     resolution: fixed
@@ -91,10 +91,37 @@ pr_feedback_items:
   - id: 6
     description: "_stamp_knowledge_graph_id for DELETE/UPDATE match_properties"
     resolution: non-actionable
-    note: "MutationOperation has no match_properties field. Spec scopes KG ID stamping to CREATE/UPDATE set_properties only. DELETE auth enforced via SpiceDB edit permission at route level."
+    note: "MutationOperation has no match_properties field. Spec scopes KG ID stamping to CREATE/UPDATE set_properties only."
   - id: 7
     description: ".hyperloop/state/tasks/task-003.md PR reference"
     resolution: non-actionable
-    note: "Files under .hyperloop/state/ are managed exclusively by the orchestrator on trunk. Worker protocol prohibits modifications."
+    note: "Files under .hyperloop/state/ are managed exclusively by the orchestrator on trunk."
+  - id: A
+    description: "test_does_not_stamp_when_knowledge_graph_id_not_provided uses DELETE op which cannot exercise stamping logic"
+    resolution: open
+    note: >
+      Test at lines 793-821 uses MutationOperationType.DELETE. DELETE never has
+      set_properties, so the test cannot detect whether the service accidentally
+      stamps knowledge_graph_id on a CREATE or UPDATE when no knowledge_graph_id
+      param is provided. The only assertion is assert_called_once() which gives
+      no signal about stamping behavior. The test must use a CREATE or UPDATE with
+      set_properties and assert that knowledge_graph_id is NOT present in the
+      applied operation's set_properties.
+  - id: B
+    description: "test_apply_mutations_stores_define_operations includes slug in provided required_properties so injection cannot be detected"
+    resolution: open
+    note: >
+      Test at lines 80-109 passes required_properties={"slug", "name"} to the
+      DEFINE operation. The assertion checks "slug" in saved_type_def.required_properties.
+      Because slug is already in the caller-provided set, removing the system
+      property injection code from the service would not cause this test to fail.
+      The test must exclude slug from the caller-provided required_properties so
+      the assertion can only pass if the service injects it automatically.
 
-summary: "All 11 spec requirements covered. All 2027 unit tests pass. All actionable PR feedback items resolved."
+summary: >
+  FAIL. All 11 spec requirements are covered by passing implementation and tests.
+  All 2027 unit tests pass. However, two actionable PR feedback items from round 6
+  remain unaddressed: Item A (test_does_not_stamp_when_knowledge_graph_id_not_provided
+  uses DELETE and cannot detect missing stamping-suppression for CREATE/UPDATE) and
+  Item B (test_apply_mutations_stores_define_operations includes slug in caller input
+  so cannot detect injection regression). Worker must fix both tests.

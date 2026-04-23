@@ -1,54 +1,59 @@
 ---
 verdict: pass
 ---
-## task-003 Graph Mutations — Fresh Attempt Verification
+## task-003 Graph Mutations — Independent Verification
 
-### Test Suite
-```
-217 graph unit tests — 217 passed, 0 failed
-2018 total unit tests — 2018 passed, 0 failed
-```
+### Checks
 
-### Implementation Summary
+1. **Unit Tests**: PASS — 2018 passed, 0 failed, 0 errors (217 graph-specific)
+2. **Linting (ruff check)**: PASS — All checks passed
+3. **Formatting (ruff format)**: PASS — 441 files already formatted
+4. **Type Checking (mypy)**: PASS — No issues found in 441 source files
+5. **Architecture Boundary Tests**: PASS — 40 passed, 0 failed
+6. **Integration Tests**: SKIPPED — would require live dev instance; unit coverage is comprehensive
+7. **Code Review**: PASS — detailed findings below
 
-All spec requirements from `specs/graph/mutations.spec.md` are implemented and tested.
+### Code Review Findings
 
-**Core files:**
-- `graph/domain/value_objects.py` — MutationOperation, TypeDefinition, NodeRecord, EdgeRecord, MutationResult, EntityType, system property constants
-- `graph/application/services/graph_mutation_service.py` — JSONL parsing, kg_id stamping, DEFINE storage, required-property validation, schema learning, probe emission
-- `graph/infrastructure/mutation_applier.py` — Operation validation and referential integrity sorting (DEFINE → DELETE → CREATE → UPDATE)
-- `graph/infrastructure/age_bulk_loading/strategy.py` — AGE bulk loading via PostgreSQL COPY + staging tables
-- `graph/presentation/routes.py` — POST `/graph/knowledge-graphs/{kg_id}/mutations` with SpiceDB edit-permission check
-- `graph/dependencies.py` — `get_tenant_graph_name()` derives `tenant_{tenant_id}` for per-tenant AGE graph isolation
+**No logger.*/print() violations**: New production code uses domain probes exclusively.
+No direct logging calls were introduced in application, domain, or infrastructure layers.
+
+**Mock usage**: `MagicMock` appears only in infrastructure-layer tests (`test_mutation_applier_sort.py`) where it stubs the `client` and `bulk_loading_strategy` constructor arguments purely for instantiation — these mocks are never actually invoked by the tested method (`_sort_operations` is a pure sort). Domain and application collaborators use fakes (`FakeAuthorizationProvider` in route tests) — no `AsyncMock` for authorization. PASS.
+
+**Commit trailers**: All implementation commits carry `Spec-Ref` and `Task-Ref` trailers. The two early `chore` commits (`0d8ffd51`, `3d56c00e`) carry only `Task-Ref`, which is acceptable for worker-result bookkeeping commits.
+
+**No secrets or hardcoded credentials** in any changed file.
+
+**Old `/graph/mutations` route removed**: Replaced by `/graph/knowledge-graphs/{knowledge_graph_id}/mutations` with SpiceDB authorization. The integration auth test updated to match.
+
+**State files**: `.hyperloop/state/tasks/*.md` files are absent from this branch (deleted relative to `alpha`). This is correct — state files are managed by the orchestrator, not workers.
 
 ### Spec Requirement Coverage
 
-| Requirement | Scenario | Status |
-|---|---|---|
-| Per-Tenant Graph Isolation | Tenant graph routing (`tenant_{tenant_id}`) | COVERED |
-| KnowledgeGraph Scoping | SpiceDB edit permission check → 403 if denied | COVERED |
-| KnowledgeGraph Scoping | knowledge_graph_id stamped by system, caller value overwritten | COVERED |
-| Mutation Log Format | Valid JSONL parsed line by line | COVERED |
-| Mutation Log Format | Parse error reports line number + content preview | COVERED |
-| Mutation Log Format | Empty lines skipped without error | COVERED |
-| DEFINE Operation | Node type: data_source_id, source_path, slug auto-added to required | COVERED |
-| DEFINE Operation | Edge type: data_source_id, source_path auto-added (no slug) | COVERED |
-| CREATE Operation | New node created with set_properties | COVERED |
-| CREATE Operation | Idempotent merge preserves existing properties (JSONB `||` merge) | COVERED |
-| CREATE Operation | Edge created with start_id / end_id | COVERED |
-| CREATE Operation | Missing type definition rejected | COVERED |
-| CREATE Operation | Missing required properties rejected | COVERED |
-| CREATE Operation | Schema learning: extra properties added to optional_properties | COVERED |
-| UPDATE Operation | set_properties adds/overwrites; unlisted properties preserved | COVERED |
-| UPDATE Operation | remove_properties removes specified properties | COVERED |
-| UPDATE Operation | Schema learning on update | COVERED |
-| DELETE Operation | Node: DETACH DELETE (cascading edges removed first) | COVERED |
-| DELETE Operation | Edge: DELETE edge only | COVERED |
-| Mandatory System Properties | Node CREATE: data_source_id, source_path, slug, knowledge_graph_id | COVERED |
-| Mandatory System Properties | Edge CREATE: data_source_id, source_path, knowledge_graph_id | COVERED |
-| Deterministic Entity IDs | `{type}:{16_hex_chars}` format enforced via Pydantic regex | COVERED |
-| Referential Integrity Ordering | DEFINE → DELETE(edge→node) → CREATE(node→edge) → UPDATE | COVERED |
+| Requirement | Status |
+|---|---|
+| Per-Tenant Graph Isolation (`tenant_{tenant_id}`) | COVERED |
+| KnowledgeGraph Scoping — SpiceDB edit check → 403 | COVERED |
+| KnowledgeGraph Scoping — `knowledge_graph_id` stamped by system, caller value overwritten | COVERED |
+| Mutation Log Format — valid JSONL parsed per line | COVERED |
+| Mutation Log Format — parse error with line number + preview | COVERED |
+| Mutation Log Format — blank lines skipped | COVERED |
+| DEFINE node — `data_source_id`, `source_path`, `slug` auto-required | COVERED |
+| DEFINE edge — `data_source_id`, `source_path` auto-required (no `slug`) | COVERED |
+| CREATE new node | COVERED |
+| CREATE existing node — idempotent JSONB `||` merge (property preservation) | COVERED |
+| CREATE edge with `start_id`/`end_id` | COVERED |
+| CREATE — missing type definition rejected | COVERED |
+| CREATE — missing required properties rejected | COVERED |
+| CREATE — schema learning (extra props → optional) | COVERED |
+| UPDATE — `set_properties` adds/overwrites; unlisted preserved | COVERED |
+| UPDATE — `remove_properties` removes specified properties | COVERED |
+| UPDATE — schema learning | COVERED |
+| DELETE node — DETACH DELETE (cascading) | COVERED |
+| DELETE edge — edge only | COVERED |
+| Mandatory system properties — node: `data_source_id`, `source_path`, `slug`, `knowledge_graph_id` | COVERED |
+| Mandatory system properties — edge: `data_source_id`, `source_path`, `knowledge_graph_id` | COVERED |
+| Deterministic IDs — `{type}:{16_hex_chars}` Pydantic regex | COVERED |
+| Referential integrity ordering — DEFINE → DELETE(edge→node) → CREATE(node→edge) → UPDATE | COVERED |
 
-### Verdict: PASS
-
-All 23 SHALL/MUST requirements implemented and covered by unit tests. No regressions in the broader test suite.
+All 23 SHALL/MUST requirements from the spec are implemented and covered by unit tests.

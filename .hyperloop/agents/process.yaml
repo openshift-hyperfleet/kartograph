@@ -21,3 +21,8 @@ pipeline:
 hooks:
   after_reap:
     - type: process-improver
+
+gates:
+  pr-require-label:
+    type: label
+    label_name: lgtm

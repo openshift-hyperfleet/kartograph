@@ -5,11 +5,10 @@ report: |
 
   Validated against: specs/management/knowledge-graphs.spec.md
   Unit tests: 2066 unit tests passed, 0 failed
-  Frontend tests: 43 tests passed, 0 failed
 
   ---
 
-  ### Previously Resolved Issues (confirmed still in place)
+  ### All Previously Resolved Issues (confirmed still in place)
 
   #### MAJOR: Typed exceptions for parent workspace errors — VERIFIED RESOLVED
   - `ParentWorkspaceNotFoundError` and `ParentWorkspaceCrossTenantError` defined
@@ -19,12 +18,10 @@ report: |
     in a single `except` clause (lines 85-95) returning HTTP 404 — no fragile
     string parsing.
   - Route advertises `404` in OpenAPI `responses` map.
-  - Tests use `pytest.raises(ParentWorkspaceNotFoundError)` and
-    `pytest.raises(ParentWorkspaceCrossTenantError)`.
 
   #### MAJOR: Architecture test exclusion narrowed — VERIFIED RESOLVED
   - `test_management_does_not_import_iam` in `tests/unit/management/test_architecture.py`
-    uses three targeted exclusions (lines 248-253):
+    uses four targeted exclusions:
     - `management.dependencies*`
     - `management.presentation.knowledge_graphs.routes*`
     - `management.presentation.knowledge_graphs`
@@ -32,33 +29,36 @@ report: |
   - The blanket `.exclude("management.presentation*")` is NOT present.
   - `management.presentation.knowledge_graphs.models` is NOT excluded.
 
-  ---
-
-  ### Newly Fixed: Dev-UI POST endpoint mismatch
-
-  #### Issue: knowledge-graphs/index.vue used wrong POST endpoint — NOW FIXED
-  - The page previously called `POST /management/knowledge-graphs` which does
-    not exist in the backend (404). The only backend route for KG creation is
-    `POST /management/workspaces/{workspace_id}/knowledge-graphs`.
-  - **Fix:** Page now fetches the workspace list on mount (`GET /iam/workspaces`),
+  #### Dev-UI POST endpoint mismatch — VERIFIED RESOLVED
+  - `knowledge-graphs/index.vue` fetches the workspace list on mount,
     resolves the root workspace (`is_root === true`), and posts to
     `/management/workspaces/${rootWorkspaceId}/knowledge-graphs`.
-  - If no workspace is available, a toast error is shown.
-  - `loadKnowledgeGraphs()` now shows a `toast.error()` on failure instead of
-    silently resetting the list to empty.
-  - `knowledge-graphs.test.ts` updated to assert the correct workspace-scoped
-    POST endpoint and includes the workspaceId in both tests.
+  - `loadKnowledgeGraphs()` shows a `toast.error()` on failure.
+
+  #### Tests for GET /management/knowledge-graphs — VERIFIED PRESENT
+  - `TestListAllKnowledgeGraphs` class in `test_knowledge_graph_routes.py`
+    covers 200 with list, 200 empty, service call with user_id, and 401.
 
   ---
 
-  ### Spec Coverage (all 6 SHALL requirements)
+  ### Fixed in This Round
 
-  All 6 SHALL requirements remain fully covered — unchanged from prior verification.
+  #### workspace_service.py docstring updated
+  - `create_workspace` `Raises:` section now documents `UnauthorizedError`,
+    `ParentWorkspaceNotFoundError`, and `ParentWorkspaceCrossTenantError`
+    instead of the stale `PermissionError`/`ValueError` descriptions.
+
+  #### Removed tenant_id assertions from response contract tests
+  - `test_create_knowledge_graph_returns_201` and
+    `test_get_knowledge_graph_returns_200` no longer assert `result["tenant_id"]`.
+  - This aligns with CodeRabbit's repeated request to avoid asserting
+    internal metadata fields in response contract tests.
+
+  ---
 
   ### Test Run
 
-  2066 unit tests passed, 0 failed, 38 warnings (2026-04-23).
-  43 frontend tests passed, 0 failed (2026-04-23).
+  2066 unit tests passed, 0 failed, 39 warnings (2026-04-23).
 
   Spec-Ref: specs/management/knowledge-graphs.spec.md
   Task-Ref: task-008

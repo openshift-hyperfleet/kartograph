@@ -1,102 +1,120 @@
 ---
 verdict: pass
 ---
-## Task-008 Knowledge Graphs — Fresh Worker Verification
+## Task-008 Knowledge Graphs — Fresh Independent Verification
 
-**Branch:** `hyperloop/task-008`
-**Spec:** `specs/management/knowledge-graphs.spec.md@85d49a379a52479b33f9b39994d76795066899a6`
-**Worker run:** fresh re-verification after branch reset
-
----
-
-## Test Execution
-
-- Unit tests: **330 management tests passed, 2060 total unit tests passed, 0 failed**
-- Integration tests: NOT RUN (require live infrastructure — pre-verified in prior passes)
+**Branch:** worktree `workers/task-008` (ahead of `alpha`)
+**Spec:** `specs/management/knowledge-graphs.spec.md`
 
 ---
 
-## Requirement: Knowledge Graph Creation — PASS
+## Automated Checks
 
-### Scenario: Successful creation
-- `KnowledgeGraph.create()` generates a ULID via `KnowledgeGraphId.generate()`
-- `KnowledgeGraphService.create()` checks EDIT on workspace, creates aggregate, saves
-- Outbox translator emits SpiceDB ops to establish `workspace` and `tenant` relation links
-- REST: `POST /management/workspaces/{id}/knowledge-graphs` → 201
+### 1. Unit Tests — PASS
+```
+2060 passed, 43 warnings in 44.40s
+```
+All 330 management-specific tests pass alongside the full suite.
 
-### Scenario: Duplicate name within tenant
-- PostgreSQL unique constraint `(tenant_id, name)` on `knowledge_graphs` table
-- `IntegrityError` caught and re-raised as `DuplicateKnowledgeGraphNameError` → 409
+### 2. Linting (ruff check) — PASS
+```
+All checks passed!
+```
 
----
+### 3. Formatting (ruff format) — PASS
+```
+450 files already formatted
+```
 
-## Requirement: Knowledge Graph Name Validation — PASS
+### 4. Type Checking (mypy) — PASS
+```
+Success: no issues found in 450 source files
+```
 
-### Scenario: Valid name (1-100 chars)
-- `_validate_name()` in aggregate enforces `1 <= len(name) <= 100`
-- Pydantic model in presentation enforces same constraint → 422 on violation
+### 5. Architecture Boundary Tests — PASS
+```
+40 passed (global) | 16 passed (management-specific)
+```
+The `management.presentation` exclusion in `test_management_does_not_import_iam`
+is correctly justified: route handlers legitimately use `CurrentUser` from IAM
+for authentication at the presentation layer, matching the existing IAM workspace
+route pattern.
 
-### Scenario: Empty or oversized name
-- `InvalidKnowledgeGraphNameError` raised at domain level
-- Pydantic `Field(min_length=1, max_length=100)` returns 422 at HTTP layer
-
----
-
-## Requirement: Knowledge Graph Retrieval — PASS
-
-### Scenario: Authorized retrieval
-- `KnowledgeGraphService.get()` fetches by ID, checks tenant scope, checks VIEW permission
-- Returns aggregate on success
-
-### Scenario: Unauthorized or non-existent
-- Returns `None` for both missing and unauthorized (no existence leakage)
-- Route returns 404 in both cases
-
----
-
-## Requirement: Knowledge Graph Listing — PASS
-
-### Scenario: List for workspace
-- `list_for_workspace()` checks VIEW on workspace via SpiceDB
-- Reads relationships to discover KG IDs linked to workspace
-- Filters by tenant scope
+### 6. Check Scripts — N/A
+No `.hyperloop/checks/` directory on this branch.
 
 ---
 
-## Requirement: Knowledge Graph Update — PASS
+## Code Review
 
-### Scenario: Update name and description
-- `KnowledgeGraphService.update()` checks EDIT on KG, calls `kg.update()`, saves
-- `KnowledgeGraph.update()` validates name, raises `AggregateDeletedError` if deleted
+### Knowledge Graph Domain Aggregate
+- PASS: `KnowledgeGraph.create()` generates ULID via `KnowledgeGraphId.generate()`
+- PASS: `_validate_name()` enforces 1-100 character constraint, raises `InvalidKnowledgeGraphNameError`
+- PASS: `update()` raises `AggregateDeletedError` when `_deleted is True`
+- PASS: `mark_for_deletion()` emits `KnowledgeGraphDeleted` event including `workspace_id` for SpiceDB cleanup
+- PASS: All mutating methods use domain probes (not logger/print directly)
+
+### Application Service
+- PASS: `create()` checks EDIT on workspace before creating
+- PASS: `IntegrityError` mapped to `DuplicateKnowledgeGraphNameError` (409)
+- PASS: `get()` returns `None` for both unauthorized and non-existent (no existence leakage)
+- PASS: `list_for_workspace()` checks VIEW on workspace, uses `read_relationships` to discover KG IDs
+- PASS: `list_all()` filters by per-KG VIEW check
+- PASS: `update()` checks EDIT on KG, re-checks tenant scope, handles `IntegrityError`
+- PASS: `delete()` checks MANAGE, uses `async with self._session.begin()` for atomicity
+- PASS: Cascade includes encrypted credential cleanup via `ISecretStoreRepository`
+- PASS: All methods emit domain probe events on success and failure paths
+
+### Presentation Layer
+- PASS: URL layout matches api-conventions spec (nested create/list, flat CRUD)
+  - `POST /management/workspaces/{ws_id}/knowledge-graphs`
+  - `GET  /management/workspaces/{ws_id}/knowledge-graphs`
+  - `GET  /management/knowledge-graphs/{id}`
+  - `GET  /management/knowledge-graphs` (list_all)
+  - `PATCH /management/knowledge-graphs/{id}`
+  - `DELETE /management/knowledge-graphs/{id}` (204)
+- PASS: Pydantic `Field(min_length=1, max_length=100)` enforces name validation at HTTP layer (422)
+- PASS: `UnauthorizedError` -> 403 on create/list
+- PASS: `get()` returning `None` -> 404 (no unauthorized vs. missing distinction)
+
+### SpiceDB Schema
+- PASS: `permission view = admin + editor + viewer + workspace->view`
+- PASS: `permission edit = admin + editor + workspace->edit`
+- PASS: `permission manage = admin + workspace->manage`
+Satisfies both workspace-inherited access and direct grant scenarios.
+
+### Outbox Translator
+- PASS: `KnowledgeGraphCreated` emits `workspace` and `tenant` relationship writes
+- PASS: `KnowledgeGraphDeleted` deletes workspace link, tenant link, and all role grants
+
+### Testing Practices
+- PASS: No MagicMock for domain aggregates; `_make_kg()` and `_make_ds()` use real domain objects
+- PASS: `AsyncMock(spec=KnowledgeGraphService)` in routes tests is pre-existing pattern
+  (IAM workspace route tests use identical `AsyncMock(spec=WorkspaceService)`)
+- PASS: `AsyncMock` for repository ports in service tests is consistent with IAM service tests
+
+### Commit Hygiene
+- PASS: All implementation commits carry `Spec-Ref` and `Task-Ref` trailers
+- PASS: Conventional commit message format throughout
+- PASS: No hardcoded secrets or environment-specific values
 
 ---
 
-## Requirement: Knowledge Graph Deletion — PASS
+## Spec Coverage
 
-### Scenario: Successful deletion (atomic cascade)
-- `delete()` checks MANAGE, opens `async with session.begin()`
-- Iterates all data sources: deletes encrypted credentials then DS records
-- Calls `kg.mark_for_deletion()` then `kg_repo.delete()` — all within one transaction
-- Outbox translator emits SpiceDB ops to remove workspace link, tenant link, and all role grants
+| Requirement | Scenario | Status |
+|---|---|---|
+| Creation | Successful (ULID, workspace+tenant links) | PASS |
+| Creation | Duplicate name -> 409 | PASS |
+| Name Validation | Valid (1-100 chars) | PASS |
+| Name Validation | Empty/oversized -> 422 | PASS |
+| Retrieval | Authorized -> 200 | PASS |
+| Retrieval | Unauthorized/missing -> 404 (no distinction) | PASS |
+| Listing | Workspace-scoped, filtered by authz | PASS |
+| Update | Name + description, requires EDIT | PASS |
+| Deletion | Atomic cascade (DS records, credentials, KG, SpiceDB) | PASS |
+| Deletion | Mutation after deletion rejected | PASS |
+| Permission Inheritance | Workspace-inherited access | PASS |
+| Permission Inheritance | Direct grant | PASS |
 
-### Scenario: Mutation after deletion
-- `KnowledgeGraph.update()` raises `AggregateDeletedError` when `_deleted is True`
-- After physical deletion, `get_by_id` returns None → `ValueError("not found")` in `update()`
-
----
-
-## Requirement: Permission Inheritance — PASS
-
-### Scenario: Workspace-inherited access
-- SpiceDB schema: `knowledge_graph.view = workspace->view`, `edit = workspace->edit`, `manage = workspace->manage`
-- Integration tests in `test_knowledge_graph_authorization.py` cover all inheritance paths
-
-### Scenario: Direct grant
-- Direct admin → all three permissions (manage, edit, view)
-- Direct editor → edit and view only
-- Direct viewer → view only
-- All verified by integration tests
-
----
-
-**All spec requirements are implemented with complete test coverage. Verdict: PASS.**
+All spec requirements implemented. All automated checks pass.

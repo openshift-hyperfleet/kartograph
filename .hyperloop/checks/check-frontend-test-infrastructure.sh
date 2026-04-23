@@ -40,7 +40,13 @@ if ! git rev-parse --verify "${BASE_BRANCH}" &>/dev/null; then
   exit 1
 fi
 
-task_ui_changes=$(git diff "${BASE_BRANCH}...HEAD" --name-only -- "$UI_DIR" 2>/dev/null \
+# Capture git diff separately so real git errors are surfaced, not masked.
+git_diff_output=$(git diff "${BASE_BRANCH}...HEAD" --name-only -- "$UI_DIR") || {
+  echo "ERROR: git diff '${BASE_BRANCH}...HEAD' -- '$UI_DIR' failed unexpectedly." >&2
+  exit 1
+}
+
+task_ui_changes=$(echo "$git_diff_output" \
   | grep -E '\.(vue|ts|js)$' \
   | grep -v node_modules \
   | grep -v '\.nuxt' \

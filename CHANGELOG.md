@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.32.2](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.1...v3.32.2) (2026-04-23)
+
+
+### Bug Fixes
+
+* **deploy:** enable SpiceDB TLS with OpenShift service certs (v2) ([#427](https://github.com/openshift-hyperfleet/kartograph/issues/427)) ([0d072f7](https://github.com/openshift-hyperfleet/kartograph/commit/0d072f7d32f4aa3513d6950ebaf781e0c222e4cd))
+
 ## [3.32.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.0...v3.32.1) (2026-04-22)
 
 

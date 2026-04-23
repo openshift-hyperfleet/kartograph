@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.32.7](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.6...v3.32.7) (2026-04-23)
+
+
+### Bug Fixes
+
+* **deploy:** use JSON list format for CORS origins in stage ([#448](https://github.com/openshift-hyperfleet/kartograph/issues/448)) ([31d6b68](https://github.com/openshift-hyperfleet/kartograph/commit/31d6b68bec9dbca3d747a54b04468f76fddf172e))
+
 ## [3.32.6](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.5...v3.32.6) (2026-04-23)
 
 

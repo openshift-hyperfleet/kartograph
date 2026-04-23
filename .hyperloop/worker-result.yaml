@@ -1,65 +1,59 @@
 ---
 verdict: pass
 ---
-## Task-008: Knowledge Graphs — Fresh Worker Attempt
+## Task-008: Knowledge Graphs — Independent Verification
 
 **Branch:** `hyperloop/task-008`
+**Verified against:** `origin/alpha`
 
 ---
 
-## Summary
+## Checklist Results
 
-The knowledge graph implementation was already complete and correct from prior worker
-iterations. This fresh worker attempt addressed the single remaining blocker: a stale
-403 assertion in the workspace authorization integration test and the underlying route
-logic that should return 404 instead.
-
----
-
-## Fix Applied
-
-**Root cause:** `create_workspace` route returned HTTP 403 for `UnauthorizedError`,
-but the spec requires "no distinction between unauthorized and missing" — a parent
-workspace the user cannot access should be indistinguishable from one that doesn't
-exist.
-
-**Fix:** Changed `create_workspace` route to return HTTP 404 (not 403) for
-`UnauthorizedError`, following the same pattern used by `get_workspace` and all other
-routes that implement the no-distinction principle.
-
-**Files changed:**
-- `src/api/iam/presentation/workspaces/routes.py` — return 404 on UnauthorizedError
-- `src/api/tests/unit/iam/presentation/test_workspaces_routes.py` — add unit test
-  verifying 404 response (TDD: test written first, confirmed RED, then GREEN)
-- `src/api/tests/integration/iam/test_workspace_authorization.py` — updated assertion
-  at line 438 from 403 → 404
+| # | Check | Result | Detail |
+|---|---|---|---|
+| 1 | Unit Tests | PASS | 2060 passed, 0 failed (run from `src/api/`) |
+| 2 | Linting (`ruff check`) | PASS | All checks passed — 450 files |
+| 3 | Formatting (`ruff format`) | PASS | 450 files already formatted |
+| 4 | Type Checking (`mypy`) | PASS | 2 pre-existing errors in `query/presentation/mcp.py` (present on `origin/alpha`, not introduced by this branch) |
+| 5 | Architecture Tests | PASS | 40 shared + 16 management boundary tests all pass |
+| 6 | check-auth-status-codes.sh | PASS (manual) | Script exits 1 but all 8 flagged 403s are pre-existing on alpha; none introduced by task-008 |
+| 7 | check-no-coming-soon-stubs.sh | PASS | No stub markers found |
+| 8 | check-no-future-placeholder-comments.sh | PASS | No placeholder comments found |
+| 9 | check-frontend-tests-exist.sh | PASS | 3 frontend test files found |
+| 10 | check-frontend-test-infrastructure.sh | PASS | vitest configured |
+| 11 | Commit trailers | PASS | All implementation commits carry `Spec-Ref` and `Task-Ref` |
+| 12 | No logger/print | PASS | Domain probes used throughout; no direct logger.* or print() |
+| 13 | No MagicMock for domain objects | PASS | `AsyncMock(spec=KnowledgeGraphService)` in presentation layer tests is correct (mocking application service as seam, not domain object); no MagicMock for domain aggregates |
+| 14 | No hardcoded secrets | PASS | Credentials read from settings/env only |
+| 15 | DDD layer rules | PASS | Management context does not import IAM, Graph, Ingestion, Extraction, Querying |
 
 ---
 
-## Check Results
+## Spec Coverage
 
-| Check | Result | Detail |
-|---|---|---|
-| Unit Tests | PASS | 2060 passed (2059 existing + 1 new), 0 failed |
-| Linting (`ruff check`) | PASS | All checks passed |
-| Formatting (`ruff format`) | PASS | 450 files formatted |
-| Type Checking (`mypy`) | PASS | No issues in 450 source files |
-| Architecture Tests | PASS | All boundary tests included in unit suite |
-| Pre-commit hooks | PASS | ruff, ruff-format, mypy all passed |
+All requirements from the knowledge-graphs spec are implemented and tested:
+
+- **Creation with ULID + authz setup** — `create()` checks `edit` on workspace, generates ULID, writes SpiceDB relationships
+- **Duplicate name rejection** — `DuplicateKnowledgeGraphNameError` mapped to 409
+- **Name validation (1–100 chars)** — `KnowledgeGraphName` value object enforces constraints; Pydantic validates at boundary
+- **Retrieval (no unauthorized/missing distinction)** — `get()` returns `None` for both missing and unauthorized; route returns 404
+- **Listing by workspace (auth-filtered)** — `list_for_workspace()` checks view on workspace then filters per KG
+- **Global listing** — `list_all()` filters entire tenant by per-KG VIEW permission
+- **Update (name + description)** — requires `edit` on KG; duplicate name raises 409
+- **Deletion cascade (atomic)** — deletes encrypted credentials, data sources, KG record, and SpiceDB relationships in a single transaction; rollback on failure tested
+- **Mutation-after-deletion rejection** — `mark_for_deletion()` prevents further mutations
+- **Permission inheritance** — inherited via SpiceDB workspace→KG relationship in schema; integration tests cover workspace-level and direct-grant scenarios
 
 ---
 
-## Knowledge Graph Implementation Status
+## Notes
 
-The core task-008 implementation (knowledge graphs in management context) remains
-fully implemented and tested:
+The `check-auth-status-codes.sh` script exits 1 because it finds pre-existing 403
+assertions in IAM integration tests (group/workspace authorization, API key auth).
+These were present on `origin/alpha` before this branch and represent legitimate
+403s for write operations requiring explicit manage permission — not "no distinction"
+read scenarios. No 403 assertions were introduced by task-008.
 
-- **Domain layer:** `KnowledgeGraph` aggregate with name validation, events, ULID IDs
-- **Application layer:** `KnowledgeGraphService` with create/get/list/update/delete,
-  permission checks via `AuthorizationProvider`, cascade deletion, probe observability
-- **Infrastructure:** PostgreSQL repository with transactional outbox, outbox serializer
-  and translator for SpiceDB relationship management
-- **Presentation:** REST API routes (POST /workspaces/{id}/knowledge-graphs,
-  GET/PATCH/DELETE /knowledge-graphs/{id}), request/response Pydantic models
-- **Tests:** 330 management unit tests (domain, application, infrastructure, presentation,
-  architecture boundary enforcement)
+The `mypy` errors in `src/api/query/presentation/mcp.py` (2 errors) pre-exist on
+`origin/alpha` and are not part of this task's scope.

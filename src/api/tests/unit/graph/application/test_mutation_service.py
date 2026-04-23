@@ -108,6 +108,54 @@ class TestGraphMutationServiceApplyMutations:
         assert "source_path" in saved_type_def.required_properties
         assert "slug" in saved_type_def.required_properties
 
+    def test_apply_define_edge_type_adds_edge_system_properties(self):
+        """DEFINE for edge type adds data_source_id and source_path but NOT slug.
+
+        Spec (DEFINE edge type scenario): system properties for edges
+        (data_source_id, source_path) are automatically added. slug is a node-only
+        system property and MUST NOT appear in edge type definitions.
+        """
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True,
+            operations_applied=1,
+        )
+        mock_type_def_repo = Mock()
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.DEFINE,
+                type=EntityType.EDGE,
+                label="depends_on",
+                description="Dependency relationship between components",
+                required_properties={"weight"},
+                optional_properties=set(),
+            ),
+        ]
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        service.apply_mutations(operations)
+
+        mock_type_def_repo.save.assert_called_once()
+        saved_type_def = mock_type_def_repo.save.call_args[0][0]
+        assert saved_type_def.label == "depends_on"
+        assert saved_type_def.entity_type == EntityType.EDGE
+        assert (
+            saved_type_def.description == "Dependency relationship between components"
+        )
+
+        # Edge system properties MUST be automatically added
+        assert "data_source_id" in saved_type_def.required_properties
+        assert "source_path" in saved_type_def.required_properties
+
+        # slug is a node-only system property — MUST NOT appear on edge types
+        assert "slug" not in saved_type_def.required_properties
+
     def test_apply_mutations_emits_probe_events(self):
         """Should emit probe events for successful mutations."""
         from graph.application.services import GraphMutationService

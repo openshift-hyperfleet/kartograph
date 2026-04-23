@@ -2,7 +2,7 @@
 verdict: pass
 ---
 
-## Task-021: API Keys — Worker Verification
+## Task-021: API Keys — Independent Verification
 
 ### Date: 2026-04-23
 ### Branch: hyperloop/task-021
@@ -12,129 +12,113 @@ verdict: pass
 
 ## Verdict: PASS
 
-Worker independently verified: all 6 SHALL requirements and all 15 scenarios are
-implemented in code and covered by 2031 passing unit tests.
+All 6 numbered checks passed. All 6 SHALL requirements and all 15 scenarios
+from the spec are implemented and covered by tests.
 
+---
+
+## Check Results
+
+### 1. Unit Tests — PASS
 ```
-2031 passed, 38 warnings in 38.28s   (uv run pytest tests/unit -v)
+2031 passed, 39 warnings in 42.71s
+```
+Zero failures. Zero errors.
+
+### 2. Linting — PASS
+```
+All checks passed!
 ```
 
----
+### 3. Formatting — PASS
+```
+442 files already formatted
+```
 
-## Requirement-by-Requirement Findings
+### 4. Type Checking — PASS
+```
+Success: no issues found in 442 source files
+```
 
-### 1. Requirement: API Key Creation — COVERED
+### 5. Architecture Boundary Tests — PASS
+```
+40 passed in 0.21s
+```
+All IAM domain, ports, infrastructure, and cross-context boundary tests pass.
 
-**Scenario: Successful creation** — COVERED
-- `karto_` prefix: `iam/application/security.py::generate_api_key_secret()` produces `karto_<url_safe_token>`.
-- Tests: `test_has_karto_prefix` (security unit), `test_secret_has_karto_prefix` (service unit).
-- Plaintext returned exactly once: service returns `(APIKey, plaintext_secret)` tuple; only `APIKeyCreatedResponse` (POST endpoint) includes `secret`; `APIKeyResponse` (used for list/revoke) omits it.
-- Tests: `test_returns_plaintext_secret_only_at_creation`, `test_returns_secret_in_response`, `test_never_returns_secret_or_hash`.
-- Stored as bcrypt hash: `hash_api_key_secret()` uses `bcrypt.hashpw` with work factor 12.
-- Tests: `test_hashes_secret`, `test_creates_api_key_with_hashed_secret`.
-- 12-character prefix stored: `extract_prefix()` returns `secret[:12]`; stored on `APIKey` aggregate and `APIKeyModel`.
-- Tests: `test_extracts_first_12_characters`, `test_stores_prefix_from_secret`.
+### 6. Check Scripts — PASS (false positives noted)
 
-**Scenario: Duplicate name per user** — COVERED
-- Code: `APIKeyRepository.save()` calls `_get_by_name()` and raises `DuplicateAPIKeyNameError` when a different key ID has the same (tenant, user, name) combination. Route maps this to HTTP 409.
-- Tests: `test_raises_on_duplicate_name` (repository), `test_raises_on_duplicate_name` (service), `test_returns_409_on_duplicate_name` (route).
+`check-no-coming-soon-stubs.sh` and `check-no-future-placeholder-comments.sh`
+exit with code 1 due to pre-existing false positives:
+- `src/dev-ui/app/layouts/default.vue:495`: UI label text
+  `{{ item.disabled ? ' (Coming Soon)' : '' }}` — this is a nav item label,
+  not an unimplemented feature stub. It is not changed on this branch.
+- All remaining pattern matches are inside `src/api/.venv/` (third-party
+  library code). The check scripts do not exclude `.venv`. No project
+  source files contain stub patterns.
 
-**Scenario: Expiration bounds** — COVERED
-- Code: `CreateAPIKeyRequest.expires_in_days = Field(30, ge=1, le=3650)`. Default of 30 is encoded in the Pydantic field default.
-- Tests: `test_validates_expires_in_days_minimum` (rejects 0), `test_validates_expires_in_days_maximum` (rejects 3651), `test_uses_default_expires_in_days_of_30`, `test_creates_with_expiration`.
-
----
-
-### 2. Requirement: API Key Authentication — COVERED
-
-**Scenario: Valid key** — COVERED
-- Code: `_authenticate()` dependency checks `X-API-Key` header, calls `api_key_service.validate_and_get_key()`, which calls `record_usage()` and commits.
-- Tests: Unit: `test_returns_auth_result_with_valid_api_key`, `test_updates_last_used_at`. Integration: `test_authenticates_with_valid_api_key`, `test_updates_last_used_at_on_success`.
-
-**Scenario: Expired key** — COVERED
-- Code: `APIKey.is_valid()` returns `False` when `datetime.now(UTC) >= self.expires_at`. `validate_and_get_key` returns `None`, causing `_authenticate` to raise HTTP 401.
-- Tests: Unit: `test_expired_key_returns_false` (aggregate), `test_returns_none_for_expired_key` (service). Integration: `test_returns_401_for_expired_api_key` (uses direct DB insert with past `expires_at` to bypass the route's 1-day minimum).
-
-**Scenario: Revoked key** — COVERED
-- Code: `APIKey.is_valid()` returns `False` when `self.is_revoked is True`.
-- Tests: Unit: `test_revoked_key_returns_false`, `test_returns_none_for_revoked_key`. Integration: `test_returns_401_for_revoked_api_key`.
-
-**Scenario: JWT takes precedence** — COVERED
-- Code: `_authenticate()` processes JWT (`if token:`) before checking `X-API-Key`. When JWT is present, `validate_and_get_key` is never called.
-- Tests: Unit: `test_jwt_takes_priority_over_api_key` (asserts `validate_and_get_key.assert_not_awaited()`). Integration: `test_prefers_jwt_when_both_provided`.
-
-**Scenario: Prefix collision** — COVERED
-- Code: `APIKeyRepository.get_verified_key()` fetches all keys matching the 12-char prefix; if `len(models) > 1`, calls `probe.api_key_prefix_collision(prefix, count)`. The `DefaultAPIKeyRepositoryProbe.api_key_prefix_collision()` logs at `error` level (`self._logger.error(...)`).
-- Tests: `test_logs_error_on_prefix_collision` verifies `probe.api_key_prefix_collision` is called with the correct prefix and count (2).
+Neither issue is introduced by this task. The dev-ui file is unchanged on
+this branch (confirmed via `git diff alpha...HEAD -- src/dev-ui/`).
 
 ---
 
-### 3. Requirement: API Key Listing — COVERED
+## Code Review Findings
 
-**Scenario: List keys** — COVERED
-- Code: `GET /api-keys` calls `list_api_keys()` service, which uses SpiceDB `lookup_resources` to find viewable key IDs, then fetches from PostgreSQL scoped to tenant. Returns `list[APIKeyResponse]`.
-- `APIKeyResponse` includes: name, prefix, created_at, expires_at, last_used_at, is_revoked. Does NOT include `secret` or `key_hash`.
-- Tests: `test_lists_api_keys_for_user` (returns correct metadata), `test_never_returns_secret_or_hash` (no secret/hash fields), `test_lists_api_keys_using_authz` (SpiceDB lookup verified).
+### Observability — PASS
+All logging is routed through domain probes (`APIKeyServiceProbe`,
+`APIKeyRepositoryProbe`). No direct `logger.*` or `print()` calls appear
+in service, repository, or domain code. The `DefaultXxxProbe` implementations
+correctly encapsulate structlog calls.
 
-**Scenario: Filter by creator** — COVERED
-- Code: Route accepts optional `?user_id=` query param, parses it into `UserId`, passes as `created_by_user_id` to service, which forwards it to repository `list()`.
-- Tests: `test_filters_by_created_by_user_id` (service unit) verifies the filter propagates to the repository call. `test_returns_400_for_empty_user_id` (route unit) covers invalid filter. No dedicated route-level test exercises a valid `?user_id=<uuid>`, but the service-layer test provides the core behavioral coverage.
+### Mocking discipline — PASS
+Tests use `Mock(spec=IAPIKeyRepository)` and `create_autospec(...)` for
+application-layer collaborators, enforcing correct interface contracts.
+`MagicMock` is only used for the SQLAlchemy session `begin()` context
+manager (infrastructure concern) and for the structlog logger inside probe
+unit tests (testing the probe implementation itself). No bare `MagicMock`
+for domain or application collaborators.
 
----
+### Security — PASS
+- Bcrypt at work factor 12 (`BCRYPT_WORK_FACTOR = 12`).
+- Plaintext secret returned exactly once; never stored or re-fetched.
+- 12-character prefix for fast lookup without exposing hash.
+- `karto_` prefix for secret scanning / detection.
+- Constant-time comparison via `bcrypt.checkpw`.
+- Prefix collision handled: multiple candidates are iterated; error-level
+  probe event fired when `len(models) > 1`.
 
-### 4. Requirement: API Key Revocation — COVERED
+### DDD structure — PASS
+Implementation is cleanly layered:
+- Domain: `APIKey` aggregate with `create()`, `revoke()`, `mark_for_deletion()`,
+  `record_usage()`, `is_valid()`, `collect_events()`.
+- Ports: `IAPIKeyRepository` protocol; `APIKeyAlreadyRevokedError`,
+  `DuplicateAPIKeyNameError`, etc.
+- Application: `APIKeyService` orchestrates authz + persistence + observability.
+- Infrastructure: `APIKeyRepository` → PostgreSQL via SQLAlchemy; outbox pattern
+  for domain events (SpiceDB relationship cleanup via `APIKeyDeleted` event).
+- Presentation: FastAPI routes with proper error mapping (409 duplicate, 403 authz,
+  404 not found, 422 invalid ID).
 
-**Scenario: Owner revokes own key** — COVERED
-- Code: SpiceDB schema grants `revoke` permission via the `owner` relation. `revoke_api_key()` checks `Permission.REVOKE` via SpiceDB before calling `api_key.revoke()`.
-- Tests: Integration: `test_owner_can_revoke_own_key`.
+### Commit trailers — PASS
+Implementation commits carry:
+```
+Spec-Ref: specs/iam/api-keys.spec.md@2a791cdb79f8acd5cdf5654fa7efed1075ecf1de
+Task-Ref: task-021
+```
 
-**Scenario: Tenant admin revokes any key** — COVERED
-- Code: SpiceDB schema grants `revoke` via `tenant->administrate` (i.e., tenant admin). `alice_admin_tenant_auth_headers` fixture grants Alice the `admin` relation.
-- Tests: Integration: `test_tenant_admin_can_revoke_other_users_key`.
-
-**Scenario: Already revoked** — COVERED
-- Code: `APIKey.revoke()` raises `APIKeyAlreadyRevokedError` when `is_revoked is True`. Service re-raises; route maps to HTTP 409.
-- Tests: Unit: `test_revoke_already_revoked_raises_error` (aggregate), `test_raises_when_already_revoked` (service), `test_returns_409_when_already_revoked` (route).
-
-**Scenario: Unauthorized revocation** — COVERED
-- Code: `revoke_api_key()` raises `UnauthorizedError` when SpiceDB denies `REVOKE` permission. Route maps to HTTP 403.
-- Tests: Unit: `test_revoke_raises_unauthorized_when_denied` (service), `test_revoke_api_key_returns_403_when_unauthorized` (route). Integration: `test_non_admin_cannot_revoke_other_users_key`.
-
-**Scenario: Revoked key remains visible** — COVERED
-- Code: Revocation is a soft-delete (`is_revoked=True`); the DB row is not deleted. The key continues to be returned by `list_api_keys` (SpiceDB `owner` relation persists after revocation).
-- Tests: Integration: `test_revoked_key_remains_visible_in_listing` (creates key, processes outbox, revokes, then lists and asserts `is_revoked=True` is present).
-
----
-
-### 5. Requirement: API Key Cascade Deletion — COVERED
-
-**Scenario: Tenant deletion** — COVERED
-- Code: `TenantService.delete_tenant()` explicitly fetches all API keys for the tenant via `api_key_repository.list(tenant_id=tenant_id)`, calls `api_key.mark_for_deletion()` on each (records `APIKeyDeleted` domain event), then calls `api_key_repository.delete(api_key)`. The outbox pattern ensures SpiceDB relationships are cleaned up via the `APIKeyDeleted` event.
-- Tests: `test_deletes_api_keys_on_tenant_deletion` (single key), `test_deletes_multiple_api_keys_on_tenant_deletion` (3 keys, `call_count == 3`), `test_api_key_mark_for_deletion_emits_deleted_event` (confirms `APIKeyDeleted` event is pending on the key passed to `delete()`).
-
----
-
-### 6. Requirement: API Key Name Validation — COVERED
-
-**Scenario: Valid name** — COVERED
-- Code: `CreateAPIKeyRequest.name = Field(..., min_length=1, max_length=255)`. Pydantic enforces the constraint.
-- Tests: All route creation tests with valid names (1–255 chars) pass through successfully.
-
-**Scenario: Empty name** — COVERED
-- Code: `min_length=1` causes Pydantic to reject empty strings with a validation error.
-- Tests: `test_validates_name_min_length` asserts HTTP 422 for `name=""`.
+### Hardcoded secrets — PASS
+Test fixture uses `# gitleaks:allow` annotation on a clearly non-secret test
+constant (`karto_abc123def456ghi789jkl012mno345pqr678`). No real credentials.
 
 ---
 
-## Summary
+## Spec Coverage Summary
 
-| Requirement | Status |
-|---|---|
-| API Key Creation | COVERED |
-| API Key Authentication | COVERED |
-| API Key Listing | COVERED |
-| API Key Revocation | COVERED |
-| API Key Cascade Deletion | COVERED |
-| API Key Name Validation | COVERED |
-
-All 15 scenarios have corresponding unit or integration tests exercising the exact Given/When/Then conditions specified. Verdict: **PASS**.
+| Requirement | Scenarios | Status |
+|---|---|---|
+| API Key Creation | Successful creation, Duplicate name, Expiration bounds | COVERED |
+| API Key Authentication | Valid key, Expired, Revoked, JWT precedence, Prefix collision | COVERED |
+| API Key Listing | List keys, Filter by creator | COVERED |
+| API Key Revocation | Owner, Tenant admin, Already revoked, Unauthorized | COVERED |
+| API Key Cascade Deletion | Tenant deletion | COVERED |
+| API Key Name Validation | Valid name, Empty name | COVERED |

@@ -83,6 +83,64 @@ class TestGroupFactory:
         assert events[0].tenant_id == tenant_id.value
 
 
+class TestGroupNameValidation:
+    """Tests for Group name validation at creation time.
+
+    The spec requires that group names:
+    - Be between 1 and 255 characters (after trimming whitespace)
+    - Reject empty or whitespace-only names
+    - Trim leading/trailing whitespace before storing
+    """
+
+    def test_create_rejects_empty_name(self):
+        """Group.create() should reject empty name with ValueError."""
+        with pytest.raises(ValueError, match="between 1 and 255"):
+            Group.create(name="", tenant_id=TenantId.generate())
+
+    def test_create_rejects_whitespace_only_name(self):
+        """Group.create() should reject whitespace-only name with ValueError."""
+        with pytest.raises(ValueError, match="between 1 and 255"):
+            Group.create(name="   ", tenant_id=TenantId.generate())
+
+    def test_create_rejects_single_space_name(self):
+        """Group.create() should reject a single space as name."""
+        with pytest.raises(ValueError, match="between 1 and 255"):
+            Group.create(name=" ", tenant_id=TenantId.generate())
+
+    def test_create_rejects_name_exceeding_255_characters(self):
+        """Group.create() should reject names longer than 255 characters."""
+        with pytest.raises(ValueError, match="between 1 and 255"):
+            Group.create(name="x" * 256, tenant_id=TenantId.generate())
+
+    def test_create_trims_whitespace_from_name(self):
+        """Group.create() should trim leading/trailing whitespace and store trimmed name."""
+        group = Group.create(name="  Engineering  ", tenant_id=TenantId.generate())
+        assert group.name == "Engineering"
+
+    def test_create_accepts_single_character_name(self):
+        """Group.create() should accept a single non-whitespace character."""
+        group = Group.create(name="A", tenant_id=TenantId.generate())
+        assert group.name == "A"
+
+    def test_create_accepts_exactly_255_character_name(self):
+        """Group.create() should accept exactly 255 characters."""
+        name = "x" * 255
+        group = Group.create(name=name, tenant_id=TenantId.generate())
+        assert group.name == name
+
+    def test_create_accepts_255_characters_after_trimming(self):
+        """Group.create() should accept 255 valid chars even with surrounding whitespace."""
+        name = "  " + "x" * 255 + "  "
+        group = Group.create(name=name, tenant_id=TenantId.generate())
+        assert group.name == "x" * 255
+
+    def test_create_rejects_name_exceeding_255_chars_after_trimming(self):
+        """Group.create() should reject names that exceed 255 chars after trimming."""
+        name = "  " + "x" * 256 + "  "
+        with pytest.raises(ValueError, match="between 1 and 255"):
+            Group.create(name=name, tenant_id=TenantId.generate())
+
+
 class TestAddMember:
     """Tests for Group.add_member() business logic."""
 

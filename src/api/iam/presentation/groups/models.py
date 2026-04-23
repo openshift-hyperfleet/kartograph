@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from iam.domain.aggregates import Group
 from iam.domain.value_objects import GroupRole
@@ -25,11 +25,35 @@ class CreateGroupRequest(BaseModel):
 
     name: str = Field(..., description="Group name", min_length=1, max_length=255)
 
+    @field_validator("name")
+    @classmethod
+    def strip_and_validate_name(cls, v: str) -> str:
+        """Strip whitespace and reject whitespace-only names.
+
+        Spec: names must be 1–255 characters after trimming whitespace.
+        """
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Group name cannot be empty or whitespace-only")
+        return stripped
+
 
 class UpdateGroupRequest(BaseModel):
     """Request model for updating group metadata."""
 
     name: str = Field(..., min_length=1, max_length=255, description="Group name")
+
+    @field_validator("name")
+    @classmethod
+    def strip_and_validate_name(cls, v: str) -> str:
+        """Strip whitespace and reject whitespace-only names.
+
+        Spec: names must be 1–255 characters after trimming whitespace.
+        """
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Group name cannot be empty or whitespace-only")
+        return stripped
 
 
 class AddGroupMemberRequest(BaseModel):

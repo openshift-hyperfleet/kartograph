@@ -1,78 +1,141 @@
 ---
 verdict: pass
 ---
-Both FAIL items from the prior spec-alignment review have been resolved. All
-verification checks pass.
+Spec alignment review of specs/query/query-execution.spec.md on branch
+hyperloop/task-010. All SHALL/MUST requirements are implemented and tested.
 
-## Checks
+## Requirement-by-Requirement Findings
 
-### 1. Unit Tests — PASS
-2201 tests pass, 0 failures, 0 errors.
-`uv run pytest tests/unit -v`
+### Requirement: Read-Only Enforcement
 
-### 2. Linting — PASS
-`uv run ruff check .` — All checks passed.
+#### Scenario A – Database-level enforcement (primary)
+**Status: COVERED**
 
-### 3. Formatting — PASS
-`uv run ruff format --check .` — 458 files already formatted.
+- Implementation: `query_repository.py` issues `SET TRANSACTION READ ONLY` at the
+  start of every transaction, providing primary read-only enforcement at the
+  database engine level.
+- Unit tests: `test_sets_transaction_read_only` and
+  `test_database_read_only_applied_before_query` verify the mechanism exists and
+  is applied before any Cypher execution.
 
-### 4. Type Checking — PASS
-`uv run mypy . --config-file pyproject.toml --ignore-missing-imports` — Success:
-no issues found in 458 source files.
+#### Scenario B – Keyword blacklist, correlation ID, redacted log
+**Status: COVERED**
 
-### 5. Architecture Boundary Tests — PASS
-40/40 archon boundary tests pass.
-
-### 6. Integration Tests — SKIPPED
-Integration tests are not required for this remediation cycle; the fixes are
-purely in the test layer (new unit tests + one assertion tightened in the
-integration suite). The integration test assertion change itself is covered by
-the prior CI run for task-010.
-
-### 7. Code Review — PASS
-Both FAIL findings from the prior review are addressed:
-
-**Fix 1 — Req 1B: Automated redaction test (previously missing)**
-`TestDefaultQueryServiceProbe` class added to
-`tests/unit/query/test_application_services.py` with three tests:
-
-- `test_cypher_query_rejected_does_not_log_raw_query` — Injects a `MagicMock`
-  logger into `DefaultQueryServiceProbe`, calls `cypher_query_rejected` with a
-  known raw query string (`CREATE (n:SensitiveNode {secret: 'password123'})`),
-  then asserts the raw string does NOT appear in any positional or keyword
-  argument forwarded to `logger.warning`. This enforces the spec's "redacted
+- Implementation: `_validate_read_only()` rejects CREATE, DELETE, SET, REMOVE,
+  MERGE, EXPLAIN, LOAD (case-insensitive). Generates a UUID correlation_id and
+  raises `QueryForbiddenError`.
+- `DefaultQueryServiceProbe.cypher_query_rejected` accepts the raw query but does
+  NOT log it — only `reason` and `correlation_id` are emitted.
+- Unit tests: 14 tests in `TestValidateReadOnly`, plus
+  `test_forbidden_error_has_correlation_id`,
+  `test_forbidden_error_correlation_id_is_unique`,
+  `test_forbidden_error_includes_correlation_id_in_response`,
+  `test_forbidden_error_correlation_id_included_in_probe_call`.
+- Redaction tests (added in commit 5c0fb1f0): `TestDefaultQueryServiceProbe`
+  class with `test_cypher_query_rejected_does_not_log_raw_query` (asserts raw
+  query string absent from all logger.warning arguments),
+  `test_cypher_query_rejected_logs_correlation_id`, and
+  `test_cypher_query_rejected_logs_reason`. These enforce the spec's "redacted
   reference" contract as an automated assertion.
-- `test_cypher_query_rejected_logs_correlation_id` — Confirms `correlation_id`
-  IS present in the log call for operator lookup.
-- `test_cypher_query_rejected_logs_reason` — Confirms `reason` IS present in
-  the log call.
+- Integration test: `test_execute_cypher_query_forbidden_error` confirms
+  end-to-end rejection.
 
-The probe implementation (`query/application/observability.py`) correctly
-omits `query` from the `logger.warning` call — only `reason` and
-`correlation_id` are emitted. All three new tests pass.
+---
 
-**Fix 2 — Req 2B / Req 4B: Strict timeout classification assertion**
-`test_execute_cypher_query_timeout_error` in
-`tests/integration/test_query_mcp.py` tightened from:
+### Requirement: Timeout Enforcement
 
-    assert result.error_type in ["timeout", "execution_error"]
+#### Scenario A – Query within timeout → results returned normally
+**Status: COVERED**
 
-to:
+- Implementation: `SET LOCAL statement_timeout` issued per-query; results
+  returned on the success path.
+- Tests: `test_sets_statement_timeout` (unit), `test_execute_cypher_query_custom_timeout`
+  and `test_execute_cypher_query_tracks_time` (integration).
 
-    assert result.error_type == "timeout"
+#### Scenario B – Query exceeds timeout → timeout error with correlation ID
+**Status: COVERED**
 
-A timeout misclassified as `execution_error` will now fail this test.
+- Implementation: Exception handler detects `"timeout"` / `"canceling statement"`
+  in DB error message and raises `QueryTimeoutError` with a UUID correlation_id.
+- Unit tests: `test_timeout_raises_query_timeout_error`,
+  `test_timeout_error_has_correlation_id`,
+  `test_timeout_error_includes_correlation_id_in_response`,
+  `test_timeout_error_correlation_id_included_in_probe_call`.
+- Integration test: `test_execute_cypher_query_timeout_error` (tightened in
+  commit 5c0fb1f0) asserts `result.error_type == "timeout"` (strict equality,
+  no longer the loose `in ["timeout", "execution_error"]` from the prior round).
 
-`check-weak-test-assertions.sh` confirms no remaining weak categorical
-assertions exist.
+---
 
-### Commit Trailers — PASS
-Fix commit `0c59b154` carries both required trailers:
-- `Spec-Ref: specs/query/query-execution.spec.md@85d49a379a52479b33f9b39994d76795066899a6`
-- `Task-Ref: task-010`
+### Requirement: Result Limiting
 
-### Pre-existing Check Failures (not introduced by this task)
-Several `.hyperloop/checks/` scripts report failures unrelated to Query
-Execution: IAM authorization status code assertions, frontend vitest
-infrastructure, and a UI "Coming Soon" label. These are pre-existing across
-the branch and outside the scope of task-010.
+#### Scenario A – No LIMIT → LIMIT 1000 appended
+**Status: COVERED**
+
+- Implementation: `_ensure_limit()` appends `LIMIT {max_rows}` when no LIMIT
+  clause is found; default `max_rows = 1000`.
+- Tests: `test_adds_limit_when_missing` (unit), `test_auto_adds_limit`
+  (integration).
+
+#### Scenario B – Explicit LIMIT ≤ 10000 → respected
+**Status: COVERED**
+
+- Implementation: `_ensure_limit()` returns the query unchanged when the
+  detected LIMIT ≤ `MAX_LIMIT` (10000).
+- Tests: `test_preserves_existing_limit`, `test_case_insensitive_limit_detection`,
+  `test_respects_limit_at_absolute_maximum`, `test_respects_limit_within_absolute_maximum`
+  (unit); `test_respects_explicit_limit` (integration).
+
+#### Scenario C – Explicit LIMIT > 10000 → capped to 10000
+**Status: COVERED**
+
+- Implementation: `MAX_LIMIT = 10000`; regex substitution replaces any LIMIT
+  exceeding that with 10000.
+- Tests: `test_caps_limit_above_absolute_maximum` (15000 → 10000),
+  `test_caps_limit_well_above_absolute_maximum` (999999 → 10000) (unit).
+
+---
+
+### Requirement: Error Categorization
+
+#### Scenario A – Forbidden → error_type == "forbidden"
+**Status: COVERED**
+
+- Implementation: `MCPQueryService` catches `QueryForbiddenError` →
+  `QueryError(error_type="forbidden")`.
+- Tests: `test_categorizes_forbidden_error` (unit, strict equality);
+  `test_execute_cypher_query_forbidden_error` (integration).
+
+#### Scenario B – Timeout → error_type == "timeout"
+**Status: COVERED**
+
+- Implementation: Catches `QueryTimeoutError` → `QueryError(error_type="timeout")`.
+- Tests: `test_categorizes_timeout_error` (unit, strict equality);
+  `test_execute_cypher_query_timeout_error` (integration, strict equality after
+  commit 5c0fb1f0).
+
+#### Scenario C – Execution error → error_type == "execution_error"
+**Status: COVERED**
+
+- Implementation: Catches `QueryExecutionError` →
+  `QueryError(error_type="execution_error")`.
+- Test: `test_categorizes_execution_error` (unit, strict equality).
+
+#### Scenario D – Unexpected failure → error_type == "unknown_error"
+**Status: COVERED**
+
+- Implementation: Bare `except Exception` → `QueryError(error_type="unknown_error")`.
+- Test: `test_categorizes_unknown_error` (unit, raises `ValueError`, asserts
+  strict equality).
+
+---
+
+## Summary
+
+All 11 scenarios across all 4 requirements are COVERED. Both FAIL items from the
+prior review round were remediated in commit 5c0fb1f0:
+
+1. `test_cypher_query_rejected_does_not_log_raw_query` now enforces the
+   "redacted reference" contract automatically.
+2. `test_execute_cypher_query_timeout_error` now asserts
+   `result.error_type == "timeout"` (strict equality).

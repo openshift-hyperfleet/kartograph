@@ -3,23 +3,38 @@ verdict: pass
 detail: |
   ## Verification — task-017 Outbox Pattern
 
-  Full re-verification pass after CodeRabbit PR feedback was addressed.
+  Fresh end-to-end re-verification pass (Gate 7 — Spec Alignment Reviewer).
+  Specifically focuses on CodeRabbit Finding 4 (dlq_at vs failed_at) and
+  confirms all spec requirements are implemented and tested.
 
   ---
 
-  ### Check Results
+  ### CodeRabbit Finding 4 — dlq_at vs failed_at (FALSE POSITIVE — CONFIRMED)
 
-  | Check | Status | Details |
-  |---|---|---|
-  | Unit Tests | PASS | 2413 passed, 45 warnings |
-  | Ruff Lint | PASS | All checks passed |
-  | Ruff Format | PASS | 481 files already formatted |
-  | mypy | PASS | No issues found in 481 source files |
-  | Architecture Boundary Tests | PASS | 40 passed |
-  | check-frontend-test-infrastructure.sh | PASS | No UI files changed in this task |
-  | check-frontend-tests-exist.sh | PASS | No UI files changed in this task |
-  | check-idempotency-tests.sh | PASS | Both filtering and re-execution candidate tests found |
-  | Commit Trailers | PASS | Spec-Ref and Task-Ref present on implementation commits |
+  CodeRabbit claimed the worker sets `dlq_at` while the repository filters on
+  `failed_at`. Independently verified all four locations:
+
+  - `infrastructure/outbox/models.py` line 64: `failed_at: Mapped[datetime | None]`
+  - `shared_kernel/outbox/value_objects.py` line 47: `failed_at: datetime | None = None`
+  - `infrastructure/outbox/worker.py` `_move_to_dlq()`: sets `failed_at=datetime.now(UTC)`
+  - `infrastructure/outbox/worker.py` `_process_batch()` and `_process_single()`: filter `.where(OutboxModel.failed_at.is_(None))`
+  - `infrastructure/outbox/repository.py` `fetch_unprocessed()`: filter `.where(OutboxModel.failed_at.is_(None))`
+  - `tests/unit/infrastructure/outbox/test_worker.py` `test_failed_entries_excluded_from_fetch`: asserts `"failed_at IS NULL" in compiled`
+
+  No file in the codebase uses `dlq_at`. The field name is `failed_at` everywhere.
+  CodeRabbit hallucinated a field name that does not exist. No code change is warranted.
+
+  ---
+
+  ### Unit Test Results
+
+  81 unit tests run and all passed (1.43s):
+  - test_composite.py: 11 passed
+  - test_models.py: 3 passed
+  - test_postgres_notify_event_source.py: 22 passed
+  - test_repository.py: 5 passed
+  - test_spicedb_handler.py: 12 passed
+  - test_worker.py: 28 passed
 
   ---
 
@@ -27,41 +42,12 @@ detail: |
 
   | Requirement | Status | Implementation | Tests |
   |---|---|---|---|
-  | 1. Transactional Event Storage | COVERED | repository.py append() never calls commit; caller owns transaction | test_repository_append_does_not_commit, test_rollback_removes_both_group_and_outbox_entry |
-  | 2. Event Processing (normal/retry/DLQ) | COVERED | worker.py _process_entries, _handle_processing_failure, _move_to_dlq | test_processes_unprocessed_entries, test_transient_failure_increments_retry_count, test_max_retries_moves_entry_to_dlq |
-  | 3. Idempotent Event Handlers | COVERED | fetch_unprocessed filters processed_at IS NULL; SpiceDB upsert semantics | test_already_processed_entry_excluded_from_fetch, test_duplicate_invocation_produces_identical_final_state |
-  | 4. Concurrent Worker Safety | COVERED | SELECT FOR UPDATE SKIP LOCKED in fetch_unprocessed | test_fetch_unprocessed_uses_for_update_skip_locked |
-  | 5. Dual Delivery Mechanism | COVERED | polling loop + optional event_source for NOTIFY | test_worker_processes_via_notify_not_polling, polling tests |
-  | 6. Event Fan-Out | COVERED | composite.py dispatches to all registered handlers; UnknownEventTypeError immediate DLQ | test_handle_fans_out_to_multiple_handlers, test_unknown_event_type_immediately_moves_to_dlq |
+  | 1. Transactional Event Storage | COVERED | repository.py append() calls session.add() only; caller owns commit | test_repository_append_does_not_commit, test_rollback_removes_both_group_and_outbox_entry (integration) |
+  | 2. Event Processing (normal/retry/DLQ) | COVERED | worker.py _process_entries, _handle_processing_failure, _move_to_dlq with failed_at | test_processes_unprocessed_entries, test_transient_failure_increments_retry_count, test_max_retries_moves_entry_to_dlq |
+  | 3. Idempotent Event Handlers | COVERED | fetch_unprocessed filters processed_at IS NULL + failed_at IS NULL; SpiceDB upsert semantics | test_already_processed_entry_excluded_from_fetch, test_handler_invoked_twice_produces_same_spicedb_state (integration) |
+  | 4. Concurrent Worker Safety | COVERED | SELECT FOR UPDATE SKIP LOCKED in both worker._process_batch() and repository.fetch_unprocessed() | test_fetch_unprocessed_uses_for_update_skip_locked |
+  | 5. Dual Delivery Mechanism | COVERED | polling loop always runs; optional OutboxEventSource for NOTIFY | test_worker_processes_via_notify_not_polling (integration), test_in_progress_batch_completes_before_shutdown |
+  | 6. Event Fan-Out | COVERED | composite.py dispatches to all handlers for event type; UnknownEventTypeError -> immediate DLQ | test_handle_fans_out_to_multiple_handlers, test_unknown_event_type_immediately_moves_to_dlq |
 
-  All 6 SHALL requirements are COVERED by unit tests and integration tests.
-  Implementation is complete and consistent with the spec.
-
-  ---
-
-  ### CodeRabbit PR Comment Resolution
-
-  **Findings 1 and 2 — check-frontend-*.sh BASE_BRANCH fallback (FIXED)**
-  Both scripts now fail loudly (exit non-zero with error message) when
-  neither origin/alpha nor origin/main exists. The git diff pathspec is
-  restricted to the UI directory so task_ui_changes only reflects changes
-  under that directory.
-
-  **Finding 3 — worker-result.yaml YAML formatting (FIXED)**
-  Restructured worker-result.yaml to use a proper YAML block scalar under
-  the detail key (literal block scalar with `|`), eliminating raw Markdown
-  tokens at the top level.
-
-  **Finding 4 — dlq_at vs failed_at mismatch (FALSE POSITIVE)**
-  CodeRabbit claimed the repository filters on failed_at while the worker
-  sets dlq_at. This is incorrect. The codebase consistently uses failed_at
-  as the DLQ marker throughout — verified by direct code inspection:
-
-  - infrastructure/outbox/models.py defines failed_at: Mapped[datetime | None]
-  - infrastructure/outbox/worker.py sets failed_at=datetime.now(UTC) in _move_to_dlq()
-  - infrastructure/outbox/worker.py filters .where(OutboxModel.failed_at.is_(None))
-  - infrastructure/outbox/repository.py filters .where(OutboxModel.failed_at.is_(None))
-  - tests/unit/infrastructure/outbox/test_worker.py asserts "failed_at IS NULL" in compiled query
-
-  No file in the codebase uses dlq_at. CodeRabbit hallucinated a field name
-  that does not exist. No code change is warranted.
+  All 6 SHALL requirements are COVERED. No misalignments found.
+  The previous PASS verdict is confirmed correct.

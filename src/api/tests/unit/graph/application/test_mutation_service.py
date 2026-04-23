@@ -514,7 +514,7 @@ class TestGraphMutationServiceApplyFromJSONL:
         operations = mock_applier.apply_batch.call_args[0][0]
         assert len(operations) == 2
         assert operations[0].op == MutationOperationType.CREATE
-        assert operations[1].op == "UPDATE"
+        assert operations[1].op == MutationOperationType.UPDATE
 
         # Should return result
         assert result.success is True

@@ -1,99 +1,196 @@
 ---
-verdict: pass
+verdict: fail
 ---
-Independent verification of specs/query/query-execution.spec.md on branch
+Spec alignment review of specs/query/query-execution.spec.md on branch
 hyperloop/task-010.
-
-## Checks Run
-
-### 1. Unit Tests — PASS
-2040 tests passed, 0 failures, 0 errors.
-```
-2040 passed, 39 warnings in 54.30s
-```
-
-### 2. Linting — PASS
-```
-All checks passed!
-```
-
-### 3. Formatting — PASS
-```
-442 files already formatted
-```
-
-### 4. Type Checking — PASS
-```
-Success: no issues found in 442 source files
-```
-
-### 5. Architecture Boundary Tests — PASS
-All 40 pytest-archon tests passed. No bounded-context boundary violations
-introduced by the new query execution code.
-
-### 6. Integration Tests — N/A
-No new infrastructure or presentation layers were added. The changes are
-confined to domain value objects, application service wiring, and
-infrastructure-layer repository logic. Integration tests not required.
-
-### 7. Code Review — PASS
-
-**Observability / Domain Probes:**
-Logger calls (`self._logger.*`) appear only inside `DefaultQueryServiceProbe`
-methods — the probe implementation class. Application services and the
-repository call probe interface methods exclusively. No direct `logger.*` or
-`print()` in domain or application code. Pattern conforms to Domain Oriented
-Observability.
-
-**Mock usage:**
-Test fixtures use `create_autospec(IQueryGraphRepository)` and
-`create_autospec(QueryServiceProbe)` — spec-constrained mocks that enforce
-the interface contract. No raw `MagicMock` or `AsyncMock` for
-domain/application collaborators.
-
-**Commit trailers:**
-All three commits carry `Spec-Ref` and `Task-Ref` trailers:
-```
-Spec-Ref: specs/query/query-execution.spec.md@85d49a379a52479b33f9b39994d76795066899a6
-Task-Ref: task-010
-```
-Commit messages follow conventional-commit format (feat/test/chore).
-
-**Secrets / hardcoding:** None detected.
-
-**DDD boundary compliance:** No cross-context imports. The query context
-remains self-contained (value objects, ports, application services,
-infrastructure repository).
-
-## Spec Coverage
-
-All four SHALL requirements and all ten scenarios are verified:
-
-**Read-Only Enforcement:**
-- Database-level `SET TRANSACTION READ ONLY` issued before Cypher execution
-  (primary defense). Call-order asserted in test.
-- Keyword blacklist (secondary): CREATE, DELETE, SET, REMOVE, MERGE, EXPLAIN,
-  LOAD rejected case-insensitively with unique UUID correlation IDs. Raw query
-  text is never logged — only the correlation ID is passed to the probe.
-
-**Timeout Enforcement:**
-- `SET LOCAL statement_timeout = {ms}` set per-transaction.
-- DB cancellation exceptions (`"timeout"` / `"canceling statement"`) are
-  caught and re-raised as `QueryTimeoutError` with a unique correlation ID.
-
-**Result Limiting:**
-- `_ensure_limit()` now uses regex with word boundaries (`\bLIMIT\s+(\d+)`)
-  for correct detection. Missing LIMIT → append `LIMIT 1000`. Explicit LIMIT
-  ≤ 10000 → kept. Explicit LIMIT > 10000 → capped to 10000.
-
-**Error Categorization:**
-- `QueryForbiddenError` → `error_type="forbidden"`
-- `QueryTimeoutError` → `error_type="timeout"`
-- `QueryExecutionError` → `error_type="execution_error"`
-- `Exception` (catch-all) → `error_type="unknown_error"`
 
 ## Summary
 
-All verification checks pass. The implementation is correct, well-tested,
-and consistent with spec requirements, DDD boundaries, and project
-observability conventions. No regressions. Verdict: PASS.
+The implementation is structurally correct and the overall architecture
+conforms to DDD and observability patterns. However, two SHALL requirements
+have test coverage gaps that cause a FAIL verdict:
+
+1. **Req 1B – "redacted reference logged (not the raw query text)"**: No test
+   asserts that the raw query string is absent from the log output when a
+   forbidden query is rejected. The implementation is correct (the probe does
+   not log the `query` argument), but this contract is enforced only by
+   convention, not by an automated test.
+
+2. **Req 2B / Req 4B – Timeout error type strictly classified as "timeout"**:
+   The integration test `test_execute_cypher_query_timeout_error` asserts
+   `result.error_type in ["timeout", "execution_error"]`, which means a
+   regression where a timeout is misclassified as `"execution_error"` would
+   not be caught. The spec requires a timeout to produce error type `"timeout"`.
+
+---
+
+## Requirement-by-Requirement Findings
+
+### Requirement: Read-Only Enforcement
+
+#### Scenario A – Database-level enforcement (primary)
+**Status: PARTIAL**
+
+- **Implementation**: `query_repository.py` issues `SET TRANSACTION READ ONLY`
+  before executing Cypher (confirmed via `execute_sql` call).
+- **Unit tests**: `test_sets_transaction_read_only` and
+  `test_database_read_only_applied_before_query` verify the mechanism and
+  call ordering via mocks.
+- **Integration test gap**: No integration test bypasses the keyword blacklist
+  to verify that the database engine itself rejects a write command on the
+  read-only session. DB-level enforcement is only exercised through mocked
+  collaborators.
+- **Note**: Unit tests verify the mechanism. The DB-level contract is
+  structurally enforced but not validated end-to-end. This alone is a note,
+  not a FAIL, since unit tests do cover the mechanism.
+
+#### Scenario B – Keyword blacklist, correlation ID, redacted log
+**Status: PARTIAL → FAIL**
+
+- **Implementation**: `_validate_read_only` rejects CREATE, DELETE, SET,
+  REMOVE, MERGE, EXPLAIN, LOAD (case-insensitive). Generates a UUID
+  correlation ID and raises `QueryForbiddenError`. The
+  `DefaultQueryServiceProbe.cypher_query_rejected` method receives `query`
+  as an argument but does not log it — only `reason` and `correlation_id`
+  are logged.
+- **Unit tests covering keyword rejection, correlation ID generation and
+  propagation**: Thorough — 14 tests in `TestValidateReadOnly`, plus
+  `test_forbidden_error_has_correlation_id`,
+  `test_forbidden_error_correlation_id_is_unique`,
+  `test_forbidden_error_includes_correlation_id_in_response`,
+  `test_forbidden_error_correlation_id_included_in_probe_call`.
+- **Missing test**: No unit or integration test asserts that the raw query
+  text is **absent** from any logged output. The spec says the forbidden
+  query SHALL produce "a redacted reference logged (not the raw query text)".
+  This is an observable behavioral contract that requires an automated
+  assertion, not just a code-convention comment.
+- **What is needed**: A unit test that spies on the `DefaultQueryServiceProbe`
+  log calls (or the probe's `cypher_query_rejected` invocation args) and
+  asserts the raw query string does not appear in any logging output.
+
+---
+
+### Requirement: Timeout Enforcement
+
+#### Scenario A – Query within timeout → results returned normally
+**Status: COVERED**
+
+- **Implementation**: `execute_cypher` sets `SET LOCAL statement_timeout = {ms}`
+  and returns results on the success path.
+- **Unit tests**: `test_returns_empty_list_on_no_results`,
+  `test_uses_transaction_context`, `test_sets_statement_timeout`.
+- **Integration tests**: `test_executes_simple_query`,
+  `test_execute_cypher_query_custom_timeout`.
+
+#### Scenario B – Query exceeds timeout → timeout error with correlation ID
+**Status: PARTIAL → FAIL**
+
+- **Implementation**: `execute_cypher` catches exceptions containing `"timeout"`
+  or `"canceling statement"` and raises `QueryTimeoutError` with a UUID
+  correlation ID.
+- **Unit tests**: Thorough — `test_timeout_raises_query_timeout_error`,
+  `test_timeout_error_has_correlation_id`,
+  `test_timeout_error_includes_correlation_id_in_response`,
+  `test_timeout_error_correlation_id_included_in_probe_call`.
+- **Integration test gap**: `test_execute_cypher_query_timeout_error` asserts
+  `result.error_type in ["timeout", "execution_error"]`. This loose assertion
+  means a regression where timeouts are misclassified as `"execution_error"`
+  would not be detected. The test must assert `result.error_type == "timeout"`.
+- **What is needed**: Tighten the integration test assertion to
+  `assert result.error_type == "timeout"`.
+
+---
+
+### Requirement: Result Limiting
+
+#### Scenario A – No LIMIT → LIMIT 1000 appended
+**Status: COVERED**
+
+- **Implementation**: `_ensure_limit` appends `LIMIT 1000` when no LIMIT found.
+- **Unit tests**: `test_adds_limit_when_missing`, `test_ensures_limit_before_execution`.
+- **Integration test**: `test_auto_adds_limit` confirms result count is bounded.
+
+#### Scenario B – Explicit LIMIT ≤ 10000 → respected
+**Status: COVERED**
+
+- **Implementation**: `_ensure_limit` returns query unchanged when existing
+  LIMIT ≤ MAX_LIMIT.
+- **Unit tests**: `test_preserves_existing_limit`,
+  `test_case_insensitive_limit_detection`, `test_respects_limit_at_absolute_maximum`,
+  `test_respects_limit_within_absolute_maximum`.
+- **Integration test**: `test_respects_explicit_limit`.
+
+#### Scenario C – Explicit LIMIT > 10000 → capped to 10000
+**Status: PARTIAL**
+
+- **Implementation**: `_ensure_limit` uses `re.sub` to replace limits above
+  `MAX_LIMIT = 10000`.
+- **Unit tests**: `test_caps_limit_above_absolute_maximum` (15000 → 10000),
+  `test_caps_limit_well_above_absolute_maximum` (999999 → 10000).
+- **Integration test gap**: No integration test sends `LIMIT 20000` and
+  verifies the actual results are capped to 10000 at the database level.
+- **Note**: Unit tests are comprehensive. Missing integration test is a note,
+  not a FAIL, since the capping logic is fully exercised at the unit level.
+
+---
+
+### Requirement: Error Categorization
+
+#### Scenario A – Forbidden → error type "forbidden"
+**Status: COVERED**
+
+- **Implementation**: `MCPQueryService` catches `QueryForbiddenError` →
+  `QueryError(error_type="forbidden")`.
+- **Unit test**: `test_categorizes_forbidden_error`.
+- **Integration test**: `test_execute_cypher_query_forbidden_error` asserts
+  `result.error_type == "forbidden"`.
+
+#### Scenario B – Timeout → error type "timeout"
+**Status: PARTIAL → FAIL**
+
+- **Implementation**: Catches `QueryTimeoutError` → `QueryError(error_type="timeout")`.
+- **Unit test**: `test_categorizes_timeout_error` correctly asserts `== "timeout"`.
+- **Integration test gap**: `test_execute_cypher_query_timeout_error` asserts
+  `error_type in ["timeout", "execution_error"]`. Strict enforcement required.
+- **What is needed**: `assert result.error_type == "timeout"`.
+
+#### Scenario C – Execution error → error type "execution_error"
+**Status: PARTIAL**
+
+- **Implementation**: Catches `QueryExecutionError` →
+  `QueryError(error_type="execution_error")`.
+- **Unit test**: `test_categorizes_execution_error`.
+- **Integration test gap**: No integration test exercises a syntax error or
+  runtime DB failure to confirm the `"execution_error"` classification
+  end-to-end.
+- **Note**: Unit test is sufficient per the protocol. This is a note, not a FAIL.
+
+#### Scenario D – Unexpected failure → error type "unknown_error"
+**Status: PARTIAL**
+
+- **Implementation**: Bare `except Exception` → `QueryError(error_type="unknown_error")`.
+- **Unit test**: `test_categorizes_unknown_error` raises `ValueError` and asserts
+  `== "unknown_error"`.
+- **Integration test gap**: No integration test. Unit test is sufficient per
+  the protocol. This is a note, not a FAIL.
+
+---
+
+## Items Required to Pass
+
+1. **Req 1B – Add a test asserting raw query is absent from log output.**
+   The probe method must be tested to confirm the raw `query` argument is
+   never emitted to the underlying logger. Suggested approach: spy on the
+   `DefaultQueryServiceProbe.cypher_query_rejected` call and assert the raw
+   query string does not appear in any `logger.*` invocation within that method.
+
+2. **Req 2B / Req 4B – Tighten integration test assertion for timeout
+   error type.** Change:
+   ```python
+   assert result.error_type in ["timeout", "execution_error"]
+   ```
+   to:
+   ```python
+   assert result.error_type == "timeout"
+   ```
+   in `test_execute_cypher_query_timeout_error`.

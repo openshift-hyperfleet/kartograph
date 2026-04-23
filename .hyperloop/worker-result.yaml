@@ -2,91 +2,112 @@
 verdict: pass
 ---
 
-# API Keys Implementation — Task-021 Worker Result
+# API Keys Implementation — Task-021 Verification (Independent Re-Run)
 
 ## Summary
 
-All spec requirements from `specs/iam/api-keys.spec.md` are fully implemented and
-verified by passing unit tests. The implementation follows DDD, TDD, and DOO
-(Domain-Oriented Observability) patterns as required by AGENTS.md.
+Independent verification confirms the API Keys implementation is complete and correct.
+All spec requirements from the API Keys spec are implemented and covered by passing tests.
 
-**Test results:** 2030 unit tests pass, 0 failures.
+**Test results:** 2030 unit tests pass, 0 failures, 0 errors.
+
+---
+
+## Checklist
+
+### 1. Unit Tests — PASS
+```
+2030 passed, 39 warnings in 43.18s
+```
+All 2030 unit tests pass. IAM-specific tests: 933 pass.
+
+### 2. Linting (ruff check) — PASS
+```
+All checks passed!
+```
+
+### 3. Formatting (ruff format --check) — PASS
+```
+442 files already formatted
+```
+
+### 4. Type Checking (mypy) — PASS
+```
+Success: no issues found in 442 source files
+```
+
+### 5. Architecture Boundary Tests — PASS
+```
+40 passed in 0.21s
+```
+All DDD boundary rules enforced. IAM domain, application, ports, and infrastructure
+layers maintain correct separation.
+
+### 6. Check Scripts — PRE-EXISTING FAILURES (not introduced by this task)
+
+`check-no-coming-soon-stubs.sh` — FAIL (pre-existing on alpha)
+- Pattern found: `src/dev-ui/app/layouts/default.vue:495`
+- Introduced by `ec9b27d1 feat(dev-ui): add development UI` which is on alpha.
+- This task made no changes to dev-ui. Not a regression introduced by task-021.
+
+`check-no-future-placeholder-comments.sh` — FAIL (pre-existing on alpha)
+- Same root cause. Scripts scan the entire `src/` directory including pre-existing code.
+- No placeholder comments found in any API key implementation files.
+
+These check failures exist on alpha and are not regressions from this task.
+
+### 7. Code Review — PASS
+
+**Diff scope:** This branch adds 6 cascade deletion unit tests to
+`test_tenant_service.py`. The underlying API key implementation is on alpha.
+
+**Implementation quality (on alpha):**
+- `karto_` prefix correctly generated with `secrets.token_urlsafe(32)` ✓
+- bcrypt hashing with work factor 12, never stores plaintext ✓
+- 12-character prefix stored for fast lookup ✓
+- JWT takes precedence over `X-API-Key` header in `_authenticate()` ✓
+- `APIKey.is_valid()` checks both `is_revoked` and expiry ✓
+- `last_used_at` updated via `record_usage()` on successful auth ✓
+- Prefix collision detected and logged at ERROR level via DOO probe ✓
+- `APIKeyResponse` never includes `secret` or `key_hash` ✓
+- `CreateAPIKeyRequest.expires_in_days` has `ge=1, le=3650, default=30` ✓
+- `name` field has `min_length=1, max_length=255` ✓
+- Revoked keys return 409, already-revoked returns 409 ✓
+- Cascade deletion via `TenantService.delete_tenant()` with event emission ✓
+- No direct `logger.*` or `print()` — all observability via DOO probes ✓
+- Infrastructure mocks use `Mock(spec=IAPIKeyRepository)` — typed against port ✓
+- No hardcoded secrets or credentials ✓
+
+**Cascade deletion tests (this task's primary contribution):**
+- 6 focused tests cover: single delete, multiple deletes, event emission,
+  tenant scoping, probe reporting, and ordering (keys before tenant) ✓
+- Uses real `APIKey.create()` aggregates (not mocks) for domain objects ✓
+- Ordering test uses side-effect tracking to verify deletion sequence ✓
+
+**Commit trailers:** All 4 commits carry `Spec-Ref` and `Task-Ref` trailers ✓
+**Commit messages:** Conventional commit format throughout ✓
 
 ---
 
 ## Requirements Coverage
 
-### API Key Creation
+All SHALL requirements verified present:
 
-- `generate_api_key_secret()` in `iam/application/security.py` produces `karto_`-prefixed
-  URL-safe secrets using `secrets.token_urlsafe(32)`.
-- `hash_api_key_secret()` uses bcrypt with work factor 12 (secure, never stores plaintext).
-- `extract_prefix()` returns the first 12 characters for fast lookup.
-- `APIKey.create()` factory method emits `APIKeyCreated` domain event via outbox.
-- Duplicate name per (tenant_id, created_by_user_id, name) raises `DuplicateAPIKeyNameError`
-  → HTTP 409.
-- `CreateAPIKeyRequest.expires_in_days` has `ge=1, le=3650, default=30` enforced by Pydantic.
-
-### API Key Authentication
-
-- `iam/dependencies/user.py` checks JWT first; falls back to `X-API-Key` header only if no
-  bearer token is present (JWT takes precedence).
-- `APIKeyService.validate_and_get_key()` looks up candidates by prefix, verifies each via
-  bcrypt, calls `record_usage()`, and persists the updated `last_used_at`.
-- `APIKey.is_valid()` returns False if `is_revoked` or `datetime.now(UTC) >= expires_at`.
-- Prefix collision (>1 candidate) logs an ERROR-level event via `api_key_prefix_collision()`
-  probe and iterates all candidates for bcrypt comparison.
-
-### API Key Listing
-
-- `GET /iam/tenants/{tenant_id}/api-keys` returns `list[APIKeyResponse]` — no `secret` or
-  `key_hash` fields ever exposed.
-- Optional `user_id` query parameter filters by `created_by_user_id`.
-- `APIKeyResponse` includes: `id, name, prefix, created_by_user_id, created_at, expires_at,
-  last_used_at, is_revoked`.
-
-### API Key Revocation
-
-- `DELETE /iam/tenants/{tenant_id}/api-keys/{id}` → 204 on success.
-- `APIKey.revoke()` raises `APIKeyAlreadyRevokedError` if already revoked → HTTP 409.
-- SpiceDB `api_key#revoke = owner + tenant->administrate` grants revocation to owners and
-  tenant admins. Non-owners without admin get `UnauthorizedError` → HTTP 403.
-- Revoked keys remain visible in listings with `is_revoked: true`.
-
-### API Key Cascade Deletion
-
-- `TenantService.delete_tenant()` lists all API keys for the tenant, calls
-  `api_key.mark_for_deletion()` (emits `APIKeyDeleted` event for SpiceDB cleanup via outbox),
-  then deletes via `api_key_repository.delete()`.
-- DB FK `tenant_id → tenants.id ONDELETE=RESTRICT` enforces application-level cascade ordering.
-
-### Name Validation
-
-- `CreateAPIKeyRequest.name` has `min_length=1, max_length=255` (Pydantic).
-- Empty string → HTTP 422.
-
----
-
-## Key Files
-
-| Layer          | File                                                             |
-|----------------|------------------------------------------------------------------|
-| Domain         | `iam/domain/aggregates/api_key.py`                               |
-| Domain Events  | `iam/domain/events/api_key.py`                                   |
-| Application    | `iam/application/services/api_key_service.py`                    |
-| Security Utils | `iam/application/security.py`                                    |
-| Repository     | `iam/infrastructure/api_key_repository.py`                       |
-| DB Model       | `iam/infrastructure/models/api_key.py`                           |
-| Presentation   | `iam/presentation/api_keys/routes.py`                            |
-| Probe          | `iam/infrastructure/observability/api_key_repository_probe.py`   |
-
----
-
-## Test Files Covering This Spec
-
-- `tests/unit/iam/domain/test_api_key_aggregate.py` — aggregate behavior (validity, revoke)
-- `tests/unit/iam/application/test_api_key_service.py` — service orchestration
-- `tests/unit/iam/application/test_tenant_service.py` — cascade deletion
-- `tests/unit/iam/infrastructure/test_api_key_repository.py` — repo + prefix collision probe
-- `tests/unit/iam/presentation/test_api_key_routes.py` — HTTP routes (201, 409, 403, 422, 404)
-- `tests/integration/test_api_key_auth.py` — end-to-end authentication flows (requires live instance)
+| Requirement | Status |
+|---|---|
+| API key creation with `karto_` prefix | ✓ Implemented + tested |
+| Duplicate name conflict (409) | ✓ Implemented + tested |
+| Expiration bounds (1–3650 days, default 30) | ✓ Implemented + tested |
+| JWT takes precedence over X-API-Key | ✓ Implemented + tested |
+| Valid key authentication + last_used_at update | ✓ Implemented + tested |
+| Expired key returns 401 | ✓ Implemented + tested |
+| Revoked key returns 401 | ✓ Implemented + tested |
+| Prefix collision detection (error-level probe) | ✓ Implemented + tested |
+| List keys (metadata, no secrets) | ✓ Implemented + tested |
+| Filter by creator (user_id query param) | ✓ Implemented + tested |
+| Revocation by owner or tenant admin (SpiceDB) | ✓ Implemented + tested |
+| Already-revoked returns 409 | ✓ Implemented + tested |
+| Unauthorized revocation returns 403 | ✓ Implemented + tested |
+| Cascade deletion on tenant delete | ✓ Implemented + tested |
+| SpiceDB relationship cleanup on cascade | ✓ Implemented + tested |
+| Name validation (1–255 chars, non-empty) | ✓ Implemented + tested |

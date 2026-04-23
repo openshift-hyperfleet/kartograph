@@ -16,8 +16,13 @@ from sqlalchemy.exc import IntegrityError
 from management.application.services.knowledge_graph_service import (
     KnowledgeGraphService,
 )
-from management.domain.aggregates import KnowledgeGraph
-from management.domain.value_objects import KnowledgeGraphId
+from management.domain.aggregates import DataSource, KnowledgeGraph
+from management.domain.value_objects import (
+    DataSourceId,
+    KnowledgeGraphId,
+    Schedule,
+    ScheduleType,
+)
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
     UnauthorizedError,
@@ -26,6 +31,7 @@ from shared_kernel.authorization.types import (
     Permission,
     RelationshipTuple,
 )
+from shared_kernel.datasource_types import DataSourceAdapterType
 
 
 @pytest.fixture
@@ -129,6 +135,32 @@ def _make_kg(
     # Clear events from construction
     kg.collect_events()
     return kg
+
+
+def _make_ds(
+    ds_id: str = "ds-001",
+    kg_id: str = "kg-001",
+    tenant_id: str = "tenant-123",
+    name: str = "Test DS",
+    credentials_path: str | None = None,
+) -> DataSource:
+    """Create a DataSource instance for testing."""
+    now = datetime.now(UTC)
+    ds = DataSource(
+        id=DataSourceId(value=ds_id),
+        knowledge_graph_id=kg_id,
+        tenant_id=tenant_id,
+        name=name,
+        adapter_type=DataSourceAdapterType.GITHUB,
+        connection_config={"url": "https://github.com"},
+        credentials_path=credentials_path,
+        schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+        last_sync_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+    ds.collect_events()
+    return ds
 
 
 # ---- create ----
@@ -602,8 +634,8 @@ class TestKnowledgeGraphServiceDelete:
     ):
         """delete() deletes all data sources before deleting the KG."""
         kg = _make_kg(tenant_id=tenant_id)
-        ds1 = MagicMock()
-        ds2 = MagicMock()
+        ds1 = _make_ds(ds_id="ds-001", kg_id=kg.id.value, tenant_id=tenant_id)
+        ds2 = _make_ds(ds_id="ds-002", kg_id=kg.id.value, tenant_id=tenant_id)
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = kg
         mock_ds_repo.find_by_knowledge_graph.return_value = [ds1, ds2]
@@ -614,8 +646,8 @@ class TestKnowledgeGraphServiceDelete:
 
         assert result is True
         # Each DS should be marked for deletion and deleted
-        ds1.mark_for_deletion.assert_called_once()
-        ds2.mark_for_deletion.assert_called_once()
+        assert ds1._deleted is True
+        assert ds2._deleted is True
         assert mock_ds_repo.delete.call_count == 2
         mock_kg_repo.delete.assert_called_once_with(kg)
 
@@ -650,10 +682,8 @@ class TestKnowledgeGraphServiceDelete:
         that makes rollback meaningful.
         """
         kg = _make_kg(tenant_id=tenant_id)
-        ds1 = MagicMock()
-        ds1.credentials_path = None
-        ds2 = MagicMock()
-        ds2.credentials_path = None
+        ds1 = _make_ds(ds_id="ds-001", kg_id=kg.id.value, tenant_id=tenant_id)
+        ds2 = _make_ds(ds_id="ds-002", kg_id=kg.id.value, tenant_id=tenant_id)
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = kg
         mock_ds_repo.find_by_knowledge_graph.return_value = [ds1, ds2]
@@ -684,10 +714,17 @@ class TestKnowledgeGraphServiceDelete:
         Data sources without a credentials_path must NOT trigger a secret store call.
         """
         kg = _make_kg(tenant_id=tenant_id)
-        ds_with_creds = MagicMock()
-        ds_with_creds.credentials_path = "datasource/ds-001/credentials"
-        ds_no_creds = MagicMock()
-        ds_no_creds.credentials_path = None
+        ds_with_creds = _make_ds(
+            ds_id="ds-001",
+            kg_id=kg.id.value,
+            tenant_id=tenant_id,
+            credentials_path="datasource/ds-001/credentials",
+        )
+        ds_no_creds = _make_ds(
+            ds_id="ds-002",
+            kg_id=kg.id.value,
+            tenant_id=tenant_id,
+        )
 
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = kg

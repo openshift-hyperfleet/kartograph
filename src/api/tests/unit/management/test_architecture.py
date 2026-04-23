@@ -232,8 +232,12 @@ class TestManagementBoundedContextIsolation:
           IAM for tenant scoping (e.g., scope_to_tenant=current_user.tenant_id).
         - management.presentation: Route handlers that enforce authentication
           by declaring get_current_user as a FastAPI dependency and using
-          CurrentUser to extract user_id for service calls. This is a
-          legitimate cross-context dependency for presentation-layer concerns.
+          CurrentUser to extract user_id for service calls. Only
+          knowledge_graphs.routes legitimately imports IAM, but
+          management.presentation.__init__ aggregates sub-routers, causing
+          pytest-archon to propagate the IAM import up to the root package.
+          The entire presentation tree must be excluded because of this
+          transitive propagation through the router aggregation __init__.
         """
         (
             archrule("management_no_iam")

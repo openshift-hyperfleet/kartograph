@@ -181,12 +181,16 @@ class TestCreateWorkspace:
         assert response.status_code == status.HTTP_409_CONFLICT
         assert "already exists" in response.json()["detail"]
 
-    def test_create_workspace_returns_400_for_invalid_parent(
+    def test_create_workspace_returns_404_for_missing_parent(
         self,
         test_client: TestClient,
         mock_workspace_service: AsyncMock,
     ) -> None:
-        """Test POST /workspaces returns 400 when parent doesn't exist."""
+        """Test POST /workspaces returns 404 when parent doesn't exist.
+
+        Parent-not-found is indistinguishable from unauthorized access —
+        both return 404 to avoid leaking existence information.
+        """
         fake_parent_id = WorkspaceId.generate().value
         mock_workspace_service.create_workspace.side_effect = ValueError(
             f"Parent workspace {fake_parent_id} does not exist"
@@ -200,8 +204,55 @@ class TestCreateWorkspace:
             },
         )
 
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_create_workspace_returns_404_for_cross_tenant_parent(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+    ) -> None:
+        """Test POST /workspaces returns 404 when parent is in a different tenant.
+
+        Cross-tenant access is indistinguishable from missing — both return 404.
+        """
+        fake_parent_id = WorkspaceId.generate().value
+        mock_workspace_service.create_workspace.side_effect = ValueError(
+            "Parent workspace belongs to different tenant - "
+            "cannot create child workspace across tenant boundaries"
+        )
+
+        response = test_client.post(
+            "/iam/workspaces",
+            json={
+                "name": "Engineering",
+                "parent_workspace_id": fake_parent_id,
+            },
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_create_workspace_returns_400_for_other_validation_errors(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+    ) -> None:
+        """Test POST /workspaces returns 400 for non-parent-not-found validation errors."""
+        fake_parent_id = WorkspaceId.generate().value
+        mock_workspace_service.create_workspace.side_effect = ValueError(
+            "Some other validation error"
+        )
+
+        response = test_client.post(
+            "/iam/workspaces",
+            json={
+                "name": "Engineering",
+                "parent_workspace_id": fake_parent_id,
+            },
+        )
+
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "does not exist" in response.json()["detail"]
 
     def test_create_workspace_returns_422_for_invalid_name(
         self,

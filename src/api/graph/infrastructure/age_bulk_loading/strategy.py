@@ -38,22 +38,28 @@ class AgeBulkLoadingStrategy(BulkLoadingStrategy):
     This strategy bypasses Cypher MERGE and writes directly to AGE's
     internal PostgreSQL tables for maximum performance.
 
-    Uses advisory locks to ensure concurrency safety.
+    Uses advisory locks to ensure concurrency safety.  When advisory lock
+    acquisition fails (e.g. deadlock detected by PostgreSQL), the transaction
+    is rolled back — releasing all held ``pg_advisory_xact_lock`` locks — and
+    the entire batch is retried up to ``max_retries`` additional times.
     """
 
     DEFAULT_BATCH_SIZE = 1000
+    DEFAULT_MAX_RETRIES = 3
 
     def __init__(
         self,
         indexing_strategy: TransactionalIndexingProtocol | None = None,
         batch_size: int | None = None,
         bulk_loading_probe: AgeBulkLoadingProbe | None = None,
+        max_retries: int = DEFAULT_MAX_RETRIES,
     ):
         self._indexing_strategy = indexing_strategy or AgeIndexingStrategy()
         self._batch_size = batch_size or self.DEFAULT_BATCH_SIZE
         self._bulk_probe = bulk_loading_probe or DefaultAgeBulkLoadingProbe()
         self._staging = StagingTableManager()
         self._queries = AgeQueryBuilder
+        self._max_retries = max_retries
 
     def apply_batch(
         self,
@@ -62,111 +68,149 @@ class AgeBulkLoadingStrategy(BulkLoadingStrategy):
         probe: MutationProbe,
         graph_name: str,
     ) -> MutationResult:
-        """Apply mutations using direct SQL INSERT/UPDATE."""
+        """Apply mutations using direct SQL INSERT/UPDATE.
+
+        Advisory lock acquisition and the entire database transaction are
+        wrapped in a bounded retry loop.  If any lock acquisition fails
+        (e.g. PostgreSQL detects a deadlock), the transaction is rolled back
+        — which releases every ``pg_advisory_xact_lock`` held by that
+        transaction — and the full batch is retried from scratch.  Labels are
+        always re-acquired in alphabetical order on each attempt, preventing
+        deadlocks between concurrent bulk loaders.
+
+        After ``_max_retries`` unsuccessful retries the method returns a
+        ``MutationResult`` with ``success=False`` so the caller can decide
+        whether to escalate or surface the error.
+        """
         start_time = time.perf_counter()
-        session_id = uuid.uuid4().hex[:16]
 
-        try:
-            # Partition operations by type
-            create_nodes = [
-                op
-                for op in operations
-                if op.op == MutationOperationType.CREATE and op.type == EntityType.NODE
-            ]
-            create_edges = [
-                op
-                for op in operations
-                if op.op == MutationOperationType.CREATE and op.type == EntityType.EDGE
-            ]
-            delete_edges = [
-                op
-                for op in operations
-                if op.op == MutationOperationType.DELETE and op.type == EntityType.EDGE
-            ]
-            delete_nodes = [
-                op
-                for op in operations
-                if op.op == MutationOperationType.DELETE and op.type == EntityType.NODE
-            ]
-            update_ops = [
-                op for op in operations if op.op == MutationOperationType.UPDATE
-            ]
+        # Partition operations by type.  This is pure computation (no DB I/O)
+        # so it lives outside the retry loop.
+        create_nodes = [
+            op
+            for op in operations
+            if op.op == MutationOperationType.CREATE and op.type == EntityType.NODE
+        ]
+        create_edges = [
+            op
+            for op in operations
+            if op.op == MutationOperationType.CREATE and op.type == EntityType.EDGE
+        ]
+        delete_edges = [
+            op
+            for op in operations
+            if op.op == MutationOperationType.DELETE and op.type == EntityType.EDGE
+        ]
+        delete_nodes = [
+            op
+            for op in operations
+            if op.op == MutationOperationType.DELETE and op.type == EntityType.NODE
+        ]
+        update_ops = [op for op in operations if op.op == MutationOperationType.UPDATE]
 
-            conn = client.raw_connection
-            total_batches = 0
+        # Sorted label set is also invariant across retries.
+        all_labels = {op.label for op in create_nodes if op.label} | {
+            op.label for op in create_edges if op.label
+        }
+        sorted_labels = sorted(all_labels)
 
-            with conn.cursor() as cursor:
-                # Acquire advisory locks for all labels we'll modify.
-                # Labels MUST be sorted into a canonical (alphabetical) order
-                # before acquisition to prevent deadlocks when two concurrent
-                # transactions lock the same set of labels in different orders.
-                all_labels = {op.label for op in create_nodes if op.label} | {
-                    op.label for op in create_edges if op.label
-                }
-                for label in sorted(all_labels):
-                    self._queries.acquire_advisory_lock(cursor, graph_name, label)
+        last_error: Exception | None = None
 
-                # Execute DELETEs first (edges before nodes for referential integrity)
-                if delete_edges:
-                    total_batches += self._execute_deletes(
-                        cursor, delete_edges, EntityType.EDGE, probe, graph_name
-                    )
-                if delete_nodes:
-                    total_batches += self._execute_deletes(
-                        cursor, delete_nodes, EntityType.NODE, probe, graph_name
-                    )
+        for _attempt in range(self._max_retries + 1):
+            # Generate a fresh session ID per attempt so that staging-table
+            # names never collide with those from a previous (rolled-back) attempt.
+            session_id = uuid.uuid4().hex[:16]
 
-                # Execute CREATEs (nodes before edges for referential integrity)
-                if create_nodes:
-                    total_batches += self._execute_creates(
-                        cursor,
-                        create_nodes,
-                        EntityType.NODE,
-                        graph_name,
-                        session_id,
-                        probe,
-                    )
-                if create_edges:
-                    total_batches += self._execute_creates(
-                        cursor,
-                        create_edges,
-                        EntityType.EDGE,
-                        graph_name,
-                        session_id,
-                        probe,
-                    )
-
-                # Execute UPDATEs
-                if update_ops:
-                    total_batches += self._execute_updates(
-                        cursor, update_ops, graph_name, probe
-                    )
-
-                conn.commit()
-
-            duration_ms = (time.perf_counter() - start_time) * 1000
-            probe.apply_batch_completed(
-                total_operations=len(operations),
-                total_batches=total_batches,
-                duration_ms=duration_ms,
-                success=True,
-            )
-
-            return MutationResult(success=True, operations_applied=len(operations))
-
-        except Exception as e:
-            duration_ms = (time.perf_counter() - start_time) * 1000
-            probe.apply_batch_completed(
-                total_operations=len(operations),
-                total_batches=0,
-                duration_ms=duration_ms,
-                success=False,
-            )
             try:
-                client.raw_connection.rollback()
-            except Exception:
-                pass
-            return MutationResult(success=False, operations_applied=0, errors=[str(e)])
+                conn = client.raw_connection
+                total_batches = 0
+
+                with conn.cursor() as cursor:
+                    # Acquire advisory locks for all labels we'll modify.
+                    # Labels MUST be sorted into a canonical (alphabetical) order
+                    # before acquisition to prevent deadlocks when two concurrent
+                    # transactions lock the same set of labels in different orders.
+                    # If any lock acquisition fails, the exception propagates to
+                    # the except block below, which rolls back the transaction
+                    # (releasing all pg_advisory_xact_lock locks held so far)
+                    # before the next retry attempt.
+                    for label in sorted_labels:
+                        self._queries.acquire_advisory_lock(cursor, graph_name, label)
+
+                    # Execute DELETEs first (edges before nodes for referential integrity)
+                    if delete_edges:
+                        total_batches += self._execute_deletes(
+                            cursor, delete_edges, EntityType.EDGE, probe, graph_name
+                        )
+                    if delete_nodes:
+                        total_batches += self._execute_deletes(
+                            cursor, delete_nodes, EntityType.NODE, probe, graph_name
+                        )
+
+                    # Execute CREATEs (nodes before edges for referential integrity)
+                    if create_nodes:
+                        total_batches += self._execute_creates(
+                            cursor,
+                            create_nodes,
+                            EntityType.NODE,
+                            graph_name,
+                            session_id,
+                            probe,
+                        )
+                    if create_edges:
+                        total_batches += self._execute_creates(
+                            cursor,
+                            create_edges,
+                            EntityType.EDGE,
+                            graph_name,
+                            session_id,
+                            probe,
+                        )
+
+                    # Execute UPDATEs
+                    if update_ops:
+                        total_batches += self._execute_updates(
+                            cursor, update_ops, graph_name, probe
+                        )
+
+                    conn.commit()
+
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                probe.apply_batch_completed(
+                    total_operations=len(operations),
+                    total_batches=total_batches,
+                    duration_ms=duration_ms,
+                    success=True,
+                )
+
+                return MutationResult(success=True, operations_applied=len(operations))
+
+            except Exception as e:
+                last_error = e
+                # Rollback releases all pg_advisory_xact_lock locks held by this
+                # transaction, satisfying the spec requirement that previously
+                # acquired locks are released before the next retry attempt.
+                try:
+                    client.raw_connection.rollback()
+                except Exception:
+                    pass
+                # Loop continues to next attempt (or falls through when exhausted).
+
+        # All attempts exhausted — report the last error to the caller.
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        probe.apply_batch_completed(
+            total_operations=len(operations),
+            total_batches=0,
+            duration_ms=duration_ms,
+            success=False,
+        )
+        return MutationResult(
+            success=False,
+            operations_applied=0,
+            errors=[str(last_error)]
+            if last_error is not None
+            else ["Batch failed after retries"],
+        )
 
     def _pre_create_labels_and_indexes(
         self,

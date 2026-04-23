@@ -499,3 +499,180 @@ class TestAdvisoryLockOrdering:
         assert locked_labels == [], (
             "DELETE-only batch should not acquire any advisory locks"
         )
+
+
+# ---------------------------------------------------------------------------
+# Requirement: Concurrency Safety
+# Scenario: Deterministic lock ordering
+# Sub-clause: if any lock acquisition fails, all previously acquired locks are
+#             released before retry
+# ---------------------------------------------------------------------------
+
+
+class TestAdvisoryLockRetry:
+    """Lock acquisition failure MUST trigger rollback and retry.
+
+    Spec: AND if any lock acquisition fails, all previously acquired locks are
+    released before retry (Concurrency Safety / Deterministic lock ordering).
+
+    Since pg_advisory_xact_lock() is transaction-scoped, a rollback automatically
+    releases every lock held by that transaction. The retry loop then re-acquires
+    all locks in sorted order on the next attempt.
+    """
+
+    def test_retries_on_lock_acquisition_failure_and_succeeds(
+        self,
+        mock_client: MagicMock,
+        mock_probe: MagicMock,
+    ) -> None:
+        """When lock acquisition fails on the first attempt, strategy retries and succeeds."""
+        strategy = AgeBulkLoadingStrategy(max_retries=2)
+        operations = [_make_create_node(label="person")]
+        call_count = 0
+
+        def flaky_lock(cursor: MagicMock, graph_name: str, label: str) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("simulated lock acquisition failure")
+
+        with (
+            patch.object(
+                strategy._queries, "acquire_advisory_lock", side_effect=flaky_lock
+            ),
+            patch.object(strategy, "_execute_deletes", return_value=0),
+            patch.object(strategy, "_execute_creates", return_value=1),
+            patch.object(strategy, "_execute_updates", return_value=0),
+        ):
+            result = strategy.apply_batch(
+                mock_client, operations, mock_probe, "test_graph"
+            )
+
+        assert result.success is True, "Batch must succeed after a single retry"
+        assert call_count == 2, (
+            f"acquire_advisory_lock must be called twice (1 failure + 1 success), "
+            f"got {call_count}"
+        )
+
+    def test_rollback_called_on_lock_failure_before_retry(
+        self,
+        mock_client: MagicMock,
+        mock_probe: MagicMock,
+    ) -> None:
+        """Rollback is called to release all held locks before each retry attempt."""
+        strategy = AgeBulkLoadingStrategy(max_retries=2)
+        operations = [_make_create_node(label="person")]
+        call_count = 0
+
+        def flaky_lock(cursor: MagicMock, graph_name: str, label: str) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("simulated lock failure")
+
+        with (
+            patch.object(
+                strategy._queries, "acquire_advisory_lock", side_effect=flaky_lock
+            ),
+            patch.object(strategy, "_execute_deletes", return_value=0),
+            patch.object(strategy, "_execute_creates", return_value=1),
+            patch.object(strategy, "_execute_updates", return_value=0),
+        ):
+            result = strategy.apply_batch(
+                mock_client, operations, mock_probe, "test_graph"
+            )
+
+        # Rollback must be called exactly once (after the first failure)
+        mock_client.raw_connection.rollback.assert_called_once()
+        assert result.success is True, "Batch must ultimately succeed on retry"
+
+    def test_returns_failure_after_all_retries_exhausted(
+        self,
+        mock_client: MagicMock,
+        mock_probe: MagicMock,
+    ) -> None:
+        """After max retries, apply_batch returns MutationResult with success=False."""
+        strategy = AgeBulkLoadingStrategy(max_retries=2)
+        operations = [_make_create_node(label="person")]
+
+        with patch.object(
+            strategy._queries,
+            "acquire_advisory_lock",
+            side_effect=RuntimeError("persistent lock failure"),
+        ):
+            result = strategy.apply_batch(
+                mock_client, operations, mock_probe, "test_graph"
+            )
+
+        assert result.success is False
+        assert len(result.errors) > 0, "Errors list must be non-empty on failure"
+        assert "persistent lock failure" in result.errors[0], (
+            "Error message must propagate to the caller"
+        )
+
+    def test_retry_attempts_are_bounded_by_max_retries(
+        self,
+        mock_client: MagicMock,
+        mock_probe: MagicMock,
+    ) -> None:
+        """Strategy does not retry indefinitely; total attempts == max_retries + 1."""
+        max_retries = 2
+        strategy = AgeBulkLoadingStrategy(max_retries=max_retries)
+        operations = [_make_create_node(label="person")]
+        lock_call_count = 0
+
+        def always_fail(cursor: MagicMock, graph_name: str, label: str) -> None:
+            nonlocal lock_call_count
+            lock_call_count += 1
+            raise RuntimeError("lock failure")
+
+        with patch.object(
+            strategy._queries, "acquire_advisory_lock", side_effect=always_fail
+        ):
+            strategy.apply_batch(mock_client, operations, mock_probe, "test_graph")
+
+        # Initial attempt + max_retries retries
+        assert lock_call_count == max_retries + 1, (
+            f"Expected {max_retries + 1} total attempts, got {lock_call_count}"
+        )
+
+    def test_second_lock_failure_triggers_rollback_of_all_held_locks(
+        self,
+        mock_client: MagicMock,
+        mock_probe: MagicMock,
+    ) -> None:
+        """When the Nth lock fails, rollback releases ALL previously acquired locks.
+
+        With sorted labels ['apple', 'zebra']: 'apple' is acquired first (succeeds),
+        then 'zebra' fails. Rollback must be called so that the 'apple' advisory lock
+        (held by the transaction) is released before retry.
+        """
+        strategy = AgeBulkLoadingStrategy(max_retries=2)
+        # Two labels: sorted → ["apple", "zebra"]
+        operations = [
+            _make_create_node(label="apple", entity_id="node:abc123def4560001"),
+            _make_create_node(label="zebra", entity_id="node:abc123def4560002"),
+        ]
+        call_count = 0
+
+        def fail_on_second_lock(cursor: MagicMock, graph_name: str, label: str) -> None:
+            nonlocal call_count
+            call_count += 1
+            # First attempt: "apple" (call 1) succeeds, "zebra" (call 2) fails
+            if call_count == 2:
+                raise RuntimeError("zebra lock failed")
+
+        with (
+            patch.object(
+                strategy._queries,
+                "acquire_advisory_lock",
+                side_effect=fail_on_second_lock,
+            ),
+            patch.object(strategy, "_execute_deletes", return_value=0),
+            patch.object(strategy, "_execute_creates", return_value=1),
+            patch.object(strategy, "_execute_updates", return_value=0),
+        ):
+            strategy.apply_batch(mock_client, operations, mock_probe, "test_graph")
+
+        # Rollback must be called to release the "apple" lock held before "zebra" failed
+        mock_client.raw_connection.rollback.assert_called()

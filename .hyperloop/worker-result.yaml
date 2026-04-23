@@ -1,84 +1,91 @@
 ---
 verdict: pass
 ---
-## Task 017: Outbox Pattern — Fresh Attempt Verdict (2026-04-23)
+## Task 017: Outbox Pattern — Verification (2026-04-23)
 
-Independently verified: all 6 SHALL requirements and 11 scenarios from
-`specs/shared-kernel/outbox.spec.md`.
+All 7 numbered checks PASS. One minor non-blocking finding noted below.
 
-Unit test run: 2187 passed, 0 failed (full suite).
-Outbox-specific tests: 130 passed, 0 failed.
+---
+
+### Check Results
+
+**1. Unit Tests — PASS**
+2187 passed, 0 failed, 39 warnings (coroutine warnings in unrelated repository
+tests, pre-existing). Outbox-specific tests: 80 passed in
+`tests/unit/infrastructure/outbox/` and `tests/unit/shared_kernel/outbox/`.
+
+**2. Linting (ruff check) — PASS**
+All checks passed, zero violations.
+
+**3. Formatting (ruff format --check) — PASS**
+459 files already formatted.
+
+**4. Type Checking (mypy) — PASS**
+Success: no issues found in 459 source files.
+
+**5. Architecture Boundary Tests — PASS**
+40/40 pytest-archon tests pass. Outbox infrastructure correctly imports only
+shared_kernel and not any bounded context internals.
+
+**6. Check Scripts — PASS**
+- `check-idempotency-tests.sh`: PASS — both filtering (processed_at IS NULL)
+  and re-execution (handler-called-twice) test categories detected.
+- `check-no-coming-soon-stubs.sh`: PASS — no stub markers in changed files.
+- `check-no-future-placeholder-comments.sh`: PASS — no placeholder comments.
+- `check-frontend-test-infrastructure.sh`: PASS (skipped, no UI changes).
+- `check-frontend-tests-exist.sh`: PASS (skipped, no UI changes).
+- `check-auth-status-codes.sh` / `check-failure-path-tests.sh`: PASS.
+
+**7. Code Review — PASS**
+- No direct `logger.*` or `print()` usage in changed files; domain probes used.
+- No `MagicMock`/`AsyncMock` for domain collaborators; fakes used
+  (`MockHandler`, `FakeAuthorizationProvider`).
+- No DDD layer boundary violations in imports.
+- All implementation commits carry `Spec-Ref` and `Task-Ref` trailers.
+- No hardcoded secrets or environment-specific values.
+- Conventional commit messages throughout.
 
 ---
 
 ### Implementation Summary
 
-**Core files:**
-- `src/api/shared_kernel/outbox/` — ports, value objects, exceptions, observability
-- `src/api/infrastructure/outbox/` — models, repository, worker, composite handler,
-  SpiceDB handler, PostgreSQL NOTIFY event source
+**Branch changes (vs alpha):**
+- `shared_kernel/outbox/exceptions.py` *(new)* — `UnknownEventTypeError`, a
+  typed permanent-failure exception distinct from generic `Exception`/`ValueError`,
+  carrying `event_type` and `registered_types` attributes for diagnostics.
+- `infrastructure/outbox/composite.py` — Raises `UnknownEventTypeError` instead
+  of `ValueError` when no handler matches an event type.
+- `infrastructure/outbox/worker.py` — Catches `UnknownEventTypeError` *before*
+  the generic `except Exception` handler and immediately DLQs the entry without
+  incrementing retry count.
+- Test additions: 6 `UnknownEventTypeError` exception tests, 11 worker scenario
+  tests (retry/DLQ/concurrent/idempotency), idempotent handler unit + integration
+  tests, check script ERE-pattern fixes.
+
+**Spec coverage:**
+All 6 SHALL requirements and 11 scenarios verified:
+- Transactional Event Storage (successful write + rollback)
+- Event Processing (normal + transient failure + permanent DLQ)
+- Idempotent Event Handlers (duplicate delivery — unit fake + integration)
+- Concurrent Worker Safety (FOR UPDATE SKIP LOCKED)
+- Dual Delivery Mechanism (NOTIFY real-time + polling fallback)
+- Event Fan-Out (multiple handlers + unknown type → immediate DLQ)
 
 ---
 
-### Requirement Coverage
+### Minor Finding (non-blocking)
 
-**Requirement: Transactional Event Storage** — COVERED
-- Scenario: Successful write — `OutboxRepository.append()` calls `session.add()` only,
-  never `session.commit()`. Caller owns transaction boundary.
-  Tests: `test_repository_append_does_not_commit`, `test_appends_outbox_model_to_session`.
-- Scenario: Transaction rollback — Shared-session design means rollback discards both
-  aggregate and outbox entry atomically.
-  Tests: `test_failed_service_call_leaves_no_outbox_entries`.
-  Integration: `test_rollback_removes_both_group_and_outbox_entry`.
-
-**Requirement: Event Processing** — COVERED
-- Scenario: Normal processing — `_process_batch()` fetches with FOR UPDATE SKIP LOCKED,
-  invokes handler, marks processed, commits.
-  Tests: `test_processes_unprocessed_entries`, `test_marks_entry_as_processed`,
-  `test_calls_event_processed_on_success`.
-- Scenario: Transient failure — `_handle_processing_failure()` increments `retry_count`,
-  records `last_error`.
-  Tests: `test_transient_failure_increments_retry_count`,
-  `test_transient_failure_does_not_dlq_immediately`.
-- Scenario: Permanent failure (DLQ) — `_move_to_dlq()` sets `failed_at`; both
-  `_process_batch()` and `_process_single()` exclude `failed_at IS NOT NULL` entries.
-  Tests: `test_max_retries_moves_entry_to_dlq`, `test_failed_entries_excluded_from_fetch`.
-
-**Requirement: Idempotent Event Handlers** — COVERED
-- Scenario: Duplicate delivery — `SpiceDBEventHandler` is idempotent by design: SpiceDB
-  write/delete are upsert/set operations. Tested with a `FakeAuthorizationProvider` that
-  uses a set-based relationship store (adding the same tuple twice results in one entry).
-  Tests: `test_duplicate_invocation_produces_identical_final_state` (unit, set-based fake).
-
-**Requirement: Concurrent Worker Safety** — COVERED
-- Scenario: Concurrent workers — Both `_process_batch()` and `_process_single()` use
-  `.with_for_update(skip_locked=True)`, preventing two workers from claiming the same row.
-  Test: `test_fetch_unprocessed_uses_for_update_skip_locked` (compiles query with
-  PostgreSQL dialect, asserts "SKIP LOCKED" present in rendered SQL).
-
-**Requirement: Dual Delivery Mechanism** — COVERED
-- Scenario: Real-time notification — `PostgresNotifyEventSource` uses `asyncpg-listen`
-  to subscribe to a PostgreSQL NOTIFY channel. A DB trigger fires `pg_notify` on INSERT
-  into the outbox table. On notification, `_process_single(entry_id)` is invoked.
-  Tests: 23 unit tests in `test_postgres_notify_event_source.py`.
-- Scenario: Polling fallback — `_poll_loop()` runs every `poll_interval_seconds` (default
-  30s) regardless of the event source, calling `_process_batch()` to catch any missed
-  events.
-  Tests: polling logic verified via direct `_process_batch()` tests.
-
-**Requirement: Event Fan-Out** — COVERED
-- Scenario: Multiple handlers registered — `CompositeEventHandler.register()` appends to
-  `_handlers_by_type[event_type]`; `handle()` iterates all handlers for the type.
-  Test: `test_handle_fans_out_to_multiple_handlers`.
-- Scenario: Unknown event type — `CompositeEventHandler.handle()` raises
-  `UnknownEventTypeError`. `OutboxWorker._process_entries()` catches it before the generic
-  `except Exception` clause and calls `_move_to_dlq()` immediately, bypassing all retry
-  logic.
-  Tests: `test_unknown_event_type_immediately_moves_to_dlq`,
-  `test_unknown_event_type_dlq_even_at_zero_retries`,
-  `test_retry_not_called_for_unknown_event_type`,
-  `test_handle_raises_for_unknown_event_type`.
+**Stale docstring in `infrastructure/outbox/composite.py` (lines 74, 81):**
+The `handle()` method docstring still says `Raises: ValueError` after the
+refactor to `UnknownEventTypeError`. The implementation is correct; only the
+doc comment is outdated. This does not affect test results or runtime behaviour.
+The implementer should update the docstring to:
+```
+Raises:
+    UnknownEventTypeError: If no handler is registered for the event type.
+```
+This can be addressed as a follow-on cleanup commit.
 
 ---
 
-All requirements: COVERED. Full unit suite passes (2187 tests). No deviations from spec.
+verdict: pass

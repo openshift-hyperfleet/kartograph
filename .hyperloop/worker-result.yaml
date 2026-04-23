@@ -2,17 +2,42 @@
 verdict: pass
 ---
 
-## API Keys Implementation — task-021 (Fresh Attempt After Branch Reset)
+## API Keys Implementation — task-021 (Verification Pass)
 
-This is a fresh verification pass following branch reset due to prior state-file
-merge conflicts. The implementation is complete and all tests pass.
+Fresh verification pass after branch reset. All checks run independently from scratch.
+
+---
+
+### Check Results
+
+| Check | Result | Detail |
+|---|---|---|
+| Unit tests | PASS | 2031 passed, 39 warnings, 0 failures |
+| Ruff linting | PASS | All checks passed |
+| Ruff formatting | PASS | 442 files already formatted |
+| Mypy type checking | PASS | No issues found in 442 source files |
+| Architecture boundaries | PASS | 40/40 tests passed |
+| Check scripts | PASS* | See note below |
+| Commit trailers | PASS | Both implementation commits carry Spec-Ref and Task-Ref |
+
+**Check script note:** `check-no-coming-soon-stubs.sh` and `check-no-future-placeholder-comments.sh`
+report failures, but these are false positives:
+- The "Coming Soon" match is in `src/dev-ui/app/layouts/default.vue` — a UI
+  navigation disabled-state label that is pre-existing on `alpha` (zero diff
+  in `src/dev-ui/` between `alpha` and `HEAD`) and is not a spec stub.
+- All other matches are inside `src/api/.venv/` (third-party library code
+  such as `mypy`, `httpx`, `google-protobuf`); the check script excludes
+  `node_modules` but not `.venv`, making these unavoidable false positives
+  against the virtualenv. No application source files trigger the pattern.
 
 ---
 
 ### Implementation Summary
 
 Full API key lifecycle is implemented across all DDD layers in the IAM bounded
-context, covering every spec requirement and scenario.
+context, covering every spec requirement and scenario. The implementation was
+merged to `alpha` before the branch reset; this branch contributes additional
+test coverage.
 
 **Domain Layer** (`iam/domain/aggregates/api_key.py`)
 - `APIKey` aggregate with `create()`, `revoke()`, `mark_for_deletion()`,
@@ -20,76 +45,83 @@ context, covering every spec requirement and scenario.
 - Emits `APIKeyCreated`, `APIKeyRevoked`, `APIKeyDeleted` domain events.
 - `is_valid()` checks both `is_revoked` and `expires_at`.
 - `revoke()` raises `APIKeyAlreadyRevokedError` if already revoked.
-
-**Application Layer** (`iam/application/services/api_key_service.py`)
-- `create_api_key`: SpiceDB `CREATE_API_KEY` permission check, secret
-  generation with `karto_` prefix, bcrypt hash, 12-char prefix extraction,
-  expiration calculation. Returns `(APIKey, plaintext_secret)`.
-- `list_api_keys`: SpiceDB `lookup_resources` for `VIEW` permission; optional
-  `user_id` filter for creator filtering.
-- `revoke_api_key`: 404 check → SpiceDB `REVOKE` permission check → revoke.
-- `validate_and_get_key`: prefix-based lookup → bcrypt verify → `is_valid()`
-  → `record_usage()` → commit.
+- No logger/print — pure domain logic only.
 
 **Security** (`iam/application/security.py`)
-- `generate_api_key_secret()`: generates secret with `karto_` prefix.
-- `hash_api_key_secret()`: bcrypt hash storage.
-- `extract_prefix()`: extracts first 12 characters for fast lookup.
-- `verify_api_key_secret()`: bcrypt comparison.
+- `generate_api_key_secret()`: cryptographically secure, `karto_` prefix.
+- `hash_api_key_secret()`: bcrypt with work factor 12.
+- `extract_prefix()`: first 12 characters for fast lookup.
+- `verify_api_key_secret()`: bcrypt constant-time comparison.
+
+**Application Layer** (`iam/application/services/api_key_service.py`)
+- `create_api_key`: SpiceDB `CREATE_API_KEY` check, secret generation,
+  bcrypt hash, 12-char prefix, expiration calculation. Returns
+  `(APIKey, plaintext_secret)`.
+- `list_api_keys`: SpiceDB `lookup_resources` for `VIEW` permission; optional
+  `user_id` filter.
+- `revoke_api_key`: 404 check → SpiceDB `REVOKE` check → revoke.
+- `validate_and_get_key`: prefix-based lookup → bcrypt verify → `is_valid()`
+  → `record_usage()` → commit.
+- All observability via domain probes (no logger calls).
 
 **Infrastructure** (`iam/infrastructure/api_key_repository.py`)
 - `get_verified_key()`: prefix-based lookup with bcrypt comparison for each
-  candidate; error-level log on prefix collision.
+  candidate; error-level probe event on prefix collision.
 - `list()`: filters by `api_key_ids` from SpiceDB, optional tenant/creator.
-- `save()`: persists to PostgreSQL and drains domain events to outbox.
-- `delete_by_tenant()`: bulk delete for cascade on tenant deletion.
+- `save()`: persists to PostgreSQL, drains domain events to outbox.
+- `delete()`: deletes model, drains domain events to outbox.
 
 **Presentation** (`iam/presentation/api_keys/routes.py`)
-- `POST /iam/api-keys`: validates name (1–255 chars), `expires_in_days`
-  (1–3650, default 30). Returns 201 with one-time `secret`. 409 duplicate.
-- `GET /iam/api-keys`: metadata list; never includes `secret`/`key_hash`.
-- `DELETE /iam/api-keys/{id}`: 204 success. 404 not found. 409 already revoked.
+- `POST /iam/api-keys`: name 1–255 chars, `expires_in_days` 1–3650 (default 30).
+  Returns 201 with one-time `secret`. 409 on duplicate.
+- `GET /iam/api-keys`: metadata list; `key_hash` and `secret` never exposed.
+- `DELETE /iam/api-keys/{id}`: 204 success, 404 not found, 409 already revoked,
+  403 unauthorized.
 
-**Authentication** (`iam/dependencies/authenticate.py`)
+**Authentication** (`iam/dependencies/user.py`)
 - JWT Bearer takes precedence over `X-API-Key` header.
-- Returns 401 with `WWW-Authenticate: Bearer, API-Key` on failure.
+- Returns 401 with `WWW-Authenticate: Bearer, API-Key` on any auth failure.
 
 **Cascade Deletion** (`iam/application/services/tenant_service.py`)
-- `delete_tenant()` calls `_api_key_repository.delete_by_tenant()` before
-  deleting the tenant.
+- `delete_tenant()` calls `api_key_repository.list(tenant_id=...)` then
+  `api_key.mark_for_deletion()` + `api_key_repository.delete(api_key)` for each,
+  before deleting the tenant — ensuring `APIKeyDeleted` events fire for
+  SpiceDB cleanup.
 
 ---
 
-### Spec → Test Coverage
+### Branch Commits (non-administrative)
 
-| Scenario | Coverage |
+```
+f04e633a test(iam): close three spec coverage gaps in API key tests
+7cf228fd test(iam): add cascade deletion tests for API keys on tenant deletion
+```
+
+Both carry `Spec-Ref` and `Task-Ref` trailers.
+
+---
+
+### Spec Coverage
+
+All 18 spec scenarios are covered by unit and/or integration tests:
+
+| Scenario | Test |
 |---|---|
-| Successful creation (prefix, hash, one-time secret) | `test_api_key_aggregate.py`, `test_api_key_service.py`, `test_api_key_routes.py` |
-| Duplicate name conflict | `test_api_key_service.py`, `test_api_key_routes.py::test_returns_409_on_duplicate_name` |
-| Expiration bounds (1–3650 days, default 30) | `test_api_key_routes.py::test_validates_expires_in_days_*`, `test_uses_default_expires_in_days_of_30` |
-| Valid key authentication + last_used_at | `test_api_key_service.py::TestValidateAndGetKey` |
-| Expired key → 401 | `tests/integration/test_api_key_auth.py::test_returns_401_for_expired_api_key` |
-| Revoked key → 401 | `test_api_key_service.py::test_returns_none_for_revoked_key` |
-| JWT takes precedence | `test_authenticate_dependency.py::test_jwt_takes_precedence_over_api_key` |
-| Prefix collision → error log | `test_api_key_repository.py::TestPrefixCollision` |
-| List keys (no secrets) | `test_api_key_routes.py::test_never_returns_secret_or_hash` |
-| Filter by creator | `test_api_key_service.py::test_filters_by_user_id` |
-| Owner revokes own key | `test_api_key_service.py::TestRevokeAPIKey` |
-| Tenant admin revokes any key | `test_api_key_service.py::test_tenant_admin_can_revoke` |
-| Already revoked → 409 | `test_api_key_aggregate.py::test_revoke_raises_when_already_revoked` |
-| Unauthorized revocation → 403 | `test_api_key_routes.py::test_revoke_api_key_returns_403_when_unauthorized` |
-| Tenant deletion cascade | `test_tenant_service.py::TestDeleteTenant::test_cascade_deletes_api_keys` |
-| Revoked key visible in listing | `test_api_key_auth.py::test_revoked_key_remains_visible_in_listing` |
-| Valid name (1–255 chars) | `test_api_key_aggregate.py` |
-| Empty name rejected | `test_api_key_routes.py::test_validates_name_min_length` |
-
----
-
-### Test Results
-
-```
-2031 passed, 38 warnings
-```
-
-All unit tests pass. Integration tests are in
-`tests/integration/test_api_key_auth.py` (require running dev instance).
+| Successful creation (prefix, hash, one-time secret) | `test_api_key_aggregate`, `test_api_key_service`, `test_api_key_routes` |
+| Duplicate name conflict | `test_api_key_service`, `test_api_key_routes::test_returns_409_on_duplicate_name` |
+| Expiration bounds (1–3650, default 30) | `test_api_key_routes::test_validates_expires_in_days_*`, `test_uses_default_expires_in_days_of_30` |
+| Valid key authentication + last_used_at | `test_api_key_service::TestValidateAndGetKey` |
+| Expired key → 401 | `test_api_key_auth::test_returns_401_for_expired_api_key` |
+| Revoked key → 401 | `test_api_key_service::test_returns_none_for_revoked_key` |
+| JWT takes precedence | `test_authenticate_dependency::test_jwt_takes_precedence_over_api_key` |
+| Prefix collision → error log | `test_api_key_repository::TestPrefixCollision` |
+| List keys (no secrets) | `test_api_key_routes::test_never_returns_secret_or_hash` |
+| Filter by creator | `test_api_key_service::test_filters_by_user_id` |
+| Owner revokes own key | `test_api_key_service::TestRevokeAPIKey` |
+| Tenant admin revokes any key | `test_api_key_service::test_tenant_admin_can_revoke` |
+| Already revoked → 409 | `test_api_key_aggregate::test_revoke_raises_when_already_revoked` |
+| Unauthorized revocation → 403 | `test_api_key_routes::test_revoke_api_key_returns_403_when_unauthorized` |
+| Tenant deletion cascade | `test_tenant_service::TestDeleteTenant` (6 tests) |
+| Revoked key visible in listing | `test_api_key_auth::test_revoked_key_remains_visible_in_listing` |
+| Valid name (1–255 chars) | `test_api_key_aggregate` |
+| Empty name rejected | `test_api_key_routes::test_validates_name_min_length` |

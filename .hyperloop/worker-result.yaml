@@ -4,7 +4,7 @@ task: task-003
 spec: specs/graph/mutations.spec.md
 branch: hyperloop/task-003
 date: "2026-04-23"
-round: 11
+round: 12
 
 checks:
   unit_tests:
@@ -69,46 +69,68 @@ pr_feedback_addressed:
     status: fixed
     verified: true
     note: >
-      Confirmed in code at lines ~86-113: required_properties={'name'} only (no 'slug').
-      Comment at line 86-87 explains the intent. Assertion at line 113 ('slug' in
-      saved_type_def.required_properties) can only pass when the service injects it.
+      Code at lines 86-91: required_properties={"name"} only (slug absent from caller input).
+      Comments at lines 86-87 explain the intent. Assertion at line 113 checks that
+      'slug' IS in saved_type_def.required_properties — a regression in injection
+      would cause this assertion to fail. CodeRabbit's duplicate flag is stale;
+      the fix has been in place since round 9.
   - issue: "stamping suppression test used DELETE op"
     file: "src/api/tests/unit/graph/application/test_mutation_service.py"
     status: fixed
     verified: true
     note: >
-      Confirmed in code at lines ~797-841: test_does_not_stamp_when_knowledge_graph_id_not_provided
-      uses MutationOperationType.UPDATE with set_properties (no knowledge_graph_id).
-      Assertion at line 841 verifies 'knowledge_graph_id' not in applied_ops[0].set_properties,
-      directly exercising the suppression code path.
+      Code at lines 820-841: test_does_not_stamp_when_knowledge_graph_id_not_provided
+      uses MutationOperationType.UPDATE with set_properties containing name/data_source_id/
+      source_path (no knowledge_graph_id). service.apply_mutations(operations) called
+      without knowledge_graph_id param. Assertion at line 841 verifies
+      'knowledge_graph_id' not in applied_ops[0].set_properties. This directly
+      exercises the stamping code path in _stamp_knowledge_graph_id. CodeRabbit's
+      duplicate flag is stale; the fix has been in place since round 10.
   - issue: "enum vs string comparison on line 517"
     file: "src/api/tests/unit/graph/application/test_mutation_service.py"
     status: fixed
     verified: true
     note: >
-      Confirmed at line 521: operations[1].op == MutationOperationType.UPDATE (enum, not string).
-      Line 520 also uses MutationOperationType.CREATE.
+      Lines 520-521: operations[0].op == MutationOperationType.CREATE and
+      operations[1].op == MutationOperationType.UPDATE — both use enum, not string.
   - issue: "CREATE edge ops missing start_id/end_id in sort test helper"
     file: "src/api/tests/unit/graph/infrastructure/test_mutation_applier_sort.py"
     status: fixed
     verified: true
     note: >
-      Confirmed in _make_op at lines 41-44: when entity_type == EntityType.EDGE and
+      _make_op at lines 41-44: when entity_type == EntityType.EDGE and
       op == MutationOperationType.CREATE, kwargs['start_id'] = 'node:0000000000000001'
       and kwargs['end_id'] = 'node:0000000000000002' are set.
   - issue: "worker-result.yaml not valid YAML"
     file: ".hyperloop/worker-result.yaml"
     status: fixed
     verified: true
-    note: "Pure structured YAML confirmed valid in round 10; this round 11 file also valid YAML."
+    note: >
+      This file is pure structured YAML — no Markdown headings, code fences, or
+      unquoted prose. All human-readable text is under YAML scalar keys.
+  - issue: "_build_mutation_error_response infers HTTP status from error text"
+    file: "src/api/graph/presentation/routes.py"
+    status: fixed
+    verified: true
+    note: >
+      Lines 48-64: _build_mutation_error_response checks result.error_kind == 'validation'
+      (an explicit field on MutationResult) to select 422 vs 500. No text inference.
+      Returns detail={'errors': result.errors}.
+  - issue: "value_objects.py error message misleading about KG id stamping"
+    file: "src/api/graph/domain/value_objects.py"
+    status: fixed
+    verified: true
+    note: >
+      Lines 263-273: ValueError message explicitly states 'The system stamps this value
+      when apply_mutations() is called with a knowledge_graph_id parameter.' Message
+      is accurate about conditional stamping behavior.
 
 open_items: []
 
 summary: >
-  PASS. All 11 spec requirements implemented and covered by 2027 passing unit tests (verified
-  by running uv run pytest tests/unit). All five PR feedback items independently verified
-  against the actual source code in round 11 — not just claimed, but confirmed present in
-  the files at the exact locations described. Each fix is genuine: slug removed from
-  caller-provided required_properties; stamping-suppression test uses UPDATE+set_properties;
-  line 521 uses MutationOperationType.UPDATE enum; _make_op adds start_id/end_id for EDGE
-  CREATE ops; worker-result.yaml is valid YAML. No open items.
+  PASS. All 11 spec requirements implemented and covered by 2027 passing unit tests
+  (verified by running uv run pytest tests/unit in round 12). All PR feedback items
+  are confirmed fixed in the actual source code. CodeRabbit's duplicate comments about
+  slug injection (lines 86-91) and stamping suppression (lines 820-841) are stale
+  re-flags of issues resolved in rounds 9-10; the code at those locations is correct.
+  No genuine regressions detected. No open items.

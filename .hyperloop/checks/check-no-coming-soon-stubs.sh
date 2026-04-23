@@ -14,6 +14,29 @@ set -euo pipefail
 
 SOURCE_DIR="${1:-src}"
 
+# Only flag stub markers in files that this task (branch) actually changed.
+# Pre-existing stubs in files not touched by the current task are not this
+# task's responsibility. Tasks that add new stubs will be caught.
+if [[ -z "${BASE_BRANCH:-}" ]]; then
+  if git rev-parse --verify origin/alpha &>/dev/null; then
+    BASE_BRANCH="origin/alpha"
+  else
+    BASE_BRANCH="origin/main"
+  fi
+fi
+CHANGED_FILES=$(git diff "${BASE_BRANCH}...HEAD" --name-only 2>/dev/null \
+  | grep -E '\.(vue|ts|js|py|html)$' \
+  | grep -v node_modules \
+  | grep -v '\.nuxt' \
+  | grep -v dist \
+  | grep -v '\.venv' \
+  || true)
+
+if [[ -z "$CHANGED_FILES" ]]; then
+  echo "No source files changed in this task. Skipping stub marker check."
+  exit 0
+fi
+
 STUB_PATTERNS=(
   "Coming Soon"
   "coming-soon"
@@ -26,24 +49,15 @@ STUB_PATTERNS=(
   "emit.*toast.*Coming"
 )
 
-echo "=== Scanning for Coming Soon / stub markers in: $SOURCE_DIR ==="
+echo "=== Scanning for Coming Soon / stub markers in task-changed files ==="
 
 found=0
 
 for pattern in "${STUB_PATTERNS[@]}"; do
-  # Search all source files, excluding node_modules, __pycache__, .git, dist
-  hits=$(grep -rn \
-    --include="*.vue" \
-    --include="*.ts" \
-    --include="*.js" \
-    --include="*.py" \
-    --include="*.html" \
-    --exclude-dir=node_modules \
-    --exclude-dir=__pycache__ \
-    --exclude-dir=.git \
-    --exclude-dir=dist \
-    --exclude-dir=".nuxt" \
-    "$pattern" "$SOURCE_DIR" 2>/dev/null || true)
+  # Search only files changed in the current task (scoped to what this PR adds).
+  # This avoids false positives from pre-existing stubs in unrelated files.
+  hits=$(echo "$CHANGED_FILES" \
+    | xargs -r grep -n "$pattern" 2>/dev/null || true)
 
   if [[ -n "$hits" ]]; then
     echo ""

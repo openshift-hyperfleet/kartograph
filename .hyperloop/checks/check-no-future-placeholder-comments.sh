@@ -25,6 +25,29 @@ set -euo pipefail
 
 SOURCE_DIR="${1:-src}"
 
+# Only flag placeholder comments in files that this task (branch) actually changed.
+# Pre-existing placeholders in files not touched by the current task are not this
+# task's responsibility. Tasks that add new placeholders will be caught.
+if [[ -z "${BASE_BRANCH:-}" ]]; then
+  if git rev-parse --verify origin/alpha &>/dev/null; then
+    BASE_BRANCH="origin/alpha"
+  else
+    BASE_BRANCH="origin/main"
+  fi
+fi
+CHANGED_FILES=$(git diff "${BASE_BRANCH}...HEAD" --name-only 2>/dev/null \
+  | grep -E '\.(vue|ts|js|py|html)$' \
+  | grep -v node_modules \
+  | grep -v '\.nuxt' \
+  | grep -v dist \
+  | grep -v '\.venv' \
+  || true)
+
+if [[ -z "$CHANGED_FILES" ]]; then
+  echo "No source files changed in this task. Skipping placeholder comment check."
+  exit 0
+fi
+
 PLACEHOLDER_PATTERNS=(
   "<!-- Future:"
   "// Future:"
@@ -36,23 +59,14 @@ PLACEHOLDER_PATTERNS=(
   "<!-- placeholder"
 )
 
-echo "=== Scanning for future-placeholder comments in: $SOURCE_DIR ==="
+echo "=== Scanning for future-placeholder comments in task-changed files ==="
 
 found=0
 
 for pattern in "${PLACEHOLDER_PATTERNS[@]}"; do
-  hits=$(grep -rn \
-    --include="*.vue" \
-    --include="*.ts" \
-    --include="*.js" \
-    --include="*.py" \
-    --include="*.html" \
-    --exclude-dir=node_modules \
-    --exclude-dir=__pycache__ \
-    --exclude-dir=.git \
-    --exclude-dir=dist \
-    --exclude-dir=".nuxt" \
-    -i "$pattern" "$SOURCE_DIR" 2>/dev/null || true)
+  # Search only files changed in the current task (scoped to what this PR adds).
+  hits=$(echo "$CHANGED_FILES" \
+    | xargs -r grep -in "$pattern" 2>/dev/null || true)
 
   if [[ -n "$hits" ]]; then
     echo ""

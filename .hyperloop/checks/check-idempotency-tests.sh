@@ -105,16 +105,16 @@ fi
 # Patterns that indicate calling the handler/worker a second time with the
 # same event and verifying the final state.
 REEXECUTION_TEST_PATTERNS=(
-  "call.*twice\|twice.*call"
-  "second.*invocation\|invocation.*second"
-  "duplicate.*invoc\|invoc.*duplicate"
-  "retry.*same.*entry\|same.*entry.*retry"
-  "idempoten.*handler\|handler.*idempoten"
-  "second_call\|call_count.*2\|called_twice"
-  "already.*written.*spicedb\|spicedb.*already"
-  "no.*duplicate.*relationship\|relationship.*no.*duplicate"
-  "partial.*failure.*retry\|retry.*partial.*failure"
-  "simulate.*partial\|partial.*fail"
+  "call.*twice|twice.*call"
+  "second.*invocation|invocation.*second"
+  "duplicate.*invoc|invoc.*duplicate"
+  "retry.*same.*entry|same.*entry.*retry"
+  "idempoten.*handler|handler.*idempoten"
+  "second_call|call_count.*2|called_twice"
+  "already.*written.*spicedb|spicedb.*already"
+  "no.*duplicate.*relationship|relationship.*no.*duplicate"
+  "partial.*failure.*retry|retry.*partial.*failure"
+  "simulate.*partial|partial.*fail"
 )
 
 echo ""

@@ -1,60 +1,99 @@
 ---
 verdict: pass
 report: |
-  ## Task-008 Knowledge Graphs — Final Verification (2026-04-23)
+  ## Task-008 Knowledge Graphs — Spec Alignment Review (2026-04-23)
 
   Validated against: specs/management/knowledge-graphs.spec.md
-  Unit tests: 2066 passed, 0 failed
+  Unit tests: 334 management unit tests passed, 0 failed
 
   ---
 
-  ### Spec Coverage — All 6 Requirements COVERED
+  ### Spec Coverage
 
   1. **Knowledge Graph Creation** — COVERED
-     - EDIT permission check on workspace via SpiceDB
-     - ULID generation, tenant/workspace association, outbox auth events
-     - Duplicate name → 409, name validation → 422
+     - Implementation: src/api/management/application/services/knowledge_graph_service.py (create())
+     - EDIT permission check on workspace via SpiceDB before creation
+     - KnowledgeGraph.create() generates ULID, associates workspace_id and tenant_id
+     - IntegrityError caught and raised as DuplicateKnowledgeGraphNameError (409)
+     - Route: POST /management/workspaces/{workspace_id}/knowledge-graphs (routes.py)
+     - Tests: TestKnowledgeGraphServiceCreate (5 unit tests in test_knowledge_graph_service.py)
+     - Tests: TestCreateKnowledgeGraph (6 route tests in test_knowledge_graph_routes.py)
 
   2. **Knowledge Graph Name Validation** — COVERED
-     - 1-100 char constraint enforced in domain aggregate
-     - Tests for boundary values (1 char, 100 chars, 0 chars, 101 chars)
+     - Implementation: CreateKnowledgeGraphRequest / UpdateKnowledgeGraphRequest in models.py
+     - Field constraint: min_length=1, max_length=100 enforced by Pydantic
+     - Tests: test_create_knowledge_graph_returns_422_for_empty_name (routes test)
+     - Tests: test_create_knowledge_graph_returns_422_for_oversized_name (routes test)
+     - Tests: test_update_knowledge_graph_returns_422_for_empty_name (routes test)
+     - Tests: test_update_knowledge_graph_returns_422_for_oversized_name (routes test)
 
   3. **Knowledge Graph Retrieval** — COVERED
-     - VIEW permission check; None → 404 (no 403 leak)
-     - Tenant isolation enforced
+     - Implementation: knowledge_graph_service.py get() — returns None for both missing
+       and unauthorized (no existence leakage); route maps None to 404 not 403
+     - Tests: TestKnowledgeGraphServiceGet (5 unit tests)
+     - Tests: TestGetKnowledgeGraph (4 route tests including unauthorized→404)
 
   4. **Knowledge Graph Listing** — COVERED
-     - GET /management/workspaces/{ws_id}/knowledge-graphs (workspace-scoped)
-     - GET /management/knowledge-graphs (tenant-visible, per-KG VIEW filtering)
-     - Full test coverage including TestListAllKnowledgeGraphs (4 tests)
+     - Implementation: list_for_workspace() — workspace VIEW check + SpiceDB
+       read_relationships; list_all() — fetches by tenant, per-KG VIEW filter
+     - Routes: GET /management/workspaces/{ws_id}/knowledge-graphs and
+       GET /management/knowledge-graphs
+     - Tests: TestKnowledgeGraphServiceListForWorkspace (4 unit tests)
+     - Tests: TestListKnowledgeGraphs (4 route tests)
+     - Tests: TestListAllKnowledgeGraphs (4 route tests)
+     - Tests: TestKnowledgeGraphServiceListAll (3 unit tests)
 
   5. **Knowledge Graph Update** — COVERED
-     - EDIT permission check on KG; PATCH /management/knowledge-graphs/{id}
+     - Implementation: update() — EDIT permission check on KG, aggregate.update()
+     - Route: PATCH /management/knowledge-graphs/{kg_id}
+     - Tests: TestKnowledgeGraphServiceUpdate (6 unit tests)
+     - Tests: TestUpdateKnowledgeGraph (8 route tests)
 
   6. **Knowledge Graph Deletion** — COVERED
-     - MANAGE permission; cascades DS + credentials in single transaction
-     - Outbox cleans SpiceDB relationships; rollback on failure
+     - Implementation: delete() — MANAGE permission check; cascade deletes DS records and
+       calls secret_store.delete() for credentials_path; KG deleted in same transaction
+     - Rollback: exception inside async with session.begin() propagates; kg_repo.delete
+       never called if DS delete fails (verified by test_delete_rolls_back_on_ds_deletion_failure)
+     - Route: DELETE /management/knowledge-graphs/{kg_id} returns 204
+     - Tests: TestKnowledgeGraphServiceDelete (8 unit tests including cascade credentials
+       and rollback on failure)
+     - Tests: TestDeleteKnowledgeGraph (4 route tests)
 
   ### Permission Inheritance — COVERED
-  - Workspace-inherited access (7 integration tests)
-  - Direct grant model (5 integration tests)
+  - Scenario Workspace-inherited access: 7 integration tests in
+    test_knowledge_graph_authorization.py (workspace editor/admin/member→KG VIEW/EDIT/MANAGE)
+  - Scenario Direct grant: 5 integration tests (direct admin/editor/viewer on KG)
 
   ---
 
-  ### PR Feedback Addressed
+  ### PR Feedback Status
 
-  - GET /management/knowledge-graphs tests added (TestListAllKnowledgeGraphs, 4 tests)
-  - IAM workspace create_workspace route: parent-not-found ValueError now returns 404
-    (consistent with "no distinction between unauthorized and missing" policy)
-  - Architecture test comment clarified (explains why broad exclusion is needed)
-  - OpenAPI responses map for create_workspace advertises 404
+  - tenant_id assertions (test_knowledge_graph_routes.py lines ~145, ~286): RESOLVED
+    KnowledgeGraphResponse.from_domain() explicitly maps kg.tenant_id to the tenant_id
+    field (models.py line 97). Assertions are valid.
+
+  - TestListAllKnowledgeGraphs: RESOLVED
+    4 tests added covering 200 with list, 200 empty, service call args, and 401.
+
+  - IAM workspace 404 normalization: RESOLVED
+    create_workspace route (iam/presentation/workspaces/routes.py lines 95-110) catches
+    ValueError with parent-workspace keywords and raises HTTP 404. OpenAPI responses
+    dict includes 404 entry (line 56). The ValueError catch block was already in place
+    prior to this review cycle.
+
+  - Architecture test exclusion (.exclude("management.presentation*")): NOT APPLICABLE
+    The grep shows "management.presentation*" appears only in
+    test_outbox_does_not_import_management_internals as a should_not_import target,
+    not as a broad .exclude(). There is no overly-broad .exclude() call. The concern
+    was already non-applicable in the prior review cycle.
 
   ---
 
-  ### Test Run Results
+  ### Verdict Rationale
 
-  Unit tests: 2066 passed, 0 failed
-  (Includes 3 new IAM workspace route tests for 404 normalization)
+  All 6 SHALL requirements and 11 scenarios from the spec are implemented and tested.
+  All 4 CodeRabbit PR feedback items are resolved. 334 management unit tests pass.
+  Integration tests cover both permission inheritance scenarios against live SpiceDB.
 
   Spec-Ref: specs/management/knowledge-graphs.spec.md
   Task-Ref: task-008

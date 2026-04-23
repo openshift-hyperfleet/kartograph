@@ -24,3 +24,10 @@
 **Action:** Verdict PASS. Wrote detailed per-requirement coverage report to worker-result.yaml.
 
 **Context:** Key architectural patterns to recognize as correct (not deviations): (1) list_for_workspace uses workspace VIEW check + SpiceDB read_relationships rather than per-KG VIEW checks — valid because workspace VIEW implies KG VIEW via schema inheritance; (2) outbox pattern for SpiceDB writes at create time (not inline in service) is intentional; (3) AsyncMock in unit tests (not fakes) is established project pattern.
+
+### 2026-04-23 | task-008 final spec alignment gate — PASS (gate 7 verified)
+**Pattern:** GET /management/knowledge-graphs (tenant-visible list) was the outstanding CodeRabbit concern. Commit 4fd5c66f added TestListAllKnowledgeGraphs (4 unit tests). Service list_all() verified: fetches by tenant, filters per-KG VIEW check. Route confirmed implemented. 334 management unit tests pass.
+
+**Action:** Verdict PASS confirmed. worker-result.yaml updated with per-requirement COVERED status for all 6 requirements and 11 scenarios.
+
+**Context:** This was gate 7 (spec alignment) running after code review (gate 6). The prior worker-result.yaml had a code review verdict — this pass rewrites it with spec alignment findings. No code changes made — read-only review.

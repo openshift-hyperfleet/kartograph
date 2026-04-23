@@ -89,12 +89,7 @@ def compute_content_checksum(content_dir: Path) -> str:
             continue
         normalized = rel_path.as_posix()
 
-        # Track symlink targets only (not regular files) so that a regular file
-        # and a symlink pointing to it can both be included under their own names.
-        # Cycle detection for file symlinks is already handled by resolve() raising
-        # OSError on circular links.
-        if candidate.is_symlink():
-            visited_real_paths.add(actual_path)
+        visited_real_paths.add(actual_path)
         entries.append((normalized, actual_path))
 
     # Sort lexicographically by normalized path

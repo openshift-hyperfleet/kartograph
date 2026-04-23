@@ -21,7 +21,6 @@ from shared_kernel.authorization.types import (
     format_subject,
 )
 
-from graph.application.observability import GraphServiceProbe
 from graph.application.services import (
     GraphMutationService,
     GraphSchemaService,
@@ -30,7 +29,6 @@ from graph.application.services import (
 from graph.dependencies import (
     get_graph_mutation_service,
     get_graph_secure_enclave_service,
-    get_graph_service_probe,
     get_schema_service,
 )
 from graph.domain.value_objects import (
@@ -200,22 +198,6 @@ async def get_neighbors(
         "nodes": [n.model_dump() for n in result.nodes],
         "edges": [e.model_dump() for e in result.edges],
     }
-
-
-@router.get("/schema/ontology", response_model=list[TypeDefinition])
-async def get_ontology_endpoint(
-    service: GraphSchemaService = Depends(get_schema_service),
-) -> list[TypeDefinition]:
-    """Get the complete graph ontology — all type definitions.
-
-    Returns all registered node and edge type definitions. Each definition
-    includes the label, entity type, description, required properties, and
-    optional properties discovered through schema evolution.
-
-    Returns:
-        List of all TypeDefinitions (nodes and edges combined)
-    """
-    return await run_in_threadpool(service.get_ontology)
 
 
 @router.get("/schema/nodes", response_model=SchemaLabelsResponse)

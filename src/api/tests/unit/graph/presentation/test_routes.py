@@ -125,9 +125,9 @@ class FakeGraphServiceProbe:
 
 
 @pytest.fixture
-def mock_query_service():
-    """Mock GraphQueryService for testing."""
-    return Mock()
+def mock_enclave_service():
+    """Mock GraphSecureEnclaveService for testing (async methods)."""
+    return AsyncMock()
 
 
 @pytest.fixture
@@ -165,25 +165,7 @@ def mock_current_user():
 
 
 @pytest.fixture
-def mock_authz_allowed():
-    """Fake AuthorizationProvider that allows all permission checks."""
-    return FakeAuthorizationProvider(allow_all=True)
-
-
-@pytest.fixture
-def mock_authz_denied():
-    """Fake AuthorizationProvider that denies all permission checks."""
-    return FakeAuthorizationProvider(allow_all=False)
-
-
-@pytest.fixture
-def test_client(
-    mock_enclave_service,
-    mock_mutation_service,
-    mock_schema_service,
-    mock_current_user,
-    mock_authz_allowed,
-):
+def test_client(mock_enclave_service, mock_mutation_service, mock_current_user):
     """Create TestClient with mocked dependencies."""
     from fastapi import FastAPI
 
@@ -197,39 +179,6 @@ def test_client(
     # Override query/secure-enclave endpoints with async mock
     app.dependency_overrides[dependencies.get_graph_secure_enclave_service] = (
         lambda: mock_enclave_service
-    )
-    app.dependency_overrides[dependencies.get_graph_mutation_service] = (
-        lambda: mock_mutation_service
-    )
-    app.dependency_overrides[dependencies.get_schema_service] = (
-        lambda: mock_schema_service
-    )
-    app.dependency_overrides[get_current_user] = lambda: mock_current_user
-    app.dependency_overrides[get_spicedb_client] = lambda: mock_authz_allowed
-
-    app.include_router(routes.router)
-
-    return TestClient(app)
-
-
-def _make_kg_test_client(
-    mock_query_service,
-    mock_mutation_service,
-    mock_current_user,
-    mock_authz,
-    probe: FakeGraphServiceProbe | None = None,
-):
-    """Helper to build a TestClient with a specific authz provider and optional probe."""
-    from fastapi import FastAPI
-
-    from graph import dependencies
-    from graph.presentation import routes
-    from iam.dependencies.user import get_current_user
-    from infrastructure.authorization_dependencies import get_spicedb_client
-
-    app = FastAPI()
-    app.dependency_overrides[dependencies.get_graph_query_service] = (
-        lambda: mock_query_service
     )
     app.dependency_overrides[dependencies.get_graph_mutation_service] = (
         lambda: mock_mutation_service

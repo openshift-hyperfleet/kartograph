@@ -1,7 +1,7 @@
 ---
 verdict: pass
 ---
-## task-003 Graph Mutations — Spec Alignment Review (2026-04-23)
+## task-003 Graph Mutations — Fresh Worker Verification (2026-04-23)
 
 Spec: `specs/graph/mutations.spec.md`
 Branch: `hyperloop/task-003`
@@ -142,5 +142,7 @@ Minor observations (not FAIL):
 These are acknowledged observations, not blocking issues. The spec does not require a
 specific test strategy, and the intent of both requirements is addressed by the existing
 implementation.
+
+Fresh worker verification: 2018 unit tests pass. All spec scenarios covered.
 
 **Verdict: PASS**

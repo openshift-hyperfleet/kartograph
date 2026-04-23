@@ -1,154 +1,79 @@
 ---
 verdict: pass
 ---
-## Task-008: Knowledge Graphs — Fresh Verification (2026-04-23)
+## Task-008: Knowledge Graphs — Live Verification (2026-04-23)
 
-All SHALL/MUST requirements verified against implementation and tests.
-Unit tests: 330 management-specific tests pass (330/330).
-
----
-
-### Requirement: Knowledge Graph Creation — COVERED
-
-**Implementation:**
-- `KnowledgeGraphService.create()` checks EDIT permission on workspace before creation
-- `KnowledgeGraph.create()` generates ULID via `KnowledgeGraphId.generate()` (uses `ulid` library)
-- KG is associated with tenant_id and workspace_id at construction
-- `KnowledgeGraphCreated` event triggers outbox translator which writes workspace + tenant
-  relationships to SpiceDB (`ManagementEventTranslator._translate_knowledge_graph_created`)
-
-**Scenario: Successful creation — COVERED**
-- `TestKnowledgeGraphServiceCreate::test_create_saves_aggregate_via_repo` — verifies name, description, tenant, workspace
-- `TestKnowledgeGraphCreate::test_create_sets_all_fields` — verifies ULID id, all fields
-- `TestKnowledgeGraphCreate::test_create_generates_unique_id` — unique ULID per call
-- `TestManagementEventTranslatorKnowledgeGraphCreated::test_first_operation_is_workspace_relationship`
-- `TestManagementEventTranslatorKnowledgeGraphCreated::test_second_operation_is_tenant_relationship`
-
-**Scenario: Duplicate name within tenant — COVERED**
-- `IntegrityError` from DB catches unique constraint violation -> `DuplicateKnowledgeGraphNameError`
-- `TestKnowledgeGraphServiceCreate::test_create_raises_duplicate_on_integrity_error`
-- `TestCreateKnowledgeGraph::test_create_knowledge_graph_returns_409_for_duplicate_name` (HTTP 409)
+All checks run live. All pass.
 
 ---
 
-### Requirement: Knowledge Graph Name Validation — COVERED
+### Check 1: Unit Tests — PASS
+2060 tests pass (330 management-specific). Zero failures or errors.
+```
+uv run pytest tests/unit -v → 2060 passed, 43 warnings in 54.96s
+```
 
-**Implementation:**
-- `KnowledgeGraph._validate_name()` enforces 1-100 characters at domain level
-- Pydantic `min_length=1, max_length=100` enforced at presentation layer (422)
+### Check 2: Linting — PASS
+```
+uv run ruff check . → All checks passed!
+```
 
-**Scenario: Valid name — COVERED**
-- `TestKnowledgeGraphCreate::test_create_accepts_name_exactly_100_chars`
-- `TestKnowledgeGraphCreate::test_create_accepts_single_char_name`
+### Check 3: Formatting — PASS
+```
+uv run ruff format --check . → 450 files already formatted
+```
 
-**Scenario: Empty or oversized name — COVERED**
-- `TestKnowledgeGraphCreate::test_create_rejects_empty_name`
-- `TestKnowledgeGraphCreate::test_create_rejects_name_over_100_chars`
-- `TestKnowledgeGraphValidation::test_post_init_rejects_empty_name`
-- `TestKnowledgeGraphValidation::test_post_init_rejects_name_over_100_chars`
-- `TestCreateKnowledgeGraph::test_create_knowledge_graph_returns_422_for_empty_name` (HTTP 422)
-- `TestCreateKnowledgeGraph::test_create_knowledge_graph_returns_422_for_oversized_name` (HTTP 422)
-- `TestUpdateKnowledgeGraph::test_update_knowledge_graph_returns_422_for_empty_name`
-- `TestUpdateKnowledgeGraph::test_update_knowledge_graph_returns_422_for_oversized_name`
+### Check 4: Type Checking — PASS
+```
+uv run mypy . --config-file pyproject.toml --ignore-missing-imports → Success: no issues found in 450 source files
+```
 
----
+### Check 5: Architecture Boundary Tests — PASS
+```
+uv run pytest tests/unit/test_architecture.py -v → 40 passed in 0.25s
+```
 
-### Requirement: Knowledge Graph Retrieval — COVERED
+### Check 6: Check Scripts — PASS
+All 7 `.hyperloop/checks/*.sh` scripts pass (no `FAIL` output).
 
-**Implementation:**
-- `KnowledgeGraphService.get()` returns None for not-found, wrong-tenant, or no VIEW permission
-- Route surfaces all None returns as 404 (no existence leakage)
-
-**Scenario: Authorized retrieval — COVERED**
-- `TestKnowledgeGraphServiceGet::test_get_returns_aggregate_on_success`
-- `TestGetKnowledgeGraph::test_get_knowledge_graph_returns_200`
-
-**Scenario: Unauthorized or non-existent — COVERED**
-- `TestKnowledgeGraphServiceGet::test_get_returns_none_when_not_found`
-- `TestKnowledgeGraphServiceGet::test_get_returns_none_when_permission_denied`
-- `TestKnowledgeGraphServiceGet::test_get_returns_none_for_different_tenant`
-- `TestGetKnowledgeGraph::test_get_knowledge_graph_returns_404_when_not_found`
-- `TestGetKnowledgeGraph::test_get_knowledge_graph_returns_404_when_unauthorized`
-
----
-
-### Requirement: Knowledge Graph Listing — COVERED
-
-**Implementation:**
-- `KnowledgeGraphService.list_for_workspace()` checks VIEW on workspace, discovers KG IDs
-  via SpiceDB read_relationships, filters by tenant. Workspace VIEW implies KG VIEW via
-  permission inheritance in the SpiceDB schema.
-
-**Scenario: List for workspace — COVERED**
-- `TestKnowledgeGraphServiceListForWorkspace::test_list_uses_read_relationships_to_discover_kgs`
-- `TestKnowledgeGraphServiceListForWorkspace::test_list_filters_by_tenant`
-- `TestKnowledgeGraphServiceListForWorkspace::test_list_raises_unauthorized_when_permission_denied`
-- `TestListKnowledgeGraphs::test_list_knowledge_graphs_returns_200_with_list`
+### Check 7: Code Review — PASS
+- No direct `logger.*` or `print()` usage; domain probes used throughout.
+- Domain aggregates (`DataSource`) use real objects (via `_make_ds()` helper), not `MagicMock`.
+  The earlier `MagicMock` for domain aggregates was replaced in commit `fd7dc1d`.
+- `AsyncMock` retained only for infrastructure ports (repositories, authz, secret store) and
+  the application service in presentation-layer tests — acceptable per guidelines.
+- `MagicMock` retained for SQLAlchemy session (infrastructure I/O) and probe (observability).
+- All implementation commits carry `Spec-Ref` and `Task-Ref` trailers.
+- Conventional commit messages throughout.
+- No hardcoded secrets or credentials.
+- DDD boundaries respected: management bounded context does not import IAM internals.
 
 ---
 
-### Requirement: Knowledge Graph Update — COVERED
+### Requirements Coverage Summary
 
-**Implementation:**
-- `KnowledgeGraphService.update()` checks EDIT on the KG resource
-- Calls `kg.update()` which enforces name validation and AggregateDeletedError guard
+All 6 SHALL requirements fully implemented and tested:
 
-**Scenario: Update name and description — COVERED**
-- `TestKnowledgeGraphServiceUpdate::test_update_calls_aggregate_update_and_saves`
-- `TestKnowledgeGraphUpdate::test_update_changes_name_and_description`
-- `TestUpdateKnowledgeGraph::test_update_knowledge_graph_returns_200`
+1. **Knowledge Graph Creation** — `KnowledgeGraphService.create()` enforces EDIT on workspace,
+   generates ULID, establishes SpiceDB relationships via outbox. Duplicate name → 409.
 
----
+2. **Knowledge Graph Name Validation** — Domain-level `_validate_name()` + Pydantic at
+   presentation layer. Empty/oversized rejected at both layers.
 
-### Requirement: Knowledge Graph Deletion — COVERED
+3. **Knowledge Graph Retrieval** — `get()` returns None for missing, wrong-tenant, or
+   unauthorized. Route returns 404 in all cases (no leakage).
 
-**Implementation:**
-- `KnowledgeGraphService.delete()` checks MANAGE on KG
-- Single `async with self._session.begin()` transaction cascade:
-  1. `secret_store.delete()` for each DS with credentials_path
-  2. `ds_repo.delete()` for each DS
-  3. `kg_repo.delete()` for the KG
-- `KnowledgeGraphDeleted` event via transactional outbox cleans up:
-  workspace, tenant, admin, editor, viewer relationships in SpiceDB
+4. **Knowledge Graph Listing** — `list_for_workspace()` checks VIEW on workspace, discovers
+   KG IDs via SpiceDB, filters by tenant.
 
-**Scenario: Successful deletion — COVERED**
-- `TestKnowledgeGraphServiceDelete::test_delete_cascades_data_sources`
-- `TestKnowledgeGraphServiceDelete::test_delete_cascades_encrypted_credentials`
-- `TestManagementEventTranslatorKnowledgeGraphDeleted::test_produces_five_operations`
-  (5 SpiceDB cleanup ops: workspace, tenant, admin, editor, viewer)
-- `TestDeleteKnowledgeGraph::test_delete_knowledge_graph_returns_204`
+5. **Knowledge Graph Update** — `update()` checks EDIT on KG, enforces name validation and
+   `AggregateDeletedError` guard.
 
-**Atomicity (if any step fails, rolls back) — COVERED**
-- `TestKnowledgeGraphServiceDelete::test_delete_rolls_back_on_ds_deletion_failure`
+6. **Knowledge Graph Deletion** — Atomic cascade (DS credentials → DS records → KG record)
+   in single transaction. SpiceDB cleanup (5 ops) via transactional outbox.
+   Rollback on failure tested. Mutation after deletion raises `AggregateDeletedError`.
 
-**Scenario: Mutation after deletion — COVERED**
-- `KnowledgeGraph.update()` raises `AggregateDeletedError` when `_deleted=True`
-- `TestKnowledgeGraphUpdate::test_update_raises_after_deletion`
+7. **Permission Inheritance** — SpiceDB schema wires `workspace->view/edit/manage` into KG
+   permissions. Direct admin grant tested. Integration tests cover both scenarios.
 
----
-
-### Requirement: Permission Inheritance — COVERED
-
-**Implementation:**
-- SpiceDB schema defines:
-  - `knowledge_graph.view = admin + editor + viewer + workspace->view`
-  - `knowledge_graph.edit = admin + editor + workspace->edit`
-  - `knowledge_graph.manage = admin + workspace->manage`
-
-**Scenario: Workspace-inherited access — COVERED**
-- `TestWorkspaceInheritedKnowledgeGraphAccess::test_workspace_editor_can_view_knowledge_graph` (integration)
-- `TestWorkspaceInheritedKnowledgeGraphAccess::test_workspace_editor_can_edit_knowledge_graph` (integration)
-- `TestWorkspaceInheritedKnowledgeGraphAccess::test_workspace_admin_can_manage_knowledge_graph` (integration)
-
-**Scenario: Direct grant — COVERED**
-- `TestDirectGrantKnowledgeGraphAccess::test_direct_kg_admin_has_manage_permission` (integration)
-- `TestDirectGrantKnowledgeGraphAccess::test_direct_kg_admin_has_edit_permission` (integration)
-- `TestDirectGrantKnowledgeGraphAccess::test_direct_kg_admin_has_view_permission` (integration)
-
----
-
-## Summary
-
-All 6 SHALL requirements are fully implemented and tested.
-All 11 scenarios have corresponding test coverage (unit + integration).
-No spec deviations found in the completed implementation.
+All 11 spec scenarios have corresponding unit + integration test coverage.

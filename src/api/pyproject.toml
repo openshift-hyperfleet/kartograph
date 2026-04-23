@@ -38,6 +38,7 @@ dev = [
     "rich>=14.2.0",
     "ruff>=0.14.8",
     "types-psycopg2>=2.9.21.20251012",
+    "types-pyyaml>=6.0.12",
 ]
 
 [tool.pytest.ini_options]

@@ -1,14 +1,12 @@
 """Main FastAPI application entry point."""
 
 from contextlib import asynccontextmanager
-from typing import Annotated
 
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from util import dev_routes
 
-from graph.dependencies import get_age_graph_client
-from graph.infrastructure.age_client import AgeGraphClient
+import health_routes
 from graph.presentation import routes as graph_routes
 from iam.presentation import router as iam_router
 from management.presentation import router as management_router
@@ -227,6 +225,9 @@ if cors_settings.is_enabled:
 
 app.mount(path="/query", app=query_mcp_app)
 
+# Include health check routes (liveness and readiness probes)
+app.include_router(health_routes.router)
+
 # Include Graph bounded context routes
 app.include_router(graph_routes.router)
 
@@ -286,33 +287,3 @@ def configure_swagger_oauth2(app: FastAPI) -> None:
 
 # Configure Swagger OAuth2 if OIDC is available
 configure_swagger_oauth2(app)
-
-
-@app.get("/health")
-def health():
-    """Basic health check endpoint."""
-    return {"status": "ok"}
-
-
-@app.get("/health/db")
-def health_db(
-    client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
-) -> dict:
-    """Check database connection health.
-
-    Returns the connection status and graph name.
-    """
-    try:
-        is_healthy = client.verify_connection()
-
-        return {
-            "status": "ok" if is_healthy else "unhealthy",
-            "connected": client.is_connected(),
-            "graph_name": client.graph_name,
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "connected": False,
-            "error": str(e),
-        }

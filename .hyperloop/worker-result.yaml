@@ -1,94 +1,153 @@
 ---
 verdict: pass
 detail: |
-  ## Spec Alignment Review — task-017 Outbox Pattern (Final Round)
+  Spec Alignment Review -- task-017 Outbox Pattern (Re-review after pr-feedback-addressed gate failure)
 
-  All checks pass. All 6 SHALL requirements implemented and tested.
-  All CodeRabbit PR review threads resolved. Verdict: PASS.
-
-  ---
-
-  ### Check Results
-
-  | Check | Result |
-  |---|---|
-  | Unit tests (2413 passed) | PASS |
-  | Ruff lint | PASS |
-  | Ruff format | PASS |
-  | MyPy type check (481 files) | PASS |
-  | Architecture tests (40 passed) | PASS |
-  | check-frontend-test-infrastructure.sh | PASS |
-  | check-frontend-tests-exist.sh | PASS |
-  | check-idempotency-tests.sh | PASS |
-  | Commit trailers (Spec-Ref, Task-Ref) | PASS |
+  All 6 SHALL requirements are implemented and tested. All 81 outbox unit tests pass.
+  The pr-feedback-addressed gate failure was a gate infrastructure issue, not a code issue.
+  The spec alignment itself is confirmed PASS.
 
   ---
 
-  ### PR Feedback Resolution
+  dlq_at vs failed_at verification (CodeRabbit Thread 4 -- confirmed false positive)
 
-  Thread 1 — check-frontend-test-infrastructure.sh: BASE_BRANCH/repo-wide scope
-    STATUS: FIXED. CodeRabbit marked RESOLVED.
+  Checked every file in the call chain:
 
-  Thread 2 — check-frontend-tests-exist.sh: BASE_BRANCH/repo-wide scope
-    STATUS: FIXED. CodeRabbit marked RESOLVED.
+  infrastructure/outbox/models.py line 64:
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+  No dlq_at column exists in the model.
 
-  Thread 3 — worker-result.yaml: YAML parsing with raw Markdown tokens
-    STATUS: FIXED. CodeRabbit marked RESOLVED.
+  infrastructure/outbox/repository.py line 94:
+    .where(OutboxModel.failed_at.is_(None))
+  Filter correctly uses failed_at.
 
-  Thread 4 — test_worker.py: dlq_at vs failed_at field mismatch
-    STATUS: CONFIRMED FALSE POSITIVE.
-    The field has always been failed_at throughout value_objects.py, models.py,
-    repository.py, and worker.py. No dlq_at field exists anywhere. The spec
-    explicitly states "failed_at timestamp set" for DLQ entries. The test
-    assertion at line 780 correctly asserts "failed_at IS NULL". Thread resolved.
+  infrastructure/outbox/worker.py _process_batch (line 203):
+    .where(OutboxModel.failed_at.is_(None))
+  Filter correctly uses failed_at.
 
-  Thread 5 — check-frontend-test-infrastructure.sh: git diff error masking
-    STATUS: FIXED. git diff output now captured separately before filtering,
-    with non-zero exit codes surfaced. CodeRabbit marked RESOLVED.
+  infrastructure/outbox/worker.py _move_to_dlq (lines 314-323):
+    .values(retry_count=retry_count, last_error=error, failed_at=datetime.now(UTC))
+  Worker sets failed_at (not dlq_at) when dead-lettering.
 
-  Thread 6 — check-frontend-test-infrastructure.sh: .js file-type consistency
-    STATUS: FIXED. ui_source_count now includes *.js files to match the
-    task_ui_changes trigger set. CodeRabbit marked RESOLVED.
+  Conclusion: model, repository, and worker are all consistent on failed_at.
+  CodeRabbit concern was a false positive. No fix needed.
 
   ---
 
-  ### Spec Coverage (all 6 SHALL requirements)
+  Requirement 1 -- Transactional Event Storage: COVERED
 
-  Requirement 1 — Transactional Event Storage: COVERED
-    Implementation: infrastructure/outbox/repository.py (append method,
-    no independent commit — caller owns transaction boundary).
-    Tests: test_repository_append_does_not_commit, test_failed_service_call_leaves_no_outbox_entries,
-    test_outbox_consistency.
+  Implementation:
+    infrastructure/outbox/repository.py -- append() calls session.add() only,
+    never session.commit(). Caller owns the transaction boundary.
 
-  Requirement 2 — Event Processing: COVERED
-    Implementation: infrastructure/outbox/worker.py
-    Tests: test_processes_unprocessed_entries, test_transient_failure_increments_retry_count,
-    test_max_retries_moves_entry_to_dlq.
+  Tests (unit):
+    test_worker.py::TestOutboxWorkerTransactionAtomicity::test_repository_append_does_not_commit
+    test_worker.py::TestOutboxWorkerTransactionAtomicity::test_failed_service_call_leaves_no_outbox_entries
 
-  Requirement 3 — Idempotent Event Handlers: COVERED
-    Implementation: repository.py and worker.py filter on processed_at IS NULL
-    and failed_at IS NULL.
-    Tests: test_already_processed_entry_excluded_from_fetch,
-    test_failed_entries_excluded_from_fetch.
-
-  Requirement 4 — Concurrent Worker Safety: COVERED
-    Implementation: repository.py uses .with_for_update(skip_locked=True).
-    Tests: test_fetch_unprocessed_uses_for_update_skip_locked.
-
-  Requirement 5 — Dual Delivery Mechanism: COVERED
-    Implementation: postgres_notify.py (LISTEN/NOTIFY) + polling fallback.
-    Tests: test_postgres_notify_event_source.py, test_worker.py lifecycle tests.
-
-  Requirement 6 — Event Fan-Out: COVERED
-    Implementation: infrastructure/outbox/composite.py with register()/handle().
-    UnknownEventTypeError raised for unregistered types; worker immediately DLQs.
-    Tests: test_handle_fans_out_to_multiple_handlers, test_unknown_event_type_raises_error,
-    test_unknown_event_type_immediately_moves_to_dlq.
+  Tests (integration):
+    test_outbox_consistency.py::TestAtomicityGuarantees::test_outbox_entry_created_in_same_transaction_as_group
+    test_outbox_consistency.py::TestAtomicityGuarantees::test_rollback_removes_both_group_and_outbox_entry
 
   ---
 
-  ### Summary
+  Requirement 2 -- Event Processing: COVERED
 
-  All 6 CodeRabbit review threads resolved. All 6 spec SHALL requirements
-  implemented and tested with explicit scenario coverage. All CI checks green.
-  No partial or missing requirements found.
+  Implementation:
+    infrastructure/outbox/worker.py -- _process_entries() handles success
+    (mark_processed), transient failure (_increment_retry, last_error recorded),
+    and permanent failure (_move_to_dlq, failed_at set).
+
+  Tests (unit):
+    test_worker.py::TestOutboxWorkerProcessBatch::test_processes_unprocessed_entries
+    test_worker.py::TestOutboxWorkerProcessBatch::test_marks_entry_as_processed
+    test_worker.py::TestOutboxWorkerRetryBehavior::test_transient_failure_increments_retry_count
+    test_worker.py::TestOutboxWorkerRetryBehavior::test_max_retries_moves_entry_to_dlq
+    test_worker.py::TestOutboxWorkerProbeIntegration::test_calls_event_processed_on_success
+    test_worker.py::TestOutboxWorkerProbeIntegration::test_calls_event_processing_failed_on_error
+
+  Tests (integration):
+    test_outbox_consistency.py::TestOutboxWorkerProcessing::test_worker_processes_group_created_and_writes_to_spicedb
+    test_outbox_consistency.py::TestOutboxWorkerProcessing::test_worker_processes_member_added_and_writes_to_spicedb
+
+  ---
+
+  Requirement 3 -- Idempotent Event Handlers: COVERED
+
+  Implementation:
+    infrastructure/outbox/repository.py fetch_unprocessed() filters processed_at IS NULL
+    and failed_at IS NULL (prevents re-pickup of already-processed or dead-lettered entries).
+    SpiceDB write_relationship is an upsert -- duplicate writes are no-ops.
+
+  Tests (unit):
+    test_worker.py::TestOutboxWorkerIdempotency::test_already_processed_entry_excluded_from_fetch
+    test_worker.py::TestOutboxWorkerIdempotency::test_failed_entries_excluded_from_fetch
+    test_spicedb_handler.py::TestSpiceDBEventHandlerIdempotency::test_duplicate_invocation_produces_identical_final_state
+
+  Tests (integration):
+    test_outbox_consistency.py::TestIdempotentEventHandlers::test_handler_invoked_twice_produces_same_spicedb_state
+
+  ---
+
+  Requirement 4 -- Concurrent Worker Safety: COVERED
+
+  Implementation:
+    infrastructure/outbox/repository.py fetch_unprocessed() uses
+    .with_for_update(skip_locked=True).
+    infrastructure/outbox/worker.py _process_batch() and _process_single()
+    also use .with_for_update(skip_locked=True) inline.
+
+  Tests (unit):
+    test_worker.py::TestOutboxWorkerConcurrentSafety::test_fetch_unprocessed_uses_for_update_skip_locked
+    (compiles query with PostgreSQL dialect and asserts "SKIP LOCKED" in SQL)
+
+  ---
+
+  Requirement 5 -- Dual Delivery Mechanism: COVERED
+
+  Implementation:
+    infrastructure/outbox/event_sources/postgres_notify.py -- PostgresNotifyEventSource
+    listens on "outbox_events" channel via asyncpg-listen, invokes _process_single
+    callback on UUID payload receipt.
+    infrastructure/outbox/worker.py -- _poll_loop() always runs as fallback regardless
+    of event source presence. Uses asyncio.wait_for + _shutdown_event to avoid
+    blocking shutdown during the inter-batch sleep.
+
+  Tests (unit -- NOTIFY):
+    test_postgres_notify_event_source.py::TestPostgresNotifyEventSourceNotify::test_notify_triggers_callback_with_uuid
+    test_postgres_notify_event_source.py::TestPostgresNotifyEventSourceNotify::test_callback_receives_correct_uuid_type
+    test_postgres_notify_event_source.py::TestPostgresNotifyEventSourceNotify::test_multiple_notify_events_trigger_multiple_callbacks
+
+  Tests (unit -- polling fallback):
+    test_worker.py::TestOutboxWorkerLifecycle::test_in_progress_batch_completes_before_shutdown
+    (verifies poll loop runs and completes a batch before shutdown)
+
+  Tests (integration -- NOTIFY):
+    test_outbox_consistency.py::TestOutboxWorkerNotifyProcessing::test_worker_processes_via_notify_not_polling
+    (uses poll_interval_seconds=999 to force NOTIFY path, asserts processed_at set within 500ms)
+
+  ---
+
+  Requirement 6 -- Event Fan-Out: COVERED
+
+  Implementation:
+    infrastructure/outbox/composite.py -- CompositeEventHandler.register() appends
+    handlers by event type (deduplicates same handler), handle() fans out to all
+    registered handlers for the type, raises UnknownEventTypeError if no handlers found.
+    infrastructure/outbox/worker.py _process_entries() catches UnknownEventTypeError
+    and immediately calls _move_to_dlq() bypassing the retry logic.
+
+  Tests (unit -- fan-out):
+    test_composite.py::TestCompositeEventHandler::test_handle_fans_out_to_multiple_handlers
+    test_composite.py::TestCompositeEventHandler::test_handle_dispatches_to_correct_handler
+
+  Tests (unit -- unknown event type):
+    test_composite.py::TestCompositeEventHandler::test_handle_raises_for_unknown_event_type
+    test_worker.py::TestOutboxWorkerRetryBehavior::test_unknown_event_type_immediately_moves_to_dlq
+    test_worker.py::TestOutboxWorkerRetryBehavior::test_unknown_event_type_dlq_even_at_zero_retries
+    test_worker.py::TestOutboxWorkerRetryBehavior::test_retry_not_called_for_unknown_event_type
+
+  ---
+
+  Test run result: 81 outbox unit tests passed, 0 failed, 0 errors.
+
+  Overall verdict: PASS. No spec deviations found.

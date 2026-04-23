@@ -1,17 +1,33 @@
 ---
 verdict: pass
 ---
-## task-003 Graph Mutations — Worker Implementation Verdict (2026-04-23, fresh attempt)
+## task-003 Graph Mutations — Code Review Verdict (2026-04-23)
 
 Spec: `specs/graph/mutations.spec.md`
 Branch: `hyperloop/task-003`
 
-### Test Results
+### Checks
 
-| Suite | Count | Result |
-|-------|-------|--------|
-| Graph unit tests | 217 tests | PASS |
-| Full unit test suite | 2018 tests | PASS |
+| # | Check | Result | Notes |
+|---|-------|--------|-------|
+| 1 | Unit tests | **PASS** | 2018 passed, 0 failures |
+| 2 | Ruff lint | **PASS** | 0 violations |
+| 3 | Ruff format | **PASS** | 441 files already formatted |
+| 4 | mypy type check | **PASS** | 0 errors in 441 source files |
+| 5 | Architecture boundary tests | **PASS** | 40/40 passed |
+| 6 | State files | **PASS** | No `.hyperloop/state/` files committed |
+| 7 | Commit trailers | **PASS** | Spec-Ref + Task-Ref present on all implementation commits |
+
+### Code Review
+
+**Domain probes (DOO):** `logger.*` calls are confined to `observability/` probe
+implementations. Application services and domain objects delegate to domain probes only.
+
+**Mocking policy:** `FakeAuthorizationProvider` is a proper hand-written fake (not
+AsyncMock) used in route tests. `MagicMock` is limited to infrastructure-layer cursor/
+client stubs — not used for domain or application collaborators.
+
+**No hardcoded secrets or env-specific values** found.
 
 ### Spec Coverage
 

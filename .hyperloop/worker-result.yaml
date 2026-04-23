@@ -2,6 +2,10 @@
 verdict: pass
 ---
 
+## Fresh Assessment — API Keys (task-021)
+### Date: 2026-04-23 (post branch-reset)
+### Test results: 2031 unit tests passed, 0 failures
+
 ## Spec Alignment Review — API Keys (task-021)
 
 Independent review against `specs/iam/api-keys.spec.md`.

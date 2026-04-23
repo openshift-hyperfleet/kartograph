@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.32.8](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.7...v3.32.8) (2026-04-23)
+
+
+### Bug Fixes
+
+* **deploy:** add KARTOGRAPH_CORS_ORIGINS env var to API deployment ([#451](https://github.com/openshift-hyperfleet/kartograph/issues/451)) ([224de76](https://github.com/openshift-hyperfleet/kartograph/commit/224de76983e3cbf950f5ca968da7d21002c3014e))
+
 ## [3.32.7](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.6...v3.32.7) (2026-04-23)
 
 

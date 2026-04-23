@@ -1,7 +1,7 @@
 ---
 verdict: pass
 details: |
-  ## task-003: Graph Mutations — PR Feedback Round 4 (2026-04-23)
+  ## task-003: Graph Mutations — PR Feedback Round 5 (2026-04-23)
 
   Spec: `specs/graph/mutations.spec.md`
   Branch: `hyperloop/task-003`
@@ -15,48 +15,47 @@ details: |
   4. Type checking (mypy): PASS — 0 errors in 441 source files
   5. Architecture boundary tests: PASS — 40 tests pass
 
-  ### PR Feedback Dispositions
+  ### Round 5 Re-verification of Each PR Feedback Item
 
-  **RESOLVED — test_mutation_service.py:517 enum consistency**
-  Fixed in commit 2a39aed0: `operations[1].op == "UPDATE"` →
-  `operations[1].op == MutationOperationType.UPDATE`
+  **Item 1 — worker-result.yaml YAML validity**
+  Re-verified with `uv run python -c "import yaml, pathlib; docs=list(yaml.safe_load_all(...))"`.
+  Parses as 1 document, dict with `verdict` and `details` keys. YAML is valid.
+  The `details: |` block scalar is standard YAML 1.2. NON-ISSUE confirmed.
 
-  **RESOLVED — routes.py error_kind field**
-  Fixed in commit 9c95110f: `_build_mutation_error_response` now uses the
-  explicit `error_kind` field on `MutationResult` instead of keyword inference
-  from error text strings.
+  **Item 2 — test_mutation_applier_sort.py start_id/end_id**
+  Re-verified: `_make_op` helper at lines 41-44 of
+  `tests/unit/graph/infrastructure/test_mutation_applier_sort.py`
+  injects `start_id="node:0000000000000001"` and `end_id="node:0000000000000002"`
+  for EDGE CREATE operations. Fix from commit c7ec6f6c confirmed present.
 
-  **RESOLVED — value_objects.py knowledge_graph_id error message**
-  The ValueError message at line 268–273 now clearly states: "The system stamps
-  this value when apply_mutations() is called with a knowledge_graph_id
-  parameter. Ensure the caller passes knowledge_graph_id to the service, or
-  include it in set_properties." This directly addresses CodeRabbit's request.
+  **Item 3 — test_mutation_service.py enum consistency**
+  Re-verified: Lines 516-517 of
+  `tests/unit/graph/application/test_mutation_service.py` use
+  `MutationOperationType.CREATE` and `MutationOperationType.UPDATE` (enum values).
+  Fix from commit 2a39aed0 confirmed present.
 
-  **RESOLVED — test_mutation_applier_sort.py start_id/end_id**
-  Fixed in commit c7ec6f6c: `_make_op` helper now injects `start_id` and `end_id`
-  for EDGE CREATE operations, producing fully valid edge operation fixtures.
+  **Item 4 — routes.py error_kind field**
+  Re-verified: `_build_mutation_error_response` at line 56 of
+  `graph/presentation/routes.py` uses `result.error_kind == "validation"`.
+  Fix from commit 9c95110f confirmed present. No string inference.
 
-  **NON-ACTIONABLE — _stamp_knowledge_graph_id match_properties for DELETE/UPDATE**
-  CodeRabbit suggests injecting `knowledge_graph_id` into DELETE/UPDATE match
-  criteria. This cannot be implemented without a spec change because:
-  - `MutationOperation` has no `match_properties` field (by design — the spec
-    does not define match semantics beyond `id` for DELETE)
-  - The spec (Requirement: KnowledgeGraph Scoping) limits stamping to CREATE/UPDATE
-  - DELETE authorization is enforced at the route level (SpiceDB `edit` permission)
-  - Adding `match_properties` would require infrastructure layer changes outside
-    this task's spec scope
-  This suggestion requires a spec amendment to `specs/graph/mutations.spec.md`.
+  **Item 5 — value_objects.py knowledge_graph_id error message**
+  Re-verified: Lines 268-273 of `graph/domain/value_objects.py` contain the
+  clear, instructive error message explaining both how the system stamps the
+  value and how callers should supply it. Message is actionable and informative.
 
-  **NON-ACTIONABLE — .hyperloop/state/tasks/task-003.md PR reference**
-  Files under `.hyperloop/state/` are managed exclusively by the orchestrator on
-  trunk. Worker agents must not modify these files per the worker protocol.
+  **Item 6 — _stamp_knowledge_graph_id for DELETE/UPDATE**
+  Re-verified: Searched `graph/domain/value_objects.py` for `match_properties` —
+  no matches. `MutationOperation` has no `match_properties` field. The spec
+  (KnowledgeGraph Scoping requirement) limits stamping to CREATE/UPDATE operations.
+  DELETE authorization is enforced at the route level via SpiceDB `edit` permission.
+  NON-ACTIONABLE designation confirmed correct.
 
-  **NON-ISSUE — worker-result.yaml YAML validity**
-  Verified with `yaml.safe_load_all`: parses as 1 document, `dict` type, with
-  `verdict` and `details` keys. The `details: |` block scalar is standard YAML
-  1.2 and parses correctly. Not a defect.
+  **Item 7 — .hyperloop/state/tasks/task-003.md PR reference**
+  NON-ACTIONABLE per worker protocol. Files under `.hyperloop/state/` are managed
+  exclusively by the orchestrator on trunk.
 
-  ### All 10 Spec Requirements Covered
+  ### All 11 Spec Requirements Covered
 
   1. Per-Tenant Graph Isolation — `tenant_{tenant_id}` routing: PASS
   2. KnowledgeGraph Scoping & Authorization (SpiceDB edit check): PASS
@@ -68,8 +67,9 @@ details: |
   8. DELETE Operation (cascading detach for nodes, edge-only for edges): PASS
   9. Mandatory System Properties (data_source_id, source_path, slug, knowledge_graph_id): PASS
   10. Deterministic Entity IDs ({type}:{16_hex_chars}): PASS
-  11. Referential Integrity Ordering (DEFINE→DELETE(edge/node)→CREATE(node/edge)→UPDATE): PASS
+  11. Referential Integrity Ordering (DEFINE->DELETE(edge/node)->CREATE(node/edge)->UPDATE): PASS
 
   ### Verdict
-  PASS. All spec requirements covered. All verification checks pass.
-  All actionable PR feedback addressed. Non-actionable items documented.
+  PASS. All spec requirements covered. All 2027 unit tests pass.
+  All 7 PR feedback items re-verified. All actionable items are resolved.
+  Non-actionable items documented with clear rationale.

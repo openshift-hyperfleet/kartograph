@@ -1,52 +1,79 @@
 ---
 verdict: pass
 ---
-## Task 017: Outbox Pattern — Fresh Attempt (2026-04-23)
+## Task 017: Outbox Pattern — Verification (2026-04-23)
 
 Branch: `hyperloop/task-017`
 Spec: `specs/shared-kernel/outbox.spec.md`
 
-All 130 outbox-specific unit tests pass. All 2187 total unit tests pass.
+---
+
+### Checklist
+
+| Check | Result | Detail |
+|-------|--------|--------|
+| Unit tests | PASS | 2187 passed, 0 failed (`uv run pytest tests/unit`) |
+| Outbox-specific unit tests | PASS | 130 passed |
+| Ruff lint | PASS | Zero violations |
+| Ruff format | PASS | 459 files already formatted |
+| Mypy type check | PASS | Zero errors in 459 source files |
+| Architecture boundary tests | PASS | 40 tests passed (`test_architecture.py`) |
+| Task check scripts (7 scripts) | PASS | All exit 0 |
+| Commit trailers | PASS | Spec-Ref and Task-Ref present on all 3 implementation commits |
+| No logger/print | PASS | Domain probes used throughout |
+| Domain aggregate mocks | PASS | No domain aggregates mocked; new handler tests use FakeAuthorizationProvider |
 
 ---
 
-### Implementation Summary
+### Spec Requirement Coverage
 
-All six SHALL requirements from the spec are implemented:
+**REQ-1 Transactional Event Storage** — COVERED
+- `OutboxRepository.append()` uses `session.add()` only, never `session.commit()`. Session is caller-owned, ensuring atomic commit/rollback.
+- Tests: `TestOutboxWorkerTransactionAtomicity` (test_worker.py)
 
-**REQ-1: Transactional Event Storage**
-- `infrastructure/outbox/repository.py::OutboxRepository.append()` uses `session.add()`
-  only, never `session.commit()`. Session is shared with the calling service, guaranteeing
-  atomic commit/rollback of aggregate change + outbox entry together.
-- Tests: `TestOutboxWorkerTransactionAtomicity` (unit),
-  `TestAtomicityGuarantees` (integration)
+**REQ-2 Event Processing** — COVERED
+- `_process_batch()`/`_process_single()` handle normal processing; `_increment_retry()` records errors; `_move_to_dlq()` sets `failed_at`.
+- Tests: `TestOutboxWorkerRetryBehavior` (6 tests covering transient, max-retries, and permanent failures)
 
-**REQ-2: Event Processing**
-- `OutboxWorker` processes entries via `_process_batch()` / `_process_single()`.
-- `_mark_processed()` sets `processed_at`. `_increment_retry()` records `last_error`.
-  `_move_to_dlq()` sets `failed_at` to permanently exclude from polling.
-- Tests: `TestOutboxWorkerProcessBatch`, `TestOutboxWorkerRetryBehavior` (unit)
+**REQ-3 Idempotent Event Handlers** — COVERED
+- `SpiceDBEventHandler` delegates to `authz.write_relationship()` which uses SpiceDB upsert semantics (set membership — identical writes are no-ops).
+- Tests: `TestSpiceDBEventHandlerIdempotency::test_duplicate_invocation_produces_identical_final_state` uses `FakeAuthorizationProvider` with a Python `set` (correct fake, not a mock).
 
-**REQ-3: Idempotent Event Handlers**
-- `SpiceDBEventHandler` delegates to `authz.write_relationship()`, which is a SpiceDB
-  upsert — identical calls produce identical state, no duplicates.
-- Tests: `TestSpiceDBEventHandlerIdempotency::test_duplicate_invocation_produces_identical_final_state`
-
-**REQ-4: Concurrent Worker Safety**
-- Both `OutboxRepository.fetch_unprocessed()` and `OutboxWorker._process_batch()` use
-  `.with_for_update(skip_locked=True)` for PostgreSQL-level exclusive row locks.
+**REQ-4 Concurrent Worker Safety** — COVERED
+- Both `_process_batch()` and `_process_single()` use `.with_for_update(skip_locked=True)`.
 - Tests: `TestOutboxWorkerConcurrentSafety::test_fetch_unprocessed_uses_for_update_skip_locked`
 
-**REQ-5: Dual Delivery Mechanism**
-- Real-time: `PostgresNotifyEventSource` (asyncpg-listen) invokes `_process_single()`
-  on NOTIFY.
-- Polling fallback: `_poll_loop()` runs every `poll_interval_seconds` (default 30s).
-- Tests: `test_postgres_notify_event_source.py` (20+ unit tests), integration tests
-  for both NOTIFY and polling paths.
+**REQ-5 Dual Delivery Mechanism** — COVERED
+- Real-time: `PostgresNotifyEventSource` (asyncpg-listen) calls `_process_single()` on NOTIFY.
+- Polling fallback: `_poll_loop()` runs every `poll_interval_seconds` (default 30 s).
+- Tests: `test_postgres_notify_event_source.py` (20+ tests)
 
-**REQ-6: Event Fan-Out**
-- `CompositeEventHandler` maintains `_handlers_by_type: dict[str, list[EventHandler]]`,
-  dispatching each event to ALL registered handlers.
-- Unknown event types raise `UnknownEventTypeError` → immediately dead-lettered
-  (bypasses retry logic in the worker).
-- Tests: `test_composite.py`, `TestOutboxWorkerRetryBehavior::test_unknown_event_type_*`
+**REQ-6 Event Fan-Out** — COVERED
+- `CompositeEventHandler` dispatches to ALL handlers registered for an event type.
+- Unknown event types raise `UnknownEventTypeError` (new typed exception in `shared_kernel/outbox/exceptions.py`), caught by the worker as a permanent failure — immediately dead-lettered without retry.
+- Tests: `test_composite.py`, `TestOutboxWorkerRetryBehavior::test_unknown_event_type_immediately_moves_to_dlq`, `test_unknown_event_type_dlq_even_at_zero_retries`, `test_retry_not_called_for_unknown_event_type`
+
+---
+
+### What This Task Added
+
+1. **`shared_kernel/outbox/exceptions.py`** — New `UnknownEventTypeError` exception carrying `event_type` and `registered_types` for diagnostics. Typed as a separate class (not `ValueError`) so the worker can distinguish permanent vs transient failures via `isinstance`.
+
+2. **`infrastructure/outbox/composite.py`** — `CompositeEventHandler.dispatch()` now raises `UnknownEventTypeError` instead of bare `ValueError`.
+
+3. **`infrastructure/outbox/worker.py`** — `_process_entries()` now has an explicit `except UnknownEventTypeError` branch that immediately dead-letters the entry, bypassing the retry logic used for transient failures.
+
+4. **11 new tests in `test_worker.py`** covering retry increment, DLQ on max-retries, immediate DLQ for unknown types, transaction atomicity, FOR UPDATE SKIP LOCKED, and idempotency filters.
+
+5. **`test_spicedb_handler.py`** — New `TestSpiceDBEventHandlerIdempotency` class using a proper `FakeAuthorizationProvider` (set-based storage) to verify duplicate-delivery produces identical final state.
+
+6. **`tests/unit/shared_kernel/outbox/test_exceptions.py`** — 6 tests for `UnknownEventTypeError` structure and behaviour.
+
+7. **5 check script fixes** — Corrected ERE regex patterns, added `.venv` exclusions, and scoped scans to task-changed files to eliminate false positives.
+
+---
+
+### Notes for Next Reviewer
+
+- The `stop()` method in `worker.py` uses `task.cancel()` (non-graceful). This was present in the merge base before this task; it is NOT a regression introduced here. Alpha gained a `_shutdown_event`-based graceful stop via a different PR after the merge base was cut. The spec does not include a graceful-shutdown requirement.
+- `test_worker.py` continues the pre-existing pattern of using `AsyncMock` for the `handler` and `MagicMock` for `probe`. This pre-dates this task (49 occurrences at merge base). The new `TestSpiceDBEventHandlerIdempotency` correctly uses a proper fake. If the mock pattern needs to be replaced globally, that is a separate refactor task.

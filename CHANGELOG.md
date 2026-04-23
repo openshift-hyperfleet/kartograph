@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.32.5](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.4...v3.32.5) (2026-04-23)
+
+
+### Bug Fixes
+
+* **deploy:** use FQDN for SpiceDB endpoint in stage overlay ([#441](https://github.com/openshift-hyperfleet/kartograph/issues/441)) ([469cb56](https://github.com/openshift-hyperfleet/kartograph/commit/469cb569bc8958f4f397065d35607520c75a8af0))
+
 ## [3.32.4](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.3...v3.32.4) (2026-04-23)
 
 

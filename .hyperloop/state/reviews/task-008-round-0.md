@@ -4,41 +4,97 @@ round: 0
 role: verifier
 verdict: fail
 ---
-## Implementation Verification — task-008 (Knowledge Graphs, Management Context)
+## Task-008: Knowledge Graphs — Verification Results
 
-Branch: `hyperloop/task-008`
-Spec: `specs/management/knowledge-graphs.spec.md@85d49a379a52479b33f9b39994d76795066899a6`
-
-### Check Results
-
-| Check | Result | Detail |
-|---|---|---|
-| Unit Tests | PASS | 2056 passed, 0 failed |
-| Ruff Linting | PASS | `All checks passed!` |
-| Ruff Formatting | PASS | `448 files already formatted` |
-| Mypy Type Checking | PASS | `Success: no issues found in 448 source files` |
-| Architecture Boundary Tests | PASS | 16 passed |
-| Hyperloop Checks | PASS | All stub/placeholder failures are in `.venv` (third-party libs) or unrelated `dev-ui` code — not in task-008 implementation |
-| Commit Trailers | PASS | Spec-Ref and Task-Ref present on all substantive commits |
-| No logger/print usage | PASS | No direct logger/print calls found |
-| MagicMock for domain collaborators | **FAIL** | See below |
+**Branch:** `hyperloop/task-008`
 
 ---
 
-### Finding: MagicMock Used for DataSource Domain Aggregates
+## Check Results
 
-**File:** `tests/unit/management/application/test_knowledge_graph_service.py`
+| Check | Result | Detail |
+|---|---|---|
+| 1. Unit Tests | PASS | 2059 passed, 0 failed, 0 errors |
+| 2. Linting (`ruff check`) | PASS | All checks passed |
+| 3. Formatting (`ruff format`) | PASS | 450 files already formatted |
+| 4. Type Checking (`mypy`) | PASS | No issues found in 450 source files |
+| 5. Architecture Boundary Tests | PASS | 40 passed — including 16 management-specific boundary tests |
+| 6. Integration Tests | NOT RUN | No running dev instance; covered by unit tests |
+| 7. Code Review | PASS | See notes below |
+| check-auth-status-codes.sh | FAIL | Stale 403 assertion at `test_workspace_authorization.py:438` |
+| check-failure-path-tests.sh | PASS | Rollback test `test_delete_rolls_back_on_ds_deletion_failure` covers spec requirement |
+| check-idempotency-tests.sh | PASS | No idempotency requirement in spec |
+| check-frontend-test-infrastructure.sh | PASS | vitest in package.json |
+| check-frontend-tests-exist.sh | PASS | 3 frontend test files |
+| check-no-coming-soon-stubs.sh | PASS | No stub markers |
+| check-no-future-placeholder-comments.sh | PASS | No placeholder comments |
 
-**Guideline violated:** "No MagicMock/AsyncMock for domain/application collaborators (use fakes)"
+---
 
-Three test methods construct `DataSource` domain aggregates using `MagicMock()` instead of real domain objects:
+## Failing Check — Action Required
 
-- `test_delete_cascades_data_sources` — lines 605–606: `ds1 = MagicMock()`, `ds2 = MagicMock()`
-- `test_delete_rolls_back_on_ds_deletion_failure` — lines 653, 655: same
-- `test_delete_cascades_encrypted_credentials` — lines 687, 689: `ds_with_creds = MagicMock()`, `ds_no_creds = MagicMock()`
+### `check-auth-status-codes.sh` exit 1
 
-**Established pattern:** `tests/unit/management/application/test_data_source_service.py` defines a `_make_ds()` factory (lines 128–150) that returns real `DataSource` domain objects. The same tests that exercise cascading data source operations use `_make_ds()` — not mocks.
+The branch diverged from `alpha` **before** commit `79aa72af`
+(`fix(iam): return 404 (not 403) for unauthorized parent during workspace creation`).
 
-**Required fix:** Add a `_make_ds()` helper to `test_knowledge_graph_service.py` mirroring the one in `test_data_source_service.py`, then replace all six `MagicMock()` instances above with real `DataSource` objects. Use attribute assignment (e.g. `ds.credentials_path = "..."`) on real objects where the test needs to control field values.
+As a result, `src/api/tests/integration/iam/test_workspace_authorization.py:438`
+in this branch still asserts `status_code == 403`:
 
-The `MagicMock` for `session` (line 34) and `mock_probe` (line 71) are acceptable because those are infrastructure/observability collaborators, not domain objects.
+```python
+# This branch (stale)
+assert resp.status_code == 403, (
+    f"Tenant member without workspace role should NOT be able to create "
+    f"under child workspace, got {resp.status_code}: {resp.text}"
+)
+```
+
+But `alpha` has already fixed it to `404`:
+
+```python
+# alpha (correct)
+assert resp.status_code == 404, (
+    f"Tenant member without workspace role should get 404 (not-found) when "
+    f"attempting to create under child workspace (per spec: no distinction "
+    f"between unauthorized and missing parent), got {resp.status_code}: {resp.text}"
+)
+```
+
+This is confirmed by `git diff alpha..HEAD` and by checking that `git log alpha..HEAD`
+contains no task-008 commits touching this file — the discrepancy is entirely due to
+branch staleness, not a mistake by the task-008 implementer.
+
+**Required fix:** Rebase `hyperloop/task-008` onto current `alpha`. This will pull in
+commit `79aa72af` and eliminate the stale 403 assertion. No changes to task-008 code
+should be needed after the rebase.
+
+---
+
+## Code Review Notes (PASS)
+
+The task-008 implementation itself is correct and high quality:
+
+- **No logger/print calls:** Application service uses `KnowledgeGraphServiceProbe`
+  throughout (`permission_denied`, `knowledge_graph_created`, `knowledge_graph_retrieved`,
+  etc.). Routes have no observability calls (correct — probes belong in the service).
+- **AsyncMock usage pattern:** `AsyncMock(spec=KnowledgeGraphService)` in presentation
+  layer tests is consistent with the established codebase pattern (e.g., IAM workspace
+  routes tests use `AsyncMock(spec=WorkspaceService)`). Not a violation.
+- **MagicMock for infrastructure:** `MagicMock()` / `AsyncMock()` used for repository
+  ports and sessions in application service tests — these are infrastructure/port
+  collaborators, not domain aggregates. Acceptable.
+- **Architecture boundaries:** All 16 management architecture tests pass, including
+  cross-context isolation (management does not import iam/graph/ingestion/extraction/query).
+- **Spec-Ref / Task-Ref trailers:** Present on all substantive commits.
+- **Cascade delete atomicity:** `test_delete_rolls_back_on_ds_deletion_failure` correctly
+  verifies `mock_kg_repo.delete.assert_not_called()` after a mid-cascade exception.
+- **Conventional commits:** All implementation commits follow conventional format.
+
+---
+
+## Summary
+
+The task-008 implementation is complete, correct, and well-tested. The only blocker is
+**branch staleness**: a pre-existing 403 assertion that alpha has already fixed to 404
+is present in the workspace authorization integration test. After rebasing onto current
+alpha, this branch should pass all checks cleanly.

@@ -1,232 +1,35 @@
 ---
 verdict: pass
 ---
-## Spec Alignment Review — specs/iam/authorization.spec.md
-### Branch: hyperloop/task-022
+Spec alignment review for `specs/iam/workspaces.spec.md` on branch `hyperloop/task-020`.
 
----
+Previously identified issue (403→404 for unauthorized workspace creation) is confirmed fixed:
+- `routes.py` lines 82-88: `UnauthorizedError` → `HTTP_404_NOT_FOUND` for `create_workspace`
+- Integration test `test_tenant_member_cannot_create_workspace_under_child_via_api` asserts `status_code == 404`
+- Unit test `test_create_workspace_returns_404_when_unauthorized` added and passing
+- All 2228 unit tests pass
 
-## Requirement Status Summary
-
-| Requirement | Status | Notes |
-|---|---|---|
-| Tenant Permissions | COVERED | Schema design tests + integration tests |
-| Workspace Permissions | COVERED | Schema design tests + integration tests |
-| Root Workspace Create-Child Access | COVERED | Integration tests (SpiceDB + API level) |
-| Group-to-Workspace Permission Inheritance | COVERED | Full integration tests including revoke |
-| Knowledge Graph Permissions | COVERED | Schema design tests + service unit tests |
-| Data Source Permissions | COVERED | Schema design tests + service unit tests |
-| API Key Permissions | COVERED | Schema design tests + service unit tests |
-| Secure Enclave — Per-Entity Graph Authorization | COVERED | Full unit test suite |
-| Single-Role Enforcement | COVERED | Integration tests for workspace, group, tenant |
-| Information Hiding on Authorization Failure | COVERED | Service layer + route layer unit tests |
-| Group Permissions | COVERED | Schema design tests + integration tests |
-
----
-
-## Detailed Findings
-
-### Requirement: Tenant Permissions — COVERED
-
-**Scenario: Admin permissions**
-- Schema: `tenant.view = admin + member`, `tenant.create_api_key = admin + member`, `tenant.manage = admin`, `tenant.administrate = admin`
-- Schema design tests: `TestTenantSchemaDesign` in `tests/unit/shared_kernel/authorization/spicedb/test_schema_design.py`
-  - `test_tenant_admin_has_view_permission` ✓
-  - `test_tenant_member_has_view_permission` ✓
-  - `test_tenant_admin_has_create_api_key_permission` ✓
-  - `test_tenant_member_has_create_api_key_permission` ✓
-  - `test_tenant_manage_is_admin_only` ✓
-  - `test_tenant_administrate_is_admin_only` ✓
-- Integration: `test_tenant_authorization.py` → `TestTenantCreationAutoGrant` verifies admin grant propagates to SpiceDB.
-
-**Scenario: Member permissions**
-- Schema design test confirms `manage` and `administrate` do NOT include `member`.
-- Integration: `test_adding_tenant_member_does_not_grant_root_workspace_admin` verifies member doesn't gain MANAGE.
-
----
-
-### Requirement: Workspace Permissions — COVERED
-
-**Scenario: Admin permissions (view, edit, manage, create_child)**
-- Schema: `workspace.view = admin + editor + member + tenant->view`, `workspace.edit = admin + editor`, `workspace.manage = admin`, `workspace.create_child = admin + editor + creator_tenant->view`
-- Schema design tests: `TestWorkspaceViewPermission` verifies `tenant->view` is included and edit/manage exclude `tenant->member`.
-- Integration tests: `TestWorkspaceRoleEnforcement` verifies:
-  - `test_workspace_admin_can_delete_workspace` ✓ (MANAGE permission)
-  - `test_workspace_admin_can_update_workspace` ✓ (MANAGE permission)
-
-**Scenario: Editor permissions (view, edit, create_child; NOT manage)**
-- Integration tests:
-  - `test_workspace_editor_cannot_delete_workspace` → 403 ✓
-  - `test_workspace_editor_cannot_update_workspace` → 403 ✓
-  - `test_workspace_editor_can_create_under_child_workspace_via_api` → 201 ✓
-
-**Scenario: Member permissions (view only)**
-- Integration tests:
-  - `test_workspace_member_can_view_workspace` → 200 ✓
-  - `test_workspace_member_cannot_delete_workspace` → 403 ✓
-  - `test_workspace_member_cannot_update_workspace` → 403 ✓
-
-**Scenario: Tenant member visibility**
-- Schema design test: `test_workspace_view_includes_tenant_member` verifies `tenant->view` ✓
-- Integration test: `test_workspace_listing_only_shows_accessible_workspaces` verifies Bob sees workspaces via tenant->view ✓
-
----
-
-### Requirement: Root Workspace Create-Child Access — COVERED
-
-**Scenario: Tenant member creates child of root**
-- SpiceDB integration: `TestCreateChildPermission.test_tenant_member_can_create_workspace_under_root` directly verifies `CREATE_CHILD` permission via SpiceDB check ✓
-- API integration: `test_tenant_member_can_create_workspace_under_root_via_api` → 201 ✓
-- Repository integration: `TestRootWorkspaceCreatorTenantRelation.test_root_workspace_has_creator_tenant_relation` verifies `creator_tenant` relationship is written ✓
-
-**Scenario: Non-root workspace restricts creation**
-- SpiceDB integration: `test_tenant_member_cannot_create_under_child_workspace` verifies no `CREATE_CHILD` permission on child ✓
-- API integration: `test_tenant_member_cannot_create_workspace_under_child_via_api` → 403 ✓
-- Repository integration: `test_child_workspace_has_no_creator_tenant_relation` verifies `creator_tenant` is NOT written ✓
-
----
-
-### Requirement: Group-to-Workspace Permission Inheritance — COVERED
-
-**Scenario: Group member inherits workspace access**
-- Integration: `test_group_member_gets_workspace_access_via_group` — writes group as editor on workspace, verifies member has EDIT, not MANAGE ✓
-
-**Scenario: Group admin inherits workspace access**
-- Integration: `test_group_admin_gets_workspace_access_via_group_member_permission` — verifies group admin (included in `group.member = admin + member_relation`) inherits workspace EDIT ✓
-
-**Scenario: Removing user from group revokes inherited access**
-- Integration: `test_removing_user_from_group_revokes_workspace_access` — removes user from group, verifies EDIT is revoked via `wait_for_permission_revoked` ✓
-
----
-
-### Requirement: Knowledge Graph Permissions — COVERED
-
-**Scenario: Workspace-inherited access**
-- Schema: `knowledge_graph.view = admin + editor + viewer + workspace->view`, `knowledge_graph.edit = admin + editor + workspace->edit`
-- Schema design tests: `TestKnowledgeGraphSchemaDesign`
-  - `test_knowledge_graph_view_includes_workspace_view` ✓
-  - `test_knowledge_graph_edit_includes_workspace_edit` ✓
-- Service unit tests: `TestKnowledgeGraphServiceCreate.test_create_checks_edit_permission_on_workspace` verifies service enforces EDIT on workspace ✓
-
-**Scenario: Direct grant (admin → manage, edit, view)**
-- Schema: `knowledge_graph.manage = admin + workspace->manage`, `knowledge_graph.edit = admin + editor + workspace->edit`, `knowledge_graph.view = admin + ...`
-- Schema design tests:
-  - `test_knowledge_graph_manage_is_admin_based` ✓
-  - `test_knowledge_graph_view_includes_direct_roles` (admin, editor, viewer) ✓
-  - `test_knowledge_graph_edit_includes_direct_roles` (admin, editor) ✓
-  - `test_knowledge_graph_edit_excludes_viewer` ✓
-- Service unit tests: `test_delete_checks_manage_permission_on_kg`, `test_update_checks_edit_permission_on_kg`, `test_get_checks_view_permission` ✓
-
-Note: No integration-level SpiceDB tests that write a `knowledge_graph#admin@user` relationship and verify all three permissions. Coverage is at schema design + service unit test level.
-
----
-
-### Requirement: Data Source Permissions — COVERED
-
-**Scenario: Inherited access (KG edit → DS edit and view)**
-- Schema: `data_source.view = knowledge_graph->view`, `data_source.edit = knowledge_graph->edit`
-- Schema design tests: `TestDataSourceSchemaDesign`
-  - `test_data_source_view_inherits_from_knowledge_graph` — asserts `view_expr == "knowledge_graph->view"` ✓
-  - `test_data_source_edit_inherits_from_knowledge_graph` — asserts `edit_expr == "knowledge_graph->edit"` ✓
-  - `test_data_source_has_no_direct_user_relations` — verifies no direct admin/editor/viewer on DS ✓
-- Service unit tests: `test_get_checks_view_permission`, `test_list_checks_view_permission_on_kg`, `test_create_checks_edit_permission_on_kg` ✓
-
-Note: Same gap as KG — no integration SpiceDB tests walking the KG→DS chain. Schema design tests provide the contract verification.
-
----
-
-### Requirement: API Key Permissions — COVERED
-
-**Scenario: Owner access (view, revoke)**
-- Schema: `api_key.view = owner + tenant->administrate`, `api_key.revoke = owner + tenant->administrate`
-- Schema design tests: `TestAPIKeySchemaDesign`
-  - `test_api_key_owner_has_view_permission` ✓
-  - `test_api_key_owner_has_revoke_permission` ✓
-  - `test_api_key_view_and_revoke_have_same_grantees` ✓
-
-**Scenario: Tenant admin access (view, revoke on all keys)**
-- Schema design tests:
-  - `test_api_key_tenant_admin_has_view_permission` (via `tenant->administrate`) ✓
-  - `test_api_key_tenant_admin_has_revoke_permission` (via `tenant->administrate`) ✓
-- Service unit tests: `TestAPIKeyServiceRevokeAuthorization.test_revoke_checks_api_key_revoke_permission` verifies SpiceDB REVOKE check ✓
-- Service unit tests: `TestAPIKeyServiceList.test_lists_api_keys_using_authz` verifies SpiceDB lookup with VIEW permission ✓
-
----
-
-### Requirement: Secure Enclave — Per-Entity Graph Authorization — COVERED
-
-All 5 scenarios fully covered by `tests/unit/graph/application/test_graph_secure_enclave.py` (26 tests).
-
-**Scenario: Authorized entity — full properties**
-- `TestAuthorizedNodeReturnsFullProperties`: 2 tests ✓
-- `TestAuthorizedEdgeReturnsFullProperties`: 2 tests ✓
-
-**Scenario: Unauthorized node — ID-only redaction**
-- `TestUnauthorizedNodeReturnsIdOnly`: 4 tests verifying RedactedNodeRecord type, ID preserved, all properties stripped, node not removed from result set ✓
-
-**Scenario: Unauthorized edge — endpoint-preserving redaction**
-- `TestUnauthorizedEdgeEndpointPreservingRedaction`: 6 tests verifying RedactedEdgeRecord type, ID/start_id/end_id preserved, properties stripped, edge not removed ✓
-
-**Scenario: Permission derivation for graph entities**
-- `TestPermissionDerivation`: 3 tests verifying SpiceDB call uses knowledge_graph resource, VIEW permission, and current user subject ✓
-
-**Scenario: Missing or unresolvable knowledge_graph_id**
-- `TestMissingKnowledgeGraphIdDenied`: 5 tests covering missing, null, non-string (int), empty string ✓
-
-Implementation in `graph/application/services/graph_secure_enclave.py` is wired into routes and DI. No bypasses observed.
-
----
-
-### Requirement: Single-Role Enforcement — COVERED
-
-**Scenario: Role replacement**
-- Integration: `TestWorkspaceSingleRole.test_adding_user_with_different_role_replaces_old_role` — bob starts as member, updated to editor; verifies EDIT granted, member permissions replaced ✓
-- Integration: `TestGroupSingleRole.test_adding_user_with_different_group_role_replaces_old` — verifies group role replacement ✓
-- Integration: `TestTenantSingleRole.test_adding_user_with_different_tenant_role_replaces_old` — verifies tenant role replacement; ADMINISTRATE granted after member replaced by admin ✓
-
----
-
-### Requirement: Information Hiding on Authorization Failure — COVERED
-
-**Scenario: Unauthorized access → 404 not 403**
-
-The implementation uses a consistent pattern:
-1. Service layer: returns `None` when user lacks VIEW permission (treating unauthorized like not-found)
-   - `test_get_workspace_returns_none_without_view_permission` (workspace service) ✓
-   - `test_returns_none_when_user_lacks_view_permission` (group service, tenant service) ✓
-2. Route layer: converts `None` → 404
-   - `test_get_workspace_returns_404_when_not_found` ✓
-   - `test_get_workspace_returns_404_for_different_tenant` — explicitly verifies cross-tenant access returns 404 (not 403), "don't leak existence" ✓
-   - Integration: `test_returns_404_for_nonexistent_group` (GET) ✓
-
-**Observation (non-blocking):** `TestDeleteGroup.test_returns_403_for_nonexistent_group` asserts 403 for DELETE on a nonexistent group. The spec's GIVEN says "without permission to VIEW a resource" — the DELETE scenario is a management operation (MANAGE permission), not a view operation. The spec's scenario specifically targets read/view access. The delete path consistently returns 403 regardless of whether the group exists, so existence is not leaked. This is distinct from the spec's stated VIEW scenario and does not constitute a FAIL.
-
----
-
-### Requirement: Group Permissions — COVERED
-
-**Scenario: Admin permissions (view, manage)**
-- Schema design tests: `TestGroupSchemaDesign`
-  - `test_group_admin_has_manage_permission` ✓
-  - `test_group_admin_has_view_permission` ✓
-- Integration: `test_group_admin_can_delete_group`, `test_group_admin_can_rename_group` ✓
-
-**Scenario: Member permissions (view only)**
-- Schema design tests:
-  - `test_group_member_does_not_have_manage_permission` ✓
-  - `test_group_member_relation_has_view_permission` ✓
-- Integration: `test_group_member_cannot_delete_group` → 403 ✓, `test_group_member_cannot_rename_group` → 403 ✓
-
-**Scenario: Tenant member visibility**
-- Schema design test: `test_group_view_includes_tenant_member` (verifies `tenant->view` in `group.view`) ✓
-- Integration: `test_group_listing_only_shows_accessible_groups` — Bob (tenant member) sees alice's group via `tenant->view` ✓
-
----
-
-## Overall Assessment
-
-**PASS.** All 11 SHALL/MUST requirements are implemented and covered by tests. Every spec scenario has corresponding test coverage — via schema design tests (SpiceDB schema validation), application service unit tests (permission enforcement verification), and integration tests (end-to-end API + SpiceDB verification for the primary access control flows).
-
-The schema design tests (`TestKnowledgeGraphSchemaDesign`, `TestDataSourceSchemaDesign`, `TestTenantSchemaDesign`, `TestAPIKeySchemaDesign`, `TestGroupSchemaDesign`) constitute legitimate spec coverage because they verify the SpiceDB schema file — the authoritative source of truth for the permission model. If the schema expressions are correct (which the tests verify), SpiceDB will evaluate the permissions correctly.
-
-No missing implementations were found. No spec scenario lacks coverage.
+| Requirement | Status |
+|---|---|
+| Root Workspace auto-created on tenant creation | COVERED |
+| Root workspace has `creator_tenant` relationship (tenant members get `create_child`) | COVERED |
+| Root workspace cannot be deleted (409 conflict) | COVERED |
+| Child workspace creation with `create_child` permission | COVERED |
+| Creator granted `admin` role on new workspace | COVERED |
+| Duplicate name within tenant → 409 | COVERED |
+| Unauthorized creation → 404 (no distinction from missing parent) | COVERED |
+| Workspace name 1-512 characters enforced | COVERED |
+| Workspace retrieval filtered by `view` permission → 404 if unauthorized/missing | COVERED |
+| Workspace listing filtered by `view` permission | COVERED |
+| Workspace rename requires `manage` permission | COVERED |
+| Duplicate rename → 409 | COVERED |
+| Workspace deletion requires `manage` permission, no children | COVERED |
+| Workspace has children → 409 on delete | COVERED |
+| Member add (user/group) with role requires `manage` | COVERED |
+| Member role change (revoke old, grant new) | COVERED |
+| Member remove requires `manage` | COVERED |
+| Cannot remove last admin → 409 | COVERED |
+| Member listing requires `view` permission | COVERED |
+| Admin has `manage` + `edit` + `view` | COVERED |
+| Editor has `edit` + `view`, no `manage` | COVERED |
+| Member has `view` only | COVERED |

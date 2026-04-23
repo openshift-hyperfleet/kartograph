@@ -71,7 +71,7 @@ class CompositeEventHandler:
         """Dispatch an event to all registered handlers for that type.
 
         Handlers are called in registration order. If no handlers are
-        registered for the event type, raises ValueError.
+        registered for the event type, raises UnknownEventTypeError.
 
         Args:
             event_type: The name of the event type

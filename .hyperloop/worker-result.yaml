@@ -1,10 +1,11 @@
 ---
 verdict: pass
 ---
-## Task-008: Knowledge Graphs — Spec Alignment Review (Round 2)
+## Task-008: Knowledge Graphs — Fresh Worker Verification
 
 **Branch:** `hyperloop/task-008`
 **Spec:** `specs/management/knowledge-graphs.spec.md`
+**Verification:** 2060 unit tests pass (fresh run)
 
 ---
 

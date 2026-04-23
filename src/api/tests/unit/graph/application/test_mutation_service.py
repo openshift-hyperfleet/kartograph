@@ -83,7 +83,9 @@ class TestGraphMutationServiceApplyMutations:
                 type=EntityType.NODE,
                 label="person",
                 description="A person in the organization",
-                required_properties={"slug", "name"},
+                # Deliberately omit "slug" from caller-provided properties.
+                # The assertion below only proves injection if "slug" is absent here.
+                required_properties={"name"},
                 optional_properties={"email"},
             ),
         ]
@@ -104,6 +106,8 @@ class TestGraphMutationServiceApplyMutations:
         # System properties must be automatically added to required_properties
         # per spec: system properties (data_source_id, source_path, slug) are
         # automatically added to required properties for node types.
+        # Because "slug" was NOT in the caller-provided set, this assertion only
+        # passes when the service actually injects it — a regression would fail here.
         assert "data_source_id" in saved_type_def.required_properties
         assert "source_path" in saved_type_def.required_properties
         assert "slug" in saved_type_def.required_properties
@@ -791,7 +795,13 @@ class TestKnowledgeGraphIdStamping:
         assert applied_ops[0].set_properties is None
 
     def test_does_not_stamp_when_knowledge_graph_id_not_provided(self):
-        """Service should not stamp knowledge_graph_id when param is not given."""
+        """Service should not inject knowledge_graph_id into CREATE/UPDATE when param is omitted.
+
+        Uses an UPDATE op with set_properties (no knowledge_graph_id) so the code
+        path that stamps CREATE/UPDATE is actually reachable. The assertion verifies
+        that knowledge_graph_id is absent from the applied operation — which would
+        only be true if the service correctly skips stamping when the param is None.
+        """
         from graph.application.services import GraphMutationService
 
         mock_applier = Mock()
@@ -799,6 +809,8 @@ class TestKnowledgeGraphIdStamping:
             success=True, operations_applied=1
         )
         mock_type_def_repo = Mock()
+        # Prevent schema learning from interfering (no type def → skip)
+        mock_type_def_repo.get.return_value = None
 
         service = GraphMutationService(
             mutation_applier=mock_applier,
@@ -807,17 +819,26 @@ class TestKnowledgeGraphIdStamping:
 
         operations = [
             MutationOperation(
-                op=MutationOperationType.DELETE,
+                op=MutationOperationType.UPDATE,
                 type=EntityType.NODE,
                 id="person:abc123def456789a",
+                # set_properties WITHOUT knowledge_graph_id — the service must
+                # not inject it when apply_mutations() is called without the param.
+                set_properties={
+                    "name": "Alice",
+                    "data_source_id": "ds-123",
+                    "source_path": "people/alice.md",
+                },
             ),
         ]
 
-        # No knowledge_graph_id provided
+        # No knowledge_graph_id provided — stamping must NOT occur
         service.apply_mutations(operations)
 
-        # Should still call applier with the operations as-is
+        # Verify the applier received the operation without knowledge_graph_id injected
         mock_applier.apply_batch.assert_called_once()
+        applied_ops = mock_applier.apply_batch.call_args[0][0]
+        assert "knowledge_graph_id" not in applied_ops[0].set_properties
 
     def test_stamps_knowledge_graph_id_in_jsonl_parse(self):
         """apply_mutations_from_jsonl should stamp knowledge_graph_id from parameter."""

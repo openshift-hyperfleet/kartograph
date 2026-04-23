@@ -7,6 +7,7 @@ pipeline:
   - loop:
       - agent: implementer
       - agent: verifier
+      - agent: spec-reviewer
       - gate: pr-require-label
       - check: pr-feedback-addressed
   - action: merge-pr

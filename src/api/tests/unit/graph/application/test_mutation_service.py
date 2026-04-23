@@ -603,17 +603,25 @@ class TestGraphMutationServiceApplyFromJSONL:
         assert result.operations_applied == 0
         assert len(result.errors) > 0
 
-        # Error message must include both parse indicator and the line number
-        first_error = result.errors[0]
-        assert "JSON" in first_error or "parse" in first_error.lower()
-        assert "1" in first_error, "Error message must include the line number (line 1)"
+        # Error message must include both parse indicator and the line number.
+        # Use case-insensitive checks that are robust to message formatting.
+        import re
 
-        # A second error entry must provide the content preview
-        assert len(result.errors) >= 2, (
-            "Expected a second error entry with a content preview"
+        first_error = result.errors[0]
+        assert "JSON" in first_error or "parse" in first_error.lower(), (
+            f"Error message must mention JSON or parse, got: {first_error!r}"
         )
-        assert "line content" in result.errors[1].lower(), (
-            "Second error entry must include 'Line content:' preview"
+        assert re.search(r"\bline\s*1\b", first_error, re.IGNORECASE), (
+            f"Error message must include 'line 1' token, got: {first_error!r}"
+        )
+
+        # At least one error entry must provide the content preview.
+        # Order-agnostic check so it works even if more errors are added.
+        assert len(result.errors) >= 2, (
+            "Expected at least two error entries (parse error + content preview)"
+        )
+        assert any("line content" in err.lower() for err in result.errors), (
+            "At least one error entry must include 'Line content:' preview"
         )
 
     def test_returns_error_on_invalid_mutation_operation(self):

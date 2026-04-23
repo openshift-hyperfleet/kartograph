@@ -1,103 +1,142 @@
 ---
 verdict: pass
 ---
-# Verification Result — Task 007: Bulk Loading
+# Spec Alignment Review — Task 007: Bulk Loading
 
 Spec: `specs/graph/bulk-loading.spec.md`
 Branch: `hyperloop/task-007`
-Reviewed against: `alpha`
+Review cycle: pr-feedback-addressed loop
 
-## Checklist
+## Requirement Coverage
 
-### 1. Unit Tests — PASS
-2065 passed, 0 failures, 0 errors.
-```
-2065 passed, 39 warnings in 45.42s
-```
+### Requirement: Operation Partitioning — COVERED
 
-### 2. Linting (ruff check) — PASS
-`All checks passed!`
+**Code:** `src/api/graph/infrastructure/age_bulk_loading/strategy.py` lines 87–174
+- DELETEs: edges deleted first (l. 141–144), then nodes (l. 145–148)
+- CREATEs: nodes created first (l. 152–159), then edges (l. 161–168)
+- UPDATEs: execute last (l. 171–174)
 
-### 3. Formatting (ruff format --check) — PASS
-`444 files already formatted`
+**Tests:** `tests/unit/graph/infrastructure/test_age_bulk_loading_strategy_partitioning.py`
+- `TestOperationPartitioning::test_deletes_execute_before_creates`
+- `TestOperationPartitioning::test_creates_execute_before_updates`
+- `TestOperationPartitioning::test_deletes_execute_before_updates`
+- `TestOperationPartitioning::test_full_ordering_delete_create_update`
+- `TestDeleteOrderingEdgesBeforeNodes::test_delete_edges_before_delete_nodes`
+- `TestCreateOrderingNodesBeforeEdges::test_create_nodes_before_create_edges`
 
-### 4. Type Checking (mypy) — PASS
-`Success: no issues found in 444 source files`
+All 6 tests pass.
 
-### 5. Architecture Boundary Tests — PASS
-40 passed. All DDD layer rules enforced.
+---
 
-### 6. Check Scripts — PASS (task-scoped)
+### Requirement: Label and Index Pre-Creation — COVERED
 
-- `check-failure-path-tests.sh specs/graph/bulk-loading.spec.md`: **PASS**
-  All detected failure-path THEN conditions have candidate test files.
-  Specifically: `TestAdvisoryLockRetry` in `test_age_bulk_loading_strategy_partitioning.py`
-  directly covers: rollback on lock failure, retry on transient failure,
-  failure after exhausted retries, bounded attempt count, second-lock failure triggers rollback.
+**Code:**
+- `strategy.py` lines 215–234: `_pre_create_labels_and_indexes()` — computes new labels, creates them via SQL, then creates indexes via `AgeIndexingStrategy`
+- Called at line 338, before label upserts at line 358 — ordering is enforced
 
-- `check-idempotency-tests.sh specs/graph/bulk-loading.spec.md`: **PASS**
-  No idempotency requirements in this spec; nothing to verify.
+**Tests:** `tests/unit/graph/infrastructure/test_age_indexing_strategy.py`
+- `TestCreateLabelIndexesForNodes` — 5 tests (btree on id, GIN on properties, btree on prop id text, no start/end indexes, returns count)
+- `TestCreateLabelIndexesForEdges` — 5 tests (btree id, btree start_id, btree end_id, GIN properties, returns count)
+- `TestSkipsExistingIndexes::test_skips_existing_indexes`
+- `TestSkipsExistingIndexes::test_creates_only_missing_indexes`
 
-- `check-frontend-test-infrastructure.sh`, `check-frontend-tests-exist.sh`,
-  `check-no-coming-soon-stubs.sh`, `check-no-future-placeholder-comments.sh`:
-  These scripts report failures, but all findings are **pre-existing on `alpha`**
-  and unrelated to this task:
-  - Frontend test infrastructure: dev-ui existed before this task; bulk loading
-    is a server-side API concern with no frontend component.
-  - `Coming Soon` in `default.vue`: Confirmed present on `alpha` (pre-existing UI label,
-    not a code stub).
-  - `TODO: implement` / `# Future:` findings: All in `.venv` third-party packages,
-    not in application source code.
+Integration: `tests/integration/test_bulk_loading.py::TestEdgeLabelPreCreation::test_creates_edge_label_tables_on_empty_database`
 
-### 7. Commit Trailers — PASS
-Substantive implementation commits carry:
-```
-Spec-Ref: specs/graph/bulk-loading.spec.md@85d49a379a52479b33f9b39994d76795066899a6
-Task-Ref: task-007
-```
+All tests pass.
 
-### 8. Code Review — PASS
+---
 
-**Domain Observability:** No direct `logger.*` or `print()` calls in changed files.
-Observability routed through probe methods (`_bulk_probe`, `probe.apply_batch_completed`,
-`probe.duplicate_ids_detected`, `probe.orphaned_edges_detected`).
+### Requirement: Staging-Based Ingestion — COVERED
 
-**Mocking:** `MagicMock` used only for infrastructure-layer collaborators (DB cursor,
-raw connection). Acceptable for infrastructure boundary tests; no domain/application
-collaborators mocked out.
+**Code:** `src/api/graph/infrastructure/age_bulk_loading/staging.py`
+- `create_node_staging_table()` (l. 23–36): TEMP table with `ON COMMIT DROP`
+- `copy_nodes_to_staging()` (l. 57–97): uses `cursor.copy_from()` — COPY protocol
+- `create_edge_staging_table()` (l. 38–55): TEMP table with graphid columns, `ON COMMIT DROP`
+- `create_graphid_lookup_table()` (l. 200–247): queries `_ag_label_vertex`, `ON COMMIT DROP`, creates index on logical_id
 
-**DDD Layer rules:** No cross-boundary imports introduced. Architecture tests pass.
+**Critical spec requirement — same-batch node materialization:**
+- `strategy.py` line 152–159: CREATE nodes executes first (upsert to graph)
+- `strategy.py` line 161–168: CREATE edges executes second — `create_graphid_lookup_table()` is called at line 294–295 AFTER nodes are inserted
+- PostgreSQL transaction visibility ensures same-batch nodes appear in `_ag_label_vertex` at lookup time
 
-**No hardcoded secrets or credentials.**
+**Tests:** `tests/unit/graph/infrastructure/test_staging_table_manager.py`
+- `TestNodeStagingTableCreation` — 4 tests (ON COMMIT DROP, is TEMP, name contains session_id, returns name)
+- `TestEdgeStagingTableCreation` — 3 tests (ON COMMIT DROP, is TEMP, has graphid columns)
+- `TestGraphidLookupTableCreation::test_lookup_table_uses_on_commit_drop`
+- `TestGraphidLookupTableCreation::test_lookup_table_queries_ag_label_vertex` — explicitly verifies `_ag_label_vertex` is queried so same-batch nodes are included
+- `TestGraphidLookupTableCreation::test_lookup_table_creates_index_on_logical_id`
+- `TestGraphidLookupTableCreation::test_returns_tuple_of_name_and_row_count`
 
-## Spec Coverage
+Integration: `test_bulk_loading.py::TestEdgeLabelPreCreation::test_creates_edge_label_tables_on_empty_database` — single batch contains nodes and edges referencing those same-batch nodes; proves same-batch visibility.
 
-All SHALL/MUST requirements from `bulk-loading.spec.md` are implemented:
+All tests pass.
 
-- **Operation Partitioning:** DELETEs (edges→nodes) → CREATEs (nodes→edges) → UPDATEs.
-  Covered by `TestOperationPartitioning`, `TestDeleteOrderingEdgesBeforeNodes`,
-  `TestCreateOrderingNodesBeforeEdges`.
+---
 
-- **Label and Index Pre-Creation:** Pre-existing implementation in `_pre_create_labels_and_indexes`.
-  Covered by `TestCreateLabelIndexesForNodes/Edges`, `TestSkipsExistingIndexes`.
+### Requirement: Duplicate and Orphan Detection — COVERED
 
-- **Staging-Based Ingestion:** `CREATE TEMP TABLE ... ON COMMIT DROP`, COPY protocol,
-  `_ag_label_vertex` lookup for same-batch node visibility.
-  Covered by `TestNodeStagingTableCreation`, `TestEdgeStagingTableCreation`,
-  `TestGraphidLookupTableCreation`.
+**Code:** `staging.py`
+- `check_for_duplicate_ids()` (l. 344–374): GROUP BY id HAVING COUNT(*) > 1; calls `probe.duplicate_ids_detected()`; raises `ValueError`
+- `check_for_orphaned_edges()` (l. 293–342): detects NULL start_graphid or end_graphid; calls `probe.orphaned_edges_detected()`; raises `ValueError`
+- `strategy.py` line 321: `check_for_duplicate_ids()` called; line 312: `check_for_orphaned_edges()` called
 
-- **Duplicate and Orphan Detection:** `check_for_duplicate_ids` raises `ValueError`
-  and notifies probe; `check_for_orphaned_edges` detects NULL start/end graphids.
-  Covered by `TestDuplicateIdDetection` (5 tests), `TestOrphanedEdgeDetection` (7 tests).
+**Tests:** `tests/unit/graph/infrastructure/test_staging_table_manager.py`
+- `TestDuplicateIdDetection` — 5 tests (raises ValueError, calls probe, reports multiple, no error when clean, entity type passed to probe)
+- `TestOrphanedEdgeDetection` — 7 tests (raises ValueError, calls probe with IDs, reports missing node IDs, detects missing start, detects missing end, no error when clean, reports multiple orphans)
 
-- **Concurrency Safety — Advisory Locks:** `pg_advisory_xact_lock` (transaction-scoped).
-  Covered by `TestAdvisoryLockOrdering` (6 tests).
+Integration: `test_bulk_loading.py`
+- `TestBulkLoadingDuplicateDetection::test_duplicate_node_ids_in_same_batch_raises_error`
+- `TestBulkLoadingDuplicateDetection::test_duplicate_edge_ids_in_same_batch_raises_error`
+- `TestOrphanedEdgeDetection::test_edge_to_nonexistent_node_raises_error`
+- `TestOrphanedEdgeDetection::test_edge_from_nonexistent_node_raises_error`
+- `TestOrphanedEdgeDetection::test_multiple_orphaned_edges_lists_all_in_error`
 
-- **Concurrency Safety — Deterministic Lock Ordering:** `sorted(all_labels)` guarantees
-  alphabetical acquisition order preventing deadlocks.
-  Covered by `test_labels_acquired_in_alphabetical_order`,
-  `test_lock_order_is_deterministic_regardless_of_operation_input_order`.
+All tests pass.
 
-- **Concurrency Safety — Rollback on Lock Failure:** Bounded retry loop with
-  `conn.rollback()` before each retry releases all `pg_advisory_xact_lock` locks.
-  Covered by `TestAdvisoryLockRetry` (5 tests).
+---
+
+### Requirement: Concurrency Safety — COVERED
+
+**Code:** `strategy.py`
+- Lines 112–115: `sorted(all_labels)` — alphabetical sort before lock acquisition; sort computed once and reused across retry
+- Lines 137–138: locks acquired in `sorted_labels` order — strictly alphabetical
+- Lines 119–196: retry loop — `client.raw_connection.rollback()` at line 194 releases ALL transaction-scoped advisory locks before retry
+
+`queries.py` lines 82–94: `acquire_advisory_lock()` — `pg_advisory_xact_lock()` (transaction-scoped, released on rollback)
+
+**Tests:** `tests/unit/graph/infrastructure/test_age_bulk_loading_strategy_partitioning.py`
+
+Deterministic ordering:
+- `TestAdvisoryLockOrdering::test_labels_acquired_in_alphabetical_order`
+- `TestAdvisoryLockOrdering::test_labels_sorted_before_first_lock`
+- `TestAdvisoryLockOrdering::test_lock_order_is_deterministic_regardless_of_operation_input_order`
+- `TestAdvisoryLockOrdering::test_advisory_locks_acquired_for_create_nodes`
+- `TestAdvisoryLockOrdering::test_advisory_locks_acquired_for_create_edges`
+- `TestAdvisoryLockOrdering::test_each_unique_label_locked_exactly_once`
+- `TestAdvisoryLockOrdering::test_no_locks_acquired_for_delete_only_batch`
+
+Rollback and retry (critical spec clause: "all previously acquired locks released before retry"):
+- `TestAdvisoryLockRetry::test_retries_on_lock_acquisition_failure_and_succeeds`
+- `TestAdvisoryLockRetry::test_rollback_called_on_lock_failure_before_retry` — explicitly asserts `rollback.assert_called_once()`
+- `TestAdvisoryLockRetry::test_returns_failure_after_all_retries_exhausted`
+- `TestAdvisoryLockRetry::test_retry_attempts_are_bounded_by_max_retries`
+- `TestAdvisoryLockRetry::test_second_lock_failure_triggers_rollback_of_all_held_locks` — two-label scenario; first lock succeeds, second fails; asserts rollback releases both
+
+Integration: `TestStableAdvisoryLocks` — 4 tests verifying hash determinism and bigint range
+
+All 12 unit + 4 integration tests pass.
+
+---
+
+## Overall Verdict
+
+All SHALL/MUST requirements from `specs/graph/bulk-loading.spec.md` are implemented and tested.
+No PARTIAL or MISSING findings.
+
+| Requirement | Status |
+|---|---|
+| Operation Partitioning | COVERED |
+| Label and Index Pre-Creation | COVERED |
+| Staging-Based Ingestion | COVERED |
+| Duplicate and Orphan Detection | COVERED |
+| Concurrency Safety | COVERED |

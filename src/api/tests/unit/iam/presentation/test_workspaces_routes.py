@@ -238,6 +238,38 @@ class TestCreateWorkspace:
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
+    def test_create_workspace_returns_404_when_unauthorized(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+    ) -> None:
+        """Test POST /workspaces returns 404 when user lacks create_child permission.
+
+        Per spec Scenario: Unauthorized creation:
+          GIVEN a user without create_child permission on the parent workspace
+          WHEN the user attempts to create a child workspace
+          THEN a not-found response is returned
+          AND no distinction is made between "unauthorized" and "missing parent"
+
+        Returning 404 (not 403) prevents leaking whether the parent workspace
+        exists at all, matching the same security pattern used for retrieval.
+        """
+        fake_parent_id = WorkspaceId.generate().value
+        mock_workspace_service.create_workspace.side_effect = UnauthorizedError(
+            f"User lacks create_child permission on parent workspace {fake_parent_id}"
+        )
+
+        response = test_client.post(
+            "/iam/workspaces",
+            json={
+                "name": "Engineering",
+                "parent_workspace_id": fake_parent_id,
+            },
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert "not found" in response.json()["detail"].lower()
+
 
 class TestGetWorkspace:
     """Tests for GET /iam/workspaces/{id} endpoint."""

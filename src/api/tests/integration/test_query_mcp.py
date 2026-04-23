@@ -222,7 +222,7 @@ class TestMCPQueryService:
         result = service.execute_cypher_query(slow_query, timeout_seconds=0.001)
 
         assert isinstance(result, QueryError)
-        assert result.error_type in ["timeout", "execution_error"]
+        assert result.error_type == "timeout"
 
     def test_execute_cypher_query_tracks_time(self, service_with_data):
         """Should track execution time."""

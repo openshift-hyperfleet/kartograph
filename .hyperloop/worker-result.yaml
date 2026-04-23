@@ -1,112 +1,99 @@
 ---
 verdict: pass
 detail: |
-  task-017 Outbox Pattern — spec alignment re-review PASS (round 8).
+  task-017 Outbox Pattern — spec alignment re-review PASS (round 9).
 
   All 6 SHALL requirements covered. All CodeRabbit feedback rounds 1-5
-  verified addressed. Fresh test run: 81/81 passed.
+  verified addressed. Fresh test run: 2413/2413 passed (full suite),
+  81/81 outbox-specific tests passed.
 
-  ## Root Cause of Persistent Loop (Now Fixed)
+  ## Check Results
 
-  Previous rounds (5-7) incorrectly concluded that `check-frontend-tests-exist.sh`
-  was already fixed. The actual bug was:
+  1. Unit Tests: PASS — 2413 passed, 0 failures
+  2. Linting (ruff check): PASS — 0 violations
+  3. Formatting (ruff format): PASS — 481 files already formatted
+  4. Type Checking (mypy): PASS — 0 errors in 481 source files
+  5. Architecture Boundaries: PASS — 40/40 arch tests pass
+  6. check-frontend-test-infrastructure.sh: PASS — no UI files changed
+  7. check-frontend-tests-exist.sh: PASS — no UI files changed
+  8. check-no-test-regressions.sh: PASS — no regressions detected
+  9. check-domain-aggregate-mocks.sh: PRE-EXISTING failure in
+     tests/unit/management/application/test_knowledge_graph_service.py
+     (MagicMock on DataSource at line 592-593). This file was NOT touched
+     by task-017 and the same failure exists on origin/alpha. Not a
+     task-017 regression.
+  10. Commit trailers: PASS — Spec-Ref and Task-Ref present on implementation
+      commits.
 
-  - `task_ui_changes` in check-frontend-tests-exist.sh used `grep -E '\.(vue|ts|js)$'`
-    (included .js) BUT `ui_source_count` only counted `*.vue` and `*.ts` (excluded .js).
-  - This file-type inconsistency meant .js-only UI edits could bypass enforcement.
-  - Additionally, the git diff was still using the old `2>/dev/null || true` pattern
-    that silently masked git errors, unlike check-frontend-test-infrastructure.sh
-    which was already fixed with the `git_diff_output` separation pattern.
+  ## CodeRabbit Round 5 (Latest) — False Positive Confirmed
 
-  Both issues have now been fixed in check-frontend-tests-exist.sh (this commit).
-  These are real bugs that CodeRabbit correctly identified — they just attributed
-  them to the wrong file (check-frontend-test-infrastructure.sh) in later rounds,
-  because that file had already been fixed and the equivalent issues in
-  check-frontend-tests-exist.sh remained.
+  The latest CodeRabbit comment flagged check-frontend-test-infrastructure.sh
+  lines 49-54 for .js consistency (task_ui_changes includes .js but
+  ui_source_count only counts .vue/.ts). This was already fixed in an earlier
+  round. The current code at lines 62-64 of the file reads:
 
-  ## Test Suite Results (fresh run)
+    ui_source_count=$(find "$UI_DIR" \
+      \( -name "*.vue" -o -name "*.ts" -o -name "*.js" \) 2>/dev/null \
+      | grep -v node_modules \
+      | grep -v ".nuxt" \
+      | grep -v dist \
+      | wc -l || echo 0)
 
-  Unit tests (outbox only): 81 passed, 0 failures.
-  All 81 tests pass with `uv run pytest tests/unit/infrastructure/outbox/ -v`.
+  The *.js is present. CodeRabbit is re-raising an already-resolved finding.
+
+  ## All CodeRabbit Rounds Summary
+
+  Round 1 (4 items): BASE_BRANCH exit 1, UI_DIR pathspec, error surfacing,
+    YAML validity — ALL FIXED. dlq_at vs failed_at — FALSE POSITIVE
+    (dlq_at does not exist; codebase consistently uses failed_at;
+    test asserts "failed_at IS NULL" matching production code).
+
+  Round 2: git error masking in check-frontend-test-infrastructure.sh — FIXED
+    (git_diff_output separation; removed 2>/dev/null masking).
+
+  Round 3: .js consistency in check-frontend-test-infrastructure.sh — FIXED
+    (ui_source_count now includes *.js).
+
+  Round 4: .js consistency in check-frontend-tests-exist.sh + git error
+    surfacing — FIXED in commit ad4d23a0 (latest implementation commit).
+
+  Round 5: Re-raises check-frontend-test-infrastructure.sh .js consistency —
+    FALSE POSITIVE. Fix has been in place since round 3.
 
   ## Spec Requirements Coverage
 
   1. Transactional Event Storage: COVERED
-     - test_repository_append_does_not_commit verifies session.add() called,
+     - test_repository_append_does_not_commit: session.add() called,
        session.commit() never called by repository.
-     - test_failed_service_call_leaves_no_outbox_entries verifies rollback
-       discards outbox entries (caller owns transaction).
+     - test_failed_service_call_leaves_no_outbox_entries: rollback discards.
      - Integration: test_outbox_entry_created_in_same_transaction_as_group,
        test_rollback_removes_both_group_and_outbox_entry.
 
   2. Event Processing: COVERED
-     - Normal path: test_processes_unprocessed_entries,
-       test_marks_entry_as_processed, test_calls_event_processed_on_success.
-     - Transient failure: test_transient_failure_increments_retry_count,
+     - Normal: test_processes_unprocessed_entries, test_marks_entry_as_processed,
+       test_calls_event_processed_on_success.
+     - Transient: test_transient_failure_increments_retry_count,
        test_transient_failure_does_not_dlq_immediately.
-     - Permanent failure (dead letter): test_max_retries_moves_entry_to_dlq.
-       Spec: "failed_at timestamp set" — implemented as failed_at column (no
-       dlq_at column exists; spec uses "DLQ" as concept, code uses failed_at
-       as the column name, which is the single canonical field).
+     - Permanent: test_max_retries_moves_entry_to_dlq.
+       (failed_at column = DLQ marker; no dlq_at column exists.)
 
   3. Idempotent Event Handlers: COVERED
-     - test_already_processed_entry_excluded_from_fetch verifies
-       processed_at IS NULL filter in compiled SQL.
-     - test_failed_entries_excluded_from_fetch verifies failed_at IS NULL
-       filter in compiled SQL.
-     - EventHandler protocol documented as idempotent contract.
+     - test_already_processed_entry_excluded_from_fetch: processed_at IS NULL.
+     - test_failed_entries_excluded_from_fetch: failed_at IS NULL.
      - Integration: test_handler_invoked_twice_produces_same_spicedb_state.
 
   4. Concurrent Worker Safety: COVERED
-     - test_fetch_unprocessed_uses_for_update_skip_locked compiles SQL with
-       PostgreSQL dialect and asserts "SKIP LOCKED" in rendered query.
-     - _process_batch and _process_single both use with_for_update(skip_locked=True).
+     - test_fetch_unprocessed_uses_for_update_skip_locked: PostgreSQL dialect
+       SQL asserts "SKIP LOCKED" in rendered query.
 
   5. Dual Delivery Mechanism: COVERED
-     - NOTIFY: PostgresNotifyEventSource in event_sources/postgres_notify.py;
-       tested in test_postgres_notify_event_source.py (16 unit tests).
-     - Polling: _poll_loop in worker.py; always runs as fallback regardless
-       of event_source presence; tested via TestOutboxWorkerLifecycle.
+     - NOTIFY: PostgresNotifyEventSource; 16 unit tests in
+       test_postgres_notify_event_source.py.
+     - Polling: _poll_loop always runs; TestOutboxWorkerLifecycle.
      - Integration: test_worker_processes_via_notify_not_polling.
 
   6. Event Fan-Out: COVERED
-     - Multiple handlers: test_handle_fans_out_to_multiple_handlers
-       (test_composite.py).
-     - Unknown event type causes immediate DLQ (no retry):
-       test_unknown_event_type_immediately_moves_to_dlq,
+     - test_handle_fans_out_to_multiple_handlers (test_composite.py).
+     - Unknown type → immediate DLQ: test_unknown_event_type_immediately_moves_to_dlq,
        test_unknown_event_type_dlq_even_at_zero_retries,
-       test_retry_not_called_for_unknown_event_type (test_worker.py).
-
-  ## CodeRabbit Feedback — All Rounds Verified (rounds 1-5)
-
-  Round 1 (4 items — all addressed):
-  - check-frontend-test-infrastructure.sh BASE_BRANCH: PASS (exit 1 on missing ref)
-  - check-frontend-test-infrastructure.sh pathspec: PASS (UI_DIR pathspec applied)
-  - check-frontend-tests-exist.sh BASE_BRANCH + pathspec: PASS
-  - worker-result.yaml YAML validity: PASS (literal block scalar used)
-  - failed_at vs dlq_at: FALSE POSITIVE (no dlq_at column exists anywhere)
-
-  Round 2 (1 item — addressed in commit bba7fdad):
-  - check-frontend-test-infrastructure.sh git error surfacing: PASS
-    (git_diff_output separation; removed 2>/dev/null masking)
-
-  Round 3 (1 item — addressed in commit 82a8e46f):
-  - check-frontend-test-infrastructure.sh .js consistency: PASS
-    (ui_source_count now includes *.js to match task_ui_changes)
-
-  Round 4 (1 item — re-raised against wrong file, now truly fixed):
-  - CodeRabbit flagged .js consistency again, attributed to
-    check-frontend-test-infrastructure.sh (which was already fixed).
-    The ACTUAL issue was in check-frontend-tests-exist.sh — ui_source_count
-    only counted *.vue and *.ts, while task_ui_changes included .js files.
-    Fixed in this round (round 8) along with git error surfacing.
-
-  Round 5 (0 new items expected):
-  - check-frontend-tests-exist.sh .js consistency: FIXED this round
-  - check-frontend-tests-exist.sh git error surfacing: FIXED this round
-
-  ## Commit Trailers
-
-  Implementation commits carry correct trailers:
-  - Spec-Ref: specs/shared-kernel/outbox.spec.md@86d0f4fc5118312577593defb88be1d5005b72cf
-  - Task-Ref: task-017
+       test_retry_not_called_for_unknown_event_type.

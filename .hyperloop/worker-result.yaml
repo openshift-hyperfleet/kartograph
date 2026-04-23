@@ -1,0 +1,112 @@
+---
+verdict: pass
+---
+Spec alignment review for specs/query/query-execution.spec.md implemented on
+branch hyperloop/task-010.
+
+All 2040 unit tests pass. All spec requirements and scenarios are implemented
+and tested per the TDD protocol.
+
+## Requirement: Read-Only Enforcement
+
+### Scenario: Database-level enforcement (primary) — COVERED
+- Implementation: `QueryGraphRepository.execute_cypher()` calls
+  `tx.execute_sql("SET TRANSACTION READ ONLY")` before any Cypher execution.
+  The database itself rejects writes regardless of query content.
+- Test: `TestExecuteCypher::test_sets_transaction_read_only` — verifies
+  `SET TRANSACTION READ ONLY` is sent to the database via `execute_sql`.
+- Test: `TestExecuteCypher::test_database_read_only_applied_before_query` —
+  asserts call order: READ ONLY SQL is always invoked before Cypher execution.
+
+### Scenario: Keyword blacklist (secondary) — COVERED
+- Implementation: `QueryGraphRepository._validate_read_only()` checks for
+  CREATE, DELETE, SET, REMOVE, MERGE, EXPLAIN, LOAD (case-insensitive) and
+  raises `QueryForbiddenError` with a unique `correlation_id` (UUID).
+  The `DefaultQueryServiceProbe.cypher_query_rejected()` logs only the
+  correlation_id — never the raw query text.
+- Tests:
+  - `TestValidateReadOnly::test_rejects_create/delete/set/remove/merge` — all
+    mutation keywords rejected.
+  - `TestValidateReadOnly::test_rejects_explain` — EXPLAIN rejected (spec).
+  - `TestValidateReadOnly::test_rejects_load` — LOAD rejected (spec).
+  - `TestValidateReadOnly::test_case_insensitive` — lowercase `create` rejected.
+  - `TestValidateReadOnly::test_forbidden_error_has_correlation_id` — error
+    carries a non-empty correlation_id.
+  - `TestValidateReadOnly::test_forbidden_error_correlation_id_is_unique` —
+    5 rejections produce 5 distinct correlation IDs.
+  - `TestApplicationServices::test_forbidden_error_includes_correlation_id_in_response`
+    — QueryError carries the correlation_id from the exception.
+  - `TestApplicationServices::test_forbidden_error_correlation_id_included_in_probe_call`
+    — probe receives correlation_id for log cross-reference.
+
+## Requirement: Timeout Enforcement
+
+### Scenario: Query within timeout — COVERED
+- Implementation: `execute_cypher()` sets `SET LOCAL statement_timeout = {ms}`.
+  Normal completion returns results unchanged.
+- Test: `TestExecuteCypher::test_sets_statement_timeout` — verifies timeout SQL
+  is sent; `test_returns_empty_list_on_no_results` verifies successful path.
+
+### Scenario: Query exceeds timeout — COVERED
+- Implementation: Exceptions containing "timeout" or "canceling statement"
+  in the message are re-raised as `QueryTimeoutError` with a unique
+  `correlation_id` attached.
+- Tests:
+  - `TestExecuteCypher::test_timeout_raises_query_timeout_error` — DB timeout
+    exception becomes `QueryTimeoutError`.
+  - `TestExecuteCypher::test_timeout_error_has_correlation_id` — error carries
+    a correlation_id.
+  - `TestApplicationServices::test_categorizes_timeout_error` — `error_type` is
+    "timeout".
+  - `TestApplicationServices::test_timeout_error_includes_correlation_id_in_response`
+    — QueryError carries the correlation_id.
+  - `TestApplicationServices::test_timeout_error_correlation_id_included_in_probe_call`
+    — probe receives correlation_id.
+
+## Requirement: Result Limiting
+
+### Scenario: No LIMIT in query — COVERED
+- Implementation: `_ensure_limit()` appends `LIMIT {max_rows}` when no LIMIT
+  clause is present.
+- Test: `TestEnsureLimit::test_adds_limit_when_missing`
+
+### Scenario: Explicit LIMIT within bounds — COVERED
+- Implementation: LIMIT at or below 10000 is preserved unchanged.
+- Tests:
+  - `TestEnsureLimit::test_preserves_existing_limit` — existing LIMIT kept.
+  - `TestEnsureLimit::test_respects_limit_at_absolute_maximum` — LIMIT 10000 kept.
+  - `TestEnsureLimit::test_respects_limit_within_absolute_maximum` — LIMIT 5000 kept.
+  - `TestEnsureLimit::test_case_insensitive_limit_detection` — lowercase `limit` detected.
+
+### Scenario: Explicit LIMIT exceeds maximum — COVERED
+- Implementation: LIMIT > 10000 is replaced with `LIMIT 10000`.
+- Tests:
+  - `TestEnsureLimit::test_caps_limit_above_absolute_maximum` — LIMIT 15000 → 10000.
+  - `TestEnsureLimit::test_caps_limit_well_above_absolute_maximum` — LIMIT 999999 → 10000.
+
+## Requirement: Error Categorization
+
+### Scenario: Forbidden query — COVERED
+- `MCPQueryService.execute_cypher_query()` catches `QueryForbiddenError` →
+  `QueryError(error_type="forbidden")`.
+- Test: `test_categorizes_forbidden_error`
+
+### Scenario: Timeout error — COVERED
+- Catches `QueryTimeoutError` → `QueryError(error_type="timeout")`.
+- Test: `test_categorizes_timeout_error`
+
+### Scenario: Execution error — COVERED
+- Catches `QueryExecutionError` → `QueryError(error_type="execution_error")`.
+- Test: `test_categorizes_execution_error`
+
+### Scenario: Unexpected error — COVERED
+- Catch-all `except Exception` → `QueryError(error_type="unknown_error")`.
+- Test: `test_categorizes_unknown_error`
+
+## Summary
+
+All SHALL requirements and all scenarios from the query-execution spec are
+implemented and tested. The implementation follows defense-in-depth (database-
+level read-only as primary, keyword blacklist as secondary), enforces LIMIT caps
+of 10000, attaches unique correlation IDs to forbidden and timeout errors, and
+categorizes all error types correctly. 2040 unit tests pass. No regressions.

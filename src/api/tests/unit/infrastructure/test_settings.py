@@ -7,6 +7,7 @@ from infrastructure.settings import (
     DatabaseSettings,
     IAMSettings,
     OIDCSettings,
+    OutboxWorkerSettings,
     get_oidc_settings,
 )
 
@@ -159,3 +160,103 @@ class TestIAMSettings:
         )
         settings = IAMSettings()
         assert settings.bootstrap_admin_usernames == ["admin1", "admin2"]
+
+
+class TestIAMSettingsDefaultConfiguration:
+    """Tests for IAMSettings default configuration values.
+
+    Spec: specs/nfr/application-lifecycle.spec.md
+    Requirement: Default Configuration
+
+    Verifies that the system uses sensible defaults for single-tenant deployments.
+    """
+
+    def test_single_tenant_mode_enabled_by_default(self):
+        """Single-tenant mode should be enabled by default.
+
+        GIVEN no explicit configuration overrides
+        THEN single-tenant mode is enabled
+        """
+        settings = IAMSettings()
+        assert settings.single_tenant_mode is True
+
+    def test_default_tenant_name_is_default(self):
+        """Default tenant name should be 'default'.
+
+        GIVEN no explicit configuration overrides
+        THEN the default tenant name is "default"
+        """
+        settings = IAMSettings()
+        assert settings.default_tenant_name == "default"
+
+    def test_default_workspace_name_is_none(self):
+        """Default workspace name should be None (falls back to tenant name).
+
+        GIVEN no explicit configuration overrides
+        THEN the default workspace name is None (triggering tenant-name fallback)
+        """
+        settings = IAMSettings()
+        assert settings.default_workspace_name is None
+
+    def test_workspace_name_falls_back_to_tenant_name(self):
+        """Effective workspace name falls back to tenant name when not set.
+
+        GIVEN no explicit configuration overrides
+        THEN the effective workspace name equals the tenant name
+        """
+        settings = IAMSettings()
+        # This is the fallback logic used in the application lifespan
+        effective_workspace_name = (
+            settings.default_workspace_name or settings.default_tenant_name
+        )
+        assert effective_workspace_name == settings.default_tenant_name
+        assert effective_workspace_name == "default"
+
+    def test_bootstrap_admin_usernames_empty_by_default(self):
+        """Bootstrap admin usernames list should be empty by default.
+
+        GIVEN no explicit configuration overrides
+        THEN bootstrap admin usernames list is empty (no auto-admin provisioning)
+        """
+        settings = IAMSettings()
+        assert settings.bootstrap_admin_usernames == []
+
+    def test_single_tenant_mode_can_be_disabled(self, monkeypatch):
+        """Single-tenant mode can be explicitly disabled.
+
+        GIVEN KARTOGRAPH_IAM_SINGLE_TENANT_MODE=false
+        THEN single-tenant mode is disabled
+        """
+        monkeypatch.setenv("KARTOGRAPH_IAM_SINGLE_TENANT_MODE", "false")
+        settings = IAMSettings()
+        assert settings.single_tenant_mode is False
+
+    def test_explicit_workspace_name_overrides_fallback(self):
+        """An explicit workspace name is used instead of tenant name fallback."""
+        settings = IAMSettings(
+            default_tenant_name="acme",
+            default_workspace_name="Root",
+        )
+        effective_workspace_name = (
+            settings.default_workspace_name or settings.default_tenant_name
+        )
+        assert effective_workspace_name == "Root"
+
+
+class TestOutboxWorkerSettingsDefaults:
+    """Tests for OutboxWorkerSettings defaults.
+
+    Spec: specs/nfr/application-lifecycle.spec.md
+    Requirement: Outbox Worker Lifecycle
+    """
+
+    def test_outbox_enabled_by_default(self):
+        """Outbox processing should be enabled by default."""
+        settings = OutboxWorkerSettings()
+        assert settings.enabled is True
+
+    def test_outbox_disabled_when_configured(self, monkeypatch):
+        """Outbox can be disabled via environment variable."""
+        monkeypatch.setenv("KARTOGRAPH_OUTBOX_ENABLED", "false")
+        settings = OutboxWorkerSettings()
+        assert settings.enabled is False

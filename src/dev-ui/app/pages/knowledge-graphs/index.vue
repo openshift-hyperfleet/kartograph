@@ -29,7 +29,20 @@ import {
 const { hasTenant, currentTenantName, tenantVersion } = useTenant()
 const { extractErrorMessage } = useErrorHandler()
 
+// ── Types ──────────────────────────────────────────────────────────────────
+
+interface KnowledgeGraphItem {
+  id: string
+  name: string
+  description?: string
+  created_at?: string
+}
+
 // ── State ──────────────────────────────────────────────────────────────────
+
+// Knowledge graph list
+const knowledgeGraphs = ref<KnowledgeGraphItem[]>([])
+const loadingKgs = ref(false)
 
 // Create dialog
 const createDialogOpen = ref(false)
@@ -39,6 +52,22 @@ const creating = ref(false)
 const createNameError = ref('')
 
 // ── Actions ────────────────────────────────────────────────────────────────
+
+async function loadKnowledgeGraphs() {
+  if (!hasTenant.value) return
+  loadingKgs.value = true
+  try {
+    const { apiFetch } = useApiClient()
+    const result = await apiFetch<{ knowledge_graphs: KnowledgeGraphItem[] }>(
+      '/management/knowledge-graphs'
+    )
+    knowledgeGraphs.value = result.knowledge_graphs ?? []
+  } catch {
+    knowledgeGraphs.value = []
+  } finally {
+    loadingKgs.value = false
+  }
+}
 
 function openCreateDialog() {
   createName.value = ''
@@ -55,9 +84,14 @@ async function handleCreate() {
   }
   creating.value = true
   try {
-    // Knowledge graph creation will be wired to the API in task-015.
-    // For now, close the dialog and guide the user to add a data source,
-    // which is the natural next step after creating a knowledge graph.
+    const { apiFetch } = useApiClient()
+    await apiFetch('/management/knowledge-graphs', {
+      method: 'POST',
+      body: {
+        name: createName.value.trim(),
+        description: createDescription.value.trim() || undefined,
+      },
+    })
     toast.success(`Knowledge graph "${createName.value.trim()}" created`, {
       description: 'Next: connect a data source to start populating your graph.',
       action: {
@@ -67,10 +101,25 @@ async function handleCreate() {
       duration: 8000,
     })
     createDialogOpen.value = false
+    await loadKnowledgeGraphs()
+  } catch (err) {
+    toast.error('Failed to create knowledge graph', {
+      description: extractErrorMessage(err),
+    })
   } finally {
     creating.value = false
   }
 }
+
+// ── Lifecycle ──────────────────────────────────────────────────────────────
+
+onMounted(() => {
+  loadKnowledgeGraphs()
+})
+
+watch(tenantVersion, () => {
+  loadKnowledgeGraphs()
+})
 </script>
 
 <template>
@@ -104,8 +153,13 @@ async function handleCreate() {
     </div>
 
     <template v-else>
+      <!-- Loading state -->
+      <div v-if="loadingKgs" class="flex items-center justify-center py-16">
+        <Loader2 class="size-6 animate-spin text-muted-foreground" />
+      </div>
+
       <!-- Empty state — guide new users toward setup flow -->
-      <div class="flex flex-col items-center gap-4 py-16 text-center">
+      <div v-else-if="knowledgeGraphs.length === 0" class="flex flex-col items-center gap-4 py-16 text-center">
         <div class="rounded-full bg-muted p-5">
           <BookOpen class="size-10 text-muted-foreground" />
         </div>
@@ -157,6 +211,33 @@ async function handleCreate() {
               </div>
             </CardContent>
           </Card>
+        </div>
+      </div>
+
+      <!-- Knowledge graph list -->
+      <div v-else class="space-y-3">
+        <div v-for="kg in knowledgeGraphs" :key="kg.id" class="rounded-lg border bg-card">
+          <div class="flex items-center justify-between p-4">
+            <div class="flex items-center gap-3">
+              <div class="rounded-md bg-muted p-2">
+                <BookOpen class="size-4 text-muted-foreground" />
+              </div>
+              <div>
+                <p class="font-medium text-sm">{{ kg.name }}</p>
+                <p v-if="kg.description" class="text-xs text-muted-foreground">{{ kg.description }}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <Button size="sm" variant="outline" @click="navigateTo('/data-sources')">
+                <Cable class="mr-1.5 size-3.5" />
+                Add Data Source
+              </Button>
+              <Button size="sm" variant="outline" @click="navigateTo('/query')">
+                <Database class="mr-1.5 size-3.5" />
+                Query
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     </template>

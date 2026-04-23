@@ -19,6 +19,8 @@ import {
   Trash2,
   AlertTriangle,
   Lock,
+  ScrollText,
+  FileText,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -34,6 +36,13 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '@/components/ui/sheet'
 import {
   Tooltip,
   TooltipContent,
@@ -478,6 +487,7 @@ async function approveOntology() {
       description: `${connName.value} has been connected and extraction will begin shortly.`,
     })
     wizardOpen.value = false
+    await loadDataSources()
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to connect data source'
     toast.error('Connection failed', { description: msg })
@@ -551,6 +561,99 @@ async function triggerSync(dsId: string) {
     toast.error('Failed to trigger sync')
   }
 }
+
+// ── FAIL 2: Ontology edit after extraction (with confirmation gate) ─────────
+
+// State for re-extraction confirmation dialog
+const reExtractionConfirmOpen = ref(false)
+const pendingOntologyEditDsId = ref<string | null>(null)
+
+// State for the ontology edit dialog itself
+const editOntologyOpen = ref(false)
+const editingDataSource = ref<DataSourceItem | null>(null)
+const editNodes = ref<ProposedNodeType[]>([])
+const editEdges = ref<ProposedEdgeType[]>([])
+
+function requestOntologyEdit(ds: DataSourceItem) {
+  const hasCompletedExtraction = ds.sync_runs?.some((r) => r.status === 'completed') ?? false
+  if (hasCompletedExtraction) {
+    pendingOntologyEditDsId.value = ds.id
+    reExtractionConfirmOpen.value = true
+  } else {
+    openOntologyEditor(ds)
+  }
+}
+
+function confirmReExtraction() {
+  reExtractionConfirmOpen.value = false
+  const ds = dataSources.value.find((d) => d.id === pendingOntologyEditDsId.value)
+  if (ds) openOntologyEditor(ds)
+}
+
+function cancelReExtraction() {
+  reExtractionConfirmOpen.value = false
+  pendingOntologyEditDsId.value = null
+}
+
+function openOntologyEditor(ds: DataSourceItem) {
+  editingDataSource.value = ds
+  // Pre-populate with the GitHub proposal as a stand-in for the stored ontology.
+  // In a real implementation this would load from the server.
+  editNodes.value = GITHUB_PROPOSAL_NODES.map(toProposedNode)
+  editEdges.value = GITHUB_PROPOSAL_EDGES.map(toProposedEdge)
+  editOntologyOpen.value = true
+}
+
+function closeOntologyEditor() {
+  editOntologyOpen.value = false
+  editingDataSource.value = null
+  pendingOntologyEditDsId.value = null
+  editNodes.value = []
+  editEdges.value = []
+}
+
+// ── FAIL 3: Sync Logs (View Logs per sync run) ────────────────────────────
+
+const logSheetOpen = ref(false)
+const selectedLogRunId = ref<string | null>(null)
+const selectedLogDsId = ref<string | null>(null)
+const runLogs = ref<string[]>([])
+const logsLoading = ref(false)
+const logsError = ref<string | null>(null)
+
+async function viewLogs(ds: DataSourceItem, run: SyncRun) {
+  selectedLogDsId.value = ds.id
+  selectedLogRunId.value = run.id
+  runLogs.value = []
+  logsError.value = null
+  logSheetOpen.value = true
+  await fetchRunLogs(ds.id, run.id)
+}
+
+async function fetchRunLogs(dsId: string, runId: string) {
+  logsLoading.value = true
+  logsError.value = null
+  try {
+    const { apiFetch } = useApiClient()
+    const result = await apiFetch<{ logs: string[] }>(
+      `/management/data-sources/${dsId}/sync-runs/${runId}/logs`
+    )
+    runLogs.value = result.logs ?? []
+  } catch (err) {
+    logsError.value = err instanceof Error ? err.message : 'Failed to load logs'
+    runLogs.value = []
+  } finally {
+    logsLoading.value = false
+  }
+}
+
+function closeLogs() {
+  logSheetOpen.value = false
+  selectedLogRunId.value = null
+  selectedLogDsId.value = null
+  runLogs.value = []
+  logsError.value = null
+}
 </script>
 
 <template>
@@ -622,6 +725,21 @@ async function triggerSync(dsId: string) {
               >
                 {{ ds.sync_runs?.[0]?.status ?? 'idle' }}
               </Badge>
+              <!-- Edit Ontology button (FAIL 2) -->
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <Button size="sm" variant="outline" @click="requestOntologyEdit(ds)">
+                    <Pencil class="mr-1.5 size-3.5" />
+                    Edit Ontology
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p v-if="ds.sync_runs?.some((r) => r.status === 'completed')">
+                    Requires re-extraction confirmation
+                  </p>
+                  <p v-else>Edit the node and edge types for this data source</p>
+                </TooltipContent>
+              </Tooltip>
               <Button size="sm" variant="outline" @click="triggerSync(ds.id)">
                 Sync Now
               </Button>
@@ -640,6 +758,16 @@ async function triggerSync(dsId: string) {
                   ({{ Math.round((new Date(run.completed_at).getTime() - new Date(run.started_at).getTime()) / 1000) }}s)
                 </span>
                 <span v-if="run.error" class="text-destructive">{{ run.error }}</span>
+                <!-- View Logs button (FAIL 3) -->
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  class="ml-auto h-6 px-2 text-[10px]"
+                  @click="viewLogs(ds, run)"
+                >
+                  <ScrollText class="mr-1 size-3" />
+                  View Logs
+                </Button>
               </div>
             </div>
           </div>
@@ -1112,13 +1240,200 @@ async function triggerSync(dsId: string) {
               <ChevronLeft class="mr-1 size-4" />
               Back
             </Button>
-            <Button :disabled="!ontologyReady" @click="approveOntology">
-              <CheckCircle2 class="mr-2 size-4" />
+            <Button :disabled="!ontologyReady || approvingOntology" @click="approveOntology">
+              <Loader2 v-if="approvingOntology" class="mr-2 size-4 animate-spin" />
+              <CheckCircle2 v-else class="mr-2 size-4" />
               Approve &amp; Start Extraction
             </Button>
           </DialogFooter>
         </div>
       </DialogContent>
     </Dialog>
+
+    <!-- ─── FAIL 2: Re-extraction Confirmation Dialog ─────────────────────── -->
+    <Dialog v-model:open="reExtractionConfirmOpen">
+      <DialogContent class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle class="flex items-center gap-2">
+            <AlertTriangle class="size-5 text-amber-500" />
+            Confirm Re-extraction
+          </DialogTitle>
+          <DialogDescription>
+            This data source has completed at least one extraction run. Modifying the ontology
+            will trigger a <strong>full re-extraction</strong> of all data, which may take
+            significant time depending on the data source size.
+          </DialogDescription>
+        </DialogHeader>
+        <p class="text-sm text-muted-foreground">
+          Are you sure you want to edit the ontology and trigger a re-extraction?
+        </p>
+        <DialogFooter class="pt-2">
+          <Button variant="outline" @click="cancelReExtraction">
+            Cancel
+          </Button>
+          <Button variant="destructive" @click="confirmReExtraction">
+            <AlertTriangle class="mr-2 size-4" />
+            Yes, Edit &amp; Re-extract
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- ─── FAIL 2: Ontology Editor Dialog ────────────────────────────────── -->
+    <Dialog v-model:open="editOntologyOpen">
+      <DialogContent class="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Edit Ontology — {{ editingDataSource?.name }}</DialogTitle>
+          <DialogDescription>
+            Modify node and edge types for this data source. Changes will be applied when you save.
+          </DialogDescription>
+        </DialogHeader>
+
+        <!-- Node types -->
+        <div class="space-y-2">
+          <h4 class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Node Types ({{ editNodes.length }})
+          </h4>
+          <div class="space-y-2">
+            <Card v-for="(node, idx) in editNodes" :key="idx" class="overflow-hidden">
+              <CardContent v-if="!node.editing" class="flex items-start gap-3 p-3">
+                <Badge variant="default" class="mt-0.5 shrink-0">Node</Badge>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium">{{ node.label }}</p>
+                  <p class="text-xs text-muted-foreground">{{ node.description }}</p>
+                  <div class="mt-1.5 flex flex-wrap gap-1">
+                    <Badge v-for="prop in node.required_properties" :key="prop" variant="secondary" class="text-[10px]">
+                      {{ prop }} <span class="ml-0.5 text-destructive">*</span>
+                    </Badge>
+                    <Badge v-for="prop in node.optional_properties" :key="prop" variant="outline" class="text-[10px]">
+                      {{ prop }}
+                    </Badge>
+                  </div>
+                </div>
+                <div class="flex shrink-0 items-center gap-1">
+                  <Button variant="ghost" size="icon" class="size-7" @click="startEditNode(idx)">
+                    <Pencil class="size-3.5" />
+                  </Button>
+                </div>
+              </CardContent>
+              <CardContent v-else class="space-y-3 p-3">
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="space-y-1">
+                    <Label class="text-xs">Label</Label>
+                    <Input v-model="node.editLabel" class="h-8 text-xs" />
+                  </div>
+                  <div class="space-y-1">
+                    <Label class="text-xs">Description</Label>
+                    <Input v-model="node.editDescription" class="h-8 text-xs" />
+                  </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="space-y-1">
+                    <Label class="text-xs">Required properties</Label>
+                    <Input v-model="node.editRequired" placeholder="e.g. name, url" class="h-8 text-xs" />
+                  </div>
+                  <div class="space-y-1">
+                    <Label class="text-xs">Optional properties</Label>
+                    <Input v-model="node.editOptional" placeholder="e.g. description" class="h-8 text-xs" />
+                  </div>
+                </div>
+                <div class="flex justify-end gap-2">
+                  <Button variant="ghost" size="sm" class="h-7 text-xs" @click="cancelEditNode(idx)">
+                    <X class="mr-1 size-3" /> Cancel
+                  </Button>
+                  <Button size="sm" class="h-7 text-xs" @click="saveEditNode(idx)">
+                    <Check class="mr-1 size-3" /> Save
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        <!-- Edge types -->
+        <div class="space-y-2 mt-4">
+          <h4 class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Edge Types ({{ editEdges.length }})
+          </h4>
+          <div class="space-y-2">
+            <Card v-for="(edge, idx) in editEdges" :key="idx" class="overflow-hidden">
+              <CardContent v-if="!edge.editing" class="flex items-start gap-3 p-3">
+                <Badge variant="outline" class="mt-0.5 shrink-0">Edge</Badge>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium font-mono">{{ edge.label }}</p>
+                  <p class="text-xs text-muted-foreground">{{ edge.description }}</p>
+                  <p class="text-xs text-muted-foreground/70 mt-0.5">{{ edge.from }} → {{ edge.to }}</p>
+                </div>
+                <Button variant="ghost" size="icon" class="size-7 shrink-0" @click="startEditEdge(idx)">
+                  <Pencil class="size-3.5" />
+                </Button>
+              </CardContent>
+              <CardContent v-else class="space-y-3 p-3">
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="space-y-1">
+                    <Label class="text-xs">Label</Label>
+                    <Input v-model="edge.editLabel" class="h-8 text-xs" />
+                  </div>
+                  <div class="space-y-1">
+                    <Label class="text-xs">Description</Label>
+                    <Input v-model="edge.editDescription" class="h-8 text-xs" />
+                  </div>
+                </div>
+                <div class="flex justify-end gap-2">
+                  <Button variant="ghost" size="sm" class="h-7 text-xs" @click="cancelEditEdge(idx)">
+                    <X class="mr-1 size-3" /> Cancel
+                  </Button>
+                  <Button size="sm" class="h-7 text-xs" @click="saveEditEdge(idx)">
+                    <Check class="mr-1 size-3" /> Save
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        <DialogFooter class="pt-4">
+          <Button variant="outline" @click="closeOntologyEditor">Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- ─── FAIL 3: Sync Logs Sheet ───────────────────────────────────────── -->
+    <Sheet v-model:open="logSheetOpen" @update:open="(v) => { if (!v) closeLogs() }">
+      <SheetContent side="right" class="w-[42rem] max-w-[90vw] p-4">
+        <SheetHeader>
+          <SheetTitle class="flex items-center gap-2">
+            <FileText class="size-4" />
+            Sync Run Logs
+          </SheetTitle>
+          <SheetDescription>
+            Detailed log output for sync run {{ selectedLogRunId }}
+          </SheetDescription>
+        </SheetHeader>
+
+        <div class="mt-4 flex h-full flex-col gap-3">
+          <!-- Loading -->
+          <div v-if="logsLoading" class="flex flex-1 items-center justify-center">
+            <Loader2 class="size-6 animate-spin text-muted-foreground" />
+          </div>
+
+          <!-- Error -->
+          <div v-else-if="logsError" class="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            {{ logsError }}
+          </div>
+
+          <!-- Empty -->
+          <div v-else-if="runLogs.length === 0" class="flex flex-1 flex-col items-center justify-center gap-2 text-center text-muted-foreground">
+            <ScrollText class="size-8" />
+            <p class="text-sm">No log entries for this run.</p>
+          </div>
+
+          <!-- Log lines -->
+          <div v-else class="flex-1 overflow-auto rounded-md border bg-muted/30 p-3">
+            <pre class="font-mono text-xs leading-relaxed whitespace-pre-wrap break-all">{{ runLogs.join('\n') }}</pre>
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
   </div>
 </template>

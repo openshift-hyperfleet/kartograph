@@ -72,9 +72,20 @@ const schemaLoading = ref(false)
 // An empty string means "all knowledge graphs accessible in this tenant".
 const selectedKgId = ref('')
 
-// Placeholder list — will be populated once KG management API exists (task-015).
-// We expose the structure now so the UI selector works end-to-end.
 const knowledgeGraphs = ref<Array<{ id: string; name: string }>>([])
+
+async function loadKnowledgeGraphs() {
+  if (!hasTenant.value) return
+  try {
+    const { apiFetch } = useApiClient()
+    const result = await apiFetch<{ knowledge_graphs: Array<{ id: string; name: string }> }>(
+      '/management/knowledge-graphs'
+    )
+    knowledgeGraphs.value = result.knowledge_graphs ?? []
+  } catch {
+    knowledgeGraphs.value = []
+  }
+}
 
 const kgScopeLabel = computed(() => {
   if (!selectedKgId.value) return 'All knowledge graphs'
@@ -338,7 +349,10 @@ const route = useRoute()
 
 onMounted(() => {
   loadHistory()
-  if (hasTenant.value) fetchSchema()
+  if (hasTenant.value) {
+    fetchSchema()
+    loadKnowledgeGraphs()
+  }
   document.addEventListener('keydown', handleCtrlEnter)
   window.addEventListener('resize', onWindowResize)
 
@@ -348,7 +362,7 @@ onMounted(() => {
   }
 })
 
-// Re-fetch schema when tenant changes
+// Re-fetch schema and KG list when tenant changes
 watch(tenantVersion, () => {
   if (hasTenant.value) {
     result.value = null
@@ -357,6 +371,7 @@ watch(tenantVersion, () => {
     nodeLabels.value = []
     edgeLabels.value = []
     fetchSchema()
+    loadKnowledgeGraphs()
   }
 })
 

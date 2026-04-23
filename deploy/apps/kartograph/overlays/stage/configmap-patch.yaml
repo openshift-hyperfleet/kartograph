@@ -13,3 +13,5 @@ data:
   DEV_UI_KEYCLOAK_URL: "https://auth.stage.redhat.com/auth"
   DEV_UI_KEYCLOAK_REALM: "EmployeeIDP"
   DEV_UI_KEYCLOAK_CLIENT_ID: "e84a630e-cd5c-4bb9-bec6-7609d795fd2f"
+  # IAM
+  KARTOGRAPH_IAM_SINGLE_TENANT_MODE: "false"

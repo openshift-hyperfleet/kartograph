@@ -1,39 +1,33 @@
 ---
 verdict: pass
 detail: |
-  task-017 Outbox Pattern — spec alignment re-review PASS (round 7).
+  task-017 Outbox Pattern — spec alignment re-review PASS (round 8).
 
-  All 6 SHALL requirements covered. All CodeRabbit feedback rounds 1-4
-  verified addressed. The disputed failed_at vs dlq_at item is confirmed
-  a false positive for the seventh time. Fresh test run: 81/81 passed.
+  All 6 SHALL requirements covered. All CodeRabbit feedback rounds 1-5
+  verified addressed. Fresh test run: 81/81 passed.
+
+  ## Root Cause of Persistent Loop (Now Fixed)
+
+  Previous rounds (5-7) incorrectly concluded that `check-frontend-tests-exist.sh`
+  was already fixed. The actual bug was:
+
+  - `task_ui_changes` in check-frontend-tests-exist.sh used `grep -E '\.(vue|ts|js)$'`
+    (included .js) BUT `ui_source_count` only counted `*.vue` and `*.ts` (excluded .js).
+  - This file-type inconsistency meant .js-only UI edits could bypass enforcement.
+  - Additionally, the git diff was still using the old `2>/dev/null || true` pattern
+    that silently masked git errors, unlike check-frontend-test-infrastructure.sh
+    which was already fixed with the `git_diff_output` separation pattern.
+
+  Both issues have now been fixed in check-frontend-tests-exist.sh (this commit).
+  These are real bugs that CodeRabbit correctly identified — they just attributed
+  them to the wrong file (check-frontend-test-infrastructure.sh) in later rounds,
+  because that file had already been fixed and the equivalent issues in
+  check-frontend-tests-exist.sh remained.
 
   ## Test Suite Results (fresh run)
 
   Unit tests (outbox only): 81 passed, 0 failures.
   All 81 tests pass with `uv run pytest tests/unit/infrastructure/outbox/ -v`.
-
-  ## Disputed CodeRabbit Item: failed_at vs dlq_at
-
-  Grep of entire worktree for "dlq_at": only matches appear inside
-  .hyperloop/worker-result.yaml (prior review documentation). The string
-  "dlq_at" does not exist in any source file, migration, or test file.
-
-  All uses of the dead-letter marker in the implementation:
-  - OutboxEntry value object field: `failed_at: datetime | None = None`
-    (src/api/shared_kernel/outbox/value_objects.py line 47)
-  - OutboxModel column: `failed_at` (infrastructure/outbox/models.py line 64)
-  - OutboxRepository.fetch_unprocessed: filters `.where(OutboxModel.failed_at.is_(None))`
-    (infrastructure/outbox/repository.py line 94)
-  - OutboxWorker._process_batch: filters `.where(OutboxModel.failed_at.is_(None))`
-    (infrastructure/outbox/worker.py line 203)
-  - OutboxWorker._process_single: filters `.where(OutboxModel.failed_at.is_(None))`
-    (infrastructure/outbox/worker.py line 226)
-  - OutboxWorker._move_to_dlq: sets `failed_at=datetime.now(UTC)`
-    (infrastructure/outbox/worker.py line 319)
-  - test_failed_entries_excluded_from_fetch: asserts `"failed_at IS NULL" in compiled`
-    (tests/unit/infrastructure/outbox/test_worker.py line 780)
-
-  CodeRabbit's claim that "dlq_at" is used anywhere is incorrect.
 
   ## Spec Requirements Coverage
 
@@ -83,23 +77,33 @@ detail: |
        test_unknown_event_type_dlq_even_at_zero_retries,
        test_retry_not_called_for_unknown_event_type (test_worker.py).
 
-  ## CodeRabbit Feedback — All Rounds Verified (rounds 1-4)
+  ## CodeRabbit Feedback — All Rounds Verified (rounds 1-5)
 
-  Round 1 (4 items — all addressed or confirmed false positive):
-  - check-frontend-test-infrastructure.sh BASE_BRANCH: PASS
-  - check-frontend-test-infrastructure.sh pathspec: PASS
-  - check-frontend-tests-exist.sh: PASS
-  - worker-result.yaml YAML validity: PASS
-  - failed_at vs dlq_at: FALSE POSITIVE (confirmed rounds 1-7)
+  Round 1 (4 items — all addressed):
+  - check-frontend-test-infrastructure.sh BASE_BRANCH: PASS (exit 1 on missing ref)
+  - check-frontend-test-infrastructure.sh pathspec: PASS (UI_DIR pathspec applied)
+  - check-frontend-tests-exist.sh BASE_BRANCH + pathspec: PASS
+  - worker-result.yaml YAML validity: PASS (literal block scalar used)
+  - failed_at vs dlq_at: FALSE POSITIVE (no dlq_at column exists anywhere)
 
   Round 2 (1 item — addressed in commit bba7fdad):
   - check-frontend-test-infrastructure.sh git error surfacing: PASS
+    (git_diff_output separation; removed 2>/dev/null masking)
 
   Round 3 (1 item — addressed in commit 82a8e46f):
   - check-frontend-test-infrastructure.sh .js consistency: PASS
+    (ui_source_count now includes *.js to match task_ui_changes)
 
-  Round 4 (1 item — FALSE POSITIVE confirmed):
-  - check-frontend-test-infrastructure.sh .js consistency (again): FALSE POSITIVE
+  Round 4 (1 item — re-raised against wrong file, now truly fixed):
+  - CodeRabbit flagged .js consistency again, attributed to
+    check-frontend-test-infrastructure.sh (which was already fixed).
+    The ACTUAL issue was in check-frontend-tests-exist.sh — ui_source_count
+    only counted *.vue and *.ts, while task_ui_changes included .js files.
+    Fixed in this round (round 8) along with git error surfacing.
+
+  Round 5 (0 new items expected):
+  - check-frontend-tests-exist.sh .js consistency: FIXED this round
+  - check-frontend-tests-exist.sh git error surfacing: FIXED this round
 
   ## Commit Trailers
 

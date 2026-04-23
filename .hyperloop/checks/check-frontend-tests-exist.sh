@@ -35,7 +35,13 @@ if ! git rev-parse --verify "${BASE_BRANCH}" &>/dev/null; then
   exit 1
 fi
 
-task_ui_changes=$(git diff "${BASE_BRANCH}...HEAD" --name-only -- "$UI_SOURCE_DIR" 2>/dev/null \
+# Capture git diff separately so real git errors are surfaced, not masked.
+git_diff_output=$(git diff "${BASE_BRANCH}...HEAD" --name-only -- "$UI_SOURCE_DIR") || {
+  echo "ERROR: git diff '${BASE_BRANCH}...HEAD' -- '$UI_SOURCE_DIR' failed unexpectedly." >&2
+  exit 1
+}
+
+task_ui_changes=$(echo "$git_diff_output" \
   | grep -E '\.(vue|ts|js)$' \
   | grep -v node_modules \
   | grep -v '\.nuxt' \
@@ -47,9 +53,10 @@ if [[ -z "$task_ui_changes" ]]; then
   exit 0
 fi
 
-# Check whether there are any Vue/TS source files in the UI directory
+# Check whether there are any Vue/TS/JS source files in the UI directory.
+# Must match the same file-type set as task_ui_changes to avoid false negatives.
 ui_source_count=$(find "$UI_SOURCE_DIR" \
-  \( -name "*.vue" -o -name "*.ts" \) 2>/dev/null \
+  \( -name "*.vue" -o -name "*.ts" -o -name "*.js" \) 2>/dev/null \
   | grep -v node_modules \
   | grep -v ".nuxt" \
   | grep -v dist \

@@ -622,3 +622,31 @@ class TestKnowledgeGraphServiceDelete:
         mock_probe.knowledge_graph_deleted.assert_called_once_with(
             kg_id=kg.id.value,
         )
+
+    @pytest.mark.asyncio
+    async def test_delete_rolls_back_on_ds_deletion_failure(
+        self, service, mock_authz, mock_kg_repo, mock_ds_repo, user_id, tenant_id
+    ):
+        """delete() propagates exception and never deletes KG when a DS deletion fails.
+
+        Verifies the atomicity guarantee: if any data source deletion raises, the
+        exception propagates out of the transaction block before kg_repo.delete is
+        reached, so the KG record is not deleted.  The underlying SQLAlchemy
+        ``async with session.begin():`` will roll back the database transaction
+        automatically on exception; this test confirms the service-layer ordering
+        that makes rollback meaningful.
+        """
+        kg = _make_kg(tenant_id=tenant_id)
+        ds1 = MagicMock()
+        ds2 = MagicMock()
+        mock_authz.check_permission.return_value = True
+        mock_kg_repo.get_by_id.return_value = kg
+        mock_ds_repo.find_by_knowledge_graph.return_value = [ds1, ds2]
+        # First DS deletes successfully; second raises a DB error mid-cascade
+        mock_ds_repo.delete.side_effect = [None, RuntimeError("DB failure")]
+
+        with pytest.raises(RuntimeError, match="DB failure"):
+            await service.delete(user_id=user_id, kg_id=kg.id.value)
+
+        # KG must NOT have been deleted — the transaction rolls back
+        mock_kg_repo.delete.assert_not_called()

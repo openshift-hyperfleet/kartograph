@@ -101,6 +101,13 @@ class TestGraphMutationServiceApplyMutations:
         assert saved_type_def.entity_type == EntityType.NODE
         assert saved_type_def.description == "A person in the organization"
 
+        # System properties must be automatically added to required_properties
+        # per spec: system properties (data_source_id, source_path, slug) are
+        # automatically added to required properties for node types.
+        assert "data_source_id" in saved_type_def.required_properties
+        assert "source_path" in saved_type_def.required_properties
+        assert "slug" in saved_type_def.required_properties
+
     def test_apply_mutations_emits_probe_events(self):
         """Should emit probe events for successful mutations."""
         from graph.application.services import GraphMutationService
@@ -522,7 +529,10 @@ class TestGraphMutationServiceApplyFromJSONL:
         assert operations[0].op == MutationOperationType.CREATE
 
     def test_returns_error_on_invalid_json(self):
-        """Should return error result for invalid JSON."""
+        """Should return error result for invalid JSON with line number and content preview.
+
+        Spec: 'the error is reported with the line number and a content preview'.
+        """
         from graph.application.services import GraphMutationService
 
         mock_applier = Mock()
@@ -540,7 +550,19 @@ class TestGraphMutationServiceApplyFromJSONL:
         assert result.success is False
         assert result.operations_applied == 0
         assert len(result.errors) > 0
-        assert "JSON" in result.errors[0] or "parse" in result.errors[0].lower()
+
+        # Error message must include both parse indicator and the line number
+        first_error = result.errors[0]
+        assert "JSON" in first_error or "parse" in first_error.lower()
+        assert "1" in first_error, "Error message must include the line number (line 1)"
+
+        # A second error entry must provide the content preview
+        assert len(result.errors) >= 2, (
+            "Expected a second error entry with a content preview"
+        )
+        assert "line content" in result.errors[1].lower(), (
+            "Second error entry must include 'Line content:' preview"
+        )
 
     def test_returns_error_on_invalid_mutation_operation(self):
         """Should return error result for invalid MutationOperation."""

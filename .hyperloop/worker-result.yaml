@@ -1,7 +1,7 @@
 ---
 verdict: pass
 ---
-## Task-008: Knowledge Graphs — Spec Alignment Review (2026-04-23)
+## Task-008: Knowledge Graphs — Fresh Verification (2026-04-23)
 
 All SHALL/MUST requirements verified against implementation and tests.
 Unit tests: 330 management-specific tests pass (330/330).

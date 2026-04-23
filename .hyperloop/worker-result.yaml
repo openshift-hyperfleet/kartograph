@@ -1,78 +1,51 @@
 ---
 verdict: pass
 ---
-## task-003 Graph Mutations — Independent Verification
+## task-003 Graph Mutations — Spec Alignment Review
 
-### Checks
-
-**1. Unit Tests — PASS**
+### Test Suite
 ```
-2018 passed, 36 warnings in 39.49s
+217 graph unit tests — 217 passed, 0 failed, 1 warning in 2.31s
 ```
-All 2018 unit tests pass with zero failures or errors. Graph-specific tests: 217 (including new task-003 tests).
-
-**2. Linting (ruff check) — PASS**
-Zero violations across 441 files.
-
-**3. Formatting (ruff format --check) — PASS**
-441 files already formatted.
-
-**4. Type Checking (mypy) — PASS**
-```
-Success: no issues found in 441 source files
-```
-
-**5. Architecture Boundary Tests — PASS**
-```
-40 passed in 0.20s
-```
-All pytest-archon DDD boundary tests pass.
-
-**6. Integration Tests — NOT RUN**
-Task does not require integration tests at this review cycle (no infrastructure spin-up was performed). Unit tests and route tests with fakes provide sufficient coverage for the changed surface area.
-
-**7. Code Review — PASS**
-
-**Commits reviewed:** 9 task-003 commits (`ecc0547a`, `688379ff`, `b4284307`, `1920f4b0`, `57497b84`, `3b40ee7b`, `ee11b229`, `e70da33e`, `238f89ba`). All carry `Spec-Ref: specs/graph/mutations.spec.md@…` and `Task-Ref: task-003` trailers. Conventional commit format followed throughout.
-
-**Changed files:** `graph_mutation_service.py`, `dependencies.py`, `value_objects.py`, `age_bulk_loading/queries.py`, `age_client.py`, `routes.py`, plus corresponding test files.
-
-**Domain Probes:** No direct `logger.*` or `print()` calls introduced. Observability routed through existing probe pattern.
-
-**MagicMock usage:** Three occurrences in `test_mutation_applier_sort.py` — used exclusively to instantiate `MutationApplier` so that `_sort_operations` (a pure algorithm) can be called without real infrastructure. The mocks are never interacted with (no `.assert_called_*`, no configured return values). `FakeAuthorizationProvider` — a proper protocol-conformant fake — is used for the authorization boundary in route tests. This is consistent with the project's fake-over-mock policy (mocks for pure instantiation scaffolding only, fakes for collaborators under test).
-
-**Secrets / hardcoded values:** None.
-
-**DDD layer violations:** None. `graph.presentation` imports from `iam.application.value_objects` (allowed — same-level cross-context read of a value object), `infrastructure.authorization_dependencies` (allowed — infrastructure plumbing at the presentation composition root). Architecture tests confirm no boundary leaks.
 
 ### Spec Requirement Coverage
 
-| Requirement | Status |
-|---|---|
-| Per-Tenant Graph Isolation (`tenant_{tenant_id}`) | PASS |
-| KnowledgeGraph Scoping — edit permission (SpiceDB → 403) | PASS |
-| KnowledgeGraph ID stamping (anti-spoofing) | PASS |
-| JSONL valid parsing | PASS |
-| JSONL parse error with line number + preview | PASS |
-| JSONL empty line skipping | PASS |
-| DEFINE node type with system properties | PASS |
-| DEFINE edge type with system properties | PASS |
-| CREATE new node (idempotent) | PASS |
-| CREATE idempotent merge (JSONB || operator) | PASS |
-| CREATE edge with start_id/end_id | PASS |
-| CREATE missing type definition rejected | PASS |
-| CREATE missing required properties rejected | PASS |
-| CREATE schema learning (optional properties) | PASS |
-| UPDATE set properties | PASS |
-| UPDATE remove properties | PASS |
-| UPDATE schema learning | PASS |
-| DELETE node (cascading DETACH DELETE) | PASS |
-| DELETE edge (edge only) | PASS |
-| Mandatory system props — node CREATE (data_source_id, source_path, slug, knowledge_graph_id) | PASS |
-| Mandatory system props — edge CREATE (data_source_id, source_path, knowledge_graph_id) | PASS |
-| Deterministic IDs ({type}:{16_hex_chars}) | PASS |
-| Referential Integrity Ordering (DEFINE→DELETE→CREATE→UPDATE) | PASS |
+| Requirement | Scenario | Code | Test | Status |
+|---|---|---|---|---|
+| Per-Tenant Graph Isolation | Tenant graph routing | `dependencies.get_tenant_graph_name()` → `tenant_{tenant_id}`; `get_age_graph_client()` scopes client to this name | `TestTenantGraphRouting.test_graph_client_uses_tenant_specific_graph_name`, `test_graph_name_uses_full_tenant_id` | COVERED |
+| KnowledgeGraph Scoping | Mutation authorization (edit permission → 403) | `apply_kg_mutations()` in `routes.py` calls `authz.check_permission(..., Permission.EDIT, ...)` before processing | `test_kg_mutations_route_forbidden_without_edit_permission`, `test_kg_mutations_route_accessible_with_edit_permission`, `test_kg_mutations_route_checks_correct_resource` | COVERED |
+| KnowledgeGraph Scoping | KG ID stamping (anti-spoofing) | `_stamp_knowledge_graph_id()` overwrites caller-supplied value before validation; service passes `knowledge_graph_id` from route | `TestKnowledgeGraphIdStamping.*` (5 tests); `test_overwrites_caller_provided_knowledge_graph_id` specifically tests spoofing | COVERED |
+| Mutation Log Format | Valid JSONL | `apply_mutations_from_jsonl()` splits on `\n`, parses each line, applies in order | `test_parses_jsonl_and_applies_mutations` | COVERED |
+| Mutation Log Format | Parse error with line number + content preview | `json.JSONDecodeError` caught; error includes `line {line_num}` and `Line content:` preview | `test_returns_error_on_invalid_json` (asserts "1" in error and "line content" in second error) | COVERED |
+| Mutation Log Format | Empty lines skipped | `if not line: continue` in JSONL parser | `test_handles_whitespace_only_lines` | COVERED |
+| DEFINE Operation | Define node type with system properties | `apply_mutations()` calls `get_system_properties_for_entity(EntityType.NODE)` → adds `data_source_id`, `source_path`, `slug` to required_properties | `test_apply_mutations_stores_define_operations` (asserts all 3 system props) | COVERED |
+| DEFINE Operation | Define edge type with system properties | `get_system_properties_for_entity(EntityType.EDGE)` → adds `data_source_id`, `source_path`, NOT `slug` | `test_apply_define_edge_type_adds_edge_system_properties` (asserts data_source_id, source_path present; slug absent) | COVERED |
+| CREATE Operation | Create new node | `MutationApplier.apply_batch()` → `AgeBulkLoadingStrategy` executes node creation | `test_create_node_valid`, `test_accepts_create_with_define_in_repository` | COVERED |
+| CREATE Operation | Idempotent merge (existing node) | `AgeQueryBuilder._build_update_existing_query()` uses JSONB `||` merge operator | `TestUpdateExistingQueryMergeSemantics.test_uses_jsonb_merge_operator_not_simple_assignment`, `test_does_not_overwrite_with_staging_properties_alone` | COVERED |
+| CREATE Operation | Create edge with start_id/end_id | `validate_operation()` requires `start_id` and `end_id` for edge CREATE | `test_create_edge_valid`, `test_create_edge_requires_start_and_end_id` | COVERED |
+| CREATE Operation | Missing type definition rejected | `apply_mutations()` checks `defines_in_batch` and `type_def_repository.get()`; returns failure if both None | `test_rejects_create_without_define_in_batch` | COVERED |
+| CREATE Operation | Missing required properties rejected | `apply_mutations()` validates required props from stored type def | `test_rejects_create_missing_required_properties` | COVERED |
+| CREATE Operation | Schema learning | `_discover_optional_properties()` adds extra props to type def's optional_properties | `TestSchemaLearning.test_extra_properties_added_to_optional` | COVERED |
+| UPDATE Operation | Set properties | `MutationOperation` accepts `set_properties` for UPDATE; delegated to strategy | `test_update_with_set_properties` | COVERED |
+| UPDATE Operation | Remove properties | `MutationOperation` accepts `remove_properties` for UPDATE | `test_update_with_remove_properties` | COVERED |
+| UPDATE Operation | Schema learning on update | `_discover_optional_properties()` also processes UPDATE ops | `TestSchemaLearning.test_update_discovers_optional_properties` | COVERED |
+| DELETE Operation | Delete node (cascading detach delete) | `AgeQueryBuilder.delete_node_with_detach()` executes 2 queries: edges first, then node | `TestDeleteNodeWithDetach.test_executes_two_queries`, `test_edge_deletion_references_start_and_end_id` | COVERED |
+| DELETE Operation | Delete edge only | `AgeQueryBuilder.delete_edge()` executes single query | `TestDeleteEdge.test_executes_single_query` | COVERED |
+| Mandatory System Properties | Node CREATE: data_source_id, source_path, slug, knowledge_graph_id | `validate_operation()` checks all 4 system props for node CREATE | `test_create_requires_data_source_id`, `test_create_requires_source_path`, `test_create_node_requires_slug`, `test_create_node_requires_knowledge_graph_id` | COVERED |
+| Mandatory System Properties | Edge CREATE: data_source_id, source_path, knowledge_graph_id | `validate_operation()` checks 3 system props for edge CREATE (no slug) | `test_create_edge_requires_knowledge_graph_id`, `TestCreateDefineValidationInBatch.test_edge_does_not_require_slug` | COVERED |
+| Deterministic Entity IDs | ID format `{type}:{16_hex_chars}` | `ID_REGEX = r"^[0-9a-z_]+:[0-9a-f]{16}$"` enforced via Pydantic field pattern | `test_id_pattern_validation` (rejects invalid), `test_id_accepts_valid_pattern` (accepts valid) | COVERED |
+| Referential Integrity Ordering | DEFINE → DELETE(edge→node) → CREATE(node→edge) → UPDATE | `MutationApplier._sort_operations()` uses sort key (op_priority, type_priority) | `TestSortOperationsReferentialIntegrity.test_sort_order_define_delete_create_update` (full 6-op ordering test) | COVERED |
+
+### Additional Findings
+
+**NFR: Observability** — Domain probes used throughout (`GraphServiceProbe`, `MutationProbe`). No `logger.*` or `print()` calls introduced. `DefaultGraphServiceProbe` and `DefaultMutationProbe` emit structured events.
+
+**NFR: Architecture boundaries** — `graph.presentation` imports `iam.application.value_objects` (valid cross-context read) and `infrastructure.authorization_dependencies` (valid infrastructure composition root). No domain layer imports presentation or infrastructure directly.
+
+**NFR: Testing** — `FakeAuthorizationProvider` in `test_routes.py` is a proper protocol-conformant fake (implements all `AuthorizationProvider` methods). `MagicMock` used only for instantiation scaffolding in sort tests where no mock behavior is exercised. Consistent with the project's fake-over-mock policy.
+
+**KnowledgeGraph ID spoofing prevention** — Stamping occurs before validation, so the system's authoritative `knowledge_graph_id` is present when `validate_operation()` is called. Callers cannot bypass this by omitting or overriding the field.
 
 ### Verdict: PASS
 
-All 23 spec scenarios are implemented and tested. All automated checks pass. Code quality is high — TDD Red/Green cycle is evident from the commit history, fakes are used for application-layer collaborators, and domain probes replace direct logging. No blocking findings.
+All 23 SHALL/MUST requirements from `specs/graph/mutations.spec.md` are implemented in code and covered by tests. All 217 graph unit tests pass. No blocking findings.

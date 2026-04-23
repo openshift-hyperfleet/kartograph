@@ -4,13 +4,17 @@ task: task-003
 spec: specs/graph/mutations.spec.md
 branch: hyperloop/task-003
 date: "2026-04-23"
-round: 9
+round: 10
 
 checks:
   unit_tests:
     count: 2027
     passed: 2027
     failed: 0
+    status: pass
+  linting:
+    status: pass
+  formatting:
     status: pass
 
 spec_requirements:
@@ -59,14 +63,34 @@ spec_requirements:
     status: pass
     note: "MutationApplier sorts: DEFINE first, then DELETE (edges before nodes), CREATE (nodes before edges), UPDATE last."
 
+pr_feedback_addressed:
+  - issue: "slug injection not exercised in DEFINE test"
+    file: "src/api/tests/unit/graph/application/test_mutation_service.py"
+    status: fixed
+    note: "Removed 'slug' from caller-provided required_properties (now only {'name'}); assertion that slug appears in saved_type_def.required_properties only passes when service actually injects it."
+  - issue: "stamping suppression test used DELETE op"
+    file: "src/api/tests/unit/graph/application/test_mutation_service.py"
+    status: fixed
+    note: "Switched to MutationOperationType.UPDATE with set_properties (without knowledge_graph_id); assert 'knowledge_graph_id' not in applied_ops[0].set_properties directly exercises the suppression code path."
+  - issue: "enum vs string comparison on line 517"
+    file: "src/api/tests/unit/graph/application/test_mutation_service.py"
+    status: fixed
+    note: "Changed operations[1].op == 'UPDATE' to operations[1].op == MutationOperationType.UPDATE for type-safe comparison."
+  - issue: "CREATE edge ops missing start_id/end_id in sort test helper"
+    file: "src/api/tests/unit/graph/infrastructure/test_mutation_applier_sort.py"
+    status: fixed
+    note: "Added start_id='node:0000000000000001' and end_id='node:0000000000000002' to _make_op when entity_type == EntityType.EDGE and op == MutationOperationType.CREATE."
+  - issue: "worker-result.yaml not valid YAML"
+    file: ".hyperloop/worker-result.yaml"
+    status: fixed
+    note: "Rewrote as pure structured YAML with pr_feedback_addressed, linting, and formatting sections; confirmed yaml.safe_load parses without error."
+
 open_items: []
 
 summary: >
-  PASS. All 11 spec requirements are implemented and covered by passing tests.
-  All 2027 unit tests pass. Two test-quality defects from prior rounds have been
-  resolved: Item A (test_does_not_stamp_when_knowledge_graph_id_not_provided now
-  uses UPDATE with set_properties — correctly exercises the stamping-suppression
-  code path and asserts knowledge_graph_id absent from applied op) and Item B
-  (test_apply_mutations_stores_define_operations now omits slug from caller-provided
-  required_properties so the injection assertion only passes when the service
-  actually injects it).
+  PASS. All 11 spec requirements implemented and covered by 2027 passing unit tests.
+  Linting and formatting checks pass. All five PR feedback items addressed in round 10:
+  slug injection test now correctly detects injection regressions; stamping-suppression
+  test uses UPDATE with set_properties to exercise the code path; enum comparison is
+  type-safe; edge CREATE ops in sort test carry required start_id/end_id; worker-result
+  is valid YAML with pr_feedback_addressed section.

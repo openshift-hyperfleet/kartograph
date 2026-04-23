@@ -2,99 +2,120 @@
 verdict: pass
 ---
 
-## Task-021: API Keys — Worker Result
+## Task-021: API Keys — Independent Verification
 
 ### Date: 2026-04-23
 ### Branch: hyperloop/task-021
+### Reviewer: independent verification pass
 
 ---
 
-## Summary
+## Verification Checks
 
-All 6 SHALL requirements and all 15 scenarios from `specs/iam/api-keys.spec.md`
-are implemented and verified. All 2031 unit tests pass (934 IAM-specific).
-
----
-
-## Verification
-
-### Test Results
-
+### 1. Unit Tests — PASS
 ```
-2031 passed, 38 warnings in 38.59s
+2031 passed, 39 warnings in 44.64s
+```
+Zero failures, zero errors.
+
+### 2. Linting (ruff check) — PASS
+```
+All checks passed!
 ```
 
-IAM-specific: 934 passed.
+### 3. Formatting (ruff format --check) — PASS
+```
+442 files already formatted
+```
+
+### 4. Type Checking (mypy) — PASS
+```
+Success: no issues found in 442 source files
+```
+
+### 5. Architecture Boundary Tests — PASS
+```
+40 passed in 0.20s
+```
+All DDD layer rules enforced.
+
+### 6. Check Scripts — PASS (false positives excluded)
+
+- `check-failure-path-tests.sh specs/iam/api-keys.spec.md`: PASS — no failure-path conditions in spec
+- `check-idempotency-tests.sh specs/iam/api-keys.spec.md`: PASS — no idempotency conditions in spec
+- `check-no-coming-soon-stubs.sh`: reported failures are from `.venv/` library internals and a
+  pre-existing `dev-ui/layouts/default.vue` UI label — none introduced by this branch.
+  `git diff alpha...HEAD --name-only` confirms zero `dev-ui/` changes in this PR.
+- `check-no-future-placeholder-comments.sh`: reported `# TODO: implement` hits are all in
+  `.venv/` third-party packages (authlib, celpy). Not a task-021 regression.
+- `check-frontend-*`: pre-existing; dev-ui has no vitest setup. Not in scope for this task.
+
+### 7. Code Review — PASS
+
+**Diff scope** (`git diff alpha...HEAD --name-only`):
+- `src/api/tests/unit/iam/application/test_tenant_service.py` — 6 cascade deletion tests added
+- `src/api/tests/unit/iam/presentation/test_api_key_routes.py` — default expiration test added
+- `src/api/tests/integration/test_api_key_auth.py` — expired-key 401 + revoked-visible-in-listing tests
+- `.hyperloop/worker-result.yaml` — review artifacts only
+- `.agent-memory/spec-alignment-reviewer.md` — review artifacts only
+
+No production source files changed. This branch closes spec coverage gaps with tests only.
+
+**Findings:**
+- No direct `logger.*`/`print()` usage in diff ✓
+- `AsyncMock` usage in `test_tenant_service.py` is consistent with the established pattern throughout
+  the existing test suite (all existing `TestDeleteTenant` tests use the same approach on
+  `Mock(spec=IRepository)` fixtures). Not a regression. ✓
+- All imports are within correct DDD layer boundaries ✓
+- Conventional commit format: `test(iam):` prefix ✓
+- Spec-Ref (`specs/iam/api-keys.spec.md@2a791cdb...`) and Task-Ref (`task-021`) trailers present
+  on both implementation commits ✓
+- Test fixture `plaintext_secret` string annotated with `# gitleaks:allow` — correctly handled ✓
 
 ---
 
-## Requirement Coverage
+## Spec Coverage (all 6 SHALL requirements, all 15 scenarios)
 
 ### 1. API Key Creation — COVERED
-
-- `karto_` prefix: `iam/application/security.py` → `generate_api_key_secret()`
+- `karto_` prefix: `iam/application/security.py::generate_api_key_secret()`
 - Bcrypt hash (work factor 12): `hash_api_key_secret()`
-- 12-char prefix: `extract_prefix()`
-- Plaintext returned once: `api_key_service.py` returns `(APIKey, plaintext)` tuple
+- 12-char prefix stored: `extract_prefix()`
+- Plaintext returned once: service returns `(APIKey, plaintext)` tuple
 - Duplicate name → 409: unique constraint `(tenant_id, created_by_user_id, name)`
-- Expiration 1–3650 days, default 30: Pydantic `Field(default=30, ge=1, le=3650)`
-
-Tests: `test_api_key_service.py`, `test_api_key_routes.py`, `test_security.py`
+- Expiration 1–3650 days, **default 30**: `Field(30, ge=1, le=3650)` in `models.py`
+- **New test:** `test_uses_default_expires_in_days_of_30` verifies default propagates to service
 
 ### 2. API Key Authentication — COVERED
-
 - Valid key → authenticated + `last_used_at` updated: `validate_and_get_key()` in service
-- Expired key → 401: `APIKey.is_valid()` checks expiration
+- **New integration test:** expired key → 401 via direct DB insert (bypasses route minimum)
 - Revoked key → 401: `APIKey.is_valid()` checks `is_revoked`
-- JWT takes precedence: `_authenticate()` checks Bearer first, never falls through
-- Prefix collision → error-level log: `api_key_prefix_collision()` probe at error level
-
-Tests: `test_api_key_service.py`, `test_authenticate_dependency.py`,
-       `test_api_key_repository.py`
+- JWT takes precedence: Bearer checked first in `_authenticate()`
+- Prefix collision → error-level log: `api_key_prefix_collision()` DOO probe at error level
 
 ### 3. API Key Listing — COVERED
-
 - Metadata returned (name, prefix, created_at, expires_at, last_used_at, is_revoked)
 - No secrets in response: `APIKeyResponse` excludes `secret` and `key_hash`
 - Filter by `user_id`: optional `created_by_user_id` param passed to repository
 
-Tests: `test_api_key_routes.py`, `test_api_key_service.py`
-
 ### 4. API Key Revocation — COVERED
-
 - Owner revokes own key: SpiceDB `owner` relation → `revoke` permission
-- Tenant admin revokes any key: SpiceDB `tenant->administrate`
+- Tenant admin revokes any key: `tenant->administrate` relation
 - Already revoked → 409: `APIKeyAlreadyRevokedError` mapped to 409
 - Unauthorized → 403: `UnauthorizedError` mapped to 403
-- Revoked key visible with `is_revoked=True`: soft revocation, row retained
-
-Tests: `test_api_key_service.py`, `test_api_key_routes.py`,
-       `test_api_key_aggregate.py`
+- **New integration test:** revoked key visible in listing with `is_revoked=True`
+  (chains create → process-outbox → revoke → list)
 
 ### 5. API Key Cascade Deletion — COVERED
-
-- Tenant deletion → keys deleted: `tenant_service.py` lists and marks all keys
-- `mark_for_deletion()` emits `APIKeyDeleted` event
-- Outbox translator converts `APIKeyDeleted` → SpiceDB `DeleteRelationship` ops
-
-Tests: `test_tenant_service.py` (6 cascade-specific tests)
+- Tenant deletion cascades to API keys: `tenant_service.py` lists and deletes all keys
+- **6 new cascade tests:** single key, multiple keys, event emission, repo query, probe,
+  ordering (keys deleted before tenant)
 
 ### 6. API Key Name Validation — COVERED
-
-- Valid name (1–255 chars): Pydantic `Field(min_length=1, max_length=255)`
-- Empty name → 422: `min_length=1` enforced by Pydantic
-
-Tests: `test_api_key_routes.py`
+- Valid name (1–255 chars): `Field(min_length=1, max_length=255)`
+- Empty name → 422: enforced by Pydantic
 
 ---
 
-## Architecture Compliance
-
-- Domain layer: pure Python, no framework imports
-- Ports: Protocol-based interfaces
-- Application: depends only on domain + ports
-- Infrastructure: implements ports
-- Presentation: FastAPI routes with Pydantic models
-- Observability: Domain-Oriented Observability (DOO) probes throughout
-
-Verdict: **PASS** — All spec requirements implemented, tested, and passing.
+Verdict: **PASS** — All numbered checks pass. All 6 SHALL requirements and 15 spec scenarios
+are implemented and covered. Check script failures are pre-existing false positives not
+introduced by this branch.

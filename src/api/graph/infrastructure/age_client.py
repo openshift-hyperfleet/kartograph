@@ -58,6 +58,7 @@ class AgeGraphClient(GraphClientProtocol):
         settings: DatabaseSettings,
         connection_factory: ConnectionFactory | None = None,
         probe: GraphClientProbe | None = None,
+        graph_name: str | None = None,
     ):
         """Initialize the AGE graph client.
 
@@ -65,10 +66,13 @@ class AgeGraphClient(GraphClientProtocol):
             settings: Database connection settings
             connection_factory: Optional connection factory (required for pooled mode)
             probe: Optional observability probe
+            graph_name: Optional graph name override. When provided, overrides
+                ``settings.graph_name``. Use this for per-tenant graph isolation
+                (e.g., ``"tenant_t1"``). Defaults to ``settings.graph_name``.
         """
         self._settings = settings
         self._connection_factory = connection_factory
-        self._graph_name = settings.graph_name
+        self._graph_name = graph_name if graph_name is not None else settings.graph_name
         self._connected = False
         self._current_connection: PsycopgConnection | None = None
         self._probe = probe or DefaultGraphClientProbe()

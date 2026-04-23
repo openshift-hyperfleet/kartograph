@@ -3,7 +3,7 @@ id: task-008
 title: Implement Management REST API for Knowledge Graphs
 spec_ref: specs/management/knowledge-graphs.spec.md@85d49a379a52479b33f9b39994d76795066899a6
 status: in-progress
-phase: pr-feedback-addressed
+phase: merge-pr
 deps: []
 round: 2
 branch: hyperloop/task-008

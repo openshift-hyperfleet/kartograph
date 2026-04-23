@@ -38,3 +38,10 @@
 **Action:** (1) ParentWorkspaceNotFoundError and ParentWorkspaceCrossTenantError confirmed present in iam/ports/exceptions.py lines 103-123 with docstrings. workspace_service.py raises them at lines 165 and 171. routes.py imports both at lines 18-19, catches them in single except clause at lines 87-93, advertises 404 in OpenAPI responses map at line 57. Tests in test_workspace_service.py (lines 203, 234) and test_workspaces_routes.py (lines 198, 225) assert typed exceptions — no string parsing. (2) Architecture test test_management_does_not_import_iam uses three targeted exclusions: management.presentation.knowledge_graphs.routes*, management.presentation.knowledge_graphs, management.presentation — NOT the blanket management.presentation* — confirmed in test_architecture.py lines 249-253. management.presentation.knowledge_graphs.models is NOT excluded. 2066 unit tests pass.
 
 **Context:** All spec requirements verified. No deviations found in this independent pass.
+
+### 2026-04-23 | task-008 gate-7 spec alignment — full per-requirement pass
+**Pattern:** Full spec alignment review covering all 6 SHALL requirements and 11 scenarios plus 3 MAJOR PR feedback items. All verified COVERED with specific test citations.
+
+**Action:** Verdict PASS. Wrote complete per-requirement report to worker-result.yaml with file+line citations for each scenario. 334 management unit tests pass.
+
+**Context:** Architecture exclusion: 4 targeted entries in test_architecture.py lines 248-253, NOT broad management.presentation*. Typed exceptions: iam/ports/exceptions.py lines 103-123. TestListAllKnowledgeGraphs: test_knowledge_graph_routes.py line 358 (4 tests). Cascade delete with credential cleanup: test_delete_cascades_encrypted_credentials at service test line 700.

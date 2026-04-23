@@ -58,7 +58,7 @@ fi
 ui_source_count=$(find "$UI_SOURCE_DIR" \
   \( -name "*.vue" -o -name "*.ts" -o -name "*.js" \) 2>/dev/null \
   | grep -v node_modules \
-  | grep -v ".nuxt" \
+  | grep -v "\.nuxt" \
   | grep -v dist \
   | wc -l || echo 0)
 
@@ -75,7 +75,7 @@ test_files=$(find "$UI_TEST_DIR" \
   \( -name "*.test.ts" -o -name "*.spec.ts" -o -name "*.test.js" -o -name "*.spec.js" \) \
   2>/dev/null \
   | grep -v node_modules \
-  | grep -v ".nuxt" \
+  | grep -v "\.nuxt" \
   | grep -v dist \
   | head -20 || true)
 

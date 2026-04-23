@@ -59,10 +59,11 @@ if [[ -z "$task_ui_changes" ]]; then
 fi
 
 # If there are no UI source files, nothing to enforce.
+# NOTE: counts *.vue, *.ts, AND *.js — same file-type set as task_ui_changes above.
 ui_source_count=$(find "$UI_DIR" \
   \( -name "*.vue" -o -name "*.ts" -o -name "*.js" \) 2>/dev/null \
   | grep -v node_modules \
-  | grep -v ".nuxt" \
+  | grep -v "\.nuxt" \
   | grep -v dist \
   | wc -l || echo 0)
 

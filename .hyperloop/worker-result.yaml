@@ -1,75 +1,100 @@
 ---
 verdict: pass
-details: |
-  ## task-003: Graph Mutations — PR Feedback Round 5 (2026-04-23)
+task: task-003
+spec: specs/graph/mutations.spec.md
+branch: hyperloop/task-003
+date: "2026-04-23"
+round: 6
 
-  Spec: `specs/graph/mutations.spec.md`
-  Branch: `hyperloop/task-003`
-  Unit tests run: 2027 — ALL PASS
+checks:
+  unit_tests:
+    count: 2027
+    passed: 2027
+    failed: 0
+    status: pass
+  linting:
+    tool: ruff check
+    violations: 0
+    status: pass
+  formatting:
+    tool: ruff format --check
+    files_checked: 441
+    status: pass
+  type_checking:
+    tool: mypy
+    errors: 0
+    files_checked: 441
+    status: pass
+  architecture_boundary_tests:
+    count: 40
+    status: pass
 
-  ### Verification Checklist
+spec_requirements:
+  - id: 1
+    name: Per-Tenant Graph Isolation
+    status: pass
+  - id: 2
+    name: KnowledgeGraph Scoping and Authorization
+    status: pass
+  - id: 3
+    name: KnowledgeGraph ID Stamping
+    status: pass
+  - id: 4
+    name: Mutation Log Format
+    status: pass
+  - id: 5
+    name: DEFINE Operation
+    status: pass
+  - id: 6
+    name: CREATE Operation
+    status: pass
+  - id: 7
+    name: UPDATE Operation
+    status: pass
+  - id: 8
+    name: DELETE Operation
+    status: pass
+  - id: 9
+    name: Mandatory System Properties
+    status: pass
+  - id: 10
+    name: Deterministic Entity IDs
+    status: pass
+  - id: 11
+    name: Referential Integrity Ordering
+    status: pass
 
-  1. Unit tests (2027): PASS — 0 failures, 0 errors
-  2. Linting (ruff check): PASS — 0 violations
-  3. Formatting (ruff format --check): PASS — 441 files already formatted
-  4. Type checking (mypy): PASS — 0 errors in 441 source files
-  5. Architecture boundary tests: PASS — 40 tests pass
+pr_feedback_items:
+  - id: 1
+    description: "worker-result.yaml YAML validity"
+    resolution: fixed
+    note: "Restructured to pure structured YAML; no Markdown block scalars."
+  - id: 2
+    description: "test_mutation_applier_sort.py missing start_id/end_id for edge CREATE"
+    resolution: fixed
+    commit: c7ec6f6c
+    note: "_make_op injects start_id and end_id for EntityType.EDGE CREATE ops."
+  - id: 3
+    description: "test_mutation_service.py enum vs string inconsistency (line 517)"
+    resolution: fixed
+    commit: 2a39aed0
+    note: "Line 517 now uses MutationOperationType.UPDATE enum, not raw string."
+  - id: 4
+    description: "routes.py error_kind field inference"
+    resolution: fixed
+    commit: 9c95110f
+    note: "_build_mutation_error_response uses explicit result.error_kind field."
+  - id: 5
+    description: "value_objects.py knowledge_graph_id error message clarity"
+    resolution: fixed
+    note: "Error message at lines 268-273 explains stamping is conditional on apply_mutations(knowledge_graph_id=...)."
+  - id: 6
+    description: "_stamp_knowledge_graph_id for DELETE/UPDATE match_properties"
+    resolution: non-actionable
+    note: "MutationOperation has no match_properties field. Spec scopes KG ID stamping to CREATE/UPDATE set_properties only. DELETE auth enforced via SpiceDB edit permission at route level."
+  - id: 7
+    description: ".hyperloop/state/tasks/task-003.md PR reference"
+    resolution: non-actionable
+    note: "Files under .hyperloop/state/ are managed exclusively by the orchestrator on trunk. Worker protocol prohibits modifications."
 
-  ### Round 5 Re-verification of Each PR Feedback Item
-
-  **Item 1 — worker-result.yaml YAML validity**
-  Re-verified with `uv run python -c "import yaml, pathlib; docs=list(yaml.safe_load_all(...))"`.
-  Parses as 1 document, dict with `verdict` and `details` keys. YAML is valid.
-  The `details: |` block scalar is standard YAML 1.2. NON-ISSUE confirmed.
-
-  **Item 2 — test_mutation_applier_sort.py start_id/end_id**
-  Re-verified: `_make_op` helper at lines 41-44 of
-  `tests/unit/graph/infrastructure/test_mutation_applier_sort.py`
-  injects `start_id="node:0000000000000001"` and `end_id="node:0000000000000002"`
-  for EDGE CREATE operations. Fix from commit c7ec6f6c confirmed present.
-
-  **Item 3 — test_mutation_service.py enum consistency**
-  Re-verified: Lines 516-517 of
-  `tests/unit/graph/application/test_mutation_service.py` use
-  `MutationOperationType.CREATE` and `MutationOperationType.UPDATE` (enum values).
-  Fix from commit 2a39aed0 confirmed present.
-
-  **Item 4 — routes.py error_kind field**
-  Re-verified: `_build_mutation_error_response` at line 56 of
-  `graph/presentation/routes.py` uses `result.error_kind == "validation"`.
-  Fix from commit 9c95110f confirmed present. No string inference.
-
-  **Item 5 — value_objects.py knowledge_graph_id error message**
-  Re-verified: Lines 268-273 of `graph/domain/value_objects.py` contain the
-  clear, instructive error message explaining both how the system stamps the
-  value and how callers should supply it. Message is actionable and informative.
-
-  **Item 6 — _stamp_knowledge_graph_id for DELETE/UPDATE**
-  Re-verified: Searched `graph/domain/value_objects.py` for `match_properties` —
-  no matches. `MutationOperation` has no `match_properties` field. The spec
-  (KnowledgeGraph Scoping requirement) limits stamping to CREATE/UPDATE operations.
-  DELETE authorization is enforced at the route level via SpiceDB `edit` permission.
-  NON-ACTIONABLE designation confirmed correct.
-
-  **Item 7 — .hyperloop/state/tasks/task-003.md PR reference**
-  NON-ACTIONABLE per worker protocol. Files under `.hyperloop/state/` are managed
-  exclusively by the orchestrator on trunk.
-
-  ### All 11 Spec Requirements Covered
-
-  1. Per-Tenant Graph Isolation — `tenant_{tenant_id}` routing: PASS
-  2. KnowledgeGraph Scoping & Authorization (SpiceDB edit check): PASS
-  3. KnowledgeGraph ID Stamping (service-authoritative, callers cannot spoof): PASS
-  4. Mutation Log Format (JSONL parse, error on bad line, skip blanks): PASS
-  5. DEFINE Operation (node/edge types, system props auto-added): PASS
-  6. CREATE Operation (idempotent merge, schema learning, validation): PASS
-  7. UPDATE Operation (set/remove properties, schema learning): PASS
-  8. DELETE Operation (cascading detach for nodes, edge-only for edges): PASS
-  9. Mandatory System Properties (data_source_id, source_path, slug, knowledge_graph_id): PASS
-  10. Deterministic Entity IDs ({type}:{16_hex_chars}): PASS
-  11. Referential Integrity Ordering (DEFINE->DELETE(edge/node)->CREATE(node/edge)->UPDATE): PASS
-
-  ### Verdict
-  PASS. All spec requirements covered. All 2027 unit tests pass.
-  All 7 PR feedback items re-verified. All actionable items are resolved.
-  Non-actionable items documented with clear rationale.
+summary: "All 11 spec requirements covered. All 2027 unit tests pass. All actionable PR feedback items resolved."

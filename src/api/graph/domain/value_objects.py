@@ -50,6 +50,13 @@ NODE_SYSTEM_PROPERTIES: frozenset[str] = frozenset({"slug"})
 # Currently empty, but defined for future extensibility
 EDGE_SYSTEM_PROPERTIES: frozenset[str] = frozenset()
 
+# Properties stamped by the platform (not derived from type definitions)
+# These are automatically stamped on CREATE/UPDATE operations by the service layer.
+# They are NOT auto-added to DEFINE required_properties (unlike COMMON/NODE system props),
+# but they ARE excluded from schema learning (not added to optional_properties).
+# The service always stamps these before validation; callers cannot spoof them.
+PLATFORM_STAMPED_PROPERTIES: frozenset[str] = frozenset({"knowledge_graph_id"})
+
 
 def get_system_properties_for_entity(entity_type: EntityType) -> frozenset[str]:
     """Get all system properties for a specific entity type.
@@ -252,6 +259,14 @@ class MutationOperation(BaseModel):
             if self.type == "edge":
                 if not self.start_id or not self.end_id:
                     raise ValueError("CREATE edge requires 'start_id' and 'end_id'")
+
+            # knowledge_graph_id is always stamped by the service layer — validate
+            # it is present (the service guarantees this before calling apply_batch).
+            if "knowledge_graph_id" not in self.set_properties:
+                raise ValueError(
+                    "CREATE requires 'knowledge_graph_id' in set_properties. "
+                    "The system stamps the correct value — callers must not omit it."
+                )
 
         elif self.op == "UPDATE":
             if not self.id:

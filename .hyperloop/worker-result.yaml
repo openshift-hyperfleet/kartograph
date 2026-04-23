@@ -1,74 +1,81 @@
 ---
-verdict: pass
+verdict: fail
 ---
-All checks pass for task-008 (Knowledge Graph REST API presentation layer).
+## Spec Alignment Review — Knowledge Graphs (task-008)
 
-## Check Results
+One SHALL requirement is implemented but incompletely — encrypted credential
+deletion is absent from the KG cascade delete path.
 
-### 1. Unit Tests — PASS
-2055 tests passed, 0 failures, 0 errors.
+## Requirement Coverage
 
-### 2. Linting (ruff check) — PASS
-Zero violations across all source files.
+### 1. Knowledge Graph Creation — COVERED
+- `management/application/services/knowledge_graph_service.py` lines 95–162
+- ULID ID: `management/domain/value_objects.py` KnowledgeGraphId.generate()
+- Authorization relationships (workspace + tenant) via outbox:
+  `management/infrastructure/outbox/translator.py` lines 119–147
+- Tests: TestKnowledgeGraphServiceCreate, TestCreateKnowledgeGraph,
+  TestManagementEventTranslatorKnowledgeGraphCreated
 
-### 3. Formatting (ruff format --check) — PASS
-448 files already formatted.
+### 2. Duplicate Name Within Tenant — COVERED
+- IntegrityError caught → DuplicateKnowledgeGraphNameError (service lines 154–162)
+- Test: test_create_raises_duplicate_on_integrity_error
+- Integration: TestKnowledgeGraphUniqueness::test_duplicate_name_in_same_tenant_raises_error
 
-### 4. Type Checking (mypy) — PASS
-Zero errors in 448 source files.
+### 3. Knowledge Graph Name Validation — COVERED
+- 1–100 chars enforced in domain aggregate lines 66–78
+- 422 responses for empty/oversized name in create and update routes
 
-### 5. Architecture Boundary Tests — PASS
-56 tests passed. All DDD layer boundaries respected.
-The management.presentation exclusion from the IAM import rule is
-correctly scoped and tested — presentation layer cross-context IAM
-dependency (CurrentUser) is explicitly permitted.
+### 4. Knowledge Graph Retrieval — COVERED
+- Returns None for both unauthorized and not-found (no existence leakage)
+- `management/application/services/knowledge_graph_service.py` lines 164–197
+- Tests: TestKnowledgeGraphServiceGet (5 scenarios), TestGetKnowledgeGraph
 
-### 6. Integration Tests — N/A
-Task-008 implements the REST API presentation layer only. No new
-infrastructure components require integration test coverage.
+### 5. Knowledge Graph Listing — COVERED
+- Workspace-scoped, authz-filtered via read_relationships
+- `management/application/services/knowledge_graph_service.py` lines 199–264
+- Tests: TestKnowledgeGraphServiceListForWorkspace, TestListKnowledgeGraphs
 
-### 7. Code Review — PASS
-- No direct logger/print usage (domain probes used throughout)
-- AsyncMock used with `spec=KnowledgeGraphService` at presentation
-  layer only — consistent with existing IAM route tests (project precedent)
-- All DDD layer boundaries enforced (architecture tests pass)
-- All 6 commits carry Spec-Ref and Task-Ref trailers
-- No hardcoded secrets or environment-specific values
+### 6. Knowledge Graph Update — COVERED
+- EDIT permission on KG required; name/desc updated and saved
+- `management/application/services/knowledge_graph_service.py` lines 266–325
+- Tests: TestKnowledgeGraphServiceUpdate, TestUpdateKnowledgeGraph
 
-## PR Feedback Status
+### 7. Knowledge Graph Deletion — PARTIAL
 
-The round-0 spec-reviewer identified one gap: the cascade-delete rollback
-path was implemented but not tested. This was addressed in commit
-`241c0df3` which adds `test_delete_rolls_back_on_ds_deletion_failure`.
-That test configures a two-DS cascade where the second `ds_repo.delete()`
-raises `RuntimeError` mid-transaction and asserts `kg_repo.delete` is
-never called — confirming service-layer ordering that makes SQLAlchemy
-auto-rollback meaningful.
+FAIL: The spec SHALL states cascade deletes "All data sources within it are
+deleted (including their encrypted credentials)."
 
-The `pr-feedback-addressed` check that caused the round-1 loopback
-was a false positive: all four PR comments are automated hyperloop
-"Approval Required" messages requesting the `lgtm` label — there is no
-human technical feedback that requires implementation changes.
+`KnowledgeGraphService.delete()` (lines 368–377) calls `ds_repo.delete(ds)`
+but never calls `secret_store.delete()`. Contrast with `DataSourceService.delete()`
+(lines 384–392) which explicitly deletes Vault credentials when
+`ds.credentials_path` is set. The KG service has no `ISecretStoreRepository`
+dependency at all.
 
-## .hyperloop/checks/ Scripts
+No test verifies that encrypted credentials are removed during KG cascade
+delete. `test_delete_cascades_data_sources` asserts only that `ds_repo.delete`
+is called, not that credentials are cleaned up.
 
-Failing scripts are pre-existing, outside task-008 scope:
-- `check-frontend-test-infrastructure.sh`: FAIL (vitest not in dev-ui) — pre-existing
-- `check-frontend-tests-exist.sh`: FAIL (no frontend tests) — pre-existing
-- `check-no-coming-soon-stubs.sh`: FAIL ("Coming Soon" for Data Sources nav item) — pre-existing, different task
-- `check-no-future-placeholder-comments.sh`: PASS
-- `check-failure-path-tests.sh`: requires spec file argument (not applicable here)
-- `check-idempotency-tests.sh`: requires spec file argument (not applicable here)
+What IS covered:
+- MANAGE permission check
+- Cascade data source DB record deletion
+- Atomic transaction / rollback-on-failure (`test_delete_rolls_back_on_ds_deletion_failure`)
+- Outbox events
+- AggregateDeletedError on mutation after deletion (`test_update_raises_after_deletion`)
 
-## Spec Requirement Coverage
+Required fix: `KnowledgeGraphService.__init__` must accept an
+`ISecretStoreRepository` and `delete()` must call
+`secret_store.delete(path=ds.credentials_path, tenant_id=...)` for each DS
+with a credentials_path before calling `ds_repo.delete(ds)`. A test must
+assert this behavior.
 
-All six requirements from specs/management/knowledge-graphs.spec.md are
-fully implemented and tested:
+### 8. Permission Inheritance — COVERED (schema-level)
+- SpiceDB schema: `shared_kernel/authorization/spicedb/schema.zed` lines 107–131
+  - view = admin + editor + viewer + workspace->view
+  - edit = admin + editor + workspace->edit
+  - manage = admin + workspace->manage
+- Schema design tests: TestKnowledgeGraphSchemaDesign (7 tests)
 
-1. Knowledge Graph Creation — PASS (201/409/403/422 paths all tested)
-2. Knowledge Graph Name Validation — PASS (1–100 char enforcement in domain + Pydantic)
-3. Knowledge Graph Retrieval — PASS (200/404 with no existence leakage)
-4. Knowledge Graph Listing — PASS (workspace-scoped, authz-filtered)
-5. Knowledge Graph Update — PASS (PATCH with edit permission guard)
-6. Knowledge Graph Deletion — PASS (atomic cascade, rollback path now tested)
-7. Permission Inheritance — PASS (SpiceDB schema + schema design tests)
+## NFR Compliance
+- Domain probes: PASS — no direct logger calls in service/domain layers
+- DDD boundaries: PASS — all 326 unit tests pass including architecture tests
+- Mocks: project-wide pattern (consistent with IAM tests); not a task-008 deviation

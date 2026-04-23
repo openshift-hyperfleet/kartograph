@@ -1,0 +1,66 @@
+verdict: pass
+
+task_ref: task-003
+spec_ref: specs/graph/mutations.spec.md
+
+summary: |
+  Implemented all spec requirements for the Graph bounded context's mutation
+  system. All 2013 unit tests pass. Three atomic commits were made:
+
+  1. ecc0547a – domain/service/infra implementation (value_objects, mutation
+     service, age_client)
+  2. 688379ff – presentation/DI layer (tenant graph routing, KG-scoped route
+     with SpiceDB auth)
+  3. b4284307 – test suite additions (stamping tests, route auth tests,
+     tenant isolation tests)
+
+changes:
+  - file: src/api/graph/domain/value_objects.py
+    description: |
+      Added PLATFORM_STAMPED_PROPERTIES constant (frozenset {"knowledge_graph_id"}).
+      Updated MutationOperation.validate_operation() to require knowledge_graph_id
+      in set_properties for all CREATE operations (both node and edge).
+
+  - file: src/api/graph/application/services/graph_mutation_service.py
+    description: |
+      Added _stamp_knowledge_graph_id() method that stamps knowledge_graph_id
+      on all CREATE/UPDATE operations before applying. Updated apply_mutations()
+      and apply_mutations_from_jsonl() to accept and forward knowledge_graph_id
+      parameter. Updated _discover_optional_properties() to exclude
+      PLATFORM_STAMPED_PROPERTIES from schema learning.
+
+  - file: src/api/graph/infrastructure/age_client.py
+    description: |
+      Updated AgeGraphClient.__init__() to accept optional graph_name parameter,
+      falling back to settings.graph_name when not provided.
+
+  - file: src/api/graph/dependencies.py
+    description: |
+      Added get_tenant_graph_name() that returns "tenant_{tenant_id}" for
+      per-tenant AGE graph isolation. Updated get_age_graph_client() to
+      derive and pass the tenant-specific graph name.
+
+  - file: src/api/graph/presentation/routes.py
+    description: |
+      Added POST /graph/knowledge-graphs/{knowledge_graph_id}/mutations route
+      with SpiceDB edit permission check on knowledge_graph:{id}. Returns 403
+      when user lacks edit permission (service never called). Forwards
+      knowledge_graph_id to service for stamping on all operations.
+
+tests_added:
+  - tests/unit/graph/test_domain_value_objects.py:
+      TestMutationOperation.test_create_node_requires_knowledge_graph_id
+      TestMutationOperation.test_create_edge_requires_knowledge_graph_id
+      (updated existing valid CREATE tests to include knowledge_graph_id)
+  - tests/unit/graph/application/test_mutation_service.py:
+      TestKnowledgeGraphIdStamping (6 tests)
+  - tests/unit/graph/application/test_schema_learning.py:
+      TestSchemaLearning.test_knowledge_graph_id_excluded_from_schema_learning
+  - tests/unit/graph/presentation/test_routes.py:
+      TestKnowledgeGraphScopedMutationsRoute (5 tests)
+      TestTenantGraphRouting (2 tests)
+
+test_results:
+  total: 2013
+  passed: 2013
+  failed: 0

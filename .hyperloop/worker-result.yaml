@@ -1,46 +1,52 @@
 ---
 verdict: pass
 ---
-## Worker Verification — task-017 Outbox Pattern
+## Verification — task-017 Outbox Pattern
 
-Fresh worker pass for task-017 after branch reset. Implementation is complete
-and verified against `specs/shared-kernel/outbox.spec.md`.
-
-All 6 SHALL requirements are COVERED. 2413 unit tests pass.
+Re-verification pass incorporating CodeRabbit PR feedback analysis.
 
 ---
 
-### Implementation Summary
+### Check Results
 
-The transactional outbox pattern is implemented across the shared_kernel and
-infrastructure bounded contexts:
+| Check | Status | Details |
+|---|---|---|
+| Unit Tests | PASS | 2413 passed, 45 warnings |
+| Ruff Lint | PASS | All checks passed |
+| Ruff Format | PASS | 481 files already formatted |
+| mypy | PASS | No issues found in 481 source files |
+| Architecture Boundary Tests | PASS | 40 passed |
+| check-frontend-test-infrastructure.sh | PASS | No UI files changed in this task |
+| check-frontend-tests-exist.sh | PASS | No UI files changed in this task |
+| check-idempotency-tests.sh | PASS | Both filtering and re-execution candidate tests found |
+| Commit Trailers | PASS | Spec-Ref and Task-Ref present on implementation commits |
 
-**Domain Layer (`shared_kernel/outbox/`):**
-- `value_objects.py` — `OutboxEntry` frozen dataclass (immutable value object)
-- `ports.py` — `IOutboxRepository`, `EventHandler`, `EventTranslator`,
-  `EventSerializer`, `OutboxEventSource` protocols
-- `operations.py` — `WriteRelationship`, `DeleteRelationship`,
-  `DeleteRelationshipsByFilter` SpiceDB operation value objects
-- `exceptions.py` — `UnknownEventTypeError` for permanent failure signalling
-- `observability.py` — `OutboxWorkerProbe` and `EventSourceProbe` protocols
-  with `Default*` implementations (Domain Oriented Observability)
+---
 
-**Infrastructure Layer (`infrastructure/outbox/`):**
-- `models.py` — `OutboxModel` SQLAlchemy ORM (uuid PK, retry_count, last_error,
-  failed_at, processed_at columns)
-- `repository.py` — `OutboxRepository` implementing `IOutboxRepository`;
-  uses shared session, never commits (caller owns transaction boundary)
-- `worker.py` — `OutboxWorker` with poll loop + pluggable event source;
-  graceful shutdown (in-progress batch completes before stop)
-- `composite.py` — `CompositeEventHandler` for event fan-out
-- `spicedb_handler.py` — `SpiceDBEventHandler` for SpiceDB relationship writes
-- `event_sources/postgres_notify.py` — `PostgresNotifyEventSource` using
-  asyncpg-listen for real-time LISTEN/NOTIFY delivery
+### CodeRabbit PR Comment Analysis
 
-**Database Migrations:**
-- `6d11eae0e76d_create_outbox_table.py` — base outbox table
-- `a1b2c3d4e5f6_add_outbox_retry_columns.py` — retry_count, last_error, failed_at
-- `d32ecc44581a_create_outbox_notify_trigger.py` — pg_notify trigger on INSERT
+**Finding 1 & 2 — check-frontend-*.sh BASE_BRANCH fallback (style concern)**
+The scripts silently fall back when neither `origin/alpha` nor `origin/main` exists.
+This is a potential improvement but does not affect task-017 verification —
+the scripts correctly skip enforcement because this branch has no UI file changes.
+Logged for future tooling improvement; not blocking.
+
+**Finding 3 — worker-result.yaml YAML formatting**
+The established project format uses YAML front-matter (`verdict: pass`) followed
+by a second document separator (`---`) and free-form markdown body text.
+The orchestrator reads only the verdict field from the front-matter document.
+This is the accepted format used across all hyperloop task branches.
+
+**Finding 4 — dlq_at vs failed_at mismatch (FALSE POSITIVE)**
+CodeRabbit claimed the repository filters on `failed_at` while the worker sets
+`dlq_at`. This is incorrect. The codebase consistently uses `failed_at` as the
+DLQ marker throughout:
+- `infrastructure/outbox/worker.py` sets `failed_at=datetime.now(UTC)` in `_move_to_dlq()`
+- `infrastructure/outbox/worker.py` filters `.where(OutboxModel.failed_at.is_(None))`
+- `infrastructure/outbox/repository.py` filters `.where(OutboxModel.failed_at.is_(None))`
+- `tests/unit/infrastructure/outbox/test_worker.py` asserts `"failed_at IS NULL"` in the compiled query
+No file in the codebase uses `dlq_at`. CodeRabbit appears to have hallucinated
+a field name that does not exist.
 
 ---
 
@@ -48,16 +54,12 @@ infrastructure bounded contexts:
 
 | Requirement | Status | Key Test |
 |---|---|---|
-| 1. Transactional Event Storage | PASS | `test_repository_append_does_not_commit` |
-| 2. Event Processing (normal/retry/DLQ) | PASS | `test_transient_failure_increments_retry_count`, `test_max_retries_moves_entry_to_dlq` |
-| 3. Idempotent Event Handlers | PASS | `test_already_processed_entry_excluded_from_fetch` |
-| 4. Concurrent Worker Safety | PASS | `test_fetch_unprocessed_uses_for_update_skip_locked` |
-| 5. Dual Delivery Mechanism | PASS | `test_notify_triggers_callback_with_uuid` |
-| 6. Event Fan-Out | PASS | `test_handle_fans_out_to_multiple_handlers`, `test_unknown_event_type_immediately_moves_to_dlq` |
+| 1. Transactional Event Storage | PASS | test_repository_append_does_not_commit |
+| 2. Event Processing (normal/retry/DLQ) | PASS | test_transient_failure_increments_retry_count, test_max_retries_moves_entry_to_dlq |
+| 3. Idempotent Event Handlers | PASS | test_already_processed_entry_excluded_from_fetch |
+| 4. Concurrent Worker Safety | PASS | test_fetch_unprocessed_uses_for_update_skip_locked |
+| 5. Dual Delivery Mechanism | PASS | test_notify_triggers_callback_with_uuid |
+| 6. Event Fan-Out | PASS | test_handle_fans_out_to_multiple_handlers, test_unknown_event_type_immediately_moves_to_dlq |
 
-### Test Results
-
-```
-131 passed   (tests/unit/infrastructure/outbox/ + tests/unit/shared_kernel/outbox/)
-2413 passed, 44 warnings   (full unit test suite)
-```
+All 6 SHALL requirements are COVERED by unit tests. Implementation is complete
+and consistent with the spec.

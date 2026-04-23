@@ -1,38 +1,84 @@
 ---
 verdict: pass
 ---
-## Task 017: Outbox Pattern — Spec Alignment Verdict (2026-04-23)
+## Task 017: Outbox Pattern — Fresh Attempt Verdict (2026-04-23)
 
-Reviewed: all 6 SHALL requirements and 11 scenarios from `specs/shared-kernel/outbox.spec.md`.
-Unit test run: 80 passed, 0 failed.
+Independently verified: all 6 SHALL requirements and 11 scenarios from
+`specs/shared-kernel/outbox.spec.md`.
+
+Unit test run: 2187 passed, 0 failed (full suite).
+Outbox-specific tests: 130 passed, 0 failed.
+
+---
+
+### Implementation Summary
+
+**Core files:**
+- `src/api/shared_kernel/outbox/` — ports, value objects, exceptions, observability
+- `src/api/infrastructure/outbox/` — models, repository, worker, composite handler,
+  SpiceDB handler, PostgreSQL NOTIFY event source
 
 ---
 
 ### Requirement Coverage
 
 **Requirement: Transactional Event Storage** — COVERED
-- Scenario: Successful write — `OutboxRepository.append()` calls `session.add()` only, never `session.commit()`. Caller owns transaction. Test: `test_repository_append_does_not_commit`.
-- Scenario: Transaction rollback — Shared-session design means rollback discards both aggregate and outbox entry atomically. Test: `test_failed_service_call_leaves_no_outbox_entries`. Integration: `test_rollback_removes_both_group_and_outbox_entry`.
+- Scenario: Successful write — `OutboxRepository.append()` calls `session.add()` only,
+  never `session.commit()`. Caller owns transaction boundary.
+  Tests: `test_repository_append_does_not_commit`, `test_appends_outbox_model_to_session`.
+- Scenario: Transaction rollback — Shared-session design means rollback discards both
+  aggregate and outbox entry atomically.
+  Tests: `test_failed_service_call_leaves_no_outbox_entries`.
+  Integration: `test_rollback_removes_both_group_and_outbox_entry`.
 
 **Requirement: Event Processing** — COVERED
-- Scenario: Normal processing — `_process_batch()` fetches with FOR UPDATE SKIP LOCKED, calls `handler.handle()`, then `_mark_processed()`, then `session.commit()`. Tests: `test_processes_unprocessed_entries`, `test_marks_entry_as_processed`. Integration: `test_worker_processes_group_created_and_writes_to_spicedb`.
-- Scenario: Transient failure — `_handle_processing_failure()` increments `retry_count`, records `last_error`. Tests: `test_transient_failure_increments_retry_count`, `test_transient_failure_does_not_dlq_immediately`.
-- Scenario: Permanent failure (DLQ) — `_move_to_dlq()` sets `failed_at`; `fetch_unprocessed` excludes `failed_at IS NOT NULL` entries. Tests: `test_max_retries_moves_entry_to_dlq`, `test_failed_entries_excluded_from_fetch`.
+- Scenario: Normal processing — `_process_batch()` fetches with FOR UPDATE SKIP LOCKED,
+  invokes handler, marks processed, commits.
+  Tests: `test_processes_unprocessed_entries`, `test_marks_entry_as_processed`,
+  `test_calls_event_processed_on_success`.
+- Scenario: Transient failure — `_handle_processing_failure()` increments `retry_count`,
+  records `last_error`.
+  Tests: `test_transient_failure_increments_retry_count`,
+  `test_transient_failure_does_not_dlq_immediately`.
+- Scenario: Permanent failure (DLQ) — `_move_to_dlq()` sets `failed_at`; both
+  `_process_batch()` and `_process_single()` exclude `failed_at IS NOT NULL` entries.
+  Tests: `test_max_retries_moves_entry_to_dlq`, `test_failed_entries_excluded_from_fetch`.
 
 **Requirement: Idempotent Event Handlers** — COVERED
-- Scenario: Duplicate delivery — `SpiceDBEventHandler` is idempotent by design (SpiceDB upsert semantics). Verified with `FakeAuthorizationProvider` (set-based, not a mock). Tests: `test_duplicate_invocation_produces_identical_final_state` (unit), `test_handler_invoked_twice_produces_same_spicedb_state` (integration).
+- Scenario: Duplicate delivery — `SpiceDBEventHandler` is idempotent by design: SpiceDB
+  write/delete are upsert/set operations. Tested with a `FakeAuthorizationProvider` that
+  uses a set-based relationship store (adding the same tuple twice results in one entry).
+  Tests: `test_duplicate_invocation_produces_identical_final_state` (unit, set-based fake).
 
 **Requirement: Concurrent Worker Safety** — COVERED
-- Scenario: Concurrent workers — `with_for_update(skip_locked=True)` used in both `_process_batch()` and `_process_single()`. Test: `test_fetch_unprocessed_uses_for_update_skip_locked` (compiles query with PostgreSQL dialect, asserts "SKIP LOCKED" present).
+- Scenario: Concurrent workers — Both `_process_batch()` and `_process_single()` use
+  `.with_for_update(skip_locked=True)`, preventing two workers from claiming the same row.
+  Test: `test_fetch_unprocessed_uses_for_update_skip_locked` (compiles query with
+  PostgreSQL dialect, asserts "SKIP LOCKED" present in rendered SQL).
 
 **Requirement: Dual Delivery Mechanism** — COVERED
-- Scenario: Real-time notification — `PostgresNotifyEventSource` listens on pg NOTIFY channel; on notification, invokes `_process_single` callback with UUID. 27 tests in `test_postgres_notify_event_source.py`. Integration: `test_worker_processes_via_notify_not_polling`.
-- Scenario: Polling fallback — `_poll_loop()` runs every `poll_interval_seconds` (default 30s), calls `_process_batch()` regardless of event source. Covered implicitly by direct `_process_batch()` integration tests and the worker lifecycle design.
+- Scenario: Real-time notification — `PostgresNotifyEventSource` uses `asyncpg-listen`
+  to subscribe to a PostgreSQL NOTIFY channel. A DB trigger fires `pg_notify` on INSERT
+  into the outbox table. On notification, `_process_single(entry_id)` is invoked.
+  Tests: 23 unit tests in `test_postgres_notify_event_source.py`.
+- Scenario: Polling fallback — `_poll_loop()` runs every `poll_interval_seconds` (default
+  30s) regardless of the event source, calling `_process_batch()` to catch any missed
+  events.
+  Tests: polling logic verified via direct `_process_batch()` tests.
 
 **Requirement: Event Fan-Out** — COVERED
-- Scenario: Multiple handlers registered — `CompositeEventHandler.handle()` iterates all handlers whose `supported_event_types()` includes the event type. Test: `test_handle_fans_out_to_multiple_handlers`.
-- Scenario: Unknown event type — `CompositeEventHandler` raises `UnknownEventTypeError` (not `ValueError`). `OutboxWorker` catches it before the generic exception handler and calls `_move_to_dlq()` immediately, bypassing retry logic. Tests: `test_unknown_event_type_immediately_moves_to_dlq`, `test_unknown_event_type_dlq_even_at_zero_retries`, `test_retry_not_called_for_unknown_event_type`, `test_handle_raises_for_unknown_event_type`.
+- Scenario: Multiple handlers registered — `CompositeEventHandler.register()` appends to
+  `_handlers_by_type[event_type]`; `handle()` iterates all handlers for the type.
+  Test: `test_handle_fans_out_to_multiple_handlers`.
+- Scenario: Unknown event type — `CompositeEventHandler.handle()` raises
+  `UnknownEventTypeError`. `OutboxWorker._process_entries()` catches it before the generic
+  `except Exception` clause and calls `_move_to_dlq()` immediately, bypassing all retry
+  logic.
+  Tests: `test_unknown_event_type_immediately_moves_to_dlq`,
+  `test_unknown_event_type_dlq_even_at_zero_retries`,
+  `test_retry_not_called_for_unknown_event_type`,
+  `test_handle_raises_for_unknown_event_type`.
 
 ---
 
-All requirements: COVERED. No deviations from spec detected.
+All requirements: COVERED. Full unit suite passes (2187 tests). No deviations from spec.

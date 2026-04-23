@@ -2,65 +2,69 @@
 verdict: pass
 ---
 
-## Verification Summary — task-021 (API Keys spec coverage gaps)
+## Spec Alignment Review — task-021 (API Keys spec coverage gaps)
 
-All checks pass. The three FAIL items from the prior spec alignment review have
-been correctly addressed.
+This review verifies that all three FAIL items from the prior spec alignment
+review have been addressed by commit `f04e633a` ("test(iam): close three spec
+coverage gaps in API key tests").
 
-### 1. Unit Tests — PASS
-2031 passed, 0 failures, 0 errors (39 warnings, all pre-existing deprecation notices).
+---
 
-### 2. Linting — PASS
-`uv run ruff check .` → All checks passed.
+### FAIL-1 (REQ-1, Expiration Bounds) — COVERED
 
-### 3. Formatting — PASS
-`uv run ruff format --check .` → 442 files already formatted.
+**Requirement:** A test must verify the default expiration of 30 days when
+`expires_in_days` is omitted from the creation request.
 
-### 4. Type Checking — PASS
-`uv run mypy . --config-file pyproject.toml --ignore-missing-imports` →
-Success: no issues found in 442 source files.
+**Test found:**
+- File: `src/api/tests/unit/iam/presentation/test_api_key_routes.py`
+- Test: `TestCreateAPIKeyRoute::test_uses_default_expires_in_days_of_30`
 
-### 5. Architecture Boundary Tests — PASS
-40 tests passed in `tests/unit/test_architecture.py`.
+The test sends `POST /iam/api-keys` with only `{"name": "my-api-key"}` (no
+`expires_in_days` field) and asserts that `create_api_key` was called with
+`expires_in_days=30`. This directly exercises the `Field(30, ...)` Pydantic
+default on the route's request schema.
 
-### 6. Integration Tests — N/A (no instance running)
-Integration tests are structural-verified via mypy/ruff. The new integration
-tests (`test_returns_401_for_expired_api_key`,
-`test_revoked_key_remains_visible_in_listing`) are syntactically correct and
-structurally sound (fixtures properly scoped, cleanup teardown present).
+---
 
-### 7. Code Review — PASS
+### FAIL-2 (REQ-2, Expired Key → 401) — COVERED
 
-#### FAIL-1 (REQ-1 Expiration Bounds) — RESOLVED
-`TestCreateAPIKeyRoute::test_uses_default_expires_in_days_of_30` sends
-`POST /iam/api-keys` with only `{"name": "my-api-key"}` (no `expires_in_days`)
-and asserts `mock_api_key_service.create_api_key` was called with
-`expires_in_days=30`. Correctly exercises the `Field(30, ...)` Pydantic default.
+**Requirement:** An end-to-end integration test must send a request with an
+expired API key to a protected REST endpoint and assert a 401 response.
 
-#### FAIL-2 (REQ-2 Expired Key) — RESOLVED
-`expired_api_key_secret` fixture inserts a key with `expires_at = now() - 1 day`
-directly via raw SQL (bypassing the 1-day route minimum). Uses bcrypt work factor
-4 for test speed. `test_returns_401_for_expired_api_key` exercises the full
-`validate_and_get_key → is_valid() → 401` path through the REST API. Fixture
-includes proper cleanup teardown.
+**Tests found:**
+- File: `src/api/tests/integration/test_api_key_auth.py`
+- Fixture: `expired_api_key_secret` — inserts an already-expired key (
+  `expires_at = now() - 1 day`) directly via raw SQL to bypass the route's
+  1-day minimum; uses bcrypt work factor 4 for test speed; includes cleanup
+  teardown.
+- Test: `TestAPIKeyAuthentication::test_returns_401_for_expired_api_key` —
+  sends `GET /iam/tenants` with `X-API-Key: <expired_secret>` and asserts
+  `status_code == 401` and `WWW-Authenticate == "Bearer, API-Key"`.
 
-#### FAIL-3 (REQ-4 Owner Revocation AND clause) — RESOLVED
-`test_revoked_key_remains_visible_in_listing` chains: create key →
-`process_outbox()` → revoke key → list keys → assert entry present with
-`is_revoked=True`. Correctly exercises the spec's "AND the key remains visible
-in listings" clause.
+This is a full end-to-end path: HTTP layer → `validate_and_get_key` →
+`is_valid()` expiry check → 401.
 
-#### Additional checks
-- No `logger.*` or `print()` usage in any new code (domain probes pattern upheld).
-- No `MagicMock`/`AsyncMock` for domain/application collaborators.
-- No hardcoded secrets (gitleaks suppression comment used appropriately for test
-  fixture constant).
-- Commit `f04e633a` has correct `Spec-Ref` and `Task-Ref` trailers.
-- Commit messages follow conventional commit format.
-- No DDD layer boundary violations introduced.
-- `.hyperloop/state/` files not committed by the implementer.
+---
 
-### Check Scripts
-- `check-no-coming-soon-stubs.sh` → PASS
-- `check-no-future-placeholder-comments.sh` → PASS
-- Other check scripts require spec file arguments not applicable to this task.
+### FAIL-3 (REQ-4, Owner Revocation Visibility) — COVERED
+
+**Requirement:** A test must verify that after revoking a key, the key remains
+visible in listings with `is_revoked=True`.
+
+**Test found:**
+- File: `src/api/tests/integration/test_api_key_auth.py`
+- Test: `TestAPIKeyAuthorizationEnforcement::test_revoked_key_remains_visible_in_listing`
+
+The test chains: (1) create key, (2) `process_outbox()` to sync SpiceDB
+owner/tenant relationships, (3) revoke key via `DELETE /iam/api-keys/{id}`,
+(4) list keys via `GET /iam/api-keys` and assert the entry is present with
+`is_revoked is True`.
+
+---
+
+### Overall Verdict: PASS
+
+All three previously failing spec items now have corresponding test coverage.
+The tests were introduced in commit `f04e633a` with correct `Spec-Ref` and
+`Task-Ref` trailers. No code quality or DDD boundary issues were observed in
+the new test code.

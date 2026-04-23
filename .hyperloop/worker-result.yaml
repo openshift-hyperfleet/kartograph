@@ -2,46 +2,85 @@
 verdict: pass
 ---
 
-## Verification Summary
+## Spec Alignment Review — Entity ID Generation
 
-All required checks pass. The implementation correctly satisfies all spec requirements for deterministic entity ID generation.
+All four SHALL requirements and every scenario from `specs/shared-kernel/entity-id-generation.spec.md`
+are fully implemented and tested. All 53 unit tests pass (0 failures).
 
-### Check Results
+---
 
-1. **Unit Tests**: PASS — 2280 passed, 0 failures (53 tests in the entity ID generator module specifically)
-2. **Linting (ruff check)**: PASS — All checks passed
-3. **Formatting (ruff format)**: PASS — All 462 files already formatted
-4. **Type Checking (mypy)**: PASS — No issues found in 462 source files
-5. **Architecture Boundary Tests**: PASS — 40 passed, shared_kernel boundaries respected
-6. **Check Scripts**:
-   - `check-no-future-placeholder-comments.sh`: PASS — No future-placeholder comments found
-   - `check-cross-task-deferral.sh`: PASS — No cross-task deferral comments found
-   - `check-weak-test-assertions.sh`: PASS — No weak categorical assertions found
-   - `check-fake-success-notifications.sh`: PASS
-   - `check-no-coming-soon-stubs.sh`: Pre-existing FAIL in `src/dev-ui/app/layouts/default.vue` — **not introduced by this task** (0 lines of dev-ui changed in this diff; this failure exists on alpha)
-   - `check-auth-status-codes.sh`: Pre-existing REVIEW REQUIRED in IAM integration tests — **not introduced by this task**
-7. **Commit Trailers**: PASS — Both `Spec-Ref` and `Task-Ref` present
-8. **Integration Tests**: NOT RUN — task only touches pure domain logic (shared_kernel), no infrastructure or presentation layer changes
+### Requirement: Deterministic Node IDs — COVERED
 
-### Code Review Findings
+**Implementation:** `EntityIdGenerator.generate()` in
+`src/api/shared_kernel/graph_primitives/entity_id_generator.py`.
+SHA256 over `{tenant_id}:{entity_type}:{entity_slug}` with the first 16 hex chars
+used as the hash suffix. Returns `{normalized_type}:{hash}`.
 
-- **No logger/print usage**: domain logic uses no logging; pure computation only ✓
-- **No MagicMock/AsyncMock**: no test doubles in the new tests; all assertions against real `EntityIdGenerator` ✓
-- **DDD boundaries respected**: `shared_kernel.graph_primitives` imports only `hashlib` (stdlib); no bounded context imports ✓
-- **Conventional commits**: `test:` prefix with `Spec-Ref` and `Task-Ref` trailers ✓
-- **No hardcoded secrets or credentials** ✓
+**Scenarios:**
 
-### Spec Alignment
+- **Consistent ID generation** — `TestEntityIdGenerator::test_is_deterministic` and
+  `test_consistency_across_calls` (100 calls, all identical). COVERED.
+- **ID format (`{type}:{16_hex_chars}`, lowercase type)** —
+  `test_includes_type_prefix`, `test_hash_portion_length`, `test_hash_portion_is_hex`,
+  `test_normalizes_entity_type_to_lowercase`. COVERED.
+- **Tenant isolation** — `test_tenant_id_affects_hash` (tenant-a vs tenant-b produce
+  distinct IDs); also `TestCanonicalHashInput::test_node_tenant_is_required_component_of_hash`.
+  COVERED.
+- **Different inputs produce different IDs** — `test_different_for_different_slugs`.
+  COVERED.
 
-All four spec requirements are correctly implemented and explicitly tested:
+---
 
-- **Deterministic Node IDs**: `TestCanonicalHashInput::test_node_canonical_input_is_tenant_type_slug` verifies exact canonical format `{tenant_id}:{entity_type}:{entity_slug}` ✓
-- **Deterministic Edge IDs**: `test_edge_canonical_input_is_tenant_start_type_end` verifies `{tenant_id}:{start_id}:{edge_type}:{end_id}` ✓
-- **Canonical Hash Input**: Both node and edge canonical inputs explicitly tested against computed SHA256 values ✓
-- **SHA256-Based Hashing**: `TestSHA256HashDerivation` tests confirm first 16 chars of SHA256 hex digest are used, and explicitly assert the suffix is NOT the full digest ✓
+### Requirement: Deterministic Edge IDs — COVERED
 
-### Nature of the Change
+**Implementation:** `EntityIdGenerator.generate_edge_id()` in the same module.
+SHA256 over `{tenant_id}:{start_id}:{edge_type}:{end_id}`, first 16 hex chars.
+Returns `{normalized_label}:{hash}`.
 
-This is a test-only addition (+ doc comment clarification). The underlying `EntityIdGenerator` implementation was already correct — the misleading `TODO` comments implied tenant_id was not yet incorporated when it was. The commit:
-1. Removes those misleading TODO comments (replacing with accurate canonical format docs)
-2. Adds `TestCanonicalHashInput` and `TestSHA256HashDerivation` test classes that explicitly prove the spec scenarios hold against the actual SHA256 computation
+**Scenarios:**
+
+- **Edge ID from endpoints (deterministic, `{type}:{16_hex_chars}` format)** —
+  `TestEntityIdGeneratorEdges::test_generates_edge_id_deterministically`,
+  `test_edge_id_includes_type_prefix`, `test_edge_id_hash_is_16_chars_hex`. COVERED.
+
+---
+
+### Requirement: Canonical Hash Input — COVERED
+
+**Implementation:** Node canonical: `f"{tenant_id_str}:{normalized_type}:{entity_slug_stripped}"`.
+Edge canonical: `f"{tenant_id_str}:{start_id_stripped}:{normalized_label}:{end_id_stripped}"`.
+
+**Scenarios:**
+
+- **Node hash input `{tenant_id}:{entity_type}:{entity_slug}`** —
+  `TestCanonicalHashInput::test_node_canonical_input_is_tenant_type_slug` computes
+  the SHA256 externally using this exact format and asserts the output IDs match.
+  COVERED.
+- **Edge hash input `{tenant_id}:{start_id}:{edge_type}:{end_id}`** —
+  `TestCanonicalHashInput::test_edge_canonical_input_is_tenant_start_type_end`
+  does the same for edges. COVERED.
+
+---
+
+### Requirement: SHA256-Based Hashing — COVERED
+
+**Implementation:** `hashlib.sha256(input_string.encode()).hexdigest()[:16]` in
+`EntityIdGenerator._generate_hash()`.
+
+**Scenarios:**
+
+- **Hash derivation (first 16 chars of SHA256 hex digest)** —
+  `TestSHA256HashDerivation::test_node_id_suffix_is_first_16_chars_of_sha256_digest`
+  and `test_edge_id_suffix_is_first_16_chars_of_sha256_digest` both compute the full
+  SHA256 digest externally, slice `[:16]`, and assert the actual suffix matches —
+  and also assert the suffix is NOT the full 64-char digest. COVERED.
+
+---
+
+### NFR Compliance
+
+- **No mocks/fakes**: all tests operate directly on `EntityIdGenerator` with real
+  `hashlib` computation — no `MagicMock` or `AsyncMock`. ✓
+- **No logger/print**: pure computation, no observability instrumentation needed. ✓
+- **DDD boundary**: `shared_kernel.graph_primitives` imports only `hashlib` (stdlib);
+  zero intra-bounded-context imports. ✓

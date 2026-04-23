@@ -126,9 +126,10 @@ class WorkspaceService:
             The created Workspace aggregate
 
         Raises:
-            PermissionError: If user lacks CREATE_CHILD permission on parent
+            UnauthorizedError: If user lacks CREATE_CHILD permission on parent
             DuplicateWorkspaceNameError: If workspace name already exists in tenant
-            ValueError: If parent workspace doesn't exist or belongs to different tenant
+            ParentWorkspaceNotFoundError: If parent workspace does not exist
+            ParentWorkspaceCrossTenantError: If parent workspace belongs to a different tenant
             Exception: If workspace creation fails
         """
         # Check user has CREATE_CHILD permission on parent (before transaction)

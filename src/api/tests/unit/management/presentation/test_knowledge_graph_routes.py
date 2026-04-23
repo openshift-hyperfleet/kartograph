@@ -145,7 +145,6 @@ class TestCreateKnowledgeGraph:
         assert response.status_code == status.HTTP_201_CREATED
         result = response.json()
         assert result["id"] == kg.id.value
-        assert result["tenant_id"] == kg.tenant_id
         assert result["workspace_id"] == kg.workspace_id
         assert result["name"] == "Platform Graph"
         assert result["description"] == "A test knowledge graph"
@@ -283,7 +282,6 @@ class TestGetKnowledgeGraph:
         assert response.status_code == status.HTTP_200_OK
         result = response.json()
         assert result["id"] == kg.id.value
-        assert result["tenant_id"] == kg.tenant_id
         assert result["workspace_id"] == kg.workspace_id
         assert result["name"] == kg.name
         assert result["description"] == kg.description

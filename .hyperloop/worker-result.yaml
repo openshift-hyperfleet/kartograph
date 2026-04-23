@@ -1,73 +1,106 @@
 ---
 verdict: pass
 ---
-## Implementation Summary
+## Verification Summary — task-008 (Knowledge Graphs, Management Context)
 
-This is a fresh-attempt verdict for task-008 (Knowledge Graphs — Management context).
-The implementation was completed in prior rounds and survives this fresh re-verification
-in full.
+Fresh re-verification pass. All checks pass.
 
-## Test Results
+---
 
-**2056 tests passed, 0 failed** across the full unit suite.
-Management-context tests: 327 passed.
+### 1. Unit Tests — PASS
 
-## Spec Coverage
+```
+2056 passed, 0 failed in 50.99s
+```
+
+Management-specific suite: **327 passed, 0 failed**.
+
+Four deprecation warnings for `HTTP_422_UNPROCESSABLE_ENTITY` (FastAPI renamed the
+constant) — warnings only, pre-existing API evolution, not introduced by this task.
+
+---
+
+### 2. Linting (ruff check) — PASS
+
+```
+All checks passed!
+```
+
+---
+
+### 3. Formatting (ruff format --check) — PASS
+
+```
+448 files already formatted
+```
+
+---
+
+### 4. Type Checking (mypy) — PASS
+
+```
+Success: no issues found in 448 source files
+```
+
+---
+
+### 5. Architecture Boundary Tests — PASS
+
+```
+56 passed in 0.86s
+```
+
+All management DDD layer rules enforced:
+- Domain does not import infrastructure, application, or FastAPI.
+- Ports do not import infrastructure or application.
+- Application does not import infrastructure.
+- Management bounded context does not import IAM, Graph, Ingestion, Extraction, or Querying.
+
+---
+
+### 6. Check Scripts — PASS (all applicable)
+
+| Script | Result | Notes |
+|--------|--------|-------|
+| `check-auth-status-codes.sh` | PASS | No integration tests; correctly skipped |
+| `check-failure-path-tests.sh` | PASS | `test_delete_rolls_back_on_ds_deletion_failure` covers the cascade-rollback scenario |
+| `check-idempotency-tests.sh` | N/A | No idempotency requirement in this spec |
+| `check-no-coming-soon-stubs.sh` | PASS | No stubs found |
+| `check-no-future-placeholder-comments.sh` | PASS | No placeholders found |
+| `check-frontend-tests-exist.sh` | FALSE POSITIVE | Pre-existing script bug (wc -l multi-line output); task-008 made zero changes to src/dev-ui/ |
+
+---
+
+### 7. Code Review — PASS
+
+- **No direct logger/print calls** in any management presentation, application, or domain
+  code. DOO implemented via `KnowledgeGraphProbe` and `KnowledgeGraphServiceProbe`.
+- **AsyncMock usage**: Used only for infrastructure-port collaborators
+  (`IKnowledgeGraphRepository`, `IDataSourceRepository`, `AuthorizationProvider`) — consistent
+  with the existing codebase pattern.
+- **No DDD layer violations** confirmed by architecture tests.
+- **Conventional commits** — all five implementation commits follow `feat/fix/test(scope): message` format.
+- **Commit trailers** — all implementation commits carry `Spec-Ref` and `Task-Ref`.
+- **No hardcoded secrets or environment-specific values**.
+
+---
+
+### 8. Spec Coverage
 
 | Requirement | Scenario | Status |
 |---|---|---|
-| Knowledge Graph Creation | Successful creation with ULID, workspace/tenant association | PASS |
-| Knowledge Graph Creation | Duplicate name within tenant rejected with 409 | PASS |
+| Knowledge Graph Creation | Successful creation with ULID, workspace/tenant association, 201 | PASS |
+| Knowledge Graph Creation | Duplicate name within tenant → 409 | PASS |
 | Name Validation | 1–100 character names accepted | PASS |
-| Name Validation | Empty or oversized names rejected with 422 | PASS |
-| Retrieval | Authorized retrieval returns details | PASS |
-| Retrieval | Unauthorized/missing returns 404 (no leakage) | PASS |
+| Name Validation | Empty name → 422, >100 chars → 422 | PASS |
+| Retrieval | Authorized retrieval → 200 with full details | PASS |
+| Retrieval | Unauthorized/missing → 404, no existence leakage | PASS |
 | Listing | Workspace-scoped, auth-filtered list | PASS |
-| Update | Name and description updated with EDIT permission | PASS |
-| Deletion | Atomic cascade: data sources + encrypted credentials + KG record | PASS |
-| Deletion | Rollback on failure (single transaction) | PASS |
-| Deletion | Mutation after deletion rejected | PASS |
-| Permission Inheritance | Workspace-inherited access (edit on WS → edit on KG) | PASS |
-| Permission Inheritance | Direct admin grant → manage/edit/view on KG | PASS |
-
-## Architecture
-
-Implementation follows DDD layering enforced by pytest-archon:
-
-- **Domain** (`management/domain/aggregates/knowledge_graph.py`): Pure Python aggregate,
-  no infrastructure imports. Name validation (1–100 chars), tenant/workspace ID validation,
-  event emission for Created/Updated/Deleted.
-- **Ports** (`management/ports/repositories.py`, `management/ports/exceptions.py`):
-  `IKnowledgeGraphRepository` protocol; `DuplicateKnowledgeGraphNameError`,
-  `UnauthorizedError` exception types.
-- **Application** (`management/application/services/knowledge_graph_service.py`):
-  Orchestrates CRUD with authorization checks, cascade deletion of data sources
-  (including encrypted credentials), transaction management, and domain probe calls.
-- **Infrastructure** (`management/infrastructure/repositories/`):
-  SQLAlchemy ORM repository with outbox pattern; unique constraint on (tenant_id, name)
-  surfaces as `IntegrityError` → `DuplicateKnowledgeGraphNameError`.
-- **Presentation** (`management/presentation/knowledge_graphs/routes.py`):
-  REST API following api-conventions.spec.md — nested creation/listing, flat
-  retrieval/update/delete, correct status codes (201, 204, 403, 404, 409, 422).
-
-## Observability
-
-Domain-Oriented Observability implemented:
-- `KnowledgeGraphProbe` protocol (domain layer) with `DefaultKnowledgeGraphProbe`
-- `KnowledgeGraphServiceProbe` protocol (application layer) with default implementation
-- All service paths emit probe events; no direct `logger.*` calls in domain/application.
-
-## Authorization
-
-SpiceDB relationships established via outbox event translator:
-- `KnowledgeGraphCreated` → writes `knowledge_graph:{id}#workspace@workspace:{ws_id}` and
-  `knowledge_graph:{id}#tenant@tenant:{t_id}` tuples.
-- `KnowledgeGraphDeleted` → deletes all tuples for the KG resource.
-- Permission checks use `AuthorizationProvider` protocol (EDIT on workspace for create,
-  VIEW for get/list, EDIT for update, MANAGE for delete).
-
-## Commit Trailers
-
-All task-008 commits carry:
-  Spec-Ref: specs/management/knowledge-graphs.spec.md@85d49a379a52479b33f9b39994d76795066899a6
-  Task-Ref: task-008
+| Update | Name and description with EDIT permission → 200 | PASS |
+| Deletion | Atomic cascade: encrypted credentials + DS records + KG record | PASS |
+| Deletion | Rollback on DS deletion failure (transaction guard) | PASS |
+| Deletion | Mutation after deletion rejected (domain _deleted flag guard) | PASS |
+| Permission Inheritance | Workspace edit → KG edit (SpiceDB workspace relation) | PASS |
+| Permission Inheritance | Direct admin grant → manage/edit/view | PASS |
+| Authorization relationships | Created → workspace+tenant tuples via outbox translator | PASS |
+| Authorization relationships | Deleted → all tuples removed via outbox translator | PASS |

@@ -2,148 +2,242 @@
 verdict: pass
 ---
 
-## Independent Verification — API Keys (task-021)
-### Date: 2026-04-23 (fresh review post branch-reset)
-### Reviewer: verifier agent (independent run)
-
----
-
-## Numbered Checks
-
-### 1. Unit Tests — PASS
-```
-uv run pytest tests/unit -v
-2031 passed, 39 warnings in 43.42s
-```
-Zero failures. Zero errors.
-
-### 2. Linting (ruff check) — PASS
-```
-uv run ruff check .
-All checks passed!
-```
-
-### 3. Formatting (ruff format) — PASS
-```
-uv run ruff format --check .
-442 files already formatted
-```
-
-### 4. Type Checking (mypy) — PASS
-```
-uv run mypy . --config-file pyproject.toml --ignore-missing-imports
-Success: no issues found in 442 source files
-```
-
-### 5. Architecture Boundary Tests — PASS
-```
-uv run pytest tests/unit/test_architecture.py -v
-40 passed in 0.21s
-```
-All DDD layer boundary rules pass, including the IAM domain/application/infrastructure separation.
-
-### 6. Integration Tests — SKIPPED (requires running instance)
-Integration tests exist in `tests/integration/test_api_key_auth.py` and cover:
-- Valid key authentication, last_used_at update
-- Expired key → 401 (with DB-inserted bypass to avoid route minimum)
-- Revoked key → 401
-- JWT-takes-precedence (both headers → JWT wins)
-- Owner revoke, admin revoke, unauthorized revoke
-- Revoked key visible in listing with `is_revoked=True`
-
-These were not run due to the no-infrastructure constraint, but pass in CI as shown by
-previous verifier runs.
-
-### 7. Code Review — PASS
-
-**No direct logger/print usage**: All observability goes through domain probes
-(`APIKeyServiceProbe`, `APIKeyRepositoryProbe`). Both have `DefaultXxxProbe`
-implementations backed by structlog. ✓
-
-**No bare MagicMock for domain collaborators**: Tests use `create_autospec(IAPIKeyRepository)`
-and `Mock(spec=IAPIKeyRepository)` — spec-constrained mocks for port interfaces, not domain
-aggregates. Session mocking uses `AsyncMock` appropriately for infrastructure. ✓
-
-**Spec-Ref and Task-Ref trailers**: Both implementation commits carry correct trailers:
-- `f04e633a` — `test(iam): close three spec coverage gaps in API key tests`
-  - `Spec-Ref: specs/iam/api-keys.spec.md@2a791cdb79f8acd5cdf5654fa7efed1075ecf1de`
-  - `Task-Ref: task-021`
-- `7cf228fd` — `test(iam): add cascade deletion tests for API keys on tenant deletion`
-  - `Spec-Ref: specs/iam/api-keys.spec.md@2a791cdb79f8acd5cdf5654fa7efed1075ecf1de`
-  - `Task-Ref: task-021`
-
-**SpiceDB dual-source sync**: `schema.zed` and `deploy/.../spicedb-schema-configmap.yaml`
-are in sync for the `api_key` definition (view and revoke permissions). ✓
-
-**Security practices**:
-- `secrets.token_urlsafe(32)` for generation (cryptographically secure)
-- `bcrypt` with work factor 12 for hashing
-- `karto_` prefix for secret scanning / identification
-- 12-character prefix stored for fast lookup (not the hash)
-- Plaintext never stored, never returned after creation ✓
-
-**DB schema correctness**:
-- RESTRICT FK on `api_keys.tenant_id` forces application-level cascade so `APIKeyDeleted`
-  domain events are emitted and SpiceDB relationships are cleaned up ✓
-- `uq_api_keys_tenant_user_name` enforces duplicate-name prevention at DB level ✓
-
-**No hardcoded secrets or credentials** ✓
-
----
-
-## Check Scripts
-
-### check-no-coming-soon-stubs.sh — TECHNICAL FAIL (pre-existing false positives)
-Hits: `.venv/` third-party packages (httpx, protobuf, celpy — not source code) and
-a pre-existing UI navigation label `{{ item.disabled ? ' (Coming Soon)' : '' }}` in
-`src/dev-ui/app/layouts/default.vue`. This file was NOT modified by this branch
-(confirmed: `git diff <merge-base>..HEAD -- src/dev-ui/app/layouts/default.vue` is empty).
-The check script does not exclude `.venv/`. Not a task-021 regression.
-
-### check-no-future-placeholder-comments.sh — TECHNICAL FAIL (pre-existing false positives)
-All hits are from `.venv/` third-party packages (cffi, httpx, protobuf, prometheus-client,
-mypy, authlib). The check script's `--include` filters for `.py/.vue/.ts/.js` but does not
-exclude `src/api/.venv/`. Zero hits in actual source. Not a task-021 regression.
-
-### check-frontend-test-infrastructure.sh — TECHNICAL FAIL (pre-existing, task not in scope)
-vitest is not in `src/dev-ui/package.json`. However, this branch makes **zero changes**
-to any Vue/TS source files (confirmed: `git diff <merge-base>..HEAD --name-only` touches
-only Python test files). The dev-ui has never had vitest configured; this is a pre-existing
-state not introduced by task-021 (backend API feature only).
-
-### check-frontend-tests-exist.sh — TECHNICAL FAIL (pre-existing, task not in scope)
-No test files found in `src/dev-ui`. The `*.test.ts` files visible in `git diff alpha..HEAD`
-as "D" (deleted) were added to `alpha` **after** this branch diverged (confirmed: those files
-are absent from the merge base). This branch makes no frontend changes. Not a regression.
-
-### check-failure-path-tests.sh, check-idempotency-tests.sh — N/A
-These scripts require a `<spec_file>` argument; they exit with usage errors when called
-without arguments. They are not applicable as generic repo checks.
-
----
-
-## Spec Coverage Summary
-
-All 6 SHALL requirements and all 15 spec scenarios from `specs/iam/api-keys.spec.md`
-are covered:
-
-| Requirement | Scenarios | Status |
-|-------------|-----------|--------|
-| API Key Creation | Successful creation, Duplicate name, Expiration bounds | COVERED |
-| API Key Authentication | Valid key, Expired, Revoked, JWT precedence, Prefix collision | COVERED |
-| API Key Listing | List keys, Filter by creator | COVERED |
-| API Key Revocation | Owner revoke, Admin revoke, Already revoked, Unauthorized | COVERED |
-| API Key Cascade Deletion | Tenant deletion | COVERED |
-| API Key Name Validation | Valid name, Empty name | COVERED |
+## Spec Alignment Review — API Keys (task-021)
+### Reviewer: spec-alignment-reviewer
+### Date: 2026-04-23
 
 ---
 
 ## Summary
 
-The API Keys implementation is complete, correct, and well-tested. All 5 numbered
-static checks pass (2031 unit tests, ruff lint, ruff format, mypy, architecture
-boundaries). The check script failures are all pre-existing conditions or false
-positives from unexcluded `.venv/` content — none are regressions introduced by
-task-021.
+All 6 SHALL requirements and all 15 scenarios from `specs/iam/api-keys.spec.md` are
+implemented and tested. Verdict: **PASS**.
 
-Verdict: **PASS**
+---
+
+## Requirement-by-Requirement Findings
+
+### 1. API Key Creation — COVERED
+
+**Scenarios:**
+
+**Successful creation (karto_ prefix, bcrypt hash, 12-char prefix, plaintext returned once)**
+- Implementation:
+  - `src/api/iam/application/security.py` — `generate_api_key_secret()` produces
+    `karto_`-prefixed secrets via `secrets.token_urlsafe(32)`.
+  - `src/api/iam/application/security.py` — `extract_prefix()` extracts first 12 chars.
+  - `src/api/iam/application/security.py` — `hash_api_key_secret()` uses bcrypt work factor 12.
+  - `src/api/iam/application/services/api_key_service.py:129` — plaintext returned as
+    part of a tuple exactly once; never stored.
+- Tests:
+  - `tests/unit/iam/application/test_api_key_service.py`:
+    `test_secret_has_karto_prefix`, `test_returns_plaintext_secret_only_at_creation`,
+    `test_stores_prefix_from_secret`
+
+**Duplicate name per user → conflict**
+- Implementation: `src/api/iam/infrastructure/api_key_repository.py:79–92` — duplicate
+  name detected via unique constraint `uq_api_keys_tenant_user_name` on
+  `(tenant_id, created_by_user_id, name)`; raises `DuplicateAPIKeyNameError`.
+- Tests:
+  - `tests/unit/iam/application/test_api_key_service.py`: `test_raises_on_duplicate_name`
+  - `tests/unit/iam/presentation/test_api_key_routes.py`: `test_returns_409_on_duplicate_name`
+
+**Expiration bounds (1–3650 days, default 30)**
+- Implementation: `src/api/iam/presentation/api_keys/models.py:25–30` —
+  `expires_in_days: int = Field(default=30, ge=1, le=3650)`
+- Tests:
+  - `tests/unit/iam/presentation/test_api_key_routes.py`:
+    `test_accepts_optional_expires_in_days`, `test_uses_default_expires_in_days_of_30`,
+    `test_validates_expires_in_days_minimum`, `test_validates_expires_in_days_maximum`
+
+---
+
+### 2. API Key Authentication — COVERED
+
+**Valid key → authenticated + last_used_at updated**
+- Implementation:
+  - `src/api/iam/dependencies/user.py:_authenticate()` — tries API key when X-API-Key
+    header is present and JWT is absent.
+  - `src/api/iam/application/services/api_key_service.py:243–277` —
+    `validate_and_get_key()` looks up by prefix, verifies bcrypt hash, calls
+    `record_usage()`, and saves.
+  - `src/api/iam/domain/aggregates/api_key.py:132–138` — `record_usage()` updates
+    `last_used_at`.
+- Tests:
+  - `tests/integration/test_api_key_auth.py`:
+    `test_authenticates_with_valid_api_key`, `test_updates_last_used_at_on_success`
+  - `tests/unit/iam/application/test_api_key_service.py`:
+    `test_validates_correct_secret`, `test_updates_last_used_at`
+
+**Expired key → 401**
+- Implementation: `src/api/iam/domain/aggregates/api_key.py:139–156` — `is_valid()`
+  checks expiration; service returns `None` → middleware returns 401.
+- Tests:
+  - `tests/integration/test_api_key_auth.py`: `test_returns_401_for_expired_api_key`
+  - `tests/unit/iam/application/test_api_key_service.py`:
+    `test_returns_none_for_expired_key`
+
+**Revoked key → 401**
+- Implementation: `src/api/iam/domain/aggregates/api_key.py:149–150` — `is_valid()`
+  checks `is_revoked`; service returns `None` → 401.
+- Tests:
+  - `tests/integration/test_api_key_auth.py`: `test_returns_401_for_revoked_api_key`
+  - `tests/unit/iam/application/test_api_key_service.py`:
+    `test_returns_none_for_revoked_key`
+
+**JWT takes precedence over X-API-Key**
+- Implementation: `src/api/iam/dependencies/user.py:98–120` — `_authenticate()`
+  checks `if token is not None` first and returns immediately on either success or
+  failure (never falls through to API Key when Bearer is present).
+- Tests:
+  - `tests/unit/iam/test_authenticate_dependency.py`:
+    `test_jwt_takes_priority_over_api_key` — asserts `is_api_key is False` and
+    `validate_and_get_key.assert_not_awaited()` when both headers present.
+  - `tests/integration/test_api_key_auth.py`:
+    `test_prefers_jwt_when_both_provided`,
+    `test_invalid_jwt_with_valid_api_key_uses_api_key` (invalid JWT + valid key → 401,
+    confirming JWT error takes precedence).
+
+**Prefix collision → error-level event logged**
+- Implementation:
+  - `src/api/iam/infrastructure/api_key_repository.py:207–209` — if `len(models) > 1`,
+    calls `self._probe.api_key_prefix_collision(prefix, len(models))`.
+  - `src/api/iam/infrastructure/observability/api_key_repository_probe.py:137` —
+    `DefaultAPIKeyRepositoryProbe.api_key_prefix_collision()` calls
+    `self._logger.error(...)` (error level).
+- Tests:
+  - `tests/unit/iam/infrastructure/test_api_key_repository.py`:
+    `test_logs_error_on_prefix_collision`
+
+---
+
+### 3. API Key Listing — COVERED
+
+**List keys with required metadata fields, no plaintext secrets**
+- Implementation:
+  - `src/api/iam/presentation/api_keys/models.py:33–74` — `APIKeyResponse` includes
+    `name`, `prefix`, `created_at`, `expires_at`, `last_used_at`, `is_revoked`;
+    excludes `secret` and `key_hash` fields.
+- Tests:
+  - `tests/unit/iam/presentation/test_api_key_routes.py`:
+    `test_lists_api_keys_for_user`, `test_never_returns_secret_or_hash`
+
+**Filter by creator (optional user_id filter)**
+- Implementation:
+  - `src/api/iam/application/services/api_key_service.py:161–165` — accepts optional
+    `created_by_user_id` and passes it to repository.
+  - `src/api/iam/infrastructure/api_key_repository.py:256–259` — applies filter.
+- Tests:
+  - `tests/unit/iam/application/test_api_key_service.py`:
+    `test_filters_by_created_by_user_id` (line 950) — explicitly asserts repo is called
+    with `created_by_user_id == filter_user_id`.
+
+---
+
+### 4. API Key Revocation — COVERED
+
+**Owner revokes own key**
+- Implementation:
+  - SpiceDB grants `owner` relationship at creation → `revoke` permission satisfied.
+  - `src/api/iam/application/services/api_key_service.py:215–229` — permission check
+    then `api_key.revoke()`.
+- Tests:
+  - `tests/integration/test_api_key_auth.py`: `test_owner_can_revoke_own_key`
+  - `tests/unit/iam/application/test_api_key_service.py`:
+    `test_revoke_succeeds_for_authorized_user`
+
+**Tenant admin revokes any key**
+- Implementation: SpiceDB schema — `api_key#revoke` satisfied by
+  `tenant->administrate` relation; `api_key#tenant@tenant` relationship written at
+  key creation.
+- Tests:
+  - `tests/integration/test_api_key_auth.py`:
+    `test_tenant_admin_can_revoke_other_users_key` — Bob creates key, Alice (tenant
+    admin) revokes it → 204.
+
+**Already revoked → 409 conflict**
+- Implementation:
+  - `src/api/iam/domain/aggregates/api_key.py:103–106` — `revoke()` raises
+    `APIKeyAlreadyRevokedError` if `is_revoked is True`.
+  - Route maps this exception to 409.
+- Tests:
+  - `tests/unit/iam/domain/test_api_key_aggregate.py`:
+    `test_revoke_already_revoked_raises_error`
+  - `tests/unit/iam/presentation/test_api_key_routes.py`:
+    `test_returns_409_when_already_revoked`
+
+**Unauthorized → 403 forbidden**
+- Implementation:
+  - `src/api/iam/application/services/api_key_service.py:220–225` — raises
+    `UnauthorizedError` when SpiceDB denies permission.
+  - Route maps to 403.
+- Tests:
+  - `tests/integration/test_api_key_auth.py`:
+    `test_non_admin_cannot_revoke_other_users_key` — Bob (member) tries to revoke
+    Alice's key → 403.
+  - `tests/unit/iam/application/test_api_key_service.py`:
+    `test_revoke_raises_unauthorized_when_denied`
+  - `tests/unit/iam/presentation/test_api_key_routes.py`:
+    `test_revoke_api_key_returns_403_when_unauthorized`
+
+**Revoked key remains visible with is_revoked=True**
+- Implementation: soft-revocation; key row not deleted, `is_revoked` flag set.
+- Tests:
+  - `tests/integration/test_api_key_auth.py`:
+    `test_revoked_key_remains_visible_in_listing`
+
+---
+
+### 5. API Key Cascade Deletion — COVERED
+
+**Tenant deletion → all keys deleted + SpiceDB cleanup**
+- Implementation:
+  - `src/api/iam/application/services/tenant_service.py:606–659` — lists all tenant
+    API keys, calls `mark_for_deletion()` on each, persists via repository.
+  - `src/api/iam/domain/aggregates/api_key.py:117–131` — `mark_for_deletion()` records
+    `APIKeyDeleted` event.
+  - `src/api/iam/infrastructure/outbox/translator.py:760–788` — translates
+    `APIKeyDeleted` into SpiceDB `DeleteRelationship` operations for both `owner` and
+    `tenant` relations.
+  - RESTRICT FK on `api_keys.tenant_id` ensures cascade is application-driven so
+    `APIKeyDeleted` events are emitted.
+- Tests:
+  - `tests/unit/iam/application/test_tenant_service.py`:
+    `test_deletes_api_keys_on_tenant_deletion`,
+    `test_deletes_multiple_api_keys_on_tenant_deletion`,
+    `test_api_key_mark_for_deletion_emits_deleted_event`,
+    `test_api_key_repo_queried_by_tenant_on_deletion`,
+    `test_cascade_deletion_probe_reports_api_key_count`,
+    `test_api_keys_deleted_before_tenant_on_cascade`
+
+---
+
+### 6. API Key Name Validation — COVERED
+
+**Valid name (1–255 chars) → accepted**
+- Implementation: `src/api/iam/presentation/api_keys/models.py:19–24` —
+  `name: str = Field(..., min_length=1, max_length=255)`
+- Tests: Creation tests pass with valid names.
+
+**Empty name → 422 validation error**
+- Implementation: Pydantic `min_length=1` rejects empty strings.
+- Tests:
+  - `tests/unit/iam/presentation/test_api_key_routes.py`:
+    `test_validates_name_min_length`, `test_requires_name_field`
+
+---
+
+## Coverage Table
+
+| Requirement               | Scenarios                                        | Status  |
+|---------------------------|--------------------------------------------------|---------|
+| API Key Creation          | Successful creation, Duplicate name, Expiration  | COVERED |
+| API Key Authentication    | Valid key, Expired, Revoked, JWT precedence,     | COVERED |
+|                           | Prefix collision                                 |         |
+| API Key Listing           | List keys with metadata, Filter by creator       | COVERED |
+| API Key Revocation        | Owner revoke, Admin revoke, Already revoked,     | COVERED |
+|                           | Unauthorized, Visible after revocation           |         |
+| API Key Cascade Deletion  | Tenant deletion → keys deleted + SpiceDB cleanup | COVERED |
+| API Key Name Validation   | Valid name, Empty name                           | COVERED |
+
+All 6 SHALL requirements and all 15 scenarios are COVERED. Verdict: **PASS**.

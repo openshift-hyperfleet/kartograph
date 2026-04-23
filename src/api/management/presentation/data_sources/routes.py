@@ -17,59 +17,12 @@ from management.ports.exceptions import UnauthorizedError
 from management.ports.repositories import IDataSourceSyncRunRepository
 from management.presentation.data_sources.models import (
     CreateDataSourceRequest,
-    DataSourceListResponse,
     DataSourceResponse,
-    DataSourceWithSyncResponse,
-    SyncRunLogsResponse,
     SyncRunResponse,
-    UpdateDataSourceRequest,
 )
 from shared_kernel.datasource_types import DataSourceAdapterType
 
 router = APIRouter(tags=["data-sources"])
-
-
-@router.get(
-    "/data-sources",
-    status_code=status.HTTP_200_OK,
-    summary="List all data sources across the tenant",
-    description="""
-List all data sources accessible to the current user across all their knowledge graphs.
-
-Includes the most recent sync run per data source embedded in the response, enabling
-the sidebar navigation badge to reflect live sync state without additional API calls.
-
-Only data sources belonging to knowledge graphs the user has VIEW permission on
-are returned.
-""",
-)
-async def list_all_data_sources(
-    current_user: Annotated[CurrentUser, Depends(get_current_user)],
-    service: Annotated[DataSourceService, Depends(get_data_source_service)],
-) -> DataSourceListResponse:
-    """List all data sources in the tenant with the latest sync run status.
-
-    Args:
-        current_user: Current authenticated user with tenant context
-        service: Data source service for orchestration
-
-    Returns:
-        DataSourceListResponse with data_sources list and count
-
-    Raises:
-        HTTPException: 500 for unexpected errors
-    """
-    try:
-        pairs = await service.list_all_for_user(user_id=current_user.user_id.value)
-        responses = [
-            DataSourceWithSyncResponse.from_domain_pair(pair) for pair in pairs
-        ]
-        return DataSourceListResponse(data_sources=responses, count=len(responses))
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to list data sources",
-        )
 
 
 @router.get(
@@ -153,9 +106,6 @@ async def create_data_source(
         )
 
     try:
-        ontology = (
-            request.ontology.to_domain() if request.ontology is not None else None
-        )
         ds = await service.create(
             user_id=current_user.user_id.value,
             kg_id=kg_id,
@@ -163,7 +113,6 @@ async def create_data_source(
             adapter_type=adapter_type,
             connection_config=request.connection_config,
             raw_credentials=request.credentials,
-            ontology=ontology,
         )
         return DataSourceResponse.from_domain(ds)
 
@@ -287,219 +236,4 @@ async def list_sync_runs(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to list sync runs",
-        )
-
-
-@router.patch(
-    "/data-sources/{ds_id}",
-    response_model=DataSourceResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Update a data source",
-    description="""
-Update the name and/or credentials of a data source.
-
-Requires `edit` permission on the data source. Only the fields provided
-are updated — omit a field to leave it unchanged.
-""",
-    response_description="Updated data source details",
-    responses={
-        200: {"description": "Data source updated successfully"},
-        401: {"description": "Authentication required"},
-        403: {"description": "Insufficient permissions on the data source"},
-        404: {"description": "Data source not found"},
-        500: {"description": "Internal server error"},
-    },
-)
-async def update_data_source(
-    ds_id: str,
-    request: UpdateDataSourceRequest,
-    current_user: Annotated[CurrentUser, Depends(get_current_user)],
-    service: Annotated[DataSourceService, Depends(get_data_source_service)],
-) -> DataSourceResponse:
-    """Update a data source's configuration.
-
-    Args:
-        ds_id: Data Source ID to update
-        request: Fields to update (all optional)
-        current_user: Current authenticated user with tenant context
-        service: Data source service for orchestration
-
-    Returns:
-        DataSourceResponse with updated DS details
-
-    Raises:
-        HTTPException: 403 if user lacks EDIT permission on the DS
-        HTTPException: 404 if DS not found
-        HTTPException: 500 for unexpected errors
-    """
-    try:
-        ds = await service.update(
-            user_id=current_user.user_id.value,
-            ds_id=ds_id,
-            name=request.name,
-            connection_config=request.connection_config,
-            raw_credentials=request.credentials,
-        )
-
-        if request.ontology is not None:
-            ds = await service.update_ontology(
-                user_id=current_user.user_id.value,
-                ds_id=ds_id,
-                ontology=request.ontology.to_domain(),
-            )
-
-        return DataSourceResponse.from_domain(ds)
-
-    except UnauthorizedError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to perform this action",
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
-        )
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update data source",
-        )
-
-
-@router.delete(
-    "/data-sources/{ds_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    response_model=None,
-    summary="Delete a data source",
-    description="""
-Delete a data source and its associated credentials.
-
-Requires `manage` permission on the data source. The deletion is
-irreversible — all sync run history and stored credentials are removed.
-""",
-    response_description="No content returned on successful deletion",
-    responses={
-        204: {"description": "Data source deleted successfully"},
-        401: {"description": "Authentication required"},
-        403: {"description": "Insufficient permissions on the data source"},
-        404: {"description": "Data source not found"},
-        500: {"description": "Internal server error"},
-    },
-)
-async def delete_data_source(
-    ds_id: str,
-    current_user: Annotated[CurrentUser, Depends(get_current_user)],
-    service: Annotated[DataSourceService, Depends(get_data_source_service)],
-) -> None:
-    """Delete a data source.
-
-    Args:
-        ds_id: Data Source ID to delete
-        current_user: Current authenticated user with tenant context
-        service: Data source service for orchestration
-
-    Returns:
-        None (204 No Content)
-
-    Raises:
-        HTTPException: 403 if user lacks MANAGE permission on the DS
-        HTTPException: 404 if DS not found
-        HTTPException: 500 for unexpected errors
-    """
-    try:
-        deleted = await service.delete(
-            user_id=current_user.user_id.value,
-            ds_id=ds_id,
-        )
-
-        if not deleted:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Data source {ds_id} not found",
-            )
-
-        return None
-
-    except UnauthorizedError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to perform this action",
-        )
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete data source",
-        )
-
-
-@router.get(
-    "/data-sources/{ds_id}/sync-runs/{run_id}/logs",
-    status_code=status.HTTP_200_OK,
-)
-async def get_sync_run_logs(
-    ds_id: str,
-    run_id: str,
-    current_user: Annotated[CurrentUser, Depends(get_current_user)],
-    service: Annotated[DataSourceService, Depends(get_data_source_service)],
-    sync_run_repo: Annotated[
-        IDataSourceSyncRunRepository, Depends(get_sync_run_repository)
-    ],
-) -> SyncRunLogsResponse:
-    """Get log lines for a specific sync run.
-
-    The current user must have VIEW permission on the data source (enforced
-    via service.get which returns None for unauthorized or missing resources).
-    Verifies that the sync run belongs to the requested data source.
-
-    Returns an empty list if no logs have been captured yet — this is correct
-    until the Ingestion and Extraction contexts start populating logs.
-
-    Args:
-        ds_id: Data Source ID the sync run belongs to
-        run_id: Sync Run ID to fetch logs for
-        current_user: Current authenticated user with tenant context
-        service: Data source service for authorization check
-        sync_run_repo: Sync run repository for fetching the run
-
-    Returns:
-        SyncRunLogsResponse with ordered log lines (may be empty)
-
-    Raises:
-        HTTPException: 404 if DS not found, user lacks VIEW permission,
-                       sync run not found, or run doesn't belong to this DS
-        HTTPException: 500 for unexpected errors
-    """
-    try:
-        # Verify user can VIEW the data source (returns None if not authorized)
-        ds = await service.get(
-            user_id=current_user.user_id.value,
-            ds_id=ds_id,
-        )
-
-        if ds is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Data source not found",
-            )
-
-        # Fetch the sync run and verify it belongs to this data source
-        sync_run = await sync_run_repo.get_by_id(run_id)
-
-        if sync_run is None or sync_run.data_source_id != ds_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Sync run not found",
-            )
-
-        return SyncRunLogsResponse(logs=sync_run.logs)
-
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch sync run logs",
         )

@@ -268,105 +268,36 @@ class KnowledgeGraphService:
 
         return kgs
 
-    async def list_for_workspace_with_permission(
-        self,
-        user_id: str,
-        workspace_id: str,
-        permission: Permission = Permission.VIEW,
-    ) -> list[KnowledgeGraph]:
-        """List knowledge graphs in a workspace filtered by per-KG permission.
+    async def list_all(self, user_id: str) -> list[KnowledgeGraph]:
+        """List all knowledge graphs in the current tenant visible to the user.
 
-        Discovers KGs linked to the workspace via SpiceDB relationships, then
-        filters to those the user has the requested permission on.
-
-        Unlike list_for_workspace(), this method does NOT require workspace-level
-        VIEW permission — per-KG permission checks are sufficient. This supports
-        the Mutations Console KG selector which must show KGs the user can EDIT
-        within the selected workspace, regardless of their workspace role.
+        Fetches all KGs in the tenant then filters to those the user can VIEW
+        via SpiceDB permission checks.
 
         Args:
             user_id: The user requesting the list
-            workspace_id: The workspace to filter by
-            permission: Minimum permission to check on each KG (VIEW or EDIT)
 
         Returns:
-            KGs in the workspace that the user has the requested permission on.
-            Returns an empty list when the workspace has no KGs or when the user
-            lacks the requested permission on all workspace KGs.
-        """
-        # Discover KG IDs linked to the workspace via SpiceDB relationships
-        tuples = await self._authz.read_relationships(
-            resource_type=ResourceType.KNOWLEDGE_GRAPH,
-            relation=RelationType.WORKSPACE,
-            subject_type=ResourceType.WORKSPACE,
-            subject_id=workspace_id,
-        )
-
-        # Extract KG IDs from relationship tuples (format: "knowledge_graph:<id>")
-        kg_ids: list[str] = []
-        for rel_tuple in tuples:
-            parts = rel_tuple.resource.split(":")
-            if len(parts) == 2:
-                kg_ids.append(parts[1])
-
-        # Filter by per-KG permission (no workspace-level check required)
-        kgs: list[KnowledgeGraph] = []
-        for kg_id in kg_ids:
-            has_perm = await self._check_permission(
-                user_id=user_id,
-                resource_type=ResourceType.KNOWLEDGE_GRAPH,
-                resource_id=kg_id,
-                permission=permission,
-            )
-            if has_perm:
-                kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
-                if kg is not None and kg.tenant_id == self._scope_to_tenant:
-                    kgs.append(kg)
-
-        self._probe.knowledge_graphs_listed(
-            workspace_id=workspace_id,
-            count=len(kgs),
-        )
-        return kgs
-
-    async def list_all(
-        self,
-        user_id: str,
-        permission: Permission = Permission.VIEW,
-    ) -> list[KnowledgeGraph]:
-        """List all knowledge graphs in the current tenant accessible to the user.
-
-        Fetches all KGs in the tenant then filters to those the user has the
-        requested permission on via SpiceDB.
-
-        Args:
-            user_id: The user requesting the list
-            permission: The permission to check (VIEW by default; pass EDIT to
-                return only KGs the user can edit — e.g. for the Mutations
-                Console KG selector which must show only submission targets).
-
-        Returns:
-            List of KnowledgeGraph aggregates the user has the requested
-            permission on.
+            List of KnowledgeGraph aggregates the user can view
         """
         all_kgs = await self._kg_repo.find_by_tenant(self._scope_to_tenant)
 
-        accessible_kgs: list[KnowledgeGraph] = []
+        visible_kgs: list[KnowledgeGraph] = []
         for kg in all_kgs:
-            has_permission = await self._check_permission(
+            has_view = await self._check_permission(
                 user_id=user_id,
                 resource_type=ResourceType.KNOWLEDGE_GRAPH,
                 resource_id=kg.id.value,
-                permission=permission,
+                permission=Permission.VIEW,
             )
-            if has_permission:
-                accessible_kgs.append(kg)
+            if has_view:
+                visible_kgs.append(kg)
 
         self._probe.knowledge_graphs_listed(
             workspace_id=self._scope_to_tenant,
-            count=len(accessible_kgs),
+            count=len(visible_kgs),
         )
-        return accessible_kgs
+        return visible_kgs
 
     async def update(
         self,

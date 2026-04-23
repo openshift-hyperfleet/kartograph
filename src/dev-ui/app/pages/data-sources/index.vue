@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   Cable,
@@ -21,31 +21,13 @@ import {
   Lock,
   ScrollText,
   FileText,
-  Settings,
 } from 'lucide-vue-next'
-import {
-  ADAPTERS,
-  isAdapterSelectable,
-  canAdvanceStep1,
-  inferNameFromRepoUrl,
-  validateStep2,
-  buildDataSourceCreationUrl,
-  buildDataSourceCreationBody,
-} from '@/utils/dataSourceWizard'
-import {
-  validateTypeLabel,
-  validateIntentText,
-  parsePropertyList,
-  buildOntologySavePayload,
-} from '@/utils/ontologyWizard'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import SyncPhaseIndicator from '@/components/graph/SyncPhaseIndicator.vue'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { CopyableText } from '@/components/ui/copyable-text'
 import {
   Dialog,
   DialogContent,
@@ -66,22 +48,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface SyncRun {
   id: string
-  status: 'pending' | 'ingesting' | 'ai_extracting' | 'applying' | 'completed' | 'failed'
+  status: 'pending' | 'running' | 'completed' | 'failed'
   started_at: string
   completed_at: string | null
   error: string | null
@@ -117,7 +89,6 @@ interface ProposedNodeType {
   editDescription: string
   editRequired: string
   editOptional: string
-  editError?: string
 }
 
 interface ProposedEdgeType {
@@ -132,34 +103,7 @@ interface ProposedEdgeType {
   editDescription: string
   editRequired: string
   editOptional: string
-  editError?: string
 }
-
-// ── Sync phase helpers ─────────────────────────────────────────────────────
-
-/**
- * Map a backend sync-run status to a user-readable label.
- * The backend emits: pending, ingesting, ai_extracting, applying, completed, failed.
- * The value "running" is never emitted by the backend.
- */
-function syncPhaseLabel(status: SyncRun['status']): string {
-  const labels: Record<SyncRun['status'], string> = {
-    pending:       'Pending',
-    ingesting:     'Ingesting',
-    ai_extracting: 'Extracting',
-    applying:      'Applying',
-    completed:     'Completed',
-    failed:        'Failed',
-  }
-  return labels[status] ?? status
-}
-
-function isActiveSyncPhase(status: SyncRun['status']): boolean {
-  return status === 'pending' || status === 'ingesting' || status === 'ai_extracting' || status === 'applying'
-}
-
-// Statuses that indicate a sync is in progress and the page should poll.
-const ACTIVE_STATUSES: SyncRun['status'][] = ['pending', 'ingesting', 'ai_extracting', 'applying']
 
 // ── Composables ────────────────────────────────────────────────────────────
 
@@ -167,21 +111,29 @@ const { hasTenant, tenantVersion } = useTenant()
 
 // ── Available adapters ─────────────────────────────────────────────────────
 
-/** Icon map: resolves the Lucide icon component for each adapter ID. */
-const ADAPTER_ICONS: Record<string, typeof Github> = {
-  github: Github,
-  gitlab: GitBranch,
-  jira: Cable,
-}
-
-/**
- * Adapter list consumed by the template — extends the framework-free
- * `ADAPTERS` definition from `utils/dataSourceWizard.ts` with Vue icon refs.
- */
-const adapters: AdapterType[] = ADAPTERS.map((a) => ({
-  ...a,
-  icon: ADAPTER_ICONS[a.id] ?? Cable,
-}))
+const adapters: AdapterType[] = [
+  {
+    id: 'github',
+    label: 'GitHub',
+    description: 'Repositories, issues, pull requests, commits, and contributors',
+    icon: Github,
+    available: true,
+  },
+  {
+    id: 'gitlab',
+    label: 'GitLab',
+    description: 'Repositories, issues, merge requests, and pipelines',
+    icon: GitBranch,
+    available: false,
+  },
+  {
+    id: 'jira',
+    label: 'Jira',
+    description: 'Issues, epics, sprints, and project structure',
+    icon: Cable,
+    available: false,
+  },
+]
 
 // ── Wizard state ───────────────────────────────────────────────────────────
 
@@ -317,30 +269,19 @@ function toProposedEdge(e: typeof GITHUB_PROPOSAL_EDGES[0]): ProposedEdgeType {
 // ── Infer data source name from repo URL ───────────────────────────────────
 
 watch(connRepoUrl, (url) => {
-  // Only infer when the name field is still empty (do not overwrite user edits).
   if (!url.trim() || connName.value.trim()) return
-  const inferred = inferNameFromRepoUrl(url)
-  if (inferred) {
-    connName.value = inferred
+  const match = url.trim().match(/github\.com\/[^/]+\/([^/]+?)(?:\.git)?$/)
+  if (match) {
+    connName.value = match[1]
   }
 })
 
 // ── Wizard navigation ──────────────────────────────────────────────────────
 
-/**
- * Open the data source creation wizard, optionally pre-selecting a knowledge graph.
- *
- * @param preselectedKgId - When provided (e.g. from the ?kg_id= query param on
- *   the /data-sources route), the wizard opens with that KG already selected so
- *   the user can skip the KG selection step. This supports the post-KG-creation
- *   flow where the user is prompted to "Add Data Source" immediately after
- *   creating a new knowledge graph (task-101 / experience.spec.md).
- */
-function openWizard(preselectedKgId?: string) {
+function openWizard() {
   wizardStep.value = 1
   selectedAdapterId.value = ''
-  // Pre-select the knowledge graph if one was provided (e.g. from ?kg_id= query param).
-  selectedKnowledgeGraphId.value = preselectedKgId ?? ''
+  selectedKnowledgeGraphId.value = ''
   approvingOntology.value = false
   connName.value = ''
   connRepoUrl.value = ''
@@ -360,36 +301,50 @@ function openWizard(preselectedKgId?: string) {
 }
 
 function selectAdapter(id: string) {
-  // Guard: unavailable adapters cannot be selected.
-  if (!isAdapterSelectable(id)) return
   selectedAdapterId.value = id
 }
 
 function nextStep() {
   if (wizardStep.value === 1) {
-    if (!canAdvanceStep1(selectedAdapterId.value, selectedKnowledgeGraphId.value)) return
+    if (!selectedAdapterId.value) return
+    if (!selectedKnowledgeGraphId.value) return
     wizardStep.value = 2
     return
   }
 
   if (wizardStep.value === 2) {
-    const validation = validateStep2({
-      connName: connName.value,
-      connRepoUrl: connRepoUrl.value,
-    })
-    connNameError.value = validation.connNameError
-    connRepoUrlError.value = validation.connRepoUrlError
-    connTokenError.value = validation.connTokenError
+    connNameError.value = ''
+    connRepoUrlError.value = ''
+    connTokenError.value = ''
+    let valid = true
 
-    if (!validation.valid) return
+    if (!connName.value.trim()) {
+      connNameError.value = 'Data source name is required.'
+      valid = false
+    }
+    if (!connRepoUrl.value.trim()) {
+      connRepoUrlError.value = 'Repository URL is required.'
+      valid = false
+    } else if (!connRepoUrl.value.includes('github.com')) {
+      connRepoUrlError.value = 'Enter a valid GitHub repository URL.'
+      valid = false
+    }
+    if (!connToken.value.trim()) {
+      connTokenError.value = 'Access token is required.'
+      valid = false
+    }
+
+    if (!valid) return
     wizardStep.value = 3
     return
   }
 
   if (wizardStep.value === 3) {
-    const intentValidation = validateIntentText(intentText.value)
-    intentError.value = intentValidation.error
-    if (!intentValidation.valid) return
+    intentError.value = ''
+    if (!intentText.value.trim()) {
+      intentError.value = 'Please describe your intent before continuing.'
+      return
+    }
     wizardStep.value = 4
     beginOntologyProposal()
     return
@@ -430,22 +385,15 @@ function startEditNode(index: number) {
 
 function saveEditNode(index: number) {
   const n = proposedNodes.value[index]
-  const validation = validateTypeLabel(proposedNodes.value, n.editLabel, index)
-  if (!validation.valid) {
-    n.editError = validation.error
-    return
-  }
-  n.editError = ''
-  n.label = n.editLabel.trim()
+  n.label = n.editLabel.trim() || n.label
   n.description = n.editDescription
-  n.required_properties = parsePropertyList(n.editRequired)
-  n.optional_properties = parsePropertyList(n.editOptional)
+  n.required_properties = n.editRequired.split(',').map((s) => s.trim()).filter(Boolean)
+  n.optional_properties = n.editOptional.split(',').map((s) => s.trim()).filter(Boolean)
   n.editing = false
 }
 
 function cancelEditNode(index: number) {
   proposedNodes.value[index].editing = false
-  proposedNodes.value[index].editError = ''
 }
 
 function removeNode(index: number) {
@@ -463,58 +411,19 @@ function startEditEdge(index: number) {
 
 function saveEditEdge(index: number) {
   const e = proposedEdges.value[index]
-  const validation = validateTypeLabel(proposedEdges.value, e.editLabel, index)
-  if (!validation.valid) {
-    e.editError = validation.error
-    return
-  }
-  e.editError = ''
-  e.label = e.editLabel.trim()
+  e.label = e.editLabel.trim() || e.label
   e.description = e.editDescription
-  e.required_properties = parsePropertyList(e.editRequired)
-  e.optional_properties = parsePropertyList(e.editOptional)
+  e.required_properties = e.editRequired.split(',').map((s) => s.trim()).filter(Boolean)
+  e.optional_properties = e.editOptional.split(',').map((s) => s.trim()).filter(Boolean)
   e.editing = false
 }
 
 function cancelEditEdge(index: number) {
   proposedEdges.value[index].editing = false
-  proposedEdges.value[index].editError = ''
 }
 
 function removeEdge(index: number) {
   proposedEdges.value.splice(index, 1)
-}
-
-// ── Add new types (wizard) ─────────────────────────────────────────────────
-
-function addNode() {
-  proposedNodes.value.push({
-    label: '',
-    description: '',
-    required_properties: [],
-    optional_properties: [],
-    editing: true,
-    editLabel: '',
-    editDescription: '',
-    editRequired: '',
-    editOptional: '',
-  })
-}
-
-function addEdge() {
-  proposedEdges.value.push({
-    label: '',
-    description: '',
-    from: '',
-    to: '',
-    required_properties: [],
-    optional_properties: [],
-    editing: true,
-    editLabel: '',
-    editDescription: '',
-    editRequired: '',
-    editOptional: '',
-  })
 }
 
 // ── Knowledge graph loader ─────────────────────────────────────────────────
@@ -544,14 +453,14 @@ async function createDataSource(params: {
   credentials?: Record<string, string>
 }) {
   const { apiFetch } = useApiClient()
-  return apiFetch(buildDataSourceCreationUrl(params.kg_id), {
+  return apiFetch(`/management/knowledge-graphs/${params.kg_id}/data-sources`, {
     method: 'POST',
-    body: buildDataSourceCreationBody({
+    body: {
       name: params.name,
       adapter_type: params.adapter_type,
       connection_config: params.connection_config,
       credentials: params.credentials,
-    }),
+    },
   })
 }
 
@@ -574,9 +483,6 @@ async function approveOntology() {
       },
       credentials: connToken.value ? { access_token: connToken.value } : undefined,
     })
-    // Clear the plaintext token immediately after the API call succeeds so
-    // that it does not linger in Vue's reactive state (readable via DevTools).
-    connToken.value = ''
     toast.success('Data source connected', {
       description: `${connName.value} has been connected and extraction will begin shortly.`,
     })
@@ -585,7 +491,6 @@ async function approveOntology() {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to connect data source'
     toast.error('Connection failed', { description: msg })
-    // Token is intentionally NOT cleared on failure so the user can retry.
   } finally {
     approvingOntology.value = false
   }
@@ -609,17 +514,17 @@ async function loadDataSources() {
     const all: DataSourceItem[] = []
     for (const kg of kgs) {
       try {
-        // Backend returns list[DataSourceResponse] as a direct JSON array.
-        const sources = await apiFetch<DataSourceItem[]>(
+        const dsResult = await apiFetch<{ data_sources: DataSourceItem[] }>(
           `/management/knowledge-graphs/${kg.id}/data-sources`
         )
+        const sources = dsResult.data_sources ?? []
         // Fetch sync runs for each data source so the card can show history.
         for (const ds of sources) {
           try {
-            // Backend returns list[SyncRunResponse] as a direct JSON array.
-            ds.sync_runs = (await apiFetch<SyncRun[]>(
+            const runResult = await apiFetch<{ sync_runs: SyncRun[] }>(
               `/management/data-sources/${ds.id}/sync-runs`
-            )) ?? []
+            )
+            ds.sync_runs = runResult.sync_runs ?? []
           } catch {
             ds.sync_runs = []
           }
@@ -637,86 +542,12 @@ async function loadDataSources() {
   }
 }
 
-// ── Sync polling ───────────────────────────────────────────────────────────
-
-/**
- * True if at least one data source has a sync currently in progress.
- * Uses the most recent sync run (first in the array) as the source of truth.
- */
-const hasActiveSyncs = computed(() =>
-  dataSources.value.some((ds) => {
-    const latestStatus = ds.sync_runs?.[0]?.status
-    return latestStatus !== undefined && ACTIVE_STATUSES.includes(latestStatus)
-  }),
-)
-
-/** Holds the active setInterval handle, or null when not polling. */
-const pollInterval = ref<ReturnType<typeof setInterval> | null>(null)
-
-/**
- * Clears the poll interval and resets the ref.
- * Safe to call when no interval is running.
- */
-function stopPolling() {
-  if (pollInterval.value !== null) {
-    clearInterval(pollInterval.value)
-    pollInterval.value = null
-  }
-}
-
-/**
- * Starts polling every 5 seconds while any data source has an active sync.
- * Guards against starting a second interval if one is already running.
- * Automatically stops when all syncs reach a terminal state.
- */
-function startPolling() {
-  if (pollInterval.value !== null) return // already polling
-  pollInterval.value = setInterval(async () => {
-    await loadDataSources()
-    if (!hasActiveSyncs.value) {
-      stopPolling()
-    }
-  }, 5000)
-}
-
-onMounted(async () => {
-  await loadDataSources()
-  if (hasActiveSyncs.value) {
-    startPolling()
-  }
-  // Cross-navigation from Schema Browser: open ontology editor for a specific type.
-  const route = useRoute()
-  const openOntologyType = route.query.openOntologyType as string | undefined
-  if (openOntologyType && dataSources.value.length > 0) {
-    // Open the first data source that contains the matching type label.
-    // If no specific match, open the first data source as a fallback.
-    const target = dataSources.value[0]
-    if (target) {
-      await nextTick()
-      requestOntologyEdit(target)
-    }
-  }
-
-  // Task-101: Post-KG-creation flow — auto-open wizard with new KG pre-selected.
-  // When the user clicks "Add Data Source" from the post-KG-creation toast on
-  // /knowledge-graphs, they are sent to /data-sources?kg_id=<new-kg-id>. Reading
-  // this param here ensures the wizard opens immediately with the right KG chosen.
-  const preselectedKgId = route.query.kg_id as string | undefined
-  if (preselectedKgId) {
-    await nextTick()
-    openWizard(preselectedKgId)
-  }
-})
-
-onUnmounted(() => {
-  // Always clear the poll interval to prevent memory leaks when navigating away.
-  stopPolling()
+onMounted(() => {
+  loadDataSources()
 })
 
 // Reload data sources whenever the user switches tenants.
 watch(tenantVersion, () => {
-  // Clear stale data immediately so old tenant's sources are not shown during load
-  dataSources.value = []
   loadDataSources()
 })
 
@@ -726,10 +557,6 @@ async function triggerSync(dsId: string) {
     await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
     toast.success('Sync triggered', { description: 'The data source sync has been initiated.' })
     await loadDataSources()
-    // The newly triggered sync is now active — start polling if not already running.
-    if (hasActiveSyncs.value) {
-      startPolling()
-    }
   } catch {
     toast.error('Failed to trigger sync')
   }
@@ -785,136 +612,6 @@ function closeOntologyEditor() {
   editEdges.value = []
 }
 
-// Saving state for the ontology editor Apply button
-const savingOntology = ref(false)
-
-async function saveOntology() {
-  if (!editingDataSource.value) return
-  savingOntology.value = true
-  try {
-    const { apiFetch } = useApiClient()
-    // PATCH /management/data-sources/{ds_id} (flat endpoint per API conventions)
-    await apiFetch(
-      `/management/data-sources/${editingDataSource.value.id}`,
-      {
-        method: 'PATCH',
-        body: buildOntologySavePayload(editNodes.value, editEdges.value),
-      },
-    )
-    toast.success('Ontology saved', {
-      description: 'The ontology has been updated. A full re-extraction will begin shortly.',
-    })
-    closeOntologyEditor()
-    await loadDataSources()
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to save ontology'
-    toast.error('Failed to save ontology', { description: msg })
-    // dialog stays open so user can retry
-  } finally {
-    savingOntology.value = false
-  }
-}
-
-// ── Ontology editor dialog — type editing ─────────────────────────────────
-
-function startEditNodeEditor(index: number) {
-  const n = editNodes.value[index]
-  n.editLabel = n.label
-  n.editDescription = n.description
-  n.editRequired = n.required_properties.join(', ')
-  n.editOptional = n.optional_properties.join(', ')
-  n.editError = ''
-  n.editing = true
-}
-
-function saveEditNodeEditor(index: number) {
-  const n = editNodes.value[index]
-  const validation = validateTypeLabel(editNodes.value, n.editLabel, index)
-  if (!validation.valid) {
-    n.editError = validation.error
-    return
-  }
-  n.editError = ''
-  n.label = n.editLabel.trim()
-  n.description = n.editDescription
-  n.required_properties = parsePropertyList(n.editRequired)
-  n.optional_properties = parsePropertyList(n.editOptional)
-  n.editing = false
-}
-
-function cancelEditNodeEditor(index: number) {
-  editNodes.value[index].editing = false
-  editNodes.value[index].editError = ''
-}
-
-function removeNodeEditor(index: number) {
-  editNodes.value.splice(index, 1)
-}
-
-function startEditEdgeEditor(index: number) {
-  const e = editEdges.value[index]
-  e.editLabel = e.label
-  e.editDescription = e.description
-  e.editRequired = e.required_properties.join(', ')
-  e.editOptional = e.optional_properties.join(', ')
-  e.editError = ''
-  e.editing = true
-}
-
-function saveEditEdgeEditor(index: number) {
-  const e = editEdges.value[index]
-  const validation = validateTypeLabel(editEdges.value, e.editLabel, index)
-  if (!validation.valid) {
-    e.editError = validation.error
-    return
-  }
-  e.editError = ''
-  e.label = e.editLabel.trim()
-  e.description = e.editDescription
-  e.required_properties = parsePropertyList(e.editRequired)
-  e.optional_properties = parsePropertyList(e.editOptional)
-  e.editing = false
-}
-
-function cancelEditEdgeEditor(index: number) {
-  editEdges.value[index].editing = false
-  editEdges.value[index].editError = ''
-}
-
-function removeEdgeEditor(index: number) {
-  editEdges.value.splice(index, 1)
-}
-
-function addEditNode() {
-  editNodes.value.push({
-    label: '',
-    description: '',
-    required_properties: [],
-    optional_properties: [],
-    editing: true,
-    editLabel: '',
-    editDescription: '',
-    editRequired: '',
-    editOptional: '',
-  })
-}
-
-function addEditEdge() {
-  editEdges.value.push({
-    label: '',
-    description: '',
-    from: '',
-    to: '',
-    required_properties: [],
-    optional_properties: [],
-    editing: true,
-    editLabel: '',
-    editDescription: '',
-    editRequired: '',
-    editOptional: '',
-  })
-}
-
 // ── FAIL 3: Sync Logs (View Logs per sync run) ────────────────────────────
 
 const logSheetOpen = ref(false)
@@ -957,82 +654,6 @@ function closeLogs() {
   runLogs.value = []
   logsError.value = null
 }
-
-// ── task-081: Edit Config (connection-config update) ──────────────────────
-
-const editConfigOpen = ref(false)
-const editConfigDs = ref<DataSourceItem | null>(null)
-const editConfigName = ref('')
-const editConfigToken = ref('')
-const editConfigNameError = ref('')
-const savingConfig = ref(false)
-
-function openEditConfig(ds: DataSourceItem) {
-  editConfigDs.value = ds
-  editConfigName.value = ds.name
-  editConfigToken.value = '' // never pre-fill; credential is server-side only
-  editConfigNameError.value = ''
-  editConfigOpen.value = true
-}
-
-async function handleEditConfig() {
-  editConfigNameError.value = ''
-  if (!editConfigName.value.trim()) {
-    editConfigNameError.value = 'Data source name is required'
-    return
-  }
-  savingConfig.value = true
-  try {
-    const { apiFetch } = useApiClient()
-    const body: Record<string, unknown> = { name: editConfigName.value.trim() }
-    if (editConfigToken.value.trim()) {
-      body.credentials = { access_token: editConfigToken.value.trim() }
-    }
-    // PATCH /management/data-sources/{ds_id} (flat endpoint per API conventions)
-    await apiFetch(`/management/data-sources/${editConfigDs.value!.id}`, { method: 'PATCH', body })
-    toast.success('Data source updated')
-    editConfigOpen.value = false
-    await loadDataSources()
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed to update data source'
-    toast.error('Failed to update data source', { description: msg })
-    // sheet stays open so user can retry
-  } finally {
-    savingConfig.value = false
-  }
-}
-
-// ── task-081: Delete Data Source ──────────────────────────────────────────
-
-const deleteDsOpen = ref(false)
-const deletingDs = ref<DataSourceItem | null>(null)
-const deletingDsFlag = ref(false)
-
-function openDeleteDs(ds: DataSourceItem) {
-  deletingDs.value = ds
-  deleteDsOpen.value = true
-}
-
-async function handleDeleteDs() {
-  if (!deletingDs.value) return
-  deletingDsFlag.value = true
-  try {
-    const { apiFetch } = useApiClient()
-    // DELETE /management/data-sources/{ds_id} (flat endpoint per API conventions)
-    await apiFetch(`/management/data-sources/${deletingDs.value.id}`, { method: 'DELETE' })
-    const name = deletingDs.value.name
-    toast.success(`Data source "${name}" deleted`)
-    deleteDsOpen.value = false
-    await loadDataSources()
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed to delete data source'
-    toast.error('Failed to delete data source', { description: msg })
-    deleteDsOpen.value = false
-  } finally {
-    deletingDsFlag.value = false
-    deletingDs.value = null
-  }
-}
 </script>
 
 <template>
@@ -1044,7 +665,7 @@ async function handleDeleteDs() {
           <Cable class="size-5 text-primary" />
         </div>
         <div>
-          <h1 class="text-2xl font-semibold tracking-tight">Data Sources</h1>
+          <h1 class="text-2xl font-bold tracking-tight">Data Sources</h1>
           <p class="text-sm text-muted-foreground">
             Connect external data sources to your knowledge graphs for automated extraction
           </p>
@@ -1096,15 +717,14 @@ async function handleDeleteDs() {
               <div>
                 <p class="font-medium text-sm">{{ ds.name }}</p>
                 <p class="text-xs text-muted-foreground">{{ ds.adapter_type }}</p>
-                <CopyableText :text="ds.id" label="Data source ID copied" class="mt-0.5" />
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <SyncPhaseIndicator
-                v-if="ds.sync_runs?.[0]"
-                :status="ds.sync_runs[0].status"
-              />
-              <Badge v-else variant="secondary" class="text-[10px]">Idle</Badge>
+              <Badge
+                :variant="ds.sync_runs?.[0]?.status === 'completed' ? 'default' : ds.sync_runs?.[0]?.status === 'failed' ? 'destructive' : 'secondary'"
+              >
+                {{ ds.sync_runs?.[0]?.status ?? 'idle' }}
+              </Badge>
               <!-- Edit Ontology button (FAIL 2) -->
               <Tooltip>
                 <TooltipTrigger as-child>
@@ -1120,21 +740,6 @@ async function handleDeleteDs() {
                   <p v-else>Edit the node and edge types for this data source</p>
                 </TooltipContent>
               </Tooltip>
-              <!-- Edit Config button (task-081) -->
-              <Button size="sm" variant="outline" @click="openEditConfig(ds)">
-                <Settings class="mr-1.5 size-3.5" />
-                Edit Config
-              </Button>
-              <!-- Delete button (task-081) -->
-              <Button
-                size="sm"
-                variant="outline"
-                class="text-destructive hover:bg-destructive/10"
-                @click="openDeleteDs(ds)"
-              >
-                <Trash2 class="mr-1.5 size-3.5" />
-                Delete
-              </Button>
               <Button size="sm" variant="outline" @click="triggerSync(ds.id)">
                 Sync Now
               </Button>
@@ -1145,7 +750,9 @@ async function handleDeleteDs() {
             <p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Sync History</p>
             <div class="space-y-1">
               <div v-for="run in ds.sync_runs" :key="run.id" class="flex items-center gap-2 text-xs text-muted-foreground">
-                <SyncPhaseIndicator :status="run.status" />
+                <Badge :variant="run.status === 'completed' ? 'default' : run.status === 'failed' ? 'destructive' : 'secondary'" class="text-[10px]">
+                  {{ run.status }}
+                </Badge>
                 <span>{{ new Date(run.started_at).toLocaleString() }}</span>
                 <span v-if="run.completed_at">
                   ({{ Math.round((new Date(run.completed_at).getTime() - new Date(run.started_at).getTime()) / 1000) }}s)
@@ -1499,8 +1106,7 @@ async function handleDeleteDs() {
                     <div class="grid grid-cols-2 gap-3">
                       <div class="space-y-1">
                         <Label class="text-xs">Label</Label>
-                        <Input v-model="node.editLabel" class="h-8 text-xs" @input="node.editError = ''" />
-                        <p v-if="node.editError" class="text-xs text-destructive">{{ node.editError }}</p>
+                        <Input v-model="node.editLabel" class="h-8 text-xs" />
                       </div>
                       <div class="space-y-1">
                         <Label class="text-xs">Description</Label>
@@ -1530,11 +1136,6 @@ async function handleDeleteDs() {
                   </CardContent>
                 </Card>
               </div>
-              <!-- Add Node Type button -->
-              <Button variant="outline" size="sm" class="mt-2 w-full gap-2" @click="addNode">
-                <Plus class="size-4" />
-                Add Node Type
-              </Button>
             </div>
 
             <!-- Edge types -->
@@ -1601,22 +1202,11 @@ async function handleDeleteDs() {
                     <div class="grid grid-cols-2 gap-3">
                       <div class="space-y-1">
                         <Label class="text-xs">Label</Label>
-                        <Input v-model="edge.editLabel" class="h-8 text-xs" @input="edge.editError = ''" />
-                        <p v-if="edge.editError" class="text-xs text-destructive">{{ edge.editError }}</p>
+                        <Input v-model="edge.editLabel" class="h-8 text-xs" />
                       </div>
                       <div class="space-y-1">
                         <Label class="text-xs">Description</Label>
                         <Input v-model="edge.editDescription" class="h-8 text-xs" />
-                      </div>
-                    </div>
-                    <div class="grid grid-cols-2 gap-3">
-                      <div class="space-y-1">
-                        <Label class="text-xs">From type</Label>
-                        <Input v-model="edge.from" placeholder="e.g. Repository" class="h-8 text-xs" />
-                      </div>
-                      <div class="space-y-1">
-                        <Label class="text-xs">To type</Label>
-                        <Input v-model="edge.to" placeholder="e.g. Issue" class="h-8 text-xs" />
                       </div>
                     </div>
                     <div class="grid grid-cols-2 gap-3">
@@ -1642,11 +1232,6 @@ async function handleDeleteDs() {
                   </CardContent>
                 </Card>
               </div>
-              <!-- Add Edge Type button -->
-              <Button variant="outline" size="sm" class="mt-2 w-full gap-2" @click="addEdge">
-                <Plus class="size-4" />
-                Add Edge Type
-              </Button>
             </div>
           </template>
 
@@ -1726,11 +1311,8 @@ async function handleDeleteDs() {
                   </div>
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
-                  <Button variant="ghost" size="icon" class="size-7" @click="startEditNodeEditor(idx)">
+                  <Button variant="ghost" size="icon" class="size-7" @click="startEditNode(idx)">
                     <Pencil class="size-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" class="size-7 text-destructive hover:text-destructive" @click="removeNodeEditor(idx)">
-                    <Trash2 class="size-3.5" />
                   </Button>
                 </div>
               </CardContent>
@@ -1738,8 +1320,7 @@ async function handleDeleteDs() {
                 <div class="grid grid-cols-2 gap-3">
                   <div class="space-y-1">
                     <Label class="text-xs">Label</Label>
-                    <Input v-model="node.editLabel" class="h-8 text-xs" @input="node.editError = ''" />
-                    <p v-if="node.editError" class="text-xs text-destructive">{{ node.editError }}</p>
+                    <Input v-model="node.editLabel" class="h-8 text-xs" />
                   </div>
                   <div class="space-y-1">
                     <Label class="text-xs">Description</Label>
@@ -1757,21 +1338,16 @@ async function handleDeleteDs() {
                   </div>
                 </div>
                 <div class="flex justify-end gap-2">
-                  <Button variant="ghost" size="sm" class="h-7 text-xs" @click="cancelEditNodeEditor(idx)">
+                  <Button variant="ghost" size="sm" class="h-7 text-xs" @click="cancelEditNode(idx)">
                     <X class="mr-1 size-3" /> Cancel
                   </Button>
-                  <Button size="sm" class="h-7 text-xs" @click="saveEditNodeEditor(idx)">
+                  <Button size="sm" class="h-7 text-xs" @click="saveEditNode(idx)">
                     <Check class="mr-1 size-3" /> Save
                   </Button>
                 </div>
               </CardContent>
             </Card>
           </div>
-          <!-- Add Node Type button -->
-          <Button variant="outline" size="sm" class="mt-2 w-full gap-2" @click="addEditNode">
-            <Plus class="size-4" />
-            Add Node Type
-          </Button>
         </div>
 
         <!-- Edge types -->
@@ -1788,151 +1364,39 @@ async function handleDeleteDs() {
                   <p class="text-xs text-muted-foreground">{{ edge.description }}</p>
                   <p class="text-xs text-muted-foreground/70 mt-0.5">{{ edge.from }} → {{ edge.to }}</p>
                 </div>
-                <div class="flex shrink-0 items-center gap-1">
-                  <Button variant="ghost" size="icon" class="size-7 shrink-0" @click="startEditEdgeEditor(idx)">
-                    <Pencil class="size-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" class="size-7 shrink-0 text-destructive hover:text-destructive" @click="removeEdgeEditor(idx)">
-                    <Trash2 class="size-3.5" />
-                  </Button>
-                </div>
+                <Button variant="ghost" size="icon" class="size-7 shrink-0" @click="startEditEdge(idx)">
+                  <Pencil class="size-3.5" />
+                </Button>
               </CardContent>
               <CardContent v-else class="space-y-3 p-3">
                 <div class="grid grid-cols-2 gap-3">
                   <div class="space-y-1">
                     <Label class="text-xs">Label</Label>
-                    <Input v-model="edge.editLabel" class="h-8 text-xs" @input="edge.editError = ''" />
-                    <p v-if="edge.editError" class="text-xs text-destructive">{{ edge.editError }}</p>
+                    <Input v-model="edge.editLabel" class="h-8 text-xs" />
                   </div>
                   <div class="space-y-1">
                     <Label class="text-xs">Description</Label>
                     <Input v-model="edge.editDescription" class="h-8 text-xs" />
                   </div>
                 </div>
-                <div class="grid grid-cols-2 gap-3">
-                  <div class="space-y-1">
-                    <Label class="text-xs">From type</Label>
-                    <Input v-model="edge.from" placeholder="e.g. Repository" class="h-8 text-xs" />
-                  </div>
-                  <div class="space-y-1">
-                    <Label class="text-xs">To type</Label>
-                    <Input v-model="edge.to" placeholder="e.g. Issue" class="h-8 text-xs" />
-                  </div>
-                </div>
-                <div class="grid grid-cols-2 gap-3">
-                  <div class="space-y-1">
-                    <Label class="text-xs">Required properties</Label>
-                    <Input v-model="edge.editRequired" placeholder="comma-separated" class="h-8 text-xs" />
-                  </div>
-                  <div class="space-y-1">
-                    <Label class="text-xs">Optional properties</Label>
-                    <Input v-model="edge.editOptional" placeholder="comma-separated" class="h-8 text-xs" />
-                  </div>
-                </div>
                 <div class="flex justify-end gap-2">
-                  <Button variant="ghost" size="sm" class="h-7 text-xs" @click="cancelEditEdgeEditor(idx)">
+                  <Button variant="ghost" size="sm" class="h-7 text-xs" @click="cancelEditEdge(idx)">
                     <X class="mr-1 size-3" /> Cancel
                   </Button>
-                  <Button size="sm" class="h-7 text-xs" @click="saveEditEdgeEditor(idx)">
+                  <Button size="sm" class="h-7 text-xs" @click="saveEditEdge(idx)">
                     <Check class="mr-1 size-3" /> Save
                   </Button>
                 </div>
               </CardContent>
             </Card>
           </div>
-          <!-- Add Edge Type button -->
-          <Button variant="outline" size="sm" class="mt-2 w-full gap-2" @click="addEditEdge">
-            <Plus class="size-4" />
-            Add Edge Type
-          </Button>
         </div>
 
         <DialogFooter class="pt-4">
-          <Button variant="outline" :disabled="savingOntology" @click="closeOntologyEditor">Cancel</Button>
-          <Button :disabled="savingOntology" @click="saveOntology">
-            <Loader2 v-if="savingOntology" class="mr-2 size-4 animate-spin" />
-            {{ savingOntology ? 'Saving...' : 'Apply & Save' }}
-          </Button>
+          <Button variant="outline" @click="closeOntologyEditor">Close</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
-
-    <!-- ─── task-081: Edit Config Sheet ─────────────────────────────────── -->
-    <Sheet v-model:open="editConfigOpen">
-      <SheetContent side="right" class="w-full sm:max-w-md">
-        <SheetHeader>
-          <SheetTitle>Edit Data Source</SheetTitle>
-          <SheetDescription>
-            Update the name or rotate the access credentials for this data source.
-          </SheetDescription>
-        </SheetHeader>
-        <form class="mt-6 space-y-4" @submit.prevent="handleEditConfig">
-          <div class="space-y-1.5">
-            <Label for="edit-ds-name">Name <span class="text-destructive">*</span></Label>
-            <Input
-              id="edit-ds-name"
-              v-model="editConfigName"
-              placeholder="e.g. my-org/my-repo"
-              :disabled="savingConfig"
-              @input="editConfigNameError = ''"
-            />
-            <p v-if="editConfigNameError" class="text-sm text-destructive">{{ editConfigNameError }}</p>
-          </div>
-          <div class="space-y-1.5">
-            <Label for="edit-ds-token">Access Token</Label>
-            <Input
-              id="edit-ds-token"
-              v-model="editConfigToken"
-              type="password"
-              placeholder="Leave blank to keep existing credential"
-              :disabled="savingConfig"
-            />
-            <p class="text-xs text-muted-foreground">
-              The current credential is stored encrypted server-side and is never shown here.
-              Enter a new token only if you need to rotate it.
-            </p>
-          </div>
-          <div class="flex justify-end gap-2 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              :disabled="savingConfig"
-              @click="editConfigOpen = false"
-            >
-              Cancel
-            </Button>
-            <Button type="submit" :disabled="savingConfig || !editConfigName.trim()">
-              <Loader2 v-if="savingConfig" class="mr-2 size-4 animate-spin" />
-              {{ savingConfig ? 'Saving...' : 'Save' }}
-            </Button>
-          </div>
-        </form>
-      </SheetContent>
-    </Sheet>
-
-    <!-- ─── task-081: Delete Data Source AlertDialog ───────────────────── -->
-    <AlertDialog v-model:open="deleteDsOpen">
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete "{{ deletingDs?.name }}"?</AlertDialogTitle>
-          <AlertDialogDescription>
-            This will permanently delete the data source and all of its sync history.
-            This action cannot be undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel :disabled="deletingDsFlag">Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            :disabled="deletingDsFlag"
-            @click.prevent="handleDeleteDs"
-          >
-            <Loader2 v-if="deletingDsFlag" class="mr-2 size-4 animate-spin" />
-            {{ deletingDsFlag ? 'Deleting...' : 'Delete' }}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
 
     <!-- ─── FAIL 3: Sync Logs Sheet ───────────────────────────────────────── -->
     <Sheet v-model:open="logSheetOpen" @update:open="(v) => { if (!v) closeLogs() }">

@@ -625,6 +625,20 @@ onUnmounted(() => {
                           variant="ghost"
                           size="icon"
                           class="size-7"
+                          @click.stop="navigateToMutations(filteredEdgeLabels[virtualRow.index], 'edge')"
+                        >
+                          <Share2 class="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent><p>Explore instances</p></TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          class="size-7"
                           @click.stop="navigateToOntologyEditor(filteredEdgeLabels[virtualRow.index])"
                         >
                           <PenLine class="size-3.5" />

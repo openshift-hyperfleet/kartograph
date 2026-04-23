@@ -30,8 +30,7 @@ import type { SchemaLabelsResponse, APIKeyResponse, WorkspaceListResponse, Works
 const { listNodeLabels, listEdgeLabels } = useGraphApi()
 const { listApiKeys, listWorkspaces } = useIamApi()
 const { extractErrorMessage } = useErrorHandler()
-const { hasTenant, currentTenantName, tenantVersion } = useTenant()
-const { apiFetch } = useApiClient()
+const { hasTenant, currentTenantId, currentTenantName, tenantVersion } = useTenant()
 
 // ── Stats state ──────────────────────────────────────────────────────────
 
@@ -225,6 +224,25 @@ const quickActions = [
 
 const SESSION_REDIRECT_KEY = 'kartograph:home-redirect-done'
 
+// ── Workspace guidance (once per tenant) ─────────────────────────────────
+
+const WORKSPACE_GUIDANCE_KEY = 'kartograph:workspace-guidance:'
+
+function showWorkspaceGuidanceIfNeeded() {
+  if (!currentTenantId.value || workspaceCount.value !== 0) return
+  const key = `${WORKSPACE_GUIDANCE_KEY}${currentTenantId.value}`
+  if (typeof localStorage !== 'undefined' && localStorage.getItem(key)) return
+  if (typeof localStorage !== 'undefined') localStorage.setItem(key, 'true')
+  toast('Create or join a workspace', {
+    description: 'Workspaces help you organise your knowledge graphs. Create one or ask a team member to invite you.',
+    action: {
+      label: 'Manage Workspaces',
+      onClick: () => navigateTo('/workspaces'),
+    },
+    duration: 8000,
+  })
+}
+
 // ── Data fetching ────────────────────────────────────────────────────────
 
 async function fetchStats() {
@@ -265,33 +283,34 @@ async function fetchStats() {
   }
 
   statsLoading.value = false
+
+  // Workspace guidance: prompt if no workspaces exist in this tenant
+  showWorkspaceGuidanceIfNeeded()
 }
 
 onMounted(async () => {
   loadOnboardingState()
 
-  // Redirect returning users (those with existing knowledge graphs) to the
-  // Explore section on the very first home-page visit of each browser session.
-  if (typeof sessionStorage !== 'undefined' && hasTenant.value) {
+  // Redirect returning users (those with query history) to the Explore section
+  // on the very first home-page visit of each browser session.
+  if (typeof sessionStorage !== 'undefined' && typeof localStorage !== 'undefined') {
     const alreadyRedirected = sessionStorage.getItem(SESSION_REDIRECT_KEY)
+    if (!alreadyRedirected && hasTenant.value) {
+      const rawHistory = localStorage.getItem('kartograph:query-history')
+      if (rawHistory) {
+        try {
+          const history = JSON.parse(rawHistory)
+          if (Array.isArray(history) && history.length > 0) {
+            sessionStorage.setItem(SESSION_REDIRECT_KEY, 'true')
+            await navigateTo('/query')
+            return
+          }
+        } catch { /* ignore malformed history */ }
+      }
+    }
     if (!alreadyRedirected) {
-      // Fetch KG count — use as redirect trigger AND populate the checklist ref.
-      try {
-        const result = await apiFetch<{ knowledge_graphs: { id: string }[] }>(
-          '/management/knowledge-graphs',
-        )
-        kgCount.value = result.knowledge_graphs?.length ?? 0
-      } catch {
-        // Graceful fallback: stay on home page, checklist shows KG step as not done.
-        kgCount.value = 0
-      }
-
+      // Mark redirect check as done so we don't repeat on every home visit
       sessionStorage.setItem(SESSION_REDIRECT_KEY, 'true')
-
-      if (kgCount.value > 0) {
-        await navigateTo('/query')
-        return
-      }
     }
   }
 

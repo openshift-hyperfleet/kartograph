@@ -7,11 +7,6 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from management.domain.aggregates import KnowledgeGraph
-from management.domain.value_objects import (
-    EdgeTypeDefinition,
-    NodeTypeDefinition,
-    OntologyConfig,
-)
 
 
 class CreateKnowledgeGraphRequest(BaseModel):
@@ -30,36 +25,11 @@ class CreateKnowledgeGraphRequest(BaseModel):
 
 
 class KnowledgeGraphListResponse(BaseModel):
-    """Response containing a list of knowledge graphs.
-
-    Attributes:
-        knowledge_graphs: List of knowledge graph details
-        count: Total number of knowledge graphs returned
-    """
+    """Response model for listing knowledge graphs."""
 
     knowledge_graphs: list[KnowledgeGraphResponse] = Field(
-        ..., description="List of knowledge graphs"
-    )
-    count: int = Field(..., description="Number of knowledge graphs returned")
-
-
-class UpdateKnowledgeGraphRequest(BaseModel):
-    """Request body for updating a knowledge graph's metadata.
-
-    Attributes:
-        name: New name for the knowledge graph
-        description: New description for the knowledge graph
-    """
-
-    name: str = Field(
         ...,
-        description="New name for the knowledge graph",
-        min_length=1,
-        max_length=100,
-    )
-    description: str = Field(
-        default="",
-        description="New description for the knowledge graph",
+        description="List of knowledge graphs",
     )
 
 
@@ -92,138 +62,4 @@ class KnowledgeGraphResponse(BaseModel):
             description=kg.description,
             created_at=kg.created_at,
             updated_at=kg.updated_at,
-        )
-
-
-# ---------------------------------------------------------------------------
-# Ontology models
-# ---------------------------------------------------------------------------
-
-
-class NodeTypeDefinitionModel(BaseModel):
-    """API model for a node type definition in an ontology."""
-
-    label: str = Field(..., description="Node type label (unique within ontology)")
-    description: str = Field(default="", description="Human-readable description")
-    required_properties: list[str] = Field(
-        default_factory=list,
-        description="Properties every node of this type must have",
-    )
-    optional_properties: list[str] = Field(
-        default_factory=list,
-        description="Properties nodes of this type may optionally have",
-    )
-
-    def to_domain(self) -> NodeTypeDefinition:
-        """Convert to domain NodeTypeDefinition value object."""
-        return NodeTypeDefinition(
-            label=self.label,
-            description=self.description,
-            required_properties=tuple(self.required_properties),
-            optional_properties=tuple(self.optional_properties),
-        )
-
-    @classmethod
-    def from_domain(cls, nt: NodeTypeDefinition) -> NodeTypeDefinitionModel:
-        """Convert from domain NodeTypeDefinition value object."""
-        return cls(
-            label=nt.label,
-            description=nt.description,
-            required_properties=list(nt.required_properties),
-            optional_properties=list(nt.optional_properties),
-        )
-
-
-class EdgeTypeDefinitionModel(BaseModel):
-    """API model for an edge type definition in an ontology."""
-
-    label: str = Field(..., description="Edge type label (unique within ontology)")
-    description: str = Field(default="", description="Human-readable description")
-    source_labels: list[str] = Field(
-        default_factory=list,
-        description="Node type labels allowed as sources",
-    )
-    target_labels: list[str] = Field(
-        default_factory=list,
-        description="Node type labels allowed as targets",
-    )
-    properties: list[str] = Field(
-        default_factory=list,
-        description="Properties this edge type may carry",
-    )
-
-    def to_domain(self) -> EdgeTypeDefinition:
-        """Convert to domain EdgeTypeDefinition value object."""
-        return EdgeTypeDefinition(
-            label=self.label,
-            description=self.description,
-            source_labels=tuple(self.source_labels),
-            target_labels=tuple(self.target_labels),
-            properties=tuple(self.properties),
-        )
-
-    @classmethod
-    def from_domain(cls, et: EdgeTypeDefinition) -> EdgeTypeDefinitionModel:
-        """Convert from domain EdgeTypeDefinition value object."""
-        return cls(
-            label=et.label,
-            description=et.description,
-            source_labels=list(et.source_labels),
-            target_labels=list(et.target_labels),
-            properties=list(et.properties),
-        )
-
-
-class OntologyConfigRequest(BaseModel):
-    """Request body for PUT /knowledge-graphs/{id}/ontology.
-
-    Performs a full replace of the stored ontology — no partial merges.
-    """
-
-    node_types: list[NodeTypeDefinitionModel] = Field(
-        default_factory=list,
-        description="Node type definitions for the ontology",
-    )
-    edge_types: list[EdgeTypeDefinitionModel] = Field(
-        default_factory=list,
-        description="Edge type definitions for the ontology",
-    )
-    approved_at: datetime | None = Field(
-        default=None,
-        description="ISO-8601 timestamp when the user approved this ontology",
-    )
-
-    def to_domain(self) -> OntologyConfig:
-        """Convert to domain OntologyConfig value object."""
-        return OntologyConfig(
-            node_types=tuple(nt.to_domain() for nt in self.node_types),
-            edge_types=tuple(et.to_domain() for et in self.edge_types),
-            approved_at=self.approved_at,
-        )
-
-
-class OntologyConfigResponse(BaseModel):
-    """Response for GET/PUT /knowledge-graphs/{id}/ontology."""
-
-    node_types: list[NodeTypeDefinitionModel] = Field(
-        ..., description="Node type definitions"
-    )
-    edge_types: list[EdgeTypeDefinitionModel] = Field(
-        ..., description="Edge type definitions"
-    )
-    approved_at: datetime | None = Field(
-        None, description="When the ontology was approved; null if not yet approved"
-    )
-
-    @classmethod
-    def from_domain(cls, config: OntologyConfig) -> OntologyConfigResponse:
-        """Convert from domain OntologyConfig value object."""
-        return cls(
-            node_types=[
-                NodeTypeDefinitionModel.from_domain(nt) for nt in config.node_types
-            ],
-            edge_types=[
-                EdgeTypeDefinitionModel.from_domain(et) for et in config.edge_types
-            ],
-            approved_at=config.approved_at,
         )

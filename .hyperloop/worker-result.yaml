@@ -1,58 +1,81 @@
 ---
 verdict: pass
 detail: |
-  task-017 Outbox Pattern — reviewer verification PASS.
+  task-017 Outbox Pattern — spec alignment re-review PASS (round 4).
 
-  All 7 checks pass. All CodeRabbit PR feedback from rounds 1–3 correctly
-  addressed and verified.
+  All 6 SHALL requirements covered. All CodeRabbit feedback from rounds 1–3
+  verified addressed in current branch code.
 
-  ## Check Results
+  ## Spec Requirements
 
-  1. Unit Tests: PASS — 2413 tests passed (81 outbox-specific), 0 failures.
-  2. Ruff lint: PASS — zero violations.
-  3. Ruff format: PASS — 481 files already formatted.
-  4. Mypy: PASS — zero errors in 481 source files.
-  5. Architecture boundary tests: PASS — all 40 tests pass including 7
-     TestOutboxInfrastructureBoundaries tests.
-  6. check-frontend-test-infrastructure.sh: PASS — script correctly skips
-     (no UI changes in this task); all CodeRabbit improvements verified.
-  7. check-frontend-tests-exist.sh: PASS — same correct behavior.
+  1. Transactional Event Storage: COVERED
+     - Successful write: test_repository_append_does_not_commit verifies
+       session.add() called, session.commit() never called by repository.
+     - Transaction rollback: test_failed_service_call_leaves_no_outbox_entries
+       verifies rollback discards outbox entries (caller owns transaction).
+
+  2. Event Processing: COVERED
+     - Normal path: test_processes_unprocessed_entries, test_marks_entry_as_processed,
+       test_calls_event_processed_on_success.
+     - Transient failure: test_transient_failure_increments_retry_count,
+       test_transient_failure_does_not_dlq_immediately.
+     - Permanent failure (dead letter): test_max_retries_moves_entry_to_dlq.
+
+  3. Idempotent Event Handlers: COVERED
+     - test_already_processed_entry_excluded_from_fetch verifies processed_at IS NULL filter.
+     - test_failed_entries_excluded_from_fetch verifies failed_at IS NULL filter.
+     - EventHandler protocol documented as idempotent contract.
+
+  4. Concurrent Worker Safety: COVERED
+     - test_fetch_unprocessed_uses_for_update_skip_locked compiles SQL with
+       PostgreSQL dialect and asserts "SKIP LOCKED" in rendered query.
+
+  5. Dual Delivery Mechanism: COVERED
+     - NOTIFY: PostgresNotifyEventSource in event_sources/postgres_notify.py;
+       tested in test_postgres_notify_event_source.py.
+     - Polling: _poll_loop in worker.py, tested via TestOutboxWorkerLifecycle;
+       polling always runs as fallback regardless of event_source presence.
+
+  6. Event Fan-Out: COVERED
+     - Multiple handlers: test_handle_fans_out_to_multiple_handlers (test_composite.py).
+     - Unknown event type → immediate DLQ (no retry):
+       test_unknown_event_type_immediately_moves_to_dlq,
+       test_unknown_event_type_dlq_even_at_zero_retries,
+       test_retry_not_called_for_unknown_event_type (test_worker.py).
+     - 6 unit tests in test_composite.py + 3 in test_worker.py.
 
   ## CodeRabbit Feedback Verification
 
-  Round 1 (4 items):
-  - check-frontend-test-infrastructure.sh BASE_BRANCH: PASS — fails loudly
-    with exit 1 if neither origin/alpha nor origin/main exists; secondary
-    validation also exits if resolved ref doesn't exist.
-  - check-frontend-test-infrastructure.sh pathspec: PASS — git diff scoped
-    to UI_DIR with -- "$UI_DIR" pathspec.
+  Round 1 (4 items — all addressed):
+  - check-frontend-test-infrastructure.sh BASE_BRANCH: PASS — exits 1 loudly
+    if neither origin/alpha nor origin/main exists; secondary validation also
+    exits if resolved ref is not found.
+  - check-frontend-test-infrastructure.sh pathspec: PASS — git diff scoped to
+    UI_DIR via -- "$UI_DIR" pathspec (line 44).
   - check-frontend-tests-exist.sh: PASS — same BASE_BRANCH and pathspec
     improvements applied; UI_SOURCE_DIR default defined.
-  - worker-result.yaml YAML validity: PASS — uses detail: | block scalar;
-    validates cleanly with PyYAML.
-  - failed_at vs dlq_at: PASS (confirmed false positive) — OutboxModel
-    defines failed_at; no dlq_at column exists anywhere. Repository
-    fetch_unprocessed filters on failed_at IS NULL; worker _move_to_dlq
-    sets failed_at; test_worker.py line 780 asserts "failed_at IS NULL".
-    All three layers consistent on failed_at.
+  - worker-result.yaml YAML validity: PASS — uses detail: | block scalar.
+  - failed_at vs dlq_at (confirmed false positive): PASS — OutboxModel defines
+    failed_at only (no dlq_at anywhere). Repository, worker batch query, worker
+    single query, and test assertion at line 780 all consistently use failed_at.
 
-  Round 2 (1 item):
-  - check-frontend-test-infrastructure.sh git error surfacing: PASS — git
-    diff output captured in git_diff_output with || { echo error; exit 1; }
-    before piping. No 2>/dev/null or || true masking on git invocation.
+  Round 2 (1 item — addressed):
+  - check-frontend-test-infrastructure.sh git error surfacing: PASS —
+    git diff captured into git_diff_output with || { echo ERROR; exit 1; }
+    before piping. No 2>/dev/null masking on git invocation itself. The || true
+    only appears on the downstream grep pipeline (correct: grep exits 1 on no
+    matches, which is non-fatal).
 
-  Round 3 (1 item):
+  Round 3 (1 item — addressed):
   - check-frontend-test-infrastructure.sh .js consistency: PASS —
-    task_ui_changes trigger uses grep -E '\.(vue|ts|js)$' and ui_source_count
-    find uses -name "*.vue" -o -name "*.ts" -o -name "*.js". Identical
-    three-extension set in both variables.
+    task_ui_changes uses grep -E '\.(vue|ts|js)$' and ui_source_count find uses
+    -name "*.vue" -o -name "*.ts" -o -name "*.js". Both use the identical
+    three-extension set (vue, ts, js).
 
-  ## Requirements Coverage
+  ## Test Suite Summary
 
-  All 6 SHALL requirements from spec verified via tests:
-  1. Transactional Event Storage: 2 unit + 2 integration tests.
-  2. Event Processing: 6 unit + 2 integration tests.
-  3. Idempotent Event Handlers: 3 unit + 1 integration test.
-  4. Concurrent Worker Safety: 1 unit test asserting SKIP LOCKED in SQL.
-  5. Dual Delivery Mechanism: 3 unit (NOTIFY) + 1 unit (polling) + 1 integration.
-  6. Event Fan-Out: 6 unit tests.
+  Unit tests: 2413 passed, 0 failures (81 outbox-specific).
+  Ruff lint: 0 violations.
+  Ruff format: 481 files clean.
+  Mypy: 0 errors across 481 source files.
+  Architecture boundary tests: 40 passed (7 TestOutboxInfrastructureBoundaries).

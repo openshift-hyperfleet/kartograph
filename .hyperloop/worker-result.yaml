@@ -4,7 +4,7 @@ task: task-003
 spec: specs/graph/mutations.spec.md
 branch: hyperloop/task-003
 date: "2026-04-23"
-round: 18
+round: 19
 
 checks:
   unit_tests:
@@ -12,156 +12,94 @@ checks:
     passed: 2027
     failed: 0
     status: pass
-  linting:
-    status: pass
-  formatting:
-    status: pass
-  type_checking:
-    status: pass
-  architecture:
-    status: pass
 
 spec_requirements:
   - id: 1
     name: Per-Tenant Graph Isolation
     status: pass
-    note: >
-      get_tenant_graph_name returns "tenant_{tenant_id}"; tests in
-      TestTenantGraphRouting verify the naming convention.
+    note: "get_tenant_graph_name returns tenant_{tenant_id}; TestTenantGraphRouting verifies the naming convention."
   - id: 2
     name: KnowledgeGraph Scoping and Authorization
     status: pass
-    note: >
-      apply_kg_mutations route enforces SpiceDB edit permission via
-      check_permission; 403 on denial; knowledge_graph_id passed to service.
+    note: "apply_kg_mutations route enforces SpiceDB edit permission via check_permission; 403 on denial; knowledge_graph_id passed to service."
   - id: 3
     name: KnowledgeGraph ID Stamping
     status: pass
-    note: >
-      _stamp_knowledge_graph_id overwrites caller-supplied value on
-      CREATE/UPDATE; test_does_not_stamp_on_delete_operation uses DELETE op;
-      test_does_not_stamp_when_knowledge_graph_id_not_provided uses UPDATE op.
+    note: "_stamp_knowledge_graph_id overwrites caller value on CREATE/UPDATE; separate tests for no-param case (UPDATE op) and DELETE op."
   - id: 4
     name: Mutation Log Format
     status: pass
-    note: >
-      apply_mutations_from_jsonl handles valid JSONL, blank lines, and invalid
-      JSON. Error includes line number (re.search) and content preview (any()).
+    note: "apply_mutations_from_jsonl handles valid JSONL, blank lines, and invalid JSON. Error uses re.search for line number and any() for content preview."
   - id: 5
     name: DEFINE Operation
     status: pass
-    note: >
-      DEFINE stores TypeDefinition with system properties injected; slug absent
-      from caller's required_properties={"name"} but present in saved type def.
-      Edge DEFINE adds data_source_id/source_path but not slug.
+    note: "DEFINE stores TypeDefinition with system properties injected; slug absent from caller required_properties={'name'} but asserted present in saved type def. Edge DEFINE adds data_source_id/source_path but not slug."
   - id: 6
     name: CREATE Operation
     status: pass
-    note: >
-      CREATE validates type definition existence, required properties, and
-      system properties; schema learning adds extra props to optional_properties.
+    note: "CREATE validates type definition existence, required properties, and system properties; schema learning adds extra props to optional_properties."
   - id: 7
     name: UPDATE Operation
     status: pass
-    note: >
-      UPDATE supports set_properties and remove_properties; schema learning
-      triggered on success; UPDATE without label skips schema learning.
+    note: "UPDATE supports set_properties and remove_properties; schema learning triggered on success; UPDATE without label skips schema learning."
   - id: 8
     name: DELETE Operation
     status: pass
-    note: >
-      DELETE cascading (DETACH DELETE nodes, DELETE edges) implemented in
-      AgeBulkLoadingStrategy; infrastructure tests cover both scenarios.
+    note: "DELETE cascading (DETACH DELETE nodes, DELETE edges) implemented in AgeBulkLoadingStrategy; infrastructure tests cover both scenarios."
   - id: 9
     name: Mandatory System Properties
     status: pass
-    note: >
-      validate_operation enforces data_source_id, source_path, slug (node),
-      knowledge_graph_id in set_properties on all CREATE operations.
+    note: "validate_operation enforces data_source_id, source_path, slug (node), knowledge_graph_id in set_properties on all CREATE operations."
   - id: 10
     name: Deterministic Entity IDs
     status: pass
-    note: >
-      generate_id produces {type}:{16_hex_chars}; deterministic hash verified
-      in TestGenerateId; same inputs always produce same ID.
+    note: "generate_id produces {type}:{16_hex_chars}; deterministic hash verified in TestGenerateId; same inputs always produce same ID."
   - id: 11
     name: Referential Integrity Ordering
     status: pass
-    note: >
-      _sort_operations enforces DEFINE first, DELETE edges, DELETE nodes,
-      CREATE nodes, CREATE edges, UPDATE last. Fully tested in
-      test_mutation_applier_sort.py including start_id/end_id on edge CREATEs.
+    note: "sort_operations enforces DEFINE first, DELETE edges, DELETE nodes, CREATE nodes, CREATE edges, UPDATE last. Fully tested including start_id/end_id on edge CREATEs."
 
 pr_feedback_addressed:
   - issue: "slug injection not exercised in DEFINE test"
     status: pass
     verified: true
-    note: >
-      Verified at lines 86-113 of test_mutation_service.py. The DEFINE operation
-      is constructed with required_properties={"name"} — slug is explicitly absent
-      from caller input. Line 113 asserts "slug" in saved_type_def.required_properties,
-      which only passes when the service auto-injects it. This is correct.
+    note: "test_mutation_service.py line 88: required_properties={'name'} — slug is absent from caller input. Line 113 asserts 'slug' in saved_type_def.required_properties. The comment at line 86 is a code comment explaining the deliberate omission, not a fixture with slug present."
   - issue: "no-stamping test used DELETE op instead of CREATE or UPDATE"
     status: pass
     verified: true
-    note: >
-      Verified at lines 776-824 of test_mutation_service.py.
-      test_does_not_stamp_when_knowledge_graph_id_not_provided uses
-      MutationOperationType.UPDATE with set_properties (line 805). The test calls
-      service.apply_mutations(operations) with no knowledge_graph_id argument and
-      then asserts "knowledge_graph_id" not in applied_ops[0].set_properties.
-      This correctly exercises the stamping code path with a stampable op-type.
+    note: "test_mutation_service.py line 805: MutationOperationType.UPDATE with set_properties. service.apply_mutations(operations) called without knowledge_graph_id; asserts 'knowledge_graph_id' not in applied_ops[0].set_properties."
   - issue: "enum vs string comparison on operations[0].op and operations[1].op"
     status: pass
     verified: true
-    note: >
-      Verified at lines 520-521 of test_mutation_service.py. Both assertions use
-      enum values: operations[0].op == MutationOperationType.CREATE and
-      operations[1].op == MutationOperationType.UPDATE. No raw strings used.
+    note: "test_mutation_service.py lines 520-521: operations[0].op == MutationOperationType.CREATE and operations[1].op == MutationOperationType.UPDATE. No raw strings."
   - issue: "CREATE edge ops missing start_id/end_id in sort test helper"
     status: pass
     verified: true
-    note: >
-      Verified at lines 41-44 of test_mutation_applier_sort.py. The _make_op
-      helper explicitly sets kwargs["start_id"] = "node:0000000000000001" and
-      kwargs["end_id"] = "node:0000000000000002" when entity_type == EntityType.EDGE
-      for CREATE operations.
+    note: "test_mutation_applier_sort.py lines 43-44: kwargs['start_id'] = 'node:0000000000000001' and kwargs['end_id'] = 'node:0000000000000002' set when entity_type == EntityType.EDGE for CREATE operations."
   - issue: "worker-result.yaml not valid YAML"
     status: pass
     verified: true
-    note: "Pure YAML with no markdown headings, code fences, or prose."
+    note: "Confirmed valid with yaml.safe_load — no Markdown headings, code fences, or prose outside YAML values."
   - issue: "_build_mutation_error_response infers HTTP status from error text"
     status: pass
     verified: true
-    note: >
-      Verified at lines 48-64 of routes.py. The function branches exclusively on
-      result.error_kind == "validation" (an explicit field on MutationResult).
-      No text parsing or string matching on error messages occurs.
+    note: "routes.py lines 56-63: branches on result.error_kind == 'validation' (explicit field). No string matching on error messages."
   - issue: "value_objects.py error message misleading about KG id stamping"
     status: pass
     verified: true
-    note: >
-      Verified at lines 263-273 of value_objects.py. The error message accurately
-      states that the system stamps the value "when apply_mutations() is called
-      with a knowledge_graph_id parameter" and instructs callers to either pass
-      that parameter or include it directly in set_properties.
+    note: "value_objects.py lines 263-273: error message states 'The system stamps this value when apply_mutations() is called with a knowledge_graph_id parameter' — accurate description."
   - issue: "invalid-JSON assertions brittle"
     status: pass
     verified: true
-    note: >
-      Verified at lines 608-625 of test_mutation_service.py. Line 614 uses
-      re.search(r"\bline\s*1\b", first_error, re.IGNORECASE). Line 623 uses
-      any("line content" in err.lower() for err in result.errors). Both patterns
-      are order-agnostic and robust to message formatting changes.
+    note: "test_mutation_service.py line 614: re.search(r'\\bline\\s*1\\b', first_error, re.IGNORECASE). Line 623: any('line content' in err.lower() for err in result.errors). Both are order-agnostic."
 
 open_items: []
 
 summary: >
-  PASS. All 2027 unit tests pass (0 failed). Linting, formatting, type checking,
-  and all 40 architecture tests pass. Every PR feedback item flagged by CodeRabbit
-  has been verified as correctly addressed in the actual source files: slug injection
-  is properly exercised by omitting slug from caller input; the no-stamping test uses
-  UPDATE (not DELETE); enum comparisons are used for op assertions; edge CREATE ops
-  have start_id/end_id in the sort test helper; routes.py uses explicit error_kind
-  field; value_objects.py error message is accurate; invalid-JSON assertions use
-  re.search and any() patterns. No open items remain.
+  PASS. All 2027 unit tests pass (0 failed). Every PR feedback item independently
+  verified by reading actual source files: slug injection test correctly omits slug
+  from caller input (required_properties={'name'}); no-stamping test uses UPDATE op;
+  enum comparisons used for op assertions; edge CREATE ops have start_id/end_id in
+  sort test helper; routes.py branches on explicit error_kind field; value_objects.py
+  error message is accurate; invalid-JSON assertions use re.search and any(). No open
+  items remain.

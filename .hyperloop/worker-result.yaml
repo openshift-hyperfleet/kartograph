@@ -1,61 +1,54 @@
 ---
 verdict: pass
 ---
-## Task-008: Knowledge Graphs — Fresh Independent Verification
+## Task-008: Knowledge Graphs — Implementation Verified
 
-All 330 unit tests pass. Every SHALL requirement has code implementation and test coverage.
+All 2060 unit tests pass (330 management-specific). Every SHALL requirement has
+complete implementation and test coverage.
 
-## Requirement: Knowledge Graph Creation
-Status: COVERED
+### Requirement: Knowledge Graph Creation — COVERED
+- `KnowledgeGraphService.create()` checks `Permission.EDIT` on workspace
+- ULID generated via `KnowledgeGraphId.generate()`
+- Tenant/workspace associations stored on aggregate
+- SpiceDB relationships established via outbox: `KnowledgeGraphCreated` event →
+  `ManagementEventTranslator` writes workspace and tenant relationships
+- `IntegrityError` → `DuplicateKnowledgeGraphNameError` (409 Conflict)
+- Tests: `TestKnowledgeGraphServiceCreate`, `TestCreateKnowledgeGraph` (routes)
 
-- Code: `KnowledgeGraphService.create()` checks `Permission.EDIT` on workspace before creating. ULID generated via `KnowledgeGraphId.generate()`. Tenant/workspace associations set. Authorization relationships established via outbox: `KnowledgeGraphCreated` event → `ManagementEventTranslator._translate_knowledge_graph_created()` writes workspace and tenant SpiceDB relationships.
-- Unit tests: `TestKnowledgeGraphServiceCreate` — covers authorized creation, saves via repo, probes success, raises UnauthorizedError when denied, raises DuplicateKnowledgeGraphNameError on IntegrityError.
-- Presentation tests: `TestCreateKnowledgeGraph` — 201 success, 403 unauthorized, 409 duplicate, 422 empty name, 422 oversized name, 401 unauthenticated.
-- Aggregate tests: `TestKnowledgeGraphCreate` — verifies fields set, unique ID generation, KnowledgeGraphCreated event emitted.
-- Translator tests: `TestManagementEventTranslatorKnowledgeGraphCreated` — verifies workspace and tenant WriteRelationship operations.
+### Requirement: Knowledge Graph Name Validation — COVERED
+- `KnowledgeGraph._validate_name()` enforces 1–100 character constraint at domain layer
+- `CreateKnowledgeGraphRequest` / `UpdateKnowledgeGraphRequest` Pydantic models
+  enforce via `min_length=1, max_length=100` → 422 at presentation layer
+- Tests: `TestKnowledgeGraphValidation`, route 422 tests for both create and update
 
-## Requirement: Knowledge Graph Name Validation
-Status: COVERED
+### Requirement: Knowledge Graph Retrieval — COVERED
+- `KnowledgeGraphService.get()` returns `None` if not found, wrong tenant, or
+  user lacks `Permission.VIEW` — no existence leakage (404 in both cases)
+- Tests: `TestKnowledgeGraphServiceGet`, `TestGetKnowledgeGraph` (routes)
 
-- Code: `KnowledgeGraph._validate_name()` enforces 1-100 character constraint. `CreateKnowledgeGraphRequest` Pydantic model enforces at presentation layer (returns 422).
-- Unit tests: `TestKnowledgeGraphCreate.test_create_rejects_empty_name`, `test_create_rejects_name_over_100_chars`, `test_create_accepts_name_exactly_100_chars`, `test_create_accepts_single_char_name`. Same coverage in `TestKnowledgeGraphUpdate` and `TestKnowledgeGraphValidation`.
-- Presentation tests: `test_create_knowledge_graph_returns_422_for_empty_name`, `test_create_knowledge_graph_returns_422_for_oversized_name`, same for update route.
+### Requirement: Knowledge Graph Listing — COVERED
+- `list_for_workspace()` checks `Permission.VIEW` on workspace, reads SpiceDB
+  relationships to discover KG IDs linked to the workspace, filters by tenant
+- Tests: `TestKnowledgeGraphServiceListForWorkspace`, `TestListKnowledgeGraphs`
 
-## Requirement: Knowledge Graph Retrieval
-Status: COVERED
+### Requirement: Knowledge Graph Update — COVERED
+- `KnowledgeGraphService.update()` checks `Permission.EDIT` on the KG
+- `kg.update()` enforces name validation and `AggregateDeletedError` guard
+- Tests: `TestKnowledgeGraphServiceUpdate`, `TestUpdateKnowledgeGraph` (routes),
+  `TestKnowledgeGraphUpdate` (aggregate)
 
-- Code: `KnowledgeGraphService.get()` fetches by ID, returns None if not found or wrong tenant, checks `Permission.VIEW`, returns None (not 403) when unauthorized — no existence leakage.
-- Unit tests: `TestKnowledgeGraphServiceGet` — returns None when not found, checks VIEW permission, returns None for different tenant, returns None when permission denied, returns aggregate on success.
-- Presentation tests: `TestGetKnowledgeGraph` — 200 success, 404 not found, 404 when unauthorized (not 403), 401 unauthenticated.
+### Requirement: Knowledge Graph Deletion — COVERED
+- `KnowledgeGraphService.delete()` checks `Permission.MANAGE`
+- Single `async with self._session.begin()` transaction: cascade-deletes data sources
+  (including encrypted credentials), then marks KG for deletion and deletes it
+- `KnowledgeGraphDeleted` → translator deletes workspace/tenant relationships and
+  all direct admin/editor/viewer grants via filter-based deletion
+- `AggregateDeletedError` raised on any mutation after deletion
+- Tests: `TestKnowledgeGraphServiceDelete` (including rollback and cascade tests),
+  `TestDeleteKnowledgeGraph` (routes), `TestKnowledgeGraphMarkForDeletion`
 
-## Requirement: Knowledge Graph Listing
-Status: COVERED
-
-- Code: `KnowledgeGraphService.list_for_workspace()` checks `Permission.VIEW` on workspace, reads SpiceDB relationships to discover KG IDs, filters by tenant. `list_all()` also available.
-- Unit tests: `TestKnowledgeGraphServiceListForWorkspace` — checks VIEW on workspace, raises UnauthorizedError when denied, uses read_relationships to discover KGs, filters by tenant.
-- Presentation tests: `TestListKnowledgeGraphs` — 200 with list, 200 empty list, correct args, 403 unauthorized, 401 unauthenticated.
-
-## Requirement: Knowledge Graph Update
-Status: COVERED
-
-- Code: `KnowledgeGraphService.update()` checks `Permission.EDIT` on the KG, fetches KG, calls `kg.update()`, saves via repo.
-- Unit tests: `TestKnowledgeGraphServiceUpdate` — checks EDIT permission, raises UnauthorizedError, raises ValueError when not found, rejects different tenant, calls aggregate update and saves, raises DuplicateKnowledgeGraphNameError on IntegrityError.
-- Aggregate tests: `TestKnowledgeGraphUpdate` — changes name/description, advances updated_at, emits KnowledgeGraphUpdated event, rejects empty name, rejects oversized name.
-- Presentation tests: `TestUpdateKnowledgeGraph` — 200 success, 403 unauthorized, 404 not found, 409 duplicate, 422 empty/oversized name, 401 unauthenticated.
-
-## Requirement: Knowledge Graph Deletion
-Status: COVERED
-
-- Code: `KnowledgeGraphService.delete()` checks `Permission.MANAGE`, cascade-deletes data sources, deletes encrypted credentials for each DS with a `credentials_path`, marks KG for deletion, deletes KG — all within a single `async with self._session.begin()` transaction. Atomicity: exception propagates before `kg_repo.delete` is called, SQLAlchemy rolls back.
-- Authorization cleanup: `KnowledgeGraphDeleted` → `ManagementEventTranslator._translate_knowledge_graph_deleted()` → deletes workspace relationship, tenant relationship, and all admin/editor/viewer direct grants via filter-based deletion.
-- Unit tests: `TestKnowledgeGraphServiceDelete` — checks MANAGE permission, raises UnauthorizedError, returns False when not found, returns False for different tenant, cascades data sources, probes success, rolls back on DS deletion failure (`test_delete_rolls_back_on_ds_deletion_failure`), cascades encrypted credentials (`test_delete_cascades_encrypted_credentials`).
-- Mutation-after-deletion: `TestKnowledgeGraphMarkForDeletion.test_update_raises_after_deletion` — `AggregateDeletedError` raised.
-- Integration repository tests: `TestKnowledgeGraphDeletion` — deletes from DB, returns False for nonexistent, FK RESTRICT raises IntegrityError when child data sources exist.
-- Translator tests: `TestManagementEventTranslatorKnowledgeGraphDeleted` — verifies workspace, tenant, and filter-based admin/editor/viewer relationship deletions.
-
-## Requirement: Permission Inheritance
-Status: COVERED
-
-- Code: SpiceDB schema defines `knowledge_graph.view = admin + editor + viewer + workspace->view` and `knowledge_graph.edit = admin + editor + workspace->edit` and `knowledge_graph.manage = admin + workspace->manage`.
-- Integration tests (`test_knowledge_graph_authorization.py`): `TestWorkspaceInheritedKnowledgeGraphAccess` — workspace editor can view KG, workspace editor can edit KG, workspace editor cannot manage KG, workspace admin can manage KG, workspace member can view KG, workspace member cannot edit KG, user without workspace role has no access.
-- Integration tests: `TestDirectGrantKnowledgeGraphAccess` — direct KG admin has manage/edit/view, direct KG editor has edit+view but not manage, direct KG viewer has view only.
+### Requirement: Permission Inheritance — COVERED
+- SpiceDB schema: `knowledge_graph.view = admin + editor + viewer + workspace->view`,
+  `edit = admin + editor + workspace->edit`, `manage = admin + workspace->manage`
+- Integration tests: `test_knowledge_graph_authorization.py` covers workspace-inherited
+  access and direct grant scenarios

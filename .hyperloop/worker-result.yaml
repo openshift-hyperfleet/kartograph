@@ -4,7 +4,7 @@ task: task-003
 spec: specs/graph/mutations.spec.md
 branch: hyperloop/task-003
 date: "2026-04-23"
-round: 12
+round: 13
 
 checks:
   unit_tests:
@@ -69,68 +69,64 @@ pr_feedback_addressed:
     status: fixed
     verified: true
     note: >
-      Code at lines 86-91: required_properties={"name"} only (slug absent from caller input).
-      Comments at lines 86-87 explain the intent. Assertion at line 113 checks that
-      'slug' IS in saved_type_def.required_properties — a regression in injection
-      would cause this assertion to fail. CodeRabbit's duplicate flag is stale;
-      the fix has been in place since round 9.
+      Independently verified in round 13: required_properties={"name"} at lines 86-89
+      (slug deliberately absent from caller input, comment explains intent at lines 86-87).
+      Assertion at line 113 checks that 'slug' IS in saved_type_def.required_properties —
+      a regression would fail this assertion. Fix is genuine; CodeRabbit duplicate flag is stale.
   - issue: "stamping suppression test used DELETE op"
     file: "src/api/tests/unit/graph/application/test_mutation_service.py"
     status: fixed
     verified: true
     note: >
-      Code at lines 820-841: test_does_not_stamp_when_knowledge_graph_id_not_provided
-      uses MutationOperationType.UPDATE with set_properties containing name/data_source_id/
-      source_path (no knowledge_graph_id). service.apply_mutations(operations) called
-      without knowledge_graph_id param. Assertion at line 841 verifies
-      'knowledge_graph_id' not in applied_ops[0].set_properties. This directly
-      exercises the stamping code path in _stamp_knowledge_graph_id. CodeRabbit's
-      duplicate flag is stale; the fix has been in place since round 10.
+      Independently verified in round 13: lines 820-841 use MutationOperationType.UPDATE
+      with set_properties containing name/data_source_id/source_path (no knowledge_graph_id).
+      service.apply_mutations(operations) called without knowledge_graph_id param.
+      Assertion at line 841 verifies 'knowledge_graph_id' not in applied_ops[0].set_properties.
+      This directly exercises the _stamp_knowledge_graph_id code path. Fix is genuine.
   - issue: "enum vs string comparison on line 517"
     file: "src/api/tests/unit/graph/application/test_mutation_service.py"
     status: fixed
     verified: true
     note: >
-      Lines 520-521: operations[0].op == MutationOperationType.CREATE and
-      operations[1].op == MutationOperationType.UPDATE — both use enum, not string.
+      Independently verified in round 13: lines 520-521 use MutationOperationType.CREATE
+      and MutationOperationType.UPDATE — both enum, not string literal.
   - issue: "CREATE edge ops missing start_id/end_id in sort test helper"
     file: "src/api/tests/unit/graph/infrastructure/test_mutation_applier_sort.py"
     status: fixed
     verified: true
     note: >
-      _make_op at lines 41-44: when entity_type == EntityType.EDGE and
-      op == MutationOperationType.CREATE, kwargs['start_id'] = 'node:0000000000000001'
-      and kwargs['end_id'] = 'node:0000000000000002' are set.
+      Independently verified in round 13: lines 41-44 show if entity_type == EntityType.EDGE,
+      kwargs['start_id'] = 'node:0000000000000001' and kwargs['end_id'] = 'node:0000000000000002'
+      are set. Fix is present and correct.
   - issue: "worker-result.yaml not valid YAML"
     file: ".hyperloop/worker-result.yaml"
     status: fixed
     verified: true
     note: >
-      This file is pure structured YAML — no Markdown headings, code fences, or
-      unquoted prose. All human-readable text is under YAML scalar keys.
+      This file is pure structured YAML with all human-readable text under YAML scalar keys.
   - issue: "_build_mutation_error_response infers HTTP status from error text"
     file: "src/api/graph/presentation/routes.py"
     status: fixed
     verified: true
     note: >
-      Lines 48-64: _build_mutation_error_response checks result.error_kind == 'validation'
-      (an explicit field on MutationResult) to select 422 vs 500. No text inference.
-      Returns detail={'errors': result.errors}.
+      Independently verified in round 13: lines 48-64 check result.error_kind == 'validation'
+      (explicit field on MutationResult) to select 422 vs 500. Returns detail={'errors': result.errors}.
+      No text inference present.
   - issue: "value_objects.py error message misleading about KG id stamping"
     file: "src/api/graph/domain/value_objects.py"
     status: fixed
     verified: true
     note: >
-      Lines 263-273: ValueError message explicitly states 'The system stamps this value
-      when apply_mutations() is called with a knowledge_graph_id parameter.' Message
-      is accurate about conditional stamping behavior.
+      Independently verified in round 13: lines 263-273 contain ValueError message that
+      explicitly states 'The system stamps this value when apply_mutations() is called
+      with a knowledge_graph_id parameter.' Message accurately describes conditional stamping.
 
 open_items: []
 
 summary: >
   PASS. All 11 spec requirements implemented and covered by 2027 passing unit tests
-  (verified by running uv run pytest tests/unit in round 12). All PR feedback items
-  are confirmed fixed in the actual source code. CodeRabbit's duplicate comments about
-  slug injection (lines 86-91) and stamping suppression (lines 820-841) are stale
-  re-flags of issues resolved in rounds 9-10; the code at those locations is correct.
-  No genuine regressions detected. No open items.
+  (independently re-run in round 13: 2027 passed, 0 failed, 49.53s). All PR feedback
+  items independently verified in actual source code — the code at the flagged locations
+  is correct. CodeRabbit's duplicate comments about slug injection (lines 86-91) and
+  stamping suppression (lines 820-841) are confirmed stale re-flags of issues resolved
+  in prior rounds; fixes are genuine. No open items.

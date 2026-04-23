@@ -1,3 +1,6 @@
+# Hyperloop orchestrator state (managed on trunk only — never commit from worker branches)
+.hyperloop/state/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

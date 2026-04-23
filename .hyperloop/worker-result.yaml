@@ -1,51 +1,58 @@
 ---
 verdict: pass
 detail: |
-  task-017 Outbox Pattern -- all 6 SHALL requirements verified.
-  All CodeRabbit PR feedback addressed across three review rounds.
+  task-017 Outbox Pattern — reviewer verification PASS.
 
-  Requirements coverage:
-  1. Transactional Event Storage: repository.append() never calls session.commit();
-     caller owns the transaction boundary. Verified by 2 unit tests + 2 integration tests.
-  2. Event Processing: worker handles success, transient failure, and permanent failure (DLQ).
-     Verified by 6 unit tests + 2 integration tests.
-  3. Idempotent Event Handlers: fetch_unprocessed filters processed_at IS NULL and
-     failed_at IS NULL; SpiceDB write_relationship is an upsert (no-op on duplicate).
-     Verified by 3 unit tests + 1 integration test.
-  4. Concurrent Worker Safety: fetch_unprocessed uses FOR UPDATE SKIP LOCKED.
-     Verified by 1 unit test asserting "SKIP LOCKED" in compiled SQL.
-  5. Dual Delivery Mechanism: PostgresNotifyEventSource + polling fallback both implemented.
-     Verified by 3 unit tests (NOTIFY) + 1 unit test (polling) + 1 integration test (NOTIFY).
-  6. Event Fan-Out: CompositeEventHandler routes to all registered handlers;
-     unknown event types immediately dead-letter (bypass retry).
-     Verified by 6 unit tests.
+  All 7 checks pass. All CodeRabbit PR feedback from rounds 1–3 correctly
+  addressed and verified.
 
-  Test run: 81 outbox unit tests passed, 2413 total unit tests passed, 0 failed.
+  ## Check Results
 
-  CodeRabbit PR feedback addressed (all three review rounds):
+  1. Unit Tests: PASS — 2413 tests passed (81 outbox-specific), 0 failures.
+  2. Ruff lint: PASS — zero violations.
+  3. Ruff format: PASS — 481 files already formatted.
+  4. Mypy: PASS — zero errors in 481 source files.
+  5. Architecture boundary tests: PASS — all 40 tests pass including 7
+     TestOutboxInfrastructureBoundaries tests.
+  6. check-frontend-test-infrastructure.sh: PASS — script correctly skips
+     (no UI changes in this task); all CodeRabbit improvements verified.
+  7. check-frontend-tests-exist.sh: PASS — same correct behavior.
 
-  Round 1 feedback:
-  - check-frontend-test-infrastructure.sh: BASE_BRANCH now fails loudly (prints error + exit 1)
-    if neither origin/alpha nor origin/main exists. git diff is scoped to UI_DIR using the
-    -- "$UI_DIR" pathspec. git errors are surfaced by capturing git_diff_output in a separate
-    assignment with || { echo error; exit 1; } rather than masking with 2>/dev/null || true.
-    .js included in both task_ui_changes trigger set and ui_source_count find expression.
-  - check-frontend-tests-exist.sh: Same scoping, error-surfacing, and BASE_BRANCH improvements
-    applied. UI_SOURCE_DIR default defined. git diff runs with -- "$UI_SOURCE_DIR" pathspec.
-  - worker-result.yaml: Uses YAML block scalar (detail: |) so Markdown content does not
-    break YAML parsing. Validates cleanly with PyYAML.
-  - test_worker.py dlq_at vs failed_at: This was a false positive. The OutboxModel defines
-    failed_at (there is no dlq_at column). OutboxRepository.fetch_unprocessed filters on
-    failed_at IS NULL. The worker sets failed_at when dead-lettering an entry. All three
-    are consistent on failed_at. The test at line 780 correctly asserts "failed_at IS NULL".
+  ## CodeRabbit Feedback Verification
 
-  Round 2 feedback:
-  - check-frontend-test-infrastructure.sh: git diff output captured in git_diff_output variable
-    with explicit error handling (|| { echo error; exit 1; }) before piping to grep pipeline.
-    2>/dev/null and || true masking removed from git diff invocation. Real git errors are now
-    surfaced and cause a non-zero exit.
+  Round 1 (4 items):
+  - check-frontend-test-infrastructure.sh BASE_BRANCH: PASS — fails loudly
+    with exit 1 if neither origin/alpha nor origin/main exists; secondary
+    validation also exits if resolved ref doesn't exist.
+  - check-frontend-test-infrastructure.sh pathspec: PASS — git diff scoped
+    to UI_DIR with -- "$UI_DIR" pathspec.
+  - check-frontend-tests-exist.sh: PASS — same BASE_BRANCH and pathspec
+    improvements applied; UI_SOURCE_DIR default defined.
+  - worker-result.yaml YAML validity: PASS — uses detail: | block scalar;
+    validates cleanly with PyYAML.
+  - failed_at vs dlq_at: PASS (confirmed false positive) — OutboxModel
+    defines failed_at; no dlq_at column exists anywhere. Repository
+    fetch_unprocessed filters on failed_at IS NULL; worker _move_to_dlq
+    sets failed_at; test_worker.py line 780 asserts "failed_at IS NULL".
+    All three layers consistent on failed_at.
 
-  Round 3 feedback:
-  - check-frontend-test-infrastructure.sh: ui_source_count find expression updated to include
-    -name "*.js" so the counted file types match the task_ui_changes trigger set
-    (\.(vue|ts|js)$). Both variables now use the same three extensions: .vue, .ts, .js.
+  Round 2 (1 item):
+  - check-frontend-test-infrastructure.sh git error surfacing: PASS — git
+    diff output captured in git_diff_output with || { echo error; exit 1; }
+    before piping. No 2>/dev/null or || true masking on git invocation.
+
+  Round 3 (1 item):
+  - check-frontend-test-infrastructure.sh .js consistency: PASS —
+    task_ui_changes trigger uses grep -E '\.(vue|ts|js)$' and ui_source_count
+    find uses -name "*.vue" -o -name "*.ts" -o -name "*.js". Identical
+    three-extension set in both variables.
+
+  ## Requirements Coverage
+
+  All 6 SHALL requirements from spec verified via tests:
+  1. Transactional Event Storage: 2 unit + 2 integration tests.
+  2. Event Processing: 6 unit + 2 integration tests.
+  3. Idempotent Event Handlers: 3 unit + 1 integration test.
+  4. Concurrent Worker Safety: 1 unit test asserting SKIP LOCKED in SQL.
+  5. Dual Delivery Mechanism: 3 unit (NOTIFY) + 1 unit (polling) + 1 integration.
+  6. Event Fan-Out: 6 unit tests.

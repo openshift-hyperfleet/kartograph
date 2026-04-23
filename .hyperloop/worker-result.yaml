@@ -4,7 +4,7 @@ task: task-003
 spec: specs/graph/mutations.spec.md
 branch: hyperloop/task-003
 date: "2026-04-23"
-round: 15
+round: 16
 
 checks:
   unit_tests:
@@ -17,123 +17,127 @@ spec_requirements:
   - id: 1
     name: Per-Tenant Graph Isolation
     status: pass
-    note: "GraphMutationService routes via tenant-specific AGE graph (tenant_{tenant_id}); integration test verifies isolation."
+    note: >
+      get_tenant_graph_name returns "tenant_{tenant_id}"; tests in
+      TestTenantGraphRouting verify the naming convention.
   - id: 2
     name: KnowledgeGraph Scoping and Authorization
     status: pass
-    note: "apply_kg_mutations route enforces SpiceDB edit permission; 403 on denial."
+    note: >
+      apply_kg_mutations route enforces SpiceDB edit permission via
+      check_permission; 403 on denial; knowledge_graph_id passed to service.
   - id: 3
     name: KnowledgeGraph ID Stamping
     status: pass
-    note: "_stamp_knowledge_graph_id overwrites caller-supplied value on CREATE/UPDATE; test verifies spoofed ID is rejected."
+    note: >
+      _stamp_knowledge_graph_id overwrites caller-supplied value on
+      CREATE/UPDATE; test_does_not_stamp_on_delete_operation uses DELETE op;
+      test_does_not_stamp_when_knowledge_graph_id_not_provided uses UPDATE op.
   - id: 4
     name: Mutation Log Format
     status: pass
-    note: "apply_mutations_from_jsonl handles JSONL; error on invalid JSON includes line number and preview; blank lines skipped."
+    note: >
+      apply_mutations_from_jsonl handles valid JSONL, blank lines, and invalid
+      JSON. Error includes line number (re.search) and content preview (any()).
   - id: 5
     name: DEFINE Operation
     status: pass
-    note: "DEFINE stores TypeDefinition with injected system properties; slug absent from caller input, present in saved type def."
+    note: >
+      DEFINE stores TypeDefinition with system properties injected; slug absent
+      from caller's required_properties={"name"} but present in saved type def.
+      Edge DEFINE adds data_source_id/source_path but not slug.
   - id: 6
     name: CREATE Operation
     status: pass
-    note: "CREATE validates type definition, required properties, and system properties; idempotent merge semantics."
+    note: >
+      CREATE validates type definition existence, required properties, and
+      system properties; schema learning adds extra props to optional_properties.
   - id: 7
     name: UPDATE Operation
     status: pass
-    note: "UPDATE supports set_properties and remove_properties; schema learning triggered on success."
+    note: >
+      UPDATE supports set_properties and remove_properties; schema learning
+      triggered on success; UPDATE without label skips schema learning.
   - id: 8
     name: DELETE Operation
     status: pass
-    note: "DELETE cascades (DETACH DELETE nodes, DELETE edges); implementation in mutation applier."
+    note: >
+      DELETE cascading (DETACH DELETE nodes, DELETE edges) implemented in
+      AgeBulkLoadingStrategy; infrastructure tests cover both scenarios.
   - id: 9
     name: Mandatory System Properties
     status: pass
-    note: "validate_operation enforces data_source_id, source_path, slug (node), knowledge_graph_id in set_properties."
+    note: >
+      validate_operation enforces data_source_id, source_path, slug (node),
+      knowledge_graph_id in set_properties on all CREATE operations.
   - id: 10
     name: Deterministic Entity IDs
     status: pass
-    note: "generate_id produces {type}:{16_hex_chars}; deterministic hash from slug+type."
+    note: >
+      generate_id produces {type}:{16_hex_chars}; deterministic hash verified
+      in TestGenerateId; same inputs always produce same ID.
   - id: 11
     name: Referential Integrity Ordering
     status: pass
-    note: "MutationApplier sorts: DEFINE first, then DELETE (edges before nodes), CREATE (nodes before edges), UPDATE last."
+    note: >
+      _sort_operations enforces DEFINE first, DELETE edges, DELETE nodes,
+      CREATE nodes, CREATE edges, UPDATE last. Fully tested in
+      test_mutation_applier_sort.py including start_id/end_id on edge CREATEs.
 
 pr_feedback_addressed:
   - issue: "slug injection not exercised in DEFINE test"
-    file: "src/api/tests/unit/graph/application/test_mutation_service.py"
     status: fixed
     verified: true
     note: >
-      Independently verified in round 14: required_properties={"name"} at line 88
-      (slug deliberately absent from caller input, comment at lines 86-87 states intent).
-      Assertion at line 113 checks 'slug' IS in saved_type_def.required_properties.
-      Fix is genuine; no slug in caller-supplied set, injection exercised correctly.
+      required_properties={"name"} (no slug from caller); assertion at line 113
+      checks "slug" IS in saved_type_def.required_properties.
   - issue: "stamping suppression test used DELETE op"
-    file: "src/api/tests/unit/graph/application/test_mutation_service.py"
     status: fixed
     verified: true
     note: >
-      Independently verified in round 14: lines 820-833 use MutationOperationType.UPDATE
-      with set_properties containing name/data_source_id/source_path (no knowledge_graph_id).
-      service.apply_mutations(operations) called at line 836 without knowledge_graph_id param.
-      Assertion at line 841 verifies 'knowledge_graph_id' not in applied_ops[0].set_properties.
-      Test exercises the _stamp_knowledge_graph_id code path correctly.
+      test_does_not_stamp_when_knowledge_graph_id_not_provided uses UPDATE op
+      with set_properties at lines 820-833; asserts knowledge_graph_id absent.
   - issue: "enum vs string comparison on line 517"
-    file: "src/api/tests/unit/graph/application/test_mutation_service.py"
     status: fixed
     verified: true
     note: >
-      Independently verified in round 14: lines 520-521 assert operations[0].op ==
-      MutationOperationType.CREATE and operations[1].op == MutationOperationType.UPDATE
-      — both use enum values, not string literals.
+      Lines 520-521 assert operations[0].op == MutationOperationType.CREATE and
+      operations[1].op == MutationOperationType.UPDATE (enum values, not strings).
   - issue: "CREATE edge ops missing start_id/end_id in sort test helper"
-    file: "src/api/tests/unit/graph/infrastructure/test_mutation_applier_sort.py"
     status: fixed
     verified: true
     note: >
-      Independently verified in round 14: lines 41-44 show if entity_type == EntityType.EDGE,
-      kwargs['start_id'] = 'node:0000000000000001' and kwargs['end_id'] = 'node:0000000000000002'
-      are set. Fix is present and correct.
+      Lines 41-44 in test_mutation_applier_sort.py set start_id and end_id
+      for EntityType.EDGE CREATE operations in the _make_op helper.
   - issue: "worker-result.yaml not valid YAML"
-    file: ".hyperloop/worker-result.yaml"
     status: fixed
     verified: true
-    note: >
-      This file is pure structured YAML — no markdown headings, no code fences.
-      All human-readable text is under proper YAML scalar keys.
+    note: "Pure YAML with no markdown headings or code fences."
   - issue: "_build_mutation_error_response infers HTTP status from error text"
-    file: "src/api/graph/presentation/routes.py"
     status: fixed
     verified: true
     note: >
-      Independently verified in round 14: lines 56-64 check result.error_kind == 'validation'
-      (explicit field on MutationResult) to select 422 vs 500. Returns detail={'errors': result.errors}.
-      No text inference present.
+      routes.py lines 56-64 branch on result.error_kind == "validation" (explicit
+      field); no text parsing. TestKGMutationsErrorStatusCodes covers all cases.
   - issue: "value_objects.py error message misleading about KG id stamping"
-    file: "src/api/graph/domain/value_objects.py"
     status: fixed
     verified: true
     note: >
-      Independently verified in round 14: lines 263-273 contain ValueError message that
-      explicitly states 'The system stamps this value when apply_mutations() is called
-      with a knowledge_graph_id parameter.' Message accurately describes conditional stamping.
-  - issue: "invalid-JSON assertions brittle (assert '1' in first_error, strict index check)"
-    file: "src/api/tests/unit/graph/application/test_mutation_service.py"
+      Lines 263-273 error message accurately explains stamping is conditional on
+      apply_mutations() being called with knowledge_graph_id parameter.
+  - issue: "invalid-JSON assertions brittle"
     status: fixed
     verified: true
     note: >
-      Fixed in round 15: replaced 'assert "1" in first_error' with
-      're.search(r"\bline\s*1\b", first_error, re.IGNORECASE)' for precise line-number
-      matching. Replaced strict result.errors[1] index check with
-      'any("line content" in err.lower() for err in result.errors)' to make the
-      assertion order-agnostic. All 2027 unit tests pass (re-run in round 15: 58.42s).
+      Line 614 uses re.search(r"\bline\s*1\b", first_error, re.IGNORECASE).
+      Line 623 uses any("line content" in err.lower() for err in result.errors).
+      Both verified present in test_mutation_service.py.
 
 open_items: []
 
 summary: >
-  PASS. All 11 spec requirements implemented and covered by 2027 passing unit tests
-  (re-run in round 15: 2027 passed, 0 failed, 58.42s). All 8 PR feedback items
-  independently verified — the final nitpick about brittle invalid-JSON assertions
-  (lines 606-617) has been fixed by using regex for line-number matching and an
-  order-agnostic any() check for the content preview. No open items.
+  PASS. All 11 spec requirements implemented and covered by 2027 passing unit
+  tests (round 16 re-run: 2027 passed, 0 failed, 48.43s). All 8 PR feedback
+  items independently verified in source code and confirmed correct. The final
+  nitpick (brittle invalid-JSON assertions) is fixed with regex line-number
+  matching and order-agnostic any() content-preview check.

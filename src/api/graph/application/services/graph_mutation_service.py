@@ -131,6 +131,7 @@ class GraphMutationService:
                         success=False,
                         operations_applied=0,
                         errors=[error_msg],
+                        error_kind="validation",
                     )
 
                 # Validate required properties if type definition exists in repository
@@ -150,6 +151,7 @@ class GraphMutationService:
                             success=False,
                             operations_applied=0,
                             errors=[error_msg],
+                            error_kind="validation",
                         )
 
                 # Validate required properties for types defined in current batch
@@ -187,6 +189,7 @@ class GraphMutationService:
                                 success=False,
                                 operations_applied=0,
                                 errors=[error_msg],
+                                error_kind="validation",
                             )
 
         # Store DEFINE operations in the repository
@@ -275,6 +278,7 @@ class GraphMutationService:
                             f"JSON parse error on line {line_num}: {str(e)}",
                             f"Line content: {line_preview}",
                         ],
+                        error_kind="validation",
                     )
                 except Exception as e:
                     # Validation error from Pydantic
@@ -286,6 +290,7 @@ class GraphMutationService:
                             f"Validation error on line {line_num}: {str(e)}",
                             f"Line content: {line_preview}",
                         ],
+                        error_kind="validation",
                     )
 
             # Apply all parsed operations, forwarding knowledge_graph_id for stamping
@@ -294,11 +299,12 @@ class GraphMutationService:
             )
 
         except Exception as e:
-            # Catch-all for unexpected errors
+            # Catch-all for unexpected errors (infrastructure/database failures)
             return MutationResult(
                 success=False,
                 operations_applied=0,
                 errors=[f"Unexpected error: {str(e)}"],
+                error_kind="server",
             )
 
     def _discover_optional_properties(

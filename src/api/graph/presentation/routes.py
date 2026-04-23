@@ -47,25 +47,12 @@ router = APIRouter(
 def _build_mutation_error_response(result: MutationResult) -> HTTPException:
     """Build the appropriate HTTPException for a failed mutation result.
 
-    Validation errors (JSON parse, missing fields, invalid format) → 422.
-    Execution/database errors → 500.
+    Uses the explicit ``error_kind`` field on MutationResult to select the
+    HTTP status code:
+    - "validation" → 422 Unprocessable Entity (bad input, parse errors, schema violations)
+    - "server" or None → 500 Internal Server Error (infrastructure/database failures)
     """
-    is_validation_error = False
-    if result.errors:
-        error_text = " ".join(result.errors).lower()
-        validation_keywords = [
-            "json",
-            "parse",
-            "validation",
-            "required",
-            "missing",
-            "invalid",
-        ]
-        is_validation_error = any(
-            keyword in error_text for keyword in validation_keywords
-        )
-
-    if is_validation_error:
+    if result.error_kind == "validation":
         return HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"errors": result.errors},

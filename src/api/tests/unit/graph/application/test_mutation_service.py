@@ -847,3 +847,134 @@ class TestKnowledgeGraphIdStamping:
         applied_ops = mock_applier.apply_batch.call_args[0][0]
         create_op = next(o for o in applied_ops if o.op == MutationOperationType.CREATE)
         assert create_op.set_properties.get("knowledge_graph_id") == "kg-789"
+
+
+class TestMutationResultErrorKind:
+    """Tests that error_kind is set correctly on MutationResult failures.
+
+    The error_kind field allows the presentation layer to select the correct
+    HTTP status code (422 for validation, 500 for server errors) without
+    parsing error message text.
+    """
+
+    def test_missing_type_definition_yields_validation_error_kind(self):
+        """CREATE with no DEFINE should yield error_kind='validation'."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_type_def_repo = Mock()
+        mock_type_def_repo.get.return_value = None  # Type not defined
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.CREATE,
+                type=EntityType.NODE,
+                id="person:abc123def456789a",
+                label="person",
+                set_properties={
+                    "slug": "alice",
+                    "name": "Alice",
+                    "data_source_id": "ds-123",
+                    "source_path": "people/alice.md",
+                },
+            ),
+        ]
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        result = service.apply_mutations(operations)
+
+        assert result.success is False
+        assert result.error_kind == "validation"
+
+    def test_missing_required_properties_yields_validation_error_kind(self):
+        """CREATE with missing required props should yield error_kind='validation'."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_type_def_repo = Mock()
+        mock_type_def_repo.get.return_value = TypeDefinition(
+            label="person",
+            entity_type=EntityType.NODE,
+            description="A person",
+            required_properties={"slug", "name", "email"},
+        )
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.CREATE,
+                type=EntityType.NODE,
+                id="person:abc123def456789a",
+                label="person",
+                set_properties={
+                    "slug": "alice",
+                    "name": "Alice",
+                    # email is required but missing
+                    "data_source_id": "ds-123",
+                    "source_path": "people/alice.md",
+                },
+            ),
+        ]
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        result = service.apply_mutations(operations)
+
+        assert result.success is False
+        assert result.error_kind == "validation"
+
+    def test_json_parse_error_yields_validation_error_kind(self):
+        """JSON parse failure in JSONL should yield error_kind='validation'."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_type_def_repo = Mock()
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        result = service.apply_mutations_from_jsonl("{not valid json")
+
+        assert result.success is False
+        assert result.error_kind == "validation"
+
+    def test_pydantic_validation_error_yields_validation_error_kind(self):
+        """Pydantic schema violation in JSONL should yield error_kind='validation'."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_type_def_repo = Mock()
+
+        # Missing required 'op' field — valid JSON, invalid MutationOperation
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        result = service.apply_mutations_from_jsonl('{"type":"node","id":"node:abc"}')
+
+        assert result.success is False
+        assert result.error_kind == "validation"
+
+    def test_successful_mutation_has_no_error_kind(self):
+        """Successful MutationResult should have error_kind=None."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True, operations_applied=0
+        )
+        mock_type_def_repo = Mock()
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        result = service.apply_mutations([])
+
+        assert result.success is True
+        assert result.error_kind is None

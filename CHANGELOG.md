@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.32.6](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.5...v3.32.6) (2026-04-23)
+
+
+### Bug Fixes
+
+* **deploy:** update dev-ui Keycloak client ID for stage ([#444](https://github.com/openshift-hyperfleet/kartograph/issues/444)) ([79a2469](https://github.com/openshift-hyperfleet/kartograph/commit/79a24691a4f7851e1b11170e8072b3f5729af458))
+
 ## [3.32.5](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.4...v3.32.5) (2026-04-23)
 
 

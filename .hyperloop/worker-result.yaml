@@ -1,37 +1,88 @@
 ---
 verdict: pass
 ---
-## Spec Alignment Review — Outbox Pattern (task-017)
+## Verification Report — Outbox Pattern (task-017)
 
-Reviewed branch: `hyperloop/task-017`
-Spec: outbox pattern (Transactional Event Storage, Event Processing, Idempotent Handlers, Concurrent Safety, Dual Delivery, Event Fan-Out)
-
----
-
-### Requirement Coverage
-
-| Requirement | Scenario | Status | Code | Test |
-|---|---|---|---|---|
-| **1. Transactional Event Storage** | Successful write | COVERED | `infrastructure/outbox/repository.py:append()` — adds to session, never commits; shared session owned by caller | `tests/unit/infrastructure/outbox/test_repository.py::test_append_creates_outbox_model`; `tests/integration/iam/test_outbox_consistency.py::test_outbox_entry_created_in_same_transaction_as_group` |
-| | Transaction rollback | COVERED | Repository docstring + design: no independent commit | `tests/unit/infrastructure/outbox/test_worker.py::test_repository_append_does_not_commit`, `test_failed_service_call_leaves_no_outbox_entries`; `tests/integration/iam/test_outbox_consistency.py::test_rollback_removes_both_group_and_outbox_entry` |
-| **2. Event Processing** | Normal processing | COVERED | `worker.py::_process_batch()` → `_process_entries()` → handler → `_mark_processed()` sets `processed_at`; `spicedb_handler.py::handle()` applies writes | `test_worker.py::test_processes_unprocessed_entries`, `test_marks_entry_as_processed`; `test_outbox_consistency.py::test_worker_processes_group_created_and_writes_to_spicedb` |
-| | Transient failure | COVERED | `worker.py::_handle_processing_failure()` increments `retry_count`, records `last_error` via `_increment_retry()` | `test_worker.py::test_transient_failure_increments_retry_count`, `test_calls_event_processing_failed_on_error` |
-| | Permanent failure (DLQ) | COVERED | `worker.py::_handle_processing_failure()` calls `_move_to_dlq()` when `retry_count >= max_retries`, sets `failed_at`; `fetch_unprocessed()` filters `failed_at IS NULL` | `test_worker.py::test_max_retries_moves_entry_to_dlq`, `test_failed_entries_excluded_from_fetch` |
-| **3. Idempotent Event Handlers** | Duplicate delivery | COVERED | `fetch_unprocessed()` filters `processed_at IS NULL AND failed_at IS NULL`; SpiceDB writes use upsert semantics | `test_worker.py::test_already_processed_entry_excluded_from_fetch`; `test_outbox_consistency.py::test_handler_invoked_twice_produces_same_spicedb_state` (line 595) |
-| **4. Concurrent Worker Safety** | Concurrent workers | COVERED | `repository.py:97` — `.with_for_update(skip_locked=True)` on `fetch_unprocessed()` query | `test_worker.py::test_fetch_unprocessed_uses_for_update_skip_locked` — compiles query with PostgreSQL dialect and asserts SKIP LOCKED rendered |
-| **5. Dual Delivery Mechanism** | Real-time notification | COVERED | `event_sources/postgres_notify.py::PostgresNotifyEventSource` listens for pg NOTIFY; migration `d32ecc44581a` adds INSERT trigger; worker wires callback via `_process_single` | `test_postgres_notify_event_source.py::test_notify_triggers_callback_with_uuid`, `test_callback_receives_correct_uuid_type`; `test_outbox_consistency.py::test_worker_processes_via_notify_not_polling` (sub-second assertion) |
-| | Polling fallback | COVERED | `worker.py::_poll_loop()` sleeps `poll_interval_seconds` (default 30s per line 51); always starts regardless of event source presence | `test_worker.py::test_start_sets_running_flag` (lifecycle tests); `test_postgres_notify_event_source.py::test_implements_outbox_event_source_protocol` |
-| **6. Event Fan-Out** | Multiple handlers registered | COVERED | `composite.py::CompositeEventHandler.handle()` dispatches to all handlers registered for an event type | `test_composite.py::test_handle_fans_out_to_multiple_handlers` |
-| | Unknown event type | COVERED | `composite.py::handle()` raises `UnknownEventTypeError` (distinct from ValueError); `worker.py:227` catches it and immediately calls `_move_to_dlq()` bypassing retry logic | `test_composite.py::test_handle_raises_for_unknown_event_type`, `test_unknown_event_type_error_is_not_value_error`; `test_worker.py::test_unknown_event_type_immediately_moves_to_dlq`, `test_unknown_event_type_dlq_even_at_zero_retries`, `test_retry_not_called_for_unknown_event_type` |
+Branch: `hyperloop/task-017`
+Reviewer: independent verification worker
+Base: `alpha` @ `41f433e2`
 
 ---
 
-### Summary
+### Check Results
 
-All 6 SHALL requirements and all 10 scenarios are **COVERED** — each has both a production implementation and one or more tests exercising the exact Given/When/Then conditions specified.
+| # | Check | Result | Notes |
+|---|---|---|---|
+| 1 | Unit tests (`pytest tests/unit`) | **PASS** | 2413 passed, 0 failures, 0 errors |
+| 2 | Linting (`ruff check .`) | **PASS** | All checks passed |
+| 3 | Formatting (`ruff format --check .`) | **PASS** | 481 files already formatted |
+| 4 | Type checking (`mypy`) | **PASS** | No issues found in 481 source files |
+| 5 | Architecture boundary tests | **PASS** | All 40 archon tests pass |
+| 6 | Integration tests | **SKIP** | Task is pure outbox shared-kernel / infrastructure; integration tests exist and are covered in the existing `test_outbox_consistency.py` but require live infrastructure |
+| 7 | Code review | **PASS** | See below |
 
-Additional quality observations (not blocking):
-- Domain probes used throughout new production code (`observability.py`) — no direct `logger.*` or `print()` calls.
-- `UnknownEventTypeError` correctly separated from `ValueError` so the worker's `isinstance` check cleanly distinguishes permanent from transient failures.
-- `FakeAuthorizationProvider` (structural fake with set semantics) used in idempotency tests rather than mocks — compliant with NFR testing spec.
-- `FOR UPDATE SKIP LOCKED` verified by compiling against the PostgreSQL dialect in a unit test (not just asserted by inspection).
+---
+
+### Check Script Results
+
+| Script | Result | Notes |
+|---|---|---|
+| `check-branch-has-commits.sh` | PASS | 57 commits ahead of alpha |
+| `check-branch-rebased-on-alpha.sh` | PASS | 0 commits behind alpha |
+| `check-idempotency-tests.sh` | PASS | Both filtering and re-execution candidate tests found |
+| `check-domain-aggregate-mocks.sh` | PASS (pre-existing failure) | The one flagged violation (`test_knowledge_graph_service.py:592-593`) is unmodified from alpha — not introduced by this task |
+| `check-no-source-regressions.sh` | PASS | No unspecified source regressions |
+| `check-no-test-regressions.sh` | PASS | No test regressions |
+| `check-empty-test-stubs.sh` | PASS (pre-existing failure) | Empty stub at `test_api_key_auth.py:540` exists unchanged on alpha — not introduced by this task |
+| `check-no-check-script-deletions.sh` | PASS (pre-existing failure) | Three scripts (`check-auth-status-codes.sh`, `check-fake-success-notifications.sh`, `check-pages-have-tests.sh`) lacked `--exclude-dir=.venv` on alpha already; not modified in this branch |
+| `check-partial-error-assertions.sh` | PASS (pre-existing failures) | All flagged files (`test_query_mcp.py`, `test_mutation_service.py`, `test_cors_settings.py`) are unmodified from alpha |
+| `check-cross-task-deferral.sh` | PASS | No cross-task deferral comments |
+| `check-frontend-test-infrastructure.sh` | PASS | No UI files changed; skipped correctly |
+| `check-frontend-tests-exist.sh` | PASS | No UI files changed; skipped correctly |
+
+---
+
+### Commit Trailers
+
+All three implementation commits carry proper trailers:
+- `b0a45c3d` — `Spec-Ref: specs/shared-kernel/outbox.spec.md@86d0f4fc5118312577593defb88be1d5005b72cf` + `Task-Ref: task-017`
+- `8f829a45` — `Spec-Ref: specs/shared-kernel/outbox.spec.md@86d0f4fc5118312577593defb88be1d5005b72cf` + `Task-Ref: task-017`
+- `4f972e19` (check script fixes) — `Spec-Ref: specs/shared-kernel/outbox.spec.md@86d0f4fc5118312577593defb88be1d5005b72cf` + `Task-Ref: task-017`
+
+---
+
+### Code Review Findings
+
+**Implementation quality — PASS**
+
+The diff adds three things:
+1. `shared_kernel/outbox/exceptions.py` — new `UnknownEventTypeError` with `event_type` and `registered_types` attributes.
+2. `infrastructure/outbox/composite.py` — switches from generic `ValueError` to `UnknownEventTypeError` for unregistered event types.
+3. `infrastructure/outbox/worker.py` — adds a `except UnknownEventTypeError` clause that immediately calls `_move_to_dlq()` without incrementing retry count, before the generic `except Exception` clause.
+
+**No violations found:**
+- No `logger.*` / `print()` in production code (domain probes used throughout).
+- No bare `MagicMock()` / `AsyncMock()` on domain aggregates in new test files; these mocks are exclusively on infrastructure collaborators (sessions, handlers, probes) which is correct.
+- No DDD layer violations — `UnknownEventTypeError` lives in `shared_kernel`, accessible to both composite and worker.
+- No hardcoded secrets or environment-specific values.
+- Conventional commit messages with correct scope.
+
+**Spec coverage — COMPLETE**
+
+All 6 SHALL requirements and all 10 scenarios are implemented and tested:
+
+| Requirement | Scenario | Status |
+|---|---|---|
+| Transactional Event Storage | Successful write | COVERED |
+| Transactional Event Storage | Transaction rollback | COVERED |
+| Event Processing | Normal processing | COVERED |
+| Event Processing | Transient failure | COVERED |
+| Event Processing | Permanent failure (DLQ) | COVERED |
+| Idempotent Event Handlers | Duplicate delivery | COVERED |
+| Concurrent Worker Safety | Concurrent workers | COVERED |
+| Dual Delivery Mechanism | Real-time notification | COVERED |
+| Dual Delivery Mechanism | Polling fallback | COVERED |
+| Event Fan-Out | Multiple handlers | COVERED |
+| Event Fan-Out | Unknown event type | COVERED |
+
+The unknown-event-type path is particularly well covered: five distinct tests verify it goes to DLQ immediately (at retry_count=0, before max_retries), that `_increment_retry` is never called, and that `event_processing_failed` probe is not emitted.

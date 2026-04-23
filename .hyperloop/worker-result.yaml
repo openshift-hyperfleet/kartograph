@@ -1,0 +1,63 @@
+---
+verdict: pass
+---
+Verification of task-024 (Groups feature — missing spec scenario coverage).
+
+## Checks
+
+| Check | Result | Notes |
+|---|---|---|
+| Unit Tests | PASS | 2253 tests, 0 failures, 0 errors |
+| Linting (ruff check) | PASS | 0 violations |
+| Formatting (ruff format) | PASS | 460 files already formatted |
+| Type Checking (mypy) | PASS | 0 errors across 460 source files |
+| Architecture Boundary Tests | PASS | All 40 pytest-archon tests pass |
+| Hyperloop Check Scripts | PASS | All applicable checks pass |
+| Commit Trailers | PASS | Both commits carry Spec-Ref and Task-Ref |
+
+## What Changed
+
+Two commits on top of alpha:
+
+1. `test(iam): add missing group spec scenario tests and fix name validation`
+   - `Group.create()` now trims whitespace and rejects empty/whitespace-only names and
+     names exceeding 255 chars — consistent with the pre-existing `Group.rename()` behaviour.
+   - `CreateGroupRequest` and `UpdateGroupRequest` gain a `field_validator` that strips
+     whitespace and rejects whitespace-only names (HTTP 422 at the API boundary).
+   - 9 domain unit tests for `Group.create()` name validation (`TestGroupNameValidation`).
+   - 16 new presentation unit tests for three previously untested routes:
+     - `POST /iam/groups` (`TestCreateGroupRoute`) — 7 tests covering 201, 409, 422
+       for empty/whitespace/missing, whitespace trimming, and param forwarding.
+     - `GET /iam/groups/{id}` (`TestGetGroupRoute`) — 4 tests covering 200, 404,
+       400 for bad ULID, and param forwarding.
+     - `DELETE /iam/groups/{id}` (`TestDeleteGroupRoute`) — 5 tests covering 204,
+       403, 404, 400 for bad ULID, and param forwarding.
+
+2. `chore: write worker result for task-024 groups feature` — cleaned up stale
+   worker-result.yaml from a prior task (task-020).
+
+## Spec Coverage
+
+All spec requirements are covered by unit tests (new or pre-existing):
+
+- **Group Creation** — create route tests (201, 409, 422) ✓
+- **Group Name Validation** — 9 domain tests + 2 presentation validator tests ✓
+- **Group Retrieval** — `TestGetGroupRoute` (200, 404, 400) ✓
+- **Group Listing** — pre-existing `TestListGroupsWithViewFiltering` ✓
+- **Group Rename** — pre-existing `TestUpdateGroupRoute` ✓
+- **Group Deletion** — `TestDeleteGroupRoute` (204, 403, 404, 400) ✓
+  — Member snapshot captured via `mark_for_deletion()` in domain aggregate ✓
+- **Group Member Management** — pre-existing `TestGroupMemberRoutes` ✓
+- **Group Member Listing** — pre-existing list-members tests ✓
+- **Workspace Access Inheritance** — handled by workspace membership; group-as-workspace-member
+  routes and authz propagation are covered by pre-existing integration tests ✓
+- **Group Roles** — admin/member role semantics covered across member-management tests ✓
+
+## Code Quality Notes
+
+- No direct `logger.*` or `print()` usage in changed files — domain observability pattern
+  maintained.
+- `AsyncMock(spec=GroupService)` in presentation tests is the established codebase pattern
+  (identical to workspace/api-key presentation tests); not a violation.
+- No hardcoded credentials or environment-specific values.
+- No imports that violate DDD layer boundaries (confirmed by architecture tests).

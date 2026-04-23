@@ -3,7 +3,7 @@ verdict: pass
 detail: |
   ## Verification — task-017 Outbox Pattern
 
-  Re-verification pass incorporating CodeRabbit PR feedback analysis.
+  Full re-verification pass after CodeRabbit PR feedback was addressed.
 
   ---
 
@@ -39,22 +39,23 @@ detail: |
 
   ---
 
-  ### CodeRabbit PR Comment Analysis
+  ### CodeRabbit PR Comment Resolution
 
-  **Finding 1 and 2 — check-frontend-*.sh BASE_BRANCH fallback (FIXED)**
-  Updated both scripts to fail loudly (exit non-zero with error message) when
-  neither origin/alpha nor origin/main exists, and restricted the git diff
-  pathspec to the UI directory so task_ui_changes only reflects changes under
-  the UI directory.
+  **Findings 1 and 2 — check-frontend-*.sh BASE_BRANCH fallback (FIXED)**
+  Both scripts now fail loudly (exit non-zero with error message) when
+  neither origin/alpha nor origin/main exists. The git diff pathspec is
+  restricted to the UI directory so task_ui_changes only reflects changes
+  under that directory.
 
   **Finding 3 — worker-result.yaml YAML formatting (FIXED)**
-  Restructured worker-result.yaml to use a proper YAML block scalar under the
-  detail key, eliminating raw Markdown tokens at the top level.
+  Restructured worker-result.yaml to use a proper YAML block scalar under
+  the detail key (literal block scalar with `|`), eliminating raw Markdown
+  tokens at the top level.
 
   **Finding 4 — dlq_at vs failed_at mismatch (FALSE POSITIVE)**
-  CodeRabbit claimed the repository filters on failed_at while the worker sets
-  dlq_at. This is incorrect. The codebase consistently uses failed_at as the
-  DLQ marker throughout — verified by direct code inspection:
+  CodeRabbit claimed the repository filters on failed_at while the worker
+  sets dlq_at. This is incorrect. The codebase consistently uses failed_at
+  as the DLQ marker throughout — verified by direct code inspection:
 
   - infrastructure/outbox/models.py defines failed_at: Mapped[datetime | None]
   - infrastructure/outbox/worker.py sets failed_at=datetime.now(UTC) in _move_to_dlq()

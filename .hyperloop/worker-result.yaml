@@ -1,12 +1,54 @@
 ---
 verdict: pass
 ---
-## Task-008: Knowledge Graphs — Fresh Worker Attempt (2026-04-23)
+## Task-008: Knowledge Graphs — Independent Verification (2026-04-23)
 
-Fresh independent verification after branch reset. All implementation read from
-source and unit tests run live.
+All checks run live from source. Verdict: **PASS**.
 
-**Unit test results: 2060 passed, 0 failed (43 pre-existing warnings)**
+---
+
+### Check Results
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Unit tests (`pytest tests/unit`) | PASS — 2060 passed, 0 failed |
+| 2 | Linting (`ruff check .`) | PASS — no violations |
+| 3 | Formatting (`ruff format --check .`) | PASS — 450 files formatted |
+| 4 | Type checking (`mypy`) | PASS — no issues in 450 source files |
+| 5 | Architecture boundaries (`test_architecture.py`) | PASS — 40 passed |
+| 6 | `check-auth-status-codes.sh` | PASS (see note) |
+| 7 | `check-failure-path-tests.sh` | PASS — rollback scenario covered |
+| 8 | `check-idempotency-tests.sh` | PASS — no idempotency req in spec |
+| 9 | `check-no-coming-soon-stubs.sh` | PASS — no stubs |
+| 10 | `check-no-future-placeholder-comments.sh` | PASS — no placeholders |
+| 11 | `check-frontend-test-infrastructure.sh` | PASS — vitest found |
+| 12 | `check-frontend-tests-exist.sh` | PASS — 3 test files |
+
+**Note on check-auth-status-codes.sh**: Script exits 1 (requires review), but all
+flagged 403 assertions are pre-existing on `alpha` (confirmed via `git show alpha:...`)
+and are legitimately correct: they cover cases where the user has `view`/`edit` access
+but lacks `manage` permission (workspace delete/update, API key revocation). These are
+not "unauthorized and missing" scenarios — the resource is visible to the user but the
+action is forbidden. The `test_auth_enforcement.py:129` line asserts `NOT in [401, 403]`
+(a success-path check). None of the flagged lines were introduced by this task.
+
+---
+
+### Code Review Findings
+
+- **Domain probes (DOO)**: `logger.*` appears only inside probe *implementations*
+  (`knowledge_graph_probe.py`, `knowledge_graph_service_probe.py`, etc.) — the
+  correct DOO pattern. No direct `logger.*` or `print()` in domain/application code.
+
+- **No MagicMock for domain aggregates**: Commit `fd7dc1d0` replaced `MagicMock()`
+  DataSource instances with real `DataSource` aggregates via `_make_ds()` helper.
+  Remaining `AsyncMock` usage is for ports (repositories, authz provider) and
+  `MagicMock` is for infrastructure sessions and probe observability objects — acceptable.
+
+- **Commit trailers**: All 8 implementation commits carry `Spec-Ref` and `Task-Ref`.
+  Conventional commit messages throughout.
+
+- **No hardcoded secrets or environment-specific values**.
 
 ---
 
@@ -27,47 +69,7 @@ source and unit tests run live.
 | Permission Inheritance | Workspace-inherited access | COVERED |
 | Permission Inheritance | Direct grant | COVERED |
 
----
-
-### Implementation Summary
-
-**Domain** (`management/domain/aggregates/knowledge_graph.py`):
-- `KnowledgeGraph.create()` generates ULID ID, validates name (1-100 chars),
-  emits `KnowledgeGraphCreated` event including `workspace_id` and `tenant_id`
-- `KnowledgeGraph.update()` validates name, raises `AggregateDeletedError` if deleted
-- `KnowledgeGraph.mark_for_deletion()` idempotent; emits `KnowledgeGraphDeleted`
-  with `workspace_id` for SpiceDB cleanup
-- Domain probe (DOO) wired throughout all mutating operations
-
-**Application** (`management/application/services/knowledge_graph_service.py`):
-- `create()`: EDIT check on workspace → `KnowledgeGraph.create()` → `repo.save()`
-  in `session.begin()` → maps `IntegrityError` to `DuplicateKnowledgeGraphNameError`
-- `get()`: fetches → tenant-checks → VIEW permission check → returns `None` for both
-  unauthorized and not-found (no existence leakage per spec)
-- `list_for_workspace()`: VIEW check on workspace → SpiceDB `read_relationships`
-  to discover KG IDs → fetch each → filter by tenant
-- `update()`: EDIT check on KG → fetch → `kg.update()` → save in transaction
-- `delete()`: MANAGE check → cascade DSs (+ secret store) + KG in one `session.begin()`
-
-**Authorization** (`shared_kernel/authorization/spicedb/schema.zed`):
-- `view = admin + editor + viewer + workspace->view`
-- `edit = admin + editor + workspace->edit`
-- `manage = admin + workspace->manage`
-- Outbox translator writes workspace+tenant relationships on Create,
-  and cleans up all 5 relation types on Delete
-
-**Presentation** (`management/presentation/knowledge_graphs/routes.py`):
-- `POST /management/workspaces/{ws_id}/knowledge-graphs` → 201/403/409/422/401
-- `GET /management/knowledge-graphs/{id}` → 200/404/401
-- `GET /management/workspaces/{ws_id}/knowledge-graphs` → 200/403/401
-- `PATCH /management/knowledge-graphs/{id}` → 200/403/404/409/422/401
-- `DELETE /management/knowledge-graphs/{id}` → 204/403/404/401
-
-**Atomicity**: `async with self._session.begin()` wraps all cascade operations;
-`test_delete_rolls_back_on_ds_deletion_failure` confirms KG is never deleted when
-a DS deletion fails mid-cascade.
-
-All 7 SHALL requirements and 12 scenarios are fully implemented and tested.
+All 7 SHALL requirements and 12 scenarios fully implemented and tested.
 
 Spec-Ref: specs/management/knowledge-graphs.spec.md@85d49a379a52479b33f9b39994d76795066899a6
 Task-Ref: task-008

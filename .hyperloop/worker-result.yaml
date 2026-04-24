@@ -1,19 +1,54 @@
 ---
 verdict: pass
 ---
-## PR Review Evaluation — Task-017: Outbox Pattern
+## Task-017: Outbox Pattern — Fresh Worker Verification
 
-### PR Feedback Analysis
+### Implementation Status
 
-#### CI Checks
-- **CodeRabbit**: Status is "Review skipped" — not a failure; no review comments were generated.
-- **Validate PR title**: PASS (3s).
+The outbox pattern implementation is complete. All 2413 unit tests pass.
 
-#### PR Comments
-- **jsell-rh `@coderabbit recheck`**: This is a meta-request to trigger a CodeRabbit re-review, not an actionable review finding. Not applicable as a review comment requiring code changes.
+### Spec Coverage — Numbered Checks
 
-### Verdict
+**1. Transactional Event Storage (REQ-1)**
+- Aggregate `_pending_events` collected by repository and appended to `OutboxModel` within the same `AsyncSession` — no intermediate commit.
+- `TestOutboxWorkerTransactionAtomicity::test_repository_append_does_not_commit` — verifies the append does NOT commit on its own.
+- `TestOutboxWorkerTransactionAtomicity::test_failed_service_call_leaves_no_outbox_entries` — verifies rollback leaves no entries.
 
-There are **no valid, applicable review comments** in the PR feedback. CodeRabbit produced no findings (review was skipped), CI is green, and the only human comment is a bot-trigger request rather than a substantive review comment.
+**2. Event Processing (REQ-2)**
+- `OutboxWorker._process_batch()` fetches unprocessed entries and delegates to `EventHandler.handle()`.
+- Success path: `_mark_processed()` sets `processed_at` timestamp.
+- Transient failure: `_increment_retry()` increments `retry_count` and records `last_error`.
+- Permanent failure (DLQ): `_move_to_dlq()` sets `failed_at` after `max_retries` exceeded.
+- Tests: `TestOutboxWorkerRetryBehavior::test_transient_failure_increments_retry_count`, `test_max_retries_moves_entry_to_dlq`.
 
-**Verdict: PASS** — no unaddressed review comments.
+**3. Idempotent Event Handlers (REQ-3)**
+- Processed entries excluded via `OutboxModel.processed_at.is_(None)` filter.
+- `TestOutboxWorkerIdempotency::test_already_processed_entry_excluded_from_fetch` — verifies processed entries are skipped.
+- SpiceDB handler idempotency: `TestSpiceDBEventHandlerIdempotency::test_duplicate_invocation_produces_identical_final_state`.
+
+**4. Concurrent Worker Safety (REQ-4)**
+- `SELECT ... FOR UPDATE SKIP LOCKED` prevents double-processing.
+- `TestOutboxWorkerConcurrentSafety::test_fetch_unprocessed_uses_for_update_skip_locked` — verifies the locking clause is used.
+
+**5. Dual Delivery Mechanism (REQ-5)**
+- `OutboxWorker` accepts optional `OutboxEventSource` for real-time NOTIFY.
+- `PostgresNotifyEventSource` listens on `outbox_events` channel and triggers `_process_single()`.
+- Polling fallback runs every `poll_interval_seconds` (default 30s).
+- `_shutdown_event` enables immediate stop without cancelling in-progress batches.
+- Tests: `TestOutboxWorkerLifecycle`, `TestPostgresNotifyEventSource` suite.
+
+**6. Event Fan-Out (REQ-6)**
+- `CompositeEventHandler.register()` allows multiple handlers per event type.
+- `handle()` dispatches to all registered handlers for a type.
+- Unknown types raise `UnknownEventTypeError` → immediately sent to DLQ, not retried.
+- Tests: `TestOutboxWorkerRetryBehavior::test_unknown_event_type_immediately_moves_to_dlq`, `test_unknown_event_type_dlq_even_at_zero_retries`.
+
+### Test Results
+
+```
+2413 passed, 45 warnings in 56.72s
+```
+
+Architecture boundary enforcement, shared kernel, infrastructure outbox, IAM outbox, and management outbox tests all pass.
+
+**Verdict: PASS** — all spec requirements verified with passing tests.

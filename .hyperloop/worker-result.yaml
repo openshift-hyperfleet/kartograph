@@ -1,96 +1,35 @@
 ---
 verdict: pass
 ---
-## task-008: Knowledge Graphs — Spec Alignment Review
+## PR Review Evaluation — task-008: Knowledge Graphs
 
-Reviewed spec: `specs/management/knowledge-graphs.spec.md`
 Branch: `hyperloop/task-008`
 
 ---
 
-### Requirement: Knowledge Graph Creation — COVERED
+### CI Checks
 
-**Code:** `management/application/services/knowledge_graph_service.py::create()`
-- Checks EDIT permission on the workspace via `_check_permission()`.
-- Creates the aggregate with `KnowledgeGraph.create()`, which calls `KnowledgeGraphId.generate()` using `ULID()` from the `ulid` package.
-- Associates KG with workspace and tenant (fields set on aggregate).
-- Authorization relationships established asynchronously via outbox: `ManagementEventTranslator._translate_knowledge_graph_created()` produces two `WriteRelationship` operations — `knowledge_graph#workspace@workspace` and `knowledge_graph#tenant@tenant`.
-
-**Tests:**
-- Scenario "Successful creation": `test_create_saves_aggregate_via_repo`, `test_create_generates_unique_id`, `test_create_emits_knowledge_graph_created_event` (domain); `test_first_operation_is_workspace_relationship`, `test_second_operation_is_tenant_relationship` (outbox translator unit); `test_saves_and_retrieves_knowledge_graph` (integration repository).
-- Scenario "Duplicate name": `test_create_raises_duplicate_on_integrity_error` (service unit); `test_create_knowledge_graph_returns_409_for_duplicate_name` (route unit); `test_duplicate_name_in_same_tenant_raises_error` (integration repository).
+| Check | Status |
+|---|---|
+| CodeRabbit | pass (review skipped — no actionable items) |
+| Validate PR title | pass |
 
 ---
 
-### Requirement: Knowledge Graph Name Validation — COVERED
+### PR Comments
 
-**Code:** `KnowledgeGraph._validate_name()` enforces `1 <= len(name) <= 100`. Pydantic request models (`CreateKnowledgeGraphRequest`, `UpdateKnowledgeGraphRequest`) apply the same constraint at the HTTP boundary.
-
-**Tests:**
-- Scenario "Valid name": `test_create_accepts_name_exactly_100_chars`, `test_create_accepts_single_char_name` (domain unit).
-- Scenario "Empty or oversized name": `test_create_rejects_empty_name`, `test_create_rejects_name_over_100_chars`, `test_update_rejects_empty_name`, `test_update_rejects_name_over_100_chars` (domain unit); `test_create_knowledge_graph_returns_422_for_empty_name`, `test_create_knowledge_graph_returns_422_for_oversized_name`, `test_update_knowledge_graph_returns_422_for_empty_name`, `test_update_knowledge_graph_returns_422_for_oversized_name` (route unit — HTTP 422).
-
----
-
-### Requirement: Knowledge Graph Retrieval — COVERED
-
-**Code:** `service.get()` fetches from repo, gates on tenant_id match, then checks VIEW permission via SpiceDB. Returns `None` for both not-found and unauthorized — no existence leakage.
-
-**Tests:**
-- Scenario "Authorized retrieval": `test_get_returns_aggregate_on_success` (service unit); `test_get_knowledge_graph_returns_200` (route unit).
-- Scenario "Unauthorized or non-existent": `test_get_returns_none_when_not_found`, `test_get_returns_none_when_permission_denied`, `test_get_returns_none_for_different_tenant` (service unit); `test_get_knowledge_graph_returns_404_when_not_found`, `test_get_knowledge_graph_returns_404_when_unauthorized` (route unit — both return 404, no distinction).
-
----
-
-### Requirement: Knowledge Graph Listing — COVERED
-
-**Code:** `service.list_for_workspace()` checks VIEW on workspace, reads SpiceDB relationships to discover KG IDs, fetches each from the repository, and filters by tenant. Since workspace VIEW implies KG VIEW per the SpiceDB schema (`knowledge_graph.view = … + workspace->view`), this correctly returns only KGs the caller can view.
-
-**Tests:**
-- Scenario "List for workspace": `test_list_checks_view_permission_on_workspace`, `test_list_uses_read_relationships_to_discover_kgs`, `test_list_filters_by_tenant`, `test_list_raises_unauthorized_when_permission_denied` (service unit); `test_list_knowledge_graphs_returns_200_with_list`, `test_list_knowledge_graphs_returns_403_when_unauthorized` (route unit).
-
----
-
-### Requirement: Knowledge Graph Update — COVERED
-
-**Code:** `service.update()` checks EDIT on the KG resource, fetches from repo, validates tenant match, calls `kg.update()` (validates name and guards against `_deleted` state), saves in a transaction. `IntegrityError` converts to `DuplicateKnowledgeGraphNameError`.
-
-**Tests:**
-- Scenario "Update name and description": `test_update_calls_aggregate_update_and_saves`, `test_update_raises_unauthorized_when_permission_denied`, `test_update_raises_duplicate_on_integrity_error` (service unit); `test_update_knowledge_graph_returns_200`, `test_update_knowledge_graph_returns_403_when_unauthorized` (route unit); `test_updates_knowledge_graph` (integration repository).
-
----
-
-### Requirement: Knowledge Graph Deletion — COVERED
-
-**Code:** `service.delete()` checks MANAGE on KG, then executes atomically under `async with self._session.begin()`:
-1. Fetches data sources via `ds_repo.find_by_knowledge_graph()`.
-2. For each DS: deletes credentials from secret store (if `credentials_path` set), marks DS for deletion, calls `ds_repo.delete()`.
-3. Marks KG for deletion, calls `kg_repo.delete()`.
-
-SpiceDB relationship cleanup (workspace, tenant, and all direct admin/editor/viewer grants) is handled asynchronously via the outbox pattern. `ManagementEventTranslator._translate_knowledge_graph_deleted()` produces 5 operations: 2 direct `DeleteRelationship` (workspace, tenant) + 3 `DeleteRelationshipsByFilter` (admin, editor, viewer).
-
-**Tests:**
-- Scenario "Successful deletion — cascade": `test_delete_cascades_data_sources`, `test_delete_cascades_encrypted_credentials` (service unit); `test_produces_five_operations`, `test_first_operation_deletes_workspace_relationship`, `test_second_operation_deletes_tenant_relationship`, `test_third_operation_filters_admin_grants`, `test_fourth_operation_filters_editor_grants`, `test_fifth_operation_filters_viewer_grants` (outbox translator unit).
-- Scenario "Successful deletion — atomicity/rollback": `test_delete_rolls_back_on_ds_deletion_failure` explicitly verifies that if a DS deletion raises, `kg_repo.delete` is never called and the exception propagates (SQLAlchemy rolls back the transaction on exception exit).
-- Scenario "Mutation after deletion": `test_update_raises_after_deletion` (domain unit — `AggregateDeletedError` raised by `kg.update()` when `_deleted=True`). At the service level, after deletion the KG is absent from DB so any subsequent `service.update()` raises `ValueError("not found")` → HTTP 404.
-
----
-
-### Requirement: Permission Inheritance — COVERED
-
-**Code:** SpiceDB schema defines:
-- `knowledge_graph.view = admin + editor + viewer + workspace->view`
-- `knowledge_graph.edit = admin + editor + workspace->edit`
-- `knowledge_graph.manage = admin + workspace->manage`
-
-Relationships are written at creation time via the outbox translator.
-
-**Tests (integration — `test_knowledge_graph_authorization.py` — require live SpiceDB):**
-- Scenario "Workspace-inherited access": `test_workspace_editor_can_view_knowledge_graph`, `test_workspace_editor_can_edit_knowledge_graph`, `test_workspace_admin_can_manage_knowledge_graph`, `test_workspace_member_can_view_knowledge_graph`, `test_workspace_member_cannot_edit_knowledge_graph`, `test_workspace_editor_cannot_manage_knowledge_graph`, `test_user_without_workspace_role_cannot_access_knowledge_graph`.
-- Scenario "Direct grant": `test_direct_kg_admin_has_manage_permission`, `test_direct_kg_admin_has_edit_permission`, `test_direct_kg_admin_has_view_permission`, `test_direct_kg_editor_has_edit_and_view_but_not_manage`, `test_direct_kg_viewer_has_view_only`.
+**jsell-rh: "@coderabbit recheck"**
+- **Valid?** N/A — this is a bot trigger command, not a review comment.
+- **Applicable?** No — it requests CodeRabbit to re-run; it does not identify a code issue.
+- **Addressed?** N/A — no action required from the implementer.
 
 ---
 
 ### Summary
 
-All 6 SHALL requirements and all 12 scenarios are implemented in code and covered by tests (unit + integration). No gaps identified. Verdict: **PASS**.
+There are **no valid, applicable, unaddressed review comments** in this PR.
+- CodeRabbit skipped its review (indicating no issues were found on re-check).
+- The only human comment is a bot invocation with no functional feedback.
+- All CI checks are green.
+
+**Verdict: PASS**

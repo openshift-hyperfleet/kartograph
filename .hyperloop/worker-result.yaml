@@ -1,98 +1,21 @@
 ---
 verdict: pass
 ---
-# Task-008: Knowledge Graphs — Spec Alignment Review (2026-04-24, Gate 7)
+## PR Feedback Evaluation — task-008 (Knowledge Graphs)
 
-## Source Diff Since Last Comprehensive Review
+### CI Checks
+- **CodeRabbit:** pass — review was skipped; no comments generated.
+- **Validate PR title:** pass (3s).
 
-Only `src/dev-ui/app/tests/index.test.ts` changed (dev-UI test alignment, unrelated to
-Knowledge Graphs spec). Zero changes to:
-- `src/api/management/` (service, repository, domain, routes)
-- `src/api/tests/unit/management/` (all KG tests)
-- SpiceDB schema or authorization code
+### PR Comments
+- **jsell-rh `@coderabbit recheck`:** This is a bot trigger command requesting
+  CodeRabbit to re-run its review. It contains no substantive feedback and is
+  not a review comment about the code. Not actionable.
 
-## Test Results
+### Verdict
 
-334 management unit tests: **334 passed, 0 failed** (4.13s)
+There are **no valid, applicable review comments** in the PR feedback. Both CI
+checks pass. The single PR comment is a meta-command to a bot, not a code
+review observation.
 
-## Per-Requirement Coverage
-
-### 1. Knowledge Graph Creation — COVERED
-
-**Scenario: Successful creation (ULID, workspace+tenant association, authz)**
-- Implementation: `management/application/knowledge_graph_service.py` `create()`
-- Route: `POST /management/workspaces/{workspace_id}/knowledge-graphs`
-- Test: `test_knowledge_graph_service.py::TestCreateKnowledgeGraph`
-- Authorization outbox: `ManagementEventTranslator` handles SpiceDB relationship writes
-
-**Scenario: Duplicate name within tenant → rejected**
-- Implementation: `IntegrityError` → `DuplicateKnowledgeGraphNameError`
-- Route returns 409
-- Test: `test_knowledge_graph_service.py::TestCreateKnowledgeGraph::test_create_duplicate_name`
-
-### 2. Knowledge Graph Name Validation — COVERED
-
-**Scenario: Valid name (1–100 chars)**
-- Implementation: Pydantic `min_length=1, max_length=100` on `CreateKnowledgeGraphRequest` and `UpdateKnowledgeGraphRequest`
-- Test: `test_knowledge_graph.py` name validation tests
-
-**Scenario: Empty or oversized name → rejected with validation error**
-- Implementation: Pydantic validation error → 422 Unprocessable Entity
-- Test: `test_knowledge_graph.py` boundary tests
-
-### 3. Knowledge Graph Retrieval — COVERED
-
-**Scenario: Authorized retrieval**
-- Implementation: `KnowledgeGraphService.get()` checks VIEW permission, returns KG object
-- Route: `GET /management/knowledge-graphs/{knowledge_graph_id}`
-- Test: `test_knowledge_graph_routes.py::TestGetKnowledgeGraph`
-
-**Scenario: Unauthorized or non-existent → no result (no leakage)**
-- Implementation: Service returns `None` for both missing and unauthorized cases
-- Route returns 404 in both cases
-- Test: `test_knowledge_graph_routes.py::TestGetKnowledgeGraph::test_get_not_found`
-
-### 4. Knowledge Graph Listing — COVERED
-
-**Scenario: List for workspace filtered by authz**
-- Implementation: `KnowledgeGraphService.list_for_workspace()` — workspace VIEW check + SpiceDB read_relationships filter
-- Route: `GET /management/workspaces/{workspace_id}/knowledge-graphs`
-- Test: `test_knowledge_graph_routes.py::TestListKnowledgeGraphs`
-
-### 5. Knowledge Graph Update — COVERED
-
-**Scenario: Update name and description**
-- Implementation: `KnowledgeGraphService.update()` with EDIT permission check
-- Route: `PATCH /management/knowledge-graphs/{knowledge_graph_id}`
-- Test: `test_knowledge_graph_routes.py::TestUpdateKnowledgeGraph`
-
-### 6. Knowledge Graph Deletion — COVERED
-
-**Scenario: Successful deletion with atomic cascade (data sources + encrypted credentials + authz)**
-- Implementation: `KnowledgeGraphService.delete()` — single `session.begin()` block deletes:
-  1. Encrypted credentials via `secret_store.delete()` per data source
-  2. Data source records via `ds_repo.delete()`
-  3. Knowledge graph record via `kg_repo.delete()`
-  4. SpiceDB relationships (workspace, tenant, all direct grants) via filter-based deletion
-- Test: `test_knowledge_graph_service.py::test_delete_cascades_encrypted_credentials`
-
-**Scenario: Mutation after deletion → rejected**
-- Implementation: `AggregateDeletedError` propagated through service layer
-- Test: `test_knowledge_graph_service.py` deletion state tests
-
-### 7. Permission Inheritance — COVERED
-
-**Scenario: Workspace-inherited access**
-- Implementation: SpiceDB schema with `permission view = workspace->view` inheritance expression
-- Test: `tests/integration/test_knowledge_graph_authorization.py` (live SpiceDB)
-- Unit: `test_schema_design.py` validates schema expressions
-
-**Scenario: Direct admin/editor/viewer grants**
-- Implementation: SpiceDB direct relationship grants
-- Test: Integration tests cover all three direct grant paths
-
-## Summary
-
-All 6 SHALL requirements and 11 scenarios are COVERED. No spec deviations found.
-Implementation is stable — no changes to Knowledge Graph source files since prior review.
-334 management unit tests pass.
+**Verdict: pass**

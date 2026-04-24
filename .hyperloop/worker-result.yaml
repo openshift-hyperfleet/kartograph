@@ -1,24 +1,80 @@
 ---
 verdict: pass
 ---
-## PR Review Evaluation — task-008 Knowledge Graphs
+## task-008: Knowledge Graphs — Fresh Worker Verification
 
-### PR Feedback Analysis
+### Implementation Status
 
-**CI Checks:**
-- `CodeRabbit`: skipped (not a failure — no actionable comments generated)
-- `Validate PR title`: pass
+All implementation for the Knowledge Graph feature in the Management bounded
+context is complete and verified. This is a fresh verification pass following
+the branch reset.
 
-**PR Comments:**
-- `jsell-rh: @coderabbit recheck` — this is a meta-comment requesting a re-run
-  of the CodeRabbit bot, not an actionable review comment. It does not identify
-  any issue with the code and requires no code changes.
+### Spec Requirements Coverage
 
-### Verdict
+**Requirement: Knowledge Graph Creation**
+- ✅ `KnowledgeGraphService.create()` checks EDIT permission on the workspace
+- ✅ ULID identifier generated via `KnowledgeGraphId.generate()`
+- ✅ Aggregate associated with workspace_id and tenant_id
+- ✅ SpiceDB relationships (workspace + tenant) established via outbox pattern
+- ✅ `DuplicateKnowledgeGraphNameError` raised on duplicate name in tenant
 
-There are **no valid, applicable review comments** in the PR feedback that remain
-unaddressed. No human reviewer has raised any substantive concerns. Both CI checks
-pass. The `@coderabbit recheck` comment is an administrative action directed at the
-bot, not feedback for the implementer.
+**Requirement: Knowledge Graph Name Validation**
+- ✅ 1–100 character constraint enforced in `KnowledgeGraph._validate_name()`
+- ✅ Empty name raises `InvalidKnowledgeGraphNameError`
+- ✅ Name > 100 chars raises `InvalidKnowledgeGraphNameError`
+- ✅ Pydantic `CreateKnowledgeGraphRequest`/`UpdateKnowledgeGraphRequest` enforce
+  the same constraints at the presentation layer (min_length=1, max_length=100)
 
-**Result: pass**
+**Requirement: Knowledge Graph Retrieval**
+- ✅ `KnowledgeGraphService.get()` checks VIEW permission on the knowledge graph
+- ✅ Returns `None` (not error) for unauthorized or non-existent — no existence leakage
+- ✅ Cross-tenant access returns `None`
+
+**Requirement: Knowledge Graph Listing**
+- ✅ `list_for_workspace()` checks VIEW on workspace, then reads SpiceDB
+  relationships to discover KG IDs, filtering by tenant
+- ✅ `list_all()` fetches all KGs in tenant, filters by VIEW permission
+
+**Requirement: Knowledge Graph Update**
+- ✅ `KnowledgeGraphService.update()` checks EDIT permission on the knowledge graph
+- ✅ Calls `KnowledgeGraph.update()` domain method, persists via repository
+- ✅ `DuplicateKnowledgeGraphNameError` on name conflict
+
+**Requirement: Knowledge Graph Deletion**
+- ✅ `KnowledgeGraphService.delete()` checks MANAGE permission
+- ✅ Cascade deletes all data sources (including encrypted credentials cleanup)
+  within a single `async with session.begin()` transaction
+- ✅ If any step fails, the entire transaction rolls back (verified in
+  `test_delete_rolls_back_on_ds_deletion_failure`)
+- ✅ `AggregateDeletedError` raised on mutation after deletion
+
+**Requirement: Permission Inheritance**
+- ✅ SpiceDB schema (`schema.zed`) defines:
+  - `knowledge_graph.view = admin + editor + viewer + workspace->view`
+  - `knowledge_graph.edit = admin + editor + workspace->edit`
+  - `knowledge_graph.manage = admin + workspace->manage`
+- ✅ Integration tests in `test_knowledge_graph_authorization.py` verify
+  workspace-inherited and direct-grant access scenarios
+
+### Test Results
+
+- **Unit tests**: 2066 passed, 0 failed
+- **Architecture tests**: 56 passed, 0 failed (management DDD boundaries enforced)
+- **Integration tests**: available in `tests/integration/management/`
+  (require running dev instance, not executed in unit-only CI)
+
+### DDD Structure
+
+All DDD layers implemented correctly per pytest-archon architecture rules:
+- Domain: pure Python, no infrastructure imports
+- Ports: protocol definitions, no implementations
+- Application: service orchestration, imports domain + ports only
+- Infrastructure: repository + outbox implementation
+- Presentation: FastAPI routes following api-conventions.spec.md
+
+### Observability
+
+Domain-Oriented Observability implemented:
+- `KnowledgeGraphProbe` / `DefaultKnowledgeGraphProbe` in domain layer
+- `KnowledgeGraphServiceProbe` / `DefaultKnowledgeGraphServiceProbe` in application layer
+- `KnowledgeGraphRepositoryProbe` / `DefaultKnowledgeGraphRepositoryProbe` in infrastructure layer

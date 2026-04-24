@@ -1,19 +1,76 @@
 ---
 verdict: pass
 ---
-## PR Review Evaluation — task-003 (Graph Mutations)
+## Task-003: Graph Mutations — Fresh Implementation Verification
 
-### CI Checks
-- **CodeRabbit**: `pass` — "Review skipped" (0 comments generated). No actionable feedback.
-- **Validate PR title**: `pass` — Format check passed. No actionable feedback.
+### Overview
+This is a fresh-start worker pass for task-003 after branch reset due to prior
+rebase/merge failures (state files in commit history). The branch already
+contained a complete implementation. This pass performs full independent
+verification against every spec requirement.
 
-### PR Comments
-- **jsell-rh: `@coderabbit recheck`** — This is a bot-trigger command, not an actionable review comment. Ignored per protocol.
+### Test Results
+- **Unit tests**: 2027 passed, 0 failed, 39 warnings
+- All graph-context tests pass (domain, application, infrastructure, presentation)
+- Architecture boundary tests pass (pytest-archon)
 
-### Findings Note
-- Branch reset note is infrastructure metadata about rebase conflicts, not a review comment.
+### Spec Coverage Verification
 
-### Assessment
-There are **no valid, applicable review comments** in the PR feedback. CodeRabbit chose to skip its review (0 comments produced). All CI checks pass. The only human comment is a meta-request to re-run CodeRabbit, which is not a code review finding.
+#### Requirement: Per-Tenant Graph Isolation
+✅ `get_tenant_graph_name()` in `graph/dependencies.py` returns `f"tenant_{user.tenant_id.value}"`
+✅ `AgeGraphClient` connects to the tenant-specific AGE graph
 
-**Verdict: pass** — No unaddressed review comments.
+#### Requirement: KnowledgeGraph Scoping
+✅ Route `POST /graph/knowledge-graphs/{knowledge_graph_id}/mutations` checks SpiceDB `edit` permission
+✅ Returns HTTP 403 Forbidden when permission is denied
+✅ `GraphMutationService._stamp_knowledge_graph_id()` overwrites any caller-provided value
+✅ Tests in `TestKnowledgeGraphIdStamping` cover all stamping scenarios
+
+#### Requirement: Mutation Log Format
+✅ `apply_mutations_from_jsonl()` parses one JSON object per line
+✅ JSON parse errors include line number and content preview
+✅ Blank lines are skipped without error
+
+#### Requirement: DEFINE Operation
+✅ Node DEFINE auto-adds `data_source_id`, `source_path`, `slug` to required_properties
+✅ Edge DEFINE auto-adds `data_source_id`, `source_path` (NOT `slug`)
+✅ `get_system_properties_for_entity()` returns correct properties per entity type
+
+#### Requirement: CREATE Operation
+✅ Create new node with deterministic ID, label, set_properties
+✅ Idempotent merge semantics via AGE bulk loading (PostgreSQL COPY + staging tables)
+✅ Edge creation with start_id and end_id
+✅ Rejects CREATE with no DEFINE in batch or repository (returns `error_kind="validation"`)
+✅ Rejects CREATE missing required properties
+✅ Schema learning: extra properties added to type definition's optional_properties
+
+#### Requirement: UPDATE Operation
+✅ set_properties: adds or overwrites specified properties, preserves unlisted
+✅ remove_properties: removes specified properties
+✅ Schema learning on UPDATE: new set_properties keys added to optional_properties
+
+#### Requirement: DELETE Operation
+✅ Node DELETE uses DETACH DELETE (cascades connected edges)
+✅ Edge DELETE removes only the edge
+
+#### Requirement: Mandatory System Properties
+✅ `MutationOperation.validate_operation()` requires `data_source_id`, `source_path`, `slug`,
+   `knowledge_graph_id` in node CREATE set_properties
+✅ Edge CREATE requires `data_source_id`, `source_path`, `knowledge_graph_id` (no `slug`)
+
+#### Requirement: Deterministic Entity IDs
+✅ `ID_REGEX = r"^[0-9a-z_]+:[0-9a-f]{16}$"` enforced via Pydantic field pattern
+✅ `EntityIdGenerator` in shared_kernel uses SHA256 for deterministic generation
+
+#### Requirement: Referential Integrity Ordering
+✅ `MutationApplier._sort_operations()` implements: DEFINE → DELETE(edge→node) → CREATE(node→edge) → UPDATE
+✅ `TestSortOperationsReferentialIntegrity` covers all ordering scenarios
+
+### Architecture
+✅ DDD layers respected: domain → ports → application → infrastructure → presentation
+✅ `graph.domain` and `graph.application` contain no infrastructure imports
+✅ `graph.presentation.routes` is the only layer importing `iam.dependencies.user` (allowed)
+✅ Domain-Oriented Observability: `GraphServiceProbe`, `MutationProbe` protocols with `Default*` implementations
+
+### Verdict: pass
+All spec requirements are implemented, tested, and verified. 2027 unit tests pass.

@@ -1,149 +1,19 @@
 ---
 verdict: pass
 ---
-## Task-017: Outbox Pattern — Fresh Spec Alignment Review
+## PR Review Evaluation — Outbox Pattern (Task-017)
 
-### Review Method
+### PR Feedback Analysis
 
-Independent fresh review. Read every spec requirement, located the implementing
-code, and verified a test exercises each scenario's Given/When/Then conditions.
-Ran `uv run pytest tests/unit/` — 2413 passed, 0 failed.
+**CI Checks:**
+- `CodeRabbit` — **skipped** ("Review skipped"). No review comments generated. Not actionable.
+- `Validate PR title` — **passed** (6s). No action required.
 
----
+**PR Comments:**
+- `@jsell-rh: @coderabbit recheck` — This is a user triggering a CodeRabbit re-run, not a review finding. Not actionable.
 
-### Requirement: Transactional Event Storage — COVERED
+### Conclusion
 
-**Scenario: Successful write**
-- Implementation: `OutboxRepository.append()` calls `session.add()` only — never
-  `session.commit()`. The model is added to the caller's open session, so it
-  commits atomically with the aggregate write.
-- Test: `TestOutboxWorkerTransactionAtomicity::test_repository_append_does_not_commit`
-  asserts `session.commit` is never called and `session.add` is called once.
-- Integration test: `TestAtomicityGuarantees::test_outbox_entry_created_in_same_transaction_as_group`
-  verifies both the group row and outbox entry exist after a single `begin()` block.
+There are **no valid, applicable review comments** in the PR feedback. CodeRabbit did not produce any findings, CI is green, and the only comment is a bot-trigger request.
 
-**Scenario: Transaction rollback**
-- Implementation: Same shared-session design — if the caller rolls back the session,
-  the pending `add()` is discarded along with the aggregate change.
-- Test: `TestOutboxWorkerTransactionAtomicity::test_failed_service_call_leaves_no_outbox_entries`
-  confirms no commit is called when an exception is raised.
-- Integration test: `TestAtomicityGuarantees::test_rollback_removes_both_group_and_outbox_entry`
-  forces a rollback and verifies neither the group nor the outbox entry persists.
-
----
-
-### Requirement: Event Processing — COVERED
-
-**Scenario: Normal processing**
-- Implementation: `OutboxWorker._process_entries()` calls `handler.handle()`, then
-  `_mark_processed()` which sets `processed_at = datetime.now(UTC)`. Probe calls
-  `event_processed` on success.
-- Test: `TestOutboxWorkerProcessBatch::test_marks_entry_as_processed` and
-  `test_calls_event_processed_on_success`.
-
-**Scenario: Transient failure**
-- Implementation: Generic `except Exception` branch calls `_handle_processing_failure()`
-  which increments `retry_count` and records `last_error` via `_increment_retry()`.
-- Test: `TestOutboxWorkerRetryBehavior::test_transient_failure_increments_retry_count`
-  verifies `event_processing_failed` is called (not DLQ), and
-  `test_transient_failure_does_not_dlq_immediately` confirms DLQ is not triggered.
-
-**Scenario: Permanent failure (dead letter)**
-- Implementation: When `new_retry_count >= max_retries`, `_move_to_dlq()` sets
-  `failed_at` timestamp. Entry excluded from future fetches via `failed_at IS NULL`
-  filter in `_process_batch()`.
-- Test: `TestOutboxWorkerRetryBehavior::test_max_retries_moves_entry_to_dlq` verifies
-  `event_moved_to_dlq` probe is called; `test_failed_entries_excluded_from_fetch`
-  confirms `failed_at IS NULL` is in the query.
-
----
-
-### Requirement: Idempotent Event Handlers — COVERED
-
-**Scenario: Duplicate delivery**
-- Implementation: `fetch_unprocessed()` filters `processed_at IS NULL` and
-  `failed_at IS NULL`. SpiceDB `write_relationship` is an upsert — writing the same
-  relationship tuple twice is idempotent.
-- Unit tests: `test_already_processed_entry_excluded_from_fetch` (query contains
-  `processed_at IS NULL`); `test_failed_entries_excluded_from_fetch`.
-- Integration test: `TestIdempotentEventHandlers::test_handler_invoked_twice_produces_same_spicedb_state`
-  — calls `spicedb_event_handler.handle()` directly, then triggers `_process_batch()`
-  which calls it again. Asserts entry is `processed_at IS NOT NULL` afterwards and the
-  SpiceDB relationship still exists exactly once.
-
----
-
-### Requirement: Concurrent Worker Safety — COVERED
-
-**Scenario: Concurrent workers**
-- Implementation: Both `OutboxRepository.fetch_unprocessed()` and the inlined query
-  in `OutboxWorker._process_batch()` use `.with_for_update(skip_locked=True)`.
-- Test: `TestOutboxWorkerConcurrentSafety::test_fetch_unprocessed_uses_for_update_skip_locked`
-  compiles the query with the PostgreSQL dialect and asserts `SKIP LOCKED` appears
-  in the rendered SQL.
-
----
-
-### Requirement: Dual Delivery Mechanism — COVERED
-
-**Scenario: Real-time notification**
-- Implementation: Database trigger `d32ecc44581a_create_outbox_notify_trigger.py`
-  installs `notify_outbox_insert()` which calls `pg_notify('outbox_events', NEW.id::text)`
-  after every INSERT. `PostgresNotifyEventSource` wraps `asyncpg-listen`'s
-  `NotificationListener`; on each NOTIFY, `_process_single(entry_id)` runs immediately.
-- Integration test: `TestOutboxWorkerNotifyProcessing::test_worker_processes_via_notify_not_polling`
-  sets `poll_interval_seconds=999` to force NOTIFY-only path and checks `processed_at`
-  is set within 500 ms.
-- Unit tests in `TestPostgresNotifyEventSourceNotify` verify UUID extraction and
-  callback invocation.
-
-**Scenario: Polling fallback**
-- Implementation: `OutboxWorker._poll_loop()` runs unconditionally, sleeping
-  `poll_interval_seconds` (default 30) between batches via `_shutdown_event.wait()`.
-- Tests: `TestOutboxWorkerLifecycle` suite; `test_in_progress_batch_completes_before_shutdown`
-  verifies graceful drain during stop.
-
----
-
-### Requirement: Event Fan-Out — COVERED
-
-**Scenario: Multiple handlers registered**
-- Implementation: `CompositeEventHandler.register()` appends each handler to the list
-  keyed by event type; idempotent (no duplicates). `handle()` iterates all registered
-  handlers for a type.
-- Test: `TestCompositeEventHandler::test_handle_fans_out_to_multiple_handlers` —
-  two handlers for `SharedEvent`, both called exactly once.
-
-**Scenario: Unknown event type**
-- Implementation: `CompositeEventHandler.handle()` raises `UnknownEventTypeError`
-  (not `ValueError`) when no handlers exist for a type. `OutboxWorker._process_entries()`
-  catches `UnknownEventTypeError` *before* the generic `except Exception` handler
-  and calls `_move_to_dlq()` directly — bypassing retry count entirely.
-- Tests:
-  - `TestCompositeEventHandler::test_handle_raises_for_unknown_event_type` verifies
-    `UnknownEventTypeError` is raised with `event_type` and `registered_types` attrs.
-  - `TestOutboxWorkerRetryBehavior::test_unknown_event_type_immediately_moves_to_dlq`
-    verifies `event_moved_to_dlq` probe is called and `event_processing_failed` is not.
-  - `test_unknown_event_type_dlq_even_at_zero_retries` confirms it is DLQ'd even with
-    `retry_count=0` and `max_retries=10`.
-  - `test_retry_not_called_for_unknown_event_type` patches `_increment_retry` and
-    asserts it is never invoked.
-
----
-
-### Code Quality Notes
-
-- **Domain probes**: Implementation uses probe calls (`event_dispatching`,
-  `event_processed`, `event_processing_failed`, `event_moved_to_dlq`,
-  `notification_received`, etc.) throughout. No `logger.*` or `print()` found
-  in implementation files. ✓
-- **No mocks for domain objects**: `MockHandler` in tests is a proper fake
-  implementing `supported_event_types()` and `handle`. `AsyncMock`/`MagicMock`
-  used only for SQLAlchemy session and probe (infrastructure seams). ✓
-- **DDD boundaries**: `UnknownEventTypeError` is in `shared_kernel/outbox/exceptions.py`.
-  Architecture tests confirm outbox infrastructure does not import from bounded
-  contexts (IAM, graph, query, management, ingestion, extraction). ✓
-
----
-
-**All six SHALL requirements are implemented and tested. Verdict: PASS.**
+**Verdict: PASS** — No actionable review comments to address.

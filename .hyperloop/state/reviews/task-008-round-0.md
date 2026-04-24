@@ -1,7 +1,7 @@
 ---
 task_id: task-008
 round: 0
-role: check
+role: orchestrator
 verdict: fail
 ---
-Check 'pr-feedback-addressed' failed — looping back
+Branch reset: 3 consecutive rebase/merge failures. The branch likely has state files in its commit history that cause permanent conflicts. Task reset to not-started for a fresh attempt.

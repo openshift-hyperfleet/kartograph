@@ -1,86 +1,120 @@
 ---
 verdict: pass
 ---
-## Task-003: Graph Mutations — Verification (Re-run)
+## Spec Alignment Review — Task-003: Graph Mutations
 
-### Checks
+### Test Suite
+**2027 unit tests passed, 0 failed** (`uv run pytest tests/unit -q`)
 
-| # | Check | Result |
-|---|-------|--------|
-| 1 | Unit tests (`uv run pytest tests/unit -v`) | **PASS** — 2027 passed, 0 failed |
-| 2 | Linting (`ruff check .`) | **PASS** — All checks passed |
-| 3 | Formatting (`ruff format --check .`) | **PASS** — 441 files already formatted |
-| 4 | Type checking (`mypy . --ignore-missing-imports`) | **PASS** — no issues found in 441 source files |
-| 5 | Architecture boundaries (`pytest tests/unit/test_architecture.py`) | **PASS** — 40 passed |
-| 6 | Check scripts in `.hyperloop/checks/` | **N/A** — directory does not exist |
-| 7 | Commit trailers (`Spec-Ref`, `Task-Ref`) | **PASS** — present on implementation commits |
+---
 
-### CI Note
-The "Validate PR title" GitHub Actions check shown as pending in PR feedback is a
-remote CI concern (PR title conventional-commit format). All local checks pass.
-No code changes are needed.
+### Requirement Coverage
 
-### Spec Coverage Verification
+#### REQ-1: Per-Tenant Graph Isolation — COVERED
+- **Code:** `graph/dependencies.py` — `get_tenant_graph_name()` returns `f"tenant_{current_user.tenant_id.value}"`;
+  `get_age_graph_client()` uses this to create a request-scoped client bound to the tenant graph.
+- **Tests:** `tests/unit/graph/presentation/test_routes.py` —
+  `TestTenantGraphRouting.test_graph_client_uses_tenant_specific_graph_name()` and
+  `TestTenantGraphRouting.test_graph_name_uses_full_tenant_id()`
 
-#### Requirement: Per-Tenant Graph Isolation
-✅ `get_tenant_graph_name()` in `graph/dependencies.py` returns `f"tenant_{user.tenant_id.value}"`
-✅ `AgeGraphClient` connects to the tenant-specific AGE graph
+#### REQ-2: KnowledgeGraph Scoping — COVERED
+- **Code (auth):** `graph/presentation/routes.py` `apply_kg_mutations()` — enforces SpiceDB `edit` permission;
+  returns HTTP 403 on denial.
+- **Code (stamping):** `graph/application/services/graph_mutation_service.py` `_stamp_knowledge_graph_id()` —
+  overwrites any caller-provided `knowledge_graph_id` on all CREATE/UPDATE operations.
+- **Tests:** `tests/unit/graph/presentation/test_routes.py` —
+  `test_kg_mutations_route_forbidden_without_edit_permission()` (403 case),
+  `test_kg_mutations_route_checks_correct_resource()`;
+  `tests/unit/graph/application/test_mutation_service.py` —
+  `TestKnowledgeGraphIdStamping.test_stamps_knowledge_graph_id_on_create_operation()`,
+  `TestKnowledgeGraphIdStamping.test_overwrites_caller_provided_knowledge_graph_id()`
 
-#### Requirement: KnowledgeGraph Scoping
-✅ Route `POST /graph/knowledge-graphs/{knowledge_graph_id}/mutations` checks SpiceDB `edit` permission
-✅ Returns HTTP 403 Forbidden when permission is denied
-✅ `GraphMutationService._stamp_knowledge_graph_id()` overwrites any caller-provided value
-✅ Tests in `TestKnowledgeGraphIdStamping` cover all stamping scenarios
+#### REQ-3: Mutation Log Format (JSONL) — COVERED
+- **Code:** `graph/application/services/graph_mutation_service.py` `apply_mutations_from_jsonl()` —
+  strips/splits on newline, skips blank lines, reports JSON decode errors with line number + content preview.
+- **Tests:** `tests/unit/graph/application/test_mutation_service.py` —
+  `test_parses_jsonl_and_applies_mutations()`, `test_handles_whitespace_only_lines()`,
+  `test_returns_error_on_invalid_json()`, `test_returns_error_on_invalid_mutation_operation()`
 
-#### Requirement: Mutation Log Format
-✅ `apply_mutations_from_jsonl()` parses one JSON object per line
-✅ JSON parse errors include line number and content preview
-✅ Blank lines are skipped without error
+#### REQ-4: DEFINE Operation — COVERED
+- **Code:** `graph/domain/value_objects.py` — `COMMON_SYSTEM_PROPERTIES = {"data_source_id", "source_path"}`,
+  `NODE_SYSTEM_PROPERTIES = {"slug"}`; `get_system_properties_for_entity()` returns entity-specific set.
+  `graph_mutation_service.py` adds system props to `required_properties` before saving.
+- **Tests:** `tests/unit/graph/application/test_mutation_service.py` —
+  `test_apply_mutations_stores_define_operations()` (node: data_source_id, source_path, slug auto-added),
+  `test_apply_define_edge_type_adds_edge_system_properties()` (edge: no slug);
+  `tests/unit/graph/application/test_create_define_same_batch_validation.py` —
+  `test_edge_does_not_require_slug()`
 
-#### Requirement: DEFINE Operation
-✅ Node DEFINE auto-adds `data_source_id`, `source_path`, `slug` to required_properties
-✅ Edge DEFINE auto-adds `data_source_id`, `source_path` (NOT `slug`)
-✅ `get_system_properties_for_entity()` returns correct properties per entity type
+#### REQ-5: CREATE Operation — COVERED
+- **Code (idempotent merge):** AGE bulk-loading infrastructure uses `||` jsonb merge operator (staging tables);
+  preserves existing properties, adds new ones.
+- **Code (validation):** `graph_mutation_service.py` rejects CREATE with no prior DEFINE (batch or repository),
+  rejects missing required properties.
+- **Code (schema learning):** `_discover_optional_properties()` adds extra `set_properties` keys to
+  `optional_properties` on the type definition.
+- **Tests:** `test_mutation_service.py` —
+  `test_rejects_create_without_define_in_batch()`, `test_accepts_create_with_define_in_batch()`,
+  `test_rejects_create_missing_required_properties()`;
+  `tests/unit/graph/application/test_schema_learning.py` —
+  `test_extra_properties_added_to_optional()`, `test_optional_properties_accumulate()`;
+  `tests/unit/graph/infrastructure/test_age_query_builder_update_merge.py` — merge semantics tests
 
-#### Requirement: CREATE Operation
-✅ Create new node with deterministic ID, label, set_properties
-✅ Idempotent merge semantics via AGE bulk loading (PostgreSQL COPY + staging tables)
-✅ Edge creation with start_id and end_id
-✅ Rejects CREATE with no DEFINE in batch or repository (returns `error_kind="validation"`)
-✅ Rejects CREATE missing required properties
-✅ Schema learning: extra properties added to type definition's optional_properties
+#### REQ-6: UPDATE Operation — COVERED
+- **Code:** `graph/domain/value_objects.py` validates UPDATE requires `set_properties` or `remove_properties`;
+  `graph_mutation_service.py` triggers schema learning on UPDATE `set_properties`.
+- **Tests:** `tests/unit/graph/test_domain_value_objects.py` —
+  `test_update_with_set_properties()`, `test_update_with_remove_properties()`,
+  `test_update_with_both_set_and_remove()`;
+  `tests/unit/graph/application/test_schema_learning.py` —
+  `test_update_discovers_optional_properties()`, `test_update_without_label_skips_schema_learning()`
 
-#### Requirement: UPDATE Operation
-✅ set_properties: adds or overwrites specified properties, preserves unlisted
-✅ remove_properties: removes specified properties
-✅ Schema learning on UPDATE: new set_properties keys added to optional_properties
+#### REQ-7: DELETE Operation — COVERED
+- **Code:** `graph/infrastructure/age_bulk_loading/queries.py` — `delete_node_with_detach()` (DETACH DELETE,
+  cascades edges), `delete_edge()` (removes edge only);
+  `strategy.py` deletes edges before nodes.
+- **Tests:** `tests/unit/graph/infrastructure/test_age_strategy_deletes.py` —
+  `test_calls_delete_node_once_per_id()`, `test_calls_delete_edge_once_per_id()`
 
-#### Requirement: DELETE Operation
-✅ Node DELETE uses DETACH DELETE (cascades connected edges)
-✅ Edge DELETE removes only the edge
+#### REQ-8: Mandatory System Properties — COVERED
+- **Code:** `graph/domain/value_objects.py` — validates `data_source_id`, `source_path`, `knowledge_graph_id`
+  present in CREATE `set_properties`; additionally validates `slug` for node entities.
+- **Tests:** `tests/unit/graph/test_domain_value_objects.py` —
+  `test_create_node_requires_knowledge_graph_id()`, `test_create_edge_requires_knowledge_graph_id()`,
+  `test_create_requires_data_source_id()`, `test_create_requires_source_path()`,
+  `test_create_node_requires_slug()`
 
-#### Requirement: Mandatory System Properties
-✅ `MutationOperation.validate_operation()` requires `data_source_id`, `source_path`, `slug`,
-   `knowledge_graph_id` in node CREATE set_properties
-✅ Edge CREATE requires `data_source_id`, `source_path`, `knowledge_graph_id` (no `slug`)
+#### REQ-9: Deterministic Entity IDs — COVERED
+- **Code:** `graph/domain/value_objects.py` — `ID_REGEX = r"^[0-9a-z_]+:[0-9a-f]{16}$"` enforced via Pydantic
+  field pattern validator on `id` field.
+- **Tests:** `tests/unit/graph/test_domain_value_objects.py` —
+  `test_id_pattern_validation()` (rejects invalid), `test_id_accepts_valid_pattern()` (accepts valid)
+- **Note:** Deterministic ID generation is the responsibility of the Extraction context (callers).
+  The Mutations layer validates the format contract but does not generate IDs itself.
 
-#### Requirement: Deterministic Entity IDs
-✅ `ID_REGEX = r"^[0-9a-z_]+:[0-9a-f]{16}$"` enforced via Pydantic field pattern
-✅ `EntityIdGenerator` in shared_kernel uses SHA256 for deterministic generation
+#### REQ-10: Referential Integrity Ordering — COVERED
+- **Code:** `graph/infrastructure/mutation_applier.py` `_sort_operations()` —
+  priority map: DEFINE=0, DELETE=1, CREATE=2, UPDATE=3;
+  within DELETE: edges (0) before nodes (1); within CREATE: nodes (0) before edges (1).
+- **Tests:** `tests/unit/graph/infrastructure/test_mutation_applier_sort.py` —
+  `TestSortOperationsReferentialIntegrity.test_sort_order_define_delete_create_update()`,
+  `test_sort_preserves_all_operations()`, `test_sort_homogeneous_list_unchanged_length()`
 
-#### Requirement: Referential Integrity Ordering
-✅ `MutationApplier._sort_operations()` implements: DEFINE → DELETE(edge→node) → CREATE(node→edge) → UPDATE
-✅ `TestSortOperationsReferentialIntegrity` covers all ordering scenarios
+---
 
-### Architecture
-✅ DDD layers respected: domain → ports → application → infrastructure → presentation
-✅ `graph.domain` and `graph.application` contain no infrastructure imports
-✅ `graph.presentation.routes` is the only layer importing `iam.dependencies.user` (allowed)
-✅ Domain-Oriented Observability: `GraphServiceProbe`, `MutationProbe` protocols with `Default*` implementations
-✅ No direct logger/print usage in domain or application layers
-✅ No MagicMock/AsyncMock for domain/application collaborators — fakes used throughout
-✅ No hardcoded secrets or environment-specific values
+### Summary
 
-### Verdict: pass
-All spec requirements are implemented, tested, and verified. 2027 unit tests pass.
-All 7 verification checks passed.
+| Requirement | Status |
+|---|---|
+| REQ-1: Per-Tenant Graph Isolation | COVERED |
+| REQ-2: KnowledgeGraph Scoping | COVERED |
+| REQ-3: Mutation Log Format | COVERED |
+| REQ-4: DEFINE Operation | COVERED |
+| REQ-5: CREATE Operation | COVERED |
+| REQ-6: UPDATE Operation | COVERED |
+| REQ-7: DELETE Operation | COVERED |
+| REQ-8: Mandatory System Properties | COVERED |
+| REQ-9: Deterministic Entity IDs | COVERED |
+| REQ-10: Referential Integrity Ordering | COVERED |
+
+All 10 SHALL/MUST requirements are implemented and tested. **Verdict: PASS.**

@@ -1,117 +1,137 @@
 ---
-verdict: pass
+verdict: fail
 report: |
-  # Task-008 Knowledge Graphs — Spec Alignment Review (Gate 7) — 2026-04-23
+  # PR Feedback Assessment — task-008 Knowledge Graphs (2026-04-24)
 
-  All 6 SHALL requirements and 11 scenarios verified COVERED.
-  334 management unit tests pass. No source changes since prior gate-7 pass.
-
-  ---
-
-  ## Requirement: Knowledge Graph Creation
-
-  ### Scenario: Successful creation — COVERED
-  - Service: management/application/knowledge_graph_service.py — create() generates ULID,
-    associates workspace_id and tenant_id, calls kg_repo.save(), emits outbox event for
-    SpiceDB relationship creation (workspace + tenant links).
-  - Tests: test_knowledge_graph_service.py TestCreateKnowledgeGraph — covers ULID generation,
-    workspace association, tenant association, auth relationship establishment via outbox.
-
-  ### Scenario: Duplicate name within tenant — COVERED
-  - Service: create() checks for existing KG with same name in tenant via kg_repo.find_by_name();
-    raises DuplicateKnowledgeGraphNameError on collision.
-  - Tests: test_knowledge_graph_service.py test_create_raises_on_duplicate_name.
-  - Route: test_knowledge_graph_routes.py test_create_returns_409_on_duplicate_name.
+  Evaluated all CodeRabbit review comments across all review rounds.
 
   ---
 
-  ## Requirement: Knowledge Graph Name Validation
+  ## UNADDRESSED — Blocking
 
-  ### Scenario: Valid name (1–100 characters) — COVERED
-  - Model: management/domain/knowledge_graph.py — KnowledgeGraphName value object enforces
-    min_length=1, max_length=100.
-  - Tests: test_value_objects.py TestKnowledgeGraphName covers boundary values.
+  ### `src/dev-ui/app/tests/index.test.ts` (Major — flagged repeatedly as Duplicate/unresolved)
 
-  ### Scenario: Empty or oversized name — COVERED
-  - Model: KnowledgeGraphName raises ValueError for empty string and strings > 100 chars.
-  - Tests: test_value_objects.py test_empty_name_raises, test_name_exceeds_max_raises.
-  - Route: FastAPI validation returns 422 for invalid names before service is called.
+  **Validity:** Valid.
+  **Applicability:** Yes — file is in the PR diff.
+  **Addressed:** NO.
 
-  ---
+  Two distinct sub-issues remain:
 
-  ## Requirement: Knowledge Graph Retrieval
+  #### 1. Tests exercise primitives, not production code
+  The test suite in `index.test.ts` (all 5 tests) operates entirely on
+  local variables and JavaScript built-ins (sessionStorage, Math.round).
+  None of the tests import from `~/pages/index.vue` or any composable.
+  Crucially, the production `index.vue` page does not use sessionStorage
+  or a "visited" marker at all — these tests verify behaviour that does
+  not exist in production. A complete regression in the home page would
+  leave all five tests green.
 
-  ### Scenario: Authorized retrieval — COVERED
-  - Service: get() checks SpiceDB VIEW permission; returns KG if permitted.
-  - Tests: test_knowledge_graph_service.py test_get_returns_kg_for_authorized_user.
-  - Route: test_knowledge_graph_routes.py test_get_returns_200_for_authorized_user.
+  CodeRabbit flagged this as Major in the first review and again as a
+  "Duplicate comment" (unresolved) in the final review round.
 
-  ### Scenario: Unauthorized or non-existent (no distinction) — COVERED
-  - Service: get() returns None for both permission denied and not found cases.
-  - Route: returns 404 for both cases (no 403 vs 404 distinction).
-  - Tests: test_knowledge_graph_routes.py test_get_returns_404_for_unauthorized,
-    test_get_returns_404_for_missing.
+  **Required fix:** Extract the real page logic (e.g., `checklistItems`,
+  `completedCount`, `isFirstVisit`) into testable composables or helpers
+  and import them in the test. Remove the detached sessionStorage /
+  arithmetic stubs.
 
-  ---
+  #### 2. Property name mismatch: `completed` vs `done`
+  `index.test.ts` lines 28–34 build test data with a `completed` property
+  and filter via `s.completed`. The production `index.vue` uses `item.done`
+  exclusively — confirmed at lines 62, 91–92, and 300–311 of index.vue.
+  The test is asserting the wrong shape and will pass even when the real
+  `done` property is absent.
 
-  ## Requirement: Knowledge Graph Listing
+  CodeRabbit raised this as a new inline comment in the most recent review
+  round (Run `b2470267`).
 
-  ### Scenario: List for workspace (auth-filtered) — COVERED
-  - Service: list_for_workspace() checks workspace VIEW; fetches KGs via kg_repo;
-    filters to only those the user can VIEW via SpiceDB read_relationships.
-  - Tests: test_knowledge_graph_service.py TestListForWorkspace.
-  - Route: GET /management/workspaces/{id}/knowledge-graphs tested in
-    test_knowledge_graph_routes.py TestListKnowledgeGraphs.
-
-  ---
-
-  ## Requirement: Knowledge Graph Update
-
-  ### Scenario: Update name and description — COVERED
-  - Service: update() checks EDIT permission; updates name and description fields.
-  - Tests: test_knowledge_graph_service.py TestUpdateKnowledgeGraph covers
-    authorized update, duplicate-name rejection, unauthorized rejection.
-  - Route: test_knowledge_graph_routes.py TestUpdateKnowledgeGraph.
+  **Required fix:** Either (a) import the real checklist logic and test
+  `done` properties, or (b) at minimum change the test data and filter
+  to use `done` so the test shape matches production.
 
   ---
 
-  ## Requirement: Knowledge Graph Deletion
+  ## ADDRESSED — All other actionable comments
 
-  ### Scenario: Successful deletion with atomic cascade — COVERED
-  - Service: delete() runs inside single DB transaction:
-    (1) fetches all data sources for the KG,
-    (2) for each DS with credentials_path: calls secret_store.delete(),
-    (3) calls ds_repo.delete() for each DS,
-    (4) calls kg_repo.delete() for the KG record,
-    (5) calls spicedb_client.delete_relationships() for workspace, tenant, and direct grants.
-  - Tests: test_knowledge_graph_service.py test_delete_cascades_data_sources,
-    test_delete_cascades_encrypted_credentials, test_delete_cleans_up_auth_relationships.
+  ### `.hyperloop/worker-result.yaml` — YAML block-scalar format
+  Current file uses `report: |` with properly indented content. ADDRESSED.
 
-  ### Scenario: Mutation after deletion — COVERED
-  - Service: operations check deleted_at sentinel; raise KnowledgeGraphDeletedError
-    if KG is already marked for deletion.
-  - Tests: test_knowledge_graph_service.py test_update_raises_on_deleted_kg,
-    test_create_data_source_raises_on_deleted_kg.
+  ### `workspaces/routes.py` lines 83–98 and 95–110 — Typed exception handling
+  Route now catches `ParentWorkspaceNotFoundError` and
+  `ParentWorkspaceCrossTenantError` (typed exceptions) alongside
+  `UnauthorizedError`, all mapped to 404. The OpenAPI `responses` map
+  includes a 404 entry ("Parent workspace not found or inaccessible").
+  String-parsing of ValueError messages is gone. ADDRESSED.
+
+  ### `workspace_service.py` docstring — typed exceptions
+  `Raises:` now lists `ParentWorkspaceNotFoundError` and
+  `ParentWorkspaceCrossTenantError` instead of `ValueError`/`PermissionError`.
+  ADDRESSED.
+
+  ### `management/dependencies/knowledge_graph.py` — encryption key normalization
+  Keys are split on commas, stripped of whitespace, and empty entries filtered
+  before constructing `FernetSecretStore`. ADDRESSED.
+
+  ### `test_knowledge_graph_routes.py` — `tenant_id` assertions removed
+  Lines 145–152 and 280–289 no longer assert `result["tenant_id"]`.
+  ADDRESSED.
+
+  ### `test_knowledge_graph_routes.py` — `TestListAllKnowledgeGraphs` added
+  Full suite covering GET /management/knowledge-graphs: 200 with list,
+  200 with empty list, service called with user_id, 401 when not
+  authenticated. ADDRESSED.
+
+  ### `test_architecture.py` — exclusion narrowed
+  Exclusion is now targeted to specific modules:
+  `management.presentation.knowledge_graphs.routes*`,
+  `management.presentation.knowledge_graphs`, and
+  `management.presentation` — not the broad `management.presentation*`.
+  ADDRESSED.
+
+  ### `data-sources/index.vue` — N+1 serial fetching
+  `loadDataSources` now uses `Promise.all` for per-KG data-source fetches
+  and nested `Promise.all` for per-DS sync-run fetches. ADDRESSED.
+
+  ### `data-sources/index.vue` — stale response race condition
+  Request-ID counter (`_loadRequestId`) guards against stale overwrites.
+  ADDRESSED.
+
+  ### `data-sources/index.vue` — state mutation in editor dialog
+  Dedicated `startEditNodeInEditor` / `saveEditNodeInEditor` /
+  `cancelEditNodeInEditor` and equivalent edge functions operate on
+  `editNodes`/`editEdges`, separate from the proposal-editing functions
+  that operate on `proposedNodes`/`proposedEdges`. ADDRESSED.
+
+  ### `data-sources/index.vue` — Save button in ontology editor dialog
+  `DialogFooter` now contains both "Close" and "Save Changes" buttons;
+  "Save Changes" calls `saveOntologyEdits()`. ADDRESSED.
+
+  ### `knowledge-graphs/index.vue` — error handling in loadKnowledgeGraphs
+  `catch` block shows a `toast.error` with `extractErrorMessage(err)`;
+  `finally` always clears `loadingKgs`. ADDRESSED.
+
+  ### `knowledge-graphs/index.vue` — POST endpoint corrected
+  `handleCreate` now posts to
+  `/management/workspaces/${rootWorkspaceId.value}/knowledge-graphs`.
+  ADDRESSED.
+
+  ### `knowledge-graphs.test.ts` — POST endpoint corrected
+  Test verifies call to
+  `/management/workspaces/${workspaceId}/knowledge-graphs`. ADDRESSED.
 
   ---
 
-  ## Requirement: Permission Inheritance
+  ## NITPICKS (ignored per protocol)
 
-  ### Scenario: Workspace-inherited access — COVERED
-  - SpiceDB schema: knowledge_graph#view inherits from workspace#view via relation.
-  - Schema tests: test_schema_design.py validates inheritance expressions.
-  - Integration tests: test_knowledge_graph_authorization.py covers live SpiceDB
-    workspace-inherited VIEW and EDIT scenarios.
-
-  ### Scenario: Direct grant (admin implies manage/edit/view) — COVERED
-  - SpiceDB schema: admin relation implies manage + edit + view on knowledge_graph.
-  - Integration tests: test_knowledge_graph_authorization.py test_direct_admin_grant.
+  - `knowledge_graph_service.py` O(n) permission checks → LookupResources: nitpick, not blocking.
+  - `knowledge-graphs/index.vue` error handling in loadKnowledgeGraphs: addressed above.
 
   ---
 
-  ## Test Run Results
-  Management unit tests: 334 passed, 0 failed (4.67s)
-  Source changes since prior gate-7 pass: none (branch clean)
+  ## Summary
 
-  All spec requirements: COVERED
-  Verdict: PASS
+  One Major comment is not addressed: `src/dev-ui/app/tests/index.test.ts`
+  tests are disconnected from production code and use the wrong property
+  shape (`completed` vs `done`). All other actionable major comments have
+  been resolved.
+
+  Verdict: FAIL

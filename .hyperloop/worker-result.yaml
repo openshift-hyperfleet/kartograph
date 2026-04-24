@@ -1,70 +1,91 @@
 ---
 verdict: pass
 ---
-## Implementation Verification — Task 003: Graph Mutations
+## Implementation Verification — Task 003: Graph Mutations (Fresh Round)
 
-### Test Results
-All 2027 unit tests pass with no failures.
+### Check 1: Unit Tests — PASS
+All 2027 unit tests pass with zero failures or errors.
+```
+2027 passed, 40 warnings in 48.52s
+```
 
-### Spec Coverage
+### Check 2: Linting — PASS
+```
+All checks passed!
+```
 
-**Requirement: Per-Tenant Graph Isolation**
-- ✅ `get_tenant_graph_name()` in `graph/dependencies.py` returns `tenant_{tenant_id}`
-- ✅ Route `apply_kg_mutations` routes each request to the tenant-scoped AGE graph
-- ✅ Covered by `TestTenantGraphRouting` in `tests/unit/graph/presentation/test_routes.py`
+### Check 3: Formatting — PASS
+```
+441 files already formatted
+```
 
-**Requirement: KnowledgeGraph Scoping**
-- ✅ `apply_kg_mutations` checks `edit` permission on target KnowledgeGraph via SpiceDB
-- ✅ 403 Forbidden returned when permission is denied
-- ✅ `knowledge_graph_id` is stamped on all CREATE/UPDATE ops by `_stamp_knowledge_graph_id()`
-- ✅ Caller-provided `knowledge_graph_id` values are overwritten (anti-spoof)
-- ✅ Covered by `TestKnowledgeGraphScopedMutationsRoute` and `TestKnowledgeGraphIdStamping`
+### Check 4: Type Checking — PASS
+```
+Success: no issues found in 441 source files
+```
 
-**Requirement: Mutation Log Format**
-- ✅ `apply_mutations_from_jsonl()` parses JSONL one line at a time
-- ✅ Parse errors include line number and content preview
-- ✅ Blank/whitespace lines are skipped without error
-- ✅ Covered by `TestGraphMutationServiceApplyFromJSONL`
+### Check 5: Architecture Boundary Tests — PASS
+All 40 architecture tests pass, confirming bounded-context isolation.
+Graph inner layers (domain, ports, application, infrastructure) do not import
+from IAM, Management, Query, Ingestion, or Extraction.
 
-**Requirement: DEFINE Operation**
-- ✅ Node type DEFINE auto-adds `data_source_id`, `source_path`, `slug` to required properties
-- ✅ Edge type DEFINE auto-adds `data_source_id`, `source_path` (NOT `slug`)
-- ✅ Covered by `test_apply_mutations_stores_define_operations` and `test_apply_define_edge_type_adds_edge_system_properties`
+### Check 6: Integration Tests — NOT RUN
+No instance-up was triggered; mutation logic is fully covered at the unit level
+for this domain-layer task.
 
-**Requirement: CREATE Operation**
-- ✅ Idempotent MERGE behavior via AGE bulk loading strategy
-- ✅ Missing type definition yields validation error
-- ✅ Missing required properties yields validation error
-- ✅ Schema learning for extra (optional) properties
-- ✅ Covered in `TestGraphMutationServiceApplyMutations` and schema learning tests
+### Check 7: Check Scripts (from alpha) — PASS (with one noted false positive)
 
-**Requirement: UPDATE Operation**
-- ✅ `set_properties` and `remove_properties` both supported
-- ✅ Schema learning for new properties in `set_properties`
-- ✅ Covered in domain value object tests
+- check-domain-aggregate-mocks: PASS
+- check-weak-test-assertions: PASS
+- check-empty-test-stubs: PASS
+- check-no-coming-soon-stubs: PASS
+- check-partial-error-assertions: PASS
+- check-no-future-placeholder-comments: PASS
+- check-no-source-regressions: PASS
+- check-no-test-regressions: PASS
+- check-no-check-script-deletions: PASS
+- check-property-merge-semantics: **false positive** — script matched
+  `SET properties = (s.properties::text)::agtype` inside a *docstring* in
+  `tests/unit/graph/infrastructure/test_age_query_builder_update_merge.py:72`
+  that documents the BAD pattern the test is guarding against. The actual
+  implementation in `graph/infrastructure/age_bulk_loading/queries.py` correctly
+  uses `(t.properties::text)::jsonb || (s.properties::text)::jsonb` at all
+  three call sites. The implementation is correct.
 
-**Requirement: DELETE Operation**
-- ✅ Node DELETE uses DETACH DELETE (cascades connected edges)
-- ✅ Edge DELETE removes only the edge
-- ✅ Covered by `tests/unit/graph/infrastructure/test_age_strategy_deletes.py`
+### Check 8: Code Review — PASS
 
-**Requirement: Mandatory System Properties**
-- ✅ `data_source_id`, `source_path`, `slug` (nodes), `knowledge_graph_id` required in `set_properties`
-- ✅ Validated in `MutationOperation.validate_operation()`
-- ✅ Covered by `test_domain_value_objects.py`
+**Commit trailers:** Spec-Ref and Task-Ref are present on all implementation
+commits (e.g., `Spec-Ref: specs/graph/mutations.spec.md@85d49a37`,
+`Task-Ref: task-003`).
 
-**Requirement: Deterministic Entity IDs**
-- ✅ `ID_REGEX = r"^[0-9a-z_]+:[0-9a-f]{16}$"` enforced by Pydantic pattern validation
-- ✅ Covered by ID pattern tests in domain value object tests
+**Domain probes:** No `logger.*` or `print()` calls in graph implementation
+files. Domain-Oriented Observability probes used throughout.
 
-**Requirement: Referential Integrity Ordering**
-- ✅ `MutationApplier._sort_operations()` enforces: DEFINE → DELETE(edge/node) → CREATE(node/edge) → UPDATE
-- ✅ Covered by `TestSortOperationsReferentialIntegrity` in `test_mutation_applier_sort.py`
+**No MagicMock/AsyncMock** for domain collaborators in graph tests; fakes used.
 
-### Architecture Compliance
-- Domain value objects: pure Python, no framework imports ✅
-- Application services: depend only on domain + ports ✅
-- Infrastructure: implements ports ✅
-- Presentation: FastAPI routes using Dependency Injection ✅
-- Domain-Oriented Observability with probe protocols ✅
-- No cross-context imports except via shared_kernel ✅
+**No cross-context violations:** Graph inner layers only import from
+`shared_kernel` and their own sub-packages (presentation layer legitimately
+imports `iam.dependencies.user` for authentication).
+
+**No hardcoded secrets or credentials.**
+
+**Spec Coverage — all requirements met:**
+
+| Requirement | Coverage |
+|---|---|
+| Per-Tenant Graph Isolation | `get_tenant_graph_name()` → `tenant_{tenant_id}`; route passes graph name |
+| KnowledgeGraph Scoping | SpiceDB `edit` permission check; 403 on denial |
+| knowledge_graph_id stamping | `_stamp_knowledge_graph_id()` overwrites caller value on CREATE/UPDATE |
+| Mutation Log Format (JSONL) | `apply_mutations_from_jsonl()` with line-number error reporting |
+| DEFINE — node system props | `data_source_id`, `source_path`, `slug` auto-added |
+| DEFINE — edge system props | `data_source_id`, `source_path` auto-added (no slug) |
+| CREATE — idempotent merge | jsonb `\|\|` merge operator in `_build_update_existing_query` |
+| CREATE — missing type def | validation error returned |
+| CREATE — missing required props | validation error returned |
+| Schema learning | extra props added to optional_properties |
+| UPDATE — set/remove properties | both supported; unlisted props preserved |
+| DELETE — node cascade | DETACH DELETE |
+| DELETE — edge only | edge-only removal |
+| Mandatory system properties | validated in `MutationOperation.validate_operation()` |
+| Deterministic IDs | `ID_REGEX = r"^[0-9a-z_]+:[0-9a-f]{16}$"` enforced by Pydantic |
+| Referential integrity ordering | DEFINE → DELETE(edge/node) → CREATE(node/edge) → UPDATE |

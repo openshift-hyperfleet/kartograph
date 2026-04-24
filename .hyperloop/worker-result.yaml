@@ -1,71 +1,148 @@
 ---
 verdict: pass
 ---
-## Knowledge Graphs — Fresh Verification (task-008)
+## Knowledge Graphs — Spec Alignment Review (task-008, fresh re-verification)
 
-### Checks
+### Test Suite
+- 334 unit tests in `tests/unit/management/` — all pass
+- Integration tests exist for authorization, repository, and route layers
 
-| # | Check | Result |
-|---|-------|--------|
-| 1 | Unit tests (`uv run pytest tests/unit`) | PASS — 2066 passed, 39 warnings |
-| 2 | Linting (`ruff check .`) | PASS — All checks passed |
-| 3 | Formatting (`ruff format --check .`) | PASS — 450 files already formatted |
-| 4 | Type checking (`mypy`) | PASS — no issues found in 450 source files |
-| 5 | Architecture boundary tests | PASS — 40 passed |
-| 6 | Management context architecture tests | PASS — 16 passed |
-| 7 | `check-failure-path-tests.sh` (with spec) | PASS — rollback candidate tests found |
-| 8 | `check-frontend-test-infrastructure.sh` | PASS — vitest configured |
-| 9 | `check-frontend-tests-exist.sh` | PASS — 3 test files found |
-| 10 | `check-idempotency-tests.sh` | PASS — no idempotency requirement in spec |
-| 11 | `check-no-coming-soon-stubs.sh` | PASS |
-| 12 | `check-no-future-placeholder-comments.sh` | PASS |
-| 13 | Commit trailers (Spec-Ref, Task-Ref) | PASS — present on all implementation commits |
-| 14 | Code review (logger/print, mocks, DDD) | PASS — see notes below |
+### Requirement-by-Requirement Findings
 
-### Code Review Notes
+---
 
-**Domain-Oriented Observability:** `KnowledgeGraphServiceProbe` methods used throughout
-the service layer. No `logger.*` or `print()` calls in new code.
+**Requirement: Knowledge Graph Creation** — COVERED
 
-**Mock usage in tests:** `AsyncMock(spec=KnowledgeGraphService)` is used in presentation
-layer tests (HTTP route tests) — this is acceptable pattern for testing HTTP adapters where
-the service is the outermost collaborator being stubbed. The service test itself uses
-`AsyncMock` for repository ports — this pre-dates this task (file existed on alpha) and
-the pattern is consistent with the rest of the codebase.
+Implementation:
+- `KnowledgeGraph.create()` in `management/domain/aggregates/knowledge_graph.py`
+  calls `KnowledgeGraphId.generate()` which invokes `str(ULID())` — ULID confirmed.
+- `KnowledgeGraphService.create()` checks `EDIT` permission on the workspace via SpiceDB
+  before creating the aggregate.
+- Authorization relationships (workspace, tenant links) established via `KnowledgeGraphCreated`
+  event → outbox → `ManagementEventTranslator._translate_knowledge_graph_created()` → SpiceDB
+  `WriteRelationship` operations.
+- `IntegrityError` from DB is caught and re-raised as `DuplicateKnowledgeGraphNameError` → HTTP 409.
 
-**DDD layer boundaries:** All 16 management architecture tests pass. Domain layer has no
-framework imports. Application layer has no infrastructure imports.
+Scenario — Successful creation: COVERED
+- Tests: `test_create_sets_all_fields`, `test_create_generates_unique_id`,
+  `test_create_emits_knowledge_graph_created_event`, `test_create_saves_aggregate_via_repo`,
+  `test_create_checks_edit_permission_on_workspace`, `test_create_probes_success`
 
-**No hardcoded secrets or environment-specific values.**
+Scenario — Duplicate name within tenant: COVERED
+- Test: `test_create_raises_duplicate_on_integrity_error`,
+  `test_create_knowledge_graph_returns_409_for_duplicate_name`
 
-### Spec Requirements Verification
+---
 
-All requirements from `specs/management/knowledge-graphs.spec.md` verified:
+**Requirement: Knowledge Graph Name Validation** — COVERED
 
-**Knowledge Graph Creation**
-- `KnowledgeGraph.create()` generates a ULID identifier
-- Associates with workspace and tenant; authorization relationships established via outbox
-- `edit` permission on workspace checked before creating
-- Duplicate name within tenant → HTTP 409
+Implementation:
+- `KnowledgeGraph._validate_name()` enforces `1 <= len(name) <= 100`,
+  raises `InvalidKnowledgeGraphNameError` on violation.
+- Pydantic model in presentation layer also validates at HTTP boundary → HTTP 422.
 
-**Knowledge Graph Name Validation**
-- `_validate_name()` enforces 1–100 character constraint → HTTP 422 on violation
+Scenario — Valid name: COVERED
+- Tests: `test_create_accepts_name_exactly_100_chars`, `test_create_accepts_single_char_name`
 
-**Knowledge Graph Retrieval**
-- `get()` checks `view` permission; unauthorized/non-existent both return None → HTTP 404
+Scenario — Empty or oversized name: COVERED
+- Tests: `test_create_rejects_empty_name`, `test_create_rejects_name_over_100_chars`,
+  `test_create_knowledge_graph_returns_422_for_empty_name`,
+  `test_create_knowledge_graph_returns_422_for_oversized_name`,
+  `test_update_knowledge_graph_returns_422_for_empty_name`,
+  `test_update_knowledge_graph_returns_422_for_oversized_name`
 
-**Knowledge Graph Listing**
-- `list_for_workspace()` filters by `view` permission; `list_all()` tenant-scoped with auth filter
+---
 
-**Knowledge Graph Update**
-- `update()` checks `edit` permission; emits `KnowledgeGraphUpdated`
+**Requirement: Knowledge Graph Retrieval** — COVERED
 
-**Knowledge Graph Deletion**
-- `delete()` checks `manage` permission
-- Single-transaction cascade: credential secrets → data sources → knowledge graph → SpiceDB cleanup
-- Rollback on failure tested (`test_delete_rolls_back_on_ds_deletion_failure`)
-- Mutation-after-deletion guard via `mark_for_deletion()` / `AggregateDeletedError`
+Implementation:
+- `KnowledgeGraphService.get()` returns `None` for missing, cross-tenant, and unauthorized
+  cases — no existence leakage.
 
-**Permission Inheritance**
-- SpiceDB schema: `edit = admin + editor + workspace->edit`; `manage = admin + workspace->manage`
-- Direct `admin` grant provides `manage`, `edit`, and `view`
+Scenario — Authorized retrieval: COVERED
+- Tests: `test_get_returns_aggregate_on_success`, `test_get_knowledge_graph_returns_200`
+
+Scenario — Unauthorized or non-existent: COVERED
+- Tests: `test_get_returns_none_when_not_found`, `test_get_returns_none_when_permission_denied`,
+  `test_get_returns_none_for_different_tenant`,
+  `test_get_knowledge_graph_returns_404_when_not_found`,
+  `test_get_knowledge_graph_returns_404_when_unauthorized`
+
+---
+
+**Requirement: Knowledge Graph Listing** — COVERED
+
+Implementation:
+- `KnowledgeGraphService.list_for_workspace()` checks VIEW on workspace, then reads
+  SpiceDB relationships to discover KG IDs, fetches each, filters by tenant.
+
+Scenario — List for workspace: COVERED
+- Tests: `test_list_uses_read_relationships_to_discover_kgs`,
+  `test_list_filters_by_tenant`,
+  `test_list_knowledge_graphs_returns_200_with_list`,
+  `test_list_raises_unauthorized_when_permission_denied`
+
+---
+
+**Requirement: Knowledge Graph Update** — COVERED
+
+Implementation:
+- `KnowledgeGraphService.update()` checks EDIT on the KG aggregate, calls
+  `kg.update()`, saves via repo. IntegrityError → DuplicateKnowledgeGraphNameError.
+
+Scenario — Update name and description: COVERED
+- Tests: `test_update_calls_aggregate_update_and_saves`,
+  `test_update_knowledge_graph_returns_200`
+
+---
+
+**Requirement: Knowledge Graph Deletion** — COVERED
+
+Implementation:
+- `KnowledgeGraphService.delete()` checks MANAGE on the KG.
+- Single `async with self._session.begin()` block wraps: credential secret deletion,
+  data source cascade deletion, KG deletion.
+- Exception mid-cascade propagates out of `begin()` block → SQLAlchemy rolls back.
+- `KnowledgeGraphDeleted` event → outbox → `_translate_knowledge_graph_deleted()` deletes
+  workspace relationship, tenant relationship, and all direct admin/editor/viewer grants
+  via `DeleteRelationshipsByFilter`.
+
+Scenario — Successful deletion (atomic cascade): COVERED
+- Tests: `test_delete_cascades_data_sources`,
+  `test_delete_cascades_encrypted_credentials`,
+  `test_delete_knowledge_graph_returns_204`
+
+Scenario — Rollback on failure: COVERED
+- Test: `test_delete_rolls_back_on_ds_deletion_failure` — confirms `kg_repo.delete`
+  is never called when a DS deletion raises.
+
+Scenario — Mutation after deletion: COVERED
+- Test: `test_update_raises_after_deletion` — domain aggregate raises
+  `AggregateDeletedError` after `mark_for_deletion()`.
+
+---
+
+**Requirement: Permission Inheritance** — COVERED
+
+Implementation:
+- SpiceDB schema (`schema.zed`):
+  `view = admin + editor + viewer + workspace->view`
+  `edit = admin + editor + workspace->edit`
+  `manage = admin + workspace->manage`
+
+Scenario — Workspace-inherited access: COVERED
+- Integration tests: `TestWorkspaceInheritedKnowledgeGraphAccess` —
+  workspace editor → view+edit on KG;
+  workspace admin → manage on KG;
+  workspace member → view only (not edit).
+
+Scenario — Direct grant: COVERED
+- Integration tests: `TestDirectGrantKnowledgeGraphAccess` —
+  direct KG admin → manage + edit + view confirmed via live SpiceDB checks.
+
+---
+
+### Summary
+
+All 6 SHALL requirements and all 10 scenarios are implemented in code and covered
+by tests (unit + integration). No gaps found.

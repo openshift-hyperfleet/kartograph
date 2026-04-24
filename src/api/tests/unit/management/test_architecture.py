@@ -230,17 +230,19 @@ class TestManagementBoundedContextIsolation:
         Excluded modules (those that legitimately bridge authentication):
         - management.dependencies: DI wiring that extracts CurrentUser from
           IAM for tenant scoping (e.g., scope_to_tenant=current_user.tenant_id).
-        - management.presentation.knowledge_graphs.routes: The only route module
-          that directly imports IAM — it declares get_current_user as a FastAPI
-          dependency and uses CurrentUser to extract user_id for service calls.
+        - management.presentation.knowledge_graphs.routes: Route module that
+          imports IAM for get_current_user dependency and CurrentUser extraction.
         - management.presentation.knowledge_graphs (package __init__): Re-exports
-          the router from routes, creating a transitive IAM dependency that
-          pytest-archon propagates to the package itself.
+          the router from routes, inheriting the transitive IAM dependency.
+        - management.presentation.data_sources.routes: Route module that
+          imports IAM for get_current_user dependency and CurrentUser extraction.
+        - management.presentation.data_sources (package __init__): Re-exports
+          the router from routes, inheriting the transitive IAM dependency.
         - management.presentation (package __init__): Aggregates sub-routers
-          including knowledge_graphs, inheriting the transitive IAM import.
+          including knowledge_graphs and data_sources, inheriting IAM imports.
 
-        Note: management.presentation.knowledge_graphs.models is NOT excluded
-        and remains subject to the isolation check.
+        Note: route models (models.py) are NOT excluded and remain subject
+        to the isolation check.
         """
         (
             archrule("management_no_iam")
@@ -249,6 +251,8 @@ class TestManagementBoundedContextIsolation:
                 "management.dependencies*",
                 "management.presentation.knowledge_graphs.routes*",
                 "management.presentation.knowledge_graphs",
+                "management.presentation.data_sources.routes*",
+                "management.presentation.data_sources",
                 "management.presentation",
             )
             .should_not_import("iam*")

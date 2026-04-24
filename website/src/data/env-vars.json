@@ -163,7 +163,7 @@
   "CORSSettings": {
     "class_name": "CORSSettings",
     "prefix": "KARTOGRAPH_CORS_",
-    "doc": "CORS (Cross-Origin Resource Sharing) settings.\n\n    Environment variables:\n        KARTOGRAPH_CORS_ORIGINS: Comma-separated list of allowed origins\n            (default: empty, which disables CORS)\n        KARTOGRAPH_CORS_ALLOW_CREDENTIALS: Allow credentials (default: true)\n        KARTOGRAPH_CORS_ALLOW_METHODS: Comma-separated list of allowed methods\n            (default: GET,POST,PUT,DELETE,OPTIONS,PATCH)\n        KARTOGRAPH_CORS_ALLOW_HEADERS: Comma-separated list of allowed headers\n            (default: *)\n    ",
+    "doc": "CORS (Cross-Origin Resource Sharing) settings.\n\n    Environment variables:\n        KARTOGRAPH_CORS_ORIGINS: JSON list of allowed origins\n            (default: empty, which disables CORS)\n        KARTOGRAPH_CORS_ALLOW_CREDENTIALS: Allow credentials (default: true)\n        KARTOGRAPH_CORS_ALLOW_METHODS: JSON list of allowed methods (default: ['*'])\n        KARTOGRAPH_CORS_ALLOW_HEADERS: JSON list of allowed headers (default: ['*'])\n    ",
     "properties": [
       {
         "env_var": "KARTOGRAPH_CORS_ORIGINS",
@@ -183,15 +183,10 @@
         "env_var": "KARTOGRAPH_CORS_ALLOW_METHODS",
         "type": "list",
         "default": [
-          "GET",
-          "POST",
-          "PUT",
-          "DELETE",
-          "OPTIONS",
-          "PATCH"
+          "*"
         ],
         "required": false,
-        "description": "Allowed HTTP methods for CORS"
+        "description": "Allowed HTTP methods for CORS (default: all methods via wildcard)"
       },
       {
         "env_var": "KARTOGRAPH_CORS_ALLOW_HEADERS",

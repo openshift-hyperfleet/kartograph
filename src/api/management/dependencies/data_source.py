@@ -26,6 +26,23 @@ from management.infrastructure.repositories import (
 from shared_kernel.authorization.protocols import AuthorizationProvider
 
 
+def get_sync_run_repository(
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+) -> DataSourceSyncRunRepository:
+    """Get DataSourceSyncRunRepository instance.
+
+    Provides direct repository access for listing sync runs on a data source.
+    Authorization is enforced by the route handler before calling this repository.
+
+    Args:
+        session: Async database session
+
+    Returns:
+        DataSourceSyncRunRepository instance
+    """
+    return DataSourceSyncRunRepository(session=session)
+
+
 def get_data_source_service(
     session: Annotated[AsyncSession, Depends(get_write_session)],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
@@ -45,11 +62,7 @@ def get_data_source_service(
     outbox = OutboxRepository(session=session)
     ds_repo = DataSourceRepository(session=session, outbox=outbox)
     kg_repo = KnowledgeGraphRepository(session=session, outbox=outbox)
-    encryption_keys = [
-        k.strip()
-        for k in settings.encryption_key.get_secret_value().split(",")
-        if k.strip()
-    ]
+    encryption_keys = settings.encryption_key.get_secret_value().split(",")
     secret_store = FernetSecretStore(
         session=session,
         encryption_keys=encryption_keys,

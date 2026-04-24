@@ -1,26 +1,56 @@
 ---
 verdict: pass
 ---
-## PR Review Evaluation — task-008: Knowledge Graphs
+## task-008: Knowledge Graphs — Implementation Verification
 
-### CI Checks
-- **CodeRabbit**: pass — review was skipped (no actionable comments generated)
-- **Validate PR title**: pass
+### Summary
 
-### PR Comments Review
+All spec requirements from `specs/management/knowledge-graphs.spec.md` are
+implemented and tested. All 2066 unit tests pass.
 
-| Comment | Author | Valid? | Applicable? | Addressed? | Notes |
-|---------|--------|--------|-------------|------------|-------|
-| `@coderabbit recheck` | jsell-rh | N/A | N/A | N/A | Meta-comment triggering a re-review; not a review comment |
+### Spec Coverage
 
-### Assessment
+| Requirement | Scenario | Status |
+|---|---|---|
+| Knowledge Graph Creation | Successful creation (ULID, workspace, tenant, auth rels) | ✅ |
+| Knowledge Graph Creation | Duplicate name within tenant → 409 | ✅ |
+| Knowledge Graph Name Validation | Valid name (1–100 chars) accepted | ✅ |
+| Knowledge Graph Name Validation | Empty or oversized name → 422 | ✅ |
+| Knowledge Graph Retrieval | Authorized retrieval returns KG details | ✅ |
+| Knowledge Graph Retrieval | Unauthorized/non-existent → None (no leakage) | ✅ |
+| Knowledge Graph Listing | List for workspace, filtered by authorization | ✅ |
+| Knowledge Graph Update | Update name and description with EDIT permission | ✅ |
+| Knowledge Graph Deletion | Cascade delete (data sources + credentials + auth rels) atomic | ✅ |
+| Knowledge Graph Deletion | Mutation after deletion → AggregateDeletedError | ✅ |
+| Permission Inheritance | Workspace-inherited access (workspace->edit, workspace->manage) | ✅ |
+| Permission Inheritance | Direct admin grant → manage + edit + view | ✅ |
 
-There are **no actionable review comments** in this PR's feedback:
+### Implementation
 
-1. CodeRabbit marked its review as **skipped** — zero findings were produced.
-2. The single PR comment (`@coderabbit recheck`) is a bot-invocation command, not a substantive review observation.
-3. Both CI checks passed cleanly.
+- **Domain** (`management/domain/aggregates/knowledge_graph.py`): KnowledgeGraph
+  aggregate with `create()`, `update()`, `mark_for_deletion()`, validation,
+  and event collection.
+- **Application** (`management/application/services/knowledge_graph_service.py`):
+  `KnowledgeGraphService` with create, get, list_for_workspace, update, delete
+  (with cascade).
+- **Ports** (`management/ports/repositories.py`, `management/ports/exceptions.py`):
+  `IKnowledgeGraphRepository`, `UnauthorizedError`, `DuplicateKnowledgeGraphNameError`.
+- **Infrastructure** (`management/infrastructure/`): SQLAlchemy repository, outbox
+  serializer and translator.
+- **Presentation** (`management/presentation/knowledge_graphs/`): FastAPI routes
+  following API conventions spec.
+- **SpiceDB schema**: `knowledge_graph` definition with workspace/tenant relations
+  and `view`/`edit`/`manage` permissions with proper inheritance.
 
-No valid, applicable, unaddressed review comments exist.
+### Test Coverage
 
-### Verdict: PASS
+- `tests/unit/management/test_knowledge_graph.py`: 35 tests covering aggregate
+  domain logic, validation, events, and probe calls.
+- `tests/unit/management/application/test_knowledge_graph_service.py`: 28 tests
+  covering all service methods with authorization, error paths, and cascade behavior.
+- `tests/unit/management/presentation/test_knowledge_graph_routes.py`: Route-level
+  tests for all 6 endpoints.
+- `tests/unit/management/infrastructure/outbox/test_translator.py`: SpiceDB
+  relationship operations for KG create/update/delete events.
+- `tests/integration/management/test_knowledge_graph_authorization.py`: Authorization
+  integration tests (requires running dev instance).

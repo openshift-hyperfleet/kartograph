@@ -1,12 +1,22 @@
 ---
 verdict: pass
 ---
-## Task-003: Graph Mutations — Fresh Verification Pass
+## Task-003: Graph Mutations — Verification Pass
 
-### Summary
+### Checks
 
-Full implementation of the Graph Mutations spec (`specs/graph/mutations.spec.md`) is
-complete and all 2027 unit tests pass (0 failures, 39 warnings).
+| Check | Result | Details |
+|---|---|---|
+| Unit Tests | ✅ PASS | 2027 passed, 40 warnings (deprecation notices only), 0 failures, 0 errors |
+| Linting (ruff check) | ✅ PASS | All checks passed |
+| Formatting (ruff format) | ✅ PASS | 441 files already formatted |
+| Type Checking (mypy) | ✅ PASS | No issues found in 441 source files |
+| Architecture Boundaries (top-level) | ✅ PASS | 40 passed |
+| Architecture Boundaries (graph context) | ✅ PASS | 26 passed |
+| Check Scripts | N/A | No .hyperloop/checks/ directory present |
+| Commit Trailers | ✅ PASS | Spec-Ref + Task-Ref present on implementation commits |
+| No logger/print in domain/app | ✅ PASS | No violations in diff |
+| No MagicMock/AsyncMock for collaborators | ✅ PASS | No violations in diff |
 
 ### Spec Scenario Coverage
 
@@ -40,7 +50,7 @@ complete and all 2027 unit tests pass (0 failures, 39 warnings).
 ### Architecture Compliance
 
 - Graph inner layers (domain, ports, application, infrastructure) do NOT import IAM,
-  Management, Ingestion, Extraction, or Querying contexts.
+  Management, Ingestion, Extraction, or Querying contexts — 26 arch tests confirm.
 - `graph.presentation.routes` legitimately imports `iam.dependencies.user` for
   FastAPI authentication (cross-cutting presentation concern — allowed by spec).
 - All DDD layer rules enforced via pytest-archon in `tests/unit/graph/test_architecture.py`.
@@ -48,10 +58,10 @@ complete and all 2027 unit tests pass (0 failures, 39 warnings).
 ### Test Summary
 
 ```
-2027 passed, 39 warnings in ~45s
+2027 passed, 40 warnings in 44.81s
 ```
 
-All warnings are deprecation notices (`HTTP_422_UNPROCESSABLE_ENTITY` →
-`HTTP_422_UNPROCESSABLE_CONTENT`) that do not affect behavior. No functional issues.
+Warnings are deprecation notices (`HTTP_422_UNPROCESSABLE_ENTITY` →
+`HTTP_422_UNPROCESSABLE_CONTENT`) that do not affect behavior.
 
 ### Verdict: PASS

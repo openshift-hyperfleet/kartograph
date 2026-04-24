@@ -1,74 +1,109 @@
 ---
 verdict: pass
 ---
-## task-008: Knowledge Graphs — Implementation Verdict
+## task-008: Knowledge Graphs — Independent Verification Verdict
 
-### Summary
+### Checks Executed
 
-All requirements from `specs/management/knowledge-graphs.spec.md` are implemented
-and verified. 2066 unit tests pass with no failures.
+**1. Unit Tests** — PASS
+```
+2066 passed, 39 warnings in 63.26s
+```
+
+**2. Linting (ruff check)** — PASS
+```
+All checks passed!
+```
+
+**3. Formatting (ruff format --check)** — PASS
+```
+450 files already formatted
+```
+
+**4. Type Checking (mypy)** — PASS
+```
+Success: no issues found in 450 source files
+```
+
+**5. Architecture Boundary Tests** — PASS
+```
+tests/unit/management/test_architecture.py — 16 passed
+```
+All DDD layer boundaries enforced: domain, ports, application, infrastructure, presentation;
+management context does not import iam/graph/ingestion/extraction/querying.
+
+**6. Check Scripts** (run from repo root) — PASS
+- `check-auth-status-codes.sh` — PASS (no integration dir, skipped correctly)
+- `check-failure-path-tests.sh` — PASS (rollback scenario has test coverage)
+- `check-frontend-test-infrastructure.sh` — PASS (vitest in package.json)
+- `check-frontend-tests-exist.sh` — PASS (3 test files found)
+- `check-idempotency-tests.sh` — PASS (no idempotency requirement in spec)
+- `check-no-coming-soon-stubs.sh` — PASS
+- `check-no-future-placeholder-comments.sh` — PASS
+
+Note: scripts must be invoked from repo root; running from `.hyperloop/checks/`
+directly fails due to relative `src/dev-ui` paths and `set -euo pipefail` + `wc -l || echo 0` interaction.
+
+**7. Frontend Tests (vitest)** — PASS
+```
+45 passed (3 test files: data-sources, index, knowledge-graphs)
+```
+
+**8. Commit Trailers** — PASS
+`Spec-Ref` and `Task-Ref` are present on all substantive implementation commits.
+
+### Code Review Findings
+
+**Domain-Oriented Observability** — PASS
+No direct `logger.*` or `print()` calls in implementation files.
+`KnowledgeGraphProbe` / `KnowledgeGraphServiceProbe` used throughout.
+
+**AsyncMock in Presentation Tests** — ACCEPTABLE (pre-existing pattern)
+`test_knowledge_graph_routes.py` mocks `KnowledgeGraphService` with
+`AsyncMock(spec=KnowledgeGraphService)` — the same pattern used in the
+pre-existing `test_workspaces_routes.py` on alpha. Consistent with codebase convention.
+
+**No Hardcoded Secrets** — PASS
+
+**Workspace Route Change** — ACCEPTABLE
+`UnauthorizedError` on create-workspace now returns 404 instead of 403,
+matching `ParentWorkspaceNotFoundError` / `ParentWorkspaceCrossTenantError`.
+The intent is security-through-obscurity: don't disclose whether a parent
+workspace exists when the caller cannot access it. Tests updated accordingly.
 
 ### Spec Coverage
 
-**Requirement: Knowledge Graph Creation**
-- Scenario: Successful creation — implemented in `KnowledgeGraphService.create()`,
-  routes at `POST /management/workspaces/{id}/knowledge-graphs` (201 response)
-- Scenario: Duplicate name within tenant — enforced via DB UNIQUE constraint,
-  surfaced as `DuplicateKnowledgeGraphNameError` → 409 Conflict
+**Creation** — `POST /management/workspaces/{id}/knowledge-graphs` → 201;
+ULID generated, workspace/tenant associated, SpiceDB relationships written;
+duplicate name → 409.
 
-**Requirement: Knowledge Graph Name Validation**
-- Scenario: Valid name (1–100 chars) — enforced in `KnowledgeGraph` aggregate
-  `__post_init__` via `InvalidKnowledgeGraphNameError`; Pydantic models also enforce
-  min/max length so invalid requests are rejected as 422 before hitting domain
-- Scenario: Empty or oversized name — rejected with validation error (422 from
-  Pydantic, domain also validates for aggregate-internal invariants)
+**Name Validation** — Pydantic enforces 1–100 chars at boundary (422); domain
+`KnowledgeGraph.__post_init__` enforces invariant internally.
 
-**Requirement: Knowledge Graph Retrieval**
-- Scenario: Authorized retrieval — `KnowledgeGraphService.get()` checks VIEW
-  permission; `GET /management/knowledge-graphs/{id}` returns 200
-- Scenario: Unauthorized or non-existent — service returns None in both cases;
-  route returns 404 (no existence leakage)
+**Retrieval** — `GET /management/knowledge-graphs/{id}` → 200 or 404;
+VIEW permission checked; unauthorized and missing both return 404 (no leakage).
 
-**Requirement: Knowledge Graph Listing**
-- Scenario: List for workspace — `KnowledgeGraphService.list_for_workspace()` checks
-  VIEW on workspace, reads SpiceDB relationships, fetches and returns authorized KGs
+**Listing** — `GET /management/workspaces/{id}/knowledge-graphs` filters by
+VIEW permission via SpiceDB; `GET /management/knowledge-graphs` lists all
+tenant-scoped KGs visible to user.
 
-**Requirement: Knowledge Graph Update**
-- Scenario: Update name and description — `KnowledgeGraphService.update()` checks EDIT,
-  `PATCH /management/knowledge-graphs/{id}` returns 200
+**Update** — `PATCH /management/knowledge-graphs/{id}` → 200; EDIT permission
+checked; `AggregateDeletedError` raised if KG is already deleted.
 
-**Requirement: Knowledge Graph Deletion**
-- Scenario: Successful deletion — `KnowledgeGraphService.delete()` checks MANAGE,
-  atomically deletes all data sources (+ credentials) and the KG in one transaction;
-  `DELETE /management/knowledge-graphs/{id}` returns 204
-- Scenario: Mutation after deletion — `KnowledgeGraph.mark_for_deletion()` is idempotent;
-  `KnowledgeGraph.update()` raises `AggregateDeletedError` after deletion
+**Deletion** — `DELETE /management/knowledge-graphs/{id}` → 204; MANAGE
+permission checked; data sources (+ encrypted credentials) deleted first inside
+one SQLAlchemy transaction; KG record deleted last; rollback on DS failure
+verified by `test_delete_rolls_back_on_ds_deletion_failure`.
 
-**Requirement: Permission Inheritance**
-- Scenario: Workspace-inherited access — enforced by SpiceDB schema (`knowledge_graph`
-  relations inherit through `workspace` relation)
-- Scenario: Direct grant — enforced by SpiceDB schema (`admin` relation provides
-  manage+edit+view permissions directly)
+**Permission Inheritance** — SpiceDB schema:
+```
+permission view   = admin + editor + viewer + workspace->view
+permission edit   = admin + editor + workspace->edit
+permission manage = admin + workspace->manage
+```
+Workspace-inherited access and direct-admin grant both covered.
 
-### Architecture
+### Verdict
 
-All DDD layer boundaries respected:
-- Domain: pure Python, no framework imports
-- Ports: Protocol-based interfaces
-- Application: depends only on domain + ports
-- Infrastructure: implements ports, uses SQLAlchemy
-- Presentation: FastAPI routes with Pydantic models
-
-Architecture tests in `tests/unit/management/test_architecture.py` enforce all boundaries.
-
-### Observability
-
-Domain-Oriented Observability implemented:
-- `KnowledgeGraphProbe` / `DefaultKnowledgeGraphProbe` at domain layer
-- `KnowledgeGraphServiceProbe` / `DefaultKnowledgeGraphServiceProbe` at application layer
-- Probes emit structured events for all success and failure paths
-
-### Clean-up
-
-Removed `.hyperloop/state/` files that were incorrectly committed to this worker branch
-by previous agent runs. Added `.hyperloop/state/` to `.gitignore` to prevent recurrence.
+**PASS** — All checks green. Implementation is complete, correct, and consistent
+with the spec and project conventions.

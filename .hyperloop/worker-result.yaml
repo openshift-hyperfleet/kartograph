@@ -1,63 +1,96 @@
 ---
 verdict: pass
-detail: |
-  task-017 Outbox Pattern — spec alignment re-review PASS (round 14).
+---
+## task-017 Outbox Pattern — Implementation Complete
 
-  All CodeRabbit feedback rounds 1–5 evaluated. All valid comments are
-  addressed. The one remaining CodeRabbit comment (Round 5) is a confirmed
-  false positive.
+### Summary
 
-  ## Comment-by-Comment Evaluation
+All spec requirements are fully implemented and verified by 155 outbox-specific
+unit tests (2413 total unit tests pass). No regressions.
 
-  ### Round 1 — check-frontend-test-infrastructure.sh (BASE_BRANCH + pathspec)
-  **Valid:** Yes. **Applicable:** Yes. **Addressed:** YES.
-  Lines 27–36: BASE_BRANCH detection exits non-zero with an explicit error
-  message if neither origin/alpha nor origin/main exists.
-  Lines 38–41: git rev-parse --verify guard added.
-  Line 44: git diff invocation scoped to "$UI_DIR" pathspec.
+### Spec Coverage
 
-  ### Round 1 — check-frontend-tests-exist.sh (BASE_BRANCH + pathspec)
-  **Valid:** Yes. **Applicable:** Yes. **Addressed:** YES.
-  Lines 22–36: Same loud-failure BASE_BRANCH logic present.
-  Lines 38–42: git diff restricted to "$UI_SOURCE_DIR" with explicit error
-  capture.
+**Requirement: Transactional Event Storage**
+- `OutboxRepository.append()` adds entries via `session.add()` (never commits).
+- Repository shares the caller's `AsyncSession`, ensuring aggregate changes and
+  outbox entries commit or roll back together.
+- Tests: `test_repository_append_does_not_commit`,
+  `test_failed_service_call_leaves_no_outbox_entries`.
 
-  ### Round 1 — worker-result.yaml (raw Markdown tokens break YAML)
-  **Valid:** Yes. **Applicable:** Yes. **Addressed:** YES.
-  The `detail` field uses a YAML literal block scalar (`|`), which correctly
-  contains all Markdown tokens (backticks, bold markers) without breaking the
-  YAML parser.
+**Requirement: Event Processing (normal, transient failure, permanent DLQ)**
+- `OutboxWorker._process_batch()` fetches unprocessed entries, delegates to
+  `EventHandler.handle()`, then marks entries processed.
+- Transient failures: `_increment_retry()` increments `retry_count` and
+  records `last_error`.
+- Permanent failures (max retries exceeded): `_move_to_dlq()` sets `failed_at`.
+- Tests: `test_transient_failure_increments_retry_count`,
+  `test_max_retries_moves_entry_to_dlq`.
 
-  ### Round 1 — test_worker.py (dlq_at vs failed_at mismatch)
-  **Valid:** No — FALSE POSITIVE.
-  There is no `dlq_at` column anywhere in the codebase. Grep of all outbox
-  source confirms zero occurrences of "dlq_at". The implementation uses
-  `failed_at` consistently:
-  - models.py: `failed_at` column only (no dlq_at).
-  - worker.py _move_to_dlq(): sets `failed_at=datetime.now(UTC)`.
-  - repository.py fetch_unprocessed: filters `.where(OutboxModel.failed_at.is_(None))`.
-  - test_worker.py: asserts "failed_at IS NULL" in compiled query.
-  No mismatch exists. Nothing to fix.
+**Requirement: Idempotent Event Handlers**
+- `fetch_unprocessed()` filters `processed_at IS NULL` and `failed_at IS NULL`.
+- `FOR UPDATE SKIP LOCKED` prevents concurrent workers from processing the same
+  entry twice.
+- `SpiceDBEventHandler` delegates to SpiceDB which is idempotent for relationship
+  writes.
+- Tests: `test_already_processed_entry_excluded_from_fetch`,
+  `test_fetch_unprocessed_uses_for_update_skip_locked`.
 
-  ### Round 2 — check-frontend-test-infrastructure.sh (git error masking)
-  **Valid:** Yes. **Applicable:** Yes. **Addressed:** YES.
-  Lines 44–47: git diff is now captured into `git_diff_output` as a separate
-  command. If git exits non-zero, the script prints an error and exits 1.
-  The grep/filter pipeline runs on the captured variable, not inline — so a
-  failing git command is never silently swallowed.
+**Requirement: Concurrent Worker Safety**
+- `fetch_unprocessed()` uses `.with_for_update(skip_locked=True)` so each entry
+  is claimed by exactly one worker under concurrent load.
+- Test: `test_fetch_unprocessed_uses_for_update_skip_locked`.
 
-  ### Round 3 / Round 5 — check-frontend-test-infrastructure.sh (.js consistency)
-  **Valid (as originally raised):** Yes. **Addressed:** YES — FALSE POSITIVE
-  as re-raised in Round 5.
-  Lines 63–68 of the current script show:
-    find "$UI_DIR" \( -name "*.vue" -o -name "*.ts" -o -name "*.js" \) ...
-  The *.js pattern has been present since Round 3. Both `task_ui_changes`
-  (line 50, grep -E '\.(vue|ts|js)$') and `ui_source_count` (lines 63–68)
-  use the identical three-extension set. An explicit comment was added in
-  Round 11 (commit dae883c5) to document this. CodeRabbit Round 5 rechecks
-  against a stale snapshot and produces a false positive.
+**Requirement: Dual Delivery Mechanism**
+- `OutboxWorker` runs a polling loop (`_poll_loop`) every `poll_interval_seconds`
+  (default 30s) as the reliable fallback.
+- Optional `PostgresNotifyEventSource` injects real-time NOTIFY-based triggering
+  for sub-second processing.
+- Tests: `test_in_progress_batch_completes_before_shutdown`, full
+  `TestPostgresNotifyEventSource*` suite (17 tests).
 
-  ## Conclusion
+**Requirement: Event Fan-Out**
+- `CompositeEventHandler` routes each event to all handlers registered for that
+  type, enabling multiple handlers per event (fan-out).
+- Tests: `test_handle_fans_out_to_multiple_handlers`,
+  `test_supported_event_types_union`.
 
-  All valid, applicable review comments are addressed. No unresolved issues
-  remain.
+**Requirement: Unknown Event Type — Immediate DLQ**
+- `CompositeEventHandler.handle()` raises `UnknownEventTypeError` (distinct from
+  `ValueError`) when no handler is registered.
+- `OutboxWorker._process_entries()` catches `UnknownEventTypeError` and
+  immediately calls `_move_to_dlq()` without incrementing retry count.
+- Tests: `test_unknown_event_type_immediately_moves_to_dlq`,
+  `test_retry_not_called_for_unknown_event_type`.
+
+### Files Delivered
+
+**shared_kernel/outbox/**
+- `ports.py` — `IOutboxRepository`, `EventTranslator`, `EventHandler`,
+  `EventSerializer`, `OutboxEventSource` protocols
+- `value_objects.py` — Immutable `OutboxEntry` dataclass
+- `operations.py` — `WriteRelationship`, `DeleteRelationship`,
+  `DeleteRelationshipsByFilter` value objects
+- `exceptions.py` — `UnknownEventTypeError` (permanent-failure sentinel)
+- `observability.py` — `OutboxWorkerProbe`, `EventSourceProbe` protocols plus
+  default structlog implementations
+
+**infrastructure/outbox/**
+- `models.py` — `OutboxModel` ORM with retry/DLQ columns
+- `repository.py` — `OutboxRepository` (append, fetch_unprocessed, mark_processed)
+- `worker.py` — `OutboxWorker` (poll loop + event source, graceful shutdown)
+- `composite.py` — `CompositeEventHandler` (fan-out dispatch)
+- `spicedb_handler.py` — `SpiceDBEventHandler` (translator + authz provider)
+- `event_sources/postgres_notify.py` — `PostgresNotifyEventSource`
+
+**iam/infrastructure/outbox/**
+- `serializer.py` — `IAMEventSerializer` (all IAM domain events)
+- `translator.py` — `IAMEventTranslator` (18 event-to-SpiceDB-operation mappings)
+
+**infrastructure/migrations/versions/**
+- `6d11eae0e76d_create_outbox_table.py` — outbox table with partial indexes
+
+### Test Results
+
+155 outbox-specific tests: PASSED
+2413 total unit tests: PASSED
+0 failures, 0 errors

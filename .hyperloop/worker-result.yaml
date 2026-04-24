@@ -1,43 +1,59 @@
 ---
 verdict: pass
 ---
-## Task 003: Graph Mutations — Implementation Verdict
+## Task 003: Graph Mutations — Independent Verification
 
-### Summary
+### Checks
 
-This is a fresh implementation pass after branch reset. All spec requirements from
-`specs/graph/mutations.spec.md` are fully implemented and tested. The branch state
-is clean, tests pass, and all commits include the required spec/task trailers.
+1. **Unit Tests** — PASS: 2027 passed, 0 failures, 0 errors (50s)
+2. **Linting (ruff check)** — PASS: All checks passed, 0 violations
+3. **Formatting (ruff format)** — PASS: 441 files already formatted
+4. **Type Checking (mypy)** — PASS: No issues found in 441 source files
+5. **Architecture Boundary Tests** — PASS: 40/40 pytest-archon tests pass
+6. **Code Review** — PASS (details below)
+
+### Code Review Findings
+
+**Domain probe usage:** No direct `logger.*` or `print()` calls in domain/application
+layers. Domain probes used exclusively (`DefaultGraphServiceProbe`, `GraphServiceProbe`).
+
+**Mock/Fake policy:** `FakeAuthorizationProvider` (hand-rolled fake) used in
+presentation-layer tests for the SpiceDB authorization boundary. `MagicMock` only
+appears in `test_mutation_applier_sort.py` for infrastructure→infrastructure
+dependencies (`client`, `bulk_loading_strategy`) where `_sort_operations` is the
+sole method under test and those deps are never exercised — acceptable.
+
+**DDD layer boundaries:** All architecture tests pass. Domain imports only stdlib +
+pydantic; application imports only domain + ports; infrastructure never imported by
+application. No violations.
+
+**Commit trailers:** `Spec-Ref: specs/graph/mutations.spec.md` and `Task-Ref: task-003`
+present on all implementation commits.
+
+**No hardcoded secrets or credentials.**
 
 ### Spec Coverage
 
-All 12 scenarios from the spec are implemented and tested:
+All requirements from `specs/graph/mutations.spec.md` implemented and tested:
 
-1. **Per-Tenant Graph Isolation** — AGE graph routing to `tenant_{tenant_id}`
-2. **KnowledgeGraph Scoping** — SpiceDB `edit` permission check + KG ID stamping
-3. **Mutation Log Format** — JSONL parsing with line-number error reporting; blank lines skipped
-4. **DEFINE Operation** — Node/edge type definition with auto-injected system properties
-5. **CREATE Operation** — Idempotent node/edge creation with schema validation and schema learning
-6. **UPDATE Operation** — set_properties / remove_properties with schema learning
-7. **DELETE Operation** — Cascading detach delete for nodes; edge-only delete
-8. **Mandatory System Properties** — Enforced on all CREATE operations
-9. **Deterministic Entity IDs** — `{type}:{16_hex_chars}` pattern via SHA-256 slug hash
-10. **Referential Integrity Ordering** — DEFINE → DELETE (edges then nodes) → CREATE (nodes then edges) → UPDATE
-
-### Test Results
-
-- **Unit tests:** 226 graph-context tests, 2027 total — all pass
-- **Architecture:** Bounded-context enforcement via pytest-archon passes
-- **TDD compliance:** Tests were written before implementation code per protocol
-
-### Implementation Files
-
-- `graph/domain/value_objects.py` — MutationOperation, TypeDefinition, MutationResult value objects
-- `graph/application/services/graph_mutation_service.py` — Mutation orchestration and JSONL parsing
-- `graph/application/services/graph_schema_service.py` — Type definition management + schema learning
-- `graph/infrastructure/mutation_applier.py` — AGE Cypher execution for all operation types
-- `graph/infrastructure/graph_repository.py` — Deterministic ID generation + read-only API
-- `graph/presentation/routes.py` — FastAPI `/graph/knowledge-graphs/{kg_id}/mutations` endpoint
-- `graph/ports/` — Protocol interfaces for all collaborators
+1. **Per-Tenant Graph Isolation** — `get_tenant_graph_name()` in `graph/dependencies.py`
+   produces `tenant_{tenant_id}`; `AgeGraphClient` accepts `graph_name` override;
+   dependency wires it from authenticated user's tenant_id.
+2. **KnowledgeGraph Scoping** — SpiceDB `check_permission` (EDIT) enforced in
+   `apply_kg_mutations` route before delegating; `knowledge_graph_id` stamped by
+   service, overwriting any caller value; unit tests verify overwrite behavior.
+3. **Mutation Log Format** — JSONL parsed line-by-line; blank lines skipped; parse
+   errors report line number + content preview.
+4. **DEFINE Operation** — Node/edge type definitions stored; system properties
+   (`data_source_id`, `source_path`, `slug` for nodes) auto-injected.
+5. **CREATE Operation** — Idempotent MERGE via jsonb `||` operator; schema validation
+   against stored type defs; schema learning for extra properties.
+6. **UPDATE Operation** — set_properties/remove_properties; schema learning on update.
+7. **DELETE Operation** — Cascading detach delete for nodes; edge-only delete.
+8. **Mandatory System Properties** — `data_source_id`, `source_path`, `slug` (nodes),
+   `knowledge_graph_id` all required; validated in `MutationOperation.validate_operation()`.
+9. **Deterministic Entity IDs** — `{type}:{16_hex_chars}` pattern enforced by test.
+10. **Referential Integrity Ordering** — DEFINE → DELETE(edge→node) → CREATE(node→edge)
+    → UPDATE; covered by `TestSortOperationsReferentialIntegrity`.
 
 Verdict: **PASS**

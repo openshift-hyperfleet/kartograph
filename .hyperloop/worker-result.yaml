@@ -1,68 +1,19 @@
 ---
 verdict: pass
 ---
-## Spec Alignment Review — Task-017: Outbox Pattern
+## PR Review Evaluation — Task-017: Outbox Pattern
 
-### Test Run
-81 unit tests: ALL PASS (1.08s)
-Integration tests: exist but require live infrastructure (not run in this gate).
+### PR Feedback Analysis
 
-### Requirement Coverage
+#### CI Checks
+- **CodeRabbit**: Status is "Review skipped" — not a failure; no review comments were generated.
+- **Validate PR title**: PASS (3s).
 
-#### REQ-1: Transactional Event Storage — COVERED
-- Implementation: `OutboxRepository.append()` calls `session.add()` only; never `session.commit()`. Caller owns the transaction boundary.
-- Code: `/src/api/infrastructure/outbox/repository.py`
-- Scenario "Successful write": `test_repository_append_does_not_commit` (unit) + `TestAtomicityGuarantees.test_outbox_entry_created_in_same_transaction_as_group` (integration).
-- Scenario "Transaction rollback": `test_failed_service_call_leaves_no_outbox_entries` (unit) + `TestAtomicityGuarantees.test_rollback_removes_both_group_and_outbox_entry` (integration).
+#### PR Comments
+- **jsell-rh `@coderabbit recheck`**: This is a meta-request to trigger a CodeRabbit re-review, not an actionable review finding. Not applicable as a review comment requiring code changes.
 
-#### REQ-2: Event Processing — COVERED
-- Implementation: `OutboxWorker._process_batch()` / `_process_entries()` / `_mark_processed()`.
-- Code: `/src/api/infrastructure/outbox/worker.py`
-- Scenario "Normal processing": `TestOutboxWorkerProcessBatch.test_processes_unprocessed_entries`, `test_marks_entry_as_processed`, `test_calls_event_processed_on_success`.
-- Scenario "Transient failure": `TestOutboxWorkerRetryBehavior.test_transient_failure_increments_retry_count` — verifies `retry_count` incremented and `last_error` recorded via `_increment_retry()`.
-- Scenario "Permanent failure (dead letter)": `TestOutboxWorkerRetryBehavior.test_max_retries_moves_entry_to_dlq` — verifies `failed_at` set via `_move_to_dlq()` when `retry_count >= max_retries`.
+### Verdict
 
-#### REQ-3: Idempotent Event Handlers — COVERED
-- Implementation: `processed_at IS NULL` filter in `fetch_unprocessed()` excludes already-processed entries. SpiceDB `write_relationship` is an upsert (set semantics), so duplicate writes are no-ops.
-- Code: `/src/api/infrastructure/outbox/repository.py`, `/src/api/infrastructure/outbox/spicedb_handler.py`
-- Scenario "Duplicate delivery":
-  - Unit: `TestSpiceDBEventHandlerIdempotency.test_duplicate_invocation_produces_identical_final_state` (uses `FakeAuthorizationProvider` with set storage, not a mock — compliant with testing NFR).
-  - Unit: `TestOutboxWorkerIdempotency.test_already_processed_entry_excluded_from_fetch`.
-  - Integration: `TestIdempotentEventHandlers.test_handler_invoked_twice_produces_same_spicedb_state` — simulates crash-before-mark-processed and verifies retry produces same SpiceDB state.
+There are **no valid, applicable review comments** in the PR feedback. CodeRabbit produced no findings (review was skipped), CI is green, and the only human comment is a bot-trigger request rather than a substantive review comment.
 
-#### REQ-4: Concurrent Worker Safety — COVERED
-- Implementation: `SELECT ... FOR UPDATE SKIP LOCKED` in both `OutboxRepository.fetch_unprocessed()` and `OutboxWorker._process_batch()`.
-- Code: `/src/api/infrastructure/outbox/repository.py` (line 97), `/src/api/infrastructure/outbox/worker.py` (line 207).
-- Scenario "Concurrent workers": `TestOutboxWorkerConcurrentSafety.test_fetch_unprocessed_uses_for_update_skip_locked` — compiles query with PostgreSQL dialect and asserts "SKIP LOCKED" is present.
-
-#### REQ-5: Dual Delivery Mechanism — COVERED
-- Implementation:
-  - Real-time: `PostgresNotifyEventSource` (asyncpg-listen) + DB trigger `outbox_after_insert` that calls `pg_notify('outbox_events', NEW.id::text)`.
-  - Polling: `OutboxWorker._poll_loop()` runs every `poll_interval_seconds` (default 30s); uses `asyncio.wait_for(_shutdown_event.wait(), timeout=poll_interval)` so stop() interrupts the sleep immediately.
-- Code: `/src/api/infrastructure/outbox/event_sources/postgres_notify.py`, `/src/api/infrastructure/outbox/worker.py`, `/src/api/infrastructure/migrations/versions/d32ecc44581a_create_outbox_notify_trigger.py`.
-- Scenario "Real-time notification": `TestPostgresNotifyEventSourceNotify.test_notify_triggers_callback_with_uuid` + integration `TestOutboxWorkerNotifyProcessing.test_worker_processes_via_notify_not_polling` (poll_interval_seconds=999 ensures NOTIFY path used).
-- Scenario "Polling fallback": `_poll_loop()` code path covered by `TestOutboxWorkerLifecycle.test_in_progress_batch_completes_before_shutdown` (indirectly exercises poll loop). Default 30s matches spec.
-
-#### REQ-6: Event Fan-Out — COVERED
-- Implementation: `CompositeEventHandler` maintains `dict[str, list[EventHandler]]`; `handle()` invokes all handlers for the event type; raises `UnknownEventTypeError` if no handler registered.
-- Code: `/src/api/infrastructure/outbox/composite.py`
-- Scenario "Multiple handlers registered": `TestCompositeEventHandler.test_handle_fans_out_to_multiple_handlers` — two handlers on "SharedEvent", both invoked.
-- Scenario "Unknown event type":
-  - `TestCompositeEventHandler.test_handle_raises_for_unknown_event_type` — `UnknownEventTypeError` raised.
-  - `TestOutboxWorkerRetryBehavior.test_unknown_event_type_immediately_moves_to_dlq` — worker catches `UnknownEventTypeError` before generic `Exception`, calls `_move_to_dlq()` immediately (bypasses retry increment).
-  - `TestOutboxWorkerRetryBehavior.test_retry_not_called_for_unknown_event_type` — `_increment_retry` never called.
-
-### Summary
-
-| Requirement | Status |
-|---|---|
-| Transactional Event Storage | COVERED |
-| Event Processing | COVERED |
-| Idempotent Event Handlers | COVERED |
-| Concurrent Worker Safety | COVERED |
-| Dual Delivery Mechanism | COVERED |
-| Event Fan-Out | COVERED |
-
-All SHA/MUST requirements are implemented and tested. No deviations found.
-
-**Verdict: PASS**
+**Verdict: PASS** — no unaddressed review comments.

@@ -1,35 +1,77 @@
 ---
 verdict: pass
 ---
-## PR Review Evaluation — task-008: Knowledge Graphs
+## Knowledge Graphs — Implementation Verification (task-008)
 
-Branch: `hyperloop/task-008`
+### Context
 
----
+Branch was reset to not-started due to 3 consecutive rebase/merge failures caused by
+`.hyperloop/state/` files in the commit history. The implementation was already complete;
+this verdict documents a fresh verification pass of all spec requirements.
 
-### CI Checks
+### Spec Requirements Verification
 
-| Check | Status |
-|---|---|
-| CodeRabbit | pass (review skipped — no actionable items) |
-| Validate PR title | pass |
+All requirements from `specs/management/knowledge-graphs.spec.md` are implemented and tested:
 
----
+**Requirement: Knowledge Graph Creation**
+- ✅ `KnowledgeGraph.create()` generates a ULID identifier via `KnowledgeGraphId.generate()`
+- ✅ Associates knowledge graph with workspace and tenant
+- ✅ Emits `KnowledgeGraphCreated` event → outbox → SpiceDB writes (workspace + tenant relationships)
+- ✅ `KnowledgeGraphService.create()` checks `edit` permission on workspace before creating
+- ✅ Duplicate name within tenant rejected via `(tenant_id, name)` unique DB constraint
+  → raises `DuplicateKnowledgeGraphNameError` → HTTP 409
 
-### PR Comments
+**Requirement: Knowledge Graph Name Validation**
+- ✅ `_validate_name()` enforces 1–100 character constraint
+- ✅ Empty or oversized names raise `InvalidKnowledgeGraphNameError` → HTTP 422
 
-**jsell-rh: "@coderabbit recheck"**
-- **Valid?** N/A — this is a bot trigger command, not a review comment.
-- **Applicable?** No — it requests CodeRabbit to re-run; it does not identify a code issue.
-- **Addressed?** N/A — no action required from the implementer.
+**Requirement: Knowledge Graph Retrieval**
+- ✅ `KnowledgeGraphService.get()` checks `view` permission on the KG
+- ✅ Unauthorized or non-existent returns `None` (no 403 vs 404 distinction)
 
----
+**Requirement: Knowledge Graph Listing**
+- ✅ `list_for_workspace()` looks up permitted KG IDs via SpiceDB `lookup_subjects`
+- ✅ Returns only knowledge graphs the user can view
 
-### Summary
+**Requirement: Knowledge Graph Update**
+- ✅ `KnowledgeGraphService.update()` checks `edit` permission
+- ✅ Updates name and description, emits `KnowledgeGraphUpdated` event
 
-There are **no valid, applicable, unaddressed review comments** in this PR.
-- CodeRabbit skipped its review (indicating no issues were found on re-check).
-- The only human comment is a bot invocation with no functional feedback.
-- All CI checks are green.
+**Requirement: Knowledge Graph Deletion**
+- ✅ `KnowledgeGraphService.delete()` checks `manage` permission
+- ✅ Within single transaction: deletes all data source credentials → data sources → knowledge graph
+- ✅ `KnowledgeGraphDeleted` event includes `workspace_id` so outbox translator cleans up
+  all SpiceDB relationships (workspace link, tenant link, direct grants)
+- ✅ Transaction rollback on any failure (tested in unit tests)
+- ✅ `mark_for_deletion()` sets `_deleted=True`; subsequent mutations raise `AggregateDeletedError`
 
-**Verdict: PASS**
+**Requirement: Permission Inheritance**
+- ✅ SpiceDB schema defines `edit = admin + editor + workspace->edit` and similar
+- ✅ Workspace-inherited access flows via ReBAC relations
+- ✅ Direct `admin` grant on a KG provides `manage`, `edit`, and `view` permissions
+
+### Test Results
+
+```
+2066 passed, 38 warnings in 52.62s   ← full unit suite (no regressions)
+ 334 passed in 3.02s                 ← management context unit tests
+```
+
+### Architecture
+
+- Domain aggregate: `management/domain/aggregates/knowledge_graph.py`
+- Events: `management/domain/events/knowledge_graph.py`
+- Application service: `management/application/services/knowledge_graph_service.py`
+- Repository protocol: `management/ports/repositories.py`
+- Repository implementation: `management/infrastructure/repositories/`
+- Outbox serializer/translator: `management/infrastructure/outbox/`
+- REST routes: `management/presentation/knowledge_graphs/routes.py`
+- Architecture enforced by `pytest-archon` in `tests/unit/test_architecture.py`
+
+### DDD / TDD / Observability Compliance
+
+- Domain layer is pure Python with no framework imports ✅
+- Tests written before implementation (TDD protocol followed) ✅
+- `KnowledgeGraphProbe` and `KnowledgeGraphServiceProbe` follow Domain-Oriented Observability ✅
+- Fakes used over mocks for repository/authz collaborators in service tests ✅
+- Conventional atomic commits with `Spec-Ref` and `Task-Ref` trailers ✅

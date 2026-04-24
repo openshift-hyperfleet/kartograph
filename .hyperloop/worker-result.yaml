@@ -1,25 +1,81 @@
 ---
 verdict: pass
 ---
-## PR Review Evaluation — task-008: Knowledge Graphs
+## Task-008: Knowledge Graphs — Worker Verification
 
 Branch: `hyperloop/task-008`
 
-### PR Feedback Analysis
+### Summary
 
-**CI Checks:**
-- `CodeRabbit` — Review skipped. No review comments generated.
-- `Validate PR title` — Passed.
+Fresh verification pass on the existing implementation. All requirements from
+`specs/management/knowledge-graphs.spec.md` are fully implemented and verified
+against 2066 passing unit tests.
 
-**PR Comments:**
-- `jsell-rh: @coderabbit recheck` — Bot trigger command, not an actionable review comment.
-  No substantive feedback present.
+### Spec Coverage
 
-### Verdict
+**Requirement: Knowledge Graph Creation**
+- PASS: Successful creation — `KnowledgeGraph.create()` generates a ULID,
+  associates workspace and tenant, emits `KnowledgeGraphCreated` event which the
+  outbox translator converts to SpiceDB `workspace` and `tenant` relationship writes.
+- PASS: Duplicate name within tenant — `UniqueConstraint("tenant_id", "name")`
+  on the ORM model; `IntegrityError` is caught and re-raised as
+  `DuplicateKnowledgeGraphNameError` → HTTP 409.
 
-There are **no valid, applicable review comments** to evaluate. CodeRabbit's review was
-skipped entirely, and the only PR comment is a bot invocation with no content to address.
+**Requirement: Knowledge Graph Name Validation**
+- PASS: Valid name — 1–100 characters accepted by `_validate_name()`.
+- PASS: Empty or oversized name — `InvalidKnowledgeGraphNameError` raised,
+  surfaced as HTTP 422 via Pydantic `max_length=100, min_length=1` on the request model.
 
-All CI checks pass. Nothing requires remediation.
+**Requirement: Knowledge Graph Retrieval**
+- PASS: Authorized retrieval — `get()` checks VIEW permission; returns aggregate.
+- PASS: Unauthorized or non-existent — `get()` returns `None` (no existence
+  leakage); route returns HTTP 404 in both cases.
 
-**Result: pass**
+**Requirement: Knowledge Graph Listing**
+- PASS: List for workspace — `list_for_workspace()` reads SpiceDB relationships
+  to discover KG IDs, fetches each from the repository, and filters by tenant.
+
+**Requirement: Knowledge Graph Update**
+- PASS: Update name and description — `update()` checks EDIT permission,
+  calls `kg.update()`, saves via repository. `KnowledgeGraphUpdated` event emitted.
+
+**Requirement: Knowledge Graph Deletion**
+- PASS: Successful deletion — `delete()` checks MANAGE permission, cascades
+  data source deletion (including encrypted credentials), then deletes the KG — all
+  within a single `async with session.begin()` transaction. `KnowledgeGraphDeleted`
+  event triggers outbox to remove workspace, tenant, admin, editor, and viewer
+  relationships from SpiceDB.
+- PASS: Atomicity — test `test_delete_rolls_back_on_ds_deletion_failure` verifies
+  that if any DS deletion raises, `kg_repo.delete` is never called.
+- PASS: Mutation after deletion — `AggregateDeletedError` raised by
+  `kg.update()` when `_deleted=True`.
+
+**Requirement: Permission Inheritance**
+- PASS: Workspace-inherited access — SpiceDB schema defines
+  `permission view = admin + editor + viewer + workspace->view` and
+  `permission edit = admin + editor + workspace->edit`.
+- PASS: Direct grant — SpiceDB `admin`, `editor`, `viewer` relations on
+  `knowledge_graph` resource enable direct grants bypassing workspace role.
+
+### Test Results
+
+```
+2066 passed, 38 warnings
+334 management-specific tests
+```
+
+All 334 management-specific tests pass, including domain aggregate tests,
+application service tests, infrastructure tests (serializer, translator, repository),
+architecture boundary tests, and presentation route tests.
+
+### Architecture
+
+DDD boundaries are enforced by `tests/unit/management/test_architecture.py`:
+- Domain layer: no imports from infrastructure, application, or FastAPI
+- Ports layer: no imports from infrastructure or application
+- Application layer: no imports from infrastructure (only ports)
+- Cross-context: management does not import iam*, graph*, ingestion*, extraction*, query*
+  (routing layer exclusion for IAM auth dependency injection is explicitly documented)
+
+Spec-Ref: specs/management/knowledge-graphs.spec.md@85d49a379a52479b33f9b39994d76795066899a6
+Task-Ref: task-008

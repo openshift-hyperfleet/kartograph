@@ -1,56 +1,45 @@
 ---
 verdict: pass
 ---
-## Task 003: Graph Mutations — Implementation Verification
+## Task 003: Graph Mutations — Verification
+
+### Checklist
+
+| Check | Result | Detail |
+|---|---|---|
+| 1. Unit Tests | PASS | 2027 passed, 0 failures, 40 warnings |
+| 2. Linting (ruff check) | PASS | All checks passed — 0 violations |
+| 3. Formatting (ruff format) | PASS | 441 files already formatted |
+| 4. Type Checking (mypy) | PASS | No issues found in 441 source files |
+| 5. Architecture Boundaries (pytest-archon) | PASS | 40/40 tests pass |
+| 6. Code Review | PASS | See details below |
+
+### Code Review Findings
+
+**Domain probes / no logger/print:** PASS — no direct `logger.*` or `print()` calls in domain or application code. `GraphServiceProbe` and `MutationProbe` protocols used throughout.
+
+**Fake-over-mock policy:** PASS — `FakeAuthorizationProvider` (not `AsyncMock`) used in all presentation-layer tests. The three `MagicMock` uses found are in `test_mutation_applier_sort.py` to instantiate `MutationApplier` solely to access its `_sort_operations` helper; the mocked infrastructure deps (`client`, `bulk_loading_strategy`) are never called and the code comment explicitly justifies the choice. This is acceptable.
+
+**DDD layer boundaries:** PASS — all 40 `pytest-archon` boundary tests pass. Presentation imports application, application imports domain/ports, infrastructure never imported in domain.
+
+**Commit trailers:** PASS — all implementation commits carry `Spec-Ref: specs/graph/mutations.spec.md@85d49a...` and `Task-Ref: task-003`.
+
+**Spec coverage (all 10 SHALL requirements):**
+
+| Requirement | Status |
+|---|---|
+| Per-Tenant Graph Isolation (`tenant_{tenant_id}`) | PASS |
+| KnowledgeGraph Scoping — SpiceDB `edit` auth | PASS |
+| KnowledgeGraph Scoping — `knowledge_graph_id` stamping / spoof prevention | PASS |
+| Mutation Log Format — JSONL, parse errors, empty lines | PASS |
+| DEFINE Operation — node/edge types with auto system properties | PASS |
+| CREATE Operation — idempotent merge, edge creation, missing type/props validation, schema learning | PASS |
+| UPDATE Operation — set/remove properties, schema learning | PASS |
+| DELETE Operation — cascading detach (node), edge-only delete | PASS |
+| Mandatory System Properties — `data_source_id`, `source_path`, `slug`, `knowledge_graph_id` | PASS |
+| Deterministic Entity IDs — `{type}:{16_hex_chars}` pattern | PASS |
+| Referential Integrity Ordering — DEFINE→DELETE(edge,node)→CREATE(node,edge)→UPDATE | PASS |
 
 ### Summary
 
-The Graph Mutations feature is fully implemented and all 2027 unit tests pass.
-
-### Spec Coverage
-
-| Requirement | Scenario | Status | Test Location |
-|---|---|---|---|
-| Per-Tenant Graph Isolation | Tenant graph routing (`tenant_{tenant_id}`) | ✅ PASS | `test_routes.py::TestTenantGraphRouting` |
-| KnowledgeGraph Scoping | Mutation authorization (SpiceDB `edit` permission) | ✅ PASS | `test_routes.py::TestKnowledgeGraphScopedMutationsRoute` |
-| KnowledgeGraph Scoping | KG ID stamping / spoof prevention | ✅ PASS | `test_mutation_service.py::TestKnowledgeGraphIdStamping` |
-| Mutation Log Format | Valid JSONL parsing | ✅ PASS | `test_mutation_service.py::TestGraphMutationServiceApplyFromJSONL` |
-| Mutation Log Format | Parse error with line number + preview | ✅ PASS | `test_mutation_service.py::test_returns_error_on_invalid_json` |
-| Mutation Log Format | Empty lines skipped | ✅ PASS | `test_mutation_service.py::test_handles_whitespace_only_lines` |
-| DEFINE Operation | Node type with auto-added system properties | ✅ PASS | `test_mutation_service.py::test_apply_mutations_stores_define_operations` |
-| DEFINE Operation | Edge type with edge-specific system properties | ✅ PASS | `test_mutation_service.py::test_apply_define_edge_type_adds_edge_system_properties` |
-| CREATE Operation | New node creation | ✅ PASS | `test_domain_value_objects.py`, `test_mutation_service.py` |
-| CREATE Operation | Idempotent merge (AGE MERGE semantics) | ✅ PASS | `test_age_query_builder_update_merge.py` |
-| CREATE Operation | Edge creation (start_id + end_id) | ✅ PASS | `test_domain_value_objects.py::test_create_edge_valid` |
-| CREATE Operation | Missing type definition → validation error | ✅ PASS | `test_mutation_service.py::test_rejects_create_without_define_in_batch` |
-| CREATE Operation | Missing required properties → validation error | ✅ PASS | `test_mutation_service.py::test_rejects_create_missing_required_properties` |
-| CREATE Operation | Schema learning (extra props → optional props) | ✅ PASS | `test_schema_learning.py::TestSchemaLearning` |
-| UPDATE Operation | Set properties | ✅ PASS | `test_domain_value_objects.py::test_update_with_set_properties` |
-| UPDATE Operation | Remove properties | ✅ PASS | `test_domain_value_objects.py::test_update_with_remove_properties` |
-| UPDATE Operation | Schema learning on update | ✅ PASS | `test_schema_learning.py::test_update_discovers_optional_properties` |
-| DELETE Operation | Node with cascading detach delete | ✅ PASS | `test_age_strategy_deletes.py` |
-| DELETE Operation | Edge-only delete | ✅ PASS | `test_age_strategy_deletes.py::test_calls_delete_edge_once_per_id` |
-| Mandatory System Properties | Node: data_source_id, source_path, slug, knowledge_graph_id | ✅ PASS | `test_domain_value_objects.py` |
-| Mandatory System Properties | Edge: data_source_id, source_path, knowledge_graph_id | ✅ PASS | `test_domain_value_objects.py::test_create_edge_valid` |
-| Deterministic Entity IDs | `{type}:{16_hex_chars}` format, same input → same ID | ✅ PASS | `test_entity_id_generator.py::TestEntityIdGenerator` |
-| Referential Integrity Ordering | DEFINE→DELETE(edge,node)→CREATE(node,edge)→UPDATE | ✅ PASS | `test_mutation_applier_sort.py::TestSortOperationsReferentialIntegrity` |
-
-### DDD Architecture Compliance
-
-- **Domain**: `MutationOperation`, `TypeDefinition`, `MutationResult`, `NodeRecord`, `EdgeRecord` — pure Python, no framework imports
-- **Ports**: `ITypeDefinitionRepository`, `IMutationApplier`, `BulkLoadingStrategy` — Protocol-based interfaces
-- **Application**: `GraphMutationService` — orchestrates domain + ports only, uses `GraphServiceProbe` for observability
-- **Infrastructure**: `MutationApplier`, `AgeBulkLoadingStrategy`, `InMemoryTypeDefinitionRepository` — implements ports
-- **Presentation**: FastAPI routes with SpiceDB authorization and dependency injection
-
-### Observability
-
-Domain-Oriented Observability implemented via `GraphServiceProbe` and `MutationProbe` protocols with `DefaultGraphServiceProbe` and `DefaultMutationProbe` implementations using structlog.
-
-### Test Results
-
-```
-2027 passed, 39 warnings
-```
-
-All tests pass. No regressions.
+All verification checks pass. The implementation is complete, correct, and clean.

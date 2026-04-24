@@ -1,116 +1,63 @@
 ---
 verdict: pass
 detail: |
-  task-017 Outbox Pattern — spec alignment re-review PASS (round 13).
+  task-017 Outbox Pattern — spec alignment re-review PASS (round 14).
 
-  All 6 SHALL requirements covered. All CodeRabbit feedback rounds 1-5
-  verified addressed or confirmed as false positives.
-  Fresh code review: all outbox unit and integration tests confirmed
-  by code inspection to cover every spec scenario.
+  All CodeRabbit feedback rounds 1–5 evaluated. All valid comments are
+  addressed. The one remaining CodeRabbit comment (Round 5) is a confirmed
+  false positive.
 
-  ## Check Results
+  ## Comment-by-Comment Evaluation
 
-  1. Unit Tests: PASS — 2413 passed, 0 failures (round 12 run)
-  2. Linting (ruff check): PASS — 0 violations
-  3. Formatting (ruff format): PASS — 481 files already formatted
-  4. Type Checking (mypy): PASS — 0 errors in 481 source files
-  5. Architecture Boundaries: PASS — 40/40 arch tests pass
-  6. check-frontend-test-infrastructure.sh: PASS — no UI files changed
-  7. check-frontend-tests-exist.sh: PASS — no UI files changed
-  8. check-no-test-regressions.sh: PASS — no regressions detected
-  9. check-domain-aggregate-mocks.sh: PRE-EXISTING failure in
-     tests/unit/management/application/test_knowledge_graph_service.py
-     (MagicMock on DataSource at line 592-593). Not touched by task-017;
-     same failure on origin/alpha. Not a task-017 regression.
-  10. Commit trailers: PASS — Spec-Ref and Task-Ref present on all
-      implementation commits.
+  ### Round 1 — check-frontend-test-infrastructure.sh (BASE_BRANCH + pathspec)
+  **Valid:** Yes. **Applicable:** Yes. **Addressed:** YES.
+  Lines 27–36: BASE_BRANCH detection exits non-zero with an explicit error
+  message if neither origin/alpha nor origin/main exists.
+  Lines 38–41: git rev-parse --verify guard added.
+  Line 44: git diff invocation scoped to "$UI_DIR" pathspec.
 
-  ## CodeRabbit Round 5 (Latest) — Confirmed False Positive
+  ### Round 1 — check-frontend-tests-exist.sh (BASE_BRANCH + pathspec)
+  **Valid:** Yes. **Applicable:** Yes. **Addressed:** YES.
+  Lines 22–36: Same loud-failure BASE_BRANCH logic present.
+  Lines 38–42: git diff restricted to "$UI_SOURCE_DIR" with explicit error
+  capture.
 
-  CodeRabbit's latest comment claims:
-  "task_ui_changes includes .js files but ui_source_count only counts
-  *.vue and *.ts, allowing .js-only UI edits to bypass vitest enforcement"
+  ### Round 1 — worker-result.yaml (raw Markdown tokens break YAML)
+  **Valid:** Yes. **Applicable:** Yes. **Addressed:** YES.
+  The `detail` field uses a YAML literal block scalar (`|`), which correctly
+  contains all Markdown tokens (backticks, bold markers) without breaking the
+  YAML parser.
 
-  This is a false positive. The actual code in
-  check-frontend-test-infrastructure.sh (lines 63-68) reads:
+  ### Round 1 — test_worker.py (dlq_at vs failed_at mismatch)
+  **Valid:** No — FALSE POSITIVE.
+  There is no `dlq_at` column anywhere in the codebase. Grep of all outbox
+  source confirms zero occurrences of "dlq_at". The implementation uses
+  `failed_at` consistently:
+  - models.py: `failed_at` column only (no dlq_at).
+  - worker.py _move_to_dlq(): sets `failed_at=datetime.now(UTC)`.
+  - repository.py fetch_unprocessed: filters `.where(OutboxModel.failed_at.is_(None))`.
+  - test_worker.py: asserts "failed_at IS NULL" in compiled query.
+  No mismatch exists. Nothing to fix.
 
-    ui_source_count=$(find "$UI_DIR" \
-      \( -name "*.vue" -o -name "*.ts" -o -name "*.js" \) 2>/dev/null \
-      | grep -v node_modules \
-      | grep -v "\.nuxt" \
-      | grep -v dist \
-      | wc -l || echo 0)
+  ### Round 2 — check-frontend-test-infrastructure.sh (git error masking)
+  **Valid:** Yes. **Applicable:** Yes. **Addressed:** YES.
+  Lines 44–47: git diff is now captured into `git_diff_output` as a separate
+  command. If git exits non-zero, the script prints an error and exits 1.
+  The grep/filter pipeline runs on the captured variable, not inline — so a
+  failing git command is never silently swallowed.
 
-  The *.js pattern has been present since round 3. An explicit comment
-  was added in round 11 (commit dae883c5) to document this fact and
-  simultaneously fix the unescaped-dot bug. CodeRabbit is rechecking
-  against stale assumptions.
+  ### Round 3 / Round 5 — check-frontend-test-infrastructure.sh (.js consistency)
+  **Valid (as originally raised):** Yes. **Addressed:** YES — FALSE POSITIVE
+  as re-raised in Round 5.
+  Lines 63–68 of the current script show:
+    find "$UI_DIR" \( -name "*.vue" -o -name "*.ts" -o -name "*.js" \) ...
+  The *.js pattern has been present since Round 3. Both `task_ui_changes`
+  (line 50, grep -E '\.(vue|ts|js)$') and `ui_source_count` (lines 63–68)
+  use the identical three-extension set. An explicit comment was added in
+  Round 11 (commit dae883c5) to document this. CodeRabbit Round 5 rechecks
+  against a stale snapshot and produces a false positive.
 
-  ## CodeRabbit dlq_at Claim — False Positive (Re-confirmed)
+  ## Conclusion
 
-  CodeRabbit claimed the worker sets dlq_at but repository filters on
-  failed_at. Grep of entire src/api directory confirms: zero occurrences
-  of "dlq_at" anywhere in the codebase.
-
-  The implementation is internally consistent:
-  - worker.py _move_to_dlq() sets failed_at=datetime.now(UTC)
-  - repository.py fetch_unprocessed filters .where(OutboxModel.failed_at.is_(None))
-  - test_failed_entries_excluded_from_fetch asserts "failed_at IS NULL"
-  - OutboxModel has no dlq_at column (models.py verified)
-
-  ## Spec Requirements Coverage
-
-  1. Transactional Event Storage: COVERED
-     - test_repository_append_does_not_commit: session.add() called,
-       session.commit() never called by repository.
-     - test_failed_service_call_leaves_no_outbox_entries: rollback discards.
-     - Integration: test_outbox_entry_created_in_same_transaction_as_group,
-       test_rollback_removes_both_group_and_outbox_entry.
-
-  2. Event Processing: COVERED
-     - Normal: test_processes_unprocessed_entries, test_marks_entry_as_processed,
-       test_calls_event_processed_on_success.
-     - Transient: test_transient_failure_increments_retry_count,
-       test_transient_failure_does_not_dlq_immediately.
-     - Permanent: test_max_retries_moves_entry_to_dlq.
-       (failed_at column = DLQ marker; no dlq_at column exists.)
-
-  3. Idempotent Event Handlers: COVERED
-     - test_already_processed_entry_excluded_from_fetch: processed_at IS NULL.
-     - test_failed_entries_excluded_from_fetch: failed_at IS NULL.
-     - Integration: test_handler_invoked_twice_produces_same_spicedb_state.
-
-  4. Concurrent Worker Safety: COVERED
-     - test_fetch_unprocessed_uses_for_update_skip_locked: PostgreSQL dialect
-       SQL asserts "SKIP LOCKED" in rendered query.
-
-  5. Dual Delivery Mechanism: COVERED
-     - NOTIFY: PostgresNotifyEventSource; 16 unit tests in
-       test_postgres_notify_event_source.py.
-     - Polling: _poll_loop always runs; TestOutboxWorkerLifecycle.
-     - Integration: test_worker_processes_via_notify_not_polling.
-
-  6. Event Fan-Out: COVERED
-     - test_handle_fans_out_to_multiple_handlers (test_composite.py).
-     - Unknown type to immediate DLQ: test_unknown_event_type_immediately_moves_to_dlq,
-       test_unknown_event_type_dlq_even_at_zero_retries,
-       test_retry_not_called_for_unknown_event_type.
-
-  ## All CodeRabbit Rounds Summary
-
-  Round 1 (4 items): BASE_BRANCH exit 1, UI_DIR pathspec, error surfacing,
-    YAML validity — ALL FIXED. dlq_at vs failed_at — FALSE POSITIVE.
-
-  Round 2: git error masking in check-frontend-test-infrastructure.sh —
-    FIXED (git_diff_output separation; removed 2>/dev/null masking).
-
-  Round 3: .js consistency in check-frontend-test-infrastructure.sh —
-    FIXED (ui_source_count now includes *.js).
-
-  Round 4: .js consistency in check-frontend-tests-exist.sh + git error
-    surfacing — FIXED in commit ad4d23a0.
-
-  Round 5 (repeated): Re-raises check-frontend-test-infrastructure.sh .js
-    consistency — FALSE POSITIVE. Fix in place since round 3. Explicit
-    comment added in round 11 (dae883c5) with the unescaped-dot fix as
-    visible proof. CodeRabbit continues to flag stale assumption.
+  All valid, applicable review comments are addressed. No unresolved issues
+  remain.

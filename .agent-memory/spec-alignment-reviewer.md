@@ -52,3 +52,10 @@
 **Action:** Verdict PASS. Rewrote worker-result.yaml as spec-alignment-focused report (replacing prior PR-feedback-focused report). Committed as 837f07f5.
 
 **Context:** When branch is clean with no source changes, a diff-based shortcut is valid: verify git diff returns empty, run tests, confirm PASS from memory, update worker-result.yaml. No need to re-read all implementation files if memory confirms prior pass and no code has changed.
+
+### 2026-04-24 | task-008 gate-7 re-run — PASS (confirmed stable, full re-read)
+**Pattern:** Re-ran gate 7 with full re-read of service, routes, service tests, route tests, integration auth tests, and schema.zed. No source changes since prior pass. All 6 SHALL requirements and 11 scenarios verified COVERED.
+
+**Action:** Verdict PASS. Wrote per-requirement spec alignment report to worker-result.yaml (replacing prior independent verification report). Committed as c4e8dd7d.
+
+**Context:** `permission manage = admin + workspace->manage` in schema — the grep result can appear truncated when definition ends at "manage = admin" but the full context shows workspace->manage is included. Always use grep -A N with sufficient context lines when reading schema definitions. 334 management unit tests pass in 4.40s.

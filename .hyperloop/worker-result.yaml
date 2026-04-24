@@ -1,111 +1,24 @@
 ---
 verdict: pass
 ---
-## Task 003: Graph Mutations — Spec Alignment Review
+## PR Review Evaluation — Task 003: Graph Mutations
 
-### Test Run
+### PR Feedback Analysis
 
-- **Unit tests**: 2027 passed, 0 failures, 0 errors (50s)
-- Architecture boundary tests: 40/40 pass (included in 2027 above)
+**CI Checks:**
+- `CodeRabbit`: pass — review was **skipped** (no actionable comments generated)
+- `Validate PR title`: pass (6s)
 
-### Requirement Coverage
+**PR Comments:**
+- `jsell-rh`: `@coderabbit recheck` — This is a trigger message asking CodeRabbit to re-run its review. It is not a review comment identifying a code issue and requires no code change.
 
-**1. Per-Tenant Graph Isolation — COVERED**
-- Implementation: `get_tenant_graph_name()` in `graph/dependencies.py` returns
-  `f"tenant_{current_user.tenant_id.value}"`. `get_age_graph_client()` wires this
-  into `AgeGraphClient`, so every mutation executes against `tenant_{tenant_id}`.
-- Tests: `TestTenantGraphRouting::test_graph_client_uses_tenant_specific_graph_name`
-  and `test_graph_name_uses_full_tenant_id` in
-  `tests/unit/graph/presentation/test_routes.py`.
+### Review Comment Assessment
 
-**2. KnowledgeGraph Scoping (authorization) — COVERED**
-- Implementation: `apply_kg_mutations` route calls
-  `authz.check_permission(resource, Permission.EDIT, subject)` before delegating;
-  raises HTTP 403 on denial. Resource formatted as `knowledge_graph:{id}`.
-- Tests: `test_kg_mutations_route_forbidden_without_edit_permission`,
-  `test_kg_mutations_route_checks_correct_resource`,
-  `test_kg_mutations_route_forbidden_returns_correct_status` in `test_routes.py`.
-
-**2. KnowledgeGraph Scoping (ID stamping) — COVERED**
-- Implementation: `GraphMutationService._stamp_knowledge_graph_id()` overwrites
-  any caller-supplied `knowledge_graph_id` on all CREATE and UPDATE operations.
-  Route passes the path-param ID to `apply_mutations_from_jsonl(knowledge_graph_id=...)`.
-- Tests: `test_stamps_knowledge_graph_id_on_create_operation`,
-  `test_overwrites_caller_provided_knowledge_graph_id`,
-  `test_stamps_knowledge_graph_id_on_update_operation`,
-  `test_stamps_knowledge_graph_id_in_jsonl_parse`,
-  `test_kg_mutations_route_passes_knowledge_graph_id_to_service`.
-
-**3. Mutation Log Format — COVERED**
-- Valid JSONL: `test_parses_jsonl_and_applies_mutations` — parses and applies in order.
-- Parse error: `test_returns_error_on_invalid_json` — verifies error includes
-  "line 1" token and a "Line content:" preview (>=2 error entries).
-- Empty lines: `test_handles_whitespace_only_lines` — blank lines skipped without error.
-
-**4. DEFINE Operation — COVERED**
-- Node type: `test_apply_mutations_stores_define_operations` — verifies
-  `data_source_id`, `source_path`, `slug` auto-injected into `required_properties`.
-- Edge type: `test_apply_define_edge_type_adds_edge_system_properties` — verifies
-  `data_source_id` and `source_path` added; `slug` absent for edges.
-
-**5. CREATE Operation — COVERED**
-- New node: Infrastructure inserts via `NOT EXISTS` guard in
-  `_build_insert_existing_label_query()`.
-- Idempotent merge: `_build_update_existing_query()` uses `jsonb ||` merge operator.
-  Tests: `test_uses_jsonb_merge_operator_not_simple_assignment`,
-  `test_does_not_overwrite_with_staging_properties_alone`,
-  `test_references_both_tables_in_set_clause` in `test_age_query_builder_update_merge.py`.
-- Create edge: `_execute_creates` with `EntityType.EDGE` resolves `start_id`/`end_id`
-  graphids via lookup table.
-- Missing type definition: `test_rejects_create_without_define_in_batch`.
-- Missing required properties: `test_rejects_create_missing_required_properties`.
-- Schema learning: `test_extra_properties_added_to_optional`,
-  `test_optional_properties_accumulate`, `test_system_properties_excluded_from_optional`
-  in `test_schema_learning.py`.
-
-**6. UPDATE Operation — COVERED**
-- Set properties: `update_properties()` uses `jsonb ||` merge (preserves unlisted props).
-  Covered by `test_update_discovers_optional_properties` (service layer) and
-  integration test `test_update_node_merges_properties`.
-- Remove properties: `remove_properties()` uses `jsonb - %s::text[]`.
-  Tests: `test_update_with_remove_properties` (domain value object validation) and
-  integration test `test_update_node_removes_properties` in `test_bulk_loading.py`.
-- Schema learning on update: `test_update_discovers_optional_properties` and
-  `test_update_without_label_skips_schema_learning`.
-
-**7. DELETE Operation — COVERED**
-- Delete node (cascading): `delete_node_with_detach()` deletes connected edges first,
-  then the node. Tests: `test_executes_two_queries`,
-  `test_edge_deletion_references_start_and_end_id` in `test_age_query_builder_deletes.py`.
-  Strategy-level: `test_calls_delete_node_once_per_id` in `test_age_strategy_deletes.py`.
-- Delete edge: `delete_edge()` removes only the edge.
-  Tests: `test_calls_delete_edge_once_per_id`, `test_executes_single_query`.
-
-**8. Mandatory System Properties — COVERED**
-- Node system properties: `validate_operation()` checks `data_source_id`,
-  `source_path`, `slug`, `knowledge_graph_id` in `set_properties` for nodes.
-  Tests: `test_rejects_create_missing_system_properties` in
-  `test_create_define_same_batch_validation.py`.
-- Edge system properties: Same check minus `slug`.
-  Tests: `test_edge_does_not_require_slug`. `knowledge_graph_id` validated for both
-  (stamped by service before validation when `knowledge_graph_id` param provided).
-
-**9. Deterministic Entity IDs — COVERED**
-- Implementation: `EntityIdGenerator.generate()` produces `{type}:{16_hex_chars}`.
-  `MutationOperation.id` field enforces regex `^[0-9a-z_]+:[0-9a-f]{16}$`.
-- Tests: `test_is_deterministic`, `test_includes_type_prefix`,
-  `test_hash_portion_length` (16 chars), `test_hash_portion_is_hex`,
-  `test_consistency_across_calls` in `test_entity_id_generator.py`.
-
-**10. Referential Integrity Ordering — COVERED**
-- Implementation: `MutationApplier._sort_operations()` sorts by priority:
-  DEFINE(0) -> DELETE edge(1,0) -> DELETE node(1,1) ->
-  CREATE node(2,0) -> CREATE edge(2,1) -> UPDATE(3).
-- Tests: `test_sort_order_define_delete_create_update` in
-  `test_mutation_applier_sort.py` — asserts exact positional ordering of all 6
-  sub-types. `test_sort_preserves_all_operations` confirms no drops/duplicates.
+| Comment | Valid? | Applicable? | Addressed? |
+|---------|--------|-------------|------------|
+| CodeRabbit (skipped) | N/A — no comments generated | N/A | N/A |
+| `@coderabbit recheck` | No — not a code review comment | No | N/A |
 
 ### Verdict: PASS
 
-All 10 SHALL requirements are implemented and have corresponding test coverage
-for every scenario. No missing or partial requirements found.
+There are no valid, applicable review comments that require code changes. All CI checks pass. No unaddressed items.

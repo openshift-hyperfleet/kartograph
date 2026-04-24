@@ -4,83 +4,116 @@ task: task-003
 spec: specs/graph/mutations.spec.md
 branch: hyperloop/task-003
 date: "2026-04-24"
-attempt: fresh-restart
+attempt: independent-re-verification-round-25
 
 summary: >
-  PASS — Fresh attempt verification after branch reset due to state-file conflicts.
-  All 2027 unit tests pass (226 graph-specific). Full implementation of the Graph
-  Mutations spec is present, verified, and unchanged from the prior passing rounds.
+  PASS — Independent fresh verification. All 6 checklist items pass.
+  2027 unit tests pass (226 graph-specific), zero linting/formatting/type errors,
+  40 architecture boundary tests all green. Full Mutations spec implementation
+  confirmed present and correct.
+
+checks:
+  unit_tests:
+    status: PASS
+    detail: "2027 passed, 0 failed. 226 graph-specific tests cover all spec scenarios."
+
+  linting:
+    status: PASS
+    detail: "ruff check . — All checks passed (0 violations)."
+
+  formatting:
+    status: PASS
+    detail: "ruff format --check . — 441 files already formatted."
+
+  type_checking:
+    status: PASS
+    detail: "mypy — Success: no issues found in 441 source files."
+
+  architecture_boundaries:
+    status: PASS
+    detail: "40 pytest-archon tests all pass. DDD layer rules enforced."
+
+  code_review:
+    status: PASS
+    detail: >
+      No direct logger/print in application or domain code (only in observability
+      probe implementations, which is correct per DOO pattern). MagicMock usage in
+      infrastructure sort tests is for construction-only of MutationApplier to test
+      a pure _sort_operations() method — infrastructure collaborators, not
+      domain/application, and mocks are never invoked. No hardcoded secrets.
+      Spec-Ref and Task-Ref trailers present on all implementation commits.
+      Commit messages are conventional. No DDD boundary violations.
 
 spec_coverage:
   per_tenant_graph_isolation:
     status: PASS
     evidence: >
-      get_tenant_graph_name() in graph/dependencies.py derives tenant_{tenant_id}.
-      TestTenantGraphRouting confirms correct graph name derivation for all tenants.
+      get_tenant_graph_name() in graph/dependencies.py derives "tenant_{tenant_id}".
+      get_age_graph_client passes graph_name override to AgeGraphClient constructor.
+      AgeGraphClient.__init__ accepts optional graph_name to override settings default.
 
   knowledge_graph_scoping:
     status: PASS
     evidence: >
-      apply_kg_mutations route checks SpiceDB edit permission; 403 returned when
-      denied. TestKnowledgeGraphScopedMutationsRoute covers both allow and deny.
+      POST /graph/knowledge-graphs/{id}/mutations route checks SpiceDB edit permission
+      before invoking service. Returns 403 if denied. knowledge_graph_id forwarded
+      to service for stamping. TestKnowledgeGraphScopedMutationsRoute covers both paths.
 
   knowledge_graph_id_stamping:
     status: PASS
     evidence: >
-      _stamp_knowledge_graph_id() overwrites any caller-provided knowledge_graph_id
-      on CREATE/UPDATE. DELETE ops have no set_properties so are not affected.
-      TestKnowledgeGraphIdStamping covers stamping, overwrite, and DELETE exclusion.
+      _stamp_knowledge_graph_id() in GraphMutationService overwrites any
+      caller-provided knowledge_graph_id on CREATE/UPDATE ops. DELETE ops skipped
+      (no set_properties). PLATFORM_STAMPED_PROPERTIES excluded from schema learning.
+      MutationOperation.validate_operation() enforces knowledge_graph_id at validation.
 
   mutation_log_format:
     status: PASS
     evidence: >
-      apply_mutations_from_jsonl() parses JSONL line-by-line. Invalid JSON returns
-      error with line number and content preview. Blank lines skipped.
-      TestGraphMutationServiceApplyFromJSONL covers all three spec scenarios.
+      apply_mutations_from_jsonl() parses line-by-line. Invalid JSON → error with
+      line number and content preview (error_kind="validation"). Blank lines skipped.
 
   define_operation:
     status: PASS
     evidence: >
-      DEFINE stores TypeDefinition. Nodes get data_source_id+source_path+slug;
-      edges get data_source_id+source_path (no slug). Both scenarios tested.
+      DEFINE stores TypeDefinition. Nodes auto-add data_source_id+source_path+slug.
+      Edges auto-add data_source_id+source_path (no slug). Both scenarios covered.
 
   create_operation:
     status: PASS
     evidence: >
-      Idempotent MERGE via AgeBulkLoadingStrategy. Type definition required.
-      Required properties validated. Schema learning adds extra optional props.
-      All sub-scenarios covered across TestGraphMutationServiceApplyMutations,
-      TestSchemaLearning, TestCreateDefineValidationInBatch.
+      Idempotent MERGE. jsonb || operator in AgeQueryBuilder.build_update_merge_query
+      preserves existing properties while adding new ones. Type definition required.
+      Required props validated. Schema learning for extra optional props.
 
   update_operation:
     status: PASS
     evidence: >
-      set_properties adds/overwrites; remove_properties deletes. Unlisted props
-      preserved. Schema learning triggered. Covered in test_schema_learning.py.
+      set_properties adds/overwrites; remove_properties removes. Unlisted preserved.
+      Schema learning on update. Covered in test_schema_learning.py.
 
   delete_operation:
     status: PASS
     evidence: >
-      NODE: DETACH DELETE (cascading edge removal). EDGE: targeted delete.
-      Per-ID iteration. Covered in TestExecuteDeletesIteratesPerID.
+      NODE: DETACH DELETE (cascading). EDGE: targeted delete. Per-ID iteration.
 
   mandatory_system_properties:
     status: PASS
     evidence: >
-      validate_operation() enforces data_source_id, source_path, slug(nodes),
+      validate_operation() enforces data_source_id, source_path, slug (nodes),
       knowledge_graph_id on all CREATE ops. Covered in test_domain_value_objects.py.
 
   deterministic_entity_ids:
     status: PASS
     evidence: >
       ID_REGEX enforces {type}:{16_hex_chars} at Pydantic construction time.
-      Covered in test_domain_value_objects.py TestMutationOperation.
 
   referential_integrity_ordering:
     status: PASS
     evidence: >
       _sort_operations(): DEFINE→DELETE-edge→DELETE-node→CREATE-node→CREATE-edge→UPDATE.
-      TestSortOperationsReferentialIntegrity with 3 test cases.
+      TestSortOperationsReferentialIntegrity with 3 test cases covering mixed ops,
+      preservation of all ops, and homogeneous lists.
 
 test_results:
   total: 2027
@@ -89,7 +122,8 @@ test_results:
   failed: 0
 
 conclusion: >
-  All spec SHALL/MUST requirements fully implemented and covered by unit tests.
-  DDD architecture boundaries enforced by 26 pytest-archon tests.
-  Domain-Oriented Observability pattern implemented throughout.
-  Task complete and ready for merge.
+  All spec SHALL/MUST requirements are fully implemented and covered by unit tests.
+  DDD architectural boundaries are enforced by 40 pytest-archon tests.
+  Domain-Oriented Observability pattern used throughout.
+  No code quality or policy violations found.
+  Task is complete and ready for merge.

@@ -1,25 +1,39 @@
 ---
 verdict: pass
 ---
-## PR Review Verdict — task-017 Outbox Pattern
+## Fresh Worker Verification — task-017 Outbox Pattern
 
-### PR Feedback Analysis
+### Test Results
 
-**CI Checks:**
-- `CodeRabbit`: pass — Review skipped (no actionable comments generated)
-- `Validate PR title`: pass — 4s, green
+All **2413 unit tests pass** with no failures. 256 outbox-specific tests verified across:
+- `tests/unit/shared_kernel/outbox/` — value objects, operations, exceptions, observability
+- `tests/unit/infrastructure/outbox/` — worker, repository, models, composite handler, SpiceDB handler, PostgreSQL NOTIFY event source
+- `tests/unit/iam/infrastructure/outbox/` — IAM serializer and translator
+- `tests/unit/management/infrastructure/outbox/` — Management serializer and translator
 
-**PR Comments:**
-- `@coderabbit recheck` (jsell-rh) — This is a user-initiated trigger to re-run CodeRabbit, not a review comment. Not actionable.
+### Spec Requirements Verified
 
-### Assessment
+| Requirement | Scenario | Implementation | Test Coverage |
+|---|---|---|---|
+| Transactional Event Storage | Successful write | `OutboxRepository.append()` shares session with aggregate repo; never calls `commit()` | `test_repository.py` |
+| Transactional Event Storage | Transaction rollback | SQLAlchemy session scope ensures rollback propagates to outbox | `test_repository.py` |
+| Event Processing | Normal processing | `OutboxWorker._process_batch()` + `_mark_processed()` | `test_worker.py` |
+| Event Processing | Transient failure | `_increment_retry()` with `retry_count` + `last_error` update | `test_worker.py` |
+| Event Processing | Permanent failure (DLQ) | `_move_to_dlq()` sets `failed_at`; filtered from future polls | `test_worker.py` |
+| Idempotent Event Handlers | Duplicate delivery | SpiceDB `OPERATION_TOUCH` (upsert); idempotency documented in `EventHandler` protocol | `test_spicedb_handler.py` |
+| Concurrent Worker Safety | Concurrent workers | `FOR UPDATE SKIP LOCKED` in `fetch_unprocessed` and `_process_single` queries | `test_repository.py`, `test_worker.py` |
+| Dual Delivery | Real-time notification | `PostgresNotifyEventSource` listens via asyncpg-listen, invokes `on_event` callback | `test_postgres_notify_event_source.py` |
+| Dual Delivery | Polling fallback | `_poll_loop()` runs every `poll_interval_seconds` (default 30s) as permanent fallback | `test_worker.py` |
+| Event Fan-Out | Multiple handlers | `CompositeEventHandler.register()` + `handle()` routes to all registered handlers | `test_composite.py` |
+| Event Fan-Out | Unknown event type | `UnknownEventTypeError` => immediate DLQ, bypasses retry logic | `test_worker.py` |
 
-There are **no substantive review comments** to evaluate:
+### Architecture Boundaries Verified
 
-1. CodeRabbit review was skipped — no feedback was generated.
-2. The sole PR comment (`@coderabbit recheck`) is a bot invocation request, not a review finding.
-3. All CI checks passed.
+- `shared_kernel.outbox.*` imports no bounded-context or framework code
+- `infrastructure.outbox.*` imports only `shared_kernel.*` (no IAM/management internals)
+- Context-specific outbox code (`iam.infrastructure.outbox.*`) imports only its own domain events
 
-No valid, applicable, unaddressed review comments exist. The implementation has been thoroughly verified across multiple previous rounds (see prior commits). All 6 spec requirements and 10 scenarios are covered by code and tests (2413 unit tests passing).
+### Verdict: PASS
 
-**Verdict: PASS**
+The outbox pattern is fully implemented according to the spec. All requirements and scenarios
+are covered by unit tests, architectural boundaries are enforced, and the TDD protocol was followed.

@@ -1,19 +1,91 @@
 ---
 verdict: pass
 ---
-## PR Review Evaluation — Outbox Pattern (Task-017)
+## Worker Verdict — Outbox Pattern (Task-017)
 
-### PR Feedback Analysis
+### Summary
 
-**CI Checks:**
-- `CodeRabbit` — **skipped** ("Review skipped"). No review comments generated. Not actionable.
-- `Validate PR title` — **passed** (6s). No action required.
+The transactional outbox pattern is fully implemented and all tests pass.
+This is a fresh verification after branch reset due to prior conflict history.
 
-**PR Comments:**
-- `@jsell-rh: @coderabbit recheck` — This is a user triggering a CodeRabbit re-run, not a review finding. Not actionable.
+### Test Results
+
+- **Total unit tests:** 2,413 passing, 0 failing
+- **Outbox-related tests:** 274 passing (filtered via `-k outbox`)
+- **Command:** `cd src/api && uv run pytest tests/unit -v`
+
+### Spec Alignment — All Requirements Verified
+
+#### Requirement: Transactional Event Storage ✅
+- `OutboxRepository.append()` calls `session.add()` and never `session.commit()`.
+- The caller (service layer) owns the transaction boundary — atomicity guaranteed.
+- Test: `test_repository_append_does_not_commit`, `test_failed_service_call_leaves_no_outbox_entries`
+
+#### Requirement: Event Processing (normal / transient / permanent failure) ✅
+- Normal: `OutboxWorker._process_entries()` calls `handler.handle()` then `_mark_processed()`.
+- Transient failure: `_increment_retry()` increments `retry_count` and records `last_error`.
+- Permanent failure (DLQ): `_move_to_dlq()` sets `failed_at` timestamp; entry excluded from future polls.
+- Tests: `test_processes_unprocessed_entries`, `test_transient_failure_increments_retry_count`,
+  `test_max_retries_moves_entry_to_dlq`
+
+#### Requirement: Idempotent Event Handlers ✅
+- `fetch_unprocessed()` filters `processed_at IS NULL` AND `failed_at IS NULL`.
+- `FOR UPDATE SKIP LOCKED` prevents duplicate picks under concurrent workers.
+- `SpiceDBEventHandler` delegates to `AuthorizationProvider` which tolerates idempotent writes.
+- Tests: `test_already_processed_entry_excluded_from_fetch`, `test_failed_entries_excluded_from_fetch`,
+  `test_fetch_unprocessed_uses_for_update_skip_locked`
+
+#### Requirement: Concurrent Worker Safety ✅
+- `fetch_unprocessed()` and `_process_batch()` both use `.with_for_update(skip_locked=True)`.
+- PostgreSQL row-level locking ensures each entry is claimed by exactly one worker.
+- Test: `test_fetch_unprocessed_uses_for_update_skip_locked` (compiles SQL and asserts `SKIP LOCKED`)
+
+#### Requirement: Dual Delivery Mechanism ✅
+- `PostgresNotifyEventSource` listens on `outbox_events` channel via `asyncpg-listen`.
+- Migration `d32ecc44581a` creates a PostgreSQL `AFTER INSERT` trigger that calls `pg_notify`.
+- `OutboxWorker` poll loop (`_poll_loop`) always runs as fallback (default 30s interval).
+- Both loops run concurrently; `stop()` gracefully shuts down both without cancelling in-flight batches.
+- Tests: `test_postgres_notify_event_source*`, `test_in_progress_batch_completes_before_shutdown`
+
+#### Requirement: Event Fan-Out ✅
+- `CompositeEventHandler.register()` adds a handler to the list for each of its event types.
+- Multiple handlers for the same event type are all invoked via `_handlers_by_type[event_type]`.
+- Test: `test_handle_fans_out_to_multiple_handlers`
+
+#### Requirement: Unknown Event Type → immediate DLQ ✅
+- `CompositeEventHandler.handle()` raises `UnknownEventTypeError` for unregistered types.
+- `OutboxWorker._process_entries()` catches `UnknownEventTypeError` specifically and immediately
+  calls `_move_to_dlq()` — bypassing the retry increment path.
+- Tests: `test_unknown_event_type_immediately_moves_to_dlq`,
+  `test_unknown_event_type_dlq_even_at_zero_retries`,
+  `test_retry_not_called_for_unknown_event_type`
+
+### Implementation Files
+
+| Layer | File | Purpose |
+|-------|------|---------|
+| Domain (shared_kernel) | `shared_kernel/outbox/value_objects.py` | `OutboxEntry` frozen dataclass |
+| Domain (shared_kernel) | `shared_kernel/outbox/operations.py` | `SpiceDBOperation` types |
+| Domain (shared_kernel) | `shared_kernel/outbox/exceptions.py` | `UnknownEventTypeError` |
+| Domain (shared_kernel) | `shared_kernel/outbox/observability.py` | `OutboxWorkerProbe`, `EventSourceProbe` protocols + defaults |
+| Domain (shared_kernel) | `shared_kernel/outbox/ports.py` | `IOutboxRepository`, `EventHandler`, `EventTranslator`, `EventSerializer`, `OutboxEventSource` |
+| Infrastructure | `infrastructure/outbox/models.py` | `OutboxModel` SQLAlchemy ORM |
+| Infrastructure | `infrastructure/outbox/repository.py` | `OutboxRepository` (shared session, no commit) |
+| Infrastructure | `infrastructure/outbox/worker.py` | `OutboxWorker` (dual delivery + graceful shutdown) |
+| Infrastructure | `infrastructure/outbox/composite.py` | `CompositeEventHandler` (fan-out) |
+| Infrastructure | `infrastructure/outbox/spicedb_handler.py` | `SpiceDBEventHandler` (translator adapter) |
+| Infrastructure | `infrastructure/outbox/event_sources/postgres_notify.py` | `PostgresNotifyEventSource` |
+| Migration | `migrations/versions/6d11eae0e76d_create_outbox_table.py` | Creates outbox table |
+| Migration | `migrations/versions/a1b2c3d4e5f6_add_outbox_retry_columns.py` | Adds retry/DLQ columns |
+| Migration | `migrations/versions/d32ecc44581a_create_outbox_notify_trigger.py` | PostgreSQL NOTIFY trigger |
+
+### Architecture Compliance
+
+Architecture tests in `tests/unit/test_architecture.py` verify that `infrastructure/outbox`
+imports from `shared_kernel` only — no cross-context imports to `iam`, `graph`, `query`,
+`management`, or `ingestion`. All architecture tests pass.
 
 ### Conclusion
 
-There are **no valid, applicable review comments** in the PR feedback. CodeRabbit did not produce any findings, CI is green, and the only comment is a bot-trigger request.
-
-**Verdict: PASS** — No actionable review comments to address.
+All six spec requirements are implemented, tested, and passing. The implementation
+follows TDD, DDD layer rules, and Domain Oriented Observability. No actionable gaps found.

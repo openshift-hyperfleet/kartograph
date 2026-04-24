@@ -1,51 +1,59 @@
 ---
 verdict: pass
 ---
-## Worker Verdict — Task-017: Outbox Pattern
+## Worker Verdict — Task-017: Outbox Pattern (Fresh Re-verification)
 
-### Implementation Verification
+### Numbered Checks
 
-All spec requirements verified via TDD. Unit test suite: **2413 tests, 0 failures**.
+| # | Check | Result | Detail |
+|---|-------|--------|--------|
+| 1 | Unit Tests | **PASS** | 2413 passed, 0 failed, 45 warnings in 55.53s |
+| 2 | Linting (`ruff check`) | **PASS** | All checks passed |
+| 3 | Formatting (`ruff format --check`) | **PASS** | 481 files already formatted |
+| 4 | Type Checking (`mypy`) | **PASS** | Success: no issues found in 481 source files |
+| 5 | Architecture Boundary Tests | **PASS** | 40 passed (all `pytest-archon` rules enforced) |
+| 6 | Integration Tests | N/A | Task is domain/application layer — no infrastructure required |
+
+### Check Scripts
+
+| Script | Result | Notes |
+|--------|--------|-------|
+| `check-graceful-shutdown-cancel.sh` | FALSE POSITIVE | `.cancel()` appears **only in a docstring comment** at line 130 of `worker.py` explaining NOT to call it. The actual `stop()` implementation sets `_running=False`, signals `_shutdown_event`, and `await`s tasks without cancellation — exactly the correct pattern. Verified by code reading: only `.cancelled()` (a status check) appears in executable code, not `.cancel()`. |
+| `check-domain-aggregate-mocks.sh` | PRE-EXISTING | `MagicMock()` at lines 592–593 of `test_knowledge_graph_service.py` exists identically on `alpha` — not introduced by this task. |
+| `check-empty-test-stubs.sh` | PRE-EXISTING | `test_create_api_key_requires_tenant_membership` stub exists on `alpha` at line 691. Not introduced by this task. |
+| `check-auth-status-codes.sh` | REVIEWED | All flagged 403s are in group/workspace authorization integration tests (e.g. "group member should NOT be able to delete group"). These are semantically correct 403 responses for role-based permission denials, distinct from the "no distinction between unauthorized and missing" 404 pattern. Pre-existing. |
+| `check-branch-rebased-on-alpha.sh` | INFRASTRUCTURE | Branch is 250 commits behind alpha (all "orchestrator: cycle update" commits — no source changes). This is documented in the spec: "Branch reset: 3 consecutive rebase/merge failures." None of the orchestrator commits alter the outbox implementation or any file touched by this task. |
+| `check-no-test-regressions.sh` | **PASS** | No test regressions detected |
+| `check-no-source-regressions.sh` | **PASS** | No source regressions detected |
+| `check-branch-has-commits.sh` | **PASS** | 114 commits ahead of alpha |
+
+### Commit Trailers
+
+Both implementation commits include required trailers:
+- `Spec-Ref: specs/shared-kernel/outbox.spec.md@86d0f4fc5118312577593defb88be1d5005b72cf`
+- `Task-Ref: task-017`
 
 ### Spec Requirements Coverage
 
 | Requirement | Implementation | Tests |
 |-------------|---------------|-------|
-| Transactional Event Storage | `OutboxRepository.append()` uses shared session; never commits (caller owns transaction) | `TestOutboxWorkerTransactionAtomicity` |
+| Transactional Event Storage | `OutboxRepository.append()` shares caller's session; never commits | `TestOutboxWorkerTransactionAtomicity` |
 | Event Processing (normal) | `OutboxWorker._process_batch()` fetches, processes, marks processed | `TestOutboxWorkerProcessBatch` |
-| Event Processing (transient failure) | `_handle_processing_failure()` increments retry_count, records last_error | `TestOutboxWorkerRetryBehavior.test_transient_failure_increments_retry_count` |
-| Event Processing (dead letter) | `_move_to_dlq()` sets failed_at when retry_count >= max_retries | `TestOutboxWorkerRetryBehavior.test_max_retries_moves_entry_to_dlq` |
-| Idempotent Event Handlers | SpiceDB upsert semantics; fetch excludes processed_at != NULL entries | `TestOutboxWorkerIdempotency` |
-| Concurrent Worker Safety | `FOR UPDATE SKIP LOCKED` in `fetch_unprocessed()` and `_process_batch()` | `TestOutboxWorkerConcurrentSafety` |
-| Dual Delivery (real-time) | `PostgresNotifyEventSource` via asyncpg-listen, invokes `_process_single()` | `TestPostgresNotifyEventSource` |
-| Dual Delivery (polling fallback) | `_poll_loop()` runs every 30s regardless of NOTIFY | `TestOutboxWorkerLifecycle` |
+| Transient failure | `_handle_processing_failure()` increments `retry_count`, records `last_error` | `TestOutboxWorkerRetryBehavior.test_transient_failure_increments_retry_count` |
+| Dead letter (permanent failure) | `_move_to_dlq()` sets `failed_at` when `retry_count >= max_retries` | `TestOutboxWorkerRetryBehavior.test_max_retries_moves_entry_to_dlq` |
+| Idempotent Event Handlers | SpiceDB upsert semantics; `processed_at IS NULL` filter prevents reprocessing | `TestOutboxWorkerIdempotency`, `TestIdempotentEventHandlers` |
+| Concurrent Worker Safety | `FOR UPDATE SKIP LOCKED` in `fetch_unprocessed()` | `TestOutboxWorkerConcurrentSafety` |
+| Dual Delivery — real-time NOTIFY | `PostgresNotifyEventSource` via asyncpg-listen | `TestPostgresNotifyEventSource` |
+| Dual Delivery — polling fallback | `_poll_loop()` runs every 30s regardless of NOTIFY | `TestOutboxWorkerLifecycle` |
 | Event Fan-Out (multiple handlers) | `CompositeEventHandler.register()` + `handle()` dispatches to all handlers | `TestCompositeEventHandler` |
-| Event Fan-Out (unknown event type) | `UnknownEventTypeError` → immediate DLQ (not retried) | `TestOutboxWorkerRetryBehavior.test_unknown_event_type_immediately_moves_to_dlq` |
+| Unknown event type → immediate DLQ | `UnknownEventTypeError` caught before general `Exception`; bypasses retry count | `TestOutboxWorkerRetryBehavior.test_unknown_event_type_immediately_moves_to_dlq` |
 
-### Architecture
+### Code Review Findings
 
-- `shared_kernel/outbox/`: Pure protocols and value objects (no infrastructure imports)
-- `infrastructure/outbox/`: PostgreSQL implementations (repository, worker, composite, SpiceDB handler)
-- `iam/infrastructure/outbox/`: IAM-specific serializer and translator (18 event types)
-- `management/infrastructure/outbox/`: Management-specific serializer and translator
-- Bounded context purity enforced by `pytest-archon` architecture tests
-
-### Key Design Properties
-
-- **Atomicity**: Repository shares caller's session; no independent commits.
-- **Idempotency**: SpiceDB write operations are upserts; `processed_at IS NULL` filter prevents reprocessing.
-- **Concurrency safety**: `FOR UPDATE SKIP LOCKED` ensures exclusive row-level locking.
-- **Graceful shutdown**: `stop()` uses `_shutdown_event` + task awaiting (no cancel) so in-progress batches complete.
-- **Observability**: `OutboxWorkerProbe` and `EventSourceProbe` follow Domain-Oriented Observability pattern.
-
-### Test Run
-
-```
-2413 passed, 45 warnings in 55.85s
-```
-
-No regressions. No empty stubs in unit tests. (Pre-existing empty integration stub
-`test_create_api_key_requires_tenant_membership` exists identically in alpha branch —
-not introduced by this task.)
+- **Domain probes**: `OutboxWorkerProbe` and `EventSourceProbe` used throughout. No `logger.*` or `print()` calls in new code.
+- **No MagicMock on domain aggregates**: new tests use `FakeAuthorizationProvider` (a real fake, not a mock).
+- **DDD boundaries**: `shared_kernel/outbox/exceptions.py` contains no infrastructure imports (confirmed by architecture tests).
+- **No hardcoded secrets or credentials**.
+- **`UnknownEventTypeError`**: Correctly placed in `shared_kernel` and raised before the generic `Exception` handler in `worker.py` — permanent failures bypass retry logic immediately.
 
 **Verdict: PASS**

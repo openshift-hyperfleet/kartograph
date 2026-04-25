@@ -297,14 +297,15 @@ class MutationOperation(BaseModel):
                 if not self.start_id or not self.end_id:
                     raise ValueError("CREATE edge requires 'start_id' and 'end_id'")
 
-            # knowledge_graph_id must be present in set_properties at validation time.
-            # The system stamps this value when apply_mutations() is called with a
-            # knowledge_graph_id parameter — callers must either pass that parameter
-            # to the service or supply the field directly in set_properties.
-            if "knowledge_graph_id" not in self.set_properties:
+            # Platform-stamped properties (e.g. knowledge_graph_id) must be present
+            # in set_properties at validation time. The service stamps these values
+            # before validation when apply_mutations() is called — callers must always
+            # provide knowledge_graph_id to the service method.
+            if not PLATFORM_STAMPED_PROPERTIES.issubset(self.set_properties.keys()):
+                missing = PLATFORM_STAMPED_PROPERTIES - self.set_properties.keys()
                 raise ValueError(
-                    "CREATE requires 'knowledge_graph_id' in set_properties. "
-                    "The system stamps this value when apply_mutations() is called "
+                    f"CREATE requires {sorted(missing)} in set_properties. "
+                    "The system stamps these values when apply_mutations() is called "
                     "with a knowledge_graph_id parameter. Ensure the caller passes "
                     "knowledge_graph_id to the service, or include it in set_properties."
                 )

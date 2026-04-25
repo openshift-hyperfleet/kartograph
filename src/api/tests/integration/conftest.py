@@ -95,7 +95,11 @@ def graph_client(
     factory = ConnectionFactory(
         integration_db_settings, pool=integration_connection_pool
     )
-    client = AgeGraphClient(integration_db_settings, connection_factory=factory)
+    # auto_create=True: test fixtures are permitted to provision the test graph
+    # on first run. Production API clients use auto_create=False (the default).
+    client = AgeGraphClient(
+        integration_db_settings, connection_factory=factory, auto_create=True
+    )
     client.connect()
     yield client
     client.disconnect()

@@ -82,7 +82,8 @@ class TestSchemaLearning:
         mock_type_repo.save.side_effect = mock_save
         mock_type_repo.get.side_effect = mock_get
 
-        service.apply_mutations([define_op, create_op])
+        # knowledge_graph_id is required for CREATE/UPDATE ops
+        service.apply_mutations([define_op, create_op], knowledge_graph_id="test-kg")
 
         # Verify type definition was saved TWICE
         # First: from DEFINE (no optional props)
@@ -124,7 +125,8 @@ class TestSchemaLearning:
             },
         )
 
-        service.apply_mutations([create_op])
+        # knowledge_graph_id is required for CREATE ops
+        service.apply_mutations([create_op], knowledge_graph_id="test-kg")
 
         # Should save updated type def with merged optional props
         mock_type_repo.save.assert_called_once()
@@ -155,7 +157,8 @@ class TestSchemaLearning:
             },
         )
 
-        service.apply_mutations([create_op])
+        # knowledge_graph_id is required for CREATE ops
+        service.apply_mutations([create_op], knowledge_graph_id="test-kg")
 
         updated_type_def = mock_type_repo.save.call_args[0][0]
         assert "custom_field" in updated_type_def.optional_properties
@@ -188,7 +191,8 @@ class TestSchemaLearning:
             },
         )
 
-        service.apply_mutations([create_op])
+        # knowledge_graph_id is required for CREATE ops
+        service.apply_mutations([create_op], knowledge_graph_id="test-kg")
 
         # Should NOT save since no new optional properties discovered
         mock_type_repo.save.assert_not_called()
@@ -217,7 +221,8 @@ class TestSchemaLearning:
             },
         )
 
-        service.apply_mutations([update_op])
+        # knowledge_graph_id is required for UPDATE ops
+        service.apply_mutations([update_op], knowledge_graph_id="test-kg")
 
         # Should save updated type def with new optional props
         mock_type_repo.save.assert_called_once()
@@ -236,9 +241,11 @@ class TestSchemaLearning:
             set_properties={"phone": "+1234567890"},
         )
 
-        service.apply_mutations([update_op])
+        # knowledge_graph_id is required for UPDATE ops; without a label, schema
+        # learning is skipped even though the batch passes the enforcement gate.
+        service.apply_mutations([update_op], knowledge_graph_id="test-kg")
 
-        # Should NOT attempt schema learning
+        # Should NOT attempt schema learning (label is None → cannot determine type)
         mock_type_repo.get.assert_not_called()
         mock_type_repo.save.assert_not_called()
 
@@ -269,7 +276,9 @@ class TestSchemaLearning:
             },
         )
 
-        service.apply_mutations([create_op])
+        # knowledge_graph_id is required; service stamps it before validation.
+        # The op already has knowledge_graph_id in set_properties — it will be overwritten.
+        service.apply_mutations([create_op], knowledge_graph_id="kg-123")
 
         # custom_field should be added as optional, but knowledge_graph_id should NOT
         mock_type_repo.save.assert_called_once()

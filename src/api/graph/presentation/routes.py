@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
+import structlog
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
@@ -37,6 +38,8 @@ from graph.domain.value_objects import (
     TypeDefinition,
 )
 
+logger = structlog.get_logger(__name__)
+
 router = APIRouter(
     prefix="/graph",
     tags=["graph"],
@@ -51,15 +54,25 @@ def _build_mutation_error_response(result: MutationResult) -> HTTPException:
     HTTP status code:
     - "validation" → 422 Unprocessable Entity (bad input, parse errors, schema violations)
     - "server" or None → 500 Internal Server Error (infrastructure/database failures)
+
+    For server errors, the actual error details are logged for observability but
+    NOT exposed in the response body to prevent internal information leakage.
     """
     if result.error_kind == "validation":
         return HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"errors": result.errors},
         )
+    # Log the actual error details for observability; return a generic payload
+    # to avoid leaking infrastructure or database error details to clients.
+    logger.error(
+        "graph_mutation_server_error",
+        errors=result.errors,
+        error_kind=result.error_kind,
+    )
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail={"errors": result.errors},
+        detail={"errors": ["internal server error"]},
     )
 
 

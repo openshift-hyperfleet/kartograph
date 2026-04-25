@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 
+from pydantic import ValidationError
+
 from graph.application.observability import (
     DefaultGraphServiceProbe,
     GraphServiceProbe,
@@ -104,6 +106,24 @@ class GraphMutationService:
         Returns:
             MutationResult with success status and operation count.
         """
+        # Reject batches containing CREATE or UPDATE operations when knowledge_graph_id
+        # is not provided. The service must be the authoritative source for the graph
+        # ID — it cannot stamp what it does not know.
+        requires_knowledge_graph_id = any(
+            op.op in (MutationOperationType.CREATE, MutationOperationType.UPDATE)
+            for op in operations
+        )
+        if requires_knowledge_graph_id and knowledge_graph_id is None:
+            return MutationResult(
+                success=False,
+                operations_applied=0,
+                errors=[
+                    "knowledge_graph_id is required when the batch contains CREATE "
+                    "or UPDATE operations. Pass knowledge_graph_id to apply_mutations()."
+                ],
+                error_kind="validation",
+            )
+
         # Stamp knowledge_graph_id on CREATE/UPDATE operations before any validation.
         # The service is the authoritative source — callers cannot spoof this value.
         if knowledge_graph_id is not None:
@@ -280,8 +300,11 @@ class GraphMutationService:
                         ],
                         error_kind="validation",
                     )
-                except Exception as e:
-                    # Validation error from Pydantic
+                except ValidationError as e:
+                    # Pydantic schema validation failure — bad field types, missing
+                    # required fields, or pattern mismatches. Only Pydantic raises
+                    # ValidationError here; real runtime errors propagate to the
+                    # outer except and are reported as error_kind="server".
                     line_preview = line[:100] + "..." if len(line) > 100 else line
                     return MutationResult(
                         success=False,

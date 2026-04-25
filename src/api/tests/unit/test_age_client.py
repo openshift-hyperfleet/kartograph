@@ -53,6 +53,72 @@ class TestAgeGraphClientInit:
         assert client.graph_name == "test_graph"
         assert client.is_connected() is False
 
+    def test_auto_create_defaults_to_false(self, mock_db_settings):
+        """auto_create should default to False to prevent accidental graph provisioning."""
+        client = AgeGraphClient(mock_db_settings)
+        # _auto_create must be False by default — API request handlers must not
+        # silently provision tenant graphs.
+        assert client._auto_create is False
+
+    def test_auto_create_can_be_enabled(self, mock_db_settings):
+        """auto_create=True should be accepted and stored."""
+        client = AgeGraphClient(mock_db_settings, auto_create=True)
+        assert client._auto_create is True
+
+
+class TestAutoCreateGate:
+    """Tests for auto_create gate in connect().
+
+    Verifies that _ensure_graph_exists() is only called when auto_create=True.
+    Uses a mock connection factory to avoid requiring a real database.
+    """
+
+    def _make_mock_factory(self):
+        """Build a mock ConnectionFactory with a mock connection."""
+        from unittest.mock import MagicMock
+        import age  # noqa: F401 – imported so patching works
+
+        mock_conn = MagicMock()
+        mock_factory = MagicMock()
+        mock_factory.get_connection.return_value = mock_conn
+        return mock_factory, mock_conn
+
+    def test_connect_does_not_ensure_graph_when_auto_create_false(
+        self, mock_db_settings
+    ):
+        """connect() must not call _ensure_graph_exists() when auto_create=False."""
+        from unittest.mock import patch
+
+        mock_factory, mock_conn = self._make_mock_factory()
+
+        client = AgeGraphClient(
+            mock_db_settings, connection_factory=mock_factory, auto_create=False
+        )
+
+        with (
+            patch.object(client, "_ensure_graph_exists") as mock_ensure,
+            patch("age.setUpAge"),
+        ):
+            client.connect()
+            mock_ensure.assert_not_called()
+
+    def test_connect_ensures_graph_when_auto_create_true(self, mock_db_settings):
+        """connect() must call _ensure_graph_exists() when auto_create=True."""
+        from unittest.mock import patch
+
+        mock_factory, mock_conn = self._make_mock_factory()
+
+        client = AgeGraphClient(
+            mock_db_settings, connection_factory=mock_factory, auto_create=True
+        )
+
+        with (
+            patch.object(client, "_ensure_graph_exists") as mock_ensure,
+            patch("age.setUpAge"),
+        ):
+            client.connect()
+            mock_ensure.assert_called_once()
+
 
 class TestConnectionState:
     """Tests for connection state management."""

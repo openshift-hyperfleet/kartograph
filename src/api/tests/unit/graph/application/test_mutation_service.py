@@ -57,10 +57,11 @@ class TestGraphMutationServiceApplyMutations:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        result = service.apply_mutations(operations)
+        # knowledge_graph_id is required whenever the batch contains CREATE/UPDATE ops.
+        result = service.apply_mutations(operations, knowledge_graph_id="test-kg")
 
-        # Should call applier with operations
-        mock_applier.apply_batch.assert_called_once_with(operations)
+        # Should call applier with operations (stamped)
+        mock_applier.apply_batch.assert_called_once()
 
         # Should return result from applier
         assert result.success is True
@@ -199,7 +200,8 @@ class TestGraphMutationServiceApplyMutations:
             type_definition_repository=mock_type_def_repo,
             probe=mock_probe,
         )
-        service.apply_mutations(operations)
+        # knowledge_graph_id required for CREATE ops
+        service.apply_mutations(operations, knowledge_graph_id="test-kg")
 
         # Should emit probe event
         mock_probe.mutations_applied.assert_called_once_with(
@@ -288,7 +290,8 @@ class TestGraphMutationServiceApplyMutations:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        result = service.apply_mutations(operations)
+        # Provide kg_id so enforcement passes; the error should be about the missing DEFINE
+        result = service.apply_mutations(operations, knowledge_graph_id="test-kg")
 
         # Should fail validation
         assert result.success is False
@@ -338,7 +341,8 @@ class TestGraphMutationServiceApplyMutations:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        result = service.apply_mutations(operations)
+        # knowledge_graph_id is required for CREATE ops; service stamps it before validation
+        result = service.apply_mutations(operations, knowledge_graph_id="test-kg")
 
         # Should succeed
         assert result.success is True
@@ -384,7 +388,8 @@ class TestGraphMutationServiceApplyMutations:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        result = service.apply_mutations(operations)
+        # knowledge_graph_id is required for CREATE ops; service stamps it before validation
+        result = service.apply_mutations(operations, knowledge_graph_id="test-kg")
 
         # Should succeed
         assert result.success is True
@@ -427,7 +432,8 @@ class TestGraphMutationServiceApplyMutations:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        result = service.apply_mutations(operations)
+        # Provide kg_id so enforcement passes; the error should be about missing "email"
+        result = service.apply_mutations(operations, knowledge_graph_id="test-kg")
 
         # Should fail validation
         assert result.success is False
@@ -476,7 +482,8 @@ class TestGraphMutationServiceApplyMutations:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        result = service.apply_mutations(operations)
+        # knowledge_graph_id required for CREATE ops
+        result = service.apply_mutations(operations, knowledge_graph_id="test-kg")
 
         # Should succeed
         assert result.success is True
@@ -511,7 +518,10 @@ class TestGraphMutationServiceApplyFromJSONL:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        result = service.apply_mutations_from_jsonl(jsonl_content)
+        # knowledge_graph_id is required for batches with CREATE/UPDATE ops
+        result = service.apply_mutations_from_jsonl(
+            jsonl_content, knowledge_graph_id="test-kg"
+        )
 
         # Should parse and apply 2 operations
         mock_applier.apply_batch.assert_called_once()
@@ -573,7 +583,8 @@ class TestGraphMutationServiceApplyFromJSONL:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        service.apply_mutations_from_jsonl(jsonl_content)
+        # knowledge_graph_id required for CREATE ops
+        service.apply_mutations_from_jsonl(jsonl_content, knowledge_graph_id="test-kg")
 
         # Should parse only the valid line
         operations = mock_applier.apply_batch.call_args[0][0]
@@ -773,27 +784,17 @@ class TestKnowledgeGraphIdStamping:
         applied_ops = mock_applier.apply_batch.call_args[0][0]
         assert applied_ops[0].set_properties.get("knowledge_graph_id") == "kg-456"
 
-    def test_does_not_stamp_when_knowledge_graph_id_not_provided(self):
-        """Service should not inject knowledge_graph_id into CREATE/UPDATE when param is omitted.
+    def test_rejects_create_update_without_knowledge_graph_id(self):
+        """Service should reject batches with CREATE or UPDATE when knowledge_graph_id is omitted.
 
-        Uses an UPDATE op with set_properties (no knowledge_graph_id) so the code
-        path that stamps CREATE/UPDATE is actually reachable. The assertion verifies
-        that knowledge_graph_id is absent from the applied operation — which would
-        only be true if the service correctly skips stamping when the param is None.
-
-        This is distinct from test_does_not_stamp_on_delete_operation: here we test
-        that a stampable op-type (UPDATE) is not stamped simply because
-        knowledge_graph_id was not passed to apply_mutations().
+        The service is the authoritative source for knowledge_graph_id. Direct service
+        callers must always supply the parameter — it is not optional when the batch
+        contains any CREATE or UPDATE operation.
         """
         from graph.application.services import GraphMutationService
 
         mock_applier = Mock()
-        mock_applier.apply_batch.return_value = MutationResult(
-            success=True, operations_applied=1
-        )
         mock_type_def_repo = Mock()
-        # Prevent schema learning from interfering (no type def → skip)
-        mock_type_def_repo.get.return_value = None
 
         service = GraphMutationService(
             mutation_applier=mock_applier,
@@ -805,23 +806,18 @@ class TestKnowledgeGraphIdStamping:
                 op=MutationOperationType.UPDATE,
                 type=EntityType.NODE,
                 id="person:abc123def456789a",
-                # set_properties WITHOUT knowledge_graph_id — the service must
-                # not inject it when apply_mutations() is called without the param.
-                set_properties={
-                    "name": "Alice",
-                    "data_source_id": "ds-123",
-                    "source_path": "people/alice.md",
-                },
+                set_properties={"name": "Alice"},
             ),
         ]
 
-        # No knowledge_graph_id provided — stamping must NOT occur
-        service.apply_mutations(operations)
+        # No knowledge_graph_id — service must reject the batch
+        result = service.apply_mutations(operations)
 
-        # Verify the applier received the operation without knowledge_graph_id injected
-        mock_applier.apply_batch.assert_called_once()
-        applied_ops = mock_applier.apply_batch.call_args[0][0]
-        assert "knowledge_graph_id" not in applied_ops[0].set_properties
+        assert result.success is False
+        assert result.error_kind == "validation"
+        assert "knowledge_graph_id" in result.errors[0].lower()
+        # The applier must NOT be called when enforcement rejects the batch
+        mock_applier.apply_batch.assert_not_called()
 
     def test_does_not_stamp_on_delete_operation(self):
         """Service should NOT stamp knowledge_graph_id on DELETE operations.
@@ -923,7 +919,8 @@ class TestMutationResultErrorKind:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        result = service.apply_mutations(operations)
+        # Provide kg_id so the enforcement gate passes; error should come from type def check
+        result = service.apply_mutations(operations, knowledge_graph_id="test-kg")
 
         assert result.success is False
         assert result.error_kind == "validation"
@@ -961,7 +958,8 @@ class TestMutationResultErrorKind:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        result = service.apply_mutations(operations)
+        # Provide kg_id so enforcement passes; error should come from required props check
+        result = service.apply_mutations(operations, knowledge_graph_id="test-kg")
 
         assert result.success is False
         assert result.error_kind == "validation"

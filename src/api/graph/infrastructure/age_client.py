@@ -59,6 +59,7 @@ class AgeGraphClient(GraphClientProtocol):
         connection_factory: ConnectionFactory | None = None,
         probe: GraphClientProbe | None = None,
         graph_name: str | None = None,
+        auto_create: bool = False,
     ):
         """Initialize the AGE graph client.
 
@@ -69,10 +70,16 @@ class AgeGraphClient(GraphClientProtocol):
             graph_name: Optional graph name override. When provided, overrides
                 ``settings.graph_name``. Use this for per-tenant graph isolation
                 (e.g., ``"tenant_t1"``). Defaults to ``settings.graph_name``.
+            auto_create: When True, the graph is created during ``connect()`` if
+                it does not already exist. Defaults to False to prevent accidental
+                graph provisioning during normal API request handling. Pass
+                ``auto_create=True`` only in administrative / provisioning code
+                paths (e.g. dev setup, migration scripts, integration test fixtures).
         """
         self._settings = settings
         self._connection_factory = connection_factory
         self._graph_name = graph_name if graph_name is not None else settings.graph_name
+        self._auto_create = auto_create
         self._connected = False
         self._current_connection: PsycopgConnection | None = None
         self._probe = probe or DefaultGraphClientProbe()
@@ -106,7 +113,13 @@ class AgeGraphClient(GraphClientProtocol):
         return self._connection
 
     def connect(self) -> None:
-        """Establish connection to the graph database."""
+        """Establish connection to the graph database.
+
+        If ``auto_create`` was set to True at construction time the graph is
+        created when it does not already exist (suitable for dev / test setup).
+        Otherwise the graph is assumed to be provisioned externally and this
+        method will not attempt to create it.
+        """
         if self._connection_factory is None:
             raise ValueError(
                 "ConnectionFactory required. Pass connection_factory parameter to __init__."
@@ -114,7 +127,8 @@ class AgeGraphClient(GraphClientProtocol):
 
         try:
             self._current_connection = self._connection_factory.get_connection()
-            self._ensure_graph_exists()
+            if self._auto_create:
+                self._ensure_graph_exists()
             # Register AGType parser for automatic conversion of Vertex, Edge, Path objects
             age.setUpAge(self._current_connection, self._graph_name)
             self._connected = True

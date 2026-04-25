@@ -19,3 +19,10 @@ notifications:
   type: github-comment
 
 dashboard: { enabled: true }
+
+gc:
+  retention_days: 30
+  summarize: true
+  run_every_cycles: 100
+
+pm_max_failures: 5

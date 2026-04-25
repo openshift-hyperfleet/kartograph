@@ -10,19 +10,32 @@ from pydantic import BaseModel, ConfigDict, Field
 class QueryExecutionError(Exception):
     """Base exception for query execution failures."""
 
-    def __init__(self, message: str, query: str | None = None):
+    def __init__(
+        self,
+        message: str,
+        query: str | None = None,
+        correlation_id: str | None = None,
+    ):
         super().__init__(message)
         self.query = query
+        self.correlation_id = correlation_id
 
 
 class QueryForbiddenError(QueryExecutionError):
-    """Raised when a query attempts forbidden operations (mutations)."""
+    """Raised when a query attempts forbidden operations (mutations).
+
+    Always carries a correlation_id so the redacted log entry can be
+    cross-referenced with the error response sent to the client.
+    """
 
     pass
 
 
 class QueryTimeoutError(QueryExecutionError):
-    """Raised when a query exceeds the timeout limit."""
+    """Raised when a query exceeds the timeout limit.
+
+    Carries a correlation_id for debugging cross-reference.
+    """
 
     pass
 
@@ -80,6 +93,9 @@ class QueryError(BaseModel):
         error_type: Category of error (syntax, timeout, forbidden, etc.)
         message: Human-readable error message
         query: The query that caused the error (for debugging)
+        correlation_id: ID linking this error to a redacted server-side log entry.
+            Present for forbidden and timeout errors so consumers can request
+            log retrieval without exposing the raw query in the response.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -87,6 +103,7 @@ class QueryError(BaseModel):
     error_type: str
     message: str
     query: str | None = None
+    correlation_id: str | None = None
 
 
 class TypeDefinitionSchema(BaseModel):

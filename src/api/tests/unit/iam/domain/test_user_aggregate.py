@@ -79,3 +79,76 @@ class TestUserStringRepresentation:
         str_repr = str(user)
 
         assert "alice" in str_repr
+
+
+class TestExternalIdentityFormat:
+    """Tests for Requirement: External Identity Format.
+
+    The system SHALL accept arbitrary external identity formats from the
+    identity provider.
+    """
+
+    def test_accepts_uuid_format_subject_identifier(self):
+        """Should store UUID-format external identity as-is (not converted to ULID).
+
+        Scenario: UUID-format identity
+        GIVEN an identity provider that uses UUID-format subject identifiers
+        WHEN the user authenticates
+        THEN the identifier is stored as-is (not converted to ULID)
+        """
+        uuid_sub = "550e8400-e29b-41d4-a716-446655440000"
+        user_id = UserId(value=uuid_sub)
+        user = User(id=user_id, username="alice")
+
+        assert user.id.value == uuid_sub
+
+    def test_accepts_arbitrary_string_subject_identifier(self):
+        """Should store arbitrary string external identities as-is."""
+        arbitrary_sub = "auth0|5f7f8d6b234e7a001e8b4567"
+        user_id = UserId(value=arbitrary_sub)
+        user = User(id=user_id, username="alice")
+
+        assert user.id.value == arbitrary_sub
+
+    def test_user_id_is_not_restricted_to_ulid_format(self):
+        """UserId should accept non-ULID values (external SSO IDs)."""
+        # UUID format (not a ULID)
+        uuid_id = UserId(value="550e8400-e29b-41d4-a716-446655440000")
+        # Plain string format
+        str_id = UserId(value="github|12345")
+
+        assert uuid_id.value == "550e8400-e29b-41d4-a716-446655440000"
+        assert str_id.value == "github|12345"
+
+
+class TestMultiTenantAccess:
+    """Tests for Requirement: Multi-Tenant Access.
+
+    The system SHALL allow a single user to be a member of multiple tenants.
+    """
+
+    def test_user_aggregate_has_no_tenant_field(self):
+        """User aggregate must not be restricted to a single tenant.
+
+        Tenant membership is managed separately (via SpiceDB relationships)
+        so the User aggregate itself must not carry a tenant_id. This ensures
+        a single user identity can be a member of multiple tenants.
+        """
+        user = User(id=UserId(value="user-123"), username="alice")
+        assert not hasattr(user, "tenant_id")
+
+    def test_same_user_identity_is_reusable_across_tenants(self):
+        """The same UserId can reference the same user in different tenant contexts.
+
+        This test confirms that User is a tenant-agnostic identity — tenant
+        membership is expressed externally (SpiceDB), not embedded in the aggregate.
+        """
+        user_id = UserId(value="user-abc-123")
+
+        # The same user identity can appear in multiple tenant contexts
+        user_in_tenant_a = User(id=user_id, username="alice")
+        user_in_tenant_b = User(id=user_id, username="alice")
+
+        # Same identity — the user is the same person regardless of tenant
+        assert user_in_tenant_a == user_in_tenant_b
+        assert user_in_tenant_a.id == user_in_tenant_b.id

@@ -29,6 +29,7 @@ import {
   Plug,
   Settings2,
   BookOpen,
+  GitBranch,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -62,7 +63,7 @@ const { isDark, toggle: toggleColorMode } = useColorMode()
 
 // ── Auth & Tenant state ────────────────────────────────────────────────────
 const { user, isAuthenticated, logout } = useAuth()
-const { listTenants } = useIamApi()
+const { listTenants, listWorkspaces } = useIamApi()
 const { extractErrorMessage } = useErrorHandler()
 const {
   currentTenantId,
@@ -160,6 +161,38 @@ watch(isAuthenticated, (authenticated) => {
   }
 }, { immediate: true })
 
+// ── Workspace guidance ─────────────────────────────────────────────────────
+// When a user enters a tenant for the first time with no personal workspace,
+// suggest creating or joining one.
+
+const WORKSPACE_GUIDANCE_LAYOUT_KEY = 'kartograph:workspace-guidance:'
+
+watch(currentTenantId, async (newId, oldId) => {
+  if (!newId) return
+
+  const guidanceKey = `${WORKSPACE_GUIDANCE_LAYOUT_KEY}${newId}`
+  if (typeof localStorage !== 'undefined' && localStorage.getItem(guidanceKey)) return
+
+  try {
+    const result = await listWorkspaces()
+    if (result.count === 0) {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(guidanceKey, 'true')
+      }
+      toast('Create or join a workspace', {
+        description: 'Workspaces help you organise your knowledge graphs. Create one or ask a team member to invite you.',
+        action: {
+          label: 'Manage Workspaces',
+          onClick: () => navigateTo('/workspaces'),
+        },
+        duration: 8000,
+      })
+    }
+  } catch {
+    // Workspace guidance is best-effort — ignore errors
+  }
+}, { immediate: true })
+
 // ── Navigation (Token 2 + Token 6) ────────────────────────────────────────
 
 interface NavItem {
@@ -205,6 +238,7 @@ const navSections: NavSection[] = [
     items: [
       { label: 'Workspaces', icon: FolderTree, to: '/workspaces' },
       { label: 'Groups', icon: Users, to: '/groups' },
+      { label: 'Tenants', icon: Building2, to: '/tenants' },
     ],
   },
 ]
@@ -227,10 +261,12 @@ const breadcrumbs = computed(() => {
     '/groups': 'Groups',
     '/api-keys': 'API Keys',
     '/graph/schema': 'Schema Browser',
-    '/graph/explorer': 'Explorer',
+    '/graph/explorer': 'Graph Explorer',
     '/graph/mutations': 'Mutations',
     '/query': 'Query Console',
     '/integrate/mcp': 'MCP Integration',
+    '/knowledge-graphs': 'Knowledge Graphs',
+    '/data-sources': 'Data Sources',
   }
 
   if (path !== '/' && routeLabels[path]) {

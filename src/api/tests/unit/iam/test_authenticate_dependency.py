@@ -228,6 +228,40 @@ class TestAuthenticate:
         mock_api_key_service.validate_and_get_key.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_invalid_bearer_with_api_key_fails_immediately(
+        self,
+        mock_jwt_validator: MagicMock,
+        mock_api_key_service: AsyncMock,
+        mock_auth_probe: MagicMock,
+        valid_token: str,
+    ) -> None:
+        """Invalid Bearer token should fail immediately, not silently fall back to API key.
+
+        Spec: Authentication Priority - Invalid Bearer token with API key present.
+        GIVEN a request with an invalid Bearer token and a valid API key
+        WHEN the request is authenticated
+        THEN authentication fails immediately (Bearer is not silently skipped)
+        """
+        mock_jwt_validator.validate_token = AsyncMock(
+            side_effect=InvalidTokenError("Token has expired")
+        )
+        # Make API key valid — but it should never be checked
+        mock_api_key_service.validate_and_get_key = AsyncMock(return_value=MagicMock())
+
+        with pytest.raises(HTTPException) as exc_info:
+            await _authenticate(
+                token=valid_token,
+                validator=mock_jwt_validator,
+                api_key_service=mock_api_key_service,
+                auth_probe=mock_auth_probe,
+                x_api_key="valid-api-key",
+            )
+
+        assert exc_info.value.status_code == 401
+        # API key validation must NOT have been attempted
+        mock_api_key_service.validate_and_get_key.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_fires_probe_on_successful_jwt_auth(
         self,
         mock_jwt_validator: MagicMock,

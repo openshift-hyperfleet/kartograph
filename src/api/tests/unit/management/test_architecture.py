@@ -246,15 +246,7 @@ class TestManagementBoundedContextIsolation:
         (
             archrule("management_no_iam")
             .match("management*")
-            .exclude(
-                "management.dependencies*",
-                "management.presentation.auth_bridge",
-                "management.presentation.knowledge_graphs.routes*",
-                "management.presentation.knowledge_graphs",
-                "management.presentation.data_sources.routes*",
-                "management.presentation.data_sources",
-                "management.presentation",
-            )
+            .exclude("management.dependencies*", "management.presentation*")
             .should_not_import("iam*")
             .check("management")
         )

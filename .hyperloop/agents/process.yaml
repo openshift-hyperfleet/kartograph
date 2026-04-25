@@ -3,16 +3,41 @@ kind: Process
 metadata:
   name: default
 
-pipeline:
-  - loop:
-      - agent: implementer
-      - agent: verifier
-      - agent: spec-reviewer
-      # - gate: pr-require-label
-      - check: pr-feedback-addressed
-  - action: merge-pr
+phases:
+  implement:
+    run: agent implementer
+    on_pass: verify
+    on_fail: implement
+  verify:
+    run: agent verifier
+    on_pass: spec-review
+    on_fail: implement
+  spec-review:
+    run: agent spec-reviewer
+    on_pass: mark-ready
+    on_fail: implement
+  mark-ready:
+    run: action mark-ready
+    on_pass: post-comment
+    on_fail: implement
+  post-comment:
+    run: action post-comment
+    args:
+      body: "@coderabbit recheck"
+    on_pass: await-coderabbit
+    on_fail: implement
+  await-coderabbit:
+    run: action pr-review
+    args:
+      require_reviewers: ["coderabbitai"]
+    on_pass: merge
+    on_fail: implement
+    on_wait: await-coderabbit
+  merge:
+    run: action merge
+    on_pass: done
+    on_fail: implement
 
-gates:
-  pr-require-label:
-    type: label
-    label_name: lgtm
+hooks:
+  after_reap:
+    - type: process-improver

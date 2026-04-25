@@ -12,15 +12,14 @@ from starlette.concurrency import run_in_threadpool
 
 from iam.dependencies.user import get_current_user
 
-from graph.ports.protocols import NodeNeighborsResult
 from graph.application.services import (
     GraphMutationService,
-    GraphQueryService,
     GraphSchemaService,
+    GraphSecureEnclaveService,
 )
 from graph.dependencies import (
     get_graph_mutation_service,
-    get_graph_query_service,
+    get_graph_secure_enclave_service,
     get_schema_service,
 )
 from graph.domain.value_objects import (
@@ -116,9 +115,13 @@ async def apply_mutations(
 async def find_by_slug(
     slug: str,
     node_type: str | None = None,
-    service: GraphQueryService = Depends(get_graph_query_service),
+    service: GraphSecureEnclaveService = Depends(get_graph_secure_enclave_service),
 ) -> dict[str, Any]:
-    """Find nodes by slug.
+    """Find nodes by slug with per-entity authorization (Secure Enclave).
+
+    Applies the Secure Enclave pattern: each returned node is checked for
+    VIEW permission on its parent KnowledgeGraph. Unauthorized nodes are
+    returned with ID only (redacted), preserving graph topology.
 
     Query parameters:
         slug: Entity slug (e.g., "alice-smith")
@@ -126,32 +129,44 @@ async def find_by_slug(
 
     Returns:
         {
-            "nodes": [...]
+            "nodes": [
+                {"id": "...", "label": "...", "properties": {...}},  # authorized
+                {"id": "..."},                                         # redacted
+            ]
         }
     """
-    nodes = await run_in_threadpool(service.search_by_slug, slug, node_type=node_type)
+    nodes = await service.search_by_slug(slug, node_type=node_type)
     return {"nodes": [n.model_dump() for n in nodes]}
 
 
 @router.get("/nodes/{node_id}/neighbors")
 async def get_neighbors(
     node_id: str,
-    service: GraphQueryService = Depends(get_graph_query_service),
-) -> NodeNeighborsResult:
-    """Get neighboring nodes and connecting edges.
+    service: GraphSecureEnclaveService = Depends(get_graph_secure_enclave_service),
+) -> dict[str, Any]:
+    """Get neighboring nodes and connecting edges with per-entity authorization.
+
+    Applies the Secure Enclave pattern: each returned node and edge is checked
+    for VIEW permission on its parent KnowledgeGraph. Unauthorized nodes are
+    returned with ID only; unauthorized edges with ID, start_id, end_id only.
+    Graph topology is always preserved.
 
     Path parameter:
         node_id: The node ID to find neighbors for
 
     Returns:
         {
+            "central_node": {...},
             "nodes": [...],
             "edges": [...]
         }
     """
-    response = await run_in_threadpool(service.get_neighbors, node_id)
-
-    return response
+    result = await service.get_neighbors(node_id)
+    return {
+        "central_node": result.central_node.model_dump(),
+        "nodes": [n.model_dump() for n in result.nodes],
+        "edges": [e.model_dump() for e in result.edges],
+    }
 
 
 @router.get("/schema/nodes", response_model=SchemaLabelsResponse)

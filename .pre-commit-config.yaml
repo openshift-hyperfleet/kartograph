@@ -59,7 +59,7 @@ repos:
           - "pydantic-settings"
           - "psycopg2"
           - "types-psycopg2"
-          - "types-pyyaml"
+          - "types-PyYAML"
           - "pytest"
           - "structlog"
         files: ^src/api/

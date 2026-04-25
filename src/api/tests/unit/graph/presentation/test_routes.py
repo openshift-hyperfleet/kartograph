@@ -1,6 +1,6 @@
 """Unit tests for Graph HTTP routes."""
 
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import status
@@ -16,9 +16,9 @@ from iam.domain.value_objects import TenantId, UserId
 
 
 @pytest.fixture
-def mock_query_service():
-    """Mock GraphQueryService for testing."""
-    return Mock()
+def mock_enclave_service():
+    """Mock GraphSecureEnclaveService for testing (async methods)."""
+    return AsyncMock()
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ def mock_current_user():
 
 
 @pytest.fixture
-def test_client(mock_query_service, mock_mutation_service, mock_current_user):
+def test_client(mock_enclave_service, mock_mutation_service, mock_current_user):
     """Create TestClient with mocked dependencies."""
     from fastapi import FastAPI
 
@@ -48,9 +48,9 @@ def test_client(mock_query_service, mock_mutation_service, mock_current_user):
 
     app = FastAPI()
 
-    # Override dependencies with mocks
-    app.dependency_overrides[dependencies.get_graph_query_service] = (
-        lambda: mock_query_service
+    # Override query/secure-enclave endpoints with async mock
+    app.dependency_overrides[dependencies.get_graph_secure_enclave_service] = (
+        lambda: mock_enclave_service
     )
     app.dependency_overrides[dependencies.get_graph_mutation_service] = (
         lambda: mock_mutation_service
@@ -154,7 +154,7 @@ class TestApplyMutationsRoute:
 class TestFindBySlugRoute:
     """Tests for GET /graph/nodes/by-slug endpoint."""
 
-    def test_find_by_slug_success(self, test_client, mock_query_service):
+    def test_find_by_slug_success(self, test_client, mock_enclave_service):
         """Should find nodes by slug."""
         mock_nodes = [
             NodeRecord(
@@ -169,7 +169,7 @@ class TestFindBySlugRoute:
             )
         ]
 
-        mock_query_service.search_by_slug.return_value = mock_nodes
+        mock_enclave_service.search_by_slug.return_value = mock_nodes
 
         response = test_client.get("/graph/nodes/by-slug?slug=alice")
 
@@ -179,7 +179,7 @@ class TestFindBySlugRoute:
         assert len(data["nodes"]) == 1
         assert data["nodes"][0]["properties"]["slug"] == "alice"
 
-    def test_find_by_slug_with_type_filter(self, test_client, mock_query_service):
+    def test_find_by_slug_with_type_filter(self, test_client, mock_enclave_service):
         """Should filter by node type when provided."""
         mock_nodes = [
             NodeRecord(
@@ -194,12 +194,12 @@ class TestFindBySlugRoute:
             )
         ]
 
-        mock_query_service.search_by_slug.return_value = mock_nodes
+        mock_enclave_service.search_by_slug.return_value = mock_nodes
 
         response = test_client.get("/graph/nodes/by-slug?slug=alice&node_type=Person")
 
         assert response.status_code == status.HTTP_200_OK
-        mock_query_service.search_by_slug.assert_called_once_with(
+        mock_enclave_service.search_by_slug.assert_called_once_with(
             "alice", node_type="Person"
         )
 
@@ -207,9 +207,9 @@ class TestFindBySlugRoute:
 class TestGetNeighborsRoute:
     """Tests for GET /graph/nodes/{node_id}/neighbors endpoint."""
 
-    def test_get_neighbors_success(self, test_client, mock_query_service):
+    def test_get_neighbors_success(self, test_client, mock_enclave_service):
         """Should get neighbors and edges."""
-        from graph.ports.protocols import NodeNeighborsResult
+        from graph.application.services import SecureEnclaveNeighborsResult
 
         mock_central_node = NodeRecord(
             id="person:abc123def456789a",
@@ -247,7 +247,7 @@ class TestGetNeighborsRoute:
             )
         ]
 
-        mock_query_service.get_neighbors.return_value = NodeNeighborsResult(
+        mock_enclave_service.get_neighbors.return_value = SecureEnclaveNeighborsResult(
             central_node=mock_central_node,
             nodes=mock_neighbor_nodes,
             edges=mock_connecting_edges,
@@ -265,9 +265,9 @@ class TestGetNeighborsRoute:
         assert data["nodes"][0]["properties"]["slug"] == "bob"
         assert data["central_node"]["id"] == "person:abc123def456789a"
 
-    def test_get_neighbors_no_results(self, test_client, mock_query_service):
+    def test_get_neighbors_no_results(self, test_client, mock_enclave_service):
         """Should return empty arrays for isolated node."""
-        from graph.ports.protocols import NodeNeighborsResult
+        from graph.application.services import SecureEnclaveNeighborsResult
 
         mock_central_node = NodeRecord(
             id="person:isolated111111",
@@ -278,7 +278,7 @@ class TestGetNeighborsRoute:
             },
         )
 
-        mock_query_service.get_neighbors.return_value = NodeNeighborsResult(
+        mock_enclave_service.get_neighbors.return_value = SecureEnclaveNeighborsResult(
             central_node=mock_central_node,
             nodes=[],
             edges=[],

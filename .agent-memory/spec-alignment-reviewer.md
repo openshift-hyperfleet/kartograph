@@ -2,67 +2,47 @@
 
 ## Entries
 
-### 2026-04-22 | task-008 Knowledge Graphs review
-**Pattern:** KG cascade delete spec says "including their encrypted credentials" but KnowledgeGraphService.delete() only calls ds_repo.delete() — which does not call secret_store.delete(). DataSourceService.delete() does call secret_store.delete(), but that service is not used in the KG cascade path.
+### 2026-04-23 | task-031 Tenant Context Spec | PASS | All requirements covered
+- Pattern: Full-flow tests (calling the real dependency function with mocks) are the preferred approach for ULID normalization verification — unit tests on `_validate_ulid` alone are insufficient; the full-flow test asserts both SpiceDB call and TenantContext carry normalized value.
+- Action: Confirmed `test_normalized_ulid_used_in_spicedb_subject` is complete with 3 assertions: SpiceDB resource string uses uppercase, `result.tenant_id == valid_tenant_id.value`, and `result.tenant_id == lowercase_header.upper()`.
+- Context: Implementation at `src/api/iam/dependencies/tenant_context.py`; MCP auth at `src/api/shared_kernel/middleware/mcp_api_key_auth.py` + `src/api/infrastructure/mcp_dependencies.py`.
+- Key test file: `src/api/tests/unit/iam/test_tenant_context_dependency.py` (42 tests) + `src/api/tests/unit/shared_kernel/middleware/test_mcp_auth_middleware.py` (17 tests).
+- MCP "Authentication failure" (401) and "Service unavailability" (503) are covered in the middleware test suite, not the tenant_context test file.
+- Run: `cd src/api && uv run pytest tests/unit/iam/test_tenant_context_dependency.py tests/unit/shared_kernel/middleware/test_mcp_auth_middleware.py -v`.
 
-**Action:** Flagged as PARTIAL gap. The spec says "all data sources within it are deleted (including their encrypted credentials)" but encrypted credentials are not deleted during KG cascade delete.
+### 2026-04-22 | task-001 JobPackage Shared Kernel | PASS | All requirements covered
+- Pattern: Shared kernel modules tend to have comprehensive test suites organized by scenario class.
+- Action: Checked all 102 tests passed; verified each spec requirement had implementation + test.
+- Context: Implementation in `src/api/shared_kernel/job_package/`; tests in `src/api/tests/unit/shared_kernel/job_package/`.
+- Key files: `builder.py`, `reader.py`, `value_objects.py`, `checksum.py`, `path_safety.py`.
+- All tests run with `cd src/api && uv run pytest tests/unit/shared_kernel/job_package/ -v`.
+- Content checksum builder computes checksum in-memory (does not use `compute_content_checksum` from `checksum.py`); both use same algorithm — not a deviation.
+- Streaming note: `iter_changeset()` buffers the full ZIP entry bytes before yielding parsed lines; this is inherent to ZIP format and not a spec violation since the generator satisfies the "process without loading entire file into memory" intent at the deserialization layer.
 
-**Note:** Project uses MagicMock/AsyncMock in unit tests throughout (not fakes). This is consistent with IAM tests and is an established pattern, not a task-008-specific deviation.
+### 2026-04-25 | bulk-loading.spec.md | PASS | All requirements implemented
+- Pattern: Staging-based bulk loading splits into 5 files: strategy.py, staging.py, queries.py, indexing.py, utils.py. Test split: unit tests for partitioning in test_age_bulk_loading_strategy_partitioning.py, unit tests for staging in test_staging_table_manager.py, integration tests in test_bulk_loading.py.
+- Action: Verified all 6 spec requirements (Operation Partitioning, Label Pre-Creation, Staging-Based Ingestion x2, Duplicate/Orphan Detection x2, Concurrency Safety x2) covered by implementation and tests.
+- Context: Same-batch node materialization is enforced by call order in strategy.py apply_batch() (nodes created first at line 151, lookup table built inside edge create at line 293). No explicit dedicated integration test for concurrent batches, but pg_advisory_xact_lock semantics guarantee the behavior.
+- Key files: src/api/graph/infrastructure/age_bulk_loading/strategy.py, staging.py, queries.py, indexing.py; src/api/tests/unit/graph/infrastructure/test_age_bulk_loading_strategy_partitioning.py (18 tests), test_staging_table_manager.py (23 tests); src/api/tests/integration/test_bulk_loading.py.
+- Run: cd src/api && uv run pytest tests/unit/graph/infrastructure/test_age_bulk_loading_strategy_partitioning.py tests/unit/graph/infrastructure/test_staging_table_manager.py -v
 
-**Context:** Permission inheritance tested via SpiceDB schema unit tests (test_schema_design.py) — validates schema expressions, not live SpiceDB behavior. No integration tests for KG permission inheritance scenarios specifically.
+### 2026-04-25 | workspaces.spec.md | PASS | All requirements implemented
+- Pattern: Workspace features span 7 files (aggregate, service, routes, models, translator, schema.zed, repository). Key invariant: last-admin guard is in aggregate layer (workspace.py:_is_last_admin), not service layer, so it fires for both remove_member and update_member_role via aggregate methods.
+- Action: Verified all 9 requirements and 20+ scenarios. Unit tests (975 pass) + integration tests cover full vertical slice.
+- Context: "Unauthorized creation returns 404" (not 403) is explicitly spec-compliant per routes.py:82-88. Group member listing uses read_relationships (not lookup_subjects) to avoid expansion. creator_tenant relation written via WorkspaceCreatorTenantSet event/translator.
+- Key files: src/api/iam/domain/aggregates/workspace.py, src/api/iam/application/services/workspace_service.py, src/api/iam/presentation/workspaces/routes.py, src/api/iam/infrastructure/outbox/translator.py, src/api/shared_kernel/authorization/spicedb/schema.zed.
+- Run: cd src/api && uv run pytest tests/unit/iam/ -v
 
-### 2026-04-23 | task-008 Knowledge Graphs re-review — credential gap RESOLVED
-**Pattern:** The previously flagged credential deletion gap has been resolved. `KnowledgeGraphService.delete()` now calls `secret_store.delete(path, tenant_id)` for each DS with a `credentials_path` inside the cascade transaction. Dedicated test `test_delete_cascades_encrypted_credentials` verifies this.
+### 2026-04-25 | groups.spec.md | PASS | All 10 requirements implemented
+- Pattern: Group last-admin guard is in aggregate layer for both remove_member (group.py:160-165) and update_member_role (group.py:198-203) and add_member with current_role (group.py:108-114) — all three code paths covered.
+- Action: Verified workspace access inheritance via SpiceDB group#member subject relation (translator.py:604-619, schema.zed:69-75). list_members uses read_relationships (not lookup_subjects) to avoid admin-counting duplicates.
+- Context: GroupService.update_group checks duplicate name only when name actually changes (group_service.py:565). Member snapshot captured in GroupDeleted event enables SpiceDB cleanup without external lookups.
+- Key files: src/api/iam/domain/aggregates/group.py, src/api/iam/application/services/group_service.py, src/api/iam/presentation/groups/routes.py, src/api/iam/infrastructure/outbox/translator.py, src/api/shared_kernel/authorization/spicedb/schema.zed.
+- Run: cd src/api && uv run pytest tests/unit/iam/ -v (175+ tests)
 
-**Action:** Verdict updated to PASS. No gaps remain.
-
-**Context:** Authorization relationships at create time are established via outbox pattern (ManagementEventTranslator), not inline in the service. This is the correct architectural approach for the project. SpiceDB relationship cleanup at delete covers workspace, tenant, and all direct grants (admin/editor/viewer) via filter-based deletion. Integration tests in `test_knowledge_graph_authorization.py` cover live SpiceDB permission inheritance scenarios.
-
-### 2026-04-23 | task-008 Knowledge Graphs full spec alignment review — PASS (confirmed stable)
-**Pattern:** All 6 SHALL requirements and 11 scenarios verified against implementation. No deviations found. Implementation stable across multiple review cycles.
-
-**Action:** Verdict PASS. Wrote detailed per-requirement coverage report to worker-result.yaml.
-
-**Context:** Key architectural patterns to recognize as correct (not deviations): (1) list_for_workspace uses workspace VIEW check + SpiceDB read_relationships rather than per-KG VIEW checks — valid because workspace VIEW implies KG VIEW via schema inheritance; (2) outbox pattern for SpiceDB writes at create time (not inline in service) is intentional; (3) AsyncMock in unit tests (not fakes) is established project pattern.
-
-### 2026-04-23 | task-008 final spec alignment gate — PASS (gate 7 verified)
-**Pattern:** GET /management/knowledge-graphs (tenant-visible list) was the outstanding CodeRabbit concern. Commit 4fd5c66f added TestListAllKnowledgeGraphs (4 unit tests). Service list_all() verified: fetches by tenant, filters per-KG VIEW check. Route confirmed implemented. 334 management unit tests pass.
-
-**Action:** Verdict PASS confirmed. worker-result.yaml updated with per-requirement COVERED status for all 6 requirements and 11 scenarios.
-
-**Context:** This was gate 7 (spec alignment) running after code review (gate 6). The prior worker-result.yaml had a code review verdict — this pass rewrites it with spec alignment findings. No code changes made — read-only review.
-
-### 2026-04-23 | task-008 independent re-verification of PR feedback items — PASS
-**Pattern:** Two MAJOR PR feedback items independently verified as resolved.
-
-**Action:** (1) ParentWorkspaceNotFoundError and ParentWorkspaceCrossTenantError confirmed present in iam/ports/exceptions.py lines 103-123 with docstrings. workspace_service.py raises them at lines 165 and 171. routes.py imports both at lines 18-19, catches them in single except clause at lines 87-93, advertises 404 in OpenAPI responses map at line 57. Tests in test_workspace_service.py (lines 203, 234) and test_workspaces_routes.py (lines 198, 225) assert typed exceptions — no string parsing. (2) Architecture test test_management_does_not_import_iam uses three targeted exclusions: management.presentation.knowledge_graphs.routes*, management.presentation.knowledge_graphs, management.presentation — NOT the blanket management.presentation* — confirmed in test_architecture.py lines 249-253. management.presentation.knowledge_graphs.models is NOT excluded. 2066 unit tests pass.
-
-**Context:** All spec requirements verified. No deviations found in this independent pass.
-
-### 2026-04-23 | task-008 gate-7 spec alignment — full per-requirement pass
-**Pattern:** Full spec alignment review covering all 6 SHALL requirements and 11 scenarios plus 3 MAJOR PR feedback items. All verified COVERED with specific test citations.
-
-**Action:** Verdict PASS. Wrote complete per-requirement report to worker-result.yaml with file+line citations for each scenario. 334 management unit tests pass.
-
-**Context:** Architecture exclusion: 4 targeted entries in test_architecture.py lines 248-253, NOT broad management.presentation*. Typed exceptions: iam/ports/exceptions.py lines 103-123. TestListAllKnowledgeGraphs: test_knowledge_graph_routes.py line 358 (4 tests). Cascade delete with credential cleanup: test_delete_cascades_encrypted_credentials at service test line 700.
-
-### 2026-04-23 | task-008 gate-7 final re-run — PASS (stable, no source changes)
-**Pattern:** Re-ran gate 7 after previous comprehensive pass. Branch clean, 334 management unit tests pass, no source changes since commit e15ef572. All 6 SHALL requirements and 11 scenarios remain COVERED.
-
-**Action:** Verdict PASS. Rewrote worker-result.yaml as spec-alignment-focused report (replacing prior PR-feedback-focused report). Committed as 837f07f5.
-
-**Context:** When branch is clean with no source changes, a diff-based shortcut is valid: verify git diff returns empty, run tests, confirm PASS from memory, update worker-result.yaml. No need to re-read all implementation files if memory confirms prior pass and no code has changed.
-
-### 2026-04-25 | task-008 gate-7 re-run — PASS (stable, full re-read, 361 unit tests pass)
-**Pattern:** Re-ran gate 7 with full re-read of all key files. No source changes since prior pass. All 6 SHALL requirements and 11 scenarios verified COVERED. 361 management unit tests pass in 7.43s.
-
-**Action:** Verdict PASS. Wrote per-requirement spec alignment report to worker-result.yaml.
-
-**Context:** Shortcut when branch is clean: read memory, verify git status clean, run tests, confirm PASS, write verdict. Full re-read confirmed all prior findings stable. "Mutation after deletion" scenario covered by `test_update_raises_after_deletion` in `test_knowledge_graph.py` line 214. Cascade delete atomicity covered by `test_delete_rolls_back_on_ds_deletion_failure`. Credential cleanup covered by `test_delete_cascades_encrypted_credentials`.
-
-### 2026-04-24 | task-008 gate-7 re-run — PASS (confirmed stable, full re-read)
-**Pattern:** Re-ran gate 7 with full re-read of service, routes, service tests, route tests, integration auth tests, and schema.zed. No source changes since prior pass. All 6 SHALL requirements and 11 scenarios verified COVERED.
-
-**Action:** Verdict PASS. Wrote per-requirement spec alignment report to worker-result.yaml (replacing prior independent verification report). Committed as c4e8dd7d.
-
-**Context:** `permission manage = admin + workspace->manage` in schema — the grep result can appear truncated when definition ends at "manage = admin" but the full context shows workspace->manage is included. Always use grep -A N with sufficient context lines when reading schema definitions. 334 management unit tests pass in 4.40s.
+### 2026-04-23 | task-029 Application Lifecycle NFR | PASS | All requirements covered
+- Pattern: Graceful shutdown spec requires test proving in-progress batch is NOT interrupted — a `test_stop_clears_running_flag` alone is insufficient; need a timing-based test.
+- Action: Verified `test_in_progress_batch_completes_before_shutdown` (test_worker.py:215) injects a slow batch and asserts `processing_completed.is_set()` after `stop()` returns.
+- Context: Implementation uses `asyncio.Event` (`_shutdown_event`) + `asyncio.wait_for` in poll loop to interrupt sleep without cancelling task. `stop()` awaits tasks naturally without `task.cancel()`.
+- Key files: `src/api/infrastructure/outbox/worker.py`, `src/api/main.py`, `src/api/tests/unit/test_application_lifecycle.py`, `src/api/tests/unit/infrastructure/outbox/test_worker.py`.
+- Settings defaults verified in `src/api/infrastructure/settings.py` (IAMSettings): single_tenant_mode=True, default_tenant_name="default", default_workspace_name=None, bootstrap_admin_usernames=[].

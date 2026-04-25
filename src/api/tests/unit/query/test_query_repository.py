@@ -11,7 +11,11 @@ from graph.ports.protocols import (
     GraphClientProtocol,
     GraphTransactionProtocol,
 )
-from query.domain.value_objects import QueryExecutionError, QueryForbiddenError
+from query.domain.value_objects import (
+    QueryExecutionError,
+    QueryForbiddenError,
+    QueryTimeoutError,
+)
 from query.infrastructure.query_repository import QueryGraphRepository
 
 
@@ -97,6 +101,16 @@ class TestValidateReadOnly:
         """Should allow LIMIT clauses."""
         repository._validate_read_only("MATCH (n) RETURN n LIMIT 10")
 
+    def test_rejects_explain(self, repository):
+        """Should reject EXPLAIN queries (spec: keyword blacklist)."""
+        with pytest.raises(QueryForbiddenError):
+            repository._validate_read_only("EXPLAIN MATCH (n) RETURN n")
+
+    def test_rejects_load(self, repository):
+        """Should reject LOAD queries (spec: keyword blacklist)."""
+        with pytest.raises(QueryForbiddenError):
+            repository._validate_read_only("LOAD CSV FROM 'file.csv'")
+
     def test_stores_query_in_exception(self, repository):
         """Should store query in exception for debugging."""
         query = "CREATE (n:Test)"
@@ -104,6 +118,26 @@ class TestValidateReadOnly:
             repository._validate_read_only(query)
 
         assert exc_info.value.query == query
+
+    def test_forbidden_error_has_correlation_id(self, repository):
+        """Forbidden error MUST include a correlation ID for log lookup (spec requirement)."""
+        with pytest.raises(QueryForbiddenError) as exc_info:
+            repository._validate_read_only("CREATE (n:Test)")
+
+        assert hasattr(exc_info.value, "correlation_id")
+        assert exc_info.value.correlation_id is not None
+        # Must be a non-empty string (UUID)
+        assert len(exc_info.value.correlation_id) > 0
+
+    def test_forbidden_error_correlation_id_is_unique(self, repository):
+        """Each forbidden error should have a unique correlation ID."""
+        ids = set()
+        for _ in range(5):
+            with pytest.raises(QueryForbiddenError) as exc_info:
+                repository._validate_read_only("CREATE (n:Test)")
+            ids.add(exc_info.value.correlation_id)
+
+        assert len(ids) == 5, "Each forbidden error should have a unique correlation ID"
 
 
 class TestEnsureLimit:
@@ -139,6 +173,35 @@ RETURN n"""
         assert "LIMIT 100" in query
         assert "MATCH (n)" in query
 
+    def test_caps_limit_above_absolute_maximum(self, repository):
+        """Should cap LIMIT exceeding 10000 to 10000 (spec: Explicit LIMIT exceeds maximum)."""
+        query = repository._ensure_limit("MATCH (n) RETURN n LIMIT 15000", 1000)
+
+        assert "LIMIT 10000" in query
+        assert "15000" not in query
+
+    def test_caps_limit_well_above_absolute_maximum(self, repository):
+        """Should cap any LIMIT exceeding 10000 to 10000."""
+        query = repository._ensure_limit("MATCH (n) RETURN n LIMIT 999999", 1000)
+
+        assert "LIMIT 10000" in query
+        assert "999999" not in query
+
+    def test_respects_limit_at_absolute_maximum(self, repository):
+        """Should respect LIMIT exactly at 10000 (spec: Explicit LIMIT within bounds)."""
+        original = "MATCH (n) RETURN n LIMIT 10000"
+        query = repository._ensure_limit(original, 1000)
+
+        assert "LIMIT 10000" in query
+
+    def test_respects_limit_within_absolute_maximum(self, repository):
+        """Should respect any LIMIT at or below 10000 (spec: Explicit LIMIT within bounds)."""
+        original = "MATCH (n) RETURN n LIMIT 5000"
+        query = repository._ensure_limit(original, 1000)
+
+        assert "LIMIT 5000" in query
+        assert "10000" not in query
+
 
 class TestExecuteCypher:
     """Tests for execute_cypher method."""
@@ -172,7 +235,7 @@ class TestExecuteCypher:
         assert "LIMIT 50" in query_executed
 
     def test_sets_statement_timeout(self, repository, mock_client, mock_transaction):
-        """Should set PostgreSQL statement_timeout."""
+        """Should set PostgreSQL statement_timeout within the transaction."""
         mock_client.transaction.return_value.__enter__ = MagicMock(
             return_value=mock_transaction
         )
@@ -183,10 +246,13 @@ class TestExecuteCypher:
 
         repository.execute_cypher("MATCH (n) RETURN n", timeout_seconds=5)
 
-        mock_transaction.execute_sql.assert_called_once()
-        sql_call = mock_transaction.execute_sql.call_args[0][0]
-        assert "statement_timeout" in sql_call
-        assert "5000" in sql_call  # 5 seconds = 5000ms
+        # execute_sql is called for both SET TRANSACTION READ ONLY and statement_timeout
+        sql_calls = [call[0][0] for call in mock_transaction.execute_sql.call_args_list]
+        timeout_calls = [c for c in sql_calls if "statement_timeout" in c]
+        assert len(timeout_calls) == 1, (
+            f"Expected exactly one statement_timeout call, got: {sql_calls}"
+        )
+        assert "5000" in timeout_calls[0]  # 5 seconds = 5000ms
 
     def test_uses_transaction_context(self, repository, mock_client, mock_transaction):
         """Should execute query within transaction context."""
@@ -231,6 +297,105 @@ class TestExecuteCypher:
         result = repository.execute_cypher("MATCH (n) RETURN n")
 
         assert result == []
+
+    def test_sets_transaction_read_only(
+        self, repository, mock_client, mock_transaction
+    ):
+        """Database session MUST be configured read-only (spec: database-level enforcement).
+
+        This is the primary defense mechanism. The transaction must use
+        SET TRANSACTION READ ONLY so the database itself rejects writes
+        regardless of query content.
+        """
+        mock_client.transaction.return_value.__enter__ = MagicMock(
+            return_value=mock_transaction
+        )
+        mock_client.transaction.return_value.__exit__ = MagicMock(return_value=False)
+        mock_transaction.execute_cypher.return_value = CypherResult(
+            rows=(), row_count=0
+        )
+
+        repository.execute_cypher("MATCH (n) RETURN n")
+
+        # Verify that SET TRANSACTION READ ONLY was sent to the DB
+        sql_calls = [call[0][0] for call in mock_transaction.execute_sql.call_args_list]
+        read_only_calls = [c for c in sql_calls if "READ ONLY" in c.upper()]
+        assert len(read_only_calls) >= 1, (
+            "Expected SET TRANSACTION READ ONLY to be called, "
+            f"but execute_sql was called with: {sql_calls}"
+        )
+
+    def test_database_read_only_applied_before_query(
+        self, repository, mock_client, mock_transaction
+    ):
+        """Database read-only mode MUST be set before any Cypher is executed."""
+        call_order = []
+
+        mock_client.transaction.return_value.__enter__ = MagicMock(
+            return_value=mock_transaction
+        )
+        mock_client.transaction.return_value.__exit__ = MagicMock(return_value=False)
+
+        def track_sql(sql: str) -> None:
+            call_order.append(("sql", sql))
+
+        def track_cypher(query: str) -> CypherResult:
+            call_order.append(("cypher", query))
+            return CypherResult(rows=(), row_count=0)
+
+        mock_transaction.execute_sql.side_effect = track_sql
+        mock_transaction.execute_cypher.side_effect = track_cypher
+
+        repository.execute_cypher("MATCH (n) RETURN n")
+
+        # Find the position of READ ONLY and cypher calls
+        sql_positions = [
+            i
+            for i, (kind, val) in enumerate(call_order)
+            if kind == "sql" and "READ ONLY" in val.upper()
+        ]
+        cypher_positions = [
+            i for i, (kind, _) in enumerate(call_order) if kind == "cypher"
+        ]
+        assert sql_positions, "READ ONLY SQL was never called"
+        assert cypher_positions, "Cypher was never called"
+        assert min(sql_positions) < min(cypher_positions), (
+            "SET TRANSACTION READ ONLY must be called BEFORE Cypher execution"
+        )
+
+    def test_timeout_raises_query_timeout_error(
+        self, repository, mock_client, mock_transaction
+    ):
+        """Should raise QueryTimeoutError when DB cancels statement (spec: timeout scenario)."""
+        mock_client.transaction.return_value.__enter__ = MagicMock(
+            return_value=mock_transaction
+        )
+        mock_client.transaction.return_value.__exit__ = MagicMock(return_value=False)
+        mock_transaction.execute_cypher.side_effect = Exception(
+            "canceling statement due to statement timeout"
+        )
+
+        with pytest.raises(QueryTimeoutError):
+            repository.execute_cypher("MATCH (n) RETURN n")
+
+    def test_timeout_error_has_correlation_id(
+        self, repository, mock_client, mock_transaction
+    ):
+        """Timeout error MUST include a correlation ID for debugging (spec requirement)."""
+        mock_client.transaction.return_value.__enter__ = MagicMock(
+            return_value=mock_transaction
+        )
+        mock_client.transaction.return_value.__exit__ = MagicMock(return_value=False)
+        mock_transaction.execute_cypher.side_effect = Exception(
+            "canceling statement due to statement timeout"
+        )
+
+        with pytest.raises(QueryTimeoutError) as exc_info:
+            repository.execute_cypher("MATCH (n) RETURN n")
+
+        assert hasattr(exc_info.value, "correlation_id")
+        assert exc_info.value.correlation_id is not None
+        assert len(exc_info.value.correlation_id) > 0
 
 
 class TestRowToDict:

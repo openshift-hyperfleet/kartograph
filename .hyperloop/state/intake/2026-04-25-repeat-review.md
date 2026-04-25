@@ -14,9 +14,10 @@
 
 ## Note
 
-This is the fourth intake run over this exact spec batch. The first full analysis was
-committed at `fc3a063a` and recorded in `2026-04-25-tenants-and-tenant-context.md`.
-Subsequent runs at `95f9da87` and `3c6c5574` confirmed the same conclusion.
+This is the fifth (and subsequent) intake run over this exact spec batch. The first
+full analysis was committed at `fc3a063a` and recorded in
+`2026-04-25-tenants-and-tenant-context.md`. Subsequent runs at `95f9da87`,
+`3c6c5574`, and `605f6298` confirmed the same conclusion.
 
 The code and tests have not changed between runs. The findings are identical:
 

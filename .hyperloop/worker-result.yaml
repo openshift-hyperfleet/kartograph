@@ -5,58 +5,70 @@ report: |
 
   ### Methodology
 
-  Read the full Mutations spec, then traced each SHALL/MUST requirement through
-  source code and test suite. Files reviewed:
+  Reviewed the latest commit on `hyperloop/task-003` (ab10f48) which addresses
+  all CodeRabbit PR feedback. Ran the full automated verification suite and
+  traced each CodeRabbit finding through the changed source files.
 
-  - `src/api/graph/domain/value_objects.py`
+  Files reviewed:
   - `src/api/graph/application/services/graph_mutation_service.py`
+  - `src/api/graph/domain/value_objects.py`
   - `src/api/graph/presentation/routes.py`
   - `src/api/graph/infrastructure/age_client.py`
-  - `src/api/graph/infrastructure/age_bulk_loading/queries.py`
   - `src/api/graph/dependencies.py`
-  - `src/api/tests/unit/graph/application/test_mutation_service.py`
-  - `src/api/tests/unit/graph/test_domain_value_objects.py`
-  - `src/api/tests/unit/graph/application/test_schema_learning.py`
-  - `src/api/tests/unit/graph/infrastructure/test_mutation_applier_sort.py`
-  - `src/api/tests/unit/graph/presentation/test_routes.py`
-  - `src/api/tests/integration/test_bulk_loading.py`
 
   ---
 
-  ### Requirement Coverage
+  ### Automated Checks
 
-  All ten SHALL/MUST requirements in `specs/graph/mutations.spec.md` have
-  implementation and corresponding test coverage. PASS.
+  | Check | Result | Detail |
+  |-------|--------|--------|
+  | Unit tests | PASS | 2031 passed, 0 failures, 40 warnings |
+  | Linting (ruff check) | PASS | All checks passed |
+  | Formatting (ruff format) | PASS | 441 files already formatted |
+  | Type checking (mypy) | PASS | No issues found in 441 source files |
+  | Architecture boundaries | PASS | 40 pytest-archon tests pass |
 
-  ### PR Feedback Addressed
+  ---
 
-  The following CodeRabbit findings have been resolved in this revision:
+  ### CodeRabbit Feedback Resolution
 
-  1. **`except ValidationError` (was `except Exception`)** — Narrowed the broad
-     exception catch in `apply_mutations_from_jsonl()` to `pydantic.ValidationError`
-     only. Real runtime errors now propagate to the outer catch-all and are correctly
-     classified as `error_kind="server"`.
+  All 5 findings from the PR review have been resolved:
+
+  1. **`except ValidationError` (was `except Exception`)** — Narrowed in
+     `apply_mutations_from_jsonl()` at line 303. Pydantic `ValidationError` is
+     imported and used precisely. The outer `except Exception` catch-all
+     correctly handles real runtime faults as `error_kind="server"`.
 
   2. **`knowledge_graph_id` enforcement at service boundary** — `apply_mutations()`
-     now rejects any batch containing CREATE or UPDATE operations when
-     `knowledge_graph_id` is `None`. Direct service callers can no longer bypass the
-     anti-spoofing guarantee that the HTTP route enforces. Updated all affected unit
-     tests.
+     now rejects any batch containing CREATE or UPDATE when `knowledge_graph_id`
+     is `None` (lines 109-125). The anti-spoofing guarantee is now enforced for
+     all callers, not just the HTTP route.
 
   3. **Server error leakage in `_build_mutation_error_response`** — For
      `error_kind="server"` (500) responses, `result.errors` are now logged via
-     structlog instead of returned verbatim to the client. The response body contains
-     only `{"errors": ["internal server error"]}`.
+     `structlog` (line 69) instead of returned to the client. Response body
+     contains only `{"errors": ["internal server error"]}`.
 
-  4. **`AgeGraphClient.auto_create` gate** — Added `auto_create: bool = False`
-     parameter to `AgeGraphClient.__init__()`. `connect()` only calls
-     `_ensure_graph_exists()` when `auto_create=True`. The FastAPI dependency
-     (`get_age_graph_client`) uses the safe default. Integration test fixtures
-     explicitly opt in with `auto_create=True`.
+  4. **`AgeGraphClient.auto_create` gate** — `auto_create: bool = False`
+     parameter added to `AgeGraphClient.__init__()` (line 62). `connect()`
+     only calls `_ensure_graph_exists()` when `auto_create=True` (line 130).
+     The FastAPI dependency uses the safe default.
 
-  5. **`PLATFORM_STAMPED_PROPERTIES` in CREATE validation** — Replaced the
-     hardcoded `"knowledge_graph_id"` literal in `value_objects.py` with a check
-     against the `PLATFORM_STAMPED_PROPERTIES` frozenset constant, keeping the rule
-     single-sourced.
+  5. **`PLATFORM_STAMPED_PROPERTIES` in CREATE validation** — Line 267 in
+     `value_objects.py` uses `PLATFORM_STAMPED_PROPERTIES.issubset(...)` instead
+     of a hardcoded string literal.
+
+  ---
+
+  ### Spec Requirement Coverage
+
+  All 10 SHALL/MUST requirements in `specs/graph/mutations.spec.md` remain
+  fully implemented and tested.
+
+  ### Commit Trailers
+
+  Implementation commits carry both `Spec-Ref` and `Task-Ref` trailers:
+  - `Spec-Ref: specs/graph/mutations.spec.md@85d49a379a52479b33f9b39994d76795066899a6`
+  - `Task-Ref: task-003`
 
   ### Verdict: PASS

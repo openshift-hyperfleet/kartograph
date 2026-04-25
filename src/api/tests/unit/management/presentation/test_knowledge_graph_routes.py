@@ -30,6 +30,7 @@ from management.domain.aggregates import KnowledgeGraph
 from management.domain.value_objects import KnowledgeGraphId
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
+    KnowledgeGraphNotFoundError,
     UnauthorizedError,
 )
 
@@ -596,7 +597,7 @@ class TestUpdateKnowledgeGraph:
     ) -> None:
         """Returns 404 Not Found when knowledge graph does not exist."""
         kg_id = "01JT0000000000000000000001"
-        mock_kg_service.update.side_effect = ValueError(
+        mock_kg_service.update.side_effect = KnowledgeGraphNotFoundError(
             f"Knowledge graph {kg_id} not found"
         )
 

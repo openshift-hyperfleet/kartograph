@@ -230,16 +230,15 @@ class TestManagementBoundedContextIsolation:
         Excluded modules (those that legitimately bridge authentication):
         - management.dependencies: DI wiring that extracts CurrentUser from
           IAM for tenant scoping (e.g., scope_to_tenant=current_user.tenant_id).
-        - management.presentation.knowledge_graphs.routes: Route module that
-          imports IAM for get_current_user dependency and CurrentUser extraction.
-        - management.presentation.knowledge_graphs (package __init__): Re-exports
-          the router from routes, inheriting the transitive IAM dependency.
-        - management.presentation.data_sources.routes: Route module that
-          imports IAM for get_current_user dependency and CurrentUser extraction.
-        - management.presentation.data_sources (package __init__): Re-exports
-          the router from routes, inheriting the transitive IAM dependency.
-        - management.presentation (package __init__): Aggregates sub-routers
-          including knowledge_graphs and data_sources, inheriting IAM imports.
+        - management.presentation.auth_bridge: Single canonical bridge module
+          that re-exports IAM authentication primitives (CurrentUser,
+          get_current_user) for route handlers. All IAM coupling in the
+          presentation layer is channelled through this one file.
+        - Route files and packages: They have transitive IAM imports through
+          both auth_bridge and management.dependencies (pytest-archon checks
+          full transitive chains). Models (models.py) are NOT excluded and
+          remain subject to the isolation check — any accidental IAM import
+          there will still be caught.
 
         Note: route models (models.py) are NOT excluded and remain subject
         to the isolation check.
@@ -249,6 +248,7 @@ class TestManagementBoundedContextIsolation:
             .match("management*")
             .exclude(
                 "management.dependencies*",
+                "management.presentation.auth_bridge",
                 "management.presentation.knowledge_graphs.routes*",
                 "management.presentation.knowledge_graphs",
                 "management.presentation.data_sources.routes*",

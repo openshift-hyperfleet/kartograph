@@ -16,6 +16,7 @@ from infrastructure.database.dependencies import get_write_session
 from infrastructure.outbox.repository import OutboxRepository
 from infrastructure.settings import get_management_settings
 from management.application.observability import DefaultDataSourceServiceProbe
+from management.dependencies.encryption_keys import parse_encryption_keys
 from management.application.services.data_source_service import DataSourceService
 from management.infrastructure.repositories import (
     DataSourceRepository,
@@ -62,7 +63,7 @@ def get_data_source_service(
     outbox = OutboxRepository(session=session)
     ds_repo = DataSourceRepository(session=session, outbox=outbox)
     kg_repo = KnowledgeGraphRepository(session=session, outbox=outbox)
-    encryption_keys = settings.encryption_key.get_secret_value().split(",")
+    encryption_keys = parse_encryption_keys(settings.encryption_key.get_secret_value())
     secret_store = FernetSecretStore(
         session=session,
         encryption_keys=encryption_keys,

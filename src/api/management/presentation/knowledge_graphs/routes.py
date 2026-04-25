@@ -12,14 +12,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from iam.application.value_objects import CurrentUser
-from iam.dependencies.user import get_current_user
 from management.application.services.knowledge_graph_service import (
     KnowledgeGraphService,
 )
 from management.dependencies.knowledge_graph import get_knowledge_graph_service
+from management.presentation.auth_bridge import CurrentUser, get_current_user
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
+    KnowledgeGraphNotFoundError,
     UnauthorizedError,
 )
 from management.presentation.knowledge_graphs.models import (
@@ -265,16 +265,15 @@ async def update_knowledge_graph(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
     except ValueError as e:
-        error_msg = str(e)
-        if "not found" in error_msg:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=error_msg,
-            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_msg,
+            detail=str(e),
         )
     except HTTPException:
         raise

@@ -16,6 +16,7 @@ from infrastructure.database.dependencies import get_write_session
 from infrastructure.outbox.repository import OutboxRepository
 from infrastructure.settings import get_management_settings
 from management.application.observability import DefaultKnowledgeGraphServiceProbe
+from management.dependencies.encryption_keys import parse_encryption_keys
 from management.application.services.knowledge_graph_service import (
     KnowledgeGraphService,
 )
@@ -46,11 +47,7 @@ def get_knowledge_graph_service(
     outbox = OutboxRepository(session=session)
     kg_repo = KnowledgeGraphRepository(session=session, outbox=outbox)
     ds_repo = DataSourceRepository(session=session, outbox=outbox)
-    encryption_keys = [
-        k.strip()
-        for k in settings.encryption_key.get_secret_value().split(",")
-        if k.strip()
-    ]
+    encryption_keys = parse_encryption_keys(settings.encryption_key.get_secret_value())
     secret_store = FernetSecretStore(
         session=session,
         encryption_keys=encryption_keys,

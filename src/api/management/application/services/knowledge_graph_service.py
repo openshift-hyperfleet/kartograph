@@ -6,6 +6,8 @@ transaction management, and observability.
 
 from __future__ import annotations
 
+import asyncio
+
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +19,7 @@ from management.domain.aggregates import KnowledgeGraph
 from management.domain.value_objects import KnowledgeGraphId
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
+    KnowledgeGraphNotFoundError,
     UnauthorizedError,
 )
 from management.ports.repositories import (
@@ -281,19 +284,20 @@ class KnowledgeGraphService:
         """
         all_kgs = await self._kg_repo.find_by_tenant(self._scope_to_tenant)
 
-        visible_kgs: list[KnowledgeGraph] = []
-        for kg in all_kgs:
+        async def _visible_or_none(kg: KnowledgeGraph) -> KnowledgeGraph | None:
             has_view = await self._check_permission(
                 user_id=user_id,
                 resource_type=ResourceType.KNOWLEDGE_GRAPH,
                 resource_id=kg.id.value,
                 permission=Permission.VIEW,
             )
-            if has_view:
-                visible_kgs.append(kg)
+            return kg if has_view else None
+
+        results = await asyncio.gather(*(_visible_or_none(kg) for kg in all_kgs))
+        visible_kgs = [kg for kg in results if kg is not None]
 
         self._probe.knowledge_graphs_listed(
-            workspace_id=self._scope_to_tenant,
+            tenant_id=self._scope_to_tenant,
             count=len(visible_kgs),
         )
         return visible_kgs
@@ -340,10 +344,10 @@ class KnowledgeGraphService:
 
         kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
         if kg is None:
-            raise ValueError(f"Knowledge graph {kg_id} not found")
+            raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
 
         if kg.tenant_id != self._scope_to_tenant:
-            raise ValueError(f"Knowledge graph {kg_id} not found")
+            raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
 
         kg.update(name=name, description=description, updated_by=user_id)
 

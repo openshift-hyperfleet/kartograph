@@ -36,7 +36,7 @@ DEFERRAL_PATTERNS=(
   "when.*routes are available"
   "For now, close the dialog"
   "For now, emit"
-  "in task-[0-9][0-9][0-9]"
+  "in task-[0-9]+"
 )
 
 echo "=== Scanning for cross-task deferral comments in: $SOURCE_DIR ==="

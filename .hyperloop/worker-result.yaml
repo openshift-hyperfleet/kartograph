@@ -1,21 +1,69 @@
 ---
 verdict: pass
 ---
-## Spec Alignment Reviewer — Task-008 Knowledge Graphs
+## Task-008 PR Feedback Round — Knowledge Graphs
 
 Branch: `hyperloop/task-008`
 Date: 2026-04-25
-Gate: 7 (Spec Alignment)
+Round: Post-PR review remediation
+
+---
+
+### Changes Made (PR Review Fixes)
+
+**Critical / Major:**
+1. `KnowledgeGraphNotFoundError` typed exception added to `management.ports.exceptions`;
+   `update()` in `KnowledgeGraphService` now raises it instead of bare `ValueError`.
+   Route handler catches it explicitly instead of string-matching on "not found".
+
+2. `DataSourceService.create()` now raises `KnowledgeGraphNotFoundError` instead of
+   `ValueError` for KG-not-found scenarios. `data_source/routes.py` catches it
+   explicitly, eliminating the "all ValueError → 404" confusion.
+
+3. `list_all()` in `KnowledgeGraphService` now uses `asyncio.gather()` for parallel
+   permission checks, eliminating the N+1 sequential authz call pattern.
+
+4. Probe metadata fixed: `list_all()` now calls
+   `knowledge_graphs_listed(tenant_id=..., count=...)` instead of passing a tenant ID
+   as `workspace_id`. Probe signature updated to accept both params.
+
+**Architecture:**
+5. `management/presentation/auth_bridge.py` created as the single canonical re-export
+   of IAM authentication primitives (`CurrentUser`, `get_current_user`). Both route
+   files now import from `auth_bridge` instead of `iam.*` directly. Architecture test
+   updated with accurate docstring — route files still excluded due to transitive deps,
+   but the bridge module makes the coupling explicit and contained.
+
+**Tests:**
+6. Duplicate test file `test_knowledge_graphs_routes.py` deleted; all scenarios
+   already covered in the more complete `test_knowledge_graph_routes.py`.
+
+7. `test_delete_cascades_data_sources` now asserts `mock_ds_repo.delete.assert_any_call(ds1/ds2)`
+   instead of the private `ds1._deleted` attribute.
+
+8. All tests updated to use `KnowledgeGraphNotFoundError` where appropriate.
+
+**Shell check scripts:**
+9. `check-cross-task-deferral.sh`: regex updated from `[0-9][0-9][0-9]` to `[0-9]+`
+   to catch 1- and 2-digit task numbers.
+10. `check-branch-rebased-on-alpha.sh`: uses `git log -n 20` instead of `| head -20`
+    to avoid SIGPIPE with `set -o pipefail`.
+11. `check-branch-has-commits.sh`: caches `git log` output to avoid double subprocess.
+12. `check-graceful-shutdown-cancel.sh`: validates target directory exists before `find`.
+13. `check-fake-success-notifications.sh`: deduplicates files across success patterns.
+
+**Shared helper:**
+14. `management/dependencies/encryption_keys.py` created with `parse_encryption_keys()`
+    function. Both `knowledge_graph.py` and `data_source.py` DI factories now use it,
+    ensuring identical whitespace-trimming behaviour across both endpoints.
 
 ---
 
 ### Test Run
 
-361 management unit tests pass in 7.43s (zero failures, 3 deprecation warnings only).
+2333 unit tests pass — zero failures.
 
----
-
-### Per-Requirement Coverage
+### Verdict: PASS
 
 #### Requirement: Knowledge Graph Creation — COVERED
 

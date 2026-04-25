@@ -53,6 +53,13 @@
 
 **Context:** When branch is clean with no source changes, a diff-based shortcut is valid: verify git diff returns empty, run tests, confirm PASS from memory, update worker-result.yaml. No need to re-read all implementation files if memory confirms prior pass and no code has changed.
 
+### 2026-04-25 | task-008 gate-7 re-run — PASS (stable, full re-read, 361 unit tests pass)
+**Pattern:** Re-ran gate 7 with full re-read of all key files. No source changes since prior pass. All 6 SHALL requirements and 11 scenarios verified COVERED. 361 management unit tests pass in 7.43s.
+
+**Action:** Verdict PASS. Wrote per-requirement spec alignment report to worker-result.yaml.
+
+**Context:** Shortcut when branch is clean: read memory, verify git status clean, run tests, confirm PASS, write verdict. Full re-read confirmed all prior findings stable. "Mutation after deletion" scenario covered by `test_update_raises_after_deletion` in `test_knowledge_graph.py` line 214. Cascade delete atomicity covered by `test_delete_rolls_back_on_ds_deletion_failure`. Credential cleanup covered by `test_delete_cascades_encrypted_credentials`.
+
 ### 2026-04-24 | task-008 gate-7 re-run — PASS (confirmed stable, full re-read)
 **Pattern:** Re-ran gate 7 with full re-read of service, routes, service tests, route tests, integration auth tests, and schema.zed. No source changes since prior pass. All 6 SHALL requirements and 11 scenarios verified COVERED.
 

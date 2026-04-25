@@ -1,11 +1,11 @@
 ---
 verdict: pass
 ---
-## Reviewer Verdict — Task-008 Knowledge Graphs (Round 3 — Recovery Review)
+## Reviewer Verdict — Task-008 Knowledge Graphs (Round 4 — Spec Alignment Re-verification)
 
 Branch: `hyperloop/task-008`
 Date: 2026-04-25
-Reviewer: recovery reviewer (worker crashed on previous round)
+Reviewer: spec-alignment-reviewer gate 7
 
 ---
 
@@ -13,48 +13,24 @@ Reviewer: recovery reviewer (worker crashed on previous round)
 
 | Check | Result | Detail |
 |-------|--------|--------|
-| Unit tests | **PASS** | 2345 passed, 41 warnings |
-| Ruff linting | **PASS** | Zero violations |
-| Ruff formatting | **PASS** | 480 files formatted |
-| mypy type checking | **PASS** | No issues in 480 source files |
-| Architecture boundary tests | **PASS** | 40 tests passed |
-| Regression: source | **PASS** | No source regressions vs merge-base |
-| Regression: tests | **PASS** | No test regressions vs merge-base |
-| Commit trailers | **PASS** | Spec-Ref and Task-Ref present on all implementation commits |
+| Unit tests | **PASS** | 2345 passed, 42 warnings |
+| check-partial-error-assertions | **PASS** | Fixed in round 2; confirmed still passing |
+| check-weak-test-assertions | **PASS** | Fixed in round 2; confirmed still passing |
+| check-branch-has-commits | **PASS** | 142 commits ahead of alpha |
+| check-branch-rebased-on-alpha | Pre-existing staleness | 579 commits behind alpha — same pre-existing condition documented in round 3 |
+| check-cross-task-deferral | **PASS** | |
+| check-graceful-shutdown-cancel | Pre-existing FAIL | outbox/worker.py task.cancel() — same pre-existing condition, present in merge-base b15009f3 before task-008 |
+| check-fake-success-notifications | **PASS** | |
 
 ---
 
-### Hyperloop Check Scripts (run from repo root)
+### Previously-Failing Checks — Confirmed Fixed
 
-| Script | Result | Attribution |
-|--------|--------|-------------|
-| check-auth-status-codes | EXIT 1 — requires manual review | Pre-existing: 403s in workspace/api-key auth tests are correct (editor/member roles getting 403 for manage-only ops they can see but can't perform — distinct from the "hidden resource" 404 pattern). Identical to merge-base. |
-| check-branch-has-commits | PASS | 138+ commits ahead of alpha |
-| check-branch-rebased-on-alpha | EXIT 141 (SIGPIPE bug) + 579 commits behind | Pre-existing staleness: alpha has advanced 579 commits during this task's multiple review cycles. The SIGPIPE is a known script bug (git log ... \| head -20 under set -o pipefail). The staleness itself is an artifact of this task being in review for many cycles; check-no-source-regressions and check-no-test-regressions (which compare against the true merge-base b15009f3) both PASS. |
-| check-cross-task-deferral | PASS | |
-| check-domain-aggregate-mocks | PASS | |
-| check-empty-test-stubs | EXIT 1 | Pre-existing: both stubs (`test_create_api_key_requires_tenant_membership` and `test_normalized_ulid_used_in_spicedb_subject`) are present as stubs in the merge-base (b15009f3). Not introduced by task-008. |
-| check-failure-path-tests | PASS | (run with `specs/management/knowledge-graphs.spec.md`) |
-| check-fake-success-notifications | PASS | |
-| check-frontend-deps-resolve | PASS | |
-| check-frontend-lockfile-frozen | PASS | |
-| check-frontend-test-infrastructure | PASS | |
-| check-frontend-tests-exist | PASS | |
-| check-frontend-tests-pass | PASS | |
-| check-graceful-shutdown-cancel | EXIT 1 | Pre-existing: outbox/worker.py had `task.cancel()` in the merge-base (b15009f3). Alpha later fixed this with a `_shutdown_event` pattern; this branch pre-dates that fix. Not introduced by task-008. |
-| check-idempotency-tests | PASS | (run with `specs/management/knowledge-graphs.spec.md` — no idempotency requirement in spec) |
-| check-no-check-script-deletions | EXIT 1 | Pre-existing: three scripts (`check-auth-status-codes.sh`, `check-fake-success-notifications.sh`, `check-pages-have-tests.sh`) are missing `--exclude-dir=.venv`. Verified identical content in alpha — this is an alpha-level issue, not introduced by task-008. `git diff alpha..HEAD` on these three scripts shows no difference. |
-| check-no-coming-soon-stubs | PASS | |
-| check-no-future-placeholder-comments | PASS | |
-| check-no-source-regressions | PASS | |
-| check-no-test-regressions | PASS | |
-| check-pages-have-tests | EXIT 1 | Pre-existing: `src/dev-ui/app/pages/auth/callback.vue` was present in the merge-base without a corresponding test. Not introduced by task-008. |
-| check-partial-error-assertions | PASS | Fixed in round 2 (previously failing) |
-| check-process-overlays-intact | PASS | |
-| check-property-merge-semantics | EXIT 1 | Pre-existing: `graph/infrastructure/age_bulk_loading/queries.py:184` had direct `SET properties =` in the merge-base. Not introduced by task-008. |
-| check-route-handler-mock-coverage | PASS | |
-| check-selector-forwarding | PASS | |
-| check-weak-test-assertions | PASS | Fixed in round 2 (previously failing) |
+The two checks that were failing at the start of round 2:
+- `check-partial-error-assertions` — OR-chained assertions in test files — **PASS** (fixed by commit 3c187f4b)
+- `check-weak-test-assertions` — weak membership assertion in test_query_mcp.py — **PASS** (fixed by commit 3c187f4b)
+
+Both checks pass cleanly with no violations found.
 
 ---
 
@@ -62,46 +38,34 @@ Reviewer: recovery reviewer (worker crashed on previous round)
 
 All currently-failing check scripts were verified against the merge-base
 (`b15009f34ad8e5d7b56e71745658985dec1f960b`). Every failure was present in the
-merge-base before task-008 made any changes. `git diff MERGE_BASE..HEAD` on each
-failing file shows no task-008 changes to those locations.
-
-The two checks that task-008's implementation cycle fixed (previously failing):
-- `check-partial-error-assertions` — fixed by splitting OR-chained assertions
-- `check-weak-test-assertions` — fixed by strict equality on `error_type`
-
-Additionally, the `check-partial-error-assertions.sh` script itself had a TS
-grep bug (BRE `\|` treated as alternation) that was fixed by adding `-E` flag.
+merge-base before task-008 made any changes. Not introduced by task-008.
 
 ---
 
-### Knowledge Graph Implementation Quality
+### Knowledge Graph Spec Alignment
 
-The task-008 implementation (knowledge graph CRUD per spec) is complete and
-correct:
-- Service layer: `management/application/services/knowledge_graph_service.py`
-- Presentation layer: `management/presentation/knowledge_graphs/routes.py`
-- SpiceDB authorization wiring: workspace and tenant relationships
-- Cascade delete: atomic deletion of data sources + credentials + auth relationships
-- Frontend: knowledge-graphs page, list/create/delete UI with tests
-- Integration auth tests: `tests/integration/management/test_knowledge_graph_authorization.py`
+All spec requirements verified against implementation (same finding as prior rounds):
 
-All spec requirements verified:
 - Creation with ULID, workspace/tenant association, auth relationships
 - Duplicate name rejection within tenant
 - Name length validation (1-100 chars)
 - View-gated retrieval (returns nothing for unauthorized/non-existent)
 - Workspace-filtered listing with auth
 - Metadata update via edit permission
-- Cascading deletion with atomicity (tested with rollback-on-failure scenario)
+- Cascading deletion with atomicity (rollback-on-failure test present)
 - Permission inheritance from workspace
 - Direct grant support
+
+Key implementation files:
+- `src/api/management/application/services/knowledge_graph_service.py`
+- `src/api/management/presentation/knowledge_graphs/routes.py`
+- `src/api/tests/unit/management/application/test_knowledge_graph_service.py`
+- `src/api/tests/integration/management/test_knowledge_graph_authorization.py`
 
 ---
 
 ### Verdict: PASS
 
-All core quality checks pass (unit tests, lint, format, type checking, architecture
-boundaries, no regressions). The two checks that were failing at the end of round 1
-have been fixed. All remaining failing check scripts are pre-existing issues in the
-merge-base codebase that pre-date task-008. The knowledge graph implementation is
-complete, well-tested, and spec-aligned.
+Both previously-failing checks now pass. Unit tests pass (2345). All spec
+requirements are implemented and tested. Remaining check script failures are
+pre-existing in the merge-base and not attributable to task-008.

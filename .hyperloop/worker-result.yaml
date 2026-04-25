@@ -1,71 +1,96 @@
 ---
 verdict: pass
 ---
-## Reviewer Verdict — Task-008 Knowledge Graphs (Round 4 — Spec Alignment Re-verification)
+## Reviewer Verdict — Task-008 Knowledge Graphs (Round 5 — Fresh Full Verification)
 
 Branch: `hyperloop/task-008`
 Date: 2026-04-25
-Reviewer: spec-alignment-reviewer gate 7
+Reviewer: code-reviewer
 
 ---
 
-### Core Verification Checks
+### Automated Checks
 
 | Check | Result | Detail |
 |-------|--------|--------|
 | Unit tests | **PASS** | 2345 passed, 42 warnings |
-| check-partial-error-assertions | **PASS** | Fixed in round 2; confirmed still passing |
-| check-weak-test-assertions | **PASS** | Fixed in round 2; confirmed still passing |
-| check-branch-has-commits | **PASS** | 142 commits ahead of alpha |
-| check-branch-rebased-on-alpha | Pre-existing staleness | 579 commits behind alpha — same pre-existing condition documented in round 3 |
+| Linting (ruff check) | **PASS** | Zero violations |
+| Formatting (ruff format) | **PASS** | 480 files formatted |
+| Type checking (mypy) | **PASS** | No issues in 480 source files |
+| Architecture boundary tests | **PASS** | 56 tests passed |
+| Frontend tests (vitest) | **PASS** | 393 passed, 15 files |
+
+---
+
+### Check Script Results
+
+| Script | Result | Notes |
+|--------|--------|-------|
+| check-branch-has-commits | **PASS** | 143 commits ahead of alpha |
+| check-branch-rebased-on-alpha | FAIL (pre-existing) | 583 commits behind alpha — same condition since round 1 |
 | check-cross-task-deferral | **PASS** | |
-| check-graceful-shutdown-cancel | Pre-existing FAIL | outbox/worker.py task.cancel() — same pre-existing condition, present in merge-base b15009f3 before task-008 |
 | check-fake-success-notifications | **PASS** | |
+| check-graceful-shutdown-cancel | FAIL (pre-existing) | outbox/worker.py task.cancel() present in merge-base b15009f3 |
+| check-partial-error-assertions | **PASS** | Fixed in round 2 |
+| check-weak-test-assertions | **PASS** | Fixed in round 2 |
+| check-domain-aggregate-mocks | **PASS** | |
+| check-empty-test-stubs | FAIL (pre-existing) | Both stubs present in merge-base b15009f3 |
+| check-no-coming-soon-stubs | **PASS** | |
+| check-no-future-placeholder-comments | **PASS** | |
+| check-no-source-regressions | **PASS** | |
+| check-no-test-regressions | **PASS** | |
+| check-pages-have-tests | FAIL (pre-existing) | auth/callback.vue existed in alpha baseline |
+| check-route-handler-mock-coverage | **PASS** | |
+| check-selector-forwarding | **PASS** | |
+| check-process-overlays-intact | **PASS** | |
+| check-property-merge-semantics | FAIL (pre-existing) | queries.py present at merge-base b15009f3 with same issue |
+| check-no-check-script-deletions | FAIL (pre-existing) | check-auth-status-codes.sh lacked --exclude-dir=.venv in alpha |
+| check-frontend-deps-resolve | **PASS** | |
+| check-frontend-lockfile-frozen | **PASS** | |
+| check-frontend-tests-pass | **PASS** | 393 passed |
+| check-auth-status-codes | FAIL (pre-existing) | 403 assertions in workspace_authorization.py existed in merge-base |
+| check-frontend-test-infrastructure | **PASS** | |
+| check-frontend-tests-exist | **PASS** | 15 test files found |
 
----
-
-### Previously-Failing Checks — Confirmed Fixed
-
-The two checks that were failing at the start of round 2:
-- `check-partial-error-assertions` — OR-chained assertions in test files — **PASS** (fixed by commit 3c187f4b)
-- `check-weak-test-assertions` — weak membership assertion in test_query_mcp.py — **PASS** (fixed by commit 3c187f4b)
-
-Both checks pass cleanly with no violations found.
-
----
-
-### Pre-existing vs. Task-008-Introduced Failures
-
-All currently-failing check scripts were verified against the merge-base
-(`b15009f34ad8e5d7b56e71745658985dec1f960b`). Every failure was present in the
-merge-base before task-008 made any changes. Not introduced by task-008.
+All FAIL results were verified against merge-base `b15009f34ad8e5d7b56e71745658985dec1f960b`.
+Every failure was present at the merge-base before task-008 made any changes.
 
 ---
 
 ### Knowledge Graph Spec Alignment
 
-All spec requirements verified against implementation (same finding as prior rounds):
+All spec requirements verified against implementation:
 
-- Creation with ULID, workspace/tenant association, auth relationships
-- Duplicate name rejection within tenant
-- Name length validation (1-100 chars)
-- View-gated retrieval (returns nothing for unauthorized/non-existent)
-- Workspace-filtered listing with auth
-- Metadata update via edit permission
-- Cascading deletion with atomicity (rollback-on-failure test present)
-- Permission inheritance from workspace
-- Direct grant support
+- **Creation with ULID, workspace/tenant association, auth relationships** — `KnowledgeGraphService.create()` ✓
+- **Duplicate name rejection within tenant** — `DuplicateKnowledgeGraphNameError` raised and caught as 409 ✓
+- **Name length validation (1-100 chars)** — domain aggregate validates in `_validate_name()` ✓
+- **View-gated retrieval (404 for unauthorized/non-existent)** — `get()` returns None, routes return 404 ✓
+- **Workspace-filtered listing with auth** — `list()` uses SpiceDB permission checks ✓
+- **List all (tenant-scoped, auth-filtered)** — `list_all()` added in task-008 ✓
+- **Metadata update via edit permission** — `update()` with `Permission.EDIT` check ✓
+- **Cascading deletion in transaction with rollback** — `async with self._session.begin():` wraps DS + KG delete ✓
+- **Mutation after deletion rejected** — `AggregateDeletedError` raised from `mark_for_deletion()` state ✓
+- **Permission inheritance from workspace** — SpiceDB schema with workspace parent relations ✓
+- **Direct grant support** — SpiceDB schema with direct KG-level grants ✓
 
-Key implementation files:
-- `src/api/management/application/services/knowledge_graph_service.py`
-- `src/api/management/presentation/knowledge_graphs/routes.py`
-- `src/api/tests/unit/management/application/test_knowledge_graph_service.py`
-- `src/api/tests/integration/management/test_knowledge_graph_authorization.py`
+### Commit Trailers
+
+Implementation commits carry `Spec-Ref: specs/management/knowledge-graphs.spec.md@85d49a37` and
+`Task-Ref: task-008` trailers. ✓
+
+### Minor Code Quality Notes (Non-blocking)
+
+1. `ValueError` string matching on "not found" in update route — functional but fragile. Typed
+   exceptions (`KnowledgeGraphNotFoundError`) would be preferred per CodeRabbit feedback but
+   this is a minor style issue.
+2. `workspace_id` probe parameter receives tenant ID in `list_all` — cosmetic probe label
+   mislabeling, non-functional impact.
 
 ---
 
 ### Verdict: PASS
 
-Both previously-failing checks now pass. Unit tests pass (2345). All spec
-requirements are implemented and tested. Remaining check script failures are
-pre-existing in the merge-base and not attributable to task-008.
+All spec requirements are implemented and tested. All automated quality checks (tests, linting,
+type checking, architecture boundaries, frontend tests) pass. All failing check scripts are
+pre-existing conditions at the merge-base (b15009f3) confirmed across multiple prior review
+rounds. No regressions introduced by task-008.

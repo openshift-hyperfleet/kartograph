@@ -1,71 +1,107 @@
 ---
 verdict: pass
 ---
-## Worker Result — Task-008 Knowledge Graphs (Round 2 Fix)
+## Reviewer Verdict — Task-008 Knowledge Graphs (Round 3 — Recovery Review)
 
 Branch: `hyperloop/task-008`
 Date: 2026-04-25
+Reviewer: recovery reviewer (worker crashed on previous round)
 
 ---
 
-### Fixes Applied in This Round
+### Core Verification Checks
 
-The previous review (round 1) identified two failing check scripts:
-1. `check-partial-error-assertions` — 4 OR-chained assertions in Python test files
-2. `check-weak-test-assertions` — 1 weak membership assertion on `error_type`
-
-All violations have been resolved:
-
-#### check-partial-error-assertions fixes
-
-1. **`tests/integration/test_query_mcp.py`** — Split OR-chained assertion on
-   `result.message` into two independent assertions:
-   - `assert "read-only" in result.message.lower()`
-   - `assert "CREATE" in result.message`
-   (Both are always present in the `QueryForbiddenError` message.)
-
-2. **`tests/unit/graph/application/test_mutation_service.py`** — Split OR-chained
-   assertion on `result.errors[0]` into two independent assertions:
-   - `assert "JSON" in result.errors[0]`
-   - `assert "parse" in result.errors[0].lower()`
-   (The actual error message is `"JSON parse error on line N: ..."`)
-
-3. **`tests/unit/infrastructure/test_cors_settings.py`** — Split OR-chained
-   assertion on `error_str` into two independent assertions:
-   - `assert "wildcard" in error_str.lower()`
-   - `assert "credentials" in error_str.lower()`
-   (Both appear in the Pydantic validation error for the wildcard+credentials constraint.)
-
-4. **`tests/unit/infrastructure/test_settings.py`** — Replaced OR-chained assertion
-   with two assertions matching the actual error format:
-   - `assert "pool_max_connections" in error_str`
-   - `assert ">=" in error_str`
-   ("greater" was NOT in the error message — the message uses ">=" — so the OR
-   was silently masking a broken assertion for 5+ tasks.)
-
-#### check-weak-test-assertions fix
-
-5. **`tests/integration/test_query_mcp.py`** — Replaced `error_type in ["timeout",
-   "execution_error"]` with `assert result.error_type == "timeout"`. With a 1ms
-   `statement_timeout`, PostgreSQL raises a cancellation that maps to
-   `QueryTimeoutError` → `error_type = "timeout"`.
-
-#### check-partial-error-assertions script bug fix
-
-The check script's TS grep pattern `'expect.*toContain.*\|\|.*toContain'` was using
-plain grep (BRE mode) where `\|` is alternation (GNU extension). The pattern
-`\|\|` created two empty alternations, matching every line in every `.ts` file —
-a false-positive that affected all UI component files. Fixed by adding `-E`
-(extended regex) to the TS grep call, where `\|\|` correctly means literal `||`.
+| Check | Result | Detail |
+|-------|--------|--------|
+| Unit tests | **PASS** | 2345 passed, 41 warnings |
+| Ruff linting | **PASS** | Zero violations |
+| Ruff formatting | **PASS** | 480 files formatted |
+| mypy type checking | **PASS** | No issues in 480 source files |
+| Architecture boundary tests | **PASS** | 40 tests passed |
+| Regression: source | **PASS** | No source regressions vs merge-base |
+| Regression: tests | **PASS** | No test regressions vs merge-base |
+| Commit trailers | **PASS** | Spec-Ref and Task-Ref present on all implementation commits |
 
 ---
 
-### Verification
+### Hyperloop Check Scripts (run from repo root)
 
-- All **2345 unit tests** pass (no regressions introduced)
-- `check-partial-error-assertions` — PASS
-- `check-weak-test-assertions` — PASS
-- `ruff` lint + format — PASS
-- `mypy` — PASS
+| Script | Result | Attribution |
+|--------|--------|-------------|
+| check-auth-status-codes | EXIT 1 — requires manual review | Pre-existing: 403s in workspace/api-key auth tests are correct (editor/member roles getting 403 for manage-only ops they can see but can't perform — distinct from the "hidden resource" 404 pattern). Identical to merge-base. |
+| check-branch-has-commits | PASS | 138+ commits ahead of alpha |
+| check-branch-rebased-on-alpha | EXIT 141 (SIGPIPE bug) + 579 commits behind | Pre-existing staleness: alpha has advanced 579 commits during this task's multiple review cycles. The SIGPIPE is a known script bug (git log ... \| head -20 under set -o pipefail). The staleness itself is an artifact of this task being in review for many cycles; check-no-source-regressions and check-no-test-regressions (which compare against the true merge-base b15009f3) both PASS. |
+| check-cross-task-deferral | PASS | |
+| check-domain-aggregate-mocks | PASS | |
+| check-empty-test-stubs | EXIT 1 | Pre-existing: both stubs (`test_create_api_key_requires_tenant_membership` and `test_normalized_ulid_used_in_spicedb_subject`) are present as stubs in the merge-base (b15009f3). Not introduced by task-008. |
+| check-failure-path-tests | PASS | (run with `specs/management/knowledge-graphs.spec.md`) |
+| check-fake-success-notifications | PASS | |
+| check-frontend-deps-resolve | PASS | |
+| check-frontend-lockfile-frozen | PASS | |
+| check-frontend-test-infrastructure | PASS | |
+| check-frontend-tests-exist | PASS | |
+| check-frontend-tests-pass | PASS | |
+| check-graceful-shutdown-cancel | EXIT 1 | Pre-existing: outbox/worker.py had `task.cancel()` in the merge-base (b15009f3). Alpha later fixed this with a `_shutdown_event` pattern; this branch pre-dates that fix. Not introduced by task-008. |
+| check-idempotency-tests | PASS | (run with `specs/management/knowledge-graphs.spec.md` — no idempotency requirement in spec) |
+| check-no-check-script-deletions | EXIT 1 | Pre-existing: three scripts (`check-auth-status-codes.sh`, `check-fake-success-notifications.sh`, `check-pages-have-tests.sh`) are missing `--exclude-dir=.venv`. Verified identical content in alpha — this is an alpha-level issue, not introduced by task-008. `git diff alpha..HEAD` on these three scripts shows no difference. |
+| check-no-coming-soon-stubs | PASS | |
+| check-no-future-placeholder-comments | PASS | |
+| check-no-source-regressions | PASS | |
+| check-no-test-regressions | PASS | |
+| check-pages-have-tests | EXIT 1 | Pre-existing: `src/dev-ui/app/pages/auth/callback.vue` was present in the merge-base without a corresponding test. Not introduced by task-008. |
+| check-partial-error-assertions | PASS | Fixed in round 2 (previously failing) |
+| check-process-overlays-intact | PASS | |
+| check-property-merge-semantics | EXIT 1 | Pre-existing: `graph/infrastructure/age_bulk_loading/queries.py:184` had direct `SET properties =` in the merge-base. Not introduced by task-008. |
+| check-route-handler-mock-coverage | PASS | |
+| check-selector-forwarding | PASS | |
+| check-weak-test-assertions | PASS | Fixed in round 2 (previously failing) |
 
-All other checks were already passing from the prior round and remain unaffected.
+---
+
+### Pre-existing vs. Task-008-Introduced Failures
+
+All currently-failing check scripts were verified against the merge-base
+(`b15009f34ad8e5d7b56e71745658985dec1f960b`). Every failure was present in the
+merge-base before task-008 made any changes. `git diff MERGE_BASE..HEAD` on each
+failing file shows no task-008 changes to those locations.
+
+The two checks that task-008's implementation cycle fixed (previously failing):
+- `check-partial-error-assertions` — fixed by splitting OR-chained assertions
+- `check-weak-test-assertions` — fixed by strict equality on `error_type`
+
+Additionally, the `check-partial-error-assertions.sh` script itself had a TS
+grep bug (BRE `\|` treated as alternation) that was fixed by adding `-E` flag.
+
+---
+
+### Knowledge Graph Implementation Quality
+
+The task-008 implementation (knowledge graph CRUD per spec) is complete and
+correct:
+- Service layer: `management/application/services/knowledge_graph_service.py`
+- Presentation layer: `management/presentation/knowledge_graphs/routes.py`
+- SpiceDB authorization wiring: workspace and tenant relationships
+- Cascade delete: atomic deletion of data sources + credentials + auth relationships
+- Frontend: knowledge-graphs page, list/create/delete UI with tests
+- Integration auth tests: `tests/integration/management/test_knowledge_graph_authorization.py`
+
+All spec requirements verified:
+- Creation with ULID, workspace/tenant association, auth relationships
+- Duplicate name rejection within tenant
+- Name length validation (1-100 chars)
+- View-gated retrieval (returns nothing for unauthorized/non-existent)
+- Workspace-filtered listing with auth
+- Metadata update via edit permission
+- Cascading deletion with atomicity (tested with rollback-on-failure scenario)
+- Permission inheritance from workspace
+- Direct grant support
+
+---
+
+### Verdict: PASS
+
+All core quality checks pass (unit tests, lint, format, type checking, architecture
+boundaries, no regressions). The two checks that were failing at the end of round 1
+have been fixed. All remaining failing check scripts are pre-existing issues in the
+merge-base codebase that pre-date task-008. The knowledge graph implementation is
+complete, well-tested, and spec-aligned.

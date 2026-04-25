@@ -5,16 +5,18 @@ report: |
 
   ### Methodology
 
-  Reviewed the latest commit on `hyperloop/task-003` (ab10f48) which addresses
-  all CodeRabbit PR feedback. Ran the full automated verification suite and
-  traced each CodeRabbit finding through the changed source files.
+  Full spec-trace review against `hyperloop/task-003` (HEAD: 3870adc9).
+  Every SHALL/MUST requirement and every scenario was traced from spec →
+  implementation → test. All 2031 unit tests pass (0 failures, 39 warnings).
 
   Files reviewed:
   - `src/api/graph/application/services/graph_mutation_service.py`
   - `src/api/graph/domain/value_objects.py`
   - `src/api/graph/presentation/routes.py`
   - `src/api/graph/infrastructure/age_client.py`
+  - `src/api/graph/infrastructure/age_bulk_loading/queries.py`
   - `src/api/graph/dependencies.py`
+  - `src/api/tests/unit/graph/**`
 
   ---
 
@@ -22,53 +24,170 @@ report: |
 
   | Check | Result | Detail |
   |-------|--------|--------|
-  | Unit tests | PASS | 2031 passed, 0 failures, 40 warnings |
-  | Linting (ruff check) | PASS | All checks passed |
-  | Formatting (ruff format) | PASS | 441 files already formatted |
-  | Type checking (mypy) | PASS | No issues found in 441 source files |
-  | Architecture boundaries | PASS | 40 pytest-archon tests pass |
+  | Unit tests | PASS | 2031 passed, 0 failures, 39 warnings |
+  | Graph-module unit tests | PASS | 226 passed (isolated run) |
 
   ---
 
-  ### CodeRabbit Feedback Resolution
+  ### Requirement Coverage
 
-  All 5 findings from the PR review have been resolved:
+  #### Requirement: Per-Tenant Graph Isolation — COVERED
+  - Code: `get_tenant_graph_name()` in `dependencies.py` derives `tenant_{tenant_id}`;
+    `get_age_graph_client()` creates `AgeGraphClient` with this graph name.
+  - Test: `TestTenantGraphRouting` in `test_routes.py` — verifies
+    `tenant_t1` for tenant `t1`, and full tenant IDs are used verbatim.
 
-  1. **`except ValidationError` (was `except Exception`)** — Narrowed in
-     `apply_mutations_from_jsonl()` at line 303. Pydantic `ValidationError` is
-     imported and used precisely. The outer `except Exception` catch-all
-     correctly handles real runtime faults as `error_kind="server"`.
+  #### Requirement: KnowledgeGraph Scoping — COVERED
+  **Scenario: Mutation authorization**
+  - Code: `apply_kg_mutations()` in `routes.py` (lines 125-134) calls SpiceDB
+    `check_permission` for `edit` on the target KnowledgeGraph; raises HTTP 403 on denial.
+  - Tests: `test_kg_mutations_route_accessible_with_edit_permission`,
+    `test_kg_mutations_route_forbidden_without_edit_permission`,
+    `test_kg_mutations_route_checks_correct_resource` in `test_routes.py`.
 
-  2. **`knowledge_graph_id` enforcement at service boundary** — `apply_mutations()`
-     now rejects any batch containing CREATE or UPDATE when `knowledge_graph_id`
-     is `None` (lines 109-125). The anti-spoofing guarantee is now enforced for
-     all callers, not just the HTTP route.
+  **Scenario: KnowledgeGraph ID stamping**
+  - Code: `_stamp_knowledge_graph_id()` in `graph_mutation_service.py` overwrites any
+    caller-provided value. `apply_mutations()` rejects batches with CREATE/UPDATE when
+    `knowledge_graph_id` is `None` (lines 109-125). `PLATFORM_STAMPED_PROPERTIES.issubset()`
+    check in `value_objects.py` line 267 enforces this at validation time.
+  - Tests: `TestKnowledgeGraphIdStamping` class —
+    `test_stamps_knowledge_graph_id_on_create_operation`,
+    `test_overwrites_caller_provided_knowledge_graph_id`,
+    `test_stamps_knowledge_graph_id_on_update_operation`,
+    `test_rejects_create_update_without_knowledge_graph_id`,
+    `test_stamps_knowledge_graph_id_in_jsonl_parse`.
 
-  3. **Server error leakage in `_build_mutation_error_response`** — For
-     `error_kind="server"` (500) responses, `result.errors` are now logged via
-     `structlog` (line 69) instead of returned to the client. Response body
-     contains only `{"errors": ["internal server error"]}`.
+  #### Requirement: Mutation Log Format — COVERED
+  **Scenario: Valid JSONL**
+  - Code: `apply_mutations_from_jsonl()` — splits on newlines, parses each JSON line.
+  - Test: `test_parses_jsonl_and_applies_mutations`.
 
-  4. **`AgeGraphClient.auto_create` gate** — `auto_create: bool = False`
-     parameter added to `AgeGraphClient.__init__()` (line 62). `connect()`
-     only calls `_ensure_graph_exists()` when `auto_create=True` (line 130).
-     The FastAPI dependency uses the safe default.
+  **Scenario: Parse error on a line**
+  - Code: `except json.JSONDecodeError` returns line number and 100-char content preview.
+  - Test: `test_returns_error_on_invalid_json` — asserts "JSON"/"parse" and "line 1" in
+    error, and at least two error entries including "line content" preview.
 
-  5. **`PLATFORM_STAMPED_PROPERTIES` in CREATE validation** — Line 267 in
-     `value_objects.py` uses `PLATFORM_STAMPED_PROPERTIES.issubset(...)` instead
-     of a hardcoded string literal.
+  **Scenario: Empty lines**
+  - Code: `if not line: continue` skips blank/whitespace-only lines.
+  - Tests: `test_handles_whitespace_only_lines`, `test_handles_empty_jsonl`.
+
+  #### Requirement: DEFINE Operation — COVERED
+  **Scenario: Define a node type**
+  - Code: `apply_mutations()` calls `get_system_properties_for_entity(EntityType.NODE)`
+    and merges `{data_source_id, source_path, slug}` into `required_properties` before
+    saving to the type definition repository.
+  - Test: `test_apply_mutations_stores_define_operations` — verifies all three system
+    properties are present (with `slug` deliberately absent from caller input so the
+    injection is the only way it can appear).
+
+  **Scenario: Define an edge type**
+  - Code: Same path; `get_system_properties_for_entity(EntityType.EDGE)` returns
+    `{data_source_id, source_path}` (no `slug`).
+  - Test: `test_apply_define_edge_type_adds_edge_system_properties` — verifies
+    `data_source_id` and `source_path` present, `slug` absent.
+
+  #### Requirement: CREATE Operation — COVERED
+  **Scenario: Create a new node**
+  - Code: Delegated to `mutation_applier.apply_batch()` → `AgeBulkLoadingStrategy`.
+  - Test: `test_apply_mutations_delegates_to_applier`.
+
+  **Scenario: Create an existing node (idempotent merge)**
+  - Code: `AgeQueryBuilder._build_update_existing_query` uses jsonb `||` merge operator
+    so existing properties not in the new batch are preserved.
+  - Tests: `TestUpdateExistingQueryMergeSemantics` — `test_uses_jsonb_merge_operator_not_simple_assignment`,
+    `test_does_not_overwrite_with_staging_properties_alone`,
+    `test_references_both_tables_in_set_clause`.
+
+  **Scenario: Create an edge**
+  - Code: `validate_operation()` requires `start_id` and `end_id` for edge CREATE.
+  - Tests: `test_create_edge_valid`, `test_create_edge_requires_start_and_end_id`.
+
+  **Scenario: Missing type definition**
+  - Code: `apply_mutations()` checks type repo and rejects CREATE with no prior DEFINE.
+  - Test: `test_rejects_create_without_define_in_batch`.
+
+  **Scenario: Missing required properties**
+  - Code: Validation loop in `apply_mutations()` computes missing = required - provided.
+  - Test: `test_rejects_create_missing_required_properties`.
+
+  **Scenario: Schema learning**
+  - Code: `_discover_optional_properties()` adds extra properties to `optional_properties`.
+  - Tests: `TestSchemaLearning` — `test_extra_properties_added_to_optional`,
+    `test_optional_properties_accumulate`, `test_system_properties_excluded_from_optional`,
+    `test_knowledge_graph_id_excluded_from_schema_learning`.
+
+  #### Requirement: UPDATE Operation — COVERED
+  **Scenario: Set properties**
+  - Code: `UPDATE` op with `set_properties` delegated to applier.
+  - Test: `test_update_with_set_properties`.
+  - Preservation of unlisted properties: AGE-level MERGE semantics tested in
+    `TestUpdateExistingQueryMergeSemantics`.
+
+  **Scenario: Remove properties**
+  - Code: `remove_properties` field on `MutationOperation`, delegated to applier.
+  - Test: `test_update_with_remove_properties`.
+
+  **Scenario: Schema learning on update**
+  - Code: `_discover_optional_properties()` handles both CREATE and UPDATE.
+  - Test: `test_update_discovers_optional_properties` in `test_schema_learning.py`.
+
+  #### Requirement: DELETE Operation — COVERED
+  **Scenario: Delete a node (cascading detach delete)**
+  - Code: `AgeQueryBuilder.delete_node_with_detach()` executes two queries — edge
+    deletion (start_id OR end_id) followed by node deletion.
+  - Tests: `TestDeleteNodeWithDetach` — `test_executes_two_queries`,
+    `test_edge_deletion_references_start_and_end_id`.
+  - `TestExecuteDeletesIteratesPerID` — verifies per-ID dispatch.
+
+  **Scenario: Delete an edge**
+  - Code: `AgeQueryBuilder.delete_edge()` executes a single query.
+  - Tests: `TestDeleteEdge` — `test_executes_single_query`.
+
+  #### Requirement: Mandatory System Properties — COVERED
+  **Scenario: Node system properties**
+  - Code: `validate_operation()` in `value_objects.py` checks `data_source_id`,
+    `source_path`, `slug`, and `PLATFORM_STAMPED_PROPERTIES` (knowledge_graph_id).
+  - Tests: `test_create_requires_data_source_id`, `test_create_requires_source_path`,
+    `test_create_node_requires_slug`, `test_create_node_requires_knowledge_graph_id`.
+
+  **Scenario: Edge system properties**
+  - Code: Same; edges skip `slug` check but require `data_source_id`, `source_path`,
+    `knowledge_graph_id`.
+  - Tests: `test_create_edge_valid`, `test_create_edge_requires_knowledge_graph_id`.
+
+  #### Requirement: Deterministic Entity IDs — COVERED
+  **Scenario: ID format**
+  - Code: `ID_REGEX = r"^[0-9a-z_]+:[0-9a-f]{16}$"` enforced by Pydantic `Field(pattern=...)`.
+  - Tests: `test_id_pattern_validation` (rejects invalid), `test_id_accepts_valid_pattern`
+    (accepts `person:abc123def456789a`).
+  - Note: ID generation (same entity → same ID) is an Extraction context concern.
+    The Graph context validates the format, which the spec scenario tests.
+
+  #### Requirement: Referential Integrity Ordering — COVERED
+  **Scenario: Operation ordering**
+  - Code: `MutationApplier._sort_operations()` applies: DEFINE → DELETE edge →
+    DELETE node → CREATE node → CREATE edge → UPDATE.
+  - Tests: `TestSortOperationsReferentialIntegrity` — `test_sort_order_define_delete_create_update`
+    exercises all six positions with assertions at every index.
 
   ---
 
-  ### Spec Requirement Coverage
+  ### Spec Requirement Summary
 
-  All 10 SHALL/MUST requirements in `specs/graph/mutations.spec.md` remain
-  fully implemented and tested.
-
-  ### Commit Trailers
-
-  Implementation commits carry both `Spec-Ref` and `Task-Ref` trailers:
-  - `Spec-Ref: specs/graph/mutations.spec.md@85d49a379a52479b33f9b39994d76795066899a6`
-  - `Task-Ref: task-003`
+  | Requirement | Scenarios | Status |
+  |-------------|-----------|--------|
+  | Per-Tenant Graph Isolation | Tenant graph routing | COVERED |
+  | KnowledgeGraph Scoping | Mutation authorization, KG ID stamping | COVERED |
+  | Mutation Log Format | Valid JSONL, parse error, empty lines | COVERED |
+  | DEFINE Operation | Define node type, define edge type | COVERED |
+  | CREATE Operation | New node, idempotent merge, edge, missing type, missing props, schema learning | COVERED |
+  | UPDATE Operation | Set properties, remove properties, schema learning | COVERED |
+  | DELETE Operation | Delete node (cascade), delete edge | COVERED |
+  | Mandatory System Properties | Node props, edge props | COVERED |
+  | Deterministic Entity IDs | ID format | COVERED |
+  | Referential Integrity Ordering | Operation ordering | COVERED |
 
   ### Verdict: PASS
+
+  All 10 SHALL/MUST requirements are implemented and all spec scenarios have
+  corresponding unit tests. No requirement is PARTIAL or MISSING.

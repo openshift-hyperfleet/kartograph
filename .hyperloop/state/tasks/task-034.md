@@ -5,7 +5,7 @@ spec_ref: specs/management/credentials.spec.md@774c6c8e
 status: in_progress
 phase: implement
 deps: []
-round: 1
+round: 2
 branch: hyperloop/task-034
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/478
 pr_title: null

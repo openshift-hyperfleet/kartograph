@@ -622,3 +622,107 @@ class TestKnowledgeGraphServiceDelete:
         mock_probe.knowledge_graph_deleted.assert_called_once_with(
             kg_id=kg.id.value,
         )
+
+    @pytest.mark.asyncio
+    async def test_delete_removes_credentials_for_data_sources_with_credentials_path(
+        self,
+        mock_session,
+        mock_kg_repo,
+        mock_ds_repo,
+        mock_authz,
+        mock_probe,
+        user_id,
+        tenant_id,
+    ):
+        """delete() calls secret_store.delete for each DS with a credentials_path.
+
+        Given a knowledge graph with data sources — one with credentials and one
+        without — when the knowledge graph is deleted, then the secret store's
+        delete() is called only for the data source that has credentials, and
+        the KG and both data sources are still removed from the database.
+        """
+        mock_secret_store = AsyncMock()
+        service_with_secret_store = KnowledgeGraphService(
+            session=mock_session,
+            knowledge_graph_repository=mock_kg_repo,
+            data_source_repository=mock_ds_repo,
+            authz=mock_authz,
+            scope_to_tenant=tenant_id,
+            probe=mock_probe,
+            secret_store=mock_secret_store,
+        )
+
+        kg = _make_kg(tenant_id=tenant_id)
+
+        ds_with_creds = MagicMock()
+        ds_with_creds.credentials_path = "datasource/ds-001/credentials"
+
+        ds_no_creds = MagicMock()
+        ds_no_creds.credentials_path = None
+
+        mock_authz.check_permission.return_value = True
+        mock_kg_repo.get_by_id.return_value = kg
+        mock_ds_repo.find_by_knowledge_graph.return_value = [ds_with_creds, ds_no_creds]
+        mock_ds_repo.delete.return_value = True
+        mock_kg_repo.delete.return_value = True
+
+        result = await service_with_secret_store.delete(
+            user_id=user_id, kg_id=kg.id.value
+        )
+
+        assert result is True
+        # Credentials deleted only for the DS that has a credentials_path
+        mock_secret_store.delete.assert_called_once_with(
+            path="datasource/ds-001/credentials",
+            tenant_id=tenant_id,
+        )
+        # Both data sources are deleted from the DB regardless
+        assert mock_ds_repo.delete.call_count == 2
+        mock_kg_repo.delete.assert_called_once_with(kg)
+
+    @pytest.mark.asyncio
+    async def test_delete_skips_credential_cleanup_when_no_secret_store(
+        self,
+        mock_session,
+        mock_kg_repo,
+        mock_ds_repo,
+        mock_authz,
+        mock_probe,
+        user_id,
+        tenant_id,
+    ):
+        """delete() gracefully skips credential cleanup when secret_store is None.
+
+        If the service is constructed without a secret_store, data sources are
+        still removed from the DB but credential blobs are left intact (acceptable
+        for contexts where the secret store is not available).
+        """
+        service_no_secret_store = KnowledgeGraphService(
+            session=mock_session,
+            knowledge_graph_repository=mock_kg_repo,
+            data_source_repository=mock_ds_repo,
+            authz=mock_authz,
+            scope_to_tenant=tenant_id,
+            probe=mock_probe,
+            secret_store=None,
+        )
+
+        kg = _make_kg(tenant_id=tenant_id)
+
+        ds_with_creds = MagicMock()
+        ds_with_creds.credentials_path = "datasource/ds-001/credentials"
+
+        mock_authz.check_permission.return_value = True
+        mock_kg_repo.get_by_id.return_value = kg
+        mock_ds_repo.find_by_knowledge_graph.return_value = [ds_with_creds]
+        mock_ds_repo.delete.return_value = True
+        mock_kg_repo.delete.return_value = True
+
+        # Should not raise even though there's a credentials_path but no secret_store
+        result = await service_no_secret_store.delete(
+            user_id=user_id, kg_id=kg.id.value
+        )
+
+        assert result is True
+        mock_ds_repo.delete.assert_called_once()
+        mock_kg_repo.delete.assert_called_once_with(kg)

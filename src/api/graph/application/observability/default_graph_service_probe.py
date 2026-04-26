@@ -73,3 +73,10 @@ class DefaultGraphServiceProbe(GraphServiceProbe):
             success=success,
             **self._get_context_kwargs(),
         )
+
+    def mutation_server_error_occurred(self, errors: list[str]) -> None:
+        self._logger.error(
+            "graph_mutation_server_error",
+            errors=errors,
+            **self._get_context_kwargs(),
+        )

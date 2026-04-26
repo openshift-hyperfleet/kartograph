@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-import structlog
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
@@ -22,6 +21,7 @@ from shared_kernel.authorization.types import (
     format_subject,
 )
 
+from graph.application.observability import GraphServiceProbe
 from graph.application.services import (
     GraphMutationService,
     GraphSchemaService,
@@ -30,6 +30,7 @@ from graph.application.services import (
 from graph.dependencies import (
     get_graph_mutation_service,
     get_graph_secure_enclave_service,
+    get_graph_service_probe,
     get_schema_service,
 )
 from graph.domain.value_objects import (
@@ -38,8 +39,6 @@ from graph.domain.value_objects import (
     TypeDefinition,
 )
 
-logger = structlog.get_logger(__name__)
-
 router = APIRouter(
     prefix="/graph",
     tags=["graph"],
@@ -47,7 +46,9 @@ router = APIRouter(
 )
 
 
-def _build_mutation_error_response(result: MutationResult) -> HTTPException:
+def _build_mutation_error_response(
+    result: MutationResult, probe: GraphServiceProbe
+) -> HTTPException:
     """Build the appropriate HTTPException for a failed mutation result.
 
     Uses the explicit ``error_kind`` field on MutationResult to select the
@@ -55,21 +56,18 @@ def _build_mutation_error_response(result: MutationResult) -> HTTPException:
     - "validation" → 422 Unprocessable Entity (bad input, parse errors, schema violations)
     - "server" or None → 500 Internal Server Error (infrastructure/database failures)
 
-    For server errors, the actual error details are logged for observability but
-    NOT exposed in the response body to prevent internal information leakage.
+    For server errors, the actual error details are emitted via the domain probe
+    (DOO pattern) and NOT exposed in the response body to prevent internal
+    information leakage.
     """
     if result.error_kind == "validation":
         return HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"errors": result.errors},
         )
-    # Log the actual error details for observability; return a generic payload
-    # to avoid leaking infrastructure or database error details to clients.
-    logger.error(
-        "graph_mutation_server_error",
-        errors=result.errors,
-        error_kind=result.error_kind,
-    )
+    # Emit the actual error details via the domain probe for observability;
+    # return a generic payload to avoid leaking infrastructure details to clients.
+    probe.mutation_server_error_occurred(result.errors)
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail={"errors": ["internal server error"]},
@@ -89,6 +87,7 @@ async def apply_kg_mutations(
     service: Annotated[GraphMutationService, Depends(get_graph_mutation_service)],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    probe: Annotated[GraphServiceProbe, Depends(get_graph_service_probe)],
 ) -> MutationResult:
     """Apply mutation operations scoped to a specific KnowledgeGraph.
 
@@ -140,7 +139,7 @@ async def apply_kg_mutations(
     )
 
     if not result.success:
-        raise _build_mutation_error_response(result)
+        raise _build_mutation_error_response(result, probe)
 
     return result
 

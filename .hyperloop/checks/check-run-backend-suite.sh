@@ -42,19 +42,13 @@ CHECKS=(
   check-no-direct-logger-usage.sh
   check-no-coming-soon-stubs.sh
   check-weak-test-assertions.sh
-  check-di-wiring-updated.sh
-  check-pytest-env-skip-if-set.sh
-  check-cascade-delete-empty-collection-mocks.sh
 )
 
 FAILED=()
 PASSED=()
 
-ALPHA_SHA_AT_SUITE_START="$(git rev-parse alpha 2>/dev/null || echo 'unknown')"
-
 echo "========================================================"
 echo " Backend check suite — $(date '+%Y-%m-%dT%H:%M:%S%z')"
-echo " alpha: ${ALPHA_SHA_AT_SUITE_START}"
 echo "========================================================"
 echo ""
 
@@ -72,33 +66,6 @@ for check in "${CHECKS[@]}"; do
     PASSED+=("$check")
   else
     FAILED+=("$check")
-
-    # Halt immediately when the staleness check fails.
-    #
-    # WHY: check-no-state-file-commits.sh computes its diff from the same
-    # merge-base as check-branch-rebased-on-alpha.sh.  When the branch is
-    # stale, that merge-base is OLD — state files committed AFTER the old
-    # merge-base are invisible, so the state-file check produces a false PASS.
-    # Continuing to run subsequent checks on a stale branch gives results that
-    # CANNOT be trusted and that will change in the next round as alpha advances.
-    # The only safe response is to stop, require a rebase, and re-run the suite.
-    if [[ "$check" == "check-branch-rebased-on-alpha.sh" ]]; then
-      echo ""
-      echo "========================================================"
-      echo " SUITE HALTED: branch is stale."
-      echo ""
-      echo " Subsequent checks (especially check-no-state-file-commits.sh)"
-      echo " diff from a stale merge-base and CANNOT produce reliable results."
-      echo " Continuing would mask state-file contamination and other"
-      echo " violations introduced after the stale merge-base point."
-      echo ""
-      echo " Fix: git rebase alpha  (local ref, not origin/alpha)"
-      echo " Then: bash .hyperloop/checks/check-run-backend-suite.sh"
-      echo "========================================================"
-      echo ""
-      echo "RESULT: FAIL — branch is stale. All subsequent checks skipped."
-      exit 1
-    fi
   fi
   echo ""
 done

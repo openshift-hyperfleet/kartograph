@@ -35,8 +35,6 @@ from graph.infrastructure.type_definition_repository import (
     InMemoryTypeDefinitionRepository,
 )
 from graph.ports.repositories import ITypeDefinitionRepository
-from iam.application.value_objects import CurrentUser
-from iam.dependencies.user import get_current_user
 from infrastructure.database.connection import ConnectionFactory
 from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.dependencies import get_age_connection_pool

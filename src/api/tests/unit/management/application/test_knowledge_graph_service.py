@@ -54,6 +54,12 @@ def mock_ds_repo():
 
 
 @pytest.fixture
+def mock_secret_store():
+    """Create a mock ISecretStoreRepository."""
+    return AsyncMock()
+
+
+@pytest.fixture
 def mock_authz():
     """Create a mock AuthorizationProvider."""
     return AsyncMock()
@@ -92,6 +98,28 @@ def service(
         authz=mock_authz,
         scope_to_tenant=tenant_id,
         probe=mock_probe,
+    )
+
+
+@pytest.fixture
+def service_with_secret_store(
+    mock_session,
+    mock_kg_repo,
+    mock_ds_repo,
+    mock_authz,
+    mock_probe,
+    mock_secret_store,
+    tenant_id,
+):
+    """Create a KnowledgeGraphService with secret store injected."""
+    return KnowledgeGraphService(
+        session=mock_session,
+        knowledge_graph_repository=mock_kg_repo,
+        data_source_repository=mock_ds_repo,
+        authz=mock_authz,
+        scope_to_tenant=tenant_id,
+        probe=mock_probe,
+        secret_store=mock_secret_store,
     )
 
 
@@ -621,4 +649,46 @@ class TestKnowledgeGraphServiceDelete:
 
         mock_probe.knowledge_graph_deleted.assert_called_once_with(
             kg_id=kg.id.value,
+        )
+
+    @pytest.mark.asyncio
+    async def test_delete_cascades_encrypted_credentials(
+        self,
+        service_with_secret_store,
+        mock_authz,
+        mock_kg_repo,
+        mock_ds_repo,
+        mock_secret_store,
+        user_id,
+        tenant_id,
+    ):
+        """delete() deletes encrypted credentials for each DS that has a credentials_path."""
+        kg = _make_kg(tenant_id=tenant_id)
+        ds1 = MagicMock()
+        ds1.credentials_path = "datasource/ds-001/credentials"
+        ds2 = MagicMock()
+        ds2.credentials_path = "datasource/ds-002/credentials"
+        ds3 = MagicMock()
+        ds3.credentials_path = None  # no credentials — should be skipped
+        mock_authz.check_permission.return_value = True
+        mock_kg_repo.get_by_id.return_value = kg
+        mock_ds_repo.find_by_knowledge_graph.return_value = [ds1, ds2, ds3]
+        mock_ds_repo.delete.return_value = True
+        mock_kg_repo.delete.return_value = True
+        mock_secret_store.delete.return_value = True
+
+        result = await service_with_secret_store.delete(
+            user_id=user_id, kg_id=kg.id.value
+        )
+
+        assert result is True
+        # Credentials should be deleted for ds1 and ds2 but not ds3
+        assert mock_secret_store.delete.call_count == 2
+        mock_secret_store.delete.assert_any_call(
+            path="datasource/ds-001/credentials",
+            tenant_id=tenant_id,
+        )
+        mock_secret_store.delete.assert_any_call(
+            path="datasource/ds-002/credentials",
+            tenant_id=tenant_id,
         )

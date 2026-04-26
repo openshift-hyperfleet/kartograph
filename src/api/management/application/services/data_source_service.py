@@ -18,10 +18,7 @@ from management.application.observability import (
 from management.domain.aggregates import DataSource
 from management.domain.entities import DataSourceSyncRun
 from management.domain.value_objects import DataSourceId, KnowledgeGraphId
-from management.ports.exceptions import (
-    KnowledgeGraphNotFoundError,
-    UnauthorizedError,
-)
+from management.ports.exceptions import UnauthorizedError
 from management.ports.repositories import (
     IDataSourceRepository,
     IDataSourceSyncRunRepository,
@@ -149,9 +146,9 @@ class DataSourceService:
         # Verify KG exists and belongs to tenant
         kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
         if kg is None:
-            raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
+            raise ValueError(f"Knowledge graph {kg_id} not found")
         if kg.tenant_id != self._scope_to_tenant:
-            raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
+            raise ValueError(f"Knowledge graph {kg_id} belongs to different tenant")
 
         async with self._session.begin():
             ds = DataSource.create(

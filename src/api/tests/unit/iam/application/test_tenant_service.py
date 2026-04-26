@@ -1777,3 +1777,48 @@ class TestDeleteTenant:
         await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
 
         assert call_order == ["api_key_delete", "tenant_delete"]
+
+    @pytest.mark.asyncio
+    async def test_delete_cascades_groups(
+        self,
+        tenant_service,
+        mock_tenant_repo,
+        mock_workspace_repo,
+        mock_group_repo,
+        mock_api_key_repo,
+        mock_authz,
+    ):
+        """delete_tenant() calls group_repo.delete() for each group in the tenant.
+
+        Scenario: Tenant deletion with groups
+        - GIVEN a tenant with at least one group
+        - WHEN the tenant is deleted
+        - THEN group_repo.delete() is called for each group
+        """
+        from iam.domain.aggregates import Workspace  # noqa: F401 (already imported top-level)
+        from iam.domain.aggregates.group import Group
+        from iam.domain.value_objects import TenantId as _TenantId
+
+        tenant_id = _TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        # Create real Group aggregates — no MagicMock domain objects
+        group1 = Group.create(name="Engineering", tenant_id=tenant_id)
+        group2 = Group.create(name="Platform", tenant_id=tenant_id)
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.delete = AsyncMock(return_value=True)
+        mock_workspace_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_group_repo.list_by_tenant = AsyncMock(return_value=[group1, group2])
+        mock_group_repo.delete = AsyncMock(return_value=True)
+        mock_api_key_repo.list = AsyncMock(return_value=[])
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
+        await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
+
+        # Verify delete was called for every group in the tenant
+        assert mock_group_repo.delete.call_count == 2
+        mock_group_repo.delete.assert_any_call(group1)
+        mock_group_repo.delete.assert_any_call(group2)

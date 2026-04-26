@@ -589,8 +589,13 @@ class TestKnowledgeGraphServiceDelete:
     ):
         """delete() deletes all data sources before deleting the KG."""
         kg = _make_kg(tenant_id=tenant_id)
+<<<<<<< HEAD
         ds1 = MagicMock(spec=DataSource)
         ds2 = MagicMock(spec=DataSource)
+=======
+        ds1 = MagicMock()
+        ds2 = MagicMock()
+>>>>>>> c57e6ed7 (chore(intake): record Run 6 review of index and NFR specs — no tasks created)
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = kg
         mock_ds_repo.find_by_knowledge_graph.return_value = [ds1, ds2]

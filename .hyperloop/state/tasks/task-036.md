@@ -2,8 +2,8 @@
 id: task-036
 title: Add integration test — group member removal revokes inherited workspace access
 spec_ref: specs/iam/groups.spec.md
-status: in_progress
-phase: merge
+status: complete
+phase: null
 deps: []
 round: 0
 branch: hyperloop/task-036

@@ -19,7 +19,7 @@ SRC="$ROOT/src/api"
 LOGGER_VIOLATIONS=$(
   grep -r \
     --include="*.py" \
-    --exclude-dir=".venv" \
+    --exclude-dir=.venv \
     --exclude-dir="tests" \
     --exclude="*probe*.py" \
     --exclude="observability.py" \
@@ -33,7 +33,7 @@ LOGGER_VIOLATIONS=$(
 PRINT_VIOLATIONS=$(
   grep -r \
     --include="*.py" \
-    --exclude-dir=".venv" \
+    --exclude-dir=.venv \
     --exclude-dir="tests" \
     --exclude="*probe*.py" \
     --exclude="observability.py" \

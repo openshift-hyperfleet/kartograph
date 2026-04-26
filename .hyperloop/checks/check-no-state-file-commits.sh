@@ -28,6 +28,11 @@
 
 set -euo pipefail
 
+# Normalize CWD to repo root so git pathspecs work correctly.
+# Running from a subdirectory (e.g., .hyperloop/checks/) causes pathspecs like
+# '.hyperloop/state/' to silently match nothing and return false PASSes.
+cd "$(git rev-parse --show-toplevel)"
+
 BASE_BRANCH="${1:-}"
 if [[ -z "$BASE_BRANCH" ]]; then
   for candidate in alpha main master; do
@@ -84,8 +89,25 @@ if [[ -n "$added_or_modified" ]]; then
   echo "  on this branch and must be REMOVED FROM HISTORY."
   echo ""
 
-  if [[ "$CONTAMINATED_COUNT" -gt 5 ]]; then
-    echo "  PREFERRED FIX (${CONTAMINATED_COUNT} contaminated files — cherry-pick is safer than interactive rebase):"
+  # Detect if any contamination came from the intake process (external actor).
+  # Intake state files follow the pattern .hyperloop/state/intake/<date>-*.md and
+  # are written by orchestrator intake workers, NOT by the implementing agent.
+  # When intake files are present, cherry-pick is ALWAYS preferred over interactive
+  # rebase — the contamination is external, not implementer-authored, making it
+  # impossible to remove via "edit and drop" in a rebase without also reconstructing
+  # the legitimate implementation commits from scratch.
+  intake_contamination=$(echo "$added_or_modified" | grep "\.hyperloop/state/intake/" || true)
+
+  if [[ -n "$intake_contamination" ]] || [[ "$CONTAMINATED_COUNT" -gt 5 ]]; then
+    if [[ -n "$intake_contamination" ]]; then
+      echo "  PREFERRED FIX (intake-worker contamination detected — cherry-pick is required):"
+      echo "  The contaminating files include .hyperloop/state/intake/ entries written by"
+      echo "  the orchestrator intake process, not by your task. Interactive rebase cannot"
+      echo "  cleanly excise commits from another agent. Cherry-pick the delivery commits"
+      echo "  onto a fresh alpha branch instead."
+    else
+      echo "  PREFERRED FIX (${CONTAMINATED_COUNT} contaminated files — cherry-pick is safer than interactive rebase):"
+    fi
     echo ""
     echo "  Step 1 — identify delivery commits (commits that do NOT touch .hyperloop/state/):"
     echo "    git log --oneline \$(git merge-base HEAD $BASE_BRANCH)..HEAD -- ':!.hyperloop/state'"
@@ -95,27 +117,26 @@ if [[ -n "$added_or_modified" ]]; then
     echo "    git checkout -b hyperloop/task-NNN-clean"
     echo "    git cherry-pick <delivery-sha> [<delivery-sha2> ...]"
     echo ""
-    echo "  Step 3 — confirm clean:"
+    echo "  Step 3 — confirm clean, then force-push to the original branch name:"
     echo "    bash .hyperloop/checks/check-no-state-file-commits.sh"
     echo "    bash .hyperloop/checks/check-branch-rebased-on-alpha.sh"
-    echo ""
-    echo "  ALTERNATIVE (fewer than 5 contaminated commits — interactive rebase):"
+    echo "    git push origin hyperloop/task-NNN-clean:hyperloop/task-NNN --force-with-lease"
+    echo "    # This keeps the existing PR and orchestrator state valid."
   else
     echo "  FIX:"
+    echo ""
+    echo "  Step 1 — find the offending commits:"
+    echo "    git log --oneline --diff-filter=A,M -- '.hyperloop/state/**' \$(git merge-base HEAD $BASE_BRANCH)..HEAD"
+    echo ""
+    echo "  Step 2 — strip them via interactive rebase:"
+    echo "    git rebase -i \$(git merge-base HEAD $BASE_BRANCH)"
+    echo "    # For each offending commit, edit it and run:"
+    echo "    git restore --staged --worktree -- '.hyperloop/state/'"
+    echo "    git rebase --continue"
+    echo ""
+    echo "  Step 3 — verify the file no longer appears in any diff:"
+    echo "    git diff --name-only \$(git merge-base HEAD $BASE_BRANCH)..HEAD -- '.hyperloop/state/'"
   fi
-
-  echo ""
-  echo "  Step 1 — find the offending commits:"
-  echo "    git log --oneline --diff-filter=A,M -- '.hyperloop/state/**' \$(git merge-base HEAD $BASE_BRANCH)..HEAD"
-  echo ""
-  echo "  Step 2 — strip them via interactive rebase:"
-  echo "    git rebase -i \$(git merge-base HEAD $BASE_BRANCH)"
-  echo "    # For each offending commit, edit it and run:"
-  echo "    git restore --staged --worktree -- '.hyperloop/state/'"
-  echo "    git rebase --continue"
-  echo ""
-  echo "  Step 3 — verify the file no longer appears in any diff:"
-  echo "    git diff --name-only \$(git merge-base HEAD $BASE_BRANCH)..HEAD -- '.hyperloop/state/'"
 fi
 
 if [[ -n "$deleted_from_alpha" ]]; then

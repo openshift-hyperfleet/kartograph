@@ -82,7 +82,8 @@ class TestSchemaLearning:
         mock_type_repo.save.side_effect = mock_save
         mock_type_repo.get.side_effect = mock_get
 
-        service.apply_mutations([define_op, create_op])
+        # knowledge_graph_id is required for CREATE/UPDATE ops
+        service.apply_mutations([define_op, create_op], knowledge_graph_id="test-kg")
 
         # Verify type definition was saved TWICE
         # First: from DEFINE (no optional props)
@@ -124,7 +125,8 @@ class TestSchemaLearning:
             },
         )
 
-        service.apply_mutations([create_op])
+        # knowledge_graph_id is required for CREATE ops
+        service.apply_mutations([create_op], knowledge_graph_id="test-kg")
 
         # Should save updated type def with merged optional props
         mock_type_repo.save.assert_called_once()
@@ -155,7 +157,8 @@ class TestSchemaLearning:
             },
         )
 
-        service.apply_mutations([create_op])
+        # knowledge_graph_id is required for CREATE ops
+        service.apply_mutations([create_op], knowledge_graph_id="test-kg")
 
         updated_type_def = mock_type_repo.save.call_args[0][0]
         assert "custom_field" in updated_type_def.optional_properties
@@ -188,7 +191,8 @@ class TestSchemaLearning:
             },
         )
 
-        service.apply_mutations([create_op])
+        # knowledge_graph_id is required for CREATE ops
+        service.apply_mutations([create_op], knowledge_graph_id="test-kg")
 
         # Should NOT save since no new optional properties discovered
         mock_type_repo.save.assert_not_called()
@@ -217,7 +221,8 @@ class TestSchemaLearning:
             },
         )
 
-        service.apply_mutations([update_op])
+        # knowledge_graph_id is required for UPDATE ops
+        service.apply_mutations([update_op], knowledge_graph_id="test-kg")
 
         # Should save updated type def with new optional props
         mock_type_repo.save.assert_called_once()
@@ -236,8 +241,47 @@ class TestSchemaLearning:
             set_properties={"phone": "+1234567890"},
         )
 
-        service.apply_mutations([update_op])
+        # knowledge_graph_id is required for UPDATE ops; without a label, schema
+        # learning is skipped even though the batch passes the enforcement gate.
+        service.apply_mutations([update_op], knowledge_graph_id="test-kg")
 
-        # Should NOT attempt schema learning
+        # Should NOT attempt schema learning (label is None → cannot determine type)
         mock_type_repo.get.assert_not_called()
         mock_type_repo.save.assert_not_called()
+
+    def test_knowledge_graph_id_excluded_from_schema_learning(
+        self, service, mock_type_repo
+    ):
+        """knowledge_graph_id should NOT be added to type definition's optional props."""
+        existing_type_def = TypeDefinition(
+            label="person",
+            entity_type=EntityType.NODE,
+            description="A person",
+            required_properties={"slug", "name"},
+        )
+        mock_type_repo.get.return_value = existing_type_def
+
+        create_op = MutationOperation(
+            op=MutationOperationType.CREATE,
+            type=EntityType.NODE,
+            id="person:abc123def456789a",
+            label="person",
+            set_properties={
+                "slug": "alice",
+                "name": "Alice",
+                "data_source_id": "ds-123",
+                "source_path": "people/alice.md",
+                "knowledge_graph_id": "kg-123",  # Platform-stamped, should NOT be learned
+                "custom_field": "value",  # User prop - SHOULD be learned
+            },
+        )
+
+        # knowledge_graph_id is required; service stamps it before validation.
+        # The op already has knowledge_graph_id in set_properties — it will be overwritten.
+        service.apply_mutations([create_op], knowledge_graph_id="kg-123")
+
+        # custom_field should be added as optional, but knowledge_graph_id should NOT
+        mock_type_repo.save.assert_called_once()
+        updated_type_def = mock_type_repo.save.call_args[0][0]
+        assert "custom_field" in updated_type_def.optional_properties
+        assert "knowledge_graph_id" not in updated_type_def.optional_properties

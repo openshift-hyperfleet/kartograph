@@ -5,13 +5,23 @@ Provides REST API for manual testing and future external integrations.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
+from iam.application.value_objects import CurrentUser
 from iam.dependencies.user import get_current_user
+from infrastructure.authorization_dependencies import get_spicedb_client
+from shared_kernel.authorization.protocols import AuthorizationProvider
+from shared_kernel.authorization.types import (
+    Permission,
+    ResourceType,
+    format_resource,
+    format_subject,
+)
 
+from graph.application.observability import GraphServiceProbe
 from graph.application.services import (
     GraphMutationService,
     GraphSchemaService,
@@ -20,6 +30,7 @@ from graph.application.services import (
 from graph.dependencies import (
     get_graph_mutation_service,
     get_graph_secure_enclave_service,
+    get_graph_service_probe,
     get_schema_service,
 )
 from graph.domain.value_objects import (
@@ -35,78 +46,100 @@ router = APIRouter(
 )
 
 
-@router.post("/mutations", status_code=status.HTTP_200_OK)
-async def apply_mutations(
-    jsonl_content: str = Body(
-        ...,
-        media_type="application/jsonlines",
-    ),
-    service: GraphMutationService = Depends(get_graph_mutation_service),
+def _build_mutation_error_response(
+    result: MutationResult, probe: GraphServiceProbe
+) -> HTTPException:
+    """Build the appropriate HTTPException for a failed mutation result.
+
+    Uses the explicit ``error_kind`` field on MutationResult to select the
+    HTTP status code:
+    - "validation" → 422 Unprocessable Entity (bad input, parse errors, schema violations)
+    - "server" or None → 500 Internal Server Error (infrastructure/database failures)
+
+    For server errors, the actual error details are emitted via the domain probe
+    (DOO pattern) and NOT exposed in the response body to prevent internal
+    information leakage.
+    """
+    if result.error_kind == "validation":
+        return HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"errors": result.errors},
+        )
+    # Emit the actual error details via the domain probe for observability;
+    # return a generic payload to avoid leaking infrastructure details to clients.
+    probe.mutation_server_error_occurred(result.errors)
+    return HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail={"errors": ["internal server error"]},
+    )
+
+
+@router.post(
+    "/knowledge-graphs/{knowledge_graph_id}/mutations",
+    status_code=status.HTTP_200_OK,
+)
+async def apply_kg_mutations(
+    knowledge_graph_id: str,
+    jsonl_content: Annotated[
+        str,
+        Body(media_type="application/jsonlines"),
+    ],
+    service: Annotated[GraphMutationService, Depends(get_graph_mutation_service)],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    probe: Annotated[GraphServiceProbe, Depends(get_graph_service_probe)],
 ) -> MutationResult:
-    """Apply a batch of mutation operations from JSONL format.
+    """Apply mutation operations scoped to a specific KnowledgeGraph.
+
+    This is the primary write endpoint for the Graph bounded context.
+    It enforces:
+    - **Authorization**: The caller must have ``edit`` permission on the target
+      KnowledgeGraph (verified via SpiceDB).
+    - **knowledge_graph_id stamping**: The system stamps ``knowledge_graph_id``
+      on all CREATE and UPDATE operations, overwriting any caller-supplied value.
+      This prevents callers from writing to a different graph than authorized.
+    - **Tenant isolation**: Mutations execute against the tenant-specific AGE graph
+      (``tenant_{tenant_id}``).
 
     Request body should be JSONL (newline-delimited JSON), one operation per line.
     Content-Type: application/jsonlines
 
-    Example:
-
-
-    ```jsonl
-    {"op": "CREATE", "type": "node", "id": "person:1a2b3c4d5e6f7890", "label": "person", "set_properties": {"slug": "alice-smith", "name": "Alice Smith", "data_source_id": "ds-123", "source_path": "people/alice.md"}}
-    {"op": "CREATE", "type": "node", "id": "person:abcdef0123456789", "label": "person", "set_properties": {"slug": "bob-jones", "name": "Bob Jones", "data_source_id": "ds-123", "source_path": "people/bob.md"}}
-    {"op": "CREATE", "type": "edge", "id": "knows:9f8e7d6c5b4a3210", "label": "knows", "start_id": "person:1a2b3c4d5e6f7890", "end_id": "person:abcdef0123456789", "set_properties": {"since": 2020, "data_source_id": "ds-123", "source_path": "people/alice.md"}}
-    {"op": "DEFINE","type": "node","label": "person","description": "A person entity representing an individual contributor, maintainer, or team member. Extracted from MAINTAINERS.md, git commit authors, @-mentions in pull requests, and people/ directory markdown files.","required_properties": ["name"]}
-    {"op": "DEFINE","type": "edge","label": "knows","description": "Represents a professional relationship or acquaintance between two people, typically colleagues or collaborators. Extracted from co-authorship on pull requests, shared repository maintainership, or explicit mentions in people profiles.","required_properties": ["since"]}
-    ```
-
+    Args:
+        knowledge_graph_id: ID of the target KnowledgeGraph (path parameter).
+        jsonl_content: JSONL mutation log.
+        service: Graph mutation service.
+        authz: Authorization provider for SpiceDB permission checks.
+        current_user: The authenticated user (provides user_id and tenant_id).
 
     Returns:
         MutationResult with success status and operation count.
 
     Raises:
-        HTTPException: 422 Unprocessable Entity if the input contains validation
-            errors (e.g. malformed JSON, missing required fields). The response
-            detail includes an ``errors`` field with per-line error messages
-            matching ``result.errors``.
-        HTTPException: 500 if mutation application fails due to a database or
-            execution error.
+        HTTPException: 403 Forbidden if the user lacks ``edit`` permission.
+        HTTPException: 422 Unprocessable Entity for validation errors.
+        HTTPException: 500 for database/execution errors.
     """
+    # Enforce edit permission on the target KnowledgeGraph via SpiceDB
+    subject = format_subject(ResourceType.USER, current_user.user_id.value)
+    resource = format_resource(ResourceType.KNOWLEDGE_GRAPH, knowledge_graph_id)
+    has_edit = await authz.check_permission(resource, Permission.EDIT, subject)
+    if not has_edit:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"You do not have edit permission on knowledge graph '{knowledge_graph_id}'"
+            ),
+        )
 
-    # Run sync database operations in thread pool to avoid blocking event loop
+    # Apply mutations — service stamps knowledge_graph_id on all CREATE/UPDATE ops
     result = await run_in_threadpool(
-        service.apply_mutations_from_jsonl, jsonl_content=jsonl_content
+        service.apply_mutations_from_jsonl,
+        jsonl_content=jsonl_content,
+        knowledge_graph_id=knowledge_graph_id,
     )
 
     if not result.success:
-        # Check if it's a validation error vs execution error
-        # Validation errors contain specific keywords
-        is_validation_error = False
-        if result.errors:
-            error_text = " ".join(result.errors).lower()
-            validation_keywords = [
-                "json",
-                "parse",
-                "validation",
-                "required",
-                "missing",
-                "invalid",
-            ]
-            is_validation_error = any(
-                keyword in error_text for keyword in validation_keywords
-            )
-
-        if is_validation_error:
-            # Validation error - return 422
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail={"errors": result.errors},
-            )
-        else:
-            # Database/execution error - return 500
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={"errors": result.errors},
-            )
+        raise _build_mutation_error_response(result, probe)
 
     return result
 

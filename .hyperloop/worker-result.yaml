@@ -93,7 +93,7 @@ Previously FAIL; now fully resolved.
 - **Test (unit):** `test_delete_skips_credential_cleanup_when_no_secret_store`
   — covers graceful skip when `secret_store=None`.
 
-All 80 credential-related unit tests pass (verified by running the test suite).
+All 326 management unit tests pass (verified by running the full management test suite).
 
 ---
 

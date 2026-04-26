@@ -1,0 +1,81 @@
+---
+verdict: pass
+---
+The UI experience spec (specs/ui/experience.spec.md) is fully implemented in
+src/dev-ui with 391 passing tests across 15 test files. All spec requirements
+are covered:
+
+**Navigation Structure** — default.vue implements a sidebar with four groups
+(Explore: Query Console, Schema Browser, Graph Explorer; Data: Knowledge Graphs,
+Data Sources; Connect: API Keys, MCP Integration; Settings: Workspaces, Groups,
+Tenants). index.vue implements returning-user and new-user landing logic based on
+sessionStorage presence.
+
+**Tenant and Workspace Context** — Tenant selector with multi-tenant switching is
+present in default.vue (useTenant composable). Workspace guidance is rendered
+when no workspace exists.
+
+**Knowledge Graph Creation** — knowledge-graphs/index.vue provides a creation
+form (name + description) scoped to the current workspace with a prompt to add
+the first data source after creation.
+
+**Data Source Connection** — data-sources/index.vue implements a multi-step
+wizard: (1) adapter type selection, (2) adapter-specific form (GitHub: repo URL,
+access token, name auto-inferred), (3) credentials sent to server only, never
+persisted in browser state.
+
+**Ontology Design** — data-sources/index.vue implements intent description
+(free-text), agent-proposed ontology display, node/edge type editing (label,
+description, required/optional properties, relationships), approval gate, and a
+re-extraction confirmation dialog for post-extraction ontology changes.
+
+**Sync Monitoring** — data-sources/index.vue and knowledge-graphs/index.vue
+implement active sync status (ingesting/extracting/applying), sync history with
+timestamps and duration, sync log streaming, and manual sync trigger.
+
+**MCP Connection** — integrate/mcp.vue shows inline API key creation when none
+exist, ready-to-paste claude mcp add snippet with copy button, and secret shown
+once (newlyCreatedKey cleared on dismiss).
+
+**Query Console** — query/index.vue provides a Cypher editor with syntax
+highlighting (CodeMirror), Ctrl/Cmd+Enter execution, result table with row count
+and execution time, query history panel, and per-KG scope selector.
+
+**Schema Browser** — graph/schema.vue lists node and edge types with search,
+expands to show description/required/optional properties, and offers cross-
+navigation to query console, graph explorer, and ontology editor.
+
+**Graph Explorer** — graph/explorer.vue supports node search by type/name/slug,
+card display with properties, and neighbor traversal building an exploration trail.
+
+**API Key Management** — api-keys/index.vue: create with name+expiration (secret
+shown once), list with status (active/expired/revoked), creation date, last used,
+expiration, and revocation action.
+
+**Workspace Management** — workspaces/index.vue: create with name+parent,
+member management (add/remove/role-change for users and groups), inline rename,
+tree view with expand/collapse.
+
+**Design Language** — main.css defines OKLCH color tokens including primary amber
+(0.5768 0.2469 29.23 light / 0.6857 0.1560 17.57 dark), neutral grays,
+destructive coral, 5-chart palette, --radius: 0.625rem base with derived scales.
+Card uses shadow-sm + rounded-xl, Button uses shadow-xs + rounded-md. Typography
+uses text-sm body and text-[11px] uppercase tracking-wider section headers.
+Dependencies: shadcn/vue (Reka UI), Tailwind CSS, CVA, Lucide Vue Next.
+
+**Interaction Principles** — copy-to-clipboard with toast confirmation throughout;
+toast notifications on all create/update/delete operations; inline editing and
+side panels instead of separate edit pages; progressive disclosure via expand/
+sheet patterns; Ctrl/Cmd+Enter keyboard shortcut on query console; 3px ring focus
+indicator via outline-ring/50.
+
+**Responsive Design** — Sidebar hidden md:flex with transition-all, w-64/w-16
+collapsed toggle; mobile sheet overlay with hamburger button; workspace detail
+uses lg:grid-cols two-column on desktop, single-column sheet on mobile.
+
+**Dark Mode** — useColorMode composable toggles isDark, persists to localStorage
+('kartograph-color-mode'), applies/removes .dark class on documentElement; toggle
+button in header; system preference fallback.
+
+Test coverage: 15 test files map 1:1 to spec requirement groups, testing logic
+functions directly (no mocks for domain logic). All 391 tests pass.

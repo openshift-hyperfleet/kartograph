@@ -63,6 +63,7 @@ CHECKS=(
   check-branch-has-commits.sh
   check-branch-rebased-on-alpha.sh
   check-no-state-file-commits.sh
+  check-no-foreign-task-commits.sh
   check-no-source-regressions.sh
   check-no-test-regressions.sh
   check-empty-test-stubs.sh

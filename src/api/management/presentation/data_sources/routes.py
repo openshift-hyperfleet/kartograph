@@ -6,14 +6,16 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from iam.application.value_objects import CurrentUser
-from iam.dependencies.user import get_current_user
 from management.application.services.data_source_service import DataSourceService
 from management.dependencies.data_source import (
     get_data_source_service,
     get_sync_run_repository,
 )
-from management.ports.exceptions import UnauthorizedError
+from management.presentation.auth_bridge import CurrentUser, get_current_user
+from management.ports.exceptions import (
+    KnowledgeGraphNotFoundError,
+    UnauthorizedError,
+)
 from management.ports.repositories import IDataSourceSyncRunRepository
 from management.presentation.data_sources.models import (
     CreateDataSourceRequest,
@@ -121,7 +123,7 @@ async def create_data_source(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to perform this action",
         )
-    except ValueError as e:
+    except KnowledgeGraphNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),

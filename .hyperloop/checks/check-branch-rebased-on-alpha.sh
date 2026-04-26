@@ -36,7 +36,7 @@ fi
 echo "STALE BRANCH: This branch is ${COMMITS_BEHIND} commit(s) behind '${BASE_BRANCH}'."
 echo ""
 echo "Commits on '${BASE_BRANCH}' not yet incorporated into this branch:"
-git log --oneline "${MERGE_BASE}..${BASE_BRANCH}" | head -20
+git log --oneline -n 20 "${MERGE_BASE}..${BASE_BRANCH}"
 echo ""
 echo "Resolution: git rebase ${BASE_BRANCH}"
 echo ""

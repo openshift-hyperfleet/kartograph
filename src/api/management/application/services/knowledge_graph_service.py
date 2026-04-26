@@ -6,6 +6,8 @@ transaction management, and observability.
 
 from __future__ import annotations
 
+import asyncio
+
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,7 +63,7 @@ class KnowledgeGraphService:
             scope_to_tenant: Tenant ID string to scope this service to
             probe: Optional domain probe for observability
             data_source_repository: Optional DS repository for cascade delete
-            secret_store: Optional secret store for credential cleanup on cascade delete
+            secret_store: Optional secret store for encrypted credential cleanup
         """
         self._session = session
         self._kg_repo = knowledge_graph_repository
@@ -282,19 +284,20 @@ class KnowledgeGraphService:
         """
         all_kgs = await self._kg_repo.find_by_tenant(self._scope_to_tenant)
 
-        visible_kgs: list[KnowledgeGraph] = []
-        for kg in all_kgs:
+        async def _visible_or_none(kg: KnowledgeGraph) -> KnowledgeGraph | None:
             has_view = await self._check_permission(
                 user_id=user_id,
                 resource_type=ResourceType.KNOWLEDGE_GRAPH,
                 resource_id=kg.id.value,
                 permission=Permission.VIEW,
             )
-            if has_view:
-                visible_kgs.append(kg)
+            return kg if has_view else None
+
+        results = await asyncio.gather(*(_visible_or_none(kg) for kg in all_kgs))
+        visible_kgs = [kg for kg in results if kg is not None]
 
         self._probe.knowledge_graphs_listed(
-            workspace_id=self._scope_to_tenant,
+            tenant_id=self._scope_to_tenant,
             count=len(visible_kgs),
         )
         return visible_kgs
@@ -407,9 +410,7 @@ class KnowledgeGraphService:
             if self._ds_repo is not None:
                 data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
                 for ds in data_sources:
-                    # Clean up encrypted credentials before removing the row to
-                    # prevent orphaned credential blobs in the secret store.
-                    if self._secret_store is not None and ds.credentials_path:
+                    if ds.credentials_path and self._secret_store is not None:
                         await self._secret_store.delete(
                             path=ds.credentials_path,
                             tenant_id=self._scope_to_tenant,

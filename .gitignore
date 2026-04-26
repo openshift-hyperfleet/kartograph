@@ -9,6 +9,7 @@ worktrees/
 
 agent-notes/
 agent-memory/
+.hyperloop/state/
 ess/
 .hyperloop/state/
 # ignore ai-generated scratchpad

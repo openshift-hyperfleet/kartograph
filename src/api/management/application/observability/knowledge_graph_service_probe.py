@@ -71,10 +71,15 @@ class KnowledgeGraphServiceProbe(Protocol):
 
     def knowledge_graphs_listed(
         self,
-        workspace_id: str,
         count: int,
+        workspace_id: str | None = None,
+        tenant_id: str | None = None,
     ) -> None:
-        """Record knowledge graphs listed."""
+        """Record knowledge graphs listed.
+
+        Pass workspace_id when listing within a workspace, or tenant_id
+        when performing a tenant-wide listing.
+        """
         ...
 
     def permission_denied(
@@ -217,15 +222,23 @@ class DefaultKnowledgeGraphServiceProbe:
 
     def knowledge_graphs_listed(
         self,
-        workspace_id: str,
         count: int,
+        workspace_id: str | None = None,
+        tenant_id: str | None = None,
     ) -> None:
         """Record knowledge graphs listed."""
-        context_kwargs = self._get_context_kwargs(exclude={"workspace_id", "count"})
+        context_kwargs = self._get_context_kwargs(
+            exclude={"workspace_id", "tenant_id", "count"}
+        )
+        extra: dict[str, str] = {}
+        if workspace_id is not None:
+            extra["workspace_id"] = workspace_id
+        if tenant_id is not None:
+            extra["tenant_id"] = tenant_id
         self._logger.debug(
             "knowledge_graphs_listed",
-            workspace_id=workspace_id,
             count=count,
+            **extra,
             **context_kwargs,
         )
 

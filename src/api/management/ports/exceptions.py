@@ -6,6 +6,16 @@ application layer.
 """
 
 
+class KnowledgeGraphNotFoundError(Exception):
+    """Raised when a knowledge graph cannot be found or is inaccessible.
+
+    This exception indicates that a requested knowledge graph does not exist
+    in the given tenant scope. The presentation layer maps this to HTTP 404.
+    """
+
+    pass
+
+
 class DuplicateKnowledgeGraphNameError(Exception):
     """Raised when a knowledge graph name already exists in the tenant.
 

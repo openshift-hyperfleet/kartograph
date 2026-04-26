@@ -37,7 +37,8 @@ class TestDatabaseSettingsPoolConfiguration:
             DatabaseSettings(pool_min_connections=10, pool_max_connections=5)
 
         error_str = str(exc_info.value)
-        assert any(k in error_str.lower() for k in ["pool_max_connections", "greater"])
+        assert "pool_max_connections" in error_str
+        assert ">=" in error_str
 
     def test_pool_max_equal_to_min_is_valid(self):
         """Should allow max == min."""

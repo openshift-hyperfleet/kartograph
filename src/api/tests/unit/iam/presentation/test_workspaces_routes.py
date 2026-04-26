@@ -20,6 +20,8 @@ from iam.domain.value_objects import TenantId, UserId, WorkspaceId
 from iam.ports.exceptions import (
     CannotDeleteRootWorkspaceError,
     DuplicateWorkspaceNameError,
+    ParentWorkspaceCrossTenantError,
+    ParentWorkspaceNotFoundError,
     UnauthorizedError,
     WorkspaceHasChildrenError,
 )
@@ -181,15 +183,70 @@ class TestCreateWorkspace:
         assert response.status_code == status.HTTP_409_CONFLICT
         assert "already exists" in response.json()["detail"]
 
-    def test_create_workspace_returns_400_for_invalid_parent(
+    def test_create_workspace_returns_404_for_missing_parent(
         self,
         test_client: TestClient,
         mock_workspace_service: AsyncMock,
     ) -> None:
-        """Test POST /workspaces returns 400 when parent doesn't exist."""
+        """Test POST /workspaces returns 404 when parent doesn't exist.
+
+        Parent-not-found is indistinguishable from unauthorized access —
+        both return 404 to avoid leaking existence information.
+        """
+        fake_parent_id = WorkspaceId.generate().value
+        mock_workspace_service.create_workspace.side_effect = (
+            ParentWorkspaceNotFoundError(
+                f"Parent workspace {fake_parent_id} does not exist"
+            )
+        )
+
+        response = test_client.post(
+            "/iam/workspaces",
+            json={
+                "name": "Engineering",
+                "parent_workspace_id": fake_parent_id,
+            },
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_create_workspace_returns_404_for_cross_tenant_parent(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+    ) -> None:
+        """Test POST /workspaces returns 404 when parent is in a different tenant.
+
+        Cross-tenant access is indistinguishable from missing — both return 404.
+        """
+        fake_parent_id = WorkspaceId.generate().value
+        mock_workspace_service.create_workspace.side_effect = (
+            ParentWorkspaceCrossTenantError(
+                f"Parent workspace {fake_parent_id} belongs to a different tenant"
+            )
+        )
+
+        response = test_client.post(
+            "/iam/workspaces",
+            json={
+                "name": "Engineering",
+                "parent_workspace_id": fake_parent_id,
+            },
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_create_workspace_returns_400_for_other_validation_errors(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+    ) -> None:
+        """Test POST /workspaces returns 400 for non-parent-not-found validation errors."""
         fake_parent_id = WorkspaceId.generate().value
         mock_workspace_service.create_workspace.side_effect = ValueError(
-            f"Parent workspace {fake_parent_id} does not exist"
+            "Some other validation error"
         )
 
         response = test_client.post(
@@ -201,7 +258,6 @@ class TestCreateWorkspace:
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "does not exist" in response.json()["detail"]
 
     def test_create_workspace_returns_422_for_invalid_name(
         self,
@@ -220,6 +276,31 @@ class TestCreateWorkspace:
 
         # Pydantic validation catches empty name (min_length=1)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    def test_create_workspace_returns_404_when_unauthorized_on_parent(
+        self,
+        test_client: TestClient,
+        mock_workspace_service: AsyncMock,
+        root_workspace: Workspace,
+    ) -> None:
+        """Test POST /workspaces returns 404 when user lacks permission on parent.
+
+        Per spec: no distinction between unauthorized and missing — a workspace
+        the user cannot access is indistinguishable from one that doesn't exist.
+        """
+        mock_workspace_service.create_workspace.side_effect = UnauthorizedError(
+            "User lacks create_child permission on parent workspace"
+        )
+
+        response = test_client.post(
+            "/iam/workspaces",
+            json={
+                "name": "Engineering",
+                "parent_workspace_id": root_workspace.id.value,
+            },
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_create_workspace_returns_401_when_not_authenticated(
         self,

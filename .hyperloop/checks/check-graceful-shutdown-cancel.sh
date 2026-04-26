@@ -18,6 +18,11 @@ set -euo pipefail
 
 TARGET_DIR="${1:-src}"
 
+if [[ ! -d "$TARGET_DIR" ]]; then
+    echo "check-graceful-shutdown-cancel: ERROR — target directory '$TARGET_DIR' does not exist" >&2
+    exit 2
+fi
+
 violations=()
 
 while IFS= read -r -d '' file; do

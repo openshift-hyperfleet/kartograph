@@ -43,9 +43,10 @@ commit_count=$(git rev-list --count "$MERGE_BASE..HEAD" 2>/dev/null || echo "0")
 
 echo "Commits ahead of $BASE_BRANCH: $commit_count"
 
-if [[ -n "$(git log --oneline "$MERGE_BASE..HEAD" 2>/dev/null)" ]]; then
+ahead_log="$(git log --oneline "$MERGE_BASE..HEAD" 2>/dev/null || true)"
+if [[ -n "$ahead_log" ]]; then
   echo ""
-  git log --oneline "$MERGE_BASE..HEAD"
+  printf '%s\n' "$ahead_log"
 fi
 
 echo ""

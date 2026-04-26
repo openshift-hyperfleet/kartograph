@@ -28,7 +28,6 @@ import {
 
 const { hasTenant, currentTenantName, tenantVersion } = useTenant()
 const { extractErrorMessage } = useErrorHandler()
-const { listWorkspaces } = useIamApi()
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -45,9 +44,6 @@ interface KnowledgeGraphItem {
 const knowledgeGraphs = ref<KnowledgeGraphItem[]>([])
 const loadingKgs = ref(false)
 
-// Root workspace (required for creating KGs under a workspace)
-const rootWorkspaceId = ref<string | null>(null)
-
 // Create dialog
 const createDialogOpen = ref(false)
 const createName = ref('')
@@ -56,17 +52,6 @@ const creating = ref(false)
 const createNameError = ref('')
 
 // ── Actions ────────────────────────────────────────────────────────────────
-
-async function loadWorkspaceId() {
-  if (!hasTenant.value) return
-  try {
-    const result = await listWorkspaces()
-    const root = result.workspaces.find((w) => w.is_root) ?? result.workspaces[0]
-    rootWorkspaceId.value = root?.id ?? null
-  } catch {
-    rootWorkspaceId.value = null
-  }
-}
 
 async function loadKnowledgeGraphs() {
   if (!hasTenant.value) return
@@ -77,11 +62,8 @@ async function loadKnowledgeGraphs() {
       '/management/knowledge-graphs'
     )
     knowledgeGraphs.value = result.knowledge_graphs ?? []
-  } catch (err) {
+  } catch {
     knowledgeGraphs.value = []
-    toast.error('Failed to load knowledge graphs', {
-      description: extractErrorMessage(err),
-    })
   } finally {
     loadingKgs.value = false
   }
@@ -100,16 +82,10 @@ async function handleCreate() {
     createNameError.value = 'Knowledge graph name is required'
     return
   }
-  if (!rootWorkspaceId.value) {
-    toast.error('No workspace available', {
-      description: 'Unable to determine a workspace for this tenant.',
-    })
-    return
-  }
   creating.value = true
   try {
     const { apiFetch } = useApiClient()
-    await apiFetch(`/management/workspaces/${rootWorkspaceId.value}/knowledge-graphs`, {
+    await apiFetch('/management/knowledge-graphs', {
       method: 'POST',
       body: {
         name: createName.value.trim(),
@@ -138,12 +114,10 @@ async function handleCreate() {
 // ── Lifecycle ──────────────────────────────────────────────────────────────
 
 onMounted(() => {
-  loadWorkspaceId()
   loadKnowledgeGraphs()
 })
 
 watch(tenantVersion, () => {
-  loadWorkspaceId()
   loadKnowledgeGraphs()
 })
 </script>

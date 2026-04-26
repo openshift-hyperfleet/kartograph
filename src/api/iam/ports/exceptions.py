@@ -100,29 +100,6 @@ class WorkspaceHasChildrenError(Exception):
     pass
 
 
-class ParentWorkspaceNotFoundError(Exception):
-    """Raised when the specified parent workspace does not exist.
-
-    This exception allows the presentation layer to normalize the error
-    as 404 without parsing free-form message text. A missing parent is
-    indistinguishable from an unauthorized parent — both surface as 404
-    to callers so workspace existence is not leaked.
-    """
-
-    pass
-
-
-class ParentWorkspaceCrossTenantError(Exception):
-    """Raised when the specified parent workspace belongs to a different tenant.
-
-    Cross-tenant parent access is treated the same as a missing parent:
-    the route returns 404 so that tenant boundaries are not disclosed
-    through error codes.
-    """
-
-    pass
-
-
 class ProvisioningConflictError(Exception):
     """Raised when JIT user provisioning fails due to a username conflict.
 

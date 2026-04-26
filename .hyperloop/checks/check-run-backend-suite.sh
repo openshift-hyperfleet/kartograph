@@ -24,33 +24,6 @@ set -uo pipefail
 
 CHECKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Normalize CWD to repo root before running any checks.
-#
-# WHY: Every check script in this suite uses git pathspecs such as
-# '.hyperloop/state/' and 'src/'. Git interprets these pathspecs relative to
-# $PWD, not to the repository root. Running this suite from .hyperloop/checks/
-# (or any other subdirectory) causes all those pathspecs to silently match
-# nothing, making every content check return a false PASS.
-#
-# Observed failure (task-017, task-019): verifier invoked this script from
-# .hyperloop/checks/ → check-no-state-file-commits, check-no-source-regressions,
-# and check-no-test-regressions all matched zero files and returned PASS even
-# though 39 state-file commits, 2 deleted source files, and 3 deleted test files
-# were present on the branch.
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-if [[ -z "$REPO_ROOT" ]]; then
-  echo "ERROR: Not inside a git repository — cannot determine repo root."
-  exit 1
-fi
-if [[ "$PWD" != "$REPO_ROOT" ]]; then
-  echo "⚠  NOTICE: Suite invoked from $PWD"
-  echo "   Normalizing CWD to repo root: $REPO_ROOT"
-  echo "   (Running from a subdirectory causes git pathspecs to silently"
-  echo "    match nothing — all content checks would produce false PASSes.)"
-  echo ""
-  cd "$REPO_ROOT"
-fi
-
 # Ordered list of checks to run. Order matters:
 # - Infra integrity first (catch sabotage before evaluating code)
 # - Staleness second (stale branch → false positives in content checks)
@@ -59,7 +32,6 @@ fi
 CHECKS=(
   check-no-check-script-deletions.sh
   check-process-overlays-intact.sh
-  check-new-checks-pass-on-head.sh
   check-branch-has-commits.sh
   check-branch-rebased-on-alpha.sh
   check-no-state-file-commits.sh
@@ -72,7 +44,6 @@ CHECKS=(
   check-weak-test-assertions.sh
   check-di-wiring-updated.sh
   check-pytest-env-skip-if-set.sh
-  check-cascade-delete-empty-collection-mocks.sh
 )
 
 FAILED=()

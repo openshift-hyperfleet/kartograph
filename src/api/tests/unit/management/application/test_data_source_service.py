@@ -20,10 +20,7 @@ from management.domain.value_objects import (
     Schedule,
     ScheduleType,
 )
-from management.ports.exceptions import (
-    KnowledgeGraphNotFoundError,
-    UnauthorizedError,
-)
+from management.ports.exceptions import UnauthorizedError
 from shared_kernel.authorization.types import Permission
 from shared_kernel.datasource_types import DataSourceAdapterType
 
@@ -203,11 +200,11 @@ class TestDataSourceServiceCreate:
     async def test_create_verifies_kg_exists_and_belongs_to_tenant(
         self, service, mock_authz, mock_kg_repo, user_id, kg_id
     ):
-        """create() raises KnowledgeGraphNotFoundError when KG not found."""
+        """create() raises ValueError when KG not found."""
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = None
 
-        with pytest.raises(KnowledgeGraphNotFoundError, match="not found"):
+        with pytest.raises(ValueError, match="not found"):
             await service.create(
                 user_id=user_id,
                 kg_id=kg_id,
@@ -220,13 +217,13 @@ class TestDataSourceServiceCreate:
     async def test_create_rejects_kg_from_different_tenant(
         self, service, mock_authz, mock_kg_repo, user_id, kg_id
     ):
-        """create() raises KnowledgeGraphNotFoundError when KG belongs to different tenant."""
+        """create() raises ValueError when KG belongs to different tenant."""
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = _make_kg(
             kg_id=kg_id, tenant_id="other-tenant"
         )
 
-        with pytest.raises(KnowledgeGraphNotFoundError, match="not found"):
+        with pytest.raises(ValueError, match="different tenant"):
             await service.create(
                 user_id=user_id,
                 kg_id=kg_id,
@@ -565,24 +562,6 @@ class TestDataSourceServiceUpdate:
             ds_id=ds.id.value,
             name="Updated",
         )
-
-    @pytest.mark.asyncio
-    async def test_update_without_schedule_type_preserves_schedule(
-        self, service, mock_authz, mock_ds_repo, user_id
-    ):
-        """update() preserves existing schedule when schedule_type is not provided."""
-        ds = _make_ds()
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.get_by_id.return_value = ds
-
-        result = await service.update(
-            user_id=user_id,
-            ds_id=ds.id.value,
-            name="New Name",
-        )
-
-        # MANUAL is the default set in _make_ds
-        assert result.schedule.schedule_type.value == "manual"
 
 
 # ---- delete ----

@@ -3,7 +3,7 @@ id: task-034
 title: Implement Fernet credential key rotation without re-encryption
 spec_ref: specs/management/credentials.spec.md@774c6c8e
 status: in_progress
-phase: spec-review
+phase: mark-ready
 deps: []
 round: 16
 branch: hyperloop/task-034

@@ -1,86 +1,158 @@
 ---
 verdict: pass
 ---
-# Verification Result — task-032 (Groups) — Round 19
+# Spec Alignment Review — task-032 (Groups) — Round 20
 
-## Session Summary
+## Reviewed Files
 
-The branch was 9 commits behind alpha (causing "not mergeable — conflicts with
-alpha" PR status). Prior round 18 was FAIL due to `check-cascade-delete-empty-
-collection-mocks` which was fixed in commit `9ff717b5`.
+- Spec: `specs/iam/groups.spec.md` (Groups feature)
+- Domain: `iam/domain/aggregates/group.py`, `iam/domain/events/group.py`
+- Application: `iam/application/services/group_service.py`
+- Infrastructure: `iam/infrastructure/group_repository.py`
+- Presentation: `iam/presentation/groups/routes.py`, `models.py`
+- Authorization schema: `shared_kernel/authorization/spicedb/schema.zed`
+- Tests (unit): `tests/unit/iam/domain/test_group_aggregate.py`,
+  `test_group_rename.py`, `tests/unit/iam/application/test_group_service.py`,
+  `test_group_service_list.py`, `test_group_service_members.py`,
+  `test_group_service_update.py`, `tests/unit/iam/presentation/test_group_routes.py`,
+  `test_list_groups_route.py`, `tests/unit/iam/infrastructure/test_group_repository.py`
+- Tests (integration): `tests/integration/iam/test_group_authorization.py`,
+  `test_group_members_api.py`, `test_group_repository.py`,
+  `test_group_workspace_inheritance.py`
 
-This session resolved the staleness and multiple regression issues introduced
-during a prior rebase attempt.
+---
 
-## Actions Taken
+## Requirement-by-Requirement Findings
 
-### 1. Rebase onto current alpha
-Used `git rebase origin/alpha -X ours` to rebase 59 commits onto alpha.
-Updated local `alpha` ref (it was stale; `git update-ref refs/heads/alpha
-origin/alpha` resolved the divergence). Branch is now 0 commits behind alpha.
+### 1. Group Creation (SHALL) — COVERED
 
-### 2. State file cleanup
-36 `.hyperloop/state/` files were inadvertently committed on the branch
-(the `.hyperloop/state/` gitignore entry had been removed). Removed all
-state files via `git rm --cached` and committed the cleanup. Restored the
-`.hyperloop/state/` entry to `.gitignore`.
+**Successful creation scenario**
+- Code: `Group.create()` generates ULID via `GroupId.generate()`; `GroupService.create_group()` calls `group.add_member(creator_id, GroupRole.ADMIN)`.
+- Tests: `test_factory_creates_group_with_generated_id` (ULID), `test_creates_group_with_creator_as_admin` (admin role), `test_create_group_returns_201_with_group_details` (route 201).
 
-### 3. Source and test file restoration
-The `-X ours` rebase strategy preserved older versions of many files,
-stripping out alpha's merged changes. Restored to alpha's version:
-- Management API routes, models, services (knowledge graphs, data sources)
-- `iam/ports/exceptions.py` (restored `ParentWorkspaceNotFoundError`,
-  `ParentWorkspaceCrossTenantError`)
-- `management/ports/exceptions.py` (restored `KnowledgeGraphNotFoundError`)
-- `iam/application/services/workspace_service.py`
-- `iam/presentation/workspaces/routes.py`
-- `graph/infrastructure/tenant_graph_handler.py`
-- `query/presentation/mcp.py`
-- `dev-ui/app/pages/*`
-- 3 deleted test files + 18 test files with net line removals
+**Duplicate name within tenant scenario**
+- Code: `GroupRepository.save()` raises `DuplicateGroupNameError`; route returns HTTP 409.
+- Tests: `test_records_failure_probe_event` (service raises on duplicate), `test_create_group_returns_409_on_duplicate_name` (route returns 409).
 
-### 4. DOO fix in mcp.py
-`print()` call in a docstring example flagged by `check-no-direct-logger-usage`.
-Replaced `print(source["content"])` with `content = source["content"]` in the
-docstring example block.
+---
 
-## Check Suite Results (2026-04-26T07:00:16-0400)
+### 2. Group Name Validation (SHALL) — COVERED
 
-Suite alpha SHA: `39a1e6cca4a050607be0fc0dcf9d3555d9e43a7a`
+**Valid name scenario (1–255 chars after trim)**
+- Code: `Group.create()` and `Group.rename()` both call `.strip()` and check `1 <= len(trimmed) <= 255`.
+- Tests: `test_create_accepts_single_character_name`, `test_create_accepts_exactly_255_character_name`, `test_create_accepts_255_characters_after_trimming`.
 
-| Check | Result |
-|-------|--------|
-| check-no-check-script-deletions | PASS |
-| check-process-overlays-intact | PASS |
-| check-branch-has-commits | PASS |
-| check-branch-rebased-on-alpha | PASS (0 behind) |
-| check-no-state-file-commits | PASS |
-| check-no-source-regressions | PASS |
-| check-no-test-regressions | PASS |
-| check-empty-test-stubs | PASS |
-| check-domain-aggregate-mocks | PASS |
-| check-no-direct-logger-usage | PASS |
-| check-no-coming-soon-stubs | PASS |
-| check-weak-test-assertions | PASS |
+**Empty or whitespace-only name scenario**
+- Code: Both `create()` and `rename()` raise `ValueError("Group name must be between 1 and 255 characters")` for empty/whitespace strings.
+- Tests: `test_create_rejects_empty_name`, `test_create_rejects_whitespace_only_name`, `test_create_rejects_single_space_name` (domain); `test_raises_value_error_for_empty_name`, `test_raises_value_error_for_whitespace_only_name` (rename domain); `test_create_group_returns_422_for_empty_name` (route).
 
-**RESULT: ALL PASS — safe to submit.**
+---
 
-## Unit Tests
+### 3. Group Retrieval (SHALL) — COVERED
 
-```
-2500 passed, 46 warnings in 66.05s
-```
+**Authorized retrieval scenario**
+- Code: `GroupService.get_group()` fetches from DB, verifies tenant, checks VIEW permission via SpiceDB, returns group.
+- Tests: `test_returns_group_when_found_and_user_has_view_permission`.
 
-## Spec Coverage
+**Unauthorized or non-existent scenario**
+- Code: Returns `None` (route maps to 404) for not-found, wrong tenant, or no VIEW permission.
+- Tests: `test_returns_none_when_group_not_found`, `test_returns_none_when_tenant_mismatch`, `test_returns_none_when_user_lacks_view_permission`.
 
-All 10 Requirements from `specs/iam/groups.spec.md` are implemented:
-1. Group Creation — `Group.create()`, `DuplicateGroupNameError`, ULID ID
-2. Group Name Validation — 1-255 chars (trimmed), empty rejection
-3. Group Retrieval — `view` permission required, 404 for unauthorized/missing
-4. Group Listing — tenant membership implies view; only visible groups returned
-5. Group Rename — `manage` permission, duplicate name rejection
-6. Group Deletion — `manage` permission, member snapshot for authz cleanup
-7. Group Member Management — add/remove/change role with last-admin protection
-8. Group Member Listing — `view` permission required
-9. Workspace Access Inheritance — group→workspace propagation via SpiceDB
-10. Group Roles — `admin` (manage+view) and `member` (view) roles
+---
+
+### 4. Group Listing (SHALL) — COVERED
+
+**Tenant member lists groups scenario**
+- Code: SpiceDB schema defines `permission view = admin + member_relation + tenant->view`, so all tenant members have VIEW on all groups. `GroupService.list_groups()` uses `lookup_resources` to filter by VIEW.
+- Tests: `test_returns_view_filtered_groups` (service), `test_group_listing_only_shows_accessible_groups` (integration: Bob as tenant member sees Alice's group).
+
+---
+
+### 5. Group Rename (SHALL) — COVERED
+
+**Successful rename scenario**
+- Code: `GroupService.update_group()` checks MANAGE permission, checks name uniqueness, calls `group.rename()`.
+- Tests: `test_renames_group_with_manage_permission` (service), `test_group_admin_can_rename_group` (integration).
+
+**Duplicate name scenario**
+- Code: `get_by_name()` check before rename; raises `DuplicateGroupNameError`; route returns 409.
+- Tests: `test_raises_duplicate_name_error_when_name_exists` (service), `test_update_group_returns_409_on_duplicate_name` (route).
+
+---
+
+### 6. Group Deletion (SHALL) — COVERED
+
+**Successful deletion scenario**
+- Code: `GroupService.delete_group()` checks MANAGE permission, loads group, calls `group.mark_for_deletion()`, calls `repository.delete()`.
+- Tests: `test_deletes_group_when_authorized` (service), `test_group_admin_can_delete_group` (integration).
+
+**Member snapshot captured for authorization cleanup**
+- Code: `Group.mark_for_deletion()` captures all members as `MemberSnapshot` objects in the `GroupDeleted` event.
+- Tests: `test_group_deleted_event_includes_member_snapshot` (domain) verifies both admin and member snapshots are included.
+
+---
+
+### 7. Group Member Management (SHALL) — COVERED
+
+**Add member scenario**
+- Code: `GroupService.add_member()` checks MANAGE, loads group, calls `group.add_member(user_id, role)`.
+- Tests: `test_adds_member_with_manage_permission` (service), `test_admin_can_add_member_to_group` (integration: verifies VIEW=True, MANAGE=False for member role).
+
+**Change member role scenario (previous role revoked, new role granted)**
+- Code: `GroupService.update_member_role()` calls aggregate's `update_member_role()` which emits `MemberRoleChanged`. Outbox applies the change. The `add_member()` role-replacement path also emits `MemberRemoved` + `MemberAdded`.
+- Tests: `test_replaces_role_when_current_role_differs` (domain: verifies MemberRemoved+MemberAdded events), `test_updates_role_with_manage_permission` (service), `test_admin_can_update_member_role` (integration: verifies MANAGE granted after role update to admin).
+
+**Remove member scenario**
+- Code: `GroupService.remove_member()` checks MANAGE, loads group, calls `group.remove_member()`.
+- Tests: `test_removes_member_with_manage_permission` (service), `test_admin_can_remove_member` (integration: verifies MANAGE=False after removal).
+
+**Demote or remove last admin scenario**
+- Code: `Group.remove_member()` and `Group.update_member_role()` both guard against removing/demoting the last admin, raising `ValueError("Cannot remove/demote the last admin")`. Route propagates this as HTTP 400. `Group.add_member()` with `current_role=ADMIN, role=MEMBER` also guards.
+- Tests: `test_prevents_removing_last_admin`, `test_prevents_demoting_last_admin`, `test_prevents_demoting_last_admin_via_role_replacement` (all domain-level unit tests covering Given/When/Then exactly).
+- **Note:** No explicit route-level test verifying the HTTP 400 response for this scenario. The domain coverage fully exercises the Given/When/Then conditions, and the route correctly propagates the ValueError as 400. This is a minor test pyramid gap but does not represent a missing business rule test.
+
+---
+
+### 8. Group Member Listing (SHALL) — COVERED
+
+**List members scenario**
+- Code: `GroupService.list_members()` checks VIEW permission, calls `read_relationships()` on SpiceDB to get explicit tuples (admin + member_relation), maps to `GroupAccessGrant` objects with user IDs and roles.
+- Tests: `test_lists_members_with_view_permission` (service: verifies admin and member roles returned), `test_can_list_group_members` (integration: verifies alice=admin, bob=member in response).
+
+---
+
+### 9. Workspace Access Inheritance (SHALL) — COVERED
+
+**Group added to workspace scenario (existing members get access)**
+- Code: SpiceDB schema: `workspace#editor@group:{id}#member` chains to `group#member_relation@user:{id}` and `group#admin@user:{id}` (since `member = admin + member_relation`). Outbox worker applies group-to-workspace tuples.
+- Tests: `test_group_member_gets_workspace_access_via_group` (integration: bob gets EDIT but not MANAGE).
+
+**Member added to group with existing workspace assignment**
+- Code: SpiceDB evaluates permissions lazily at check time; writing `group#member_relation@user:bob` after the `workspace#editor@group:{id}#member` tuple is already written gives bob EDIT access immediately.
+- Tests: `test_member_added_after_group_assigned_to_workspace_gets_access` (integration: verifies EDIT granted after bob is added post-workspace-assignment).
+
+**Member removed from group loses inherited workspace access**
+- Code: Outbox processes `MemberRemoved` event, deletes SpiceDB `group#member_relation@user:{id}` tuple. SpiceDB re-evaluates workspace permissions.
+- Tests: `test_removing_user_from_group_revokes_workspace_access` (integration: verifies EDIT revoked after bob removed from group).
+
+---
+
+### 10. Group Roles (SHALL) — COVERED
+
+**Admin role (manage + view permissions, included in workspace inheritance)**
+- Code: SpiceDB schema: `permission manage = admin`; `permission view = admin + member_relation + tenant->view`; workspace relations accept `group#member` which resolves to `admin + member_relation`.
+- Tests: `test_group_admin_can_delete_group` (integration: MANAGE), `test_group_member_gets_workspace_access_via_group` and `test_group_admin_gets_workspace_access_via_group_member_permission` (integration: workspace inheritance for admins).
+
+**Member role (view permission, included in workspace inheritance)**
+- Code: SpiceDB schema: `permission view = admin + member_relation + tenant->view`; `member_relation` is included in `group#member` used in workspace relations.
+- Tests: `test_admin_can_add_member_to_group` (integration: member has VIEW=True, MANAGE=False), `test_group_member_gets_workspace_access_via_group` (integration: member gets workspace EDIT).
+
+---
+
+## Overall Assessment
+
+All 10 SHALL requirements from `specs/iam/groups.spec.md` are implemented in code and covered by tests. Every scenario has at least one unit or integration test that exercises the exact Given/When/Then conditions.
+
+The one minor gap — no route-level HTTP test for the "demote/remove last admin" scenario — is noted but does not constitute a missing test for the business rule; the domain unit tests fully cover that scenario's Given/When/Then. The route correctly propagates the domain ValueError as HTTP 400.
+
+**VERDICT: PASS**

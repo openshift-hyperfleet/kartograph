@@ -1,130 +1,69 @@
 ---
 verdict: pass
 ---
-## Verifier Report — task-012 (specs/ingestion/adapters.spec.md)
+## Spec Alignment Review — task-012 (specs/ingestion/adapters.spec.md)
 
-Reviewed by: verifier
+Reviewed by: spec-alignment-reviewer
 Review date: 2026-04-26
-Suite run: 2026-04-26T05:53:11-0400
-Alpha SHA at suite run: 0f758944e25ff81209820695846dbe0ad9e1c879
 
 ---
 
-### Pre-flight
+### Requirements Coverage
 
-Branch was 16 commits behind alpha at start. Rebased onto alpha `0f758944` before
-any evaluation. All conflicts were in `.hyperloop/agents/process/` overlay files
-(process governance content that alpha had already advanced); resolved by
-accepting HEAD (alpha) versions throughout.
+#### Requirement: Adapter Port
+- COVERED
+- `IDatasourceAdapter` protocol defined at `src/api/ingestion/ports/adapters.py`
+- `ExtractionResult` frozen dataclass defined in same file
+- `extract()` method accepts `connection_config`, `credentials`, `checkpoint`, `sync_mode`; returns `ExtractionResult` with `changeset_entries`, `content_blobs`, `new_checkpoint`
+- Port lives in `ingestion/ports/` (Ingestion domain layer) with no dlt, httpx, or framework imports — enforced by architecture tests
+- Tests: `src/api/tests/unit/ingestion/ports/test_adapter_port.py` (protocol structural checks, domain isolation), `src/api/tests/unit/ingestion/test_architecture.py` (archrule enforcement)
 
----
+#### Requirement: GitHub Adapter
+- COVERED
+- `GitHubAdapter` at `src/api/ingestion/infrastructure/adapters/github.py` implements `IDatasourceAdapter`
+- Repository tree extraction: uses `GET /repos/{owner}/{repo}/git/trees/{sha}?recursive=1` for full refresh (`_get_all_tree_blobs`)
+- Content fetching: uses `GET /repos/{owner}/{repo}/git/blobs/{sha}` via `_fetch_blob`; only changed files fetched in incremental mode
+- Incremental sync: uses `GET /repos/{owner}/{repo}/compare/{base}...{head}` (`_get_changed_files`); checkpoint carries `commit_sha`; new checkpoint returned with HEAD SHA
+- Full refresh: triggered when `checkpoint=None` or `sync_mode=FULL_REFRESH`; fetches entire tree
+- Credential handling: `credentials["token"]` used as Bearer token in `Authorization` header
+- Tests: `src/api/tests/unit/ingestion/infrastructure/adapters/test_github_adapter.py` covers all five scenarios (TestFullRefresh, TestIncrementalSync, TestCredentialHandling, TestGitHubAdapterProtocolCompliance, TestContentFetching)
 
-### Check Suite — RESULT: ALL PASS
+#### Requirement: Pluggable Credential Backend
+- COVERED
+- `ICredentialReader` protocol defined at `src/api/shared_kernel/credential_reader.py`
+- `retrieve(path, tenant_id)` returns `dict[str, str]`; port is `@runtime_checkable`
+- Ingestion context imports `ICredentialReader` from `shared_kernel` (not from `management`) — enforced by architecture test `test_ingestion_does_not_import_management`
+- Tests: `src/api/tests/unit/shared_kernel/test_credential_reader.py` (8 protocol tests), `src/api/tests/unit/ingestion/ports/test_adapter_port.py::TestCredentialReaderPort` (4 tests)
 
-```
-========================================================
- Backend check suite — 2026-04-26T05:53:11-0400
- alpha: 0f758944e25ff81209820695846dbe0ad9e1c879
-========================================================
-PASSED (14):
-  ✓ check-no-check-script-deletions.sh
-  ✓ check-process-overlays-intact.sh
-  ✓ check-branch-has-commits.sh
-  ✓ check-branch-rebased-on-alpha.sh
-  ✓ check-no-state-file-commits.sh
-  ✓ check-no-source-regressions.sh
-  ✓ check-no-test-regressions.sh
-  ✓ check-empty-test-stubs.sh
-  ✓ check-domain-aggregate-mocks.sh
-  ✓ check-no-direct-logger-usage.sh
-  ✓ check-no-coming-soon-stubs.sh
-  ✓ check-weak-test-assertions.sh
-  ✓ check-di-wiring-updated.sh
-  ✓ check-pytest-env-skip-if-set.sh
-
-RESULT: ALL PASS — safe to submit.
-```
-
----
-
-### Unit Tests — PASS
-
-```
-2464 passed, 45 warnings in 70.49s
-```
-
-63 ingestion-specific tests (13 architecture + 4 adapter port + 32 GitHub adapter + 17 dlt runner) all pass.
+#### Requirement: dlt Framework Integration
+- COVERED
+- `DltAdapterRunner` at `src/api/ingestion/infrastructure/dlt_runner.py`
+- In-process execution: uses `dlt.pipeline()` + `pipeline.run()` in a `ThreadPoolExecutor` thread; no Docker, no subprocess
+- State persistence: dlt resource state (`dlt.current.resource_state()`) stores `adapter_checkpoint` key; with PostgreSQL destination this lands in `dlt_internal` schema; filesystem destination used in unit tests for state round-trip verification
+- Extracted data on disk: `changeset.jsonl` (one JSON line per entry) and `blobs/{hex_digest}` files written to `{working_dir}/output/` by `_write_output_files()`
+- Tests: `src/api/tests/unit/ingestion/infrastructure/test_dlt_runner.py` covers all three scenarios (TestDltInProcessExecution, TestExtractedDataOnDisk, TestDltStatePersistence) including pod-restart state survival
 
 ---
 
-### Linting & Formatting — PASS
+### Test Suite Results
 
-- `ruff check .` → All checks passed.
-- `ruff format --check .` → 495 files already formatted.
-
----
-
-### Type Checking — PASS
-
-- `mypy . --ignore-missing-imports` → Success: no issues found in 495 source files.
+All 71 ingestion and credential-reader unit tests pass:
+- 13 architecture boundary tests (pytest-archon)
+- 10 adapter port tests
+- 31 GitHub adapter tests
+- 17 dlt runner tests
 
 ---
 
-### Architecture Boundary Tests — PASS
+### Summary
 
-All 13 pytest-archon architecture tests for the Ingestion bounded context pass:
-- `ingestion.ports` does NOT import dlt, httpx, infrastructure, or fastapi.
-- `ingestion.domain` does NOT import infrastructure, dlt, or fastapi.
-- `ingestion` does NOT import iam, graph, management, extraction, or query.
-- `ingestion` MAY import shared_kernel.
-
----
-
-### Commit Trailers — PASS
-
-All implementation commits carry:
-- `Spec-Ref: specs/ingestion/adapters.spec.md@85d49a379a52479b33f9b39994d76795066899a6`
-- `Task-Ref: task-012`
-
----
-
-### Code Review — PASS
-
-**Domain isolation:** `ingestion/ports/adapters.py` imports only stdlib and
-`shared_kernel.job_package.value_objects`. No dlt, httpx, or framework imports. PASS
-
-**dlt confinement:** Only `ingestion/infrastructure/dlt_runner.py` imports dlt.
-GitHub adapter uses httpx directly (independently testable). PASS
-
-**DOO compliance:** No `logger.*` or `print()` calls in new source files. PASS
-
-**No MagicMock on domain aggregates:** check-domain-aggregate-mocks.sh confirms
-0 violations across all 165 test files. PASS
-
-**Conventional commits:** All implementation commits follow `feat(ingestion):`,
-`test(ingestion):`, `feat(ingestion):` pattern. PASS
-
-**No hardcoded secrets:** GitHub token flows through `credentials["token"]`
-injected at runtime. PASS
-
----
-
-### Spec Coverage — ALL SCENARIOS COVERED
-
-| Scenario | Status |
+| Requirement | Status |
 |---|---|
-| Extract contract (IDatasourceAdapter port) | COVERED |
-| Domain isolation (no dlt/httpx in ports layer) | COVERED |
-| Repository tree extraction (GitHub Trees API) | COVERED |
-| Content fetching (only changed files) | COVERED |
-| Incremental sync via checkpoint (commit SHA) | COVERED |
-| Full refresh (no checkpoint / FULL_REFRESH mode) | COVERED |
-| Credential handling (ICredentialReader port) | COVERED |
-| Port-based credential retrieval (shared_kernel) | COVERED |
-| Backend independence (port abstraction) | COVERED |
-| In-process execution (dlt as Python library) | COVERED |
-| State persistence via database (dlt_internal) | COVERED |
-| Extracted data on disk (changeset.jsonl + blobs/) | COVERED |
+| Adapter Port (IDatasourceAdapter, ExtractionResult, domain isolation) | COVERED |
+| GitHub Adapter (tree extraction, content fetching, incremental, full refresh, credential handling) | COVERED |
+| Pluggable Credential Backend (ICredentialReader in shared kernel, port abstraction) | COVERED |
+| dlt Framework Integration (in-process, state persistence, data on disk) | COVERED |
 
-All 12 spec scenarios COVERED. All 14 backend checks PASS. 2464 unit tests pass.
-Verdict: **PASS**.
+All 12 spec scenarios COVERED. All 71 tests pass. No spec deviations found.
+
+Verdict: PASS

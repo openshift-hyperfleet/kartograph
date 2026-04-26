@@ -68,6 +68,7 @@ for success_pattern in "${SUCCESS_PATTERNS[@]}"; do
     --exclude-dir=node_modules \
     --exclude-dir=".nuxt" \
     --exclude-dir=dist \
+    --exclude-dir=.venv \
     -E "$success_pattern" "$UI_SOURCE_DIR" 2>/dev/null || true)
 
   for file in $success_files; do

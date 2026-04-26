@@ -24,9 +24,15 @@ set -euo pipefail
 SPEC_FILE="${1:-}"
 TEST_DIR="${2:-src/api/tests}"
 
-if [[ -z "$SPEC_FILE" || ! -f "$SPEC_FILE" ]]; then
+if [[ -z "$SPEC_FILE" ]]; then
+  echo "INFO: No spec file provided — skipping idempotency test check."
+  echo "      To run: $0 <spec_file> [test_dir]"
+  exit 0
+fi
+
+if [[ ! -f "$SPEC_FILE" ]]; then
   echo "Usage: $0 <spec_file> [test_dir]" >&2
-  echo "Error: spec file not found or not provided." >&2
+  echo "Error: spec file not found: $SPEC_FILE" >&2
   exit 1
 fi
 

@@ -1,7 +1,7 @@
 ---
 id: task-037
 title: Fix AGEGraphProvisioner — commit/rollback on no-op path and atomic existence-check
-spec_ref: specs/iam/tenants.spec.md@7a1c69c30e1de47ea1514655f92869c714f6b5cc
+spec_ref: specs/iam/tenants.spec.md@c40320f0de04dd5f9a901d024e2d8e94f502f3ed
 status: complete
 phase: null
 deps: []

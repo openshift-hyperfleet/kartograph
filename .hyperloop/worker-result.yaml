@@ -6,14 +6,12 @@ verdict: pass
 Worker: verifier
 Date: 2026-04-26
 
-### 1. check-no-check-script-deletions (FIXED)
-- Added --exclude-dir=.venv (unquoted) to check-auth-status-codes.sh which
-  genuinely lacked the exclusion guard.
-- Changed --exclude-dir=".venv" (quoted) to --exclude-dir=.venv (unquoted) in
-  check-no-direct-logger-usage.sh and check-domain-exception-http-mapping.sh
-  so the detection script's unquoted-form regex recognizes them.
-- Added --exclude-dir=.venv to check-fake-success-notifications.sh and
-  check-pages-have-tests.sh to eliminate the remaining false-positive detections.
+### Rebase
+Branch was 8 commits behind alpha at start of this session. Rebased successfully
+onto alpha (`e561c963`). Conflicts arose in process overlay YAML files and
+check scripts that were add/add conflicts from earlier commits on this branch;
+all resolved by taking alpha's version (the canonical process definitions).
+`check-branch-rebased-on-alpha.sh` confirms: 0 commits behind.
 
 ### Verification Checks
 

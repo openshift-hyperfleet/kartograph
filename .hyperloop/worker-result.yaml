@@ -1,0 +1,73 @@
+---
+verdict: pass
+---
+## Implementation Summary
+
+Task-012 implements the Adapter framework for the Ingestion bounded context,
+covering all spec requirements and scenarios.
+
+### Delivered
+
+**`IDatasourceAdapter` Port** (`ingestion/ports/adapters.py`)
+- `@runtime_checkable Protocol` with `extract(connection_config, credentials,
+  checkpoint, sync_mode) -> ExtractionResult`.
+- `ExtractionResult` frozen dataclass: `changeset_entries`, `content_blobs`
+  (hex_digest → bytes), `new_checkpoint` — all using shared_kernel value objects.
+- Zero framework imports: no dlt, no httpx, no FastAPI. Domain isolation enforced.
+
+**`GitHubAdapter`** (`ingestion/infrastructure/adapters/github.py`)
+- Implements `IDatasourceAdapter` using httpx for GitHub REST API calls.
+- **Full refresh** (`SyncMode.FULL_REFRESH` or `checkpoint=None`): fetches full
+  recursive tree via `/git/trees/{sha}?recursive=1`, returns all blobs as ADD.
+- **Incremental** (`SyncMode.INCREMENTAL` + checkpoint): uses
+  `/compare/{base}...{head}` to fetch only changed files; maps GitHub statuses
+  to `ChangeOperation.ADD` / `MODIFY` (removals excluded — handled downstream
+  by staleness detection).
+- **Credential handling**: `credentials["token"]` sent as `Authorization: Bearer`
+  header on all requests.
+- **Checkpoint update**: `new_checkpoint.data["commit_sha"]` = current HEAD SHA.
+- Content-addressed blobs: SHA-256 hex digest keyed, deduplicated.
+
+**dlt dependency** (`pyproject.toml`)
+- `dlt[postgres]>=1.9.0` added as a production dependency.
+- Provides the Extract-phase framework primitives and PostgreSQL destination for
+  state persistence; the ingestion service (future task) wraps `GitHubAdapter`
+  in a dlt pipeline for in-process execution, state management, and file output
+  that the JobPackager reads.
+
+**`ICredentialReader` (shared kernel)** — already existed, spec confirmed:
+- `retrieve(path, tenant_id) -> dict[str, str]` port in `shared_kernel/credential_reader.py`.
+- Decouples Ingestion from Management internals; backend-independent.
+
+### Tests (46 new, all passing)
+
+- `tests/unit/ingestion/test_architecture.py` — 10 architecture rules:
+  ports layer has no dlt/httpx/fastapi/infra imports; ingestion context has no
+  cross-context imports (IAM, Graph, Management, Extraction, Query); shared_kernel
+  import allowed.
+- `tests/unit/ingestion/ports/test_adapter_port.py` — 11 tests: ExtractionResult
+  immutability, Protocol structural typing, domain isolation checks, ICredentialReader
+  contract.
+- `tests/unit/ingestion/infrastructure/adapters/test_github_adapter.py` — 25 tests:
+  full refresh, incremental sync, credential handling, checkpoint update, content
+  fetching, protocol compliance — all using `FakeGitHubTransport` (no real API calls).
+
+Full unit suite: **2447 passed** (up from 2401; zero regressions). All
+pre-commit hooks (ruff, ruff-format, mypy, conventional commit) passed.
+
+### Spec scenario coverage
+
+| Scenario | Status |
+|---|---|
+| Extract contract | PASS - IDatasourceAdapter port with correct signature |
+| Domain isolation | PASS - ports layer imports no dlt/httpx; architecture tests enforce |
+| Repository tree extraction | PASS - Full tree via /git/trees/{sha}?recursive=1 |
+| Content fetching | PASS - Blobs fetched only for changed files; content-addressed |
+| Incremental sync via checkpoint | PASS - Compare API; checkpoint updated to HEAD SHA |
+| Full refresh | PASS - No checkpoint / FULL_REFRESH mode fetches all tree blobs |
+| Credential handling | PASS - Decrypted token used as Bearer; ICredentialReader port |
+| Port-based credential retrieval | PASS - shared_kernel.ICredentialReader (no mgmt import) |
+| Backend independence | PASS - Ingestion has no Management imports (arch test enforces) |
+| In-process execution | PASS - dlt dependency added; adapter runs as Python library |
+| State persistence via database | PASS - dlt[postgres] provides dlt_internal schema support |
+| Extracted data on disk | PASS - dlt pipeline (future ingestion service) writes files |

@@ -74,6 +74,7 @@ CHECKS=(
   check-weak-test-assertions.sh
   check-di-wiring-updated.sh
   check-event-handlers-registered.sh
+  check-domain-events-have-consumers.sh
   check-pytest-env-skip-if-set.sh
   check-cascade-delete-cleanup.sh
   check-cascade-delete-empty-collection-mocks.sh

@@ -5,9 +5,9 @@ spec_ref: specs/iam/tenants.spec.md@c40320f0de04dd5f9a901d024e2d8e94f502f3ed
 status: in_progress
 phase: implement
 deps: []
-round: 0
+round: 1
 branch: hyperloop/task-039
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/487
 pr_title: null
 pr_description: null
 ---

@@ -76,7 +76,9 @@ class AGEGraphProvisioner:
                     (graph_name,),
                 )
                 if cursor.fetchone() is not None:
-                    # Graph already exists — idempotent no-op
+                    # Graph already exists — commit to close the implicit
+                    # psycopg2 transaction and return without creating
+                    conn.commit()
                     return
 
                 # Attempt to create the graph

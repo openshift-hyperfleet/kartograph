@@ -33,6 +33,40 @@ class CreateDataSourceRequest(BaseModel):
     )
 
 
+class UpdateDataSourceRequest(BaseModel):
+    """Request model for updating a data source.
+
+    All fields are optional — only provided fields are updated.
+    The credentials_path is managed by the system and cannot be set directly.
+    """
+
+    name: str | None = Field(
+        default=None,
+        description="New name for the data source (1-100 characters)",
+        min_length=1,
+        max_length=100,
+    )
+    connection_config: dict | None = Field(
+        default=None,
+        description="New connection configuration key-value pairs for the adapter",
+    )
+    credentials: dict | None = Field(
+        default=None,
+        description="Optional new credentials to encrypt and store securely",
+    )
+    schedule_type: str | None = Field(
+        default=None,
+        description="Schedule type: 'manual', 'cron', or 'interval'",
+    )
+    schedule_value: str | None = Field(
+        default=None,
+        description=(
+            "Schedule expression: cron expression for 'cron' type, "
+            "ISO 8601 duration (e.g. 'PT1H') for 'interval' type"
+        ),
+    )
+
+
 class DataSourceResponse(BaseModel):
     """Response model for a data source."""
 
@@ -45,6 +79,10 @@ class DataSourceResponse(BaseModel):
     adapter_type: str = Field(..., description="Adapter type (e.g., 'github')")
     schedule_type: str = Field(
         ..., description="Schedule type (e.g., 'manual', 'cron')"
+    )
+    schedule_value: str | None = Field(
+        None,
+        description="Schedule expression (cron or interval), None for manual",
     )
     last_sync_at: datetime | None = Field(
         None, description="When the last sync completed"
@@ -60,7 +98,7 @@ class DataSourceResponse(BaseModel):
             ds: DataSource domain aggregate
 
         Returns:
-            DataSourceResponse with DS details
+            DataSourceResponse with DS details (never includes raw credentials)
         """
         return cls(
             id=ds.id.value,
@@ -69,6 +107,7 @@ class DataSourceResponse(BaseModel):
             name=ds.name,
             adapter_type=ds.adapter_type.value,
             schedule_type=ds.schedule.schedule_type.value,
+            schedule_value=ds.schedule.value,
             last_sync_at=ds.last_sync_at,
             created_at=ds.created_at,
             updated_at=ds.updated_at,

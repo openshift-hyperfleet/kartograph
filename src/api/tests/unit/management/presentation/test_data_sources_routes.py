@@ -420,3 +420,262 @@ class TestListSyncRunsRoute:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_sync_run_repo.find_by_data_source.assert_not_called()
+
+
+class TestGetDataSourceRoute:
+    """Tests for GET /management/data-sources/{ds_id} endpoint."""
+
+    def test_get_data_source_returns_200(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Should return 200 with data source details when authorized."""
+        mock_ds_service.get.return_value = sample_data_source
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["id"] == sample_data_source.id.value
+        assert result["name"] == sample_data_source.name
+        assert result["adapter_type"] == sample_data_source.adapter_type.value
+
+    def test_get_data_source_returns_404_when_not_found(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+    ) -> None:
+        """Should return 404 when data source is not found or access is denied."""
+        mock_ds_service.get.return_value = None
+
+        response = test_client.get(
+            "/management/data-sources/01JPQRST1234567890ABCDEFDS"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_get_data_source_calls_service_with_correct_params(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """Should call service with current user ID and DS ID."""
+        mock_ds_service.get.return_value = sample_data_source
+
+        test_client.get(f"/management/data-sources/{sample_data_source.id.value}")
+
+        mock_ds_service.get.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            ds_id=sample_data_source.id.value,
+        )
+
+
+class TestUpdateDataSourceRoute:
+    """Tests for PATCH /management/data-sources/{ds_id} endpoint."""
+
+    def test_update_data_source_returns_200(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Should return 200 with updated data source details."""
+        mock_ds_service.update.return_value = sample_data_source
+
+        response = test_client.patch(
+            f"/management/data-sources/{sample_data_source.id.value}",
+            json={"name": "Updated Name"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["id"] == sample_data_source.id.value
+
+    def test_update_data_source_returns_403_when_unauthorized(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Should return 403 when service raises UnauthorizedError."""
+        from management.ports.exceptions import UnauthorizedError
+
+        mock_ds_service.update.side_effect = UnauthorizedError(
+            "User lacks edit permission on data source"
+        )
+
+        response = test_client.patch(
+            f"/management/data-sources/{sample_data_source.id.value}",
+            json={"name": "Updated Name"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "permission" in response.json()["detail"].lower()
+
+    def test_update_data_source_returns_404_when_not_found(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Should return 404 when service raises ValueError for missing DS."""
+        mock_ds_service.update.side_effect = ValueError("Data source not found")
+
+        response = test_client.patch(
+            f"/management/data-sources/{sample_data_source.id.value}",
+            json={"name": "Updated Name"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_update_data_source_calls_service_correctly(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """Should call service with current user ID and update parameters."""
+        mock_ds_service.update.return_value = sample_data_source
+
+        test_client.patch(
+            f"/management/data-sources/{sample_data_source.id.value}",
+            json={
+                "name": "Updated Name",
+                "connection_config": {"url": "https://new.example.com"},
+            },
+        )
+
+        mock_ds_service.update.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            ds_id=sample_data_source.id.value,
+            name="Updated Name",
+            connection_config={"url": "https://new.example.com"},
+            raw_credentials=None,
+            schedule_type=None,
+            schedule_value=None,
+        )
+
+    def test_update_data_source_with_schedule(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """Should pass schedule fields to service when provided."""
+        mock_ds_service.update.return_value = sample_data_source
+
+        test_client.patch(
+            f"/management/data-sources/{sample_data_source.id.value}",
+            json={
+                "schedule_type": "cron",
+                "schedule_value": "0 * * * *",
+            },
+        )
+
+        mock_ds_service.update.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            ds_id=sample_data_source.id.value,
+            name=None,
+            connection_config=None,
+            raw_credentials=None,
+            schedule_type="cron",
+            schedule_value="0 * * * *",
+        )
+
+    def test_update_data_source_with_credentials(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """Should pass raw credentials to service when provided."""
+        mock_ds_service.update.return_value = sample_data_source
+        creds = {"token": "new-secret"}  # gitleaks:allow
+
+        test_client.patch(
+            f"/management/data-sources/{sample_data_source.id.value}",
+            json={"credentials": creds},
+        )
+
+        call_kwargs = mock_ds_service.update.call_args.kwargs
+        assert call_kwargs["raw_credentials"] == creds
+
+
+class TestDeleteDataSourceRoute:
+    """Tests for DELETE /management/data-sources/{ds_id} endpoint."""
+
+    def test_delete_data_source_returns_204(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Should return 204 No Content when data source is deleted."""
+        mock_ds_service.delete.return_value = True
+
+        response = test_client.delete(
+            f"/management/data-sources/{sample_data_source.id.value}"
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_delete_data_source_returns_403_when_unauthorized(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Should return 403 when service raises UnauthorizedError."""
+        from management.ports.exceptions import UnauthorizedError
+
+        mock_ds_service.delete.side_effect = UnauthorizedError(
+            "User lacks manage permission on data source"
+        )
+
+        response = test_client.delete(
+            f"/management/data-sources/{sample_data_source.id.value}"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "permission" in response.json()["detail"].lower()
+
+    def test_delete_data_source_returns_404_when_not_found(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Should return 404 when service returns False (not found)."""
+        mock_ds_service.delete.return_value = False
+
+        response = test_client.delete(
+            f"/management/data-sources/{sample_data_source.id.value}"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_delete_data_source_calls_service_correctly(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """Should call service with current user ID and DS ID."""
+        mock_ds_service.delete.return_value = True
+
+        test_client.delete(f"/management/data-sources/{sample_data_source.id.value}")
+
+        mock_ds_service.delete.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            ds_id=sample_data_source.id.value,
+        )

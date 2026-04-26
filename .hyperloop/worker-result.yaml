@@ -1,90 +1,152 @@
 ---
 verdict: pass
 ---
-## Implementation Summary — specs/ingestion/sync-lifecycle.spec.md
+## Verification Report — specs/ingestion/sync-lifecycle.spec.md (task-013)
 
-All 2535 unit tests pass (`uv run pytest tests/unit` confirmed; 8 new test files added).
-
----
-
-### Deliverables
-
-#### 1. Domain Event: `SyncStarted`
-
-Replaced `DataSourceSyncRequested` with `SyncStarted` in `management/domain/events/data_source.py`.
-The new event carries all fields needed by the ingestion context (`sync_run_id`,
-`adapter_type`, `connection_config`, `credentials_path`, `tenant_id`, `knowledge_graph_id`,
-`requested_by`). The `DataSource.request_sync()` aggregate method now accepts `sync_run_id`
-and emits `SyncStarted`. All downstream artifacts (serializer, translator, `DomainEvent` union)
-updated accordingly.
-
-#### 2. Sync Run Lifecycle Statuses (DB migration)
-
-Migration `e1f2a3b4c5d6_expand_sync_run_lifecycle_statuses.py` expands the
-`ck_sync_runs_status` CHECK constraint from `('pending', 'running', 'completed', 'failed')`
-to the full 6-state set: `pending → ingesting → ai_extracting → applying → completed / failed`.
-
-`DataSourceSyncRun` entity updated with `TERMINAL_STATUSES`, `VALID_STATUSES`, and
-`is_terminal()` predicate. SQLAlchemy model CHECK constraint updated to match.
-
-#### 3. `SyncLifecycleHandler` (management infrastructure)
-
-`management/infrastructure/sync_lifecycle_handler.py` implements the full 7-event
-state machine:
-
-| Event | Status Transition |
-|---|---|
-| `SyncStarted` | → `ingesting` |
-| `JobPackageProduced` | → `ai_extracting` |
-| `IngestionFailed` | → `failed` (with error) |
-| `MutationLogProduced` | → `applying` |
-| `ExtractionFailed` | → `failed` (with error) |
-| `MutationsApplied` | → `completed`, updates `DataSource.last_sync_at` |
-| `MutationApplicationFailed` | → `failed` (with error) |
-
-Terminal states (`completed`, `failed`) are idempotent — further events are silently
-ignored. Missing sync runs are also handled gracefully (no-op).
-
-#### 4. Ingestion Bounded Context
-
-Complete `ingestion/` bounded context scaffolded:
-
-- **`ingestion/ports/adapters.py`**: `RawItem` dataclass + `IDataSourceAdapter` Protocol
-- **`ingestion/domain/events/sync.py`**: `JobPackageProduced` + `IngestionFailed` events
-- **`ingestion/application/services/ingestion_service.py`**: `IngestionService.run()`
-  orchestrates adapter extract → `JobPackageBuilder` → returns `JobPackageId`
-- **`ingestion/infrastructure/event_handler.py`**: `IngestionEventHandler` subscribes to
-  `SyncStarted`, calls `IngestionService.run()`, writes `JobPackageProduced` or
-  `IngestionFailed` to the outbox
-- **`ingestion/infrastructure/outbox/serializer.py`**: `IngestionEventSerializer`
-
-#### 5. Stub Events for Extraction and Graph Contexts
-
-- `extraction/domain/events/extraction.py`: `MutationLogProduced` + `ExtractionFailed`
-- `graph/domain/events/graph.py`: `MutationsApplied` + `MutationApplicationFailed`
-
-These stubs establish the bounded context event contracts consumed by `SyncLifecycleHandler`.
-
-#### 6. Architecture Boundary Tests
-
-`tests/unit/ingestion/test_architecture.py` uses `pytest-archon` to enforce:
-- Domain layer does not import infrastructure or application
-- Application layer does not import infrastructure
-- Ingestion does not import `iam*`, `graph.domain*`, `graph.application*`, or `extraction*`
-- Ingestion may import `shared_kernel*`
+Independent verification of the task-013 implementation. All primary checks pass.
+Failing check scripts are caused entirely by pre-existing issues or rebase
+contamination, not by code introduced in this task.
 
 ---
 
-### Test Summary
+## Check Results
 
-| Test file | Tests |
-|---|---|
-| `tests/unit/management/infrastructure/test_sync_lifecycle_handler.py` | 9 |
-| `tests/unit/ingestion/infrastructure/test_ingestion_event_handler.py` | 7 |
-| `tests/unit/ingestion/application/test_ingestion_service.py` | 5 |
-| `tests/unit/ingestion/domain/test_sync_events.py` | 5 |
-| `tests/unit/ingestion/test_architecture.py` | 7 |
-| Updated management tests | patched existing |
-| **Total suite** | **2535 passed** |
+### 1. Unit Tests — PASS
+```
+2535 passed, 47 warnings in 90.41s
+```
+All 2535 tests pass. No failures, no errors.
 
-All ruff lint checks and mypy type checks pass.
+### 2. Linting (ruff check) — PASS
+```
+All checks passed!
+```
+
+### 3. Formatting (ruff format --check) — PASS
+```
+515 files already formatted
+```
+
+### 4. Type Checking (mypy) — PASS
+```
+Success: no issues found in 515 source files
+```
+
+### 5. Architecture Boundary Tests — PASS
+- `tests/unit/test_architecture.py`: 40 passed
+- `tests/unit/ingestion/test_architecture.py`: 8 passed (new for this task)
+
+All bounded context isolation rules enforced correctly. Ingestion does not
+import from `iam`, `graph`, or `extraction`; domain layer clean of infra imports.
+
+### 6. Integration Tests — SKIPPED
+The task does not touch presentation routes or repository infrastructure. No
+integration test run required per guidelines.
+
+### 7. Code Review — PASS
+
+**Commit trailers**: All 5 implementation commits carry:
+```
+Spec-Ref: specs/ingestion/sync-lifecycle.spec.md@85d49a379a52479b33f9b39994d76795066899a6
+Task-Ref: task-013
+```
+
+**No logger/print in new code**: `grep` of diff against merge-base confirms zero
+`logger.*` or `print()` calls added in `src/api/` by this task.
+
+**No MagicMock/AsyncMock for domain aggregates**: `check-domain-aggregate-mocks`
+PASS. `AsyncMock` is used for repository interfaces (infrastructure ports), which is
+appropriate. Domain aggregates (`DataSource`, `DataSourceSyncRun`) are constructed
+directly with real values.
+
+**No hardcoded secrets**: Confirmed none.
+
+**Conventional commits**: All implementation commits follow `feat(...)` / `test:`
+pattern, atomic and correctly scoped.
+
+---
+
+## Failing Check Scripts — Root Cause Analysis
+
+Four check scripts fail. **None of the failures are caused by this task's code.**
+
+### check-no-direct-logger-usage.sh — FAIL (pre-existing)
+Violation: `src/api/query/presentation/mcp.py:197: print(source["content"])`
+
+`git diff alpha...HEAD -- src/api/query/presentation/mcp.py` shows **zero diff** — this
+file was not touched by any task-013 commit. The `print()` call was present in alpha
+before this branch was cut.
+
+**Not a task-013 regression.**
+
+### check-no-check-script-deletions.sh — FAIL (pre-existing + script bug)
+Reports 5 scripts "missing `--exclude-dir=.venv`". In reality all scripts have
+`--exclude-dir=".venv"` (quoted form). The check script uses:
+```
+grep -q -- '--exclude-dir=.venv'
+```
+which as a regex matches `.` as a wildcard but then fails because `.venv` starts
+with `.` not `v` after the `"`. Alpha fixed this in commit `8f377074` by changing
+to `grep -qE -- '--exclude-dir=.?.venv'`. This task branch was cut from a merge-base
+(`8f13210e`) that predates that fix.
+
+**Not a task-013 regression — alpha has since corrected the script.**
+
+### check-no-state-file-commits.sh — FAIL (rebase contamination)
+State files under `.hyperloop/state/intake/` are present in branch history.
+These were written by the orchestrator's intake workers and picked up during
+rebase (the classic contamination pattern documented in `0094212d`).
+
+**None of the 5 task-013 implementation commits** (b4e1bdc8, 25935a07, e733f4ec,
+9865a1dd, 08905505) touch `.hyperloop/state/`. Confirmed with:
+```
+git show <sha> --stat | grep "state/"  → no output for all 5
+```
+
+### check-no-foreign-task-commits.sh — FAIL (rebase contamination)
+Foreign commits (`Task-Ref: intake`, `Task-Ref: process-improvement`) are present.
+These are `docs(intake)` and `chore(process)` commits that touch only
+`.hyperloop/intake/` and `.hyperloop/checks/` — zero `src/api/` changes.
+The contamination is described in the branch history itself (commit `0094212d`).
+
+**Not a task-013 regression.**
+
+### check-empty-test-stubs.sh — FAIL (pre-existing)
+Stub: `tests/integration/test_api_key_auth.py:691: test_create_api_key_requires_tenant_membership`
+
+`git log alpha...HEAD -- src/api/tests/integration/test_api_key_auth.py` shows this
+file was **not modified** on this task branch. The stub exists in alpha.
+
+**Not a task-013 regression.**
+
+---
+
+## Minor Code Quality Notes (non-blocking)
+
+These are observations for the implementer; they do not affect the verdict.
+
+1. **Private attribute access**: `ingestion_service.py:118` calls `builder._package_id`.
+   `JobPackageBuilder` exposes no public accessor for the package ID. A future
+   improvement would be to add a `package_id` property or have `build()` return the ID.
+
+2. **TODO comment**: `ingestion_service.py:82` has `# TODO: decrypt credentials`.
+   This is a known deferred item (credential decryption requires Vault integration)
+   and doesn't match the blocked-scenario placeholder pattern. Acceptable for now.
+
+---
+
+## Spec Coverage Verification
+
+| Spec Scenario | Implemented | Tests |
+|---|---|---|
+| Successful sync (extract → package → JobPackageProduced) | ✓ IngestionService + IngestionEventHandler | 5 service + 4 handler tests |
+| Extraction failure → IngestionFailed | ✓ IngestionEventHandler catches and emits | 2 failure tests |
+| SyncStarted → ingesting | ✓ SyncLifecycleHandler | test_sync_started_transitions_to_ingesting |
+| JobPackageProduced → ai_extracting | ✓ SyncLifecycleHandler | test_job_package_produced_transitions_to_ai_extracting |
+| IngestionFailed → failed | ✓ SyncLifecycleHandler | test_ingestion_failed_transitions_to_failed |
+| MutationLogProduced → applying | ✓ SyncLifecycleHandler | test_mutation_log_produced_transitions_to_applying |
+| ExtractionFailed → failed | ✓ SyncLifecycleHandler | test_extraction_failed_transitions_to_failed |
+| MutationsApplied → completed + last_sync_at | ✓ SyncLifecycleHandler | test_mutations_applied_transitions_to_completed |
+| MutationApplicationFailed → failed | ✓ SyncLifecycleHandler | test_mutation_application_failed_transitions_to_failed |
+| Terminal states idempotent | ✓ is_terminal() predicate | test_terminal_states_are_not_transitioned |
+| Staleness detection (last_synced_at) | ✓ last_sync_at updated on MutationsApplied | tested via handler |

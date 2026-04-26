@@ -1408,6 +1408,82 @@ class TestDeleteTenant:
         assert mock_workspace_repo.delete.call_count == 2
 
     @pytest.mark.asyncio
+    async def test_deletes_child_workspaces_before_parent_on_cascade(
+        self,
+        tenant_service,
+        mock_tenant_repo,
+        mock_workspace_repo,
+        mock_group_repo,
+        mock_api_key_repo,
+        mock_authz,
+    ):
+        """Spec: Tenant Deletion cascade deletes children before parents.
+
+        GIVEN a tenant with a root workspace and a child workspace
+        WHEN the tenant is deleted
+        THEN child workspaces are deleted before parent workspaces
+        """
+        from datetime import UTC, datetime
+
+        tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+
+        root_ws = Workspace(
+            id=WorkspaceId.generate(),
+            tenant_id=tenant_id,
+            name="Root",
+            parent_workspace_id=None,
+            is_root=True,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        child_ws = Workspace(
+            id=WorkspaceId.generate(),
+            tenant_id=tenant_id,
+            name="Child",
+            parent_workspace_id=root_ws.id,
+            is_root=False,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        grandchild_ws = Workspace(
+            id=WorkspaceId.generate(),
+            tenant_id=tenant_id,
+            name="Grandchild",
+            parent_workspace_id=child_ws.id,
+            is_root=False,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+
+        deletion_order: list[str] = []
+
+        async def track_delete(workspace: Workspace) -> bool:
+            deletion_order.append(workspace.name)
+            return True
+
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.delete = AsyncMock(return_value=True)
+        # Provide workspaces in a "wrong" order to ensure service sorts them
+        mock_workspace_repo.list_by_tenant = AsyncMock(
+            return_value=[root_ws, child_ws, grandchild_ws]
+        )
+        mock_workspace_repo.delete = AsyncMock(side_effect=track_delete)
+        mock_group_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_api_key_repo.list = AsyncMock(return_value=[])
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
+        await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
+
+        # Grandchild (depth=2) must be deleted before Child (depth=1),
+        # and Child before Root (depth=0).
+        assert deletion_order.index("Grandchild") < deletion_order.index("Child")
+        assert deletion_order.index("Child") < deletion_order.index("Root")
+
+    @pytest.mark.asyncio
     async def test_delete_tenant_raises_unauthorized_if_no_permission(
         self, tenant_service, mock_tenant_repo, mock_authz
     ):

@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from management.application.services.knowledge_graph_service import (
     KnowledgeGraphService,
 )
-from management.domain.aggregates import KnowledgeGraph
+from management.domain.aggregates import DataSource, KnowledgeGraph
 from management.domain.value_objects import KnowledgeGraphId
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
@@ -589,8 +589,8 @@ class TestKnowledgeGraphServiceDelete:
     ):
         """delete() deletes all data sources before deleting the KG."""
         kg = _make_kg(tenant_id=tenant_id)
-        ds1 = MagicMock()
-        ds2 = MagicMock()
+        ds1 = MagicMock(spec=DataSource)
+        ds2 = MagicMock(spec=DataSource)
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = kg
         mock_ds_repo.find_by_knowledge_graph.return_value = [ds1, ds2]

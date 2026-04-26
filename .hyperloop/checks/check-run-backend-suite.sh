@@ -43,6 +43,7 @@ CHECKS=(
   check-no-coming-soon-stubs.sh
   check-weak-test-assertions.sh
   check-di-wiring-updated.sh
+  check-pytest-env-skip-if-set.sh
 )
 
 FAILED=()

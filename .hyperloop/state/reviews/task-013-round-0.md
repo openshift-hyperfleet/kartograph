@@ -1,0 +1,152 @@
+---
+task_id: task-013
+round: 0
+role: spec-reviewer
+verdict: fail
+---
+## Spec Alignment Review — specs/ingestion/sync-lifecycle.spec.md (task-013)
+
+Independent review of the task-013 implementation against the sync lifecycle spec.
+
+---
+
+## Requirement-by-Requirement Findings
+
+### Requirement: Sync Orchestration — COVERED
+
+#### Scenario: Successful sync — COVERED
+- **Code**: `IngestionService.run()` (extract → package), `IngestionEventHandler.handle()` publishes `JobPackageProduced` to outbox on success.
+- **Tests**: `test_ingestion_service.py` (`test_run_returns_job_package_id`, `test_run_creates_zip_archive`); `test_ingestion_event_handler.py` (`test_emits_job_package_produced_on_success`).
+
+#### Scenario: Extraction failure — COVERED
+- **Code**: `IngestionEventHandler.handle()` catch-all publishes `IngestionFailed` with error message. `SyncLifecycleHandler` transitions status to `failed`.
+- **Tests**: `test_ingestion_event_handler.py` (`test_emits_ingestion_failed_on_adapter_error`); `test_sync_lifecycle_handler.py` (`test_ingestion_failed_sets_failed`).
+
+---
+
+### Requirement: Lifecycle State Machine — COVERED
+
+#### Scenario: State transitions — COVERED
+- **Code**: `SyncLifecycleHandler` maps all 7 events to the correct statuses via `_STATUS_MAP` and `_FAILURE_EVENTS`. `MutationsApplied` additionally updates `DataSource.last_sync_at`.
+- **Tests**: Dedicated test class per event transition in `test_sync_lifecycle_handler.py` — all 7 transitions have explicit tests.
+
+#### Scenario: Terminal states — COVERED
+- **Code**: `DataSourceSyncRun.is_terminal()` + guard at `SyncLifecycleHandler.handle()` line 108.
+- **Tests**: `TestTerminalStates.test_completed_run_ignores_further_transitions` and `test_failed_run_ignores_further_transitions`.
+
+---
+
+### Requirement: Event-Driven Side Effects — PARTIAL (2 of 3 scenarios MISSING)
+
+#### Scenario: Status updates — COVERED
+- **Code**: `SyncLifecycleHandler` updates sync run record for all lifecycle events.
+- **Tests**: All `TestSync*Transition` classes in `test_sync_lifecycle_handler.py` verify `save` is called with the correct status.
+
+#### Scenario: Extraction trigger — MISSING
+The spec requires:
+> GIVEN a `JobPackageProduced` event is processed
+> THEN an extraction job record is created
+> AND the Extraction context is signaled to process the JobPackage
+
+**What exists**: `SyncLifecycleHandler` transitions status to `ai_extracting` when `JobPackageProduced` is processed. That satisfies the "Status updates" scenario, but NOT the "Extraction trigger" scenario.
+
+**What is missing**:
+1. No handler creates an extraction job record anywhere in the codebase.
+2. No handler signals the Extraction context to process the `JobPackage` (the `extraction/` context is an empty scaffold with only domain event stubs).
+3. No tests exercise this end-to-end trigger behaviour.
+
+Additionally, `JobPackageProduced` is NOT registered with any handler in the outbox worker (`main.py` registers only IAM, Management SpiceDB, and TenantAGEGraph handlers). If a `JobPackageProduced` event were published to the outbox, the `CompositeEventHandler.handle()` would raise `ValueError: No handler registered for event type: JobPackageProduced`.
+
+#### Scenario: Mutation trigger — MISSING
+The spec requires:
+> GIVEN a `MutationLogProduced` event is processed
+> THEN a mutation job record is created
+> AND the Graph context is signaled to apply the mutation log
+
+**What is missing**:
+1. No handler creates a mutation job record.
+2. No handler signals the Graph context (the `graph/` domain events are stubs only; no `MutationLogProduced` handler is registered in the outbox worker).
+3. No tests exercise this trigger behaviour.
+
+---
+
+### Requirement: Sync Initiation — PARTIAL (1 of 2 scenarios MISSING)
+
+#### Scenario: Manual trigger — COVERED
+- **Code**: `DataSourceService.trigger_sync()` checks `MANAGE` permission, creates sync run with `status="pending"`, calls `ds.request_sync(sync_run_id=...)`, and `DataSourceRepository.save()` publishes the `SyncStarted` event to the outbox. Route `POST /data-sources/{ds_id}/sync` wires this at HTTP level.
+- **Tests**: `test_data_source_service.py::TestDataSourceServiceTriggerSync` covers permission check, pending status, and save calls. `test_data_sources_routes.py` covers HTTP layer.
+
+**Note — wiring gap**: `SyncStarted` IS processed by the outbox worker (via the Management SpiceDB handler, which returns empty operations for it). However, the `IngestionEventHandler` that should consume `SyncStarted` and start the ingestion pipeline is NOT registered in the outbox worker (`main.py` lines 154–178). The pipeline does not execute end-to-end in the running application.
+
+#### Scenario: Scheduled trigger — MISSING
+The spec requires:
+> GIVEN a data source with a CRON or INTERVAL schedule
+> WHEN the schedule fires
+> THEN a sync is initiated as if manually triggered
+
+**What exists**: `ScheduleType.CRON` and `ScheduleType.INTERVAL` exist as value objects; `DataSource.update_schedule()` stores the schedule; the domain validates CRON/INTERVAL schedules require a value.
+
+**What is missing**:
+1. No scheduler service, background task, or cron runner that reads data source schedules and fires syncs.
+2. No tests for scheduled trigger behaviour.
+
+---
+
+### Requirement: Staleness-Based Node Lifecycle — PARTIAL (concept present; no implementation or tests for node-level staleness)
+
+#### Scenario: Stale node detection — MISSING
+The spec requires a node with `last_synced_at` older than `DataSource.last_sync_at` to be considered stale.
+
+**What exists**:
+- `DataSource.last_sync_at` is updated on `MutationsApplied` via `record_sync_completed()` ✓
+- `ChangeOperation` intentionally has no `DELETE` operation; a code comment documents that staleness is detected by comparing `last_synced_at` against `last_sync_at` ✓
+
+**What is missing**:
+1. No graph node model has a `last_synced_at` field in the codebase.
+2. No comparison function or domain rule for "node is stale if `last_synced_at < data_source.last_sync_at`" exists.
+3. No test exercises the "stale node detection" scenario.
+
+#### Scenario: Active node — MISSING
+Same analysis — the "active node" comparison logic does not exist and is not tested.
+
+---
+
+## Wire-Up Gap (non-spec but critical)
+
+Neither `SyncLifecycleHandler` nor `IngestionEventHandler` is registered in the outbox worker's `CompositeEventHandler` in `main.py`. Both handlers are fully unit-tested but not integrated into the running application. As a result:
+
+- Status transitions (pending → ingesting → ai_extracting → …) never actually occur when events are processed by the outbox worker.
+- The ingestion pipeline never fires when `SyncStarted` events are processed.
+- `JobPackageProduced` events (if published) would cause the outbox worker to fail with `ValueError` because no handler is registered for that event type.
+
+This is a gap between the unit-tested components and the running application that would prevent the end-to-end sync lifecycle from functioning.
+
+---
+
+## Summary Table
+
+| Requirement | Scenario | Status |
+|---|---|---|
+| Sync Orchestration | Successful sync | COVERED |
+| Sync Orchestration | Extraction failure | COVERED |
+| Lifecycle State Machine | State transitions | COVERED |
+| Lifecycle State Machine | Terminal states | COVERED |
+| Event-Driven Side Effects | Status updates | COVERED |
+| Event-Driven Side Effects | **Extraction trigger** | **MISSING** |
+| Event-Driven Side Effects | **Mutation trigger** | **MISSING** |
+| Sync Initiation | Manual trigger | COVERED |
+| Sync Initiation | **Scheduled trigger** | **MISSING** |
+| Staleness-Based Node Lifecycle | **Stale node detection** | **MISSING** |
+| Staleness-Based Node Lifecycle | **Active node** | **MISSING** |
+
+## What the Implementer Must Add
+
+1. **Extraction trigger handler**: A handler (likely in `extraction/infrastructure/`) that processes `JobPackageProduced` events, creates an extraction job record, and signals the Extraction context. Register it in `main.py`. Add tests.
+
+2. **Mutation trigger handler**: A handler (likely in `graph/infrastructure/`) that processes `MutationLogProduced` events, creates a mutation job record, and signals the Graph context. Register it in `main.py`. Add tests.
+
+3. **Scheduled trigger**: A scheduler service that periodically queries data sources with `CRON`/`INTERVAL` schedules and calls `DataSourceService.trigger_sync()` when due. Add tests.
+
+4. **Staleness detection**: Add `last_synced_at` to graph node models. Add comparison logic (e.g., `node.last_synced_at < data_source.last_sync_at → stale`). Add tests for both "stale" and "active" scenarios.
+
+5. **Wire up handlers**: Register `SyncLifecycleHandler` and `IngestionEventHandler` in the outbox worker (with proper per-event session management). This is a prerequisite for the lifecycle to function end-to-end.

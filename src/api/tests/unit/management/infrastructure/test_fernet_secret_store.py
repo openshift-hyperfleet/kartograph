@@ -288,3 +288,69 @@ class TestCorruptedCiphertext:
 
         with pytest.raises(InvalidToken):
             await store.retrieve("datasource/corrupt/creds", "tenant-1")
+
+
+class TestTenantIsolation:
+    """Test that credentials are scoped to their tenant for defense-in-depth isolation.
+
+    Scenario: Same path, different tenants
+    - GIVEN credentials stored at path "datasource/abc/credentials" for tenant A
+    - WHEN tenant B attempts to retrieve credentials at the same path
+    - THEN the retrieval fails (credentials are scoped to tenant A)
+    """
+
+    @pytest.mark.asyncio
+    async def test_same_path_different_tenant_raises_key_error(
+        self, mock_session: AsyncMock, fernet_key: str
+    ):
+        """Credentials stored for tenant A cannot be retrieved by tenant B.
+
+        The DB enforces this via the composite primary key (path, tenant_id),
+        so a query for tenant B returns no row even when the path matches.
+        This test simulates that DB-level isolation and verifies the service
+        correctly raises KeyError rather than leaking tenant A's credentials.
+        """
+        store = _make_store(mock_session, [fernet_key])
+        credentials = {"token": "secret-for-tenant-a"}
+
+        # Store for tenant A — capture the encrypted model
+        await store.store("datasource/abc/credentials", "tenant-A", credentials)
+        model_a = mock_session.merge.call_args[0][0]
+
+        # Simulate DB: tenant-A query returns the model; tenant-B query returns None
+        result_a = MagicMock()
+        result_a.scalar_one_or_none.return_value = model_a
+
+        result_b = MagicMock()
+        result_b.scalar_one_or_none.return_value = None  # no row for tenant-B
+
+        mock_session.execute.side_effect = [result_a, result_b]
+
+        # Tenant A can retrieve their credentials
+        retrieved = await store.retrieve("datasource/abc/credentials", "tenant-A")
+        assert retrieved == credentials
+
+        # Tenant B gets KeyError — same path, wrong tenant
+        with pytest.raises(KeyError):
+            await store.retrieve("datasource/abc/credentials", "tenant-B")
+
+    @pytest.mark.asyncio
+    async def test_delete_with_wrong_tenant_does_not_delete(
+        self, mock_session: AsyncMock, fernet_key: str
+    ):
+        """delete() with the wrong tenant_id does not remove credentials.
+
+        The DB WHERE clause on tenant_id means a deletion with the wrong tenant
+        finds no row and returns False (nothing deleted).
+        """
+        store = _make_store(mock_session, [fernet_key])
+
+        # Simulate: query with tenant-B finds no row (even though tenant-A has creds)
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        result = await store.delete("datasource/abc/credentials", "tenant-B")
+
+        assert result is False
+        mock_session.delete.assert_not_awaited()

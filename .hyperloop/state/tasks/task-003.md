@@ -3,10 +3,10 @@ id: task-003
 title: Implement per-tenant graph routing for mutations and queries
 spec_ref: specs/graph/mutations.spec.md@85d49a379a52479b33f9b39994d76795066899a6
 status: in_progress
-phase: merge
+phase: implement
 deps:
 - task-002
-round: 5
+round: 6
 branch: hyperloop/task-003
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/475
 pr_title: null

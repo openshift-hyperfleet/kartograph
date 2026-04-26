@@ -1,57 +1,92 @@
 ---
 verdict: pass
 ---
-# Spec Alignment Review — task-032 (Groups) — Rebase Pass
+# Spec Alignment Review — task-032 (Groups) — Round 21
 
-## Rebase Status
+## Summary
 
-Branch `hyperloop/task-032` successfully rebased onto `origin/alpha` (SHA: 8f377074).
+Branch `hyperloop/task-032` verified and passes all checks.
 
-Resolved conflicts:
-1. `src/api/tests/unit/management/application/test_knowledge_graph_service.py` —
-   Retained alpha's version with `DataSource` import and `MagicMock(spec=DataSource)`.
-2. `.hyperloop/checks/check-cascade-delete-cleanup.sh` —
-   Retained alpha's two-heuristic version (HEURISTIC 1 + HEURISTIC 2).
-3. `.hyperloop/worker-result.yaml` — Retained task-032's worker verdict from round 19.
+One remediation was required during this verification round:
+- **State file contamination (fixed)**: 35 `.hyperloop/state/` files were
+  deleted from this branch by earlier cleanup commits (`20d73766`,
+  `55b2f775`) but still existed in alpha. Restored via
+  `git checkout alpha -- <files>` and committed as
+  `52e617e7 chore: restore alpha state files removed by branch commits`.
 
-Post-rebase: **2563 tests pass** (includes new ingestion tests from alpha commit).
-Pre-commit hooks: ruff, ruff-format, mypy, pytest — all pass.
+Post-fix: `check-run-backend-suite.sh` reports ALL PASS (14/14 checks).
 
 ---
 
-## Groups Implementation Summary
+## Check Results
 
-All 10 SHALL requirements from `specs/iam/groups.spec.md` are implemented and
-covered by tests. Every scenario has at least one unit or integration test
-exercising the exact Given/When/Then conditions.
+| Check | Result |
+|-------|--------|
+| Unit tests (2563 tests) | PASS |
+| Linting (ruff check) | PASS |
+| Formatting (ruff format --check) | PASS |
+| Type checking (mypy, 500 files) | PASS |
+| Architecture boundary tests (40 tests) | PASS |
+| check-no-check-script-deletions | PASS |
+| check-process-overlays-intact | PASS |
+| check-branch-has-commits | PASS |
+| check-branch-rebased-on-alpha (1 behind, within 5 tolerance) | PASS |
+| check-no-state-file-commits | PASS (after restore commit) |
+| check-no-source-regressions | PASS |
+| check-no-test-regressions | PASS |
+| check-empty-test-stubs | PASS |
+| check-domain-aggregate-mocks | PASS |
+| check-no-direct-logger-usage | PASS |
+| check-no-coming-soon-stubs | PASS |
+| check-weak-test-assertions | PASS |
+| check-di-wiring-updated | PASS |
+| check-pytest-env-skip-if-set | PASS |
 
-### Covered Requirements
+---
 
-1. **Group Creation** — `Group.create()` generates ULID; creator auto-assigned admin role.
-   - Duplicate name → HTTP 409 via `DuplicateGroupNameError`.
+## Auth Status Codes Review
 
-2. **Group Name Validation** — 1–255 chars after trim enforced in `Group.create()` and `Group.rename()`.
-   - Empty/whitespace → `ValueError` → HTTP 422.
+`check-auth-status-codes.sh` flagged 403 responses in integration tests
+(REVIEW REQUIRED, not automatic FAIL). Manual review confirms these are
+correct:
 
-3. **Group Retrieval** — VIEW permission checked via SpiceDB before returning group.
-   - Unauthorized/not-found → HTTP 404.
+- `test_group_member_cannot_delete_group` (line 116): User has VIEW
+  permission on the group (can see it) but lacks MANAGE. HTTP 403
+  (Forbidden) is the correct response — the resource exists and is
+  visible, but the operation is forbidden. Unit test (`test_group_routes.py`
+  line 910) also asserts 403. Consistent with spec "SHALL allow users
+  with manage permission to delete a group."
 
-4. **Group Listing** — `lookup_resources` filters to groups user has VIEW on.
-   - Tenant membership implies VIEW via `tenant->view` in SpiceDB schema.
+- `test_group_member_cannot_rename_group` (line 195): Same reasoning.
+  VIEW-but-not-MANAGE scenario returns 403. Unit test (line 483) agrees.
 
-5. **Group Rename** — MANAGE permission required; duplicate name check before rename.
-   - Duplicate → HTTP 409.
+The spec's "not-found response" for unauthorized access applies only
+to GET operations where the user cannot VIEW the resource (hides
+existence). For MANAGE operations on visible resources, 403 is
+semantically correct.
 
-6. **Group Deletion** — MANAGE permission required; member snapshot captured in `GroupDeleted` event.
+---
 
-7. **Group Member Management** — `add_member`, `remove_member`, `update_member_role`.
-   - Last-admin protection in aggregate; raises `ValueError` → HTTP 400.
+## Groups Implementation Coverage (carried from round 20)
 
-8. **Group Member Listing** — VIEW permission required; SpiceDB `read_relationships` used.
+All 10 SHALL requirements from `specs/iam/groups.spec.md` are implemented
+and covered by tests.
 
-9. **Workspace Access Inheritance** — SpiceDB schema chains group members to workspace roles.
-   - Add/remove member propagates to workspace permissions via outbox.
+1. **Group Creation** — ULID generated; creator auto-assigned admin role.
+2. **Group Name Validation** — 1–255 chars after trim; empty/whitespace → 422.
+3. **Group Retrieval** — VIEW permission checked; unauthorized → 404.
+4. **Group Listing** — `lookup_resources` filters by VIEW; tenant membership implies VIEW.
+5. **Group Rename** — MANAGE required; duplicate name → 409.
+6. **Group Deletion** — MANAGE required; member snapshot in `GroupDeleted` event.
+7. **Group Member Management** — add/remove/update; last-admin protected → 400.
+8. **Group Member Listing** — VIEW required; SpiceDB `read_relationships` used.
+9. **Workspace Access Inheritance** — SpiceDB chains group members to workspace roles.
+10. **Group Roles** — ADMIN: manage+view+workspace; MEMBER: view+workspace.
 
-10. **Group Roles** — ADMIN: manage + view + workspace inheritance. MEMBER: view + workspace inheritance.
+## Commit Trailers
+
+Implementation commits carry correct trailers:
+- `Spec-Ref: specs/iam/groups.spec.md@b46589a2`
+- `Task-Ref: task-032`
 
 **VERDICT: PASS**

@@ -1,0 +1,141 @@
+---
+task_id: task-012
+round: 2
+role: spec-reviewer
+verdict: fail
+---
+## Spec Alignment Review — task-012 (specs/ingestion/adapters.spec.md)
+
+Reviewed by: spec-alignment-reviewer
+Review date: 2026-04-26
+
+All 46 unit tests pass. Three of the four spec requirements are fully covered.
+One requirement (dlt Framework Integration) contains two MISSING scenarios that
+are SHALL requirements; the verdict is therefore **FAIL**.
+
+---
+
+### Requirement: Adapter Port — COVERED
+
+**Scenario: Extract contract** — COVERED
+- `ingestion/ports/adapters.py`: `IDatasourceAdapter` protocol defined with
+  `extract(connection_config, credentials, checkpoint, sync_mode) → ExtractionResult`.
+- `ExtractionResult` holds `changeset_entries`, `content_blobs`, `new_checkpoint`.
+- Tests: `TestIDatasourceAdapterProtocol::test_concrete_class_satisfies_protocol`,
+  `test_extract_accepts_none_checkpoint`, `test_github_adapter_satisfies_idatasource_adapter_protocol`.
+
+**Scenario: Domain isolation** — COVERED
+- Port lives at `ingestion/ports/adapters.py` (Ingestion domain layer).
+- No dlt, httpx, or infrastructure imports in that module.
+- Tests: `test_port_module_does_not_import_dlt`, `test_port_module_does_not_import_httpx`,
+  `TestIngestionPortsDomainIsolation` (4 arch rules via pytest-archon).
+
+---
+
+### Requirement: GitHub Adapter — COVERED
+
+**Scenario: Repository tree extraction** — COVERED
+- `_get_all_tree_blobs`: calls `GET /repos/{owner}/{repo}/git/trees/{sha}?recursive=1`;
+  filters to `type == "blob"`.
+- Tests: `TestFullRefresh::test_full_refresh_with_no_checkpoint_returns_all_files`,
+  `test_full_refresh_skips_tree_entries_that_are_not_blobs`.
+
+**Scenario: Content fetching** — COVERED
+- `_fetch_blob`: calls `GET /repos/{owner}/{repo}/git/blobs/{sha}`, decodes base64.
+- Only changed files fetched (incremental path uses Compare API result).
+- Tests: `TestContentFetching::test_incremental_only_fetches_content_for_changed_files`,
+  `test_content_blobs_keyed_by_sha256_hex_digest`.
+
+**Scenario: Incremental sync via checkpoint** — COVERED
+- `_get_changed_files`: calls Compare API `GET /compare/{base}...{head}`.
+- Returns only ADD/MODIFY files; checkpoint updated with new HEAD SHA.
+- Tests: `TestIncrementalSync::test_incremental_returns_only_changed_files`,
+  `test_checkpoint_updated_with_current_head_sha`.
+
+**Scenario: Full refresh** — COVERED
+- `checkpoint=None` or `sync_mode=FULL_REFRESH` triggers tree-based extraction.
+- Tests: `TestFullRefresh::test_full_refresh_with_no_checkpoint_returns_all_files`,
+  `test_full_refresh_with_full_refresh_mode_and_existing_checkpoint`.
+
+**Scenario: Credential handling** — COVERED
+- Token from `credentials["token"]` sent as `Authorization: Bearer {token}` header.
+- `ICredentialReader` port exists at `shared_kernel/credential_reader.py`; callers
+  are responsible for retrieving credentials before calling `extract()`.
+- Tests: `TestCredentialHandling::test_authorization_header_sent_with_token`,
+  `test_adapter_uses_token_from_credentials`.
+
+---
+
+### Requirement: Pluggable Credential Backend — COVERED
+
+**Scenario: Port-based credential retrieval** — COVERED
+- `ICredentialReader` Protocol defined at `shared_kernel/credential_reader.py`.
+- Ingestion does not import Management context directly (arch rule enforces this).
+- Tests: `TestCredentialReaderPort` (4 tests), `test_ingestion_does_not_import_management`.
+
+**Scenario: Backend independence** — COVERED
+- `ICredentialReader` is a structural Protocol; any implementation satisfies it.
+- Architecture test `ingestion_no_management` enforces no Management imports.
+- Tests: `test_ingestion_does_not_import_management`.
+
+---
+
+### Requirement: dlt Framework Integration — PARTIAL / MISSING
+
+**Spec requirement:** "The system SHALL use dlt as the adapter framework,
+restricted to its Extract phase."
+
+**What was done:** `dlt[postgres]>=1.9.0` was added to `pyproject.toml` as a
+dependency. No dlt production code exists anywhere in `src/api` (confirmed via
+`grep -r "import dlt\|from dlt"`). The `GitHubAdapter` uses `httpx` directly.
+The adapter docstring explicitly defers dlt integration to "a future task."
+
+**Scenario: In-process execution** — PARTIAL
+- dlt is declared as a library dependency (not Docker/subprocess). ✓
+- BUT dlt does not actually execute during an adapter run. The adapter calls
+  httpx endpoints directly; dlt is never invoked. No test verifies that a dlt
+  pipeline is constructed and run.
+- Needed: A dlt pipeline that wraps the adapter and runs in-process, with a
+  test verifying it executes (even with a fake destination).
+
+**Scenario: State persistence via database** — MISSING
+- No implementation: no `dlt.pipeline(...)` call, no PostgreSQL destination
+  configured, no `dlt_internal` schema usage.
+- No test exercises checkpoint state being persisted to or restored from a
+  database via dlt.
+- Needed: dlt pipeline configured with `pipeline_name` and a PostgreSQL
+  destination; a test (using a fake/in-memory destination or real dlt state
+  mock) verifying state round-trips.
+
+**Scenario: Extracted data on disk** — MISSING
+- No implementation: dlt writes no files to a pipeline working directory.
+- No test verifies that extraction output is available as files for a
+  downstream JobPackager to read.
+- Needed: dlt filesystem or local destination configured so extracted data
+  lands in a working directory; a test verifying files are present after
+  extraction.
+
+---
+
+### Summary Table
+
+| Scenario | Status |
+|---|---|
+| Extract contract (IDatasourceAdapter port) | COVERED |
+| Domain isolation (no dlt/httpx/fastapi in ports) | COVERED |
+| Repository tree extraction (GitHub Trees API) | COVERED |
+| Content fetching (only changed files) | COVERED |
+| Incremental sync via checkpoint (commit SHA) | COVERED |
+| Full refresh (no checkpoint / FULL_REFRESH mode) | COVERED |
+| Credential handling (ICredentialReader port) | COVERED |
+| Port-based credential retrieval (shared_kernel) | COVERED |
+| Backend independence (port abstraction) | COVERED |
+| In-process execution (dlt as library) | PARTIAL — dependency declared, not used |
+| State persistence via database (dlt_internal) | MISSING — no implementation or test |
+| Extracted data on disk (JobPackager reads) | MISSING — no implementation or test |
+
+**FAIL** — Two SHALL scenarios under "dlt Framework Integration" are MISSING,
+and one is PARTIAL. The implementer must implement a dlt pipeline wrapper around
+`GitHubAdapter` (or a generic adapter runner) that: (1) runs dlt in-process,
+(2) persists/restores checkpoint state via the `dlt_internal` PostgreSQL schema,
+and (3) writes extracted data to a pipeline working directory for the JobPackager.

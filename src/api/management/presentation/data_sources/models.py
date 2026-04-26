@@ -54,17 +54,6 @@ class UpdateDataSourceRequest(BaseModel):
         default=None,
         description="Optional new credentials to encrypt and store securely",
     )
-    schedule_type: str | None = Field(
-        default=None,
-        description="Schedule type: 'manual', 'cron', or 'interval'",
-    )
-    schedule_value: str | None = Field(
-        default=None,
-        description=(
-            "Schedule expression: cron expression for 'cron' type, "
-            "ISO 8601 duration (e.g. 'PT1H') for 'interval' type"
-        ),
-    )
 
 
 class DataSourceResponse(BaseModel):

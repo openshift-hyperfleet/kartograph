@@ -301,6 +301,29 @@ class TestCreateDataSourceRoute:
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
+    def test_create_data_source_returns_409_on_duplicate_name(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+    ) -> None:
+        """Should return 409 Conflict when service raises DuplicateDataSourceNameError."""
+        from management.ports.exceptions import DuplicateDataSourceNameError
+
+        mock_ds_service.create.side_effect = DuplicateDataSourceNameError(
+            "Data source 'GitHub Repos' already exists in knowledge graph"
+        )
+
+        response = test_client.post(
+            "/management/knowledge-graphs/01JPQRST1234567890ABCDEFKG/data-sources",
+            json={
+                "name": "GitHub Repos",
+                "adapter_type": "github",
+                "connection_config": {},
+            },
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+
 
 class TestTriggerSyncRoute:
     """Tests for POST /management/data-sources/{ds_id}/sync endpoint."""
@@ -558,36 +581,6 @@ class TestUpdateDataSourceRoute:
             name="Updated Name",
             connection_config={"url": "https://new.example.com"},
             raw_credentials=None,
-            schedule_type=None,
-            schedule_value=None,
-        )
-
-    def test_update_data_source_with_schedule(
-        self,
-        test_client: TestClient,
-        mock_ds_service: AsyncMock,
-        sample_data_source: DataSource,
-        mock_current_user: CurrentUser,
-    ) -> None:
-        """Should pass schedule fields to service when provided."""
-        mock_ds_service.update.return_value = sample_data_source
-
-        test_client.patch(
-            f"/management/data-sources/{sample_data_source.id.value}",
-            json={
-                "schedule_type": "cron",
-                "schedule_value": "0 * * * *",
-            },
-        )
-
-        mock_ds_service.update.assert_called_once_with(
-            user_id=mock_current_user.user_id.value,
-            ds_id=sample_data_source.id.value,
-            name=None,
-            connection_config=None,
-            raw_credentials=None,
-            schedule_type="cron",
-            schedule_value="0 * * * *",
         )
 
     def test_update_data_source_with_credentials(
@@ -608,7 +601,6 @@ class TestUpdateDataSourceRoute:
 
         call_kwargs = mock_ds_service.update.call_args.kwargs
         assert call_kwargs["raw_credentials"] == creds
-
 
 class TestDeleteDataSourceRoute:
     """Tests for DELETE /management/data-sources/{ds_id} endpoint."""

@@ -13,6 +13,7 @@ from management.dependencies.data_source import (
 )
 from management.presentation.auth_bridge import CurrentUser, get_current_user
 from management.ports.exceptions import (
+    DuplicateDataSourceNameError,
     KnowledgeGraphNotFoundError,
     UnauthorizedError,
 )
@@ -98,6 +99,7 @@ async def create_data_source(
     Raises:
         HTTPException: 403 if user lacks EDIT permission on the KG
         HTTPException: 404 if KG not found
+        HTTPException: 409 if data source name already exists in the KG
         HTTPException: 500 for unexpected errors
     """
     try:
@@ -123,6 +125,11 @@ async def create_data_source(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to perform this action",
+        )
+    except DuplicateDataSourceNameError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
         )
     except KnowledgeGraphNotFoundError as e:
         raise HTTPException(
@@ -309,8 +316,7 @@ async def update_data_source(
 
     Args:
         ds_id: Data Source ID (ULID format)
-        request: Update request with optional name, connection_config, credentials,
-                 schedule_type, and schedule_value
+        request: Update request with optional name, connection_config, and credentials
         current_user: Current authenticated user with tenant context
         service: Data source service for orchestration
 
@@ -329,8 +335,6 @@ async def update_data_source(
             name=request.name,
             connection_config=request.connection_config,
             raw_credentials=request.credentials,
-            schedule_type=request.schedule_type,
-            schedule_value=request.schedule_value,
         )
         return DataSourceResponse.from_domain(ds)
 

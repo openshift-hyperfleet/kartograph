@@ -567,25 +567,6 @@ class TestDataSourceServiceUpdate:
         )
 
     @pytest.mark.asyncio
-    async def test_update_with_schedule_type_updates_schedule(
-        self, service, mock_authz, mock_ds_repo, user_id
-    ):
-        """update() applies schedule change when schedule_type is provided."""
-        ds = _make_ds()
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.get_by_id.return_value = ds
-
-        result = await service.update(
-            user_id=user_id,
-            ds_id=ds.id.value,
-            schedule_type="cron",
-            schedule_value="0 * * * *",
-        )
-
-        assert result.schedule.schedule_type.value == "cron"
-        assert result.schedule.value == "0 * * * *"
-
-    @pytest.mark.asyncio
     async def test_update_without_schedule_type_preserves_schedule(
         self, service, mock_authz, mock_ds_repo, user_id
     ):

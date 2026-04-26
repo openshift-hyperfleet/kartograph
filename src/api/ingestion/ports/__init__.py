@@ -1,0 +1,1 @@
+"""Ingestion ports (protocols/interfaces)."""

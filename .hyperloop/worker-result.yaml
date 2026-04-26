@@ -1,101 +1,119 @@
 ---
 verdict: pass
 ---
-## Verification Results — task-012 (specs/ingestion/adapters.spec.md)
+## Spec Alignment Review — task-012 (specs/ingestion/adapters.spec.md)
 
-Branch rebased onto current alpha (1cdf1e7e) before evaluation.
+Reviewed by: spec-alignment-reviewer (re-review after verifier crash)
+Review date: 2026-04-26
 
----
-
-### 1. Unit Tests — PASS
-
-2,464 unit tests pass, 0 failures, 0 errors.
-All 17 new DltAdapterRunner tests pass (in `tests/unit/ingestion/infrastructure/test_dlt_runner.py`).
-All 63 ingestion context tests pass (including adapter port, GitHub adapter, architecture boundary tests).
-
-```
-cd src/api && uv run pytest tests/unit -v
-2464 passed, 44 warnings in 63.04s
-```
-
-### 2. Linting — PASS
-
-```
-cd src/api && uv run ruff check .
-All checks passed!
-```
-
-### 3. Formatting — PASS
-
-```
-cd src/api && uv run ruff format --check .
-500 files already formatted
-```
-
-### 4. Type Checking — PASS
-
-```
-cd src/api && uv run mypy . --config-file pyproject.toml --ignore-missing-imports
-Success: no issues found in 500 source files
-```
-
-### 5. Architecture Boundary Tests — PASS
-
-All 40 architecture tests pass, plus 11 ingestion-specific boundary tests:
-- `test_ports_does_not_import_dlt` — dlt import confined to infrastructure
-- `test_ingestion_does_not_import_management` — no cross-context import
-- `test_ingestion_does_not_import_iam`, `graph`, `query`, `extraction`
-
-### 6. Integration Tests — NOT RUN
-
-Not required for this task (pure domain/infrastructure unit tests are sufficient;
-no new API routes were added).
-
-### 7. check-run-backend-suite.sh — PRE-EXISTING FAILURES ONLY
-
-9 checks pass. 4 checks fail — all confirmed pre-existing on alpha before task-012:
-
-- `check-no-check-script-deletions.sh`: `check-fake-success-notifications.sh` and
-  `check-pages-have-tests.sh` missing `--exclude-dir=.venv` — pre-existing on alpha ✓
-- `check-empty-test-stubs.sh`: `test_create_api_key_requires_tenant_membership` stub
-  in `tests/integration/test_api_key_auth.py` — pre-existing on alpha ✓
-- `check-domain-aggregate-mocks.sh`: 1 MagicMock violation in management tests
-  — pre-existing on alpha ✓
-- `check-no-direct-logger-usage.sh`: `print()` in `query/presentation/mcp.py:197`
-  — pre-existing on alpha ✓
-
-None were introduced by task-012 commits.
-
-### 8. Code Review — PASS
-
-**Commit trailers present:**
-- `feat(ingestion): implement DltAdapterRunner...` — has `Spec-Ref` and `Task-Ref` ✓
-- `test(ingestion): add dlt Framework Integration tests...` — has `Spec-Ref` and `Task-Ref` ✓
-
-**No logger/print usage:** New code uses no `logger.*` or `print()` calls ✓
-
-**No MagicMock on domain aggregates:** All tests use `FakeAdapter` (real struct-compatible class) ✓
-
-**Architecture boundaries:** `import dlt` is confined to `ingestion/infrastructure/dlt_runner.py` only ✓
+All 63 ingestion unit tests pass (17 new dlt runner tests + 46 previously passing).
+All four spec requirements are fully implemented and tested. Verdict: **PASS**.
 
 ---
 
-### Spec Scenario Coverage
+### Requirement: Adapter Port — COVERED
 
-All three previously-MISSING dlt Framework Integration scenarios are now covered:
+**Scenario: Extract contract** — COVERED
+- `ingestion/ports/adapters.py`: `IDatasourceAdapter` Protocol with
+  `extract(connection_config, credentials, checkpoint, sync_mode) → ExtractionResult`.
+- Tests: `TestIDatasourceAdapterProtocol::test_concrete_class_satisfies_protocol`,
+  `test_extract_accepts_none_checkpoint`, `test_github_adapter_satisfies_idatasource_adapter_protocol`.
 
-1. **In-process execution**: `DltAdapterRunner.run()` calls `loop.run_in_executor()`
-   which drives dlt as a Python library inside a ThreadPoolExecutor — no Docker,
-   no subprocess. Tests: `TestDltInProcessExecution` (4 tests). ✓
+**Scenario: Domain isolation** — COVERED
+- Port lives at `ingestion/ports/adapters.py` (Ingestion domain layer).
+- No dlt, httpx, or infrastructure imports in the port module.
+- Tests: `test_port_module_does_not_import_dlt`, `test_port_module_does_not_import_httpx`,
+  `TestIngestionPortsDomainIsolation` (4 arch rules via pytest-archon).
 
-2. **State persistence via database**: `dlt.current.resource_state()` reads/writes
-   `adapter_checkpoint` within the dlt resource. For PostgreSQL destinations this maps
-   to the `dlt_internal` schema; for filesystem destinations (unit tests) it maps to
-   JSON files. Two-run round-trip test and pod-restart simulation test both pass. ✓
+---
 
-3. **Extracted data on disk**: `_write_output_files()` writes `changeset.jsonl` and
-   `blobs/{sha256_hex_digest}` files to the pipeline output directory. Tests:
-   `TestExtractedDataOnDisk` (8 tests verifying file presence, content, and format). ✓
+### Requirement: GitHub Adapter — COVERED
+
+**Scenario: Repository tree extraction** — COVERED
+- `_get_all_tree_blobs`: calls GitHub Trees API, filters to `type == "blob"`.
+- Tests: `TestFullRefresh::test_full_refresh_with_no_checkpoint_returns_all_files`,
+  `test_full_refresh_skips_tree_entries_that_are_not_blobs`.
+
+**Scenario: Content fetching** — COVERED
+- `_fetch_blob`: GitHub blobs API, base64 decode; only changed files fetched.
+- Tests: `TestContentFetching::test_incremental_only_fetches_content_for_changed_files`,
+  `test_content_blobs_keyed_by_sha256_hex_digest`.
+
+**Scenario: Incremental sync via checkpoint** — COVERED
+- Compare API for incremental; checkpoint updated with new HEAD SHA.
+- Tests: `TestIncrementalSync::test_incremental_returns_only_changed_files`,
+  `test_checkpoint_updated_with_current_head_sha`.
+
+**Scenario: Full refresh** — COVERED
+- `checkpoint=None` or `sync_mode=FULL_REFRESH` triggers tree-based extraction.
+- Tests: `TestFullRefresh::test_full_refresh_with_no_checkpoint_returns_all_files`,
+  `test_full_refresh_with_full_refresh_mode_and_existing_checkpoint`.
+
+**Scenario: Credential handling** — COVERED
+- Token from `credentials["token"]` sent as `Authorization: Bearer {token}`.
+- Tests: `TestCredentialHandling::test_authorization_header_sent_with_token`,
+  `test_adapter_uses_token_from_credentials`.
+
+---
+
+### Requirement: Pluggable Credential Backend — COVERED
+
+**Scenario: Port-based credential retrieval** — COVERED
+- `ICredentialReader` Protocol at `shared_kernel/credential_reader.py`.
+- Arch rule enforces no direct Management context import from Ingestion.
+- Tests: `TestCredentialReaderPort` (4 tests), `test_ingestion_does_not_import_management`.
+
+**Scenario: Backend independence** — COVERED
+- `ICredentialReader` is structural Protocol; any implementation satisfies it.
+- Tests: `test_ingestion_does_not_import_management`.
+
+---
+
+### Requirement: dlt Framework Integration — COVERED
+
+All three previously-MISSING/PARTIAL scenarios are now fully implemented and tested.
+
+**Scenario: In-process execution** — COVERED
+- `DltAdapterRunner.run()` calls `loop.run_in_executor()` which drives dlt as a
+  Python library in a ThreadPoolExecutor. No Docker, no subprocess.
+- `_run_pipeline_in_thread()` creates a fresh event loop, constructs a `dlt.pipeline()`
+  and calls `pipeline.run(...)` in-process.
+- Tests: `TestDltInProcessExecution` (4 tests):
+  - `test_dlt_pipeline_runs_in_process_and_returns_path` — PASS
+  - `test_adapter_extract_is_called_during_pipeline_run` — PASS
+  - `test_last_extraction_result_is_none_before_first_run` — PASS
+  - `test_last_extraction_result_available_after_run` — PASS
+
+**Scenario: State persistence via database** — COVERED
+- `dlt.current.resource_state()` reads/writes `adapter_checkpoint` key within
+  the dlt resource. For PostgreSQL (production) this maps to the `dlt_internal`
+  schema; for filesystem destination (unit tests) it maps to JSON state files.
+- `DltAdapterRunner` documented to use `dlt.destinations.postgres(...)` in
+  production and `dlt.destinations.filesystem(...)` for development/tests.
+- Tests: `TestDltStatePersistence` (4 tests):
+  - `test_first_run_passes_none_checkpoint_to_adapter` — PASS
+  - `test_checkpoint_is_persisted_after_first_run` — PASS
+  - `test_second_run_restores_checkpoint_from_dlt_state` — PASS (state round-trip)
+  - `test_state_survives_runner_object_recreation` — PASS (pod-restart simulation)
+
+**Scenario: Extracted data on disk** — COVERED
+- `_write_output_files()` writes `changeset.jsonl` and `blobs/{sha256_hex_digest}`
+  to the pipeline output directory after every successful extraction.
+- `DltAdapterRunner.output_dir` property exposes the path for the JobPackager.
+- Tests: `TestExtractedDataOnDisk` (9 tests):
+  - `test_output_directory_exists_after_run` — PASS
+  - `test_content_blobs_written_to_blobs_subdirectory` — PASS
+  - `test_blob_file_content_matches_extracted_bytes` — PASS
+  - `test_blob_filename_is_sha256_hex_digest` — PASS
+  - `test_changeset_jsonl_written_to_output_directory` — PASS
+  - `test_changeset_jsonl_contains_one_line_per_entry` — PASS
+  - `test_changeset_jsonl_entries_are_valid_json` — PASS
+  - `test_changeset_jsonl_paths_match_entries` — PASS
+  - `test_empty_extraction_produces_empty_changeset` — PASS
+
+---
+
+### Summary Table
 
 | Scenario | Status |
 |---|---|
@@ -109,8 +127,7 @@ All three previously-MISSING dlt Framework Integration scenarios are now covered
 | Port-based credential retrieval (shared_kernel) | COVERED |
 | Backend independence (port abstraction) | COVERED |
 | In-process execution (dlt as library) | COVERED — DltAdapterRunner |
-| State persistence via database (dlt_internal) | COVERED — dlt resource state |
+| State persistence via database (dlt_internal) | COVERED — dlt resource state + round-trip tests |
 | Extracted data on disk (JobPackager reads) | COVERED — changeset.jsonl + blobs/ |
 
-All spec requirements fully implemented and tested. All Guidelines checks pass
-or were pre-existing failures on alpha prior to this task.
+All 63 ingestion unit tests pass. All 12 spec scenarios are COVERED.

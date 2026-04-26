@@ -11,6 +11,12 @@
 #   2. Python def/class lines removed from existing source files
 #   3. TypeScript export function/class lines removed from existing source files
 #
+# IMPORTANT: File enumeration uses grep-based filtering on the raw output of
+# `git diff --name-only`, NOT git pathspec globs.  Double-quoted globs like
+# "$SOURCE_DIR/**/*.py" are expanded by the shell before git sees them and
+# may silently match nothing, causing false PASSes.  All filtering is done
+# with grep after the fact so every changed file is considered.
+#
 # Usage:
 #   ./check-no-source-regressions.sh [base_branch] [source_dir]
 #
@@ -18,6 +24,11 @@
 # Exit 1  — source regressions found; verify each against the spec.
 
 set -euo pipefail
+
+# Normalize CWD to repo root so git pathspecs work correctly.
+# Running from a subdirectory (e.g., .hyperloop/checks/) causes pathspecs like
+# 'src/' to silently match nothing and return false PASSes.
+cd "$(git rev-parse --show-toplevel)"
 
 BASE_BRANCH="${1:-}"
 SOURCE_DIR="${2:-src}"
@@ -48,9 +59,15 @@ echo "=== Checking for source code regressions (base: $BASE_BRANCH @ $MERGE_BASE
 found=0
 
 # 1. Deleted source files (Python, TS, Vue) — excluding test files and __pycache__
-deleted_sources=$(git diff --name-only --diff-filter=D "$MERGE_BASE" HEAD -- \
-  "$SOURCE_DIR/**/*.py" "$SOURCE_DIR/**/*.ts" "$SOURCE_DIR/**/*.vue" \
-  2>/dev/null \
+#
+# Use grep-based filtering instead of git pathspec globs.  Shell-expanded globs
+# like "$SOURCE_DIR/**/*.py" may silently match nothing in some environments,
+# producing a false PASS.  `git diff --name-only --diff-filter=D` with no
+# pathspec returns ALL deleted files; we then restrict to the source directory
+# and relevant extensions with grep.
+deleted_sources=$(git diff --name-only --diff-filter=D "$MERGE_BASE" HEAD 2>/dev/null \
+  | grep -E '\.(py|ts|vue)$' \
+  | grep "^$SOURCE_DIR/" \
   | grep -v '__pycache__' \
   | grep -v '\.pyc$' \
   | grep -v '/tests/' \
@@ -70,10 +87,13 @@ fi
 
 # 2. Python public method/function removals in existing source files
 #    Look for 'def <name>(' lines removed (lines starting with 'def ' or '    def ')
+#
+# Same grep-based approach: enumerate ALL changed files, then filter to Python
+# application source.  Avoids the pathspec glob expansion issue.
 python_method_removals=""
-changed_py_sources=$(git diff --name-only "$MERGE_BASE" HEAD -- \
-  "$SOURCE_DIR/**/*.py" \
-  2>/dev/null \
+changed_py_sources=$(git diff --name-only "$MERGE_BASE" HEAD 2>/dev/null \
+  | grep -E '\.py$' \
+  | grep "^$SOURCE_DIR/" \
   | grep -v '/tests/' \
   | grep -v '__pycache__' \
   || true)
@@ -83,24 +103,43 @@ for f in $changed_py_sources; do
   if ! git show "HEAD:$f" &>/dev/null 2>&1; then
     continue
   fi
+  # NOTE: sed uses '|' as delimiter (not '/') to handle file paths containing '/'.
+  # Using "s/^/  [$f] /" silently fails when $f contains '/' because sed
+  # interprets them as closing delimiters, leaving removed_defs empty (false PASS).
   removed_defs=$(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null \
     | grep '^-[^-]' \
-    | grep -E '^\-[[:space:]]*(async )?def [a-zA-Z_][a-zA-Z0-9_]*\(' \
+    | grep -E '^-[[:space:]]*(async )?def [a-zA-Z_][a-zA-Z0-9_]*\(' \
     | grep -v '__init__\|__repr__\|__str__\|__eq__\|__hash__\|__len__\|__bool__' \
-    | sed "s/^/  [$f] /" \
+    | sed "s|^|  [$f] |" \
     || true)
+
+  removed_classes=$(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null \
+    | grep '^-[^-]' \
+    | grep -E '^-[[:space:]]*class [A-Z][A-Za-z0-9_]*' \
+    | sed "s|^|  [$f] |" \
+    || true)
+
   if [[ -n "$removed_defs" ]]; then
     python_method_removals="${python_method_removals}${removed_defs}\n"
+  fi
+  if [[ -n "$removed_classes" ]]; then
+    python_method_removals="${python_method_removals}${removed_classes}\n"
   fi
 done
 
 if [[ -n "$python_method_removals" ]]; then
   echo ""
-  echo "--- Removed Python methods/functions in application source ---"
+  echo "--- Removed Python methods/functions/classes in application source ---"
   printf "%b" "$python_method_removals"
   echo ""
-  echo "  Each removed method must correspond to an explicit spec requirement."
-  echo "  If the spec does not mandate removal, restore the method."
+  echo "  Each removed method or class must correspond to an explicit spec requirement."
+  echo "  If the spec does not mandate removal, restore the definition."
+  echo ""
+  echo "  IMPORTANT: Removing a domain exception class (e.g. class FooNotFoundError)"
+  echo "  silently changes the HTTP status code callers receive (e.g. 404 → 400)"
+  echo "  because route handlers that caught the specific exception now fall through"
+  echo "  to the generic handler. This is a security regression when the status code"
+  echo "  leaks information about resource existence."
   found=$((found + 1))
 fi
 

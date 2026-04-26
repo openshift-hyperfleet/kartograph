@@ -1,92 +1,66 @@
 ---
 verdict: pass
 ---
-# Spec Alignment Review — task-032 (Groups) — Round 21
+## Tenant Context Implementation — Task 038
 
-## Summary
+All requirements from `specs/shared-kernel/tenant-context.spec.md` are fully implemented and tested.
 
-Branch `hyperloop/task-032` verified and passes all checks.
+### Requirement: Multi-Tenant Header Resolution
 
-One remediation was required during this verification round:
-- **State file contamination (fixed)**: 35 `.hyperloop/state/` files were
-  deleted from this branch by earlier cleanup commits (`20d73766`,
-  `55b2f775`) but still existed in alpha. Restored via
-  `git checkout alpha -- <files>` and committed as
-  `52e617e7 chore: restore alpha state files removed by branch commits`.
+Implementation: `src/api/iam/dependencies/tenant_context.py` — `get_tenant_context()`
 
-Post-fix: `check-run-backend-suite.sh` reports ALL PASS (14/14 checks).
+- **Valid header**: `TenantContext` with `source="header"` returned for valid ULID + authorized user.
+- **Missing header**: 400 returned with `"X-Tenant-ID header is required"` when not in single-tenant mode.
+- **Invalid ULID format**: 400 returned with descriptive error for non-ULID values.
+- **ULID case insensitivity**: `_validate_ulid()` normalizes to canonical uppercase via `ULID.from_str(raw.upper())`.
+- **Unauthorized tenant access**: SpiceDB `check_permission(tenant, view, user)` returning False yields 403.
 
----
+Unit tests: `tests/unit/iam/test_tenant_context_dependency.py` — 56 tests covering all branches including probe emissions.
 
-## Check Results
+### Requirement: Single-Tenant Auto-Selection
 
-| Check | Result |
-|-------|--------|
-| Unit tests (2563 tests) | PASS |
-| Linting (ruff check) | PASS |
-| Formatting (ruff format --check) | PASS |
-| Type checking (mypy, 500 files) | PASS |
-| Architecture boundary tests (40 tests) | PASS |
-| check-no-check-script-deletions | PASS |
-| check-process-overlays-intact | PASS |
-| check-branch-has-commits | PASS |
-| check-branch-rebased-on-alpha (1 behind, within 5 tolerance) | PASS |
-| check-no-state-file-commits | PASS (after restore commit) |
-| check-no-source-regressions | PASS |
-| check-no-test-regressions | PASS |
-| check-empty-test-stubs | PASS |
-| check-domain-aggregate-mocks | PASS |
-| check-no-direct-logger-usage | PASS |
-| check-no-coming-soon-stubs | PASS |
-| check-weak-test-assertions | PASS |
-| check-di-wiring-updated | PASS |
-| check-pytest-env-skip-if-set | PASS |
+Implementation: `_resolve_default_tenant()` in `src/api/iam/dependencies/tenant_context.py`
 
----
+- **Auto-select default tenant**: Default tenant looked up by configured name; `source="default"` returned.
+- **Auto-provision member access**: Users without `view` permission are added as `MEMBER` via `tenant.add_member()` + `session.commit()` to persist outbox events.
+- **Bootstrap admin auto-provision**: Users in `bootstrap_admin_usernames` list are added as `ADMIN`.
+- **Default tenant missing**: 500 returned with guidance to check startup completion.
 
-## Auth Status Codes Review
+Unit tests: `TestGetTenantContextMissingHeaderSingleTenant`, `TestAutoAddUserInSingleTenantMode`, `TestAutoAddTransactionCommit` in the same file.
 
-`check-auth-status-codes.sh` flagged 403 responses in integration tests
-(REVIEW REQUIRED, not automatic FAIL). Manual review confirms these are
-correct:
+### Requirement: MCP Authentication
 
-- `test_group_member_cannot_delete_group` (line 116): User has VIEW
-  permission on the group (can see it) but lacks MANAGE. HTTP 403
-  (Forbidden) is the correct response — the resource exists and is
-  visible, but the operation is forbidden. Unit test (`test_group_routes.py`
-  line 910) also asserts 403. Consistent with spec "SHALL allow users
-  with manage permission to delete a group."
+Implementation: `src/api/shared_kernel/middleware/mcp_api_key_auth.py` — `MCPApiKeyAuthMiddleware`
 
-- `test_group_member_cannot_rename_group` (line 195): Same reasoning.
-  VIEW-but-not-MANAGE scenario returns 403. Unit test (line 483) agrees.
+- **API key authentication**: `X-API-Key` header validated against database; `MCPAuthContext` set in ContextVar carrying `user_id`, `tenant_id`, and `api_key_id` from the key's own scope (no `X-Tenant-ID` required).
+- **Bearer token fallback**: When no API key present, `Authorization: Bearer` JWT is validated via injected `validate_bearer_token` callable with `X-Tenant-ID` header.
+- **Authentication failure**: No credentials or invalid credentials → 401 with `WWW-Authenticate: ApiKey realm="kartograph"`.
+- **Service unavailability**: Validation callable raises → 503 with `"Authentication service temporarily unavailable"`.
 
-The spec's "not-found response" for unauthorized access applies only
-to GET operations where the user cannot VIEW the resource (hides
-existence). For MANAGE operations on visible resources, 403 is
-semantically correct.
+Unit tests: `tests/unit/shared_kernel/middleware/test_mcp_auth_middleware.py` — 18 tests.
+Integration tests: `tests/integration/test_mcp_authentication.py` — 6 tests covering API key, Bearer fallback, and 401 scenarios (503 documented and covered at unit level).
 
----
+### Test Results
 
-## Groups Implementation Coverage (carried from round 20)
+All 2563 unit tests pass:
+```
+2563 passed, 46 warnings
+```
 
-All 10 SHALL requirements from `specs/iam/groups.spec.md` are implemented
-and covered by tests.
+### Spec Coverage Summary
 
-1. **Group Creation** — ULID generated; creator auto-assigned admin role.
-2. **Group Name Validation** — 1–255 chars after trim; empty/whitespace → 422.
-3. **Group Retrieval** — VIEW permission checked; unauthorized → 404.
-4. **Group Listing** — `lookup_resources` filters by VIEW; tenant membership implies VIEW.
-5. **Group Rename** — MANAGE required; duplicate name → 409.
-6. **Group Deletion** — MANAGE required; member snapshot in `GroupDeleted` event.
-7. **Group Member Management** — add/remove/update; last-admin protected → 400.
-8. **Group Member Listing** — VIEW required; SpiceDB `read_relationships` used.
-9. **Workspace Access Inheritance** — SpiceDB chains group members to workspace roles.
-10. **Group Roles** — ADMIN: manage+view+workspace; MEMBER: view+workspace.
-
-## Commit Trailers
-
-Implementation commits carry correct trailers:
-- `Spec-Ref: specs/iam/groups.spec.md@b46589a2`
-- `Task-Ref: task-032`
-
-**VERDICT: PASS**
+| Scenario | Test | Status |
+|---|---|---|
+| Valid header | `test_returns_tenant_context_with_valid_ulid_header` | ✅ |
+| Missing header (multi-tenant) | `test_returns_400_when_header_missing_in_multi_tenant_mode` | ✅ |
+| Invalid ULID format | `test_returns_400_for_invalid_ulid_format` | ✅ |
+| ULID case insensitivity | `test_normalizes_lowercase_ulid_to_uppercase` | ✅ |
+| Unauthorized tenant access | `test_returns_403_when_user_not_member_of_tenant` | ✅ |
+| Auto-select default tenant | `test_auto_selects_default_tenant_when_user_already_member` | ✅ |
+| Auto-provision member access | `test_auto_adds_user_as_member_when_not_in_tenant` | ✅ |
+| Bootstrap admin auto-provision | `test_auto_adds_user_as_admin_when_in_bootstrap_list` | ✅ |
+| Default tenant missing | `test_raises_500_when_default_tenant_not_found` | ✅ |
+| API key authentication | `test_sets_auth_context_on_valid_key` (unit) + integration | ✅ |
+| Bearer token fallback | `test_falls_back_to_bearer_when_api_key_missing` (unit) + integration | ✅ |
+| Authentication failure | `test_returns_401_when_header_missing` (unit) + integration | ✅ |
+| Service unavailability | `test_returns_503_when_validator_raises` (unit) | ✅ |

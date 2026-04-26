@@ -74,7 +74,7 @@ if [[ -d "$UI_TEST_DIR" ]]; then
   )
 
   for pattern in "${TS_PATTERNS[@]}"; do
-    hits=$(grep -rEn \
+    hits=$(grep -rn \
       --include="*.ts" \
       --include="*.spec.ts" \
       --include="*.test.ts" \

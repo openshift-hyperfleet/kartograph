@@ -3,6 +3,9 @@
 These tests verify that the CompositeEventHandler correctly registers
 handlers, dispatches events with fan-out, and integrates with the
 observability probe.
+
+Spec coverage:
+- Requirement: Event Fan-Out — Multiple handlers, unknown event type → immediate DLQ
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -10,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from infrastructure.outbox.composite import CompositeEventHandler
+from shared_kernel.outbox.exceptions import UnknownEventTypeError
 from shared_kernel.outbox.observability import OutboxWorkerProbe
 from shared_kernel.outbox.ports import EventHandler
 
@@ -114,13 +118,38 @@ class TestCompositeEventHandler:
 
     @pytest.mark.asyncio
     async def test_handle_raises_for_unknown_event_type(self):
-        """handle should raise ValueError for unregistered event types."""
+        """Spec: Unknown event type — raises UnknownEventTypeError (not ValueError).
+
+        GIVEN an outbox entry with an unregistered event type
+        WHEN the CompositeEventHandler processes it
+        THEN UnknownEventTypeError is raised
+        AND it is NOT a generic ValueError (so worker can distinguish it)
+        """
         composite = CompositeEventHandler()
         handler = MockHandler(frozenset({"KnownEvent"}))
         composite.register(handler)
 
-        with pytest.raises(ValueError, match="No handler registered for event type"):
+        with pytest.raises(UnknownEventTypeError) as exc_info:
             await composite.handle("UnknownEvent", {})
+
+        assert exc_info.value.event_type == "UnknownEvent"
+        # Registered types should be accessible for diagnostics
+        assert "KnownEvent" in exc_info.value.registered_types
+
+    @pytest.mark.asyncio
+    async def test_unknown_event_type_error_is_not_value_error(self):
+        """UnknownEventTypeError must be distinguishable from ValueError.
+
+        The worker uses isinstance to detect permanent vs transient failures.
+        ValueError would be considered "transient" by the retry logic, but
+        unknown event types are permanent failures that should immediately DLQ.
+        """
+        composite = CompositeEventHandler()
+
+        with pytest.raises(UnknownEventTypeError) as exc_info:
+            await composite.handle("GhostEvent", {})
+
+        assert not isinstance(exc_info.value, ValueError)
 
     @pytest.mark.asyncio
     async def test_handle_does_not_call_probe_event_dispatching(self):

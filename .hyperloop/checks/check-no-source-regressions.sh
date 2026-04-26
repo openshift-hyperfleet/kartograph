@@ -11,6 +11,12 @@
 #   2. Python def/class lines removed from existing source files
 #   3. TypeScript export function/class lines removed from existing source files
 #
+# IMPORTANT: File enumeration uses grep-based filtering on the raw output of
+# `git diff --name-only`, NOT git pathspec globs.  Double-quoted globs like
+# "$SOURCE_DIR/**/*.py" are expanded by the shell before git sees them and
+# may silently match nothing, causing false PASSes.  All filtering is done
+# with grep after the fact so every changed file is considered.
+#
 # Usage:
 #   ./check-no-source-regressions.sh [base_branch] [source_dir]
 #
@@ -53,9 +59,15 @@ echo "=== Checking for source code regressions (base: $BASE_BRANCH @ $MERGE_BASE
 found=0
 
 # 1. Deleted source files (Python, TS, Vue) — excluding test files and __pycache__
-deleted_sources=$(git diff --name-only --diff-filter=D "$MERGE_BASE" HEAD -- \
-  "$SOURCE_DIR/**/*.py" "$SOURCE_DIR/**/*.ts" "$SOURCE_DIR/**/*.vue" \
-  2>/dev/null \
+#
+# Use grep-based filtering instead of git pathspec globs.  Shell-expanded globs
+# like "$SOURCE_DIR/**/*.py" may silently match nothing in some environments,
+# producing a false PASS.  `git diff --name-only --diff-filter=D` with no
+# pathspec returns ALL deleted files; we then restrict to the source directory
+# and relevant extensions with grep.
+deleted_sources=$(git diff --name-only --diff-filter=D "$MERGE_BASE" HEAD 2>/dev/null \
+  | grep -E '\.(py|ts|vue)$' \
+  | grep "^$SOURCE_DIR/" \
   | grep -v '__pycache__' \
   | grep -v '\.pyc$' \
   | grep -v '/tests/' \
@@ -75,10 +87,13 @@ fi
 
 # 2. Python public method/function removals in existing source files
 #    Look for 'def <name>(' lines removed (lines starting with 'def ' or '    def ')
+#
+# Same grep-based approach: enumerate ALL changed files, then filter to Python
+# application source.  Avoids the pathspec glob expansion issue.
 python_method_removals=""
-changed_py_sources=$(git diff --name-only "$MERGE_BASE" HEAD -- \
-  "$SOURCE_DIR/**/*.py" \
-  2>/dev/null \
+changed_py_sources=$(git diff --name-only "$MERGE_BASE" HEAD 2>/dev/null \
+  | grep -E '\.py$' \
+  | grep "^$SOURCE_DIR/" \
   | grep -v '/tests/' \
   | grep -v '__pycache__' \
   || true)

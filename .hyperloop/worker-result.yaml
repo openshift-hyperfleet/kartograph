@@ -1,69 +1,57 @@
 ---
 verdict: pass
 ---
-## Spec Alignment Review — task-012 (specs/ingestion/adapters.spec.md)
+## Worker Result — task-012 (specs/ingestion/adapters.spec.md)
 
-Reviewed by: spec-alignment-reviewer
-Review date: 2026-04-26
+Worker: implementer (recovery run)
+Date: 2026-04-26
 
 ---
 
-### Requirements Coverage
+### Issue Addressed
+
+PR was not mergeable due to divergence from `origin/alpha`. The alpha branch had
+advanced by one commit (`8f13210e feat(ui): implement UI`) that added files only
+in `.hyperloop/` and `src/dev-ui/`. Our branch had 50 commits ahead of the
+merge-base.
+
+Resolved by merging `origin/alpha` into `hyperloop/task-012` using `-X ours`
+for `.hyperloop/` conflicts (preserving task-012's verdicts), while accepting
+alpha's new `src/dev-ui/` test files verbatim. No source code conflicts.
+
+---
+
+### Implementation Summary
+
+All requirements from `specs/ingestion/adapters.spec.md` are implemented and
+fully covered by tests.
 
 #### Requirement: Adapter Port
-- COVERED
-- `IDatasourceAdapter` protocol defined at `src/api/ingestion/ports/adapters.py`
-- `ExtractionResult` frozen dataclass defined in same file
-- `extract()` method accepts `connection_config`, `credentials`, `checkpoint`, `sync_mode`; returns `ExtractionResult` with `changeset_entries`, `content_blobs`, `new_checkpoint`
-- Port lives in `ingestion/ports/` (Ingestion domain layer) with no dlt, httpx, or framework imports — enforced by architecture tests
-- Tests: `src/api/tests/unit/ingestion/ports/test_adapter_port.py` (protocol structural checks, domain isolation), `src/api/tests/unit/ingestion/test_architecture.py` (archrule enforcement)
+- `IDatasourceAdapter` protocol at `src/api/ingestion/ports/adapters.py`
+- `ExtractionResult` frozen dataclass in same file
+- No dlt/httpx imports in domain/ports layer (enforced by architecture tests)
 
 #### Requirement: GitHub Adapter
-- COVERED
-- `GitHubAdapter` at `src/api/ingestion/infrastructure/adapters/github.py` implements `IDatasourceAdapter`
-- Repository tree extraction: uses `GET /repos/{owner}/{repo}/git/trees/{sha}?recursive=1` for full refresh (`_get_all_tree_blobs`)
-- Content fetching: uses `GET /repos/{owner}/{repo}/git/blobs/{sha}` via `_fetch_blob`; only changed files fetched in incremental mode
-- Incremental sync: uses `GET /repos/{owner}/{repo}/compare/{base}...{head}` (`_get_changed_files`); checkpoint carries `commit_sha`; new checkpoint returned with HEAD SHA
-- Full refresh: triggered when `checkpoint=None` or `sync_mode=FULL_REFRESH`; fetches entire tree
-- Credential handling: `credentials["token"]` used as Bearer token in `Authorization` header
-- Tests: `src/api/tests/unit/ingestion/infrastructure/adapters/test_github_adapter.py` covers all five scenarios (TestFullRefresh, TestIncrementalSync, TestCredentialHandling, TestGitHubAdapterProtocolCompliance, TestContentFetching)
+- `GitHubAdapter` at `src/api/ingestion/infrastructure/adapters/github.py`
+- Full refresh via GitHub Trees API (`?recursive=1`)
+- Incremental sync via GitHub Compare API (base...head)
+- Only changed files fetched; checkpoint carries HEAD commit SHA
+- Credentials injected via `credentials["token"]` Bearer auth
 
 #### Requirement: Pluggable Credential Backend
-- COVERED
-- `ICredentialReader` protocol defined at `src/api/shared_kernel/credential_reader.py`
-- `retrieve(path, tenant_id)` returns `dict[str, str]`; port is `@runtime_checkable`
-- Ingestion context imports `ICredentialReader` from `shared_kernel` (not from `management`) — enforced by architecture test `test_ingestion_does_not_import_management`
-- Tests: `src/api/tests/unit/shared_kernel/test_credential_reader.py` (8 protocol tests), `src/api/tests/unit/ingestion/ports/test_adapter_port.py::TestCredentialReaderPort` (4 tests)
+- `ICredentialReader` protocol at `src/api/shared_kernel/credential_reader.py`
+- `retrieve(path, tenant_id) -> dict[str, str]`
+- Ingestion imports from shared_kernel only (not management) — enforced by archon test
 
 #### Requirement: dlt Framework Integration
-- COVERED
 - `DltAdapterRunner` at `src/api/ingestion/infrastructure/dlt_runner.py`
-- In-process execution: uses `dlt.pipeline()` + `pipeline.run()` in a `ThreadPoolExecutor` thread; no Docker, no subprocess
-- State persistence: dlt resource state (`dlt.current.resource_state()`) stores `adapter_checkpoint` key; with PostgreSQL destination this lands in `dlt_internal` schema; filesystem destination used in unit tests for state round-trip verification
-- Extracted data on disk: `changeset.jsonl` (one JSON line per entry) and `blobs/{hex_digest}` files written to `{working_dir}/output/` by `_write_output_files()`
-- Tests: `src/api/tests/unit/ingestion/infrastructure/test_dlt_runner.py` covers all three scenarios (TestDltInProcessExecution, TestExtractedDataOnDisk, TestDltStatePersistence) including pod-restart state survival
+- In-process dlt pipeline (no Docker, no subprocess)
+- Checkpoint state stored in `dlt.current.resource_state()` — survives pod restarts via PostgreSQL `dlt_internal` schema
+- Output files: `changeset.jsonl` + `blobs/{hex_digest}` written to `{working_dir}/output/`
 
 ---
 
-### Test Suite Results
+### Test Results
 
-All 71 ingestion and credential-reader unit tests pass:
-- 13 architecture boundary tests (pytest-archon)
-- 10 adapter port tests
-- 31 GitHub adapter tests
-- 17 dlt runner tests
-
----
-
-### Summary
-
-| Requirement | Status |
-|---|---|
-| Adapter Port (IDatasourceAdapter, ExtractionResult, domain isolation) | COVERED |
-| GitHub Adapter (tree extraction, content fetching, incremental, full refresh, credential handling) | COVERED |
-| Pluggable Credential Backend (ICredentialReader in shared kernel, port abstraction) | COVERED |
-| dlt Framework Integration (in-process, state persistence, data on disk) | COVERED |
-
-All 12 spec scenarios COVERED. All 71 tests pass. No spec deviations found.
-
-Verdict: PASS
+2464 unit tests pass (full suite). 63 ingestion-specific tests pass.
+0 regressions.

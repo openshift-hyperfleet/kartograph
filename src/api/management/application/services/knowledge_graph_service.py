@@ -6,8 +6,6 @@ transaction management, and observability.
 
 from __future__ import annotations
 
-import asyncio
-
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,14 +17,12 @@ from management.domain.aggregates import KnowledgeGraph
 from management.domain.value_objects import KnowledgeGraphId
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
-    KnowledgeGraphNotFoundError,
     UnauthorizedError,
 )
 from management.ports.repositories import (
     IDataSourceRepository,
     IKnowledgeGraphRepository,
 )
-from management.ports.secret_store import ISecretStoreRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
@@ -52,7 +48,6 @@ class KnowledgeGraphService:
         scope_to_tenant: str,
         probe: KnowledgeGraphServiceProbe | None = None,
         data_source_repository: IDataSourceRepository | None = None,
-        secret_store: ISecretStoreRepository | None = None,
     ) -> None:
         """Initialize KnowledgeGraphService with dependencies.
 
@@ -63,7 +58,6 @@ class KnowledgeGraphService:
             scope_to_tenant: Tenant ID string to scope this service to
             probe: Optional domain probe for observability
             data_source_repository: Optional DS repository for cascade delete
-            secret_store: Optional secret store for encrypted credential cleanup
         """
         self._session = session
         self._kg_repo = knowledge_graph_repository
@@ -71,7 +65,6 @@ class KnowledgeGraphService:
         self._scope_to_tenant = scope_to_tenant
         self._probe = probe or DefaultKnowledgeGraphServiceProbe()
         self._ds_repo = data_source_repository
-        self._secret_store = secret_store
 
     async def _check_permission(
         self,
@@ -284,20 +277,19 @@ class KnowledgeGraphService:
         """
         all_kgs = await self._kg_repo.find_by_tenant(self._scope_to_tenant)
 
-        async def _visible_or_none(kg: KnowledgeGraph) -> KnowledgeGraph | None:
+        visible_kgs: list[KnowledgeGraph] = []
+        for kg in all_kgs:
             has_view = await self._check_permission(
                 user_id=user_id,
                 resource_type=ResourceType.KNOWLEDGE_GRAPH,
                 resource_id=kg.id.value,
                 permission=Permission.VIEW,
             )
-            return kg if has_view else None
-
-        results = await asyncio.gather(*(_visible_or_none(kg) for kg in all_kgs))
-        visible_kgs = [kg for kg in results if kg is not None]
+            if has_view:
+                visible_kgs.append(kg)
 
         self._probe.knowledge_graphs_listed(
-            tenant_id=self._scope_to_tenant,
+            workspace_id=self._scope_to_tenant,
             count=len(visible_kgs),
         )
         return visible_kgs
@@ -344,10 +336,10 @@ class KnowledgeGraphService:
 
         kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
         if kg is None:
-            raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
+            raise ValueError(f"Knowledge graph {kg_id} not found")
 
         if kg.tenant_id != self._scope_to_tenant:
-            raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
+            raise ValueError(f"Knowledge graph {kg_id} not found")
 
         kg.update(name=name, description=description, updated_by=user_id)
 
@@ -409,11 +401,6 @@ class KnowledgeGraphService:
             if self._ds_repo is not None:
                 data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
                 for ds in data_sources:
-                    if ds.credentials_path and self._secret_store is not None:
-                        await self._secret_store.delete(
-                            path=ds.credentials_path,
-                            tenant_id=self._scope_to_tenant,
-                        )
                     ds.mark_for_deletion(deleted_by=user_id)
                     await self._ds_repo.delete(ds)
 

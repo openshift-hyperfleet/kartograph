@@ -566,6 +566,24 @@ class TestDataSourceServiceUpdate:
             name="Updated",
         )
 
+    @pytest.mark.asyncio
+    async def test_update_without_schedule_type_preserves_schedule(
+        self, service, mock_authz, mock_ds_repo, user_id
+    ):
+        """update() preserves existing schedule when schedule_type is not provided."""
+        ds = _make_ds()
+        mock_authz.check_permission.return_value = True
+        mock_ds_repo.get_by_id.return_value = ds
+
+        result = await service.update(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            name="New Name",
+        )
+
+        # MANUAL is the default set in _make_ds
+        assert result.schedule.schedule_type.value == "manual"
+
 
 # ---- delete ----
 

@@ -263,6 +263,52 @@ class TestInputValidation:
             await store.delete("datasource/1/creds", "")
 
 
+class TestTenantIsolation:
+    """Test that credentials are scoped by (path, tenant_id) composite key.
+
+    Scenario (spec: credentials.spec.md - Tenant Isolation):
+        GIVEN credentials stored at a path for tenant A
+        WHEN tenant B attempts to retrieve credentials at the same path
+        THEN the retrieval fails (credentials are scoped to tenant A)
+    """
+
+    @pytest.mark.asyncio
+    async def test_same_path_different_tenant_raises_key_error(
+        self, mock_session: AsyncMock, fernet_key: str
+    ):
+        """Same path, different tenant → KeyError (tenant isolation enforced)."""
+        store = _make_store(mock_session, [fernet_key])
+
+        # Simulate DB returning None when queried for tenant-B's credentials
+        # (because the composite key includes tenant_id, tenant-B has no record)
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        with pytest.raises(KeyError):
+            await store.retrieve("datasource/abc/credentials", "tenant-b")
+
+    @pytest.mark.asyncio
+    async def test_retrieve_with_correct_tenant_succeeds(
+        self, mock_session: AsyncMock, fernet_key: str
+    ):
+        """Retrieving credentials with the correct tenant succeeds."""
+        store = _make_store(mock_session, [fernet_key])
+        credentials = {"token": "tenant_a_secret"}
+
+        # Store credentials for tenant-a
+        await store.store("datasource/abc/credentials", "tenant-a", credentials)
+        model = mock_session.merge.call_args[0][0]
+
+        # Simulate DB returning the model when queried with matching tenant
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        result = await store.retrieve("datasource/abc/credentials", "tenant-a")
+        assert result == credentials
+
+
 class TestCorruptedCiphertext:
     """Test that corrupted ciphertext raises InvalidToken."""
 

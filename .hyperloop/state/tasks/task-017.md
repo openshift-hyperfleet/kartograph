@@ -5,7 +5,7 @@ spec_ref: specs/shared-kernel/outbox.spec.md@86d0f4fc5118312577593defb88be1d5005
 status: in_progress
 phase: implement
 deps: []
-round: 17
+round: 18
 branch: hyperloop/task-017
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/474
 pr_title: null

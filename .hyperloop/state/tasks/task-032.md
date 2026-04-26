@@ -2,11 +2,11 @@
 id: task-032
 title: Enforce last-admin protection in group member management
 spec_ref: specs/iam/groups.spec.md@b46589a2
-status: not-started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-032
 pr: null
 pr_title: null
 pr_description: null

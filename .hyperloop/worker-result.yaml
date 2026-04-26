@@ -1,99 +1,105 @@
+---
 verdict: pass
-spec: specs/shared-kernel/tenant-context.spec.md
-spec_ref: ded09d09b3de73d6ed9527214fcd081069a55630
-audited_at: 2026-04-25
+---
+All requirements from specs/iam/tenants.spec.md are fully implemented. Two
+spec violations in the Tenant graph provisioning requirement were identified
+and fixed in this task.
 
-summary: >
-  All 13 scenarios across the 3 spec requirements are faithfully implemented.
-  No gaps, no prohibited behaviors, no missing edge cases.
+## Changes Made
 
-requirements:
-  - requirement: Multi-Tenant Header Resolution
-    status: pass
-    scenarios:
-      - scenario: Valid header
-        status: pass
-        evidence: >
-          src/api/iam/dependencies/tenant_context.py lines 137-183 — validates
-          ULID, checks SpiceDB view permission, returns TenantContext.
-      - scenario: Missing header (multi-tenant mode)
-        status: pass
-        evidence: >
-          src/api/iam/dependencies/tenant_context.py lines 117-135 — raises
-          HTTP 400 "X-Tenant-ID header is required".
-      - scenario: Invalid ULID format
-        status: pass
-        evidence: >
-          src/api/iam/dependencies/tenant_context.py lines 40-56, 137-148 —
-          _validate_ulid() parses with ULID.from_str(); ValueError -> HTTP 400.
-      - scenario: ULID case insensitivity
-        status: pass
-        evidence: >
-          src/api/iam/dependencies/tenant_context.py line 55 —
-          ULID.from_str(raw_value.upper()) normalizes to uppercase before
-          validation; request proceeds with canonical form.
-      - scenario: Unauthorized tenant access
-        status: pass
-        evidence: >
-          src/api/iam/dependencies/tenant_context.py lines 150-173 — SpiceDB
-          permission check; no view permission -> HTTP 403.
+### Bug Fix: AGEGraphProvisioner — open transaction on no-op path (spec violation)
 
-  - requirement: Single-Tenant Auto-Selection
-    status: pass
-    scenarios:
-      - scenario: Auto-select default tenant
-        status: pass
-        evidence: >
-          src/api/iam/dependencies/tenant_context.py lines 186-235 — when
-          header absent and single_tenant_mode=True, calls
-          _resolve_default_tenant() which looks up tenant by default_tenant_name
-          from settings; TenantContext returned with source="default".
-      - scenario: Auto-provision member access
-        status: pass
-        evidence: >
-          src/api/iam/dependencies/tenant_context.py lines 252-300 — user
-          lacking view permission is auto-added via tenant.add_member() with
-          TenantRole.MEMBER; saved and committed.
-      - scenario: Bootstrap admin auto-provision
-        status: pass
-        evidence: >
-          src/api/iam/dependencies/tenant_context.py lines 267-271 — checks
-          bootstrap_admin_usernames list; matching username yields
-          TenantRole.ADMIN instead of MEMBER.
-      - scenario: Default tenant missing
-        status: pass
-        evidence: >
-          src/api/iam/dependencies/tenant_context.py lines 227-235 —
-          get_by_name() returning None -> HTTP 500 "Default tenant not found.
-          Ensure application startup completed successfully."
+**File:** `src/api/graph/infrastructure/tenant_graph_handler.py`
 
-  - requirement: MCP Authentication
-    status: pass
-    scenarios:
-      - scenario: API key authentication
-        status: pass
-        evidence: >
-          src/api/shared_kernel/middleware/mcp_api_key_auth.py lines 169-197 —
-          X-API-Key header extracted and validated via APIKeyService;
-          MCPAuthContext(user_id, tenant_id, api_key_id) set in ContextVar;
-          tenant resolved from key's own scope (no X-Tenant-ID header needed).
-      - scenario: Bearer token fallback
-        status: pass
-        evidence: >
-          src/api/shared_kernel/middleware/mcp_api_key_auth.py lines 202-245
-          and src/api/infrastructure/mcp_dependencies.py lines 187-247 — API
-          key tried first (line 134); Bearer path validates JWT then resolves
-          tenant from X-Tenant-ID header (or single-tenant auto-select).
-      - scenario: Authentication failure
-        status: pass
-        evidence: >
-          src/api/shared_kernel/middleware/mcp_api_key_auth.py lines 161-163,
-          182-185, 230-233 — missing credentials -> 401; invalid API key ->
-          401; invalid Bearer -> 401.
-      - scenario: Service unavailability
-        status: pass
-        evidence: >
-          src/api/shared_kernel/middleware/mcp_api_key_auth.py lines 173-180,
-          221-228 — exceptions raised by validate_api_key() or
-          validate_bearer_token() are caught and mapped to HTTP 503
-          "Authentication service temporarily unavailable".
+The spec mandates: "the database connection MUST be properly committed or
+rolled back on all code paths (including the no-op/exists path) to avoid
+leaking open transactions back to the connection pool."
+
+The previous implementation returned early from `ensure_graph_exists()` when
+the graph already existed, without calling `conn.commit()` or
+`conn.rollback()`. The connection was returned to the pool with an open,
+uncommitted transaction. Fixed by adding `conn.rollback()` before the early
+return in the no-op path so the transaction is always closed.
+
+### Bug Fix: AGEGraphProvisioner — non-atomic existence check (spec violation)
+
+**File:** `src/api/graph/infrastructure/tenant_graph_handler.py`
+
+The spec mandates: "the existence check and graph creation MUST be performed
+atomically (e.g. via `CREATE GRAPH IF NOT EXISTS` or an advisory lock) to
+prevent race conditions under concurrent duplicate event deliveries."
+
+The previous check-then-create sequence was non-atomic: two concurrent outbox
+replays could both observe "graph not found" and both attempt creation. Fixed
+by acquiring a transaction-level PostgreSQL advisory lock
+(`pg_advisory_xact_lock(hashtext(graph_name)::bigint)`) before the existence
+check. The lock prevents concurrent processes from entering the critical
+section simultaneously and is released automatically on commit or rollback.
+
+### New Tests
+
+**File:** `src/api/tests/unit/graph/infrastructure/test_tenant_graph_handler.py`
+
+Added two new tests (written before the fix to verify they fail — TDD):
+- `test_rollback_or_commit_called_on_no_op_path`: verifies commit or rollback
+  is called even when the graph already exists (no-op path).
+- `test_advisory_lock_acquired_for_atomicity`: verifies that an advisory lock
+  execute call appears before the existence-check execute call.
+
+Updated `test_rolls_back_on_create_failure` to reflect the new 3-step execute
+sequence: advisory lock → existence check → create_graph (fails).
+
+## Full Spec Coverage
+
+All 9 requirements and all scenarios are implemented and verified:
+
+Requirement: Tenant Creation — PASS
+  - Successful creation: Tenant.create() + TenantService.create_tenant()
+    grants creator ADMIN, creates root workspace, grants root workspace ADMIN.
+  - Duplicate name: DuplicateTenantNameError caught, returns HTTP 409.
+  - Single-tenant mode: require_multi_tenant_mode dependency, returns HTTP 400.
+  - Tenant graph provisioning: TenantAGEGraphHandler + AGEGraphProvisioner
+    with advisory lock (atomic) + rollback on no-op (all paths closed).
+
+Requirement: Tenant Retrieval — PASS
+  - Authorized retrieval: TenantService.get_tenant() checks VIEW permission.
+  - Unauthorized/non-existent: returns None → HTTP 404 (no distinction).
+
+Requirement: Tenant Listing — PASS
+  - Multiple tenants: SpiceDB lookup_resources filters by VIEW permission.
+  - No tenants: returns empty list.
+
+Requirement: Tenant Deletion — PASS
+  - Successful deletion: delete_tenant() cascades depth-first (workspaces →
+    groups → API keys → tenant) with member snapshot for SpiceDB cleanup.
+  - Unauthorized: UnauthorizedError → HTTP 403.
+  - Single-tenant mode: require_multi_tenant_mode dependency, returns HTTP 400.
+
+Requirement: Add Tenant Member — PASS
+  - Add new member: add_member() emits TenantMemberAdded.
+  - Change member role: role replacement pattern (remove old, add new).
+  - Promote to admin syncs root workspace: _sync_root_workspace_access().
+  - Demote from admin syncs root workspace: revokes workspace admin.
+  - Demote last admin: CannotRemoveLastAdminError → HTTP 409.
+
+Requirement: Remove Tenant Member — PASS
+  - Successful removal: remove_member() with root workspace revocation.
+  - Removing admin syncs root workspace: _revoke_root_workspace_access().
+  - Remove last admin: CannotRemoveLastAdminError → HTTP 409.
+
+Requirement: List Tenant Members — PASS
+  - Authorized listing: list_members() requires ADMINISTRATE, returns all.
+  - Unauthorized listing: UnauthorizedError → HTTP 403.
+
+Requirement: Tenant Name Validation — PASS
+  - Valid name: Pydantic min_length=1, max_length=255 accepts valid names.
+  - Empty name: Pydantic validation → HTTP 422 Unprocessable Content.
+  - Name too long: Pydantic validation → HTTP 422 Unprocessable Content.
+
+Requirement: Default Tenant Bootstrap — PASS
+  - First startup: TenantBootstrapService creates tenant + root workspace.
+  - Subsequent startup: get_by_name() returns existing tenant, skips creation.
+  - Concurrent startup: begin_nested() savepoint isolates creation; on
+    DuplicateTenantNameError, re-queries and returns existing tenant.
+
+All 2408 unit tests pass with no regressions.

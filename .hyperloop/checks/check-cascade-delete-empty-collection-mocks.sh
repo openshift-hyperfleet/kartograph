@@ -19,10 +19,11 @@
 # delete call inside is never executed and the SHALL requirement has no test
 # coverage.
 #
-# This is the failure pattern from task-039: every TestDeleteTenant test used
-#   `mock_group_repo.list_by_tenant = AsyncMock(return_value=[])`
-# while nearby tests for OTHER repositories had non-empty returns — which a
-# naive context-window check would falsely accept as group coverage.
+# This is the failure pattern from task-032 (round 18): every TestDeleteTenant
+# test used `mock_group_repo.list_by_tenant = AsyncMock(return_value=[])` while
+# nearby tests for OTHER repositories (workspaces, api_keys) had non-empty
+# returns — which a naive context-window check falsely accepted as full cascade
+# coverage, hiding the group loop body as completely untested across all 9 tests.
 #
 # WHAT IS CHECKED
 # ---------------

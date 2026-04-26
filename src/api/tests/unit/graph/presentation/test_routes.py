@@ -95,6 +95,33 @@ class FakeAuthorizationProvider:
         return []
 
 
+class FakeGraphServiceProbe:
+    """Fake GraphServiceProbe for verifying probe calls from route handlers.
+
+    Avoids structlog/logger coupling in tests by capturing probe calls.
+    """
+
+    def __init__(self) -> None:
+        self.server_error_calls: list[list[str]] = []
+
+    def mutation_server_error_occurred(self, errors: list[str]) -> None:
+        self.server_error_calls.append(list(errors))
+
+    def slug_searched(
+        self, slug: str, node_type: str | None, result_count: int
+    ) -> None:
+        pass
+
+    def raw_query_executed(self, query: str, result_count: int) -> None:
+        pass
+
+    def mutations_applied(self, operations_applied: int, success: bool) -> None:
+        pass
+
+    def with_context(self, context: object) -> "FakeGraphServiceProbe":
+        return self
+
+
 @pytest.fixture
 def mock_enclave_service():
     """Mock GraphSecureEnclaveService for testing (async methods)."""
@@ -105,6 +132,12 @@ def mock_enclave_service():
 def mock_mutation_service():
     """Mock GraphMutationService for testing."""
     return Mock()
+
+
+@pytest.fixture
+def fake_graph_probe():
+    """Fake GraphServiceProbe for verifying probe calls."""
+    return FakeGraphServiceProbe()
 
 
 @pytest.fixture
@@ -159,9 +192,13 @@ def test_client(
 
 
 def _make_kg_test_client(
-    mock_query_service, mock_mutation_service, mock_current_user, mock_authz
+    mock_query_service,
+    mock_mutation_service,
+    mock_current_user,
+    mock_authz,
+    probe: FakeGraphServiceProbe | None = None,
 ):
-    """Helper to build a TestClient with a specific authz provider."""
+    """Helper to build a TestClient with a specific authz provider and optional probe."""
     from fastapi import FastAPI
 
     from graph import dependencies
@@ -178,6 +215,8 @@ def _make_kg_test_client(
     )
     app.dependency_overrides[get_current_user] = lambda: mock_current_user
     app.dependency_overrides[get_spicedb_client] = lambda: mock_authz
+    if probe is not None:
+        app.dependency_overrides[dependencies.get_graph_service_probe] = lambda: probe
 
     app.include_router(routes.router)
     return TestClient(app)
@@ -638,3 +677,111 @@ class TestTenantGraphRouting:
 
         graph_name = get_tenant_graph_name(user)
         assert graph_name == "tenant_my-org-tenant-123"
+
+
+class TestServerErrorProbeEmission:
+    """Tests that server errors are reported via the domain probe (DOO compliance).
+
+    Per AGENTS.md, direct logger.* usage is forbidden; domain probes must be
+    used instead. These tests verify that server-side mutation failures call
+    probe.mutation_server_error_occurred() rather than logger.error().
+    """
+
+    def test_server_error_calls_probe_mutation_server_error_occurred(
+        self,
+        mock_query_service,
+        mock_mutation_service,
+        mock_current_user,
+        mock_authz_allowed,
+        fake_graph_probe,
+    ):
+        """Server error (error_kind='server') must emit probe event, not log directly."""
+        client = _make_kg_test_client(
+            mock_query_service,
+            mock_mutation_service,
+            mock_current_user,
+            mock_authz_allowed,
+            probe=fake_graph_probe,
+        )
+        error_messages = ["Database connection timeout: could not connect to AGE"]
+        mock_mutation_service.apply_mutations_from_jsonl.return_value = MutationResult(
+            success=False,
+            operations_applied=0,
+            errors=error_messages,
+            error_kind="server",
+        )
+
+        response = client.post(
+            "/graph/knowledge-graphs/kg-123/mutations",
+            content='{"op":"DELETE","type":"node","id":"node:1234567890abcdef"}',
+            headers={"Content-Type": "application/jsonlines"},
+        )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        # Probe must have been called with the actual errors for observability
+        assert len(fake_graph_probe.server_error_calls) == 1
+        assert fake_graph_probe.server_error_calls[0] == error_messages
+
+    def test_none_error_kind_calls_probe_mutation_server_error_occurred(
+        self,
+        mock_query_service,
+        mock_mutation_service,
+        mock_current_user,
+        mock_authz_allowed,
+        fake_graph_probe,
+    ):
+        """Unknown error kind (None) must also emit probe event for server errors."""
+        client = _make_kg_test_client(
+            mock_query_service,
+            mock_mutation_service,
+            mock_current_user,
+            mock_authz_allowed,
+            probe=fake_graph_probe,
+        )
+        mock_mutation_service.apply_mutations_from_jsonl.return_value = MutationResult(
+            success=False,
+            operations_applied=0,
+            errors=["Unknown infrastructure failure"],
+            # error_kind is None (default)
+        )
+
+        client.post(
+            "/graph/knowledge-graphs/kg-123/mutations",
+            content='{"op":"DELETE","type":"node","id":"node:1234567890abcdef"}',
+            headers={"Content-Type": "application/jsonlines"},
+        )
+
+        assert len(fake_graph_probe.server_error_calls) == 1
+
+    def test_validation_error_does_not_call_probe_server_error(
+        self,
+        mock_query_service,
+        mock_mutation_service,
+        mock_current_user,
+        mock_authz_allowed,
+        fake_graph_probe,
+    ):
+        """Validation errors must NOT call probe.mutation_server_error_occurred."""
+        client = _make_kg_test_client(
+            mock_query_service,
+            mock_mutation_service,
+            mock_current_user,
+            mock_authz_allowed,
+            probe=fake_graph_probe,
+        )
+        mock_mutation_service.apply_mutations_from_jsonl.return_value = MutationResult(
+            success=False,
+            operations_applied=0,
+            errors=["Missing required property: slug"],
+            error_kind="validation",
+        )
+
+        response = client.post(
+            "/graph/knowledge-graphs/kg-123/mutations",
+            content='{"op":"CREATE","type":"node","id":"node:1234567890abcdef"}',
+            headers={"Content-Type": "application/jsonlines"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        # Validation errors must not trigger the server-error probe
+        assert len(fake_graph_probe.server_error_calls) == 0

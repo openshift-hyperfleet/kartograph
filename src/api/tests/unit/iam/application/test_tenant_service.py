@@ -1777,3 +1777,46 @@ class TestDeleteTenant:
         await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
 
         assert call_order == ["api_key_delete", "tenant_delete"]
+
+    @pytest.mark.asyncio
+    async def test_deletes_groups_on_tenant_deletion(
+        self,
+        tenant_service,
+        mock_tenant_repo,
+        mock_workspace_repo,
+        mock_group_repo,
+        mock_api_key_repo,
+        mock_authz,
+    ):
+        """delete() calls group_repo.delete() for each group in the tenant.
+
+        Scenario: Tenant cascade deletion — groups
+        - GIVEN a tenant that owns at least one group
+        - WHEN the tenant is deleted
+        - THEN each group is deleted via group_repo.delete()
+
+        This test guards against the loop-body coverage gap where every other
+        test in this class supplies mock_group_repo.list_by_tenant with an empty
+        list, meaning the cascade for-loop body never executes and the inner
+        delete() call is never exercised.
+        """
+        from iam.domain.aggregates import Group
+
+        tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        group = Group.create(name="Engineering", tenant_id=tenant_id)
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.delete = AsyncMock(return_value=True)
+        mock_workspace_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_group_repo.list_by_tenant = AsyncMock(return_value=[group])
+        mock_group_repo.delete = AsyncMock(return_value=True)
+        mock_api_key_repo.list = AsyncMock(return_value=[])
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
+        await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
+
+        mock_group_repo.delete.assert_called_once_with(group)

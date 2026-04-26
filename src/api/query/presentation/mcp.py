@@ -194,7 +194,7 @@ def fetch_documentation_source(
         details = query_graph("MATCH (d:DocumentationModule {slug: 'abi-c3-resources-services'}) RETURN properties(d)")
         view_uri = details["rows"][0]["view_uri"]
         source = fetch_documentation_source(view_uri)
-        print(source["content"])  # Full AsciiDoc content starting from title
+        content = source["content"]  # Full AsciiDoc content starting from title
     """
 
     headers = get_http_headers()

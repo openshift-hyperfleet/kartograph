@@ -1,7 +1,7 @@
 ---
 id: task-031
 title: Add full-flow ULID case insensitivity test for tenant context resolution
-spec_ref: specs/shared-kernel/tenant-context.spec.md@ded09d09b3de73d6ed9527214fcd081069a55630
+spec_ref: specs/shared-kernel/tenant-context.spec.md@b68605133f2258e79280a70c9d0638f97cb7f539
 status: complete
 phase: null
 deps: []

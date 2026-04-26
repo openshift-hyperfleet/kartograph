@@ -1,7 +1,7 @@
 ---
 id: task-038
 title: MCP tenant context — API key and Bearer token authentication
-spec_ref: specs/shared-kernel/tenant-context.spec.md
+spec_ref: specs/shared-kernel/tenant-context.spec.md@b68605133f2258e79280a70c9d0638f97cb7f539
 status: not_started
 phase: null
 deps: []

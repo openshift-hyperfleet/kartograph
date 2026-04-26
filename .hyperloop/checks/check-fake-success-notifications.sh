@@ -65,7 +65,7 @@ for success_pattern in "${SUCCESS_PATTERNS[@]}"; do
     --include="*.vue" \
     --include="*.ts" \
     --exclude-dir=node_modules \
-    --exclude-dir=".nuxt" \
+    --exclude-dir=.nuxt \
     --exclude-dir=dist \
     --exclude-dir=.venv \
     -E "$success_pattern" "$UI_SOURCE_DIR" 2>/dev/null || true)

@@ -19,6 +19,11 @@
 
 set -euo pipefail
 
+# Normalize CWD to repo root so git pathspecs work correctly.
+# Running from a subdirectory (e.g., .hyperloop/checks/) causes pathspecs like
+# 'src/' to silently match nothing and return false PASSes.
+cd "$(git rev-parse --show-toplevel)"
+
 BASE_BRANCH="${1:-}"
 SOURCE_DIR="${2:-src}"
 

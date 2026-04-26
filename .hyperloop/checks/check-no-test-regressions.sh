@@ -13,6 +13,11 @@
 
 set -euo pipefail
 
+# Normalize CWD to repo root so git pathspecs work correctly.
+# Running from a subdirectory (e.g., .hyperloop/checks/) causes pathspecs like
+# '*/tests/**/*.py' to silently match nothing and return false PASSes.
+cd "$(git rev-parse --show-toplevel)"
+
 # Detect base branch: accept explicit argument or auto-detect.
 BASE_BRANCH="${1:-}"
 if [[ -z "$BASE_BRANCH" ]]; then

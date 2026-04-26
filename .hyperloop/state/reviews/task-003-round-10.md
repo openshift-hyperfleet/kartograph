@@ -1,0 +1,145 @@
+---
+task_id: task-003
+round: 10
+role: verifier
+verdict: fail
+---
+## Verification Summary — task-003 (Graph Mutations)
+
+### Check Results
+
+| Check | Result |
+|-------|--------|
+| Unit Tests (2539) | PASS |
+| Ruff Lint | PASS |
+| Ruff Format | PASS |
+| MyPy Type Checking | PASS |
+| Architecture Boundary Tests (40) | PASS |
+| Spec-Ref / Task-Ref trailers | PASS |
+| check-no-state-file-commits | **FAIL** |
+| check-no-test-regressions | **FAIL** |
+| check-empty-test-stubs | **FAIL** |
+| check-new-checks-pass-on-head | **FAIL** |
+
+---
+
+### Finding 1 — CRITICAL: State files committed to task branch
+
+**Check:** `check-no-state-file-commits.sh`
+
+41 `.hyperloop/state/` files are present in branch commits but were not on alpha. These are orchestrator-managed metadata files (intake records, task state, review records) that must never appear on implementation branches. Their presence causes permanent merge conflicts during rebase.
+
+**Files include:**
+- `.hyperloop/state/intake/2026-04-26-index-and-nfr-specs*.md` (16 files)
+- `.hyperloop/state/reviews/task-001-round-0.md` through `task-020-round-0.md`
+- `.hyperloop/state/tasks/task-002.md` through `task-039.md`
+
+**Fix:** Cherry-pick delivery commits onto a clean branch from alpha, excluding all state-file commits. The check script output provides the exact procedure:
+```bash
+git log --oneline $(git merge-base HEAD alpha)..HEAD -- ':!.hyperloop/state'
+# cherry-pick those SHAs onto a fresh branch from alpha
+```
+
+---
+
+### Finding 2 — CRITICAL: Test regression — deleted passing test
+
+**Check:** `check-no-test-regressions.sh`
+
+`test_commits_connection_on_no_op_path` was deleted from
+`src/api/tests/unit/graph/infrastructure/test_tenant_graph_handler.py`.
+
+This 26-line test verifies that when `ensure_graph_exists()` takes the "graph already exists" no-op path, the psycopg2 connection is still committed (or rolled back) to prevent idle-in-transaction connections from leaking into the pool. The test exists on alpha but is absent from this branch — lost during one of the multiple rebase attempts.
+
+**Fix:** Restore the test. The exact content from alpha is:
+```python
+def test_commits_connection_on_no_op_path(self) -> None:
+    """Connection is committed even when graph already exists (no-op path).
+
+    Spec: specs/iam/tenants.spec.md — Scenario: Tenant graph provisioning
+    > the database connection MUST be properly committed or rolled back on
+    > all code paths (including the no-op/exists path) to avoid leaking
+    > open transactions back to the connection pool.
+
+    psycopg2 starts an implicit transaction on the first cursor.execute().
+    If we return early (graph exists) without committing, an idle-in-transaction
+    connection is returned to the pool, causing stalls under load.
+    """
+    provisioner, mock_connection_factory, mock_conn, mock_cursor = (
+        self._make_provisioner()
+    )
+
+    # Simulate: graph ALREADY EXISTS (SELECT returns a row)
+    mock_cursor.fetchone.return_value = (1,)
+
+    provisioner.ensure_graph_exists("tenant_abc123")
+
+    # The connection must be committed (or rolled back) even on the no-op path
+    assert mock_conn.commit.called or mock_conn.rollback.called, (
+        "Connection must be committed or rolled back on no-op (graph exists) path"
+    )
+```
+
+---
+
+### Finding 3 — New check `check-empty-test-stubs.sh` fails on head
+
+**Check:** `check-empty-test-stubs.sh` (new check introduced by this branch)
+
+`src/api/tests/integration/test_api_key_auth.py:691 test_create_api_key_requires_tenant_membership`
+is a docstring-only stub with no assertions. The stub pre-exists on alpha, but since
+`check-empty-test-stubs.sh` is a *new check script added by this branch*, the codebase
+must comply before the check can be activated. `check-new-checks-pass-on-head.sh` fails
+because of this.
+
+**Fix:** Fill in the stub body with a `pytest.fail("not yet implemented")` sentinel or
+a real test implementation (add a third user who is not a tenant member, or mark it
+`@pytest.mark.skip` with a reason — the check permits skips with real skip decorators).
+
+---
+
+### Finding 4 — New check `check-pytest-env-skip-if-set.sh` fails on head
+
+**Check:** `check-new-checks-pass-on-head.sh` → `check-pytest-env-skip-if-set.sh`
+
+`src/api/pyproject.toml` has three `[tool.pytest_env]` bare string literals that
+override isolated-instance env vars:
+```toml
+KARTOGRAPH_DB_HOST = "localhost"
+KARTOGRAPH_DB_PORT = "5432"
+SPICEDB_ENDPOINT = "localhost:50051"
+```
+This pre-exists on alpha, but since `check-pytest-env-skip-if-set.sh` is a new check
+introduced by this branch, the branch must fix the violation for the check to activate.
+
+**Fix:**
+```toml
+KARTOGRAPH_DB_HOST = { value = "localhost", skip_if_set = true }
+KARTOGRAPH_DB_PORT = { value = "5432", skip_if_set = true }
+SPICEDB_ENDPOINT = { value = "localhost:50051", skip_if_set = true }
+```
+
+---
+
+### Implementation Quality Assessment
+
+The actual mutations feature implementation is of good quality and correctly addresses
+the spec:
+
+- **Auth enforcement:** SpiceDB `edit` permission check on the KnowledgeGraph resource
+  is correct and returns 403 without leaking details.
+- **`knowledge_graph_id` stamping:** Properly stamps KG ID on all CREATE/UPDATE ops,
+  overwrites any caller-supplied values, and rejects batches with CREATE/UPDATE when
+  no KG ID is provided — preventing graph ID spoofing.
+- **DOO compliance:** `mutation_server_error_occurred` domain probe method correctly
+  added to `GraphServiceProbe` protocol and `DefaultGraphServiceProbe`; no raw
+  `logger.error` in the route handler.
+- **Tenant isolation:** `get_tenant_graph_name()` correctly derives `tenant_{tenant_id}`
+  from the authenticated user's `tenant_id`.
+- **Operation ordering:** DEFINE → DELETE → CREATE → UPDATE enforced via sorting.
+- **Idempotent CREATE merge:** Uses JSONB merge operator (`||`) for property accumulation.
+- **Commit trailers:** `Spec-Ref` and `Task-Ref` present on all implementation commits.
+
+All four findings are process/hygiene issues — none require redesign of the feature
+implementation. The branch must be cleaned (cherry-pick strategy) to resolve Finding 1
+before the other three can be addressed in clean commits.

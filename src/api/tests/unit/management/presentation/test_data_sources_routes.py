@@ -602,6 +602,7 @@ class TestUpdateDataSourceRoute:
         call_kwargs = mock_ds_service.update.call_args.kwargs
         assert call_kwargs["raw_credentials"] == creds
 
+
 class TestDeleteDataSourceRoute:
     """Tests for DELETE /management/data-sources/{ds_id} endpoint."""
 

@@ -3,10 +3,10 @@ id: task-035
 title: Add workspace-scoped listing, update, and delete routes for Knowledge Graphs
 spec_ref: specs/management/knowledge-graphs.spec.md
 status: in_progress
-phase: spec-review
+phase: implement
 deps:
 - task-008
-round: 6
+round: 7
 branch: hyperloop/task-035
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/482
 pr_title: null

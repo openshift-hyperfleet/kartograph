@@ -18,21 +18,8 @@ phases:
     on_fail: implement
   mark-ready:
     run: action mark-ready
-    on_pass: post-comment
-    on_fail: implement
-  post-comment:
-    run: action post-comment
-    args:
-      body: "@coderabbit recheck"
-    on_pass: await-coderabbit
-    on_fail: implement
-  await-coderabbit:
-    run: action pr-review
-    args:
-      require_reviewers: ["coderabbitai"]
     on_pass: merge
     on_fail: implement
-    on_wait: await-coderabbit
   merge:
     run: action merge
     on_pass: done

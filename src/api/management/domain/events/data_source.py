@@ -70,19 +70,31 @@ class DataSourceDeleted:
 
 
 @dataclass(frozen=True)
-class DataSourceSyncRequested:
-    """Emitted when a sync is requested for a data source.
+class SyncStarted:
+    """Emitted when a sync is initiated for a data source.
+
+    This event is the entry point into the sync lifecycle state machine.
+    It carries all the information needed by the Ingestion context to
+    start extracting data from the source.
 
     Attributes:
-        data_source_id: The ID of the data source to sync
+        sync_run_id: The ID of the sync run record created for this sync
+        data_source_id: The ID of the data source being synced
         knowledge_graph_id: The knowledge graph this data source belongs to
         tenant_id: The tenant that owns this data source
-        occurred_at: When the event occurred
+        adapter_type: The type of adapter to use (e.g., "github")
+        connection_config: Key-value pairs for adapter configuration
+        credentials_path: Optional path to credentials in vault
+        occurred_at: When the sync was initiated
         requested_by: The user who requested the sync (if known)
     """
 
+    sync_run_id: str
     data_source_id: str
     knowledge_graph_id: str
     tenant_id: str
+    adapter_type: str
+    connection_config: dict[str, str]
     occurred_at: datetime
+    credentials_path: str | None = None
     requested_by: str | None = None

@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 from management.domain.events import (
     DataSourceCreated,
     DataSourceDeleted,
-    DataSourceSyncRequested,
     DataSourceUpdated,
+    SyncStarted,
 )
 from management.domain.exceptions import (
     AggregateDeletedError,
@@ -253,12 +253,20 @@ class DataSource:
             name=self.name,
         )
 
-    def request_sync(self, *, requested_by: str | None = None) -> None:
+    def request_sync(
+        self,
+        sync_run_id: str,
+        *,
+        requested_by: str | None = None,
+    ) -> None:
         """Request a sync for this data source.
 
-        Records a DataSourceSyncRequested event.
+        Records a SyncStarted event, which is the entry point into the
+        sync lifecycle state machine. The event carries all information
+        needed for the Ingestion context to start extracting data.
 
         Args:
+            sync_run_id: The ID of the sync run record created for this sync
             requested_by: The user who requested the sync (optional)
 
         Raises:
@@ -267,10 +275,14 @@ class DataSource:
         if self._deleted:
             raise AggregateDeletedError("Cannot request sync on a deleted data source")
         self._pending_events.append(
-            DataSourceSyncRequested(
+            SyncStarted(
+                sync_run_id=sync_run_id,
                 data_source_id=self.id.value,
                 knowledge_graph_id=self.knowledge_graph_id,
                 tenant_id=self.tenant_id,
+                adapter_type=self.adapter_type.value,
+                connection_config=dict(self.connection_config),
+                credentials_path=self.credentials_path,
                 occurred_at=datetime.now(UTC),
                 requested_by=requested_by,
             )

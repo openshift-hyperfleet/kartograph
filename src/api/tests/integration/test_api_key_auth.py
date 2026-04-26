@@ -695,8 +695,3 @@ class TestAPIKeyAuthorizationEnforcement:
         of the default tenant. The current test infrastructure only supports
         alice and bob, both of whom are tenant members.
         """
-        pytest.skip(
-            "Cannot test without a third non-member user — see @pytest.mark.skip decorator "
-            "for full rationale. Tenant membership enforcement is covered at the unit level "
-            "in tests/unit/iam/application/test_api_key_service.py."
-        )

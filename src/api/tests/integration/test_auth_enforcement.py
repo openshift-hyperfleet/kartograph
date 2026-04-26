@@ -82,9 +82,9 @@ class TestProtectedEndpointsRequireAuth:
 
     @pytest.mark.asyncio
     async def test_graph_mutations_returns_401_without_auth(self, async_client):
-        """POST /graph/knowledge-graphs/{id}/mutations should return 401 without auth."""
+        """POST /graph/mutations should return 401 without Authorization header."""
         response = await async_client.post(
-            "/graph/knowledge-graphs/kg-123/mutations",
+            "/graph/mutations",
             content='{"op": "CREATE", "type": "node"}',
             headers={"Content-Type": "application/jsonlines"},
         )

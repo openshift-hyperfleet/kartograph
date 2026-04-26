@@ -6,19 +6,23 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from iam.application.value_objects import CurrentUser
-from iam.dependencies.user import get_current_user
 from management.application.services.data_source_service import DataSourceService
 from management.dependencies.data_source import (
     get_data_source_service,
     get_sync_run_repository,
 )
-from management.ports.exceptions import UnauthorizedError
+from management.presentation.auth_bridge import CurrentUser, get_current_user
+from management.ports.exceptions import (
+    DuplicateDataSourceNameError,
+    KnowledgeGraphNotFoundError,
+    UnauthorizedError,
+)
 from management.ports.repositories import IDataSourceSyncRunRepository
 from management.presentation.data_sources.models import (
     CreateDataSourceRequest,
     DataSourceResponse,
     SyncRunResponse,
+    UpdateDataSourceRequest,
 )
 from shared_kernel.datasource_types import DataSourceAdapterType
 
@@ -95,6 +99,7 @@ async def create_data_source(
     Raises:
         HTTPException: 403 if user lacks EDIT permission on the KG
         HTTPException: 404 if KG not found
+        HTTPException: 409 if data source name already exists in the KG
         HTTPException: 500 for unexpected errors
     """
     try:
@@ -121,7 +126,12 @@ async def create_data_source(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to perform this action",
         )
-    except ValueError as e:
+    except DuplicateDataSourceNameError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except KnowledgeGraphNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
@@ -236,4 +246,164 @@ async def list_sync_runs(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to list sync runs",
+        )
+
+
+@router.get(
+    "/data-sources/{ds_id}",
+    status_code=status.HTTP_200_OK,
+)
+async def get_data_source(
+    ds_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+) -> DataSourceResponse:
+    """Get a data source by ID.
+
+    Returns 404 if the data source does not exist or if the user lacks
+    VIEW permission (to prevent existence leakage).
+
+    Args:
+        ds_id: Data Source ID (ULID format)
+        current_user: Current authenticated user with tenant context
+        service: Data source service for orchestration
+
+    Returns:
+        DataSourceResponse with DS details (never includes raw credentials)
+
+    Raises:
+        HTTPException: 404 if DS not found or user lacks VIEW permission
+        HTTPException: 500 for unexpected errors
+    """
+    try:
+        ds = await service.get(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+        )
+
+        if ds is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Data source not found",
+            )
+
+        return DataSourceResponse.from_domain(ds)
+
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve data source",
+        )
+
+
+@router.patch(
+    "/data-sources/{ds_id}",
+    status_code=status.HTTP_200_OK,
+)
+async def update_data_source(
+    ds_id: str,
+    request: UpdateDataSourceRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+) -> DataSourceResponse:
+    """Update a data source's configuration.
+
+    The current user must have EDIT permission on the data source.
+    All request fields are optional — only provided fields are updated.
+    The credentials_path is managed by the system and cannot be set directly.
+
+    Args:
+        ds_id: Data Source ID (ULID format)
+        request: Update request with optional name, connection_config, and credentials
+        current_user: Current authenticated user with tenant context
+        service: Data source service for orchestration
+
+    Returns:
+        DataSourceResponse with updated DS details
+
+    Raises:
+        HTTPException: 403 if user lacks EDIT permission on the DS
+        HTTPException: 404 if DS not found
+        HTTPException: 500 for unexpected errors
+    """
+    try:
+        ds = await service.update(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+            name=request.name,
+            connection_config=request.connection_config,
+            raw_credentials=request.credentials,
+        )
+        return DataSourceResponse.from_domain(ds)
+
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update data source",
+        )
+
+
+@router.delete(
+    "/data-sources/{ds_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_data_source(
+    ds_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+) -> None:
+    """Delete a data source.
+
+    The current user must have MANAGE permission on the data source.
+    The operation deletes encrypted credentials first, then removes the
+    data source record and cleans up authorization relationships (via outbox).
+
+    Args:
+        ds_id: Data Source ID (ULID format)
+        current_user: Current authenticated user with tenant context
+        service: Data source service for orchestration
+
+    Returns:
+        204 No Content on success
+
+    Raises:
+        HTTPException: 403 if user lacks MANAGE permission on the DS
+        HTTPException: 404 if DS not found
+        HTTPException: 500 for unexpected errors
+    """
+    try:
+        deleted = await service.delete(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+        )
+
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Data source not found",
+            )
+
+    except HTTPException:
+        raise
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete data source",
         )

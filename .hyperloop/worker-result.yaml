@@ -1,60 +1,59 @@
 ---
 verdict: pass
 ---
-## Implementation Summary — specs/ui/experience.spec.md
+## Implementation Summary — specs/management/knowledge-graphs.spec.md
 
-All 435 tests pass (`pnpm test --run` confirmed; 44 new tests added).
+All 2499 unit tests pass. The branch is fully rebased on alpha (8f13210e).
 
-The prior FAIL verdict identified two SHALL scenarios with zero test coverage.
-Both gaps have now been closed:
-
----
-
-### 1. Ontology Design — Individual type editing (data-sources.test.ts)
-
-Added 8 new `describe` blocks mirroring the exact logic from
-`pages/data-sources/index.vue` (lines 377–427):
-
-- **startEditNode**: Copies label, description, and comma-joined properties
-  into transient edit fields; sets `editing = true`.
-- **saveEditNode**: Applies trimmed `editLabel` (falls back to original if
-  blank), splits comma-separated `editRequired`/`editOptional` into arrays,
-  filters empty entries, sets `editing = false`. Also verifies exact property
-  requirement specification (e.g. `source_url` example from spec).
-- **cancelEditNode**: Sets `editing = false` without mutating label or
-  `required_properties`.
-- **removeNode**: Splices node at given index; first/middle/last positions
-  all tested.
-- **startEditEdge / saveEditEdge / cancelEditEdge / removeEdge**: Full
-  parallel coverage for edge types, including relationship type editing.
+All spec requirements are implemented and covered by tests.
 
 ---
 
-### 2. Query Console — Query editing (query-history.test.ts)
+### Spec Coverage
 
-Added 4 new `describe` blocks importing the actual CodeMirror extension
-factories from `app/lib/codemirror/lang-cypher/`:
+**Requirement: Knowledge Graph Creation** — COVERED
+- `test_create_checks_edit_permission_on_workspace`
+- `test_create_raises_unauthorized_when_permission_denied`
+- `test_create_saves_aggregate_via_repo`
+- `test_create_probes_success`
+- `test_create_raises_duplicate_on_integrity_error`
+- Route: `POST /management/workspaces/{ws_id}/knowledge-graphs` → 201/409/422
 
-- **cypher() — Cypher language extension**: Verifies `cypher()` returns a
-  `LanguageSupport` instance with a `.language` property named `"cypher"`.
-  Proves syntax highlighting is configured.
-- **cypherAutocomplete() — autocomplete extension**: Verifies the function
-  returns a non-null Extension with empty schema, and with node labels and
-  relationship types. Proves schema-aware autocomplete is wired.
-- **ageCypherLinter() — linter extension**: Verifies the function returns a
-  non-null Extension. Proves AGE compatibility linting is configured.
-- **staticExtensions composition**: Mirrors the `staticExtensions` array from
-  `query/index.vue` and verifies it includes both a `LanguageSupport` (cypher)
-  and a plain Extension (linter). Also verifies `cypherAutocomplete` produces
-  a new Extension per schema call, confirming the computed `cmExtensions`
-  pattern is sound.
+**Requirement: Knowledge Graph Name Validation** — COVERED
+- Domain aggregate enforces 1 ≤ len(name) ≤ 100
+- Pydantic models at presentation layer enforce min_length=1, max_length=100
+- Route tests for 422 on empty/oversized name
 
----
+**Requirement: Knowledge Graph Retrieval** — COVERED
+- `test_get_returns_aggregate_on_success` (200)
+- `test_get_returns_none_when_not_found` / `test_get_returns_none_when_permission_denied` (404, no leakage)
+- `test_get_returns_none_for_different_tenant`
 
-### Test counts
+**Requirement: Knowledge Graph Listing** — COVERED
+- `test_list_uses_read_relationships_to_discover_kgs`
+- `test_list_filters_by_tenant`
+- `test_list_all_returns_all_visible_kgs` / `test_list_all_filters_unauthorized_kgs`
 
-| File | Before | After | Added |
-|---|---|---|---|
-| data-sources.test.ts | 11 | 45 | 34 |
-| query-history.test.ts | 20 | 30 | 10 |
-| **Total** | **391** | **435** | **44** |
+**Requirement: Knowledge Graph Update** — COVERED
+- `test_update_calls_aggregate_update_and_saves`
+- `test_update_raises_duplicate_on_integrity_error`
+- Route: `PATCH /management/knowledge-graphs/{id}` → 200/409/422
+
+**Requirement: Knowledge Graph Deletion (including atomicity)** — COVERED
+- `test_delete_cascades_data_sources` (happy path cascade)
+- `test_delete_cascades_encrypted_credentials` (credential cleanup)
+- `test_delete_rolls_back_on_ds_deletion_failure` (ATOMICITY: KG not deleted when DS deletion fails)
+- Route: `DELETE /management/knowledge-graphs/{id}` → 204
+
+**Requirement: Permission Inheritance** — COVERED
+- SpiceDB schema defines workspace relation on knowledge_graph with
+  inherited view/edit/manage permissions
+- Integration tests verify workspace-inherited and direct grant paths
+
+### Previously Flagged Issue — RESOLVED
+
+The prior FAIL verdict (`FAIL-1`) cited missing atomicity rollback test.
+Alpha's version of the test file (`test_delete_rolls_back_on_ds_deletion_failure`)
+is present and comprehensive — it verifies:
+- First DS deletion can succeed while second raises `RuntimeError("DB failure")`
+- `kg_repo.delete` is NEVER called, confirming no partial state

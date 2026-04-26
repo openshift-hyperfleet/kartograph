@@ -1,0 +1,99 @@
+verdict: pass
+spec: specs/shared-kernel/tenant-context.spec.md
+spec_ref: ded09d09b3de73d6ed9527214fcd081069a55630
+audited_at: 2026-04-25
+
+summary: >
+  All 13 scenarios across the 3 spec requirements are faithfully implemented.
+  No gaps, no prohibited behaviors, no missing edge cases.
+
+requirements:
+  - requirement: Multi-Tenant Header Resolution
+    status: pass
+    scenarios:
+      - scenario: Valid header
+        status: pass
+        evidence: >
+          src/api/iam/dependencies/tenant_context.py lines 137-183 — validates
+          ULID, checks SpiceDB view permission, returns TenantContext.
+      - scenario: Missing header (multi-tenant mode)
+        status: pass
+        evidence: >
+          src/api/iam/dependencies/tenant_context.py lines 117-135 — raises
+          HTTP 400 "X-Tenant-ID header is required".
+      - scenario: Invalid ULID format
+        status: pass
+        evidence: >
+          src/api/iam/dependencies/tenant_context.py lines 40-56, 137-148 —
+          _validate_ulid() parses with ULID.from_str(); ValueError -> HTTP 400.
+      - scenario: ULID case insensitivity
+        status: pass
+        evidence: >
+          src/api/iam/dependencies/tenant_context.py line 55 —
+          ULID.from_str(raw_value.upper()) normalizes to uppercase before
+          validation; request proceeds with canonical form.
+      - scenario: Unauthorized tenant access
+        status: pass
+        evidence: >
+          src/api/iam/dependencies/tenant_context.py lines 150-173 — SpiceDB
+          permission check; no view permission -> HTTP 403.
+
+  - requirement: Single-Tenant Auto-Selection
+    status: pass
+    scenarios:
+      - scenario: Auto-select default tenant
+        status: pass
+        evidence: >
+          src/api/iam/dependencies/tenant_context.py lines 186-235 — when
+          header absent and single_tenant_mode=True, calls
+          _resolve_default_tenant() which looks up tenant by default_tenant_name
+          from settings; TenantContext returned with source="default".
+      - scenario: Auto-provision member access
+        status: pass
+        evidence: >
+          src/api/iam/dependencies/tenant_context.py lines 252-300 — user
+          lacking view permission is auto-added via tenant.add_member() with
+          TenantRole.MEMBER; saved and committed.
+      - scenario: Bootstrap admin auto-provision
+        status: pass
+        evidence: >
+          src/api/iam/dependencies/tenant_context.py lines 267-271 — checks
+          bootstrap_admin_usernames list; matching username yields
+          TenantRole.ADMIN instead of MEMBER.
+      - scenario: Default tenant missing
+        status: pass
+        evidence: >
+          src/api/iam/dependencies/tenant_context.py lines 227-235 —
+          get_by_name() returning None -> HTTP 500 "Default tenant not found.
+          Ensure application startup completed successfully."
+
+  - requirement: MCP Authentication
+    status: pass
+    scenarios:
+      - scenario: API key authentication
+        status: pass
+        evidence: >
+          src/api/shared_kernel/middleware/mcp_api_key_auth.py lines 169-197 —
+          X-API-Key header extracted and validated via APIKeyService;
+          MCPAuthContext(user_id, tenant_id, api_key_id) set in ContextVar;
+          tenant resolved from key's own scope (no X-Tenant-ID header needed).
+      - scenario: Bearer token fallback
+        status: pass
+        evidence: >
+          src/api/shared_kernel/middleware/mcp_api_key_auth.py lines 202-245
+          and src/api/infrastructure/mcp_dependencies.py lines 187-247 — API
+          key tried first (line 134); Bearer path validates JWT then resolves
+          tenant from X-Tenant-ID header (or single-tenant auto-select).
+      - scenario: Authentication failure
+        status: pass
+        evidence: >
+          src/api/shared_kernel/middleware/mcp_api_key_auth.py lines 161-163,
+          182-185, 230-233 — missing credentials -> 401; invalid API key ->
+          401; invalid Bearer -> 401.
+      - scenario: Service unavailability
+        status: pass
+        evidence: >
+          src/api/shared_kernel/middleware/mcp_api_key_auth.py lines 173-180,
+          221-228 — exceptions raised by validate_api_key() or
+          validate_bearer_token() are caught and mapped to HTTP 503
+          "Authentication service temporarily unavailable".

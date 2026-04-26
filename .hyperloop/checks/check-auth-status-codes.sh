@@ -31,6 +31,7 @@ MATCHES=$(grep -rn "status_code == 403\|status_code==403\|assert.*403" \
   --include="*auth*" \
   --include="*permission*" \
   --include="*access*" \
+  --exclude-dir=.venv \
   "$INTEGRATION_DIR" 2>/dev/null || true)
 
 if [[ -z "$MATCHES" ]]; then

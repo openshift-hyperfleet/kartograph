@@ -64,7 +64,7 @@ existing_scripts=$(find "$CHECKS_DIR" -name "*.sh" 2>/dev/null | sort || true)
 for script in $existing_scripts; do
   # Only flag scripts that use grep with include patterns (search-type scripts)
   if grep -q -- '--include=' "$script" 2>/dev/null; then
-    if ! grep -q -- '--exclude-dir=.venv' "$script" 2>/dev/null; then
+    if ! grep -qE -- '--exclude-dir=.?.venv' "$script" 2>/dev/null; then
       sabotaged_scripts="${sabotaged_scripts}  $script\n"
     fi
   fi

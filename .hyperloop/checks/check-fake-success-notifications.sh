@@ -58,7 +58,6 @@ API_CALL_PATTERNS=(
 echo "=== Scanning for fake success notifications (success toast + no API call) ==="
 
 found=0
-declare -A seen_files=()
 
 for success_pattern in "${SUCCESS_PATTERNS[@]}"; do
   # Find files that contain a success notification
@@ -68,15 +67,10 @@ for success_pattern in "${SUCCESS_PATTERNS[@]}"; do
     --exclude-dir=node_modules \
     --exclude-dir=".nuxt" \
     --exclude-dir=dist \
+    --exclude-dir=.venv \
     -E "$success_pattern" "$UI_SOURCE_DIR" 2>/dev/null || true)
 
   for file in $success_files; do
-    # Deduplicate: a file matching multiple patterns is processed only once
-    if [[ -n "${seen_files[$file]:-}" ]]; then
-      continue
-    fi
-    seen_files["$file"]=1
-
     # Skip test files — mocked toasts in tests are expected
     if [[ "$file" == *".test."* ]] || [[ "$file" == *".spec."* ]]; then
       continue

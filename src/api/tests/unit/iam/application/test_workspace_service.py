@@ -26,8 +26,6 @@ from iam.domain.value_objects import (
 from iam.ports.exceptions import (
     CannotDeleteRootWorkspaceError,
     DuplicateWorkspaceNameError,
-    ParentWorkspaceCrossTenantError,
-    ParentWorkspaceNotFoundError,
     UnauthorizedError,
     WorkspaceHasChildrenError,
 )
@@ -199,8 +197,8 @@ class TestCreateWorkspace:
 
         nonexistent_parent_id = WorkspaceId.generate()
 
-        # Call and Assert: Should raise ParentWorkspaceNotFoundError
-        with pytest.raises(ParentWorkspaceNotFoundError):
+        # Call and Assert: Should raise ValueError mentioning parent workspace
+        with pytest.raises(ValueError, match="parent workspace"):
             await workspace_service.create_workspace(
                 name="Engineering",
                 parent_workspace_id=nonexistent_parent_id,
@@ -230,8 +228,8 @@ class TestCreateWorkspace:
         mock_workspace_repository.get_by_name = AsyncMock(return_value=None)
         mock_workspace_repository.get_by_id = AsyncMock(return_value=other_tenant_root)
 
-        # Call and Assert: Should raise ParentWorkspaceCrossTenantError
-        with pytest.raises(ParentWorkspaceCrossTenantError):
+        # Call and Assert: Should raise ValueError mentioning different tenant
+        with pytest.raises(ValueError, match="different tenant"):
             await workspace_service.create_workspace(
                 name="Engineering",
                 parent_workspace_id=other_tenant_root.id,

@@ -47,9 +47,8 @@ describe('Knowledge Graph Creation - Validation', () => {
 })
 
 describe('Knowledge Graph Creation - API call', () => {
-  it('calls POST /management/workspaces/{workspaceId}/knowledge-graphs with name and description', async () => {
+  it('calls POST /management/knowledge-graphs with name and description', async () => {
     const apiFetch = vi.fn().mockResolvedValue({ id: 'kg-new', name: 'Test Graph' })
-    const workspaceId = '01JT0000000000000000000002'
     const createName = { value: 'Test Graph' }
     const createDescription = { value: 'A test graph' }
     const creating = { value: false }
@@ -60,7 +59,7 @@ describe('Knowledge Graph Creation - API call', () => {
       if (!createName.value.trim()) return
       creating.value = true
       try {
-        await apiFetch(`/management/workspaces/${workspaceId}/knowledge-graphs`, {
+        await apiFetch('/management/knowledge-graphs', {
           method: 'POST',
           body: {
             name: createName.value.trim(),
@@ -76,13 +75,10 @@ describe('Knowledge Graph Creation - API call', () => {
 
     await handleCreate()
 
-    expect(apiFetch).toHaveBeenCalledWith(
-      `/management/workspaces/${workspaceId}/knowledge-graphs`,
-      {
-        method: 'POST',
-        body: { name: 'Test Graph', description: 'A test graph' },
-      },
-    )
+    expect(apiFetch).toHaveBeenCalledWith('/management/knowledge-graphs', {
+      method: 'POST',
+      body: { name: 'Test Graph', description: 'A test graph' },
+    })
     expect(toastMessage).toBe('Knowledge graph "Test Graph" created')
     expect(createDialogOpen.value).toBe(false)
     expect(creating.value).toBe(false)
@@ -90,7 +86,6 @@ describe('Knowledge Graph Creation - API call', () => {
 
   it('sets creating back to false on API error', async () => {
     const apiFetch = vi.fn().mockRejectedValue(new Error('Network error'))
-    const workspaceId = '01JT0000000000000000000002'
     const createName = { value: 'My Graph' }
     const creating = { value: false }
     let toastError = ''
@@ -99,10 +94,7 @@ describe('Knowledge Graph Creation - API call', () => {
       if (!createName.value.trim()) return
       creating.value = true
       try {
-        await apiFetch(`/management/workspaces/${workspaceId}/knowledge-graphs`, {
-          method: 'POST',
-          body: { name: 'My Graph' },
-        })
+        await apiFetch('/management/knowledge-graphs', { method: 'POST', body: { name: 'My Graph' } })
       } catch (err) {
         toastError = err instanceof Error ? err.message : 'Failed'
       } finally {

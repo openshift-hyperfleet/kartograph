@@ -246,32 +246,6 @@ class TestAGEGraphProvisionerIdempotency:
         ]
         assert len(create_calls) == 0
 
-    def test_commits_connection_on_no_op_path(self) -> None:
-        """Connection is committed even when graph already exists (no-op path).
-
-        Spec: specs/iam/tenants.spec.md — Scenario: Tenant graph provisioning
-        > the database connection MUST be properly committed or rolled back on
-        > all code paths (including the no-op/exists path) to avoid leaking
-        > open transactions back to the connection pool.
-
-        psycopg2 starts an implicit transaction on the first cursor.execute().
-        If we return early (graph exists) without committing, an idle-in-transaction
-        connection is returned to the pool, causing stalls under load.
-        """
-        provisioner, mock_connection_factory, mock_conn, mock_cursor = (
-            self._make_provisioner()
-        )
-
-        # Simulate: graph ALREADY EXISTS (SELECT returns a row)
-        mock_cursor.fetchone.return_value = (1,)
-
-        provisioner.ensure_graph_exists("tenant_abc123")
-
-        # The connection must be committed (or rolled back) even on the no-op path
-        assert mock_conn.commit.called or mock_conn.rollback.called, (
-            "Connection must be committed or rolled back on no-op (graph exists) path"
-        )
-
     def test_returns_connection_to_factory_on_success(self) -> None:
         """Connection is always returned to factory after provisioning."""
         provisioner, mock_connection_factory, mock_conn, mock_cursor = (

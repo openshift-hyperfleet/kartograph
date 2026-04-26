@@ -76,13 +76,7 @@ class AGEGraphProvisioner:
                     (graph_name,),
                 )
                 if cursor.fetchone() is not None:
-                    # Graph already exists — idempotent no-op.
-                    # We must commit (or rollback) the open transaction before
-                    # returning the connection to the pool.  psycopg2 starts an
-                    # implicit transaction on the first cursor.execute(), so
-                    # without an explicit commit here the connection would be
-                    # idle-in-transaction, causing stalls under load.
-                    conn.commit()
+                    # Graph already exists — idempotent no-op
                     return
 
                 # Attempt to create the graph

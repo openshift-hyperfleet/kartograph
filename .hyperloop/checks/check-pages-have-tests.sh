@@ -70,7 +70,8 @@ while IFS= read -r vue_file; do
   if [[ "$coverage_found" == "false" ]]; then
     if grep -ril "$domain" "$TESTS_DIR" \
         --include="*.test.ts" --include="*.test.js" \
-        --exclude-dir=node_modules 2>/dev/null | grep -q .; then
+        --exclude-dir=node_modules \
+        --exclude-dir=.venv 2>/dev/null | grep -q .; then
       coverage_found=true
     fi
   fi
@@ -79,7 +80,8 @@ while IFS= read -r vue_file; do
   if [[ "$coverage_found" == "false" && "$domain_singular" != "$domain" ]]; then
     if grep -ril "$domain_singular" "$TESTS_DIR" \
         --include="*.test.ts" --include="*.test.js" \
-        --exclude-dir=node_modules 2>/dev/null | grep -q .; then
+        --exclude-dir=node_modules \
+        --exclude-dir=.venv 2>/dev/null | grep -q .; then
       coverage_found=true
     fi
   fi

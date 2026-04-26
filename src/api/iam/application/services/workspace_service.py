@@ -27,8 +27,6 @@ from iam.ports.repositories import IGroupRepository, IUserRepository
 from iam.ports.exceptions import (
     CannotDeleteRootWorkspaceError,
     DuplicateWorkspaceNameError,
-    ParentWorkspaceCrossTenantError,
-    ParentWorkspaceNotFoundError,
     UnauthorizedError,
     WorkspaceHasChildrenError,
 )
@@ -126,10 +124,9 @@ class WorkspaceService:
             The created Workspace aggregate
 
         Raises:
-            UnauthorizedError: If user lacks CREATE_CHILD permission on parent
+            PermissionError: If user lacks CREATE_CHILD permission on parent
             DuplicateWorkspaceNameError: If workspace name already exists in tenant
-            ParentWorkspaceNotFoundError: If parent workspace does not exist
-            ParentWorkspaceCrossTenantError: If parent workspace belongs to a different tenant
+            ValueError: If parent workspace doesn't exist or belongs to different tenant
             Exception: If workspace creation fails
         """
         # Check user has CREATE_CHILD permission on parent (before transaction)
@@ -163,14 +160,16 @@ class WorkspaceService:
                 # Validate parent workspace exists
                 parent = await self._workspace_repository.get_by_id(parent_workspace_id)
                 if not parent:
-                    raise ParentWorkspaceNotFoundError(
-                        f"Parent workspace {parent_workspace_id.value} does not exist"
+                    raise ValueError(
+                        f"Parent workspace {parent_workspace_id.value} does not exist - "
+                        f"the parent workspace must exist before creating a child"
                     )
 
                 # Validate parent belongs to the scoped tenant
                 if parent.tenant_id != self._scope_to_tenant:
-                    raise ParentWorkspaceCrossTenantError(
-                        f"Parent workspace {parent_workspace_id.value} belongs to a different tenant"
+                    raise ValueError(
+                        "Parent workspace belongs to different tenant - "
+                        "cannot create child workspace across tenant boundaries"
                     )
 
                 # Create workspace using domain factory method
@@ -222,8 +221,6 @@ class WorkspaceService:
                 name=name,
                 error=f"Workspace '{name}' already exists in tenant",
             )
-            raise
-        except (ParentWorkspaceNotFoundError, ParentWorkspaceCrossTenantError):
             raise
         except ValueError:
             raise

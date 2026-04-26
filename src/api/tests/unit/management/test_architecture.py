@@ -227,26 +227,18 @@ class TestManagementBoundedContextIsolation:
         IAM manages authentication and authorization. Management should
         not couple to IAM's user, tenant, or API key domain objects.
 
-        Excluded modules (those that legitimately bridge authentication):
-        - management.dependencies: DI wiring that extracts CurrentUser from
-          IAM for tenant scoping (e.g., scope_to_tenant=current_user.tenant_id).
-        - management.presentation.auth_bridge: Single canonical bridge module
-          that re-exports IAM authentication primitives (CurrentUser,
-          get_current_user) for route handlers. All IAM coupling in the
-          presentation layer is channelled through this one file.
-        - Route files and packages: They have transitive IAM imports through
-          both auth_bridge and management.dependencies (pytest-archon checks
-          full transitive chains). Models (models.py) are NOT excluded and
-          remain subject to the isolation check — any accidental IAM import
-          there will still be caught.
-
-        Note: route models (models.py) are NOT excluded and remain subject
-        to the isolation check.
+        The management.dependencies package is excluded because DI wiring
+        is a presentation-layer concern that legitimately crosses context
+        boundaries (e.g., extracting CurrentUser from IAM for tenant scoping).
         """
         (
             archrule("management_no_iam")
             .match("management*")
             .exclude("management.dependencies*", "management.presentation*")
+            # management.dependencies legitimately imports IAM for DI wiring
+            # (tenant scoping via CurrentUser); management.presentation legitimately
+            # imports IAM for auth DI wiring (get_current_user dependency injection).
+            # Both are acceptable cross-context boundaries for authentication.
             .should_not_import("iam*")
             .check("management")
         )

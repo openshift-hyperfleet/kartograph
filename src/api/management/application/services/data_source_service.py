@@ -454,8 +454,10 @@ class DataSourceService:
             )
             await self._sync_run_repo.save(sync_run)
 
-            # Record sync requested event on the data source aggregate
-            ds.request_sync(requested_by=user_id)
+            # Record SyncStarted event on the data source aggregate.
+            # This event carries the sync_run_id so lifecycle handlers
+            # can update the correct sync run record.
+            ds.request_sync(sync_run_id=sync_run.id, requested_by=user_id)
             await self._ds_repo.save(ds)
 
         self._probe.sync_requested(ds_id=ds_id)

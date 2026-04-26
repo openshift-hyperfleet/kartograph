@@ -15,12 +15,12 @@ from typing import Any, Callable, get_args
 from management.domain.events import (
     DataSourceCreated,
     DataSourceDeleted,
-    DataSourceSyncRequested,
     DataSourceUpdated,
     DomainEvent,
     KnowledgeGraphCreated,
     KnowledgeGraphDeleted,
     KnowledgeGraphUpdated,
+    SyncStarted,
 )
 from shared_kernel.authorization.types import RelationType, ResourceType
 from shared_kernel.outbox.operations import (
@@ -58,7 +58,7 @@ class ManagementEventTranslator:
             DataSourceCreated: self._translate_data_source_created,
             DataSourceUpdated: self._translate_data_source_updated,
             DataSourceDeleted: self._translate_data_source_deleted,
-            DataSourceSyncRequested: self._translate_data_source_sync_requested,
+            SyncStarted: self._translate_sync_started,
         }
 
         # Validate all domain events have handlers
@@ -282,14 +282,14 @@ class ManagementEventTranslator:
             ),
         ]
 
-    def _translate_data_source_sync_requested(
+    def _translate_sync_started(
         self,
         payload: dict[str, Any],
     ) -> list[SpiceDBOperation]:
-        """Translate DataSourceSyncRequested - no SpiceDB changes needed.
+        """Translate SyncStarted - no SpiceDB changes needed.
 
-        Sync requests do not affect authorization relationships. This event
-        exists for consumption by the Ingestion bounded context to trigger
-        data source synchronization workflows.
+        Sync lifecycle events do not affect authorization relationships.
+        This event is consumed by the Ingestion context to trigger the
+        data extraction pipeline.
         """
         return []

@@ -1,81 +1,165 @@
 ---
-verdict: pass
+verdict: fail
 ---
-The UI experience spec (specs/ui/experience.spec.md) is fully implemented in
-src/dev-ui with 391 passing tests across 15 test files. All spec requirements
-are covered:
+## Spec Alignment Review — specs/ui/experience.spec.md
 
-**Navigation Structure** — default.vue implements a sidebar with four groups
-(Explore: Query Console, Schema Browser, Graph Explorer; Data: Knowledge Graphs,
-Data Sources; Connect: API Keys, MCP Integration; Settings: Workspaces, Groups,
-Tenants). index.vue implements returning-user and new-user landing logic based on
-sessionStorage presence.
+All 391 tests pass (`pnpm test --run` confirmed). The UI implementation is
+substantial and covers most requirements. However, two SHALL scenarios lack
+test coverage, resulting in a FAIL verdict.
 
-**Tenant and Workspace Context** — Tenant selector with multi-tenant switching is
-present in default.vue (useTenant composable). Workspace guidance is rendered
-when no workspace exists.
+---
 
-**Knowledge Graph Creation** — knowledge-graphs/index.vue provides a creation
-form (name + description) scoped to the current workspace with a prompt to add
-the first data source after creation.
+## Requirement-by-Requirement Findings
 
-**Data Source Connection** — data-sources/index.vue implements a multi-step
-wizard: (1) adapter type selection, (2) adapter-specific form (GitHub: repo URL,
-access token, name auto-inferred), (3) credentials sent to server only, never
-persisted in browser state.
+### Requirement: Navigation Structure — COVERED
+- Code: `app/layouts/default.vue` defines four nav sections (Explore, Data,
+  Connect, Settings) matching the spec exactly (lines 213–244).
+- Tests: `app/tests/index.test.ts` covers returning-user vs. new-user landing
+  session storage logic. The redirect on first session load (returning user →
+  `/query`) is implemented via `localStorage.getItem('kartograph:query-history')`
+  in `onMounted`. Tests are thin but present.
 
-**Ontology Design** — data-sources/index.vue implements intent description
-(free-text), agent-proposed ontology display, node/edge type editing (label,
-description, required/optional properties, relationships), approval gate, and a
-re-extraction confirmation dialog for post-extraction ontology changes.
+### Requirement: Tenant and Workspace Context — COVERED
+- Code: `default.vue` has multi-tenant dropdown (`isMultiTenant` computed, tenant
+  switch handler) and workspace guidance toast fired from `watch(currentTenantId)`.
+- Tests: workspace guidance covered in `knowledge-graphs.test.ts` and
+  `interaction-principles.test.ts` indirectly; tenant switching covered in
+  `mcp-integration.test.ts` (tenant version watcher clears key).
 
-**Sync Monitoring** — data-sources/index.vue and knowledge-graphs/index.vue
-implement active sync status (ingesting/extracting/applying), sync history with
-timestamps and duration, sync log streaming, and manual sync trigger.
+### Requirement: Knowledge Graph Creation — COVERED
+- Code: `pages/knowledge-graphs/index.vue` — create dialog with name + description
+  fields, scoped to current tenant, shows add-datasource prompt after creation.
+- Tests: `knowledge-graphs.test.ts` — validation, POST API call, error handling,
+  list loading all covered.
 
-**MCP Connection** — integrate/mcp.vue shows inline API key creation when none
-exist, ready-to-paste claude mcp add snippet with copy button, and secret shown
-once (newlyCreatedKey cleared on dismiss).
+### Requirement: Data Source Connection — COVERED
+- Code: `pages/data-sources/index.vue` — 4-step wizard: adapter selection →
+  connection config (GitHub: repo URL + token, name auto-inferred from URL) →
+  intent → ontology. Token cleared after save (`connToken.value = ''`).
+- Tests: `data-sources.test.ts` — step navigation, form validation, URL-to-name
+  inference, token visibility toggle all covered. Credential handling (plaintext
+  not persisted) is enforced by implementation pattern (no localStorage write of
+  token) but not explicitly tested.
 
-**Query Console** — query/index.vue provides a Cypher editor with syntax
-highlighting (CodeMirror), Ctrl/Cmd+Enter execution, result table with row count
-and execution time, query history panel, and per-KG scope selector.
+### Requirement: Ontology Design — PARTIAL → FAIL
 
-**Schema Browser** — graph/schema.vue lists node and edge types with search,
-expands to show description/required/optional properties, and offers cross-
-navigation to query console, graph explorer, and ontology editor.
+#### Scenario: Intent description — COVERED
+- Code: `data-sources/index.vue` step 3.
+- Tests: `data-sources.test.ts` "Intent Step" describe block.
 
-**Graph Explorer** — graph/explorer.vue supports node search by type/name/slug,
-card display with properties, and neighbor traversal building an exploration trail.
+#### Scenario: Agent-proposed ontology — COVERED (simulation)
+- Code: `simulateGithubOntologyProposal()` runs a 1500 ms delay then populates
+  `proposedNodes` / `proposedEdges` with a realistic GitHub proposal.
+- Tests: `data-sources.test.ts` "advances to ontology step when intent is
+  provided" verifies `scanningOntology` becomes `true`.
 
-**API Key Management** — api-keys/index.vue: create with name+expiration (secret
-shown once), list with status (active/expired/revoked), creation date, last used,
-expiration, and revocation action.
+#### Scenario: Ontology review and approval — COVERED
+- Code: approve button calls `approveOntology()`.
+- Tests: `data-sources.test.ts` "requires knowledge graph selection before
+  approval".
 
-**Workspace Management** — workspaces/index.vue: create with name+parent,
-member management (add/remove/role-change for users and groups), inline rename,
-tree view with expand/collapse.
+#### Scenario: Individual type editing — MISSING TESTS
+- Code: `startEditNode`, `saveEditNode`, `cancelEditNode`, `removeNode`,
+  `startEditEdge`, `saveEditEdge`, `cancelEditEdge`, `removeEdge` are
+  implemented in `data-sources/index.vue` (lines 377–427).
+- Tests: ZERO tests exercise these functions. The spec says SHALL:
+  "THEN they can modify the label, description, required properties, and
+  optional properties AND they can add or remove relationship types AND they
+  can specify exact property requirements."
+  Tests must be added for: startEditNode mutating editLabel/editDescription/
+  editRequired/editOptional; saveEditNode applying edits back to the node;
+  cancelEditNode discarding edits; removeNode deleting from the array;
+  equivalent for edge types.
 
-**Design Language** — main.css defines OKLCH color tokens including primary amber
-(0.5768 0.2469 29.23 light / 0.6857 0.1560 17.57 dark), neutral grays,
-destructive coral, 5-chart palette, --radius: 0.625rem base with derived scales.
-Card uses shadow-sm + rounded-xl, Button uses shadow-xs + rounded-md. Typography
-uses text-sm body and text-[11px] uppercase tracking-wider section headers.
-Dependencies: shadcn/vue (Reka UI), Tailwind CSS, CVA, Lucide Vue Next.
+#### Scenario: Ontology change after initial extraction — COVERED
+- Code: `requestOntologyEdit` pattern in `knowledge-graphs/index.vue`.
+- Tests: `knowledge-graphs.test.ts` "Ontology Edit - Post-Extraction
+  Confirmation Gate" (5 tests).
 
-**Interaction Principles** — copy-to-clipboard with toast confirmation throughout;
-toast notifications on all create/update/delete operations; inline editing and
-side panels instead of separate edit pages; progressive disclosure via expand/
-sheet patterns; Ctrl/Cmd+Enter keyboard shortcut on query console; 3px ring focus
-indicator via outline-ring/50.
+### Requirement: Sync Monitoring — COVERED
+- Code: `data-sources/index.vue` shows sync run status, history, log sheet;
+  manual trigger calls POST `.../sync`.
+- Tests: `sync-monitoring-extended.test.ts` — phase labels, badge variants,
+  duration, history ordering, trigger API call.
+- Sync logs: `knowledge-graphs.test.ts` "Sync Logs - View Logs Toggle" and
+  "Sync Logs - Fetching log lines".
 
-**Responsive Design** — Sidebar hidden md:flex with transition-all, w-64/w-16
-collapsed toggle; mobile sheet overlay with hamburger button; workspace detail
-uses lg:grid-cols two-column on desktop, single-column sheet on mobile.
+### Requirement: Get Started Querying (MCP Connection) — COVERED
+- Code: `pages/integrate/mcp.vue` — inline key creation when no active keys;
+  copy-paste claude mcp add snippet; `newlyCreatedKey` cleared on tenant
+  change (secret shown once).
+- Tests: `mcp-integration.test.ts` — all three scenarios covered.
 
-**Dark Mode** — useColorMode composable toggles isDark, persists to localStorage
-('kartograph-color-mode'), applies/removes .dark class on documentElement; toggle
-button in header; system preference fallback.
+### Requirement: Query Console — PARTIAL → FAIL
 
-Test coverage: 15 test files map 1:1 to spec requirement groups, testing logic
-functions directly (no mocks for domain logic). All 391 tests pass.
+#### Scenario: Query editing — MISSING TESTS
+- Code: `pages/query/index.vue` uses CodeMirror with `cypher()` language,
+  `cypherAutocomplete()`, `ageCypherLinter()` extensions (lines 35–39).
+- Tests: ZERO tests verify that the editor provides Cypher syntax
+  highlighting, schema-aware autocomplete, or linting. The spec says SHALL.
+  At minimum, tests should verify the CodeMirror extensions array includes
+  the cypher language, autocomplete, and lint extensions. These modules are
+  importable pure functions in `app/lib/codemirror/lang-cypher/`.
+
+#### Scenario: Query execution — COVERED
+- Tests: `query-history.test.ts` — row count, execution timing logic.
+
+#### Scenario: Query history — COVERED
+- Tests: `query-history.test.ts` — add/deduplicate/trim/persist/restore.
+
+#### Scenario: Knowledge graph context — COVERED
+- Tests: `knowledge-graphs.test.ts` — `buildQueryGraphArgs` with and without
+  KG ID; selectedKgId → undefined gate tested.
+
+#### Scenario: Keyboard shortcut (Ctrl/Cmd+Enter) — COVERED
+- Tests: `query-history.test.ts` "keyboard shortcut Ctrl/Cmd+Enter".
+
+### Requirement: Schema Browser — COVERED
+- Code: `pages/graph/schema.vue`
+- Tests: `schema-browser.test.ts` — filtering, cross-navigation, type detail.
+
+### Requirement: Graph Explorer — COVERED
+- Code: `pages/graph/explorer.vue`
+- Tests: `graph-explorer.test.ts` — node search, neighbor traversal, trail.
+
+### Requirement: API Key Management — COVERED
+- Code: `pages/api-keys/index.vue`
+- Tests: `api-keys.test.ts` — create, list, revoke, status computation, secret
+  shown once.
+
+### Requirement: Workspace Management — COVERED
+- Code: `pages/workspaces/index.vue`
+- Tests: `workspace-management.test.ts` — create, member management, inline
+  rename, role changes.
+
+### Requirement: Design Language — COVERED
+- Code: `assets/css/main.css` — OKLCH tokens, radius, sidebar tokens; component
+  files for button/card.
+- Tests: `design-system.test.ts` + `design-language-extended.test.ts` — all
+  color values, radius scales, typography classes, elevation shadows, component
+  library dependencies verified against actual source files.
+
+### Requirement: Interaction Principles — COVERED
+- Tests: `interaction-principles.test.ts` — copy-to-clipboard, mutation feedback,
+  inline editing pattern, progressive disclosure, keyboard shortcuts.
+
+### Requirement: Responsive Design — COVERED
+- Tests: `responsive-design.test.ts` — sidebar collapse, mobile sheet, breakpoint
+  classes verified against actual layout file.
+
+### Requirement: Dark Mode — COVERED
+- Code: `composables/useColorMode.ts` — toggle, localStorage persistence, class
+  on `documentElement`.
+- Tests: `color-mode.test.ts`.
+
+---
+
+## Summary of PARTIAL / MISSING
+
+| Requirement | Scenario | Status | What is needed |
+|---|---|---|---|
+| Ontology Design | Individual type editing | MISSING TESTS | Add tests for `startEditNode`, `saveEditNode`, `cancelEditNode`, `removeNode`, `startEditEdge`, `saveEditEdge`, `cancelEditEdge`, `removeEdge` — verifying label/description/property mutation and array removal |
+| Query Console | Query editing | MISSING TESTS | Add tests verifying the CodeMirror editor is configured with the cypher language extension, autocomplete extension, and lint extension (test the `extensions` array construction or the composable that builds it) |
+
+Both are SHALL requirements. Until these two scenarios have test coverage, the
+verdict is FAIL.

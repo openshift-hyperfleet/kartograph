@@ -1,4 +1,4 @@
-"""Knowledge Graph presentation layer."""
+"""Knowledge graph presentation layer."""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 ---
-verdict: pass
+verdict: fail
 ---
 ## Worker Result — task-012 (specs/ingestion/adapters.spec.md)
 

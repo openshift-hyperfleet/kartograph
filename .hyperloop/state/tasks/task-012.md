@@ -7,9 +7,9 @@ phase: implement
 deps:
 - task-001
 - task-009
-round: 0
+round: 1
 branch: hyperloop/task-012
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/484
 pr_title: null
 pr_description: null
 ---

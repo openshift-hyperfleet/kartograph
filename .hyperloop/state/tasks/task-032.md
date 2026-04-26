@@ -3,9 +3,9 @@ id: task-032
 title: Enforce last-admin protection in group member management
 spec_ref: specs/iam/groups.spec.md@b46589a2
 status: in_progress
-phase: merge
+phase: implement
 deps: []
-round: 9
+round: 10
 branch: hyperloop/task-032
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/476
 pr_title: null

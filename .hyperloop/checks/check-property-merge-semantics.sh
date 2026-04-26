@@ -13,9 +13,13 @@
 #       (t.properties::text)::jsonb || (s.properties::text)::jsonb
 #   )::text::ag_catalog.agtype
 #
-# The check looks at every Python file that contains "SET properties" and
-# verifies that each occurrence is accompanied by "||" within 300 characters
+# The check looks at every production Python file that contains "SET properties"
+# and verifies that each occurrence is accompanied by "||" within 300 characters
 # (covering both single-line and short multi-line SQL strings).
+#
+# Test files are excluded: docstrings in test files legitimately document
+# anti-patterns (to explain what the test guards against) and would produce
+# false positives.  Production SQL should only live in source, not tests.
 #
 # Usage:
 #   ./check-property-merge-semantics.sh [src_dir]
@@ -76,6 +80,7 @@ done < <(grep -rl "SET properties" "$SRC" \
              --include="*.py" \
              --exclude-dir=.venv \
              --exclude-dir=__pycache__ \
+             --exclude-dir=tests \
          2>/dev/null || true)
 
 echo ""

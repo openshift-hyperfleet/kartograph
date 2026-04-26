@@ -11,6 +11,15 @@
 # onto alpha — the result is a 3-way conflict loop that requires a full branch
 # abandon. This is the failure pattern observed in task-003 (rounds 0 and 9).
 #
+# THE TWO FIX DIRECTIONS:
+#
+#   ADDED on branch (not on alpha)  → strip from history via interactive rebase
+#   DELETED from alpha on branch    → restore the file to match alpha's version
+#   MODIFIED on branch vs alpha     → strip the modification from history
+#
+# Applying only one direction's fix while ignoring the other is PARTIAL.
+# After any fix, re-run this script and confirm exit 0 before proceeding.
+#
 # Usage:
 #   ./check-no-state-file-commits.sh [base_branch]
 #
@@ -51,6 +60,10 @@ if [[ -z "$state_files" ]]; then
   exit 0
 fi
 
+# Categorise by direction to give targeted fix instructions
+added_or_modified=$(git diff --name-only --diff-filter=AM "$MERGE_BASE" HEAD -- '.hyperloop/state/' 2>/dev/null || true)
+deleted_from_alpha=$(git diff --name-only --diff-filter=D  "$MERGE_BASE" HEAD -- '.hyperloop/state/' 2>/dev/null || true)
+
 echo ""
 echo "FAIL: The following .hyperloop/state/ files are present in branch commits:"
 echo ""
@@ -60,12 +73,64 @@ echo "State files (.hyperloop/state/**) are orchestrator-managed metadata and"
 echo "MUST NOT be committed to task branches. Their presence causes permanent"
 echo "merge conflicts when the branch is rebased or reset, requiring a full"
 echo "branch abandon."
+
+if [[ -n "$added_or_modified" ]]; then
+  echo ""
+  echo "── ADDED / MODIFIED on this branch (not present on $BASE_BRANCH) ──────────"
+  echo "$added_or_modified" | sed 's/^/  /'
+  CONTAMINATED_COUNT=$(echo "$added_or_modified" | wc -l | tr -d ' ')
+  echo ""
+  echo "  These files did NOT exist on $BASE_BRANCH. They were added by commits"
+  echo "  on this branch and must be REMOVED FROM HISTORY."
+  echo ""
+
+  if [[ "$CONTAMINATED_COUNT" -gt 5 ]]; then
+    echo "  PREFERRED FIX (${CONTAMINATED_COUNT} contaminated files — cherry-pick is safer than interactive rebase):"
+    echo ""
+    echo "  Step 1 — identify delivery commits (commits that do NOT touch .hyperloop/state/):"
+    echo "    git log --oneline \$(git merge-base HEAD $BASE_BRANCH)..HEAD -- ':!.hyperloop/state'"
+    echo ""
+    echo "  Step 2 — create a fresh branch from current $BASE_BRANCH and cherry-pick:"
+    echo "    git checkout $BASE_BRANCH"
+    echo "    git checkout -b hyperloop/task-NNN-clean"
+    echo "    git cherry-pick <delivery-sha> [<delivery-sha2> ...]"
+    echo ""
+    echo "  Step 3 — confirm clean:"
+    echo "    bash .hyperloop/checks/check-no-state-file-commits.sh"
+    echo "    bash .hyperloop/checks/check-branch-rebased-on-alpha.sh"
+    echo ""
+    echo "  ALTERNATIVE (fewer than 5 contaminated commits — interactive rebase):"
+  else
+    echo "  FIX:"
+  fi
+
+  echo ""
+  echo "  Step 1 — find the offending commits:"
+  echo "    git log --oneline --diff-filter=A,M -- '.hyperloop/state/**' \$(git merge-base HEAD $BASE_BRANCH)..HEAD"
+  echo ""
+  echo "  Step 2 — strip them via interactive rebase:"
+  echo "    git rebase -i \$(git merge-base HEAD $BASE_BRANCH)"
+  echo "    # For each offending commit, edit it and run:"
+  echo "    git restore --staged --worktree -- '.hyperloop/state/'"
+  echo "    git rebase --continue"
+  echo ""
+  echo "  Step 3 — verify the file no longer appears in any diff:"
+  echo "    git diff --name-only \$(git merge-base HEAD $BASE_BRANCH)..HEAD -- '.hyperloop/state/'"
+fi
+
+if [[ -n "$deleted_from_alpha" ]]; then
+  echo ""
+  echo "── DELETED from $BASE_BRANCH (existed on $BASE_BRANCH, removed on this branch) ──"
+  echo "$deleted_from_alpha" | sed 's/^/  /'
+  echo ""
+  echo "  These files EXIST on $BASE_BRANCH but were deleted by commits on this"
+  echo "  branch. They must be RESTORED to match $BASE_BRANCH:"
+  echo ""
+  echo "  git checkout $BASE_BRANCH -- <file>"
+  echo "  git commit -m 'chore: restore $BASE_BRANCH state files removed by branch commits'"
+fi
+
 echo ""
-echo "To fix:"
-echo "  1. Identify which commits added these files:"
-echo "     git log --oneline --diff-filter=A,M -- '.hyperloop/state/**'"
-echo "  2. Rewrite history to remove them, or reset the branch from alpha:"
-echo "     git checkout alpha && git checkout -b hyperloop/task-NNN-v2"
-echo "  3. Never add .hyperloop/state/ to your git staging area."
-echo "  4. Add '.hyperloop/state/' to .gitignore if not already present."
+echo "IMPORTANT: Fixing only one direction (added OR deleted) is PARTIAL."
+echo "After any fix, re-run this script and confirm PASS before proceeding."
 exit 1

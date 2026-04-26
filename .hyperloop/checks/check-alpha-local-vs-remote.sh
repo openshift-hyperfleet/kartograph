@@ -45,40 +45,6 @@ AHEAD=$(git rev-list --count origin/alpha..alpha 2>/dev/null || echo "0")
 BEHIND=$(git rev-list --count alpha..origin/alpha 2>/dev/null || echo "0")
 
 if [[ "$AHEAD" -gt 5 ]]; then
-  # Before failing, check whether the task branch is ALREADY rebased on local alpha
-  # (within the same tolerance window as check-branch-rebased-on-alpha.sh, i.e. ≤5
-  # commits behind).
-  #
-  # WHY: check-alpha-local-vs-remote.sh is a preemptive warning that fires when local
-  # alpha is significantly ahead of origin/alpha, so implementers know to use
-  # 'git rebase alpha' instead of 'git rebase origin/alpha'. But once the task branch
-  # IS correctly rebased on local alpha, the local/remote divergence is harmless —
-  # origin/alpha being stale is normal orchestrator behavior and does not affect the
-  # branch. Continuing to exit 1 in this case causes a false positive that blocks
-  # every verification round even when the implementer did everything correctly.
-  #
-  # FIX: Compare the number of commits the task branch is behind LOCAL alpha (not
-  # origin/alpha). If the branch is within 5 commits of local alpha (the same
-  # threshold used by check-branch-rebased-on-alpha.sh), the branch is current
-  # enough and the local/remote divergence is irrelevant.
-  BRANCH_MERGE_BASE=$(git merge-base HEAD alpha 2>/dev/null || echo "")
-  BRANCH_BEHIND_ALPHA=9999
-  if [[ -n "$BRANCH_MERGE_BASE" ]]; then
-    BRANCH_BEHIND_ALPHA=$(git rev-list --count "${BRANCH_MERGE_BASE}..${LOCAL_REF#refs/heads/}" 2>/dev/null || echo "9999")
-  fi
-  if [[ "$BRANCH_BEHIND_ALPHA" -le 5 ]]; then
-    echo "INFO: Local 'alpha' is ${AHEAD} commit(s) ahead of 'origin/alpha', but the"
-    echo "      task branch is within ${BRANCH_BEHIND_ALPHA} commit(s) of local alpha"
-    echo "      (≤5 threshold — same as check-branch-rebased-on-alpha.sh)."
-    echo "      The local/remote divergence is expected orchestrator behavior and is"
-    echo "      harmless on this branch."
-    echo ""
-    echo "      Always use 'git rebase alpha' (not 'git rebase origin/alpha') for any"
-    echo "      future rebases on this or other task branches."
-    exit 0
-  fi
-
-  # Branch is NOT yet on local alpha — the divergence matters.
   echo "ALPHA DIVERGENCE: Local 'alpha' is ${AHEAD} commit(s) ahead of 'origin/alpha'."
   echo ""
   echo "  Local  alpha: ${LOCAL_SHA}"

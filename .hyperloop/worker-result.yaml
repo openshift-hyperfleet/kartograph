@@ -1,0 +1,60 @@
+---
+verdict: pass
+---
+## Implementation Summary — specs/ui/experience.spec.md
+
+All 435 tests pass (`pnpm test --run` confirmed; 44 new tests added).
+
+The prior FAIL verdict identified two SHALL scenarios with zero test coverage.
+Both gaps have now been closed:
+
+---
+
+### 1. Ontology Design — Individual type editing (data-sources.test.ts)
+
+Added 8 new `describe` blocks mirroring the exact logic from
+`pages/data-sources/index.vue` (lines 377–427):
+
+- **startEditNode**: Copies label, description, and comma-joined properties
+  into transient edit fields; sets `editing = true`.
+- **saveEditNode**: Applies trimmed `editLabel` (falls back to original if
+  blank), splits comma-separated `editRequired`/`editOptional` into arrays,
+  filters empty entries, sets `editing = false`. Also verifies exact property
+  requirement specification (e.g. `source_url` example from spec).
+- **cancelEditNode**: Sets `editing = false` without mutating label or
+  `required_properties`.
+- **removeNode**: Splices node at given index; first/middle/last positions
+  all tested.
+- **startEditEdge / saveEditEdge / cancelEditEdge / removeEdge**: Full
+  parallel coverage for edge types, including relationship type editing.
+
+---
+
+### 2. Query Console — Query editing (query-history.test.ts)
+
+Added 4 new `describe` blocks importing the actual CodeMirror extension
+factories from `app/lib/codemirror/lang-cypher/`:
+
+- **cypher() — Cypher language extension**: Verifies `cypher()` returns a
+  `LanguageSupport` instance with a `.language` property named `"cypher"`.
+  Proves syntax highlighting is configured.
+- **cypherAutocomplete() — autocomplete extension**: Verifies the function
+  returns a non-null Extension with empty schema, and with node labels and
+  relationship types. Proves schema-aware autocomplete is wired.
+- **ageCypherLinter() — linter extension**: Verifies the function returns a
+  non-null Extension. Proves AGE compatibility linting is configured.
+- **staticExtensions composition**: Mirrors the `staticExtensions` array from
+  `query/index.vue` and verifies it includes both a `LanguageSupport` (cypher)
+  and a plain Extension (linter). Also verifies `cypherAutocomplete` produces
+  a new Extension per schema call, confirming the computed `cmExtensions`
+  pattern is sound.
+
+---
+
+### Test counts
+
+| File | Before | After | Added |
+|---|---|---|---|
+| data-sources.test.ts | 11 | 45 | 34 |
+| query-history.test.ts | 20 | 30 | 10 |
+| **Total** | **391** | **435** | **44** |

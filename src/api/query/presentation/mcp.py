@@ -189,11 +189,12 @@ def fetch_documentation_source(
             source_url: str | None = None
             raw_url: str | None = None
 
-    Example:
-        Fetch the full AsciiDoc source for a DocumentationModule whose
-        ``view_uri`` was returned by a prior ``query_graph`` call.  The
-        ``content`` field of the response contains the full document text
-        starting from its title line.
+    Examples:
+        # Get full content for a DocumentationModule
+        details = query_graph("MATCH (d:DocumentationModule {slug: 'abi-c3-resources-services'}) RETURN properties(d)")
+        view_uri = details["rows"][0]["view_uri"]
+        source = fetch_documentation_source(view_uri)
+        print(source["content"])  # Full AsciiDoc content starting from title
     """
 
     headers = get_http_headers()

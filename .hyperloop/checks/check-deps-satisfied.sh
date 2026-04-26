@@ -4,6 +4,15 @@
 # Reads the task state file for the current task branch and verifies that
 # every task listed in `deps:` has `status: done`.
 #
+# SECONDARY CHECK (stale-state detection):
+#   If a dep's state file says anything other than "done", this script also
+#   checks whether the dep's branch (origin/hyperloop/<dep>) is already an
+#   ancestor of alpha — i.e., its PR was merged into alpha even though the
+#   orchestrator hasn't updated the state file yet.  In that case the check
+#   emits a WARN line and exits 0 (satisfied), allowing implementation to
+#   proceed.  It does NOT exit 0 silently: the WARN line is captured by
+#   implementers and verifiers to flag the stale state to the orchestrator.
+#
 # WHY THIS EXISTS:
 #   "Agent future missing or failed" with branch: null is the signature of an
 #   agent that crashed during initialization — often because it attempted to
@@ -15,13 +24,20 @@
 #   crash (deps satisfied, re-assign) from a blocked task (deps not done,
 #   re-queue after dep completion).
 #
+#   However, the orchestrator state file can lag behind the git history: a
+#   dep's PR may be merged into alpha while its state still shows "in-progress".
+#   Without the secondary git-ancestry check, every agent spawned for the
+#   dependent task will block indefinitely — and if the agent's BLOCKED report
+#   itself fails to propagate, the orchestrator records "Agent future missing
+#   or failed" instead of BLOCKED, creating an unresolvable loop.
+#
 # Usage:
 #   bash .hyperloop/checks/check-deps-satisfied.sh [task-NNN]
 #
 #   If task-NNN is omitted, the script infers it from the current branch name.
 #
-# Exit 0  — all deps are done (or no deps listed).
-# Exit 1  — one or more deps are not done, or the task file cannot be read.
+# Exit 0  — all deps are done (or merged into alpha, or no deps listed).
+# Exit 1  — one or more deps are not done AND not merged into alpha.
 
 set -uo pipefail
 
@@ -76,6 +92,16 @@ if [[ -z "$ALL_DEPS" ]]; then
   exit 0
 fi
 
+# ── Detect base branch for ancestry check ────────────────────────────────────
+
+BASE_BRANCH=""
+for candidate in alpha main master; do
+  if git show-ref --verify --quiet "refs/heads/$candidate" 2>/dev/null; then
+    BASE_BRANCH="$candidate"
+    break
+  fi
+done
+
 # ── Check each dep ────────────────────────────────────────────────────────────
 
 FAILED=0
@@ -94,6 +120,36 @@ while IFS= read -r dep; do
 
   if [[ "$STATUS" == "done" ]]; then
     echo "OK: $dep is done."
+    continue
+  fi
+
+  # ── Secondary check: is the dep's branch merged into alpha? ──────────────
+  # This detects the "stale state file" pattern where a dep's PR was merged
+  # into alpha but the orchestrator hasn't updated the state file yet.
+
+  MERGED_INTO_BASE=0
+  if [[ -n "$BASE_BRANCH" ]]; then
+    DEP_BRANCH_REF=""
+    # Check remote first, then local
+    if git ls-remote --exit-code origin "hyperloop/${dep}" &>/dev/null; then
+      git fetch --quiet origin "hyperloop/${dep}" 2>/dev/null || true
+      DEP_BRANCH_REF="origin/hyperloop/${dep}"
+    elif git show-ref --verify --quiet "refs/heads/hyperloop/${dep}" 2>/dev/null; then
+      DEP_BRANCH_REF="hyperloop/${dep}"
+    fi
+
+    if [[ -n "$DEP_BRANCH_REF" ]]; then
+      if git merge-base --is-ancestor "$DEP_BRANCH_REF" "$BASE_BRANCH" 2>/dev/null; then
+        MERGED_INTO_BASE=1
+      fi
+    fi
+  fi
+
+  if [[ "$MERGED_INTO_BASE" -eq 1 ]]; then
+    echo "WARN: $dep state shows '$STATUS' but its branch is already merged into $BASE_BRANCH."
+    echo "      Orchestrator state file is stale — the dep's code is available in $BASE_BRANCH."
+    echo "      Treating as satisfied. Implementer/verifier: note this stale state in your report"
+    echo "      and recommend the orchestrator marks $dep as done."
   else
     echo "FAIL: $dep has status '$STATUS' — must be 'done' before $TASK_ID can be implemented."
     FAILED=1

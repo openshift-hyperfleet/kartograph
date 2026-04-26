@@ -1,0 +1,168 @@
+---
+task_id: task-015
+round: 2
+role: spec-reviewer
+verdict: fail
+---
+## Spec Alignment Review — specs/ui/experience.spec.md
+
+All 391 tests pass (`pnpm test --run` confirmed). The UI implementation is
+substantial and covers most requirements. However, two SHALL scenarios lack
+test coverage, resulting in a FAIL verdict.
+
+---
+
+## Requirement-by-Requirement Findings
+
+### Requirement: Navigation Structure — COVERED
+- Code: `app/layouts/default.vue` defines four nav sections (Explore, Data,
+  Connect, Settings) matching the spec exactly (lines 213–244).
+- Tests: `app/tests/index.test.ts` covers returning-user vs. new-user landing
+  session storage logic. The redirect on first session load (returning user →
+  `/query`) is implemented via `localStorage.getItem('kartograph:query-history')`
+  in `onMounted`. Tests are thin but present.
+
+### Requirement: Tenant and Workspace Context — COVERED
+- Code: `default.vue` has multi-tenant dropdown (`isMultiTenant` computed, tenant
+  switch handler) and workspace guidance toast fired from `watch(currentTenantId)`.
+- Tests: workspace guidance covered in `knowledge-graphs.test.ts` and
+  `interaction-principles.test.ts` indirectly; tenant switching covered in
+  `mcp-integration.test.ts` (tenant version watcher clears key).
+
+### Requirement: Knowledge Graph Creation — COVERED
+- Code: `pages/knowledge-graphs/index.vue` — create dialog with name + description
+  fields, scoped to current tenant, shows add-datasource prompt after creation.
+- Tests: `knowledge-graphs.test.ts` — validation, POST API call, error handling,
+  list loading all covered.
+
+### Requirement: Data Source Connection — COVERED
+- Code: `pages/data-sources/index.vue` — 4-step wizard: adapter selection →
+  connection config (GitHub: repo URL + token, name auto-inferred from URL) →
+  intent → ontology. Token cleared after save (`connToken.value = ''`).
+- Tests: `data-sources.test.ts` — step navigation, form validation, URL-to-name
+  inference, token visibility toggle all covered. Credential handling (plaintext
+  not persisted) is enforced by implementation pattern (no localStorage write of
+  token) but not explicitly tested.
+
+### Requirement: Ontology Design — PARTIAL → FAIL
+
+#### Scenario: Intent description — COVERED
+- Code: `data-sources/index.vue` step 3.
+- Tests: `data-sources.test.ts` "Intent Step" describe block.
+
+#### Scenario: Agent-proposed ontology — COVERED (simulation)
+- Code: `simulateGithubOntologyProposal()` runs a 1500 ms delay then populates
+  `proposedNodes` / `proposedEdges` with a realistic GitHub proposal.
+- Tests: `data-sources.test.ts` "advances to ontology step when intent is
+  provided" verifies `scanningOntology` becomes `true`.
+
+#### Scenario: Ontology review and approval — COVERED
+- Code: approve button calls `approveOntology()`.
+- Tests: `data-sources.test.ts` "requires knowledge graph selection before
+  approval".
+
+#### Scenario: Individual type editing — MISSING TESTS
+- Code: `startEditNode`, `saveEditNode`, `cancelEditNode`, `removeNode`,
+  `startEditEdge`, `saveEditEdge`, `cancelEditEdge`, `removeEdge` are
+  implemented in `data-sources/index.vue` (lines 377–427).
+- Tests: ZERO tests exercise these functions. The spec says SHALL:
+  "THEN they can modify the label, description, required properties, and
+  optional properties AND they can add or remove relationship types AND they
+  can specify exact property requirements."
+  Tests must be added for: startEditNode mutating editLabel/editDescription/
+  editRequired/editOptional; saveEditNode applying edits back to the node;
+  cancelEditNode discarding edits; removeNode deleting from the array;
+  equivalent for edge types.
+
+#### Scenario: Ontology change after initial extraction — COVERED
+- Code: `requestOntologyEdit` pattern in `knowledge-graphs/index.vue`.
+- Tests: `knowledge-graphs.test.ts` "Ontology Edit - Post-Extraction
+  Confirmation Gate" (5 tests).
+
+### Requirement: Sync Monitoring — COVERED
+- Code: `data-sources/index.vue` shows sync run status, history, log sheet;
+  manual trigger calls POST `.../sync`.
+- Tests: `sync-monitoring-extended.test.ts` — phase labels, badge variants,
+  duration, history ordering, trigger API call.
+- Sync logs: `knowledge-graphs.test.ts` "Sync Logs - View Logs Toggle" and
+  "Sync Logs - Fetching log lines".
+
+### Requirement: Get Started Querying (MCP Connection) — COVERED
+- Code: `pages/integrate/mcp.vue` — inline key creation when no active keys;
+  copy-paste claude mcp add snippet; `newlyCreatedKey` cleared on tenant
+  change (secret shown once).
+- Tests: `mcp-integration.test.ts` — all three scenarios covered.
+
+### Requirement: Query Console — PARTIAL → FAIL
+
+#### Scenario: Query editing — MISSING TESTS
+- Code: `pages/query/index.vue` uses CodeMirror with `cypher()` language,
+  `cypherAutocomplete()`, `ageCypherLinter()` extensions (lines 35–39).
+- Tests: ZERO tests verify that the editor provides Cypher syntax
+  highlighting, schema-aware autocomplete, or linting. The spec says SHALL.
+  At minimum, tests should verify the CodeMirror extensions array includes
+  the cypher language, autocomplete, and lint extensions. These modules are
+  importable pure functions in `app/lib/codemirror/lang-cypher/`.
+
+#### Scenario: Query execution — COVERED
+- Tests: `query-history.test.ts` — row count, execution timing logic.
+
+#### Scenario: Query history — COVERED
+- Tests: `query-history.test.ts` — add/deduplicate/trim/persist/restore.
+
+#### Scenario: Knowledge graph context — COVERED
+- Tests: `knowledge-graphs.test.ts` — `buildQueryGraphArgs` with and without
+  KG ID; selectedKgId → undefined gate tested.
+
+#### Scenario: Keyboard shortcut (Ctrl/Cmd+Enter) — COVERED
+- Tests: `query-history.test.ts` "keyboard shortcut Ctrl/Cmd+Enter".
+
+### Requirement: Schema Browser — COVERED
+- Code: `pages/graph/schema.vue`
+- Tests: `schema-browser.test.ts` — filtering, cross-navigation, type detail.
+
+### Requirement: Graph Explorer — COVERED
+- Code: `pages/graph/explorer.vue`
+- Tests: `graph-explorer.test.ts` — node search, neighbor traversal, trail.
+
+### Requirement: API Key Management — COVERED
+- Code: `pages/api-keys/index.vue`
+- Tests: `api-keys.test.ts` — create, list, revoke, status computation, secret
+  shown once.
+
+### Requirement: Workspace Management — COVERED
+- Code: `pages/workspaces/index.vue`
+- Tests: `workspace-management.test.ts` — create, member management, inline
+  rename, role changes.
+
+### Requirement: Design Language — COVERED
+- Code: `assets/css/main.css` — OKLCH tokens, radius, sidebar tokens; component
+  files for button/card.
+- Tests: `design-system.test.ts` + `design-language-extended.test.ts` — all
+  color values, radius scales, typography classes, elevation shadows, component
+  library dependencies verified against actual source files.
+
+### Requirement: Interaction Principles — COVERED
+- Tests: `interaction-principles.test.ts` — copy-to-clipboard, mutation feedback,
+  inline editing pattern, progressive disclosure, keyboard shortcuts.
+
+### Requirement: Responsive Design — COVERED
+- Tests: `responsive-design.test.ts` — sidebar collapse, mobile sheet, breakpoint
+  classes verified against actual layout file.
+
+### Requirement: Dark Mode — COVERED
+- Code: `composables/useColorMode.ts` — toggle, localStorage persistence, class
+  on `documentElement`.
+- Tests: `color-mode.test.ts`.
+
+---
+
+## Summary of PARTIAL / MISSING
+
+| Requirement | Scenario | Status | What is needed |
+|---|---|---|---|
+| Ontology Design | Individual type editing | MISSING TESTS | Add tests for `startEditNode`, `saveEditNode`, `cancelEditNode`, `removeNode`, `startEditEdge`, `saveEditEdge`, `cancelEditEdge`, `removeEdge` — verifying label/description/property mutation and array removal |
+| Query Console | Query editing | MISSING TESTS | Add tests verifying the CodeMirror editor is configured with the cypher language extension, autocomplete extension, and lint extension (test the `extensions` array construction or the composable that builds it) |
+
+Both are SHALL requirements. Until these two scenarios have test coverage, the
+verdict is FAIL.

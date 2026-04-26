@@ -19,6 +19,11 @@
 
 set -euo pipefail
 
+# Normalize CWD to repo root so git pathspecs work correctly.
+# Running from a subdirectory (e.g., .hyperloop/checks/) causes pathspecs like
+# 'src/' to silently match nothing and return false PASSes.
+cd "$(git rev-parse --show-toplevel)"
+
 BASE_BRANCH="${1:-}"
 SOURCE_DIR="${2:-src}"
 
@@ -83,24 +88,43 @@ for f in $changed_py_sources; do
   if ! git show "HEAD:$f" &>/dev/null 2>&1; then
     continue
   fi
+  # NOTE: sed uses '|' as delimiter (not '/') to handle file paths containing '/'.
+  # Using "s/^/  [$f] /" silently fails when $f contains '/' because sed
+  # interprets them as closing delimiters, leaving removed_defs empty (false PASS).
   removed_defs=$(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null \
     | grep '^-[^-]' \
-    | grep -E '^\-[[:space:]]*(async )?def [a-zA-Z_][a-zA-Z0-9_]*\(' \
+    | grep -E '^-[[:space:]]*(async )?def [a-zA-Z_][a-zA-Z0-9_]*\(' \
     | grep -v '__init__\|__repr__\|__str__\|__eq__\|__hash__\|__len__\|__bool__' \
-    | sed "s/^/  [$f] /" \
+    | sed "s|^|  [$f] |" \
     || true)
+
+  removed_classes=$(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null \
+    | grep '^-[^-]' \
+    | grep -E '^-[[:space:]]*class [A-Z][A-Za-z0-9_]*' \
+    | sed "s|^|  [$f] |" \
+    || true)
+
   if [[ -n "$removed_defs" ]]; then
     python_method_removals="${python_method_removals}${removed_defs}\n"
+  fi
+  if [[ -n "$removed_classes" ]]; then
+    python_method_removals="${python_method_removals}${removed_classes}\n"
   fi
 done
 
 if [[ -n "$python_method_removals" ]]; then
   echo ""
-  echo "--- Removed Python methods/functions in application source ---"
+  echo "--- Removed Python methods/functions/classes in application source ---"
   printf "%b" "$python_method_removals"
   echo ""
-  echo "  Each removed method must correspond to an explicit spec requirement."
-  echo "  If the spec does not mandate removal, restore the method."
+  echo "  Each removed method or class must correspond to an explicit spec requirement."
+  echo "  If the spec does not mandate removal, restore the definition."
+  echo ""
+  echo "  IMPORTANT: Removing a domain exception class (e.g. class FooNotFoundError)"
+  echo "  silently changes the HTTP status code callers receive (e.g. 404 → 400)"
+  echo "  because route handlers that caught the specific exception now fall through"
+  echo "  to the generic handler. This is a security regression when the status code"
+  echo "  leaks information about resource existence."
   found=$((found + 1))
 fi
 

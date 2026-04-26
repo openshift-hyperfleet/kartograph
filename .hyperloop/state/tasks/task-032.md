@@ -5,7 +5,7 @@ spec_ref: specs/iam/groups.spec.md@b46589a2
 status: in_progress
 phase: implement
 deps: []
-round: 5
+round: 6
 branch: hyperloop/task-032
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/476
 pr_title: null

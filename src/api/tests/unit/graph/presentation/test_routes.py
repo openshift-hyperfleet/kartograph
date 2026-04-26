@@ -123,6 +123,12 @@ class FakeGraphServiceProbe:
 
 
 @pytest.fixture
+def mock_query_service():
+    """Mock GraphQueryService for testing."""
+    return Mock()
+
+
+@pytest.fixture
 def mock_enclave_service():
     """Mock GraphSecureEnclaveService for testing (async methods)."""
     return AsyncMock()

@@ -540,7 +540,8 @@ class TestGraphMutationServiceApplyFromJSONL:
         assert result.success is False
         assert result.operations_applied == 0
         assert len(result.errors) > 0
-        assert "JSON" in result.errors[0] or "parse" in result.errors[0].lower()
+        assert "JSON" in result.errors[0]
+        assert "parse" in result.errors[0].lower()
 
     def test_returns_error_on_invalid_mutation_operation(self):
         """Should return error result for invalid MutationOperation."""

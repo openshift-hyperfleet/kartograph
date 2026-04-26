@@ -349,6 +349,93 @@ class TestDataSourceRequestSync:
             ds.request_sync()
 
 
+class TestDataSourceUpdateSchedule:
+    """Tests for DataSource.update_schedule() method."""
+
+    def _create_ds(self, **kwargs):
+        """Helper to create a DataSource and clear creation events."""
+        defaults = {
+            "knowledge_graph_id": "kg-123",
+            "tenant_id": "tenant-456",
+            "name": "Source",
+            "adapter_type": DataSourceAdapterType.GITHUB,
+            "connection_config": {},
+        }
+        defaults.update(kwargs)
+        ds = DataSource.create(**defaults)
+        ds.collect_events()
+        return ds
+
+    def test_update_schedule_changes_schedule(self):
+        """update_schedule() should update the schedule value object."""
+        ds = self._create_ds()
+        assert ds.schedule == Schedule(schedule_type=ScheduleType.MANUAL)
+        new_schedule = Schedule(schedule_type=ScheduleType.CRON, value="0 * * * *")
+        ds.update_schedule(new_schedule)
+        assert ds.schedule == new_schedule
+
+    def test_update_schedule_emits_data_source_updated_event(self):
+        """update_schedule() should emit a DataSourceUpdated event."""
+        ds = self._create_ds()
+        new_schedule = Schedule(schedule_type=ScheduleType.CRON, value="0 * * * *")
+        ds.update_schedule(new_schedule, updated_by="user-abc")
+        events = ds.collect_events()
+        assert len(events) == 1
+        event = events[0]
+        assert isinstance(event, DataSourceUpdated)
+        assert event.data_source_id == ds.id.value
+        assert event.updated_by == "user-abc"
+
+    def test_update_schedule_advances_updated_at(self):
+        """update_schedule() should advance the updated_at timestamp."""
+        ds = self._create_ds()
+        original_updated_at = ds.updated_at
+        new_schedule = Schedule(schedule_type=ScheduleType.INTERVAL, value="PT1H")
+        ds.update_schedule(new_schedule)
+        assert ds.updated_at >= original_updated_at
+
+    def test_update_schedule_calls_probe(self):
+        """update_schedule() should call the probe's updated method."""
+        probe = MagicMock(spec=DataSourceProbe)
+        ds = self._create_ds(probe=probe)
+        probe.reset_mock()
+        new_schedule = Schedule(schedule_type=ScheduleType.CRON, value="*/5 * * * *")
+        ds.update_schedule(new_schedule)
+        probe.updated.assert_called_once_with(
+            data_source_id=ds.id.value,
+            knowledge_graph_id=ds.knowledge_graph_id,
+            tenant_id=ds.tenant_id,
+            name=ds.name,
+        )
+
+    def test_update_schedule_raises_after_deletion(self):
+        """update_schedule() should raise AggregateDeletedError after mark_for_deletion()."""
+        ds = self._create_ds()
+        ds.mark_for_deletion()
+        ds.collect_events()
+        with pytest.raises(AggregateDeletedError):
+            ds.update_schedule(Schedule(schedule_type=ScheduleType.MANUAL))
+
+    def test_update_schedule_to_interval(self):
+        """update_schedule() should support INTERVAL schedule type."""
+        ds = self._create_ds()
+        interval_schedule = Schedule(schedule_type=ScheduleType.INTERVAL, value="PT30M")
+        ds.update_schedule(interval_schedule)
+        assert ds.schedule.schedule_type == ScheduleType.INTERVAL
+        assert ds.schedule.value == "PT30M"
+
+    def test_update_schedule_back_to_manual(self):
+        """update_schedule() should support reverting to MANUAL schedule."""
+        ds = self._create_ds()
+        # First set to cron
+        ds.update_schedule(Schedule(schedule_type=ScheduleType.CRON, value="0 * * * *"))
+        ds.collect_events()
+        # Then back to manual
+        ds.update_schedule(Schedule(schedule_type=ScheduleType.MANUAL))
+        assert ds.schedule.schedule_type == ScheduleType.MANUAL
+        assert ds.schedule.value is None
+
+
 class TestDataSourceRecordSyncCompleted:
     """Tests for DataSource.record_sync_completed() method."""
 

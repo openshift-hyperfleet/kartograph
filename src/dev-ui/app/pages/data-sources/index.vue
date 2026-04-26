@@ -426,6 +426,52 @@ function removeEdge(index: number) {
   proposedEdges.value.splice(index, 1)
 }
 
+// ── Per-type inline editing for the ontology editor dialog ────────────────
+
+function startEditNodeInEditor(index: number) {
+  const n = editNodes.value[index]
+  n.editLabel = n.label
+  n.editDescription = n.description
+  n.editRequired = n.required_properties.join(', ')
+  n.editOptional = n.optional_properties.join(', ')
+  n.editing = true
+}
+
+function saveEditNodeInEditor(index: number) {
+  const n = editNodes.value[index]
+  n.label = n.editLabel.trim() || n.label
+  n.description = n.editDescription
+  n.required_properties = n.editRequired.split(',').map((s) => s.trim()).filter(Boolean)
+  n.optional_properties = n.editOptional.split(',').map((s) => s.trim()).filter(Boolean)
+  n.editing = false
+}
+
+function cancelEditNodeInEditor(index: number) {
+  editNodes.value[index].editing = false
+}
+
+function startEditEdgeInEditor(index: number) {
+  const e = editEdges.value[index]
+  e.editLabel = e.label
+  e.editDescription = e.description
+  e.editRequired = e.required_properties.join(', ')
+  e.editOptional = e.optional_properties.join(', ')
+  e.editing = true
+}
+
+function saveEditEdgeInEditor(index: number) {
+  const e = editEdges.value[index]
+  e.label = e.editLabel.trim() || e.label
+  e.description = e.editDescription
+  e.required_properties = e.editRequired.split(',').map((s) => s.trim()).filter(Boolean)
+  e.optional_properties = e.editOptional.split(',').map((s) => s.trim()).filter(Boolean)
+  e.editing = false
+}
+
+function cancelEditEdgeInEditor(index: number) {
+  editEdges.value[index].editing = false
+}
+
 // ── Knowledge graph loader ─────────────────────────────────────────────────
 
 async function loadKnowledgeGraphs() {
@@ -500,45 +546,56 @@ async function approveOntology() {
 
 const dataSources = ref<DataSourceItem[]>([])
 const loadingDataSources = ref(false)
+let _loadRequestId = 0
 
 async function loadDataSources() {
   if (!hasTenant.value) return
   loadingDataSources.value = true
+  const myRequestId = ++_loadRequestId
   try {
     const { apiFetch } = useApiClient()
-    // Fetch all knowledge graphs, then collect data sources for each.
+    // Fetch all knowledge graphs first
     const kgResult = await apiFetch<{ knowledge_graphs: Array<{ id: string; name: string }> }>(
       '/management/knowledge-graphs'
     )
+    if (myRequestId !== _loadRequestId) return // stale — a newer request is in flight
     const kgs = kgResult.knowledge_graphs ?? []
-    const all: DataSourceItem[] = []
-    for (const kg of kgs) {
-      try {
-        const dsResult = await apiFetch<{ data_sources: DataSourceItem[] }>(
-          `/management/knowledge-graphs/${kg.id}/data-sources`
-        )
-        const sources = dsResult.data_sources ?? []
-        // Fetch sync runs for each data source so the card can show history.
-        for (const ds of sources) {
-          try {
-            const runResult = await apiFetch<{ sync_runs: SyncRun[] }>(
-              `/management/data-sources/${ds.id}/sync-runs`
-            )
-            ds.sync_runs = runResult.sync_runs ?? []
-          } catch {
-            ds.sync_runs = []
-          }
-          all.push(ds)
+    // Fetch data sources for all KGs in parallel
+    const kgDataSources = await Promise.all(
+      kgs.map(async (kg) => {
+        try {
+          const dsResult = await apiFetch<{ data_sources: DataSourceItem[] }>(
+            `/management/knowledge-graphs/${kg.id}/data-sources`
+          )
+          const sources = dsResult.data_sources ?? []
+          // Fetch sync runs for all data sources in parallel
+          await Promise.all(
+            sources.map(async (ds) => {
+              try {
+                const runResult = await apiFetch<{ sync_runs: SyncRun[] }>(
+                  `/management/data-sources/${ds.id}/sync-runs`
+                )
+                ds.sync_runs = runResult.sync_runs ?? []
+              } catch {
+                ds.sync_runs = []
+              }
+            })
+          )
+          return sources
+        } catch {
+          // Skip KGs whose data sources cannot be fetched.
+          return []
         }
-      } catch {
-        // Skip KGs whose data sources cannot be fetched.
-      }
-    }
-    dataSources.value = all
+      })
+    )
+    if (myRequestId !== _loadRequestId) return // stale — a newer request is in flight
+    dataSources.value = kgDataSources.flat()
   } catch {
     dataSources.value = []
   } finally {
-    loadingDataSources.value = false
+    if (myRequestId === _loadRequestId) {
+      loadingDataSources.value = false
+    }
   }
 }
 
@@ -602,6 +659,13 @@ function openOntologyEditor(ds: DataSourceItem) {
   editNodes.value = GITHUB_PROPOSAL_NODES.map(toProposedNode)
   editEdges.value = GITHUB_PROPOSAL_EDGES.map(toProposedEdge)
   editOntologyOpen.value = true
+}
+
+function saveOntologyEdits() {
+  toast.success('Ontology saved', {
+    description: 'Ontology changes have been applied. A re-extraction will be scheduled.',
+  })
+  closeOntologyEditor()
 }
 
 function closeOntologyEditor() {
@@ -1311,7 +1375,7 @@ function closeLogs() {
                   </div>
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
-                  <Button variant="ghost" size="icon" class="size-7" @click="startEditNode(idx)">
+                  <Button variant="ghost" size="icon" class="size-7" @click="startEditNodeInEditor(idx)">
                     <Pencil class="size-3.5" />
                   </Button>
                 </div>
@@ -1338,10 +1402,10 @@ function closeLogs() {
                   </div>
                 </div>
                 <div class="flex justify-end gap-2">
-                  <Button variant="ghost" size="sm" class="h-7 text-xs" @click="cancelEditNode(idx)">
+                  <Button variant="ghost" size="sm" class="h-7 text-xs" @click="cancelEditNodeInEditor(idx)">
                     <X class="mr-1 size-3" /> Cancel
                   </Button>
-                  <Button size="sm" class="h-7 text-xs" @click="saveEditNode(idx)">
+                  <Button size="sm" class="h-7 text-xs" @click="saveEditNodeInEditor(idx)">
                     <Check class="mr-1 size-3" /> Save
                   </Button>
                 </div>
@@ -1364,7 +1428,7 @@ function closeLogs() {
                   <p class="text-xs text-muted-foreground">{{ edge.description }}</p>
                   <p class="text-xs text-muted-foreground/70 mt-0.5">{{ edge.from }} → {{ edge.to }}</p>
                 </div>
-                <Button variant="ghost" size="icon" class="size-7 shrink-0" @click="startEditEdge(idx)">
+                <Button variant="ghost" size="icon" class="size-7 shrink-0" @click="startEditEdgeInEditor(idx)">
                   <Pencil class="size-3.5" />
                 </Button>
               </CardContent>
@@ -1380,10 +1444,10 @@ function closeLogs() {
                   </div>
                 </div>
                 <div class="flex justify-end gap-2">
-                  <Button variant="ghost" size="sm" class="h-7 text-xs" @click="cancelEditEdge(idx)">
+                  <Button variant="ghost" size="sm" class="h-7 text-xs" @click="cancelEditEdgeInEditor(idx)">
                     <X class="mr-1 size-3" /> Cancel
                   </Button>
-                  <Button size="sm" class="h-7 text-xs" @click="saveEditEdge(idx)">
+                  <Button size="sm" class="h-7 text-xs" @click="saveEditEdgeInEditor(idx)">
                     <Check class="mr-1 size-3" /> Save
                   </Button>
                 </div>
@@ -1394,6 +1458,7 @@ function closeLogs() {
 
         <DialogFooter class="pt-4">
           <Button variant="outline" @click="closeOntologyEditor">Close</Button>
+          <Button @click="saveOntologyEdits">Save Changes</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

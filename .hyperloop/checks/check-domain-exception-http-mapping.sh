@@ -37,7 +37,7 @@ fi
 # ── 1. Collect custom exception class names from domain/ports exception files ──
 CUSTOM_EXCEPTIONS=$(grep -rh \
   --include="exceptions.py" \
-  --exclude-dir=".venv" \
+  --exclude-dir=.venv \
   "^class [A-Z][A-Za-z]*" \
   "$SRC_DIR" 2>/dev/null \
   | sed 's/class \([A-Za-z][A-Za-z0-9]*\).*/\1/' \

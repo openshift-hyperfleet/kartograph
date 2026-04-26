@@ -2,28 +2,76 @@
 verdict: pass
 ---
 
-# Worker Result: task-034 Credentials — PASS
+# Verifier Result: task-034 Credentials — PASS
 
-## Assignment Summary
+## Verification Summary
 
-This worker was assigned to fix the implementation gap identified in the prior
-spec-alignment review: `KnowledgeGraphService.delete()` did not call
-`secret_store.delete()` for each data source's credentials when cascading KG
-deletion, and the corresponding unit tests were missing.
+Independent re-verification of the task-034 implementation. The prior
+spec-alignment review identified one gap: `KnowledgeGraphService.delete()` did
+not invoke `secret_store.delete()` for each data source's credentials during
+cascade deletion. This review confirms that gap has been fully resolved.
 
-## Findings Resolution
+## Checks
 
-### Knowledge graph cascade — FIXED
+### 1. Unit Tests — PASS
+```
+2405 passed, 0 failed, 45 warnings (uv run pytest tests/unit -v)
+```
+
+### 2. Linting — PASS
+```
+uv run ruff check . → All checks passed!
+```
+
+### 3. Formatting — PASS
+```
+uv run ruff format --check . → 479 files already formatted
+```
+
+### 4. Type Checking — PASS
+```
+uv run mypy . --config-file pyproject.toml --ignore-missing-imports
+→ Success: no issues found in 479 source files
+```
+
+### 5. Architecture Boundary Tests — PASS
+```
+uv run pytest tests/unit/test_architecture.py -v → 40 passed
+```
+
+### 6. Check Scripts — PASS
+All 13 checks passed:
+- check-no-check-script-deletions.sh
+- check-process-overlays-intact.sh
+- check-branch-has-commits.sh
+- check-branch-rebased-on-alpha.sh
+- check-no-state-file-commits.sh
+- check-no-source-regressions.sh
+- check-no-test-regressions.sh
+- check-empty-test-stubs.sh
+- check-domain-aggregate-mocks.sh
+- check-no-direct-logger-usage.sh
+- check-no-coming-soon-stubs.sh
+- check-weak-test-assertions.sh
+- check-di-wiring-updated.sh
+
+### 7. Code Review — PASS
 
 **Implementation** (`knowledge_graph_service.py`):
 - `KnowledgeGraphService.__init__` accepts `secret_store: ISecretStoreRepository | None = None`
-- `KnowledgeGraphService.delete()` invokes `self._secret_store.delete(path=ds.credentials_path, tenant_id=...)` for each data source with a credentials path before deleting the DS record
+- `KnowledgeGraphService.delete()` invokes `self._secret_store.delete(path=ds.credentials_path, tenant_id=...)` for each DS with credentials_path before deleting the DS row
+- No direct logger/print usage; no hardcoded secrets
+
+**DI Wiring** (`management/dependencies/knowledge_graph.py`):
+- `get_knowledge_graph_service()` constructs `FernetSecretStore` from settings and passes it to `KnowledgeGraphService`
 
 **Tests** (`test_knowledge_graph_service.py`):
-- `test_delete_removes_credentials_for_data_sources_with_credentials_path`: asserts `mock_secret_store.delete` is called exactly once for the DS with credentials; both DSes and the KG are still deleted from the DB
-- `test_delete_skips_credential_cleanup_when_no_secret_store`: asserts that when `secret_store=None`, the cascade still deletes the DS and KG rows without raising
+- `_make_ds()` factory creates real `DataSource` domain instances (no bare `MagicMock`)
+- `test_delete_removes_credentials_for_data_sources_with_credentials_path`: asserts `secret_store.delete` called exactly once for the DS with a credentials_path; both DSes and KG still deleted
+- `test_delete_skips_credential_cleanup_when_no_secret_store`: asserts graceful skip when `secret_store=None`
+- Existing `test_delete_cascades_data_sources` updated to use real `DataSource` instances
 
-Both tests use real `DataSource` instances via `_make_ds()` factory (not bare `MagicMock`).
+**Commit trailers**: Spec-Ref and Task-Ref present on all implementation commits.
 
 ## Spec Coverage
 
@@ -36,36 +84,6 @@ Both tests use real `DataSource` instances via `_make_ds()` factory (not bare `M
 | Key rotation | PASS |
 | Data source deletion | PASS |
 | Knowledge graph cascade | PASS |
-
-## Backend Suite Output
-
-```
-========================================================
- Backend check suite — 2026-04-26T06:18:19-0400
- alpha: 2bb56cc59ca03b64f0d5fff3957b86b995fdaa64
-========================================================
-
-PASSED (13):
-  check-no-check-script-deletions.sh
-  check-process-overlays-intact.sh
-  check-branch-has-commits.sh
-  check-branch-rebased-on-alpha.sh
-  check-no-state-file-commits.sh
-  check-no-source-regressions.sh
-  check-no-test-regressions.sh
-  check-empty-test-stubs.sh
-  check-domain-aggregate-mocks.sh
-  check-no-direct-logger-usage.sh
-  check-no-coming-soon-stubs.sh
-  check-weak-test-assertions.sh
-  check-di-wiring-updated.sh
-
-RESULT: ALL PASS — safe to submit.
-```
-
-## Unit Test Results
-
-2405 passed, 0 failed (full suite confirmed).
 
 Spec-Ref: specs/management/credentials.spec.md@774c6c8e
 Task-Ref: task-034

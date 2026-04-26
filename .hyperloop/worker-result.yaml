@@ -1,60 +1,90 @@
 ---
 verdict: pass
 ---
-## Implementation Summary — specs/ui/experience.spec.md
+## Implementation Summary — specs/ingestion/sync-lifecycle.spec.md
 
-All 435 tests pass (`pnpm test --run` confirmed; 44 new tests added).
-
-The prior FAIL verdict identified two SHALL scenarios with zero test coverage.
-Both gaps have now been closed:
+All 2535 unit tests pass (`uv run pytest tests/unit` confirmed; 8 new test files added).
 
 ---
 
-### 1. Ontology Design — Individual type editing (data-sources.test.ts)
+### Deliverables
 
-Added 8 new `describe` blocks mirroring the exact logic from
-`pages/data-sources/index.vue` (lines 377–427):
+#### 1. Domain Event: `SyncStarted`
 
-- **startEditNode**: Copies label, description, and comma-joined properties
-  into transient edit fields; sets `editing = true`.
-- **saveEditNode**: Applies trimmed `editLabel` (falls back to original if
-  blank), splits comma-separated `editRequired`/`editOptional` into arrays,
-  filters empty entries, sets `editing = false`. Also verifies exact property
-  requirement specification (e.g. `source_url` example from spec).
-- **cancelEditNode**: Sets `editing = false` without mutating label or
-  `required_properties`.
-- **removeNode**: Splices node at given index; first/middle/last positions
-  all tested.
-- **startEditEdge / saveEditEdge / cancelEditEdge / removeEdge**: Full
-  parallel coverage for edge types, including relationship type editing.
+Replaced `DataSourceSyncRequested` with `SyncStarted` in `management/domain/events/data_source.py`.
+The new event carries all fields needed by the ingestion context (`sync_run_id`,
+`adapter_type`, `connection_config`, `credentials_path`, `tenant_id`, `knowledge_graph_id`,
+`requested_by`). The `DataSource.request_sync()` aggregate method now accepts `sync_run_id`
+and emits `SyncStarted`. All downstream artifacts (serializer, translator, `DomainEvent` union)
+updated accordingly.
+
+#### 2. Sync Run Lifecycle Statuses (DB migration)
+
+Migration `e1f2a3b4c5d6_expand_sync_run_lifecycle_statuses.py` expands the
+`ck_sync_runs_status` CHECK constraint from `('pending', 'running', 'completed', 'failed')`
+to the full 6-state set: `pending → ingesting → ai_extracting → applying → completed / failed`.
+
+`DataSourceSyncRun` entity updated with `TERMINAL_STATUSES`, `VALID_STATUSES`, and
+`is_terminal()` predicate. SQLAlchemy model CHECK constraint updated to match.
+
+#### 3. `SyncLifecycleHandler` (management infrastructure)
+
+`management/infrastructure/sync_lifecycle_handler.py` implements the full 7-event
+state machine:
+
+| Event | Status Transition |
+|---|---|
+| `SyncStarted` | → `ingesting` |
+| `JobPackageProduced` | → `ai_extracting` |
+| `IngestionFailed` | → `failed` (with error) |
+| `MutationLogProduced` | → `applying` |
+| `ExtractionFailed` | → `failed` (with error) |
+| `MutationsApplied` | → `completed`, updates `DataSource.last_sync_at` |
+| `MutationApplicationFailed` | → `failed` (with error) |
+
+Terminal states (`completed`, `failed`) are idempotent — further events are silently
+ignored. Missing sync runs are also handled gracefully (no-op).
+
+#### 4. Ingestion Bounded Context
+
+Complete `ingestion/` bounded context scaffolded:
+
+- **`ingestion/ports/adapters.py`**: `RawItem` dataclass + `IDataSourceAdapter` Protocol
+- **`ingestion/domain/events/sync.py`**: `JobPackageProduced` + `IngestionFailed` events
+- **`ingestion/application/services/ingestion_service.py`**: `IngestionService.run()`
+  orchestrates adapter extract → `JobPackageBuilder` → returns `JobPackageId`
+- **`ingestion/infrastructure/event_handler.py`**: `IngestionEventHandler` subscribes to
+  `SyncStarted`, calls `IngestionService.run()`, writes `JobPackageProduced` or
+  `IngestionFailed` to the outbox
+- **`ingestion/infrastructure/outbox/serializer.py`**: `IngestionEventSerializer`
+
+#### 5. Stub Events for Extraction and Graph Contexts
+
+- `extraction/domain/events/extraction.py`: `MutationLogProduced` + `ExtractionFailed`
+- `graph/domain/events/graph.py`: `MutationsApplied` + `MutationApplicationFailed`
+
+These stubs establish the bounded context event contracts consumed by `SyncLifecycleHandler`.
+
+#### 6. Architecture Boundary Tests
+
+`tests/unit/ingestion/test_architecture.py` uses `pytest-archon` to enforce:
+- Domain layer does not import infrastructure or application
+- Application layer does not import infrastructure
+- Ingestion does not import `iam*`, `graph.domain*`, `graph.application*`, or `extraction*`
+- Ingestion may import `shared_kernel*`
 
 ---
 
-### 2. Query Console — Query editing (query-history.test.ts)
+### Test Summary
 
-Added 4 new `describe` blocks importing the actual CodeMirror extension
-factories from `app/lib/codemirror/lang-cypher/`:
+| Test file | Tests |
+|---|---|
+| `tests/unit/management/infrastructure/test_sync_lifecycle_handler.py` | 9 |
+| `tests/unit/ingestion/infrastructure/test_ingestion_event_handler.py` | 7 |
+| `tests/unit/ingestion/application/test_ingestion_service.py` | 5 |
+| `tests/unit/ingestion/domain/test_sync_events.py` | 5 |
+| `tests/unit/ingestion/test_architecture.py` | 7 |
+| Updated management tests | patched existing |
+| **Total suite** | **2535 passed** |
 
-- **cypher() — Cypher language extension**: Verifies `cypher()` returns a
-  `LanguageSupport` instance with a `.language` property named `"cypher"`.
-  Proves syntax highlighting is configured.
-- **cypherAutocomplete() — autocomplete extension**: Verifies the function
-  returns a non-null Extension with empty schema, and with node labels and
-  relationship types. Proves schema-aware autocomplete is wired.
-- **ageCypherLinter() — linter extension**: Verifies the function returns a
-  non-null Extension. Proves AGE compatibility linting is configured.
-- **staticExtensions composition**: Mirrors the `staticExtensions` array from
-  `query/index.vue` and verifies it includes both a `LanguageSupport` (cypher)
-  and a plain Extension (linter). Also verifies `cypherAutocomplete` produces
-  a new Extension per schema call, confirming the computed `cmExtensions`
-  pattern is sound.
-
----
-
-### Test counts
-
-| File | Before | After | Added |
-|---|---|---|---|
-| data-sources.test.ts | 11 | 45 | 34 |
-| query-history.test.ts | 20 | 30 | 10 |
-| **Total** | **391** | **435** | **44** |
+All ruff lint checks and mypy type checks pass.

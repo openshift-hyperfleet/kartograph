@@ -11,8 +11,8 @@ from management.domain.aggregates.data_source import DataSource
 from management.domain.events import (
     DataSourceCreated,
     DataSourceDeleted,
-    DataSourceSyncRequested,
     DataSourceUpdated,
+    SyncStarted,
 )
 from management.domain.exceptions import (
     AggregateDeletedError,
@@ -319,24 +319,37 @@ class TestDataSourceRequestSync:
         ds.collect_events()
         return ds
 
-    def test_request_sync_emits_sync_requested_event(self):
-        """request_sync() should emit a DataSourceSyncRequested event."""
+    def test_request_sync_emits_sync_started_event(self):
+        """request_sync() should emit a SyncStarted event."""
         ds = self._create_ds()
-        ds.request_sync(requested_by="user-abc")
+        ds.request_sync(sync_run_id="run-001", requested_by="user-abc")
         events = ds.collect_events()
         assert len(events) == 1
         event = events[0]
-        assert isinstance(event, DataSourceSyncRequested)
+        assert isinstance(event, SyncStarted)
+        assert event.sync_run_id == "run-001"
         assert event.data_source_id == ds.id.value
         assert event.knowledge_graph_id == "kg-123"
         assert event.tenant_id == "tenant-456"
         assert event.requested_by == "user-abc"
         assert event.occurred_at is not None
 
+    def test_request_sync_carries_adapter_and_config(self):
+        """request_sync() SyncStarted event should carry adapter_type and connection_config."""
+        ds = self._create_ds(
+            connection_config={"repo": "org/repo", "branch": "main"},
+        )
+        ds.request_sync(sync_run_id="run-002")
+        events = ds.collect_events()
+        event = events[0]
+        assert isinstance(event, SyncStarted)
+        assert event.adapter_type == "github"
+        assert event.connection_config == {"repo": "org/repo", "branch": "main"}
+
     def test_request_sync_without_actor(self):
         """request_sync() without requested_by should set it to None."""
         ds = self._create_ds()
-        ds.request_sync()
+        ds.request_sync(sync_run_id="run-003")
         events = ds.collect_events()
         assert events[0].requested_by is None
 
@@ -346,7 +359,7 @@ class TestDataSourceRequestSync:
         ds.mark_for_deletion()
         ds.collect_events()
         with pytest.raises(AggregateDeletedError):
-            ds.request_sync()
+            ds.request_sync(sync_run_id="run-004")
 
 
 class TestDataSourceUpdateSchedule:

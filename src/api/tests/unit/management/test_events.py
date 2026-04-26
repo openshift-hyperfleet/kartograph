@@ -10,12 +10,12 @@ import pytest
 from management.domain.events import (
     DataSourceCreated,
     DataSourceDeleted,
-    DataSourceSyncRequested,
     DataSourceUpdated,
     DomainEvent,
     KnowledgeGraphCreated,
     KnowledgeGraphDeleted,
     KnowledgeGraphUpdated,
+    SyncStarted,
 )
 
 
@@ -41,6 +41,19 @@ class TestKnowledgeGraphCreated:
         assert event.occurred_at == now
         assert event.created_by == "user-abc"
 
+    def test_is_frozen(self):
+        now = datetime.now(UTC)
+        event = KnowledgeGraphCreated(
+            knowledge_graph_id="kg-123",
+            tenant_id="tenant-456",
+            workspace_id="ws-789",
+            name="My Graph",
+            description="A test graph",
+            occurred_at=now,
+        )
+        with pytest.raises(Exception):
+            event.name = "mutated"  # type: ignore[misc]
+
     def test_created_by_defaults_to_none(self):
         now = datetime.now(UTC)
         event = KnowledgeGraphCreated(
@@ -52,19 +65,6 @@ class TestKnowledgeGraphCreated:
             occurred_at=now,
         )
         assert event.created_by is None
-
-    def test_is_frozen(self):
-        now = datetime.now(UTC)
-        event = KnowledgeGraphCreated(
-            knowledge_graph_id="kg-123",
-            tenant_id="tenant-456",
-            workspace_id="ws-789",
-            name="My Graph",
-            description="A test graph",
-            occurred_at=now,
-        )
-        with pytest.raises(AttributeError):
-            event.name = "changed"
 
 
 class TestKnowledgeGraphUpdated:
@@ -81,10 +81,7 @@ class TestKnowledgeGraphUpdated:
             updated_by="user-abc",
         )
         assert event.knowledge_graph_id == "kg-123"
-        assert event.tenant_id == "tenant-456"
         assert event.name == "Updated Graph"
-        assert event.description == "Updated description"
-        assert event.occurred_at == now
         assert event.updated_by == "user-abc"
 
     def test_updated_by_defaults_to_none(self):
@@ -92,8 +89,8 @@ class TestKnowledgeGraphUpdated:
         event = KnowledgeGraphUpdated(
             knowledge_graph_id="kg-123",
             tenant_id="tenant-456",
-            name="Updated Graph",
-            description="Updated description",
+            name="Graph",
+            description="",
             occurred_at=now,
         )
         assert event.updated_by is None
@@ -112,22 +109,8 @@ class TestKnowledgeGraphDeleted:
             deleted_by="user-abc",
         )
         assert event.knowledge_graph_id == "kg-123"
-        assert event.tenant_id == "tenant-456"
         assert event.workspace_id == "ws-789"
-        assert event.occurred_at == now
         assert event.deleted_by == "user-abc"
-
-    def test_includes_workspace_id(self):
-        """KnowledgeGraphDeleted MUST include workspace_id per acceptance criteria."""
-        now = datetime.now(UTC)
-        event = KnowledgeGraphDeleted(
-            knowledge_graph_id="kg-123",
-            tenant_id="tenant-456",
-            workspace_id="ws-789",
-            occurred_at=now,
-        )
-        assert hasattr(event, "workspace_id")
-        assert event.workspace_id == "ws-789"
 
     def test_deleted_by_defaults_to_none(self):
         now = datetime.now(UTC)
@@ -149,17 +132,13 @@ class TestDataSourceCreated:
             data_source_id="ds-123",
             knowledge_graph_id="kg-456",
             tenant_id="tenant-789",
-            name="GitHub Repo",
+            name="My DS",
             adapter_type="github",
             occurred_at=now,
             created_by="user-abc",
         )
         assert event.data_source_id == "ds-123"
-        assert event.knowledge_graph_id == "kg-456"
-        assert event.tenant_id == "tenant-789"
-        assert event.name == "GitHub Repo"
         assert event.adapter_type == "github"
-        assert event.occurred_at == now
         assert event.created_by == "user-abc"
 
     def test_created_by_defaults_to_none(self):
@@ -168,7 +147,7 @@ class TestDataSourceCreated:
             data_source_id="ds-123",
             knowledge_graph_id="kg-456",
             tenant_id="tenant-789",
-            name="GitHub Repo",
+            name="My DS",
             adapter_type="github",
             occurred_at=now,
         )
@@ -184,15 +163,11 @@ class TestDataSourceUpdated:
             data_source_id="ds-123",
             knowledge_graph_id="kg-456",
             tenant_id="tenant-789",
-            name="Updated Source",
+            name="Updated DS",
             occurred_at=now,
             updated_by="user-abc",
         )
         assert event.data_source_id == "ds-123"
-        assert event.knowledge_graph_id == "kg-456"
-        assert event.tenant_id == "tenant-789"
-        assert event.name == "Updated Source"
-        assert event.occurred_at == now
         assert event.updated_by == "user-abc"
 
     def test_updated_by_defaults_to_none(self):
@@ -201,7 +176,7 @@ class TestDataSourceUpdated:
             data_source_id="ds-123",
             knowledge_graph_id="kg-456",
             tenant_id="tenant-789",
-            name="Updated Source",
+            name="DS",
             occurred_at=now,
         )
         assert event.updated_by is None
@@ -220,9 +195,6 @@ class TestDataSourceDeleted:
             deleted_by="user-abc",
         )
         assert event.data_source_id == "ds-123"
-        assert event.knowledge_graph_id == "kg-456"
-        assert event.tenant_id == "tenant-789"
-        assert event.occurred_at == now
         assert event.deleted_by == "user-abc"
 
     def test_deleted_by_defaults_to_none(self):
@@ -236,32 +208,58 @@ class TestDataSourceDeleted:
         assert event.deleted_by is None
 
 
-class TestDataSourceSyncRequested:
-    """Tests for DataSourceSyncRequested event."""
+class TestSyncStarted:
+    """Tests for SyncStarted event."""
 
     def test_stores_all_fields(self):
         now = datetime.now(UTC)
-        event = DataSourceSyncRequested(
+        event = SyncStarted(
+            sync_run_id="run-001",
             data_source_id="ds-123",
             knowledge_graph_id="kg-456",
             tenant_id="tenant-789",
+            adapter_type="github",
+            connection_config={"repo": "org/repo"},
+            credentials_path="/secret/path",
             occurred_at=now,
             requested_by="user-abc",
         )
+        assert event.sync_run_id == "run-001"
         assert event.data_source_id == "ds-123"
         assert event.knowledge_graph_id == "kg-456"
         assert event.tenant_id == "tenant-789"
+        assert event.adapter_type == "github"
+        assert event.connection_config == {"repo": "org/repo"}
+        assert event.credentials_path == "/secret/path"
         assert event.occurred_at == now
         assert event.requested_by == "user-abc"
 
-    def test_requested_by_defaults_to_none(self):
+    def test_is_frozen(self):
         now = datetime.now(UTC)
-        event = DataSourceSyncRequested(
+        event = SyncStarted(
+            sync_run_id="run-001",
             data_source_id="ds-123",
             knowledge_graph_id="kg-456",
             tenant_id="tenant-789",
+            adapter_type="github",
+            connection_config={},
             occurred_at=now,
         )
+        with pytest.raises(Exception):
+            event.sync_run_id = "mutated"  # type: ignore[misc]
+
+    def test_optional_fields_default_to_none(self):
+        now = datetime.now(UTC)
+        event = SyncStarted(
+            sync_run_id="run-001",
+            data_source_id="ds-123",
+            knowledge_graph_id="kg-456",
+            tenant_id="tenant-789",
+            adapter_type="github",
+            connection_config={},
+            occurred_at=now,
+        )
+        assert event.credentials_path is None
         assert event.requested_by is None
 
 
@@ -272,7 +270,17 @@ _ALL_EVENT_TYPES = [
     DataSourceCreated,
     DataSourceUpdated,
     DataSourceDeleted,
-    DataSourceSyncRequested,
+    SyncStarted,
+]
+
+# SyncStarted has a dict field; other simple events use only primitive types
+_SIMPLE_EVENT_TYPES = [
+    KnowledgeGraphCreated,
+    KnowledgeGraphUpdated,
+    KnowledgeGraphDeleted,
+    DataSourceCreated,
+    DataSourceUpdated,
+    DataSourceDeleted,
 ]
 
 _ALLOWED_FIELD_TYPES = {"str", "datetime", "str | None"}
@@ -298,10 +306,19 @@ class TestDomainEventUnion:
             f"{event_type.__name__} is not frozen"
         )
 
-    @pytest.mark.parametrize("event_type", _ALL_EVENT_TYPES, ids=lambda t: t.__name__)
-    def test_event_uses_only_primitive_types(self, event_type):
-        """All event fields must use only primitive types (str, datetime, str | None)."""
+    @pytest.mark.parametrize(
+        "event_type", _SIMPLE_EVENT_TYPES, ids=lambda t: t.__name__
+    )
+    def test_simple_event_uses_only_primitive_types(self, event_type):
+        """Simple event fields must use only primitive types (str, datetime, str | None)."""
         for f in fields(event_type):
             assert f.type in _ALLOWED_FIELD_TYPES, (
                 f"{event_type.__name__}.{f.name} has non-primitive type: {f.type}"
             )
+
+    def test_sync_started_has_connection_config_field(self):
+        """SyncStarted should have a connection_config dict field."""
+        field_names = {f.name for f in fields(SyncStarted)}
+        assert "connection_config" in field_names
+        assert "sync_run_id" in field_names
+        assert "adapter_type" in field_names

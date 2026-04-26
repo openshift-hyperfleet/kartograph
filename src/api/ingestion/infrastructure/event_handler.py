@@ -9,8 +9,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from ingestion.ports.services import IIngestionService
+
 if TYPE_CHECKING:
-    from ingestion.application.services.ingestion_service import IngestionService
     from shared_kernel.outbox.ports import IOutboxRepository
 
 
@@ -30,7 +31,7 @@ class IngestionEventHandler:
 
     def __init__(
         self,
-        ingestion_service: "IngestionService",
+        ingestion_service: IIngestionService,
         outbox: "IOutboxRepository",
     ) -> None:
         """Initialize the ingestion event handler.

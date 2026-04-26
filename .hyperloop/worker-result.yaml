@@ -2,10 +2,70 @@
 verdict: pass
 ---
 
-# Verification: task-034 Credentials — PASS
+# Worker Result: task-034 Credentials — PASS
 
-All spec scenarios are COVERED. Implementation and tests are complete.
+## Assignment Summary
+
+This worker was assigned to fix the implementation gap identified in the prior
+spec-alignment review: `KnowledgeGraphService.delete()` did not call
+`secret_store.delete()` for each data source's credentials when cascading KG
+deletion, and the corresponding unit tests were missing.
+
+## Findings Resolution
+
+### Knowledge graph cascade — FIXED
+
+**Implementation** (`knowledge_graph_service.py`):
+- `KnowledgeGraphService.__init__` accepts `secret_store: ISecretStoreRepository | None = None`
+- `KnowledgeGraphService.delete()` invokes `self._secret_store.delete(path=ds.credentials_path, tenant_id=...)` for each data source with a credentials path before deleting the DS record
+
+**Tests** (`test_knowledge_graph_service.py`):
+- `test_delete_removes_credentials_for_data_sources_with_credentials_path`: asserts `mock_secret_store.delete` is called exactly once for the DS with credentials; both DSes and the KG are still deleted from the DB
+- `test_delete_skips_credential_cleanup_when_no_secret_store`: asserts that when `secret_store=None`, the cascade still deletes the DS and KG rows without raising
+
+Both tests use real `DataSource` instances via `_make_ds()` factory (not bare `MagicMock`).
+
+## Spec Coverage
+
+| Scenario | Status |
+|----------|--------|
+| Store credentials | PASS |
+| Retrieve credentials | PASS |
+| Credentials not found | PASS |
+| Same path, different tenants | PASS |
+| Key rotation | PASS |
+| Data source deletion | PASS |
+| Knowledge graph cascade | PASS |
+
+## Backend Suite Output
+
+```
+========================================================
+ Backend check suite — 2026-04-26T06:18:19-0400
+ alpha: 2bb56cc59ca03b64f0d5fff3957b86b995fdaa64
+========================================================
+
+PASSED (13):
+  check-no-check-script-deletions.sh
+  check-process-overlays-intact.sh
+  check-branch-has-commits.sh
+  check-branch-rebased-on-alpha.sh
+  check-no-state-file-commits.sh
+  check-no-source-regressions.sh
+  check-no-test-regressions.sh
+  check-empty-test-stubs.sh
+  check-domain-aggregate-mocks.sh
+  check-no-direct-logger-usage.sh
+  check-no-coming-soon-stubs.sh
+  check-weak-test-assertions.sh
+  check-di-wiring-updated.sh
+
+RESULT: ALL PASS — safe to submit.
+```
+
+## Unit Test Results
+
+2405 passed, 0 failed (full suite confirmed).
 
 Spec-Ref: specs/management/credentials.spec.md@774c6c8e
 Task-Ref: task-034
-

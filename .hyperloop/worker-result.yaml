@@ -1,8 +1,9 @@
 ---
 verdict: pass
 ---
-Independent re-verification of hyperloop/task-039 against specs/iam/tenants.spec.md.
-Branch rebased onto current alpha, state file contamination cleaned, all checks run fresh.
+Independent spec-alignment review and re-verification of hyperloop/task-039 against
+specs/iam/tenants.spec.md. Branch rebased onto current alpha (including `0bb08b56`).
+Performed a full read of every implementation file and test file for all 9 SHALL requirements.
 
 ## Pre-verification Fixes Applied
 
@@ -29,54 +30,148 @@ No issues found in source files.
 Archon tests pass. IAM domain, ports, and infrastructure layer boundaries
 enforced. Shared kernel isolation verified.
 
-### 6. Integration Tests — SKIPPED
-Not applicable for this task (domain/application layer implementation). Unit
-tests cover all spec requirements in isolation.
-
-### 7. Check Scripts — ALL PASS
+### 6. Check Scripts — ALL PASS
 All `.hyperloop/checks/` scripts exit 0 when run from the project root.
-
-### 8. Code Review — PASS
-
-**Implementation commits** (all with Spec-Ref + Task-Ref trailers):
-
-1. `748e18b9` `fix(graph)`: enforce commit/rollback on all code paths and
-   advisory lock atomicity in AGEGraphProvisioner.
-   - Adds `pg_advisory_xact_lock(hashtext(graph_name))` before existence check
-     to make the check + create atomic under concurrent replay.
-   - Adds explicit `conn.rollback()` on the no-op/exists path.
-   - Tests: `test_rollback_or_commit_called_on_no_op_path` and
-     `test_advisory_lock_acquired_for_atomicity`.
-
-2. `cf8cdf50` `test(iam)`: add missing spec coverage for tenant name validation
-   and deletion ordering.
-   - 4 name validation tests (empty→422, >255→422, 1 char→201, 255 chars→201).
-   - `test_deletes_child_workspaces_before_parent_on_cascade`: 3-level hierarchy.
-
-3. `cbc504fe` `test(iam)`: add missing unit test for group cascade on tenant
-   deletion. Uses real `Group.create(...)` instances (not MagicMock).
-
-**No violations**:
-- No direct `logger.*` or `print()` calls
-- No bare `MagicMock`/`AsyncMock` on domain aggregates
-- No DDD layer boundary violations
-- No hardcoded secrets or placeholder comments
 
 ## Per-Requirement Coverage
 
-All 9 SHALL requirements from `specs/iam/tenants.spec.md` are covered:
+### 1. Tenant Creation — COVERED
 
-| Requirement | Status |
-|---|---|
-| Tenant Creation (success, duplicate, single-tenant block) | PASS |
-| Tenant graph provisioning (advisory lock, commit/rollback) | PASS |
-| Tenant Retrieval | PASS |
-| Tenant Listing | PASS |
-| Tenant Deletion (cascade order, groups, API keys) | PASS |
-| Add Tenant Member (grant, role change, admin sync, last-admin guard) | PASS |
-| Remove Tenant Member (revoke, workspace cleanup, last-admin guard) | PASS |
-| List Tenant Members (admin-only, 403 for non-admin) | PASS |
-| Tenant Name Validation (1-255 chars, empty→422, >255→422) | PASS |
-| Default Tenant Bootstrap (first start, idempotent, race condition) | PASS |
+**Code**: `TenantService.create_tenant()` in `iam/application/services/tenant_service.py`.
+- Generates ULID via `Tenant.create(name=name)`.
+- Grants creator admin via `tenant.add_member(user_id=creator_id, role=TenantRole.ADMIN)`.
+- Creates root workspace via `Workspace.create_root(...)` and grants admin on it.
 
-All spec requirements are implemented and tested. Verdict: **PASS**.
+**Scenarios**:
+- Successful creation: `test_creates_tenant`, `test_grants_creator_admin_access`,
+  `test_creates_root_workspace_on_tenant_creation` (all in `test_tenant_service.py`).
+- Duplicate name → 409: `test_returns_409_for_duplicate_name` (integration, `test_tenant_api.py`),
+  `test_duplicate_name_raises_error` (integration, `test_tenant_repository.py`).
+- Single-tenant mode → 403: `test_returns_403_in_single_tenant_mode` (POST path,
+  `test_tenant_routes_single_tenant_gate.py`).
+
+### 2. Tenant Graph Provisioning — COVERED
+
+**Code**: `graph/infrastructure/tenant_graph_handler.py`.
+- `AGEGraphProvisioner.ensure_graph_exists()` acquires `pg_advisory_xact_lock(hashtext(graph_name))`
+  before the existence check — atomicity requirement met.
+- Existence check queries `ag_catalog.ag_graph`; if row exists → `conn.rollback()` and return
+  (no-op path commits/rolls back — transaction leak requirement met).
+- Graph creation via `ag_catalog.create_graph(graph_name)` followed by `conn.commit()`.
+- `except Exception: conn.rollback(); raise` covers error paths.
+
+**Scenarios** (all in `test_tenant_graph_handler.py`):
+- Graph name format `tenant_{tenant_id}`: `test_graph_name_format_is_tenant_underscore_id`.
+- Create-if-not-exists: `test_creates_graph_when_not_exists`, `test_skips_create_when_graph_already_exists`.
+- No-op path commits/rolls back: `test_rollback_or_commit_called_on_no_op_path`.
+- Advisory lock before existence check: `test_advisory_lock_acquired_for_atomicity`.
+- Idempotent replay: `test_handler_is_idempotent_when_provisioner_is_idempotent`.
+
+### 3. Tenant Retrieval — COVERED
+
+**Code**: `TenantService.get_tenant()` — checks VIEW permission via SpiceDB; returns `None`
+(→ 404) for both missing tenant and unauthorized user (no distinction).
+
+**Scenarios**:
+- Authorized retrieval: `test_returns_tenant_when_user_has_view_permission`.
+- Unauthorized or non-existent → same 404: `test_returns_none_when_tenant_not_found`,
+  `test_returns_none_when_user_lacks_view_permission` (all in `test_tenant_service.py`).
+
+### 4. Tenant Listing — COVERED
+
+**Code**: `TenantService.list_tenants()` uses `authz.lookup_resources(permission=VIEW)` to
+filter tenants.
+
+**Scenarios**:
+- User sees only permitted tenants: `test_returns_only_tenants_user_can_view` (A+C visible, B hidden).
+- User with no memberships → empty list: `test_returns_empty_list_when_user_has_no_access`
+  (all in `test_tenant_service.py`).
+
+### 5. Tenant Deletion — COVERED
+
+**Code**: `TenantService.delete_tenant()` — depth-first cascade (children→parents via
+`compute_depth()`), then groups, then API keys, then tenant.
+
+**Scenarios**:
+- Cascade workspaces before parents: `test_deletes_child_workspaces_before_parent_on_cascade`
+  (grandchild→child→root ordering verified with 3-level hierarchy).
+- Cascade groups: `test_deletes_groups_on_tenant_deletion` (uses real `Group.create()`).
+- Cascade API keys: `test_deletes_api_keys_on_tenant_deletion`,
+  `test_deletes_multiple_api_keys_on_tenant_deletion`.
+- Member snapshot for auth cleanup: `test_mark_for_deletion_captures_member_snapshot`
+  (domain level); service calls `list_tenant_members_from_authorization` then
+  `tenant.mark_for_deletion(members=members)`.
+- Unauthorized deletion → 403: `test_delete_tenant_raises_unauthorized_if_no_permission`
+  (service), `test_returns_403_when_user_lacks_permission` (route).
+- Single-tenant mode → 403: `test_returns_403_in_single_tenant_mode` (DELETE path,
+  `test_tenant_routes_single_tenant_gate.py`).
+
+### 6. Add Tenant Member — COVERED
+
+**Code**: `TenantService.add_member()` handles new member, role replacement, and workspace sync.
+
+**Scenarios**:
+- Add new member: `test_adds_member_to_tenant`.
+- Change member role (remove old + add new): `test_replaces_role_when_user_has_different_role`.
+- Promote to admin syncs root workspace: `test_add_admin_grants_root_workspace_admin`.
+- Demote from admin revokes root workspace: `test_downgrade_admin_to_member_revokes_root_workspace_admin`.
+- Demote last admin → 409: `test_cannot_demote_last_tenant_admin` (service),
+  `test_returns_409_when_demoting_last_admin` (route, `test_tenant_member_routes.py`).
+
+### 7. Remove Tenant Member — COVERED
+
+**Code**: `TenantService.remove_member()` → `_revoke_root_workspace_access()` removes
+member from workspace regardless of role.
+
+**Scenarios**:
+- Successful removal + workspace revoke: `test_removes_member_from_tenant`,
+  `test_remove_member_revokes_root_workspace_access`.
+- Removing admin syncs root workspace: `test_remove_admin_revokes_root_workspace_admin`.
+- Remove last admin → 409: `test_raises_error_if_last_admin` (service),
+  `test_returns_409_when_removing_last_admin` (route + integration).
+
+### 8. List Tenant Members — COVERED
+
+**Code**: `TenantService.list_members()` checks ADMINISTRATE permission, then queries
+SpiceDB via `read_relationships`.
+
+**Scenarios**:
+- Authorized listing returns all members with roles: `test_lists_members_from_spicedb`,
+  `test_returns_200_with_member_list`.
+- Unauthorized (non-admin) → 403: `test_raises_unauthorized_if_no_permission` (service),
+  `test_returns_403_when_not_admin` (route).
+
+### 9. Tenant Name Validation — COVERED
+
+**Code**: `CreateTenantRequest.name = Field(..., min_length=1, max_length=255)` in
+`iam/presentation/tenants/models.py` — Pydantic validation enforces constraints.
+
+**Scenarios** (all in `test_tenant_bootstrap_routes.py`):
+- Valid name (1 char): `test_create_tenant_accepts_single_char_name` → 201.
+- Valid name (255 chars): `test_create_tenant_accepts_name_at_max_length_boundary` → 201.
+- Empty name → 422: `test_create_tenant_returns_422_for_empty_name`.
+- Name > 255 chars → 422: `test_create_tenant_returns_422_for_name_exceeding_255_chars`.
+
+### 10. Default Tenant Bootstrap — COVERED
+
+**Code**: `TenantBootstrapService.ensure_default_tenant_with_workspace()` in
+`iam/application/services/tenant_bootstrap_service.py`.
+- Uses savepoints (`begin_nested`) to handle concurrent creation races safely.
+- Re-queries after `DuplicateTenantNameError` to discover concurrently-created tenant.
+
+**Scenarios** (all in `test_tenant_bootstrap_service.py`):
+- First startup (no tenant): `test_creates_tenant_and_workspace_when_neither_exist`.
+- Subsequent startup (tenant exists): `test_does_nothing_when_tenant_and_workspace_exist`.
+- Concurrent startup race condition: `test_handles_race_condition_on_tenant_creation`.
+
+## NFR Compliance
+
+- **Domain-Oriented Observability**: `TenantServiceProbe`, `TenantBootstrapService` probe,
+  and `AGEGraphProvisioner` use domain probes — no bare `logger.*` or `print()` calls.
+- **No mocks for domain aggregates**: Tests use real `Tenant(...)`, `Workspace.create_root()`,
+  `Group.create()`, and `APIKey.create()` instances.
+- **Architecture boundaries**: `graph.infrastructure.TenantAGEGraphHandler` does not import
+  from `iam.*`; works with raw event payload dict.
+
+All 9 SHALL requirements are implemented and every scenario has a corresponding test.
+Verdict: **PASS**.

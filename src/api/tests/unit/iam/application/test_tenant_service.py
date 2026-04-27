@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.application.services import TenantService
-from iam.domain.aggregates import APIKey, Tenant, Workspace
+from iam.domain.aggregates import APIKey, Group, Tenant, Workspace
 from iam.domain.value_objects import (
     MemberType,
     TenantId,
@@ -1777,3 +1777,58 @@ class TestDeleteTenant:
         await tenant_service.delete_tenant(tenant_id, requesting_user_id=admin_id)
 
         assert call_order == ["api_key_delete", "tenant_delete"]
+
+    @pytest.mark.asyncio
+    async def test_deletes_groups_on_tenant_deletion(
+        self,
+        tenant_service,
+        mock_tenant_repo,
+        mock_workspace_repo,
+        mock_group_repo,
+        mock_api_key_repo,
+        mock_authz,
+    ):
+        """Test that deleting a tenant cascades to groups (non-empty list path).
+
+        Scenario: Tenant deletion with groups
+        - GIVEN a tenant with one or more groups
+        - WHEN the tenant is deleted
+        - THEN each group's mark_for_deletion() is called
+        - AND group_repository.delete() is called for each group
+
+        This test uses a non-empty list to exercise the for-loop body inside
+        TenantService.delete_tenant() — ensuring the group cascade logic is
+        actually executed, not just the zero-item short-circuit.
+        """
+        tenant_id = TenantId.generate()
+        admin_id = UserId.from_string("admin-456")
+        tenant = Tenant(id=tenant_id, name="Acme Corp")
+
+        # Create real Group aggregates so the loop body receives real objects
+        group1 = Group.create(name="Engineering", tenant_id=tenant_id)
+        group2 = Group.create(name="Product", tenant_id=tenant_id)
+        # Drain creation events so we can verify deletion events below
+        group1.collect_events()
+        group2.collect_events()
+
+        mock_authz.check_permission = AsyncMock(return_value=True)
+        mock_tenant_repo.get_by_id = AsyncMock(return_value=tenant)
+        mock_tenant_repo.delete = AsyncMock(return_value=True)
+        mock_workspace_repo.list_by_tenant = AsyncMock(return_value=[])
+        mock_group_repo.list_by_tenant = AsyncMock(return_value=[group1, group2])
+        mock_group_repo.delete = AsyncMock(return_value=True)
+        mock_api_key_repo.list = AsyncMock(return_value=[])
+        mock_authz.read_relationships = AsyncMock(return_value=[])
+
+        result = await tenant_service.delete_tenant(
+            tenant_id, requesting_user_id=admin_id
+        )
+
+        assert result is True
+        # Both groups must be passed to group_repository.delete()
+        assert mock_group_repo.delete.call_count == 2
+        deleted_groups = [
+            call.args[0] for call in mock_group_repo.delete.call_args_list
+        ]
+        assert group1 in deleted_groups
+        assert group2 in deleted_groups

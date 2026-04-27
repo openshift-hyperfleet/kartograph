@@ -1,36 +1,32 @@
 #!/usr/bin/env bash
 # check-no-foreign-task-commits.sh
 #
-# Fails if any commit on the current branch (vs base) carries a Task-Ref
-# trailer that does not match the task identifier in the current branch name.
+# Fails if any commit on this branch (vs the base branch) carries a Task-Ref:
+# trailer that does not match the current task as derived from the branch name.
 #
-# WHY THIS CHECK:
-#   Foreign-task commits (e.g., task-032 commits present on a task-019 branch)
-#   introduce unrelated changes that are hard to diagnose — duplicate test
-#   function names, unexpected schema changes, or service-layer conflicts that
-#   surface as ruff/mypy/pytest failures with no obvious link to the current
-#   task's diff.  The canonical example is task-019: a task-032 commit added a
-#   second `test_delete_cascades_encrypted_credentials` method, causing F811
-#   and mypy no-redef failures that blocked the merge.
+# WHY: When a task branch is rebased against a stale remote ref (origin/alpha
+# instead of local alpha), commits belonging to other tasks that landed on local
+# alpha but not yet on origin/alpha can appear as "branch commits" in git log.
+# These foreign commits would be merged into alpha under the wrong task's PR,
+# smuggling unreviewed changes.
 #
-# DETECTION STRATEGY:
-#   1. Extract the expected task ref from the current branch name
-#      (branch pattern: task-NNN/<description> → expected = task-NNN).
-#   2. For each commit between merge-base and HEAD, read the Task-Ref trailer.
-#   3. Flag any commit whose Task-Ref differs from the expected task ref.
-#   Commits with NO Task-Ref trailer are warned but not blocked (process
-#   improvement commits and merge commits legitimately omit the trailer).
+# This is the pattern observed in task-003: commit 1b0f2478 (Task-Ref: task-032,
+# 3,791 insertions, 46 files) was present on the branch because the merge-base
+# with local alpha was BEFORE task-032 landed. The PR would have merged those
+# changes silently under the task-003 review.
+#
+# CURRENT TASK DETECTION:
+#   Branch name pattern: hyperloop/task-NNN or task-NNN
+#   If the branch does not match the pattern, foreign-commit detection is
+#   best-effort (any commit carrying a Task-Ref trailer triggers a warning).
 #
 # Usage:
-#   ./check-no-foreign-task-commits.sh [base_branch]
+#   bash .hyperloop/checks/check-no-foreign-task-commits.sh [base_branch]
 #
-# Exit 0  — no foreign-task commits detected.
-# Exit 1  — one or more commits carry a mismatched Task-Ref.
+# Exit 0 — no foreign Task-Ref commits detected.
+# Exit 1 — one or more commits with a foreign Task-Ref are present.
 
 set -euo pipefail
-
-# Normalize CWD to repo root.
-cd "$(git rev-parse --show-toplevel)"
 
 BASE_BRANCH="${1:-}"
 if [[ -z "$BASE_BRANCH" ]]; then
@@ -44,96 +40,92 @@ if [[ -z "$BASE_BRANCH" ]]; then
 fi
 
 if [[ -z "$BASE_BRANCH" ]]; then
-  echo "WARNING: Could not detect base branch. Skipping foreign-task commit check."
+  echo "WARNING: Could not detect base branch — skipping foreign-commit check."
   exit 0
 fi
 
 MERGE_BASE=$(git merge-base HEAD "$BASE_BRANCH" 2>/dev/null || true)
 if [[ -z "$MERGE_BASE" ]]; then
-  echo "WARNING: Could not compute merge-base with $BASE_BRANCH. Skipping check."
+  echo "WARNING: Could not compute merge-base with $BASE_BRANCH — skipping check."
   exit 0
 fi
 
-# If origin/$BASE_BRANCH exists and is AHEAD of local $BASE_BRANCH, use the
-# more recent merge-base (the one closer to HEAD). This handles the case where
-# a PR has been merged to origin/alpha after the local alpha ref was last updated,
-# so commits from that merged PR (with their own Task-Ref trailers) don't appear
-# as "foreign" on task branches that were correctly rebased on origin/alpha.
-REMOTE_REF="origin/$BASE_BRANCH"
-if git show-ref --verify --quiet "refs/remotes/$REMOTE_REF" 2>/dev/null; then
-  MB_REMOTE=$(git merge-base HEAD "$REMOTE_REF" 2>/dev/null || echo "")
-  if [[ -n "$MB_REMOTE" && "$MB_REMOTE" != "$MERGE_BASE" ]]; then
-    COUNT_LOCAL=$(git rev-list --count "${MERGE_BASE}..HEAD" 2>/dev/null || echo "999999")
-    COUNT_REMOTE=$(git rev-list --count "${MB_REMOTE}..HEAD" 2>/dev/null || echo "999999")
-    if [[ "$COUNT_REMOTE" -lt "$COUNT_LOCAL" ]]; then
-      MERGE_BASE="$MB_REMOTE"
-    fi
-  fi
-fi
+# Derive current task ID from branch name (hyperloop/task-NNN or task-NNN)
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD")
+CURRENT_TASK=$(echo "$CURRENT_BRANCH" | grep -oE 'task-[0-9]+' | head -1 || true)
 
-# Extract the task ref from the current branch name (e.g., task-019/credentials → task-019).
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-EXPECTED_TASK=$(echo "$BRANCH" | grep -oE 'task-[0-9]+' | head -1 || true)
+echo "=== Checking for foreign Task-Ref commits (base: $BASE_BRANCH @ ${MERGE_BASE:0:8}) ==="
+echo "  Current branch:  $CURRENT_BRANCH"
+echo "  Detected task:   ${CURRENT_TASK:-<unknown — pattern not matched>}"
+echo ""
 
-if [[ -z "$EXPECTED_TASK" ]]; then
-  echo "WARNING: Branch '$BRANCH' has no task-NNN pattern. Skipping foreign-task check."
+# Collect all commits on this branch with their full message bodies
+COMMITS=$(git log --format="%H" "$MERGE_BASE..HEAD" 2>/dev/null || true)
+
+if [[ -z "$COMMITS" ]]; then
+  echo "PASS: No commits on this branch — nothing to check."
   exit 0
 fi
 
-echo "=== Checking for foreign-task commits (expected: $EXPECTED_TASK, base: $BASE_BRANCH @ ${MERGE_BASE:0:8}) ==="
-
-# Collect all commit SHAs between merge-base and HEAD.
-commits=$(git log --format="%H" "$MERGE_BASE"..HEAD 2>/dev/null || true)
-
-if [[ -z "$commits" ]]; then
-  echo "INFO: No commits found between merge-base and HEAD."
-  echo "PASS: No foreign-task commits detected."
-  exit 0
-fi
-
-found=0
-report=""
+FOREIGN_FOUND=0
+FOREIGN_LIST=""
 
 while IFS= read -r sha; do
-  [[ -z "$sha" ]] && continue
+  # Extract all Task-Ref trailer lines from this commit's body
+  task_refs=$(git log -1 --format="%B" "$sha" 2>/dev/null \
+    | grep -E "^Task-Ref:" | sed 's/Task-Ref: *//' | tr -d '[:space:]' || true)
 
-  # Extract the Task-Ref trailer value (strip all whitespace for clean comparison).
-  task_ref=$(git log -1 --format="%(trailers:key=Task-Ref,valueonly)" "$sha" 2>/dev/null \
-    | tr -d '[:space:]' || true)
-
-  subject=$(git log -1 --format="%s" "$sha" 2>/dev/null || echo "<unknown>")
-
-  if [[ -z "$task_ref" ]]; then
-    # No Task-Ref trailer — warn only, not a blocking failure.
-    echo "  INFO: ${sha:0:10} has no Task-Ref trailer: $subject"
-    continue
+  if [[ -z "$task_refs" ]]; then
+    continue  # No Task-Ref trailer — skip (process commits, etc.)
   fi
 
-  if [[ "$task_ref" != "$EXPECTED_TASK" ]]; then
-    report="${report}  FOREIGN: ${sha:0:10}  Task-Ref=$task_ref (expected $EXPECTED_TASK)\n"
-    report="${report}           Subject: $subject\n"
-    found=$((found + 1))
-  fi
-done <<< "$commits"
+  # Check each Task-Ref value
+  while IFS= read -r ref; do
+    if [[ -z "$ref" ]]; then
+      continue
+    fi
 
-echo ""
-if [[ $found -gt 0 ]]; then
-  printf "%b" "$report"
+    if [[ -n "$CURRENT_TASK" && "$ref" == "$CURRENT_TASK" ]]; then
+      continue  # This task's own commits — OK
+    fi
+
+    # Foreign Task-Ref detected
+    subject=$(git log -1 --format="%s" "$sha" 2>/dev/null || echo "(unknown subject)")
+    FOREIGN_LIST="${FOREIGN_LIST}  ${sha:0:8}  Task-Ref: ${ref}  —  ${subject}\n"
+    FOREIGN_FOUND=$((FOREIGN_FOUND + 1))
+  done <<< "$task_refs"
+done <<< "$COMMITS"
+
+if [[ "$FOREIGN_FOUND" -gt 0 ]]; then
+  echo "FAIL: ${FOREIGN_FOUND} commit(s) with a foreign Task-Ref detected on this branch."
   echo ""
-  echo "FAIL: Foreign-task commits detected on this branch."
+  printf "%b" "$FOREIGN_LIST"
   echo ""
-  echo "Commits from other tasks introduce unrelated changes (duplicate tests,"
-  echo "schema changes, service conflicts) that cause linting, type-checking,"
-  echo "or functional failures that are difficult to diagnose."
+  echo "WHY THIS HAPPENS:"
+  echo "  The branch was likely rebased against 'origin/alpha' when local 'alpha'"
+  echo "  was ahead of origin. Commits that landed on local alpha but were not yet"
+  echo "  pushed to origin appear as branch commits because the merge-base with"
+  echo "  local alpha is older than those commits."
   echo ""
-  echo "To remove foreign commits, use interactive rebase:"
-  echo "  git rebase -i $MERGE_BASE"
-  echo "  # Mark foreign commits as 'drop' and save"
+  echo "HOW TO FIX:"
+  echo "  1. Identify only THIS task's commits:"
+  echo "     git log --oneline \$(git merge-base HEAD $BASE_BRANCH)..HEAD"
   echo ""
-  echo "Alternatively, cherry-pick only the task-specific commits onto a fresh"
-  echo "branch from $BASE_BRANCH."
+  echo "  2. Create a fresh branch from current local $BASE_BRANCH:"
+  echo "     git checkout $BASE_BRANCH"
+  echo "     git checkout -b \${CURRENT_BRANCH}-clean"
+  echo ""
+  echo "  3. Cherry-pick only this task's commits (skip the foreign ones above):"
+  echo "     git cherry-pick <task-sha1> [<task-sha2> ...]"
+  echo ""
+  echo "  4. Verify clean:"
+  echo "     bash .hyperloop/checks/check-no-foreign-task-commits.sh"
+  echo "     bash .hyperloop/checks/check-branch-rebased-on-alpha.sh"
+  echo ""
+  echo "  5. Force-push to replace the contaminated branch:"
+  echo "     git push --force-with-lease origin HEAD:\${CURRENT_BRANCH}"
   exit 1
-else
-  echo "PASS: No foreign-task commits detected."
-  exit 0
 fi
+
+echo "PASS: No foreign Task-Ref commits detected on this branch."
+exit 0

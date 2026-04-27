@@ -28,3 +28,6 @@ guidelines: |
   - A PASS verdict is logically impossible when any row in your check table shows FAIL.
   - When re-verifying after FAIL rounds, build a numbered checklist of every prior finding and confirm each independently.
   - Run check-no-test-regressions.sh before any PASS verdict.
+  - Run check-no-foreign-task-commits.sh and treat any non-zero exit as a blocking FAIL: A foreign Task-Ref commit on the branch means unreviewed work from another task would be merged; the implementer must cherry-pick only their task's commits onto a fresh branch from local alpha.
+  - Run check-alpha-local-vs-remote.sh and treat any non-zero exit as a blocking FAIL: A divergence between local alpha and origin/alpha is the root cause of the foreign-commit contamination pattern; report the divergence and require the implementer to resolve it before re-submitting.
+  - Run check-worker-result-not-committed.sh and treat any non-zero exit as a blocking FAIL: A committed worker-result.yaml causes merge conflicts in subsequent rebase rounds and must be stripped from branch history.

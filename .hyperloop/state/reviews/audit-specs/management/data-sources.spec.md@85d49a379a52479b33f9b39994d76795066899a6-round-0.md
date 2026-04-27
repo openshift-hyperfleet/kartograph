@@ -4,7 +4,7 @@ round: 0
 role: auditor
 verdict: fail
 ---
-## Worker Result — Spec Alignment Audit: specs/management/data-sources.spec.md
+## Alignment Audit — specs/management/data-sources.spec.md
 
 Auditor: spec-alignment-reviewer
 Date: 2026-04-27
@@ -12,159 +12,91 @@ Spec commit: 85d49a379a52479b33f9b39994d76795066899a6
 
 ---
 
-### Overall Verdict: FAIL
+### Summary
 
-The domain layer, application service layer, and infrastructure layer faithfully implement
-the spec's business logic. However, the **presentation layer (HTTP API) is materially
-incomplete**: three required endpoints are missing, schedule configuration is not exposed
-through the API, and the duplicate-name error is not translated to the correct HTTP
-response. These are not cosmetic gaps — users cannot exercise the spec's requirements
-through the public API.
-
----
-
-### Gap 1 — CRITICAL: Missing GET /data-sources/{ds_id} endpoint
-
-**Spec requirement:** "Data Source Retrieval — The system SHALL return data source details
-only to users with `view` permission."
-
-**Status:** The service method `DataSourceService.get()` exists and correctly implements
-the logic (checks VIEW permission, returns None for unauthorized/missing without leaking
-existence). However, **no HTTP route exists** to call it.
-
-- File with gap: `src/api/management/presentation/data_sources/routes.py`
-  (no `GET /{data_source_id}` route is registered)
-- Service method present: `src/api/management/application/services/data_source_service.py`
-  (`DataSourceService.get()`)
-- Route tests absent: `src/api/tests/unit/management/presentation/test_data_sources_routes.py`
-
-Users cannot retrieve a single data source by ID.
+The domain and application layers implement the spec thoroughly. However, the
+**presentation layer (HTTP routes) is incomplete**: three operations described
+by the spec are unreachable via the API because the corresponding endpoints
+were never wired up. These are not minor gaps — they are externally visible
+contractual obligations defined by the spec.
 
 ---
 
-### Gap 2 — CRITICAL: Missing PUT/PATCH /data-sources/{ds_id} endpoint
+### GAP 1 — Missing `GET /data-sources/{ds_id}` endpoint (Requirement: Data Source Retrieval)
 
-**Spec requirement:** "Data Source Update — The system SHALL allow users with `edit`
-permission to update data source connection configuration."
+**Spec says:**
+> GIVEN a data source the user has `view` permission on
+> WHEN the user requests it by ID
+> THEN the data source details are returned (without raw credentials)
 
-**Status:** The service method `DataSourceService.update()` exists and correctly handles
-name/config/credentials updates, permission enforcement, credential re-encryption, and
-immutability-after-deletion. However, **no HTTP route exists** to call it.
+**Code:**
+- `DataSourceService.get()` exists and enforces VIEW permission and hides existence
+  from unauthorized callers (`src/api/management/application/services/data_source_service.py`, lines 183–216).
+- `src/api/management/presentation/data_sources/routes.py` exposes only:
+  - `POST /knowledge-graphs/{kg_id}/data-sources` (create)
+  - `GET  /knowledge-graphs/{kg_id}/data-sources` (list)
+  - `POST /knowledge-graphs/{kg_id}/data-sources/{ds_id}/sync` (trigger sync)
+  - `GET  /knowledge-graphs/{kg_id}/data-sources/{ds_id}/sync-runs` (list sync runs)
+- No `GET /knowledge-graphs/{kg_id}/data-sources/{ds_id}` route exists.
 
-- File with gap: `src/api/management/presentation/data_sources/routes.py`
-  (no `PUT /{data_source_id}` or `PATCH /{data_source_id}` route is registered)
-- Service method present: `src/api/management/application/services/data_source_service.py`
-  (`DataSourceService.update()`)
-- Route tests absent: `src/api/tests/unit/management/presentation/test_data_sources_routes.py`
-
-Users cannot update a data source via the API.
-
----
-
-### Gap 3 — CRITICAL: Missing DELETE /data-sources/{ds_id} endpoint
-
-**Spec requirement:** "Data Source Deletion — The system SHALL allow users with `manage`
-permission to delete a data source."
-
-**Status:** The service method `DataSourceService.delete()` exists and correctly enforces
-MANAGE permission, deletes credentials first, marks the aggregate for deletion, and
-triggers auth-relationship cleanup. However, **no HTTP route exists** to call it.
-
-- File with gap: `src/api/management/presentation/data_sources/routes.py`
-  (no `DELETE /{data_source_id}` route is registered)
-- Service method present: `src/api/management/application/services/data_source_service.py`
-  (`DataSourceService.delete()`)
-- Route tests absent: `src/api/tests/unit/management/presentation/test_data_sources_routes.py`
-
-Users cannot delete a data source via the API.
+**Impact:** Individual data source retrieval by ID is spec-required but impossible via the API.
 
 ---
 
-### Gap 4 — CRITICAL: Schedule configuration not exposed through the API
+### GAP 2 — Missing `PATCH /data-sources/{ds_id}` endpoint (Requirement: Data Source Update)
 
-**Spec requirement:** "Schedule Configuration — The system SHALL support three schedule
-types: MANUAL, CRON (with cron expression), and INTERVAL (with ISO 8601 duration)."
+**Spec says:**
+> GIVEN a user with `edit` permission on a data source
+> WHEN the user updates the name, connection config, or raw credentials
+> THEN the data source metadata is updated
+> AND if raw credentials are provided, they are encrypted and stored at the system-managed path
+> AND the credentials path is not directly settable by the client
 
-**Status:** The domain value object `Schedule` / `ScheduleType` fully implements all
-three types, including validation that CRON and INTERVAL require a non-empty value. The
-service `create()` method accepts a schedule argument. However, **the API request model
-has no schedule field**, so callers can never specify CRON or INTERVAL schedules.
+**Code:**
+- `DataSource.update_connection()` is fully implemented at the domain layer
+  (`src/api/management/domain/aggregates/data_source.py`, lines 170–213).
+- `DataSourceService.update()` is fully implemented
+  (`src/api/management/application/services/data_source_service.py`, lines 266–341):
+  validates EDIT permission, updates name/config, re-encrypts credentials, rejects
+  client-supplied credentials_path.
+- No HTTP PATCH or PUT route is wired up in
+  `src/api/management/presentation/data_sources/routes.py`.
 
-- File with gap: `src/api/management/presentation/data_sources/models.py`
-  — `CreateDataSourceRequest` lacks a `schedule` field
-- File with gap: `src/api/management/presentation/data_sources/routes.py`
-  — `create_data_source()` does not forward schedule configuration to the service
-- Domain implementation present: `src/api/management/domain/value_objects.py`
-  (`ScheduleType.CRON`, `ScheduleType.INTERVAL`, `Schedule._validate()`)
-- Effect: All data sources are permanently MANUAL regardless of what the client intends.
-  The "Missing schedule value" validation scenario (CRON/INTERVAL without value → error)
-  is also unreachable via the API.
-
----
-
-### Gap 5 — MAJOR: DuplicateDataSourceNameError not translated to 409 in routes
-
-**Spec requirement:** "Duplicate name within knowledge graph — the request is rejected
-with a duplicate name error."
-
-**Status:** The repository correctly raises `DuplicateDataSourceNameError` when the
-uniqueness constraint (`uq_data_sources_kg_name`) is violated. However, the routes layer
-does **not** import or catch this exception. It falls through to a generic `except
-Exception` handler that returns HTTP 500.
-
-- File with gap: `src/api/management/presentation/data_sources/routes.py`
-  — `create_data_source()` imports only `UnauthorizedError`; `DuplicateDataSourceNameError`
-  is not caught; the caller receives 500 instead of 409 Conflict.
-- Exception defined: `src/api/management/domain/exceptions.py` (`DuplicateDataSourceNameError`)
-- Exception raised: `src/api/management/infrastructure/repositories/data_source_repository.py`
-  (lines ~107–115)
-- Missing test: `src/api/tests/unit/management/presentation/test_data_sources_routes.py`
-  has no test case for the duplicate-name HTTP response.
+**Impact:** Data source update is spec-required but impossible via the API.
 
 ---
 
-### What IS Correctly Implemented
+### GAP 3 — Missing `DELETE /data-sources/{ds_id}` endpoint (Requirement: Data Source Deletion)
 
-The following areas are fully implemented and align with the spec:
+**Spec says:**
+> GIVEN a user with `manage` permission on a data source
+> WHEN the user deletes the data source
+> THEN the encrypted credentials are deleted first
+> AND the data source is deleted
+> AND authorization relationships are cleaned up
 
-- **Domain aggregate** (`data_source.py`): ULID generation, KG/tenant association,
-  MANUAL default, credential-path storage, immutability-after-deletion guard on all
-  mutation methods (`update_connection`, `request_sync`, `record_sync_completed`).
-- **Credential encryption path**: `datasource/{id}/credentials` — service encrypts
-  and stores; only the path reference is persisted in the aggregate.
-- **Name validation**: 1–100 characters enforced at both Pydantic (request layer) and
-  domain layer.
-- **Sync triggering endpoint**: `POST /{data_source_id}/sync` exists, checks MANAGE
-  permission, creates sync run with "pending" status, emits sync-requested event.
-- **Sync run tracking**: Entity tracks status, started_at, completed_at, error; DB
-  `CHECK` constraint enforces valid status values.
-- **Cascade deletion of sync runs**: FK `ondelete="CASCADE"` in
-  `data_source_sync_run` model.
-- **Permission inheritance**: SpiceDB schema wires `data_source.view/edit/manage`
-  through to `knowledge_graph->view/edit/manage`; integration auth tests verify the chain.
-- **Unauthorized/missing ambiguity**: Service returns `None` for both cases (no
-  existence leakage).
+**Code:**
+- `DataSourceService.delete()` is fully implemented
+  (`src/api/management/application/services/data_source_service.py`, lines 343–396):
+  checks MANAGE permission, deletes credentials first, calls `mark_for_deletion()`,
+  persists deletion, emits `DataSourceDeleted` event for downstream auth cleanup.
+- No HTTP DELETE route is wired up in
+  `src/api/management/presentation/data_sources/routes.py`.
+
+**Impact:** Data source deletion is spec-required but impossible via the API.
 
 ---
 
-### Summary Table
+### Passing Requirements
 
-| Spec Requirement                        | Domain | Service | Route | Tests (route) |
-|-----------------------------------------|--------|---------|-------|---------------|
-| Creation (ULID, KG assoc, MANUAL default) | ✓    | ✓       | ✓     | ✓             |
-| Creation with credential encryption      | ✓    | ✓       | ✓     | ✓             |
-| Duplicate name → error                  | ✓    | ✓       | ✗     | ✗             |
-| Name validation (1–100 chars)           | ✓    | ✓       | ✓     | ✓             |
-| Schedule: MANUAL default                | ✓    | ✓       | ✓     | ✓             |
-| Schedule: CRON (API-exposed)            | ✓    | ✓       | ✗     | ✗             |
-| Schedule: INTERVAL (API-exposed)        | ✓    | ✓       | ✗     | ✗             |
-| Schedule: missing value → error (API)   | ✓    | ✓       | ✗     | ✗             |
-| Retrieval (GET by ID)                   | ✓    | ✓       | ✗     | ✗             |
-| Retrieval: unauth/missing → 404         | ✓    | ✓       | ✗     | ✗             |
-| Update (PUT/PATCH)                      | ✓    | ✓       | ✗     | ✗             |
-| Immutability after deletion             | ✓    | ✓       | N/A   | ✓             |
-| Deletion (DELETE)                       | ✓    | ✓       | ✗     | ✗             |
-| Sync trigger (POST /sync)               | ✓    | ✓       | ✓     | ✓             |
-| Sync run tracking (lifecycle fields)    | ✓    | ✓       | N/A   | ✓             |
-| Cascade deletion of sync runs           | ✓    | ✓       | N/A   | ~             |
-| Permission inheritance                  | ✓    | ✓       | ✓     | ✓             |
+The following spec requirements are correctly and fully implemented end-to-end:
+
+| Requirement | Verdict | Notes |
+|---|---|---|
+| Data Source Creation | PASS | ULID, KB association, tenant scoping, MANUAL default, credential encryption at `datasource/{id}/credentials`, duplicate name rejection |
+| Name Validation (1–100 chars) | PASS | Enforced at domain layer and Pydantic model |
+| Schedule Configuration (MANUAL/CRON/INTERVAL) | PASS | Missing value for CRON/INTERVAL rejected with `InvalidScheduleError` |
+| Immutability After Deletion | PASS | `AggregateDeletedError` raised on update and sync after `mark_for_deletion()` |
+| Sync Triggering | PASS | POST route exists, creates pending sync run, emits `DataSourceSyncRequested` event |
+| Sync Run Tracking | PASS | All four statuses, `started_at`, `completed_at`, `error_message`; CASCADE delete verified |
+| Permission Inheritance | PASS | SpiceDB schema wires `data_source.{view,edit,manage}` ← `knowledge_graph.{view,edit,manage}`; integration tests verify full chain |

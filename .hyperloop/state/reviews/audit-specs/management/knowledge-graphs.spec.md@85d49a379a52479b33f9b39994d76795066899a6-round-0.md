@@ -4,102 +4,102 @@ round: 0
 role: auditor
 verdict: fail
 ---
-## Worker Result — Spec Alignment Audit
-## Spec: specs/management/knowledge-graphs.spec.md
+## Spec Alignment Review — specs/management/knowledge-graphs.spec.md
 
-Auditor: alignment-auditor
+Reviewer: spec-alignment-reviewer (Gate 7)
 Date: 2026-04-27
 
 ---
 
-### Verdict: FAIL
+### Summary
 
-Three critical gaps exist between the spec and the current implementation. The domain model
-and service layer are largely well-implemented, but the API surface is incomplete.
-
----
-
-### Gap 1 — MISSING: Knowledge Graph Update HTTP Endpoint (CRITICAL)
-
-**Spec requirement:** "The system SHALL allow users with `edit` permission to update knowledge
-graph metadata (name and description)."
-
-**Finding:** No HTTP route exists for updating a knowledge graph.
-
-- `src/api/management/presentation/knowledge_graphs/routes.py` — only defines `GET /knowledge-graphs`,
-  `GET /knowledge-graphs/{kg_id}`, and `POST /workspaces/{workspace_id}/knowledge-graphs`.
-  There is no `PATCH` or `PUT` endpoint.
-- `src/api/management/presentation/knowledge_graphs/models.py` — no `UpdateKnowledgeGraphRequest`
-  model exists.
-- The **service layer implementation is complete**: `KnowledgeGraphService.update()` exists and
-  correctly checks EDIT permission, validates name, rejects duplicates, and emits
-  `KnowledgeGraphUpdated`. The gap is purely in the presentation layer.
+The implementation partially satisfies the spec. Domain aggregate, service layer,
+authorization schema (SpiceDB), and tests are largely correct. However, three
+concrete gaps exist where committed code deviates from or omits spec-required behavior.
 
 ---
 
-### Gap 2 — MISSING: Knowledge Graph Delete HTTP Endpoint (CRITICAL)
+### FAIL: Missing HTTP routes for Update and Delete
 
-**Spec requirement:** "The system SHALL allow users with `manage` permission to delete a
-knowledge graph, cascading to data sources."
+**Spec requirements:**
+- "The system SHALL allow users with `edit` permission to update knowledge graph metadata."
+- "The system SHALL allow users with `manage` permission to delete a knowledge graph, cascading to data sources."
 
-**Finding:** No HTTP route exists for deleting a knowledge graph.
+**Implementation:**
+`src/api/management/presentation/knowledge_graphs/routes.py` exposes only three routes:
+- `GET /management/knowledge-graphs` (line 28)
+- `GET /management/knowledge-graphs/{kg_id}` (line 62)
+- `POST /management/workspaces/{workspace_id}/knowledge-graphs` (line 111)
 
-- `src/api/management/presentation/knowledge_graphs/routes.py` — no `DELETE` endpoint defined.
-- The **service layer implementation exists**: `KnowledgeGraphService.delete()` checks MANAGE
-  permission, cascades to data sources within a transaction, marks the aggregate for deletion
-  (protecting against post-deletion mutations), and emits `KnowledgeGraphDeleted` for SpiceDB
-  cleanup. The gap is purely in the presentation layer.
+No `PUT`/`PATCH` (update) or `DELETE` (delete) HTTP endpoints exist for knowledge graphs.
+The service layer (`KnowledgeGraphService.update` and `KnowledgeGraphService.delete`) is
+implemented and tested at the unit level, but there is no HTTP surface for callers.
 
----
-
-### Gap 3 — INCORRECT: List Endpoint Does Not Filter By Workspace (CRITICAL)
-
-**Spec requirement:** "The system SHALL list knowledge graphs **within a workspace**, filtered
-by authorization."
-
-**Finding:** The `GET /management/knowledge-graphs` endpoint lists ALL knowledge graphs within
-the tenant, not filtered to a specific workspace.
-
-- `src/api/management/presentation/knowledge_graphs/routes.py` lines 28–59: calls
-  `service.list_all()` which returns all tenant-scoped KGs filtered by VIEW permission.
-- The spec explicitly requires workspace-scoped listing. The service has a `list_for_workspace()`
-  method that correctly takes a `workspace_id`, verifies VIEW on the workspace, and returns only
-  KGs linked to that workspace via SpiceDB — but this method is **not wired to any HTTP route**.
-- The correct endpoint shape (matching the creation route) would be
-  `GET /management/workspaces/{workspace_id}/knowledge-graphs` calling `list_for_workspace()`.
+**Files:**
+- `src/api/management/presentation/knowledge_graphs/routes.py` — missing update and delete routes
+- `src/api/tests/unit/management/presentation/test_knowledge_graphs_routes.py` — no update or delete route tests
 
 ---
 
-### Gap 4 — CONCERN: Cascading Credential Deletion Not Verified (MINOR)
+### FAIL: Missing HTTP route for workspace-scoped listing
 
-**Spec requirement:** "All data sources within it are deleted **(including their encrypted
-credentials)**."
+**Spec requirement:**
+"The system SHALL list knowledge graphs within a workspace, filtered by authorization."
+- Scenario: List for workspace — user lists knowledge graphs for a specific workspace
 
-**Finding:** The KG deletion cascade (`KnowledgeGraphService.delete()`) calls
-`DataSourceRepository.delete()` for each child data source, but it is not verifiable from
-the service code alone that this method also deletes the Vault-stored encrypted credentials.
-If `DataSourceRepository.delete()` only removes the database row and does not call the
-credential backend, the spec requirement for credential cleanup is silently violated.
+**Implementation:**
+`GET /management/knowledge-graphs` (routes.py line 28) uses `service.list_all()`, which lists
+all KGs in the tenant filtered by the user's VIEW permission. This is NOT a workspace-scoped list.
 
-This should be verified at the repository and integration-test level.
+`KnowledgeGraphService.list_for_workspace()` (knowledge_graph_service.py line 199) exists and is
+unit-tested but is **not reachable via any HTTP route**. There is no
+`GET /management/workspaces/{workspace_id}/knowledge-graphs` endpoint.
+
+**Files:**
+- `src/api/management/presentation/knowledge_graphs/routes.py` — missing workspace-scoped listing route
+- `src/api/tests/unit/management/presentation/test_knowledge_graphs_routes.py` — no workspace listing route tests
 
 ---
 
-### Items That ARE Correctly Implemented
+### FAIL: Cascade delete does not delete encrypted credentials
 
-- **Creation**: ULID generation, workspace/tenant association, SpiceDB relationship creation,
-  duplicate-name rejection via `(tenant_id, name)` unique constraint — all correct.
-- **Name validation**: 1–100 character constraint enforced at both domain layer
-  (`KnowledgeGraph._validate_name()`) and Pydantic layer (`CreateKnowledgeGraphRequest`).
-- **Retrieval**: `get()` returns `None` for unauthorized AND missing KGs with no distinction,
-  correctly mapping to HTTP 404 at the API layer.
-- **Mutation-after-deletion guard**: Aggregate raises `AggregateDeletedError` on update/delete
-  when `self._deleted` is True.
-- **Permission inheritance in SpiceDB schema**: `schema.zed` correctly defines
-  `view = admin + editor + viewer + workspace->view`,
-  `edit = admin + editor + workspace->edit`,
-  `manage = admin + workspace->manage` — matching both spec scenarios.
-- **SpiceDB cleanup on deletion**: `ManagementEventTranslator._translate_knowledge_graph_deleted()`
-  removes workspace relationship, tenant relationship, and all direct grants (admin, editor,
-  viewer) via filter operations.
-- **Atomic transaction on deletion**: DB operations are wrapped in `async with self._session.begin()`.
+**Spec requirement:**
+"THEN the following cascade executes atomically within a single transaction:
+- All data sources within it are deleted (including their encrypted credentials)"
+
+**Implementation:**
+`KnowledgeGraphService.delete()` (knowledge_graph_service.py lines 399-408) iterates data sources
+and calls `self._ds_repo.delete(ds)` for each, but does NOT delete their encrypted credentials.
+
+The `FernetSecretStore` (fernet_secret_store.py) has a `delete(path, tenant_id)` method.
+`DataSourceService.delete()` (data_source_service.py lines 384-392) correctly calls it.
+But `KnowledgeGraphService` has no `secret_store` dependency
+(confirmed in `knowledge_graph.py` dependencies at dependencies/knowledge_graph.py lines 43-52)
+and no call to any credential deletion.
+
+A data source with `credentials_path` set will have its DB record deleted but its encrypted
+credential row in `encrypted_credentials` will remain orphaned after a KG cascade delete.
+
+**Files:**
+- `src/api/management/application/services/knowledge_graph_service.py` (lines 399-408) — missing credential deletion
+- `src/api/management/dependencies/knowledge_graph.py` (lines 43-52) — no secret store provided
+- `src/api/tests/unit/management/application/test_knowledge_graph_service.py` — no test asserts credential deletion on cascade delete
+
+---
+
+### PASS Items (for reference)
+
+- ULID generation: `KnowledgeGraphId.generate()` via `str(ULID())` — correct
+- Workspace/tenant association: set in `KnowledgeGraph.create()` and persisted — correct
+- Auth relationships on creation: `KnowledgeGraphCreated` event triggers workspace+tenant writes in translator — correct
+- Duplicate name check: DB unique constraint `uq_knowledge_graphs_tenant_name` + `IntegrityError` handling — correct
+- Name validation (1-100 chars): enforced in `KnowledgeGraph._validate_name()` and Pydantic `CreateKnowledgeGraphRequest` — correct
+- Retrieval with VIEW permission and no unauthorized/missing distinction: returns `None` in both cases — correct
+- Update requires EDIT on knowledge_graph resource — correct
+- Delete requires MANAGE on knowledge_graph resource — correct
+- Mutation-after-deletion guard: `AggregateDeletedError` raised in `KnowledgeGraph.update()` when `_deleted=True` — correct
+- Auth cleanup on deletion: translator removes workspace, tenant, admin, editor, viewer tuples — correct
+- Atomic transaction: all deletes inside a single `async with self._session.begin()` block — correct (excluding missing credential deletion)
+- Permission inheritance schema: SpiceDB schema.zed correctly models workspace->view/edit/manage chain and direct admin/editor/viewer grants — correct
+- Integration tests for SpiceDB permission inheritance: test_knowledge_graph_authorization.py covers all key scenarios — correct
+- All 322 unit tests pass

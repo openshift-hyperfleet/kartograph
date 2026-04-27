@@ -17,7 +17,12 @@ from management.application.services.knowledge_graph_service import (
     KnowledgeGraphService,
 )
 from management.domain.aggregates import DataSource, KnowledgeGraph
-from management.domain.value_objects import KnowledgeGraphId
+from management.domain.value_objects import (
+    DataSourceId,
+    KnowledgeGraphId,
+    Schedule,
+    ScheduleType,
+)
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
     UnauthorizedError,
@@ -26,6 +31,7 @@ from shared_kernel.authorization.types import (
     Permission,
     RelationshipTuple,
 )
+from shared_kernel.datasource_types import DataSourceAdapterType
 
 
 @pytest.fixture
@@ -50,6 +56,12 @@ def mock_kg_repo():
 @pytest.fixture
 def mock_ds_repo():
     """Create a mock IDataSourceRepository."""
+    return AsyncMock()
+
+
+@pytest.fixture
+def mock_secret_store():
+    """Create a mock ISecretStoreRepository."""
     return AsyncMock()
 
 
@@ -116,6 +128,32 @@ def _make_kg(
     # Clear events from construction
     kg.collect_events()
     return kg
+
+
+def _make_ds(
+    ds_id: str = "ds-001",
+    kg_id: str = "kg-001",
+    tenant_id: str = "tenant-123",
+    name: str = "Test DS",
+    credentials_path: str | None = None,
+) -> DataSource:
+    """Create a DataSource instance for testing."""
+    now = datetime.now(UTC)
+    ds = DataSource(
+        id=DataSourceId(value=ds_id),
+        knowledge_graph_id=kg_id,
+        tenant_id=tenant_id,
+        name=name,
+        adapter_type=DataSourceAdapterType.GITHUB,
+        connection_config={"url": "https://github.com"},
+        credentials_path=credentials_path,
+        schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+        last_sync_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+    ds.collect_events()
+    return ds
 
 
 # ---- create ----
@@ -589,8 +627,8 @@ class TestKnowledgeGraphServiceDelete:
     ):
         """delete() deletes all data sources before deleting the KG."""
         kg = _make_kg(tenant_id=tenant_id)
-        ds1 = MagicMock(spec=DataSource)
-        ds2 = MagicMock(spec=DataSource)
+        ds1 = _make_ds(ds_id="ds-001", kg_id=kg.id.value, tenant_id=tenant_id)
+        ds2 = _make_ds(ds_id="ds-002", kg_id=kg.id.value, tenant_id=tenant_id)
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = kg
         mock_ds_repo.find_by_knowledge_graph.return_value = [ds1, ds2]
@@ -600,11 +638,64 @@ class TestKnowledgeGraphServiceDelete:
         result = await service.delete(user_id=user_id, kg_id=kg.id.value)
 
         assert result is True
-        # Each DS should be marked for deletion and deleted
-        ds1.mark_for_deletion.assert_called_once()
-        ds2.mark_for_deletion.assert_called_once()
+        # Each DS should be deleted via the repository (observable public behaviour)
+        mock_ds_repo.delete.assert_any_call(ds1)
+        mock_ds_repo.delete.assert_any_call(ds2)
         assert mock_ds_repo.delete.call_count == 2
         mock_kg_repo.delete.assert_called_once_with(kg)
+
+    @pytest.mark.asyncio
+    async def test_delete_cleans_up_credentials_for_each_data_source(
+        self,
+        mock_session,
+        mock_kg_repo,
+        mock_ds_repo,
+        mock_secret_store,
+        mock_authz,
+        mock_probe,
+        tenant_id,
+        user_id,
+    ):
+        """delete() calls secret_store.delete for each DS with credentials_path."""
+        kg = _make_kg(tenant_id=tenant_id)
+        ds_with_creds = _make_ds(
+            ds_id="ds-001",
+            kg_id=kg.id.value,
+            tenant_id=tenant_id,
+            credentials_path="datasource/ds-1/credentials",
+        )
+        ds_no_creds = _make_ds(
+            ds_id="ds-002",
+            kg_id=kg.id.value,
+            tenant_id=tenant_id,
+            credentials_path=None,
+        )
+        mock_authz.check_permission.return_value = True
+        mock_kg_repo.get_by_id.return_value = kg
+        mock_ds_repo.find_by_knowledge_graph.return_value = [ds_with_creds, ds_no_creds]
+        mock_ds_repo.delete.return_value = True
+        mock_kg_repo.delete.return_value = True
+
+        service = KnowledgeGraphService(
+            session=mock_session,
+            knowledge_graph_repository=mock_kg_repo,
+            data_source_repository=mock_ds_repo,
+            authz=mock_authz,
+            scope_to_tenant=tenant_id,
+            probe=mock_probe,
+            secret_store=mock_secret_store,
+        )
+
+        result = await service.delete(user_id=user_id, kg_id=kg.id.value)
+
+        assert result is True
+        # Secret store delete called only for DS with credentials
+        mock_secret_store.delete.assert_awaited_once_with(
+            path="datasource/ds-1/credentials",
+            tenant_id=tenant_id,
+        )
+        # Both DS rows are deleted
+        assert mock_ds_repo.delete.call_count == 2
 
     @pytest.mark.asyncio
     async def test_delete_probes_success(

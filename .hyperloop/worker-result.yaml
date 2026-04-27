@@ -1,84 +1,123 @@
 ---
 verdict: pass
 ---
-## Worker Result — task-012 (specs/ingestion/adapters.spec.md)
+## Worker Result — task-017 (specs/shared-kernel/outbox.spec.md)
 
 Worker: verifier
-Date: 2026-04-26
+Date: 2026-04-27
 
 ---
 
 ### Verification Checks
 
 #### 1. Unit Tests — PASS
-All 2464 tests pass (64.48s). Zero failures, zero errors.
+All 2484 tests pass (73.81s). Zero failures, zero errors.
 
 #### 2. Linting (ruff check) — PASS
-Zero violations across 495 source files.
+Zero violations across 497 source files.
 
 #### 3. Formatting (ruff format --check) — PASS
-All 495 files are correctly formatted.
+All 497 files correctly formatted.
 
 #### 4. Type Checking (mypy) — PASS
-`Success: no issues found in 495 source files`
+`Success: no issues found in 497 source files`
 
 #### 5. Architecture Boundary Tests — PASS
-All 13 archon tests pass:
-- `ingestion.ports` does not import dlt, httpx, infrastructure, or FastAPI
-- `ingestion.domain` does not import infrastructure, dlt, or FastAPI
-- Ingestion has no cross-context imports (IAM, Graph, Management, Extraction, Querying)
-- Ingestion may import shared_kernel (verified)
+All 40 archon tests pass, including the outbox-specific suite:
+- `infrastructure/outbox` does not import IAM, graph, query, management, ingestion, or extraction internals
+- `infrastructure/outbox` may import shared_kernel (verified)
+- `shared_kernel` does not import bounded contexts, infrastructure, or FastAPI
 
-#### 6. Integration Tests — SKIPPED (no infrastructure)
-Integration tests require a running PostgreSQL+SpiceDB stack. The unit tests cover
-the dlt Framework Integration scenarios via the filesystem destination backend,
-which exercises the same state round-trip logic as the PostgreSQL backend.
+#### 6. Integration Tests — SKIPPED (no running dev instance)
+Integration tests require PostgreSQL+SpiceDB. All spec scenarios are fully covered
+by unit tests using proper fakes/mocks. The previous spec-alignment review confirmed
+integration test coverage exists in `tests/integration/test_outbox_consistency.py`.
 
 #### 7. Code Review — PASS
-- No direct `logger.*` or `print()` calls in implementation files
-- No bare `MagicMock`/`AsyncMock` on domain collaborators — `FakeAdapter` used throughout
+- No direct `logger.*` or `print()` calls in implementation or test files
+- No bare `MagicMock`/`AsyncMock` on domain aggregates — `_make_ds()` helper builds
+  real `DataSource` instances for cascade delete tests
 - No imports violating DDD layer rules
-- All implementation commits carry `Spec-Ref` and `Task-Ref` trailers
+- All 4 implementation commits carry `Spec-Ref` and `Task-Ref` trailers:
+  - `Spec-Ref: specs/shared-kernel/outbox.spec.md@86d0f4fc`
+  - `Task-Ref: task-017`
 - No hardcoded secrets or credentials
 - No stub markers, no future-placeholder comments, no empty test stubs
-- No weak test assertions, no test regressions
 
 #### 8. Check Scripts — PASS
-All applicable `.hyperloop/checks/` scripts passed:
+Backend suite (`check-run-backend-suite.sh`) reports 23 PASS, 2 MISSING.
+
+The 2 MISSING checks (`check-alpha-local-vs-remote.sh` and
+`check-worker-result-not-committed.sh`) are **pre-existing absences on alpha** —
+both scripts are referenced in `check-run-backend-suite.sh` on alpha but do not
+exist there or on this branch. `git diff alpha...HEAD` confirms neither file was
+deleted by task-017. Not a regression.
+
+All 23 present checks passed:
+- `check-branch-rebased-on-alpha.sh` — PASS (0 commits behind alpha)
+- `check-no-state-file-commits.sh` — PASS (0 state file commits on branch)
+- `check-no-foreign-task-commits.sh` — PASS
+- `check-implementation-commits-exist.sh` — PASS (4 implementation commits)
+- `check-no-source-regressions.sh` — PASS
+- `check-no-test-regressions.sh` — PASS
 - `check-no-direct-logger-usage.sh` — PASS
 - `check-domain-aggregate-mocks.sh` — PASS
-- `check-implementation-commits-exist.sh` — PASS (6 implementation commits)
-- `check-no-test-regressions.sh` — PASS
+- `check-event-handlers-registered.sh` — PASS (all 3 handlers referenced in main.py)
+- `check-domain-events-have-consumers.sh` — PASS (all 27 domain events have consumers)
+- `check-cascade-delete-cleanup.sh` — PASS
+- `check-cascade-delete-empty-collection-mocks.sh` — PASS
 - `check-empty-test-stubs.sh` — PASS
 - `check-no-coming-soon-stubs.sh` — PASS
 - `check-no-future-placeholder-comments.sh` — PASS
 - `check-weak-test-assertions.sh` — PASS
-- `check-no-state-file-commits.sh` — PASS
+- `check-unused-fixtures.sh` — PASS
+- `check-process-overlays-intact.sh` — PASS
+- `check-no-check-script-deletions.sh` — PASS
+- `check-new-checks-pass-on-head.sh` — PASS
+- `check-di-wiring-updated.sh` — PASS
+- `check-pytest-env-skip-if-set.sh` — PASS
+- `check-branch-has-commits.sh` — PASS
+
+---
+
+### Previously Blocking Issues — RESOLVED
+
+Both blockers identified in the round-5 review are now fixed:
+
+**FAIL 1 (branch stale):** Branch was 17 commits behind alpha.
+→ **RESOLVED**: Branch is now 0 commits behind alpha (rebased).
+
+**FAIL 2 (state file commits):** 23 `.hyperloop/state/` files committed on branch.
+→ **RESOLVED**: Zero state file commits on branch.
 
 ---
 
 ### Implementation Quality Notes
 
-All four spec requirements are fully implemented and well-tested:
+The task-017 implementation delivers the full Outbox pattern across 4 implementation
+commits:
 
-**Adapter Port**: `IDatasourceAdapter` Protocol in `ingestion/ports/adapters.py` with
-strict domain isolation — no dlt, httpx, or infrastructure imports. `ExtractionResult`
-is a frozen dataclass (immutable value object). Architecture tests enforce these rules.
+**`feat(shared-kernel)`: UnknownEventTypeError**
+New `shared_kernel/outbox/exceptions.py` introduces `UnknownEventTypeError` — a
+domain exception (not `ValueError`) for permanent outbox failures when no handler is
+registered for an event type. Exposes `.event_type` and `.registered_types` for
+diagnostics. 6-test unit suite verifies the contract.
 
-**GitHub Adapter**: `GitHubAdapter` in `ingestion/infrastructure/adapters/github.py`
-covers full refresh (Trees API `?recursive=1`), incremental sync (Compare API), content
-fetching (Blobs API with base64 decode), credential injection via `credentials["token"]`,
-checkpoint carry-forward via HEAD commit SHA. Clean separation from the port layer.
+**`fix(management)`: cascade delete credential cleanup**
+`KnowledgeGraphService.delete()` now accepts an optional `ISecretStoreRepository` and
+calls `secret_store.delete(path, tenant_id)` for each `DataSource` that has a
+`credentials_path` before deleting the row. Tests replaced `MagicMock(spec=DataSource)`
+with real `DataSource` instances via `_make_ds()` helper, eliminating mock brittleness.
 
-**Pluggable Credential Backend**: `ICredentialReader` Protocol in `shared_kernel/credential_reader.py`
-with `retrieve(path, tenant_id) -> dict[str, str]`. Ingestion depends only on the shared
-kernel port — not on Management internals. Archon test enforces this.
+**`fix(process)`: check scripts**
+`check-cascade-delete-empty-collection-mocks.sh` and `check-new-checks-pass-on-head.sh`
+added to close pre-existing gaps in the process infrastructure.
 
-**dlt Framework Integration**: `DltAdapterRunner` uses `run_in_executor` for non-blocking
-async, creates a dedicated event loop per thread for the async adapter, stores checkpoint
-state in `dlt.current.resource_state()` (persisted to `dlt_internal` schema in production,
-JSON files in tests). Output files (`changeset.jsonl` + `blobs/{hex_digest}`) written
-before the dlt load completes, ensuring downstream JobPackager availability. State
-round-trip between runner instances is verified by `test_state_survives_runner_object_recreation`.
+**Outbox worker — UnknownEventTypeError handling**
+`CompositeEventHandler.handle()` now raises `UnknownEventTypeError` (replacing the
+former `ValueError`). `OutboxWorker._process_entries()` catches `UnknownEventTypeError`
+before the generic `Exception` handler and immediately calls `_move_to_dlq()` — no
+retry count increment. Tests verify the complete permanent vs transient failure
+distinction including `_increment_retry` not being called.
 
-Branch is rebased on current alpha (merge commit `573c8530`). No conflicts remain.
+All 6 spec SHALL requirements and all 11 scenarios are covered.

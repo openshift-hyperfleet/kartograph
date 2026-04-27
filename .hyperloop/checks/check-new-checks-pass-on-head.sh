@@ -87,7 +87,7 @@ while IFS= read -r check_path; do
   fi
 
   echo "── $check_name ──────────────────────────────────────"
-  if bash "$check_path"; then
+  if bash "$check_path" < /dev/null; then
     PASSED+=("$check_name")
   else
     FAILED+=("$check_name")

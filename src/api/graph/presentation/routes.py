@@ -78,7 +78,7 @@ def _build_mutation_error_response(
     "/knowledge-graphs/{knowledge_graph_id}/mutations",
     status_code=status.HTTP_200_OK,
 )
-async def apply_kg_mutations(
+async def apply_mutations(
     knowledge_graph_id: str,
     jsonl_content: Annotated[
         str,

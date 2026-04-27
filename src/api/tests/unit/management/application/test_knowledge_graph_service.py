@@ -23,7 +23,6 @@ from management.domain.value_objects import (
     Schedule,
     ScheduleType,
 )
-from shared_kernel.datasource_types import DataSourceAdapterType
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
     KnowledgeGraphNotFoundError,
@@ -33,6 +32,7 @@ from shared_kernel.authorization.types import (
     Permission,
     RelationshipTuple,
 )
+from shared_kernel.datasource_types import DataSourceAdapterType
 
 
 @pytest.fixture
@@ -492,7 +492,7 @@ class TestKnowledgeGraphServiceUpdate:
             )
 
     @pytest.mark.asyncio
-    async def test_update_raises_not_found_when_not_found(
+    async def test_update_raises_not_found_error_when_not_found(
         self, service, mock_authz, mock_kg_repo, user_id
     ):
         """update() raises KnowledgeGraphNotFoundError when KG not found."""
@@ -768,6 +768,34 @@ class TestKnowledgeGraphServiceDelete:
         )
 
     @pytest.mark.asyncio
+    async def test_delete_rolls_back_on_ds_deletion_failure(
+        self, service, mock_authz, mock_kg_repo, mock_ds_repo, user_id, tenant_id
+    ):
+        """delete() propagates exception and never deletes KG when a DS deletion fails.
+
+        Verifies the atomicity guarantee: if any data source deletion raises, the
+        exception propagates out of the transaction block before kg_repo.delete is
+        reached, so the KG record is not deleted.  The underlying SQLAlchemy
+        ``async with session.begin():`` will roll back the database transaction
+        automatically on exception; this test confirms the service-layer ordering
+        that makes rollback meaningful.
+        """
+        kg = _make_kg(tenant_id=tenant_id)
+        ds1 = _make_ds(ds_id="ds-001", kg_id=kg.id.value, tenant_id=tenant_id)
+        ds2 = _make_ds(ds_id="ds-002", kg_id=kg.id.value, tenant_id=tenant_id)
+        mock_authz.check_permission.return_value = True
+        mock_kg_repo.get_by_id.return_value = kg
+        mock_ds_repo.find_by_knowledge_graph.return_value = [ds1, ds2]
+        # First DS deletes successfully; second raises a DB error mid-cascade
+        mock_ds_repo.delete.side_effect = [None, RuntimeError("DB failure")]
+
+        with pytest.raises(RuntimeError, match="DB failure"):
+            await service.delete(user_id=user_id, kg_id=kg.id.value)
+
+        # KG must NOT have been deleted — the transaction rolls back
+        mock_kg_repo.delete.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_delete_removes_credentials_for_data_sources_with_credentials_path(
         self,
         mock_session,
@@ -890,55 +918,63 @@ class TestKnowledgeGraphServiceListAll:
     """Tests for KnowledgeGraphService.list_all."""
 
     @pytest.mark.asyncio
-    async def test_list_all_returns_only_visible_kgs(
-        self, service, mock_authz, mock_kg_repo, mock_probe, user_id, tenant_id
+    async def test_list_all_returns_all_visible_kgs(
+        self,
+        service,
+        mock_authz,
+        mock_kg_repo,
+        mock_probe,
+        user_id,
+        tenant_id,
     ):
-        """list_all() returns only KGs the user has VIEW permission on."""
+        """list_all() returns KGs the user can VIEW in the scoped tenant."""
         kg1 = _make_kg(kg_id="kg-001", tenant_id=tenant_id)
         kg2 = _make_kg(kg_id="kg-002", tenant_id=tenant_id)
-        kg3 = _make_kg(kg_id="kg-003", tenant_id=tenant_id)
-
-        mock_kg_repo.find_by_tenant.return_value = [kg1, kg2, kg3]
-
-        # Only kg1 and kg3 are visible
-        async def _check_permission(resource, permission, subject):
-            if "kg-002" in resource:
-                return False
-            return True
-
-        mock_authz.check_permission.side_effect = _check_permission
+        mock_kg_repo.find_by_tenant.return_value = [kg1, kg2]
+        mock_authz.check_permission.return_value = True
 
         result = await service.list_all(user_id=user_id)
 
         assert len(result) == 2
-        assert kg1 in result
-        assert kg3 in result
-        assert kg2 not in result
-
-    @pytest.mark.asyncio
-    async def test_list_all_probes_with_tenant_id(
-        self, service, mock_authz, mock_kg_repo, mock_probe, user_id, tenant_id
-    ):
-        """list_all() probes with tenant_id (not workspace_id)."""
-        kg1 = _make_kg(kg_id="kg-001", tenant_id=tenant_id)
-        mock_kg_repo.find_by_tenant.return_value = [kg1]
-        mock_authz.check_permission.return_value = True
-
-        await service.list_all(user_id=user_id)
-
+        mock_kg_repo.find_by_tenant.assert_called_once_with(tenant_id)
         mock_probe.knowledge_graphs_listed.assert_called_once_with(
             tenant_id=tenant_id,
-            count=1,
+            count=2,
         )
 
     @pytest.mark.asyncio
-    async def test_list_all_returns_empty_list_when_none_visible(
-        self, service, mock_authz, mock_kg_repo, mock_probe, user_id, tenant_id
+    async def test_list_all_filters_unauthorized_kgs(
+        self,
+        service,
+        mock_authz,
+        mock_kg_repo,
+        user_id,
+        tenant_id,
     ):
-        """list_all() returns empty list when user can view none of the KGs."""
+        """list_all() excludes KGs the user cannot VIEW."""
         kg1 = _make_kg(kg_id="kg-001", tenant_id=tenant_id)
-        mock_kg_repo.find_by_tenant.return_value = [kg1]
-        mock_authz.check_permission.return_value = False
+        kg2 = _make_kg(kg_id="kg-002", tenant_id=tenant_id)
+        mock_kg_repo.find_by_tenant.return_value = [kg1, kg2]
+        # Only the first KG is viewable
+        mock_authz.check_permission.side_effect = [True, False]
+
+        result = await service.list_all(user_id=user_id)
+
+        assert len(result) == 1
+        assert result[0].id.value == "kg-001"
+
+    @pytest.mark.asyncio
+    async def test_list_all_returns_empty_when_no_kgs(
+        self,
+        service,
+        mock_authz,
+        mock_kg_repo,
+        mock_probe,
+        user_id,
+        tenant_id,
+    ):
+        """list_all() returns empty list when no KGs in tenant."""
+        mock_kg_repo.find_by_tenant.return_value = []
 
         result = await service.list_all(user_id=user_id)
 

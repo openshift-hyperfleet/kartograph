@@ -1,177 +1,121 @@
 ---
-verdict: pass
+verdict: fail
 ---
-Independent spec-alignment review and re-verification of hyperloop/task-039 against
-specs/iam/tenants.spec.md. Branch rebased onto current alpha (including `0bb08b56`).
-Performed a full read of every implementation file and test file for all 9 SHALL requirements.
+Independent fresh verification of hyperloop/task-039 against specs/iam/tenants.spec.md.
+Branch is 1 commit behind alpha (a968c9da4 — process fix commit).
 
-## Pre-verification Fixes Applied
-
-- **Branch rebase**: Branch rebased onto current alpha (including `0bb08b56`).
-  Conflicts resolved in `tenant_graph_handler.py` (rollback on no-op path) and
-  `test_tenant_service.py` (group cascade test extended to 2 groups).
-- **State file cleanup**: Orchestrator-managed state files removed from branch commits.
-
-## Verification Checks
+## Check Results
 
 ### 1. Unit Tests — PASS
-2570 tests pass, 0 failures, 0 errors (172s).
+2570 tests pass, 0 failures, 0 errors (77s).
 
 ### 2. Linting (ruff check) — PASS
-Zero violations across all source files.
+Zero violations.
 
 ### 3. Formatting (ruff format --check) — PASS
-All files formatted.
+500 files formatted.
 
 ### 4. Type Checking (mypy) — PASS
-No issues found in source files.
+Zero errors in 500 source files.
 
 ### 5. Architecture Boundary Tests — PASS
-Archon tests pass. IAM domain, ports, and infrastructure layer boundaries
-enforced. Shared kernel isolation verified.
+40/40 archon tests pass. All DDD layer boundaries enforced.
 
-### 6. Check Scripts — ALL PASS
-All `.hyperloop/checks/` scripts exit 0 when run from the project root.
+### 6. Hyperloop Check Scripts
 
-## Per-Requirement Coverage
+**PASSING checks (30+):**
+check-branch-has-commits, check-branch-rebased-on-alpha (1 behind, within 5-commit
+tolerance), check-cascade-delete-cleanup, check-cascade-delete-empty-collection-mocks,
+check-di-wiring-updated, check-domain-aggregate-mocks, check-domain-events-have-consumers,
+check-domain-exception-http-mapping, check-empty-test-stubs, check-event-handlers-registered,
+check-fake-success-notifications, check-frontend-deps-resolve, check-frontend-lockfile-frozen,
+check-frontend-test-infrastructure, check-frontend-tests-exist, check-frontend-tests-pass,
+check-implementation-commits-exist, check-new-checks-pass-on-head,
+check-no-check-script-deletions, check-no-coming-soon-stubs, check-no-direct-logger-usage,
+check-no-domain-exception-deletions, check-no-future-placeholder-comments,
+check-no-source-regressions, check-no-test-regressions, check-pages-have-tests,
+check-process-overlays-intact, check-property-merge-semantics, check-pytest-env-skip-if-set,
+check-route-handler-mock-coverage (pass with 2 warnings), check-unused-fixtures,
+check-weak-test-assertions.
 
-### 1. Tenant Creation — COVERED
+**FAILING checks:**
 
-**Code**: `TenantService.create_tenant()` in `iam/application/services/tenant_service.py`.
-- Generates ULID via `Tenant.create(name=name)`.
-- Grants creator admin via `tenant.add_member(user_id=creator_id, role=TenantRole.ADMIN)`.
-- Creates root workspace via `Workspace.create_root(...)` and grants admin on it.
+**FAIL 1 — check-no-state-file-commits.sh (REAL, BLOCKING)**
+The branch deleted 4 state files that exist on alpha:
+  - .hyperloop/state/intake/2026-04-26-index-and-nfr-specs-run16.md
+  - .hyperloop/state/intake/2026-04-26-index-and-nfr-specs-run17.md
+  - .hyperloop/state/intake/2026-04-26-index-and-nfr-specs-run18.md
+  - .hyperloop/state/intake/2026-04-26-index-and-nfr-specs-run-19.md
 
-**Scenarios**:
-- Successful creation: `test_creates_tenant`, `test_grants_creator_admin_access`,
-  `test_creates_root_workspace_on_tenant_creation` (all in `test_tenant_service.py`).
-- Duplicate name → 409: `test_returns_409_for_duplicate_name` (integration, `test_tenant_api.py`),
-  `test_duplicate_name_raises_error` (integration, `test_tenant_repository.py`).
-- Single-tenant mode → 403: `test_returns_403_in_single_tenant_mode` (POST path,
-  `test_tenant_routes_single_tenant_gate.py`).
+These were erroneously deleted by commit 3c9fc942d ("restore alpha state files and strip
+branch-added state contamination"), which misidentified them as branch-added when they
+were in fact present on alpha all along. They must be restored.
 
-### 2. Tenant Graph Provisioning — COVERED
+Fix:
+  git checkout alpha -- .hyperloop/state/intake/2026-04-26-index-and-nfr-specs-run16.md
+  git checkout alpha -- .hyperloop/state/intake/2026-04-26-index-and-nfr-specs-run17.md
+  git checkout alpha -- .hyperloop/state/intake/2026-04-26-index-and-nfr-specs-run18.md
+  git checkout alpha -- .hyperloop/state/intake/2026-04-26-index-and-nfr-specs-run-19.md
+  git commit -m 'chore: restore state files incorrectly deleted from branch'
 
-**Code**: `graph/infrastructure/tenant_graph_handler.py`.
-- `AGEGraphProvisioner.ensure_graph_exists()` acquires `pg_advisory_xact_lock(hashtext(graph_name))`
-  before the existence check — atomicity requirement met.
-- Existence check queries `ag_catalog.ag_graph`; if row exists → `conn.rollback()` and return
-  (no-op path commits/rolls back — transaction leak requirement met).
-- Graph creation via `ag_catalog.create_graph(graph_name)` followed by `conn.commit()`.
-- `except Exception: conn.rollback(); raise` covers error paths.
+**FAIL 2 — check-no-route-handler-removals.sh (FALSE POSITIVE — old script)**
+The check reports removal of list_knowledge_graphs, get_knowledge_graph,
+create_knowledge_graph from management/presentation/knowledge_graphs/routes.py.
+However, all three names are still present in HEAD (verified with grep). The false
+positive is caused by the old version of the check script; alpha commit a968c9da4
+("fix(process): detect foreign-task commits and fix route-handler false positives")
+explicitly patches this check to verify names are truly absent from HEAD before
+reporting failure. The branch is 1 commit behind that fix.
 
-**Scenarios** (all in `test_tenant_graph_handler.py`):
-- Graph name format `tenant_{tenant_id}`: `test_graph_name_format_is_tenant_underscore_id`.
-- Create-if-not-exists: `test_creates_graph_when_not_exists`, `test_skips_create_when_graph_already_exists`.
-- No-op path commits/rolls back: `test_rollback_or_commit_called_on_no_op_path`.
-- Advisory lock before existence check: `test_advisory_lock_acquired_for_atomicity`.
-- Idempotent replay: `test_handler_is_idempotent_when_provisioner_is_idempotent`.
+After rebasing onto alpha, this check will PASS.
 
-### 3. Tenant Retrieval — COVERED
+**FAIL 3 — Foreign task commit (not yet a running check, but a real process violation)**
+Commit eba98785e has trailer `Task-Ref: task-032` and `Spec-Ref: specs/iam/groups.spec.md`.
+This commit belongs to task-032, not task-039. It is a large PR merge commit (#476) that
+introduced substantial changes to management/knowledge_graphs/routes.py,
+management/presentation/data_sources/routes.py, and related files — none of which are
+called for by the tenants.spec.md.
 
-**Code**: `TenantService.get_tenant()` — checks VIEW permission via SpiceDB; returns `None`
-(→ 404) for both missing tenant and unauthorized user (no distinction).
+Alpha commit a968c9da4 added check-no-foreign-task-commits.sh specifically to detect
+this pattern. After rebasing, that check will fail on this branch until the foreign
+commit is removed.
 
-**Scenarios**:
-- Authorized retrieval: `test_returns_tenant_when_user_has_view_permission`.
-- Unauthorized or non-existent → same 404: `test_returns_none_when_tenant_not_found`,
-  `test_returns_none_when_user_lacks_view_permission` (all in `test_tenant_service.py`).
+The foreign task commit is the root cause of FAIL 2: the route reorganization in
+knowledge_graphs/routes.py (renaming list_knowledge_graphs → list_all_knowledge_graphs,
+reordering functions) is introduced by the task-032 commit, triggering the old
+check-no-route-handler-removals.sh.
 
-### 4. Tenant Listing — COVERED
+**Note on check-partial-error-assertions.sh:**
+This script exits 1 and reports "2 OR-chained assertion pattern(s) found" but
+the matches are BRE regex false positives (the pattern `toContain.*\|\|.*toContain`
+in GNU BRE treats `\|` as alternation, matching files that don't contain the
+literal `||` between toContain calls). Confirmed: no actual OR-chained test
+assertions exist in src/dev-ui/app/tests/. This is a check script bug, not a
+real test quality issue.
 
-**Code**: `TenantService.list_tenants()` uses `authz.lookup_resources(permission=VIEW)` to
-filter tenants.
+## Code Quality Review
 
-**Scenarios**:
-- User sees only permitted tenants: `test_returns_only_tenants_user_can_view` (A+C visible, B hidden).
-- User with no memberships → empty list: `test_returns_empty_list_when_user_has_no_access`
-  (all in `test_tenant_service.py`).
+**Domain probes**: No direct logger.*/print() calls — PASS
+**Domain aggregate mocks**: No MagicMock/AsyncMock wrapping Tenant/Group/Workspace — PASS
+**Commit trailers on task-039 commits**: All have Spec-Ref and Task-Ref: task-039 — PASS
+**No hardcoded secrets**: PASS
+**AGEGraphProvisioner implementation**: Advisory lock + commit/rollback on all code paths
+  correctly implemented per spec. 16 dedicated unit tests cover all spec scenarios.
+**Group cascade test**: Real Group.create() instances used; mock_group_repo.delete
+  called for each — PASS
 
-### 5. Tenant Deletion — COVERED
+## Spec Coverage (all 9 SHALL requirements)
 
-**Code**: `TenantService.delete_tenant()` — depth-first cascade (children→parents via
-`compute_depth()`), then groups, then API keys, then tenant.
+All 9 requirements have implementation code and tests — this is inherited from
+the previous verifier review and confirmed by test suite passing. The task-039
+specific work (AGEGraphProvisioner atomicity, group cascade test, name validation
+tests) is correct and well-tested.
 
-**Scenarios**:
-- Cascade workspaces before parents: `test_deletes_child_workspaces_before_parent_on_cascade`
-  (grandchild→child→root ordering verified with 3-level hierarchy).
-- Cascade groups: `test_deletes_groups_on_tenant_deletion` (uses real `Group.create()`).
-- Cascade API keys: `test_deletes_api_keys_on_tenant_deletion`,
-  `test_deletes_multiple_api_keys_on_tenant_deletion`.
-- Member snapshot for auth cleanup: `test_mark_for_deletion_captures_member_snapshot`
-  (domain level); service calls `list_tenant_members_from_authorization` then
-  `tenant.mark_for_deletion(members=members)`.
-- Unauthorized deletion → 403: `test_delete_tenant_raises_unauthorized_if_no_permission`
-  (service), `test_returns_403_when_user_lacks_permission` (route).
-- Single-tenant mode → 403: `test_returns_403_in_single_tenant_mode` (DELETE path,
-  `test_tenant_routes_single_tenant_gate.py`).
+## Required Fixes Before Merge
 
-### 6. Add Tenant Member — COVERED
-
-**Code**: `TenantService.add_member()` handles new member, role replacement, and workspace sync.
-
-**Scenarios**:
-- Add new member: `test_adds_member_to_tenant`.
-- Change member role (remove old + add new): `test_replaces_role_when_user_has_different_role`.
-- Promote to admin syncs root workspace: `test_add_admin_grants_root_workspace_admin`.
-- Demote from admin revokes root workspace: `test_downgrade_admin_to_member_revokes_root_workspace_admin`.
-- Demote last admin → 409: `test_cannot_demote_last_tenant_admin` (service),
-  `test_returns_409_when_demoting_last_admin` (route, `test_tenant_member_routes.py`).
-
-### 7. Remove Tenant Member — COVERED
-
-**Code**: `TenantService.remove_member()` → `_revoke_root_workspace_access()` removes
-member from workspace regardless of role.
-
-**Scenarios**:
-- Successful removal + workspace revoke: `test_removes_member_from_tenant`,
-  `test_remove_member_revokes_root_workspace_access`.
-- Removing admin syncs root workspace: `test_remove_admin_revokes_root_workspace_admin`.
-- Remove last admin → 409: `test_raises_error_if_last_admin` (service),
-  `test_returns_409_when_removing_last_admin` (route + integration).
-
-### 8. List Tenant Members — COVERED
-
-**Code**: `TenantService.list_members()` checks ADMINISTRATE permission, then queries
-SpiceDB via `read_relationships`.
-
-**Scenarios**:
-- Authorized listing returns all members with roles: `test_lists_members_from_spicedb`,
-  `test_returns_200_with_member_list`.
-- Unauthorized (non-admin) → 403: `test_raises_unauthorized_if_no_permission` (service),
-  `test_returns_403_when_not_admin` (route).
-
-### 9. Tenant Name Validation — COVERED
-
-**Code**: `CreateTenantRequest.name = Field(..., min_length=1, max_length=255)` in
-`iam/presentation/tenants/models.py` — Pydantic validation enforces constraints.
-
-**Scenarios** (all in `test_tenant_bootstrap_routes.py`):
-- Valid name (1 char): `test_create_tenant_accepts_single_char_name` → 201.
-- Valid name (255 chars): `test_create_tenant_accepts_name_at_max_length_boundary` → 201.
-- Empty name → 422: `test_create_tenant_returns_422_for_empty_name`.
-- Name > 255 chars → 422: `test_create_tenant_returns_422_for_name_exceeding_255_chars`.
-
-### 10. Default Tenant Bootstrap — COVERED
-
-**Code**: `TenantBootstrapService.ensure_default_tenant_with_workspace()` in
-`iam/application/services/tenant_bootstrap_service.py`.
-- Uses savepoints (`begin_nested`) to handle concurrent creation races safely.
-- Re-queries after `DuplicateTenantNameError` to discover concurrently-created tenant.
-
-**Scenarios** (all in `test_tenant_bootstrap_service.py`):
-- First startup (no tenant): `test_creates_tenant_and_workspace_when_neither_exist`.
-- Subsequent startup (tenant exists): `test_does_nothing_when_tenant_and_workspace_exist`.
-- Concurrent startup race condition: `test_handles_race_condition_on_tenant_creation`.
-
-## NFR Compliance
-
-- **Domain-Oriented Observability**: `TenantServiceProbe`, `TenantBootstrapService` probe,
-  and `AGEGraphProvisioner` use domain probes — no bare `logger.*` or `print()` calls.
-- **No mocks for domain aggregates**: Tests use real `Tenant(...)`, `Workspace.create_root()`,
-  `Group.create()`, and `APIKey.create()` instances.
-- **Architecture boundaries**: `graph.infrastructure.TenantAGEGraphHandler` does not import
-  from `iam.*`; works with raw event payload dict.
-
-All 9 SHALL requirements are implemented and every scenario has a corresponding test.
-Verdict: **PASS**.
+1. Restore the 4 deleted state files (git checkout alpha -- ..., commit)
+2. Rebase onto current alpha (a968c9da4) to pick up the route-handler check fix
+3. After rebase, resolve check-no-foreign-task-commits.sh failure:
+   - The foreign commit (eba98785e, Task-Ref: task-032) must either be removed
+     from this branch (if it merged to alpha separately) or confirmed as a
+     legitimate prerequisite and addressed per orchestrator guidance.

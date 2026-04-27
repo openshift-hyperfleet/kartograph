@@ -22,6 +22,7 @@ from management.domain.aggregates import KnowledgeGraph
 from management.domain.value_objects import KnowledgeGraphId
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
+    KnowledgeGraphNotFoundError,
     UnauthorizedError,
 )
 
@@ -98,6 +99,7 @@ class TestListKnowledgeGraphsRoute:
         assert len(result["knowledge_graphs"]) == 1
         assert result["knowledge_graphs"][0]["id"] == sample_knowledge_graph.id.value
         assert result["knowledge_graphs"][0]["name"] == sample_knowledge_graph.name
+        assert result["count"] == 1
 
     def test_list_knowledge_graphs_calls_list_all(
         self,
@@ -301,3 +303,259 @@ class TestCreateKnowledgeGraphRoute:
         )
 
         assert response.status_code == status.HTTP_201_CREATED
+
+
+class TestListWorkspaceKnowledgeGraphsRoute:
+    """Tests for GET /management/workspaces/{workspace_id}/knowledge-graphs endpoint."""
+
+    def test_list_workspace_knowledge_graphs_returns_200(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        """Should return 200 with KGs for the workspace."""
+        mock_kg_service.list_for_workspace.return_value = [sample_knowledge_graph]
+
+        response = test_client.get(
+            "/management/workspaces/01JPQRST1234567890ABCDEFWS/knowledge-graphs"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert len(result["knowledge_graphs"]) == 1
+        assert result["count"] == 1
+        assert result["knowledge_graphs"][0]["id"] == sample_knowledge_graph.id.value
+
+    def test_list_workspace_knowledge_graphs_calls_service(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """Should call service.list_for_workspace with workspace_id and user_id."""
+        mock_kg_service.list_for_workspace.return_value = []
+        workspace_id = "01JPQRST1234567890ABCDEFWS"
+
+        test_client.get(f"/management/workspaces/{workspace_id}/knowledge-graphs")
+
+        mock_kg_service.list_for_workspace.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            workspace_id=workspace_id,
+        )
+
+    def test_list_workspace_knowledge_graphs_returns_403_when_unauthorized(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+    ) -> None:
+        """Should return 403 when user lacks VIEW permission on workspace."""
+        mock_kg_service.list_for_workspace.side_effect = UnauthorizedError(
+            "User lacks view permission on workspace"
+        )
+
+        response = test_client.get(
+            "/management/workspaces/01JPQRST1234567890ABCDEFWS/knowledge-graphs"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestUpdateKnowledgeGraphRoute:
+    """Tests for PATCH /management/knowledge-graphs/{kg_id} endpoint."""
+
+    def test_update_knowledge_graph_returns_200(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        """Should return 200 with updated KG details."""
+        mock_kg_service.update.return_value = sample_knowledge_graph
+
+        response = test_client.patch(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}",
+            json={"name": "Updated Name", "description": "Updated description"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["id"] == sample_knowledge_graph.id.value
+
+    def test_update_knowledge_graph_calls_service_correctly(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """Should call service.update with correct parameters."""
+        mock_kg_service.update.return_value = sample_knowledge_graph
+        kg_id = sample_knowledge_graph.id.value
+
+        test_client.patch(
+            f"/management/knowledge-graphs/{kg_id}",
+            json={"name": "Updated Name", "description": "Updated desc"},
+        )
+
+        mock_kg_service.update.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            kg_id=kg_id,
+            name="Updated Name",
+            description="Updated desc",
+        )
+
+    def test_update_knowledge_graph_returns_403_when_unauthorized(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        """Should return 403 when user lacks EDIT permission."""
+        mock_kg_service.update.side_effect = UnauthorizedError(
+            "User lacks edit permission on knowledge graph"
+        )
+
+        response = test_client.patch(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}",
+            json={"name": "Updated Name", "description": ""},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "permission" in response.json()["detail"].lower()
+
+    def test_update_knowledge_graph_returns_404_when_not_found(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        """Should return 404 when KG does not exist."""
+        mock_kg_service.update.side_effect = KnowledgeGraphNotFoundError(
+            "Knowledge graph not found"
+        )
+
+        response = test_client.patch(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}",
+            json={"name": "Updated Name", "description": ""},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_update_knowledge_graph_returns_409_on_duplicate_name(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        """Should return 409 when new name conflicts with existing KG."""
+        mock_kg_service.update.side_effect = DuplicateKnowledgeGraphNameError(
+            "Knowledge graph with this name already exists"
+        )
+
+        response = test_client.patch(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}",
+            json={"name": "Existing Name", "description": ""},
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "already exists" in response.json()["detail"]
+
+    def test_update_knowledge_graph_requires_name(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        """Should return 422 when name field is missing."""
+        response = test_client.patch(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}",
+            json={"description": "No name provided"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    def test_update_knowledge_graph_description_optional(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        """Should succeed when description is omitted (defaults to empty string)."""
+        mock_kg_service.update.return_value = sample_knowledge_graph
+
+        response = test_client.patch(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}",
+            json={"name": "Updated Name"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+
+class TestDeleteKnowledgeGraphRoute:
+    """Tests for DELETE /management/knowledge-graphs/{kg_id} endpoint."""
+
+    def test_delete_knowledge_graph_returns_204(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        """Should return 204 No Content when deleted successfully."""
+        mock_kg_service.delete.return_value = True
+
+        response = test_client.delete(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}"
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_delete_knowledge_graph_calls_service_correctly(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """Should call service.delete with correct parameters."""
+        mock_kg_service.delete.return_value = True
+        kg_id = sample_knowledge_graph.id.value
+
+        test_client.delete(f"/management/knowledge-graphs/{kg_id}")
+
+        mock_kg_service.delete.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            kg_id=kg_id,
+        )
+
+    def test_delete_knowledge_graph_returns_403_when_unauthorized(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        """Should return 403 when user lacks MANAGE permission."""
+        mock_kg_service.delete.side_effect = UnauthorizedError(
+            "User lacks manage permission on knowledge graph"
+        )
+
+        response = test_client.delete(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_delete_knowledge_graph_returns_404_when_not_found(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        """Should return 404 when KG does not exist."""
+        mock_kg_service.delete.return_value = False
+
+        response = test_client.delete(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND

@@ -1,138 +1,171 @@
 ---
 verdict: pass
 ---
-## Worker Result — task-017 (specs/shared-kernel/outbox.spec.md)
+## Spec Alignment Review — task-017 (specs/shared-kernel/outbox.spec.md)
 
-Worker: verifier
+Worker: spec-reviewer
 Date: 2026-04-27
 
 ---
 
-### Verification Checks
+## Requirement Coverage
 
-#### 1. Unit Tests — PASS
-All 2484 tests pass (63.91s). Zero failures, zero errors.
-Outbox-specific suite: 130 tests pass across `tests/unit/infrastructure/outbox/`
-and `tests/unit/shared_kernel/outbox/`.
+### Requirement: Transactional Event Storage — COVERED
 
-#### 2. Linting (ruff check) — PASS
-Zero violations across 497 source files.
+**Scenario: Successful write** — COVERED
+- **Code:** `src/api/infrastructure/outbox/repository.py::OutboxRepository.append()`
+  calls `session.add()` only; never calls `session.commit()`. Class docstring explicitly
+  documents that the caller owns the transaction boundary.
+- **Unit test:** `TestOutboxWorkerTransactionAtomicity::test_repository_append_does_not_commit`
+  — asserts `mock_session.commit.assert_not_called()` and `session.add.assert_called_once()`.
+- **Integration test:** `TestAtomicityGuarantees::test_outbox_entry_created_in_same_transaction_as_group`
+  — commits within `async_session.begin()` then asserts both GroupModel and OutboxModel
+  are queryable afterward.
 
-#### 3. Formatting (ruff format --check) — PASS
-497 files already formatted.
-
-#### 4. Type Checking (mypy) — PASS
-`Success: no issues found in 497 source files`
-
-#### 5. Architecture Boundary Tests — PASS
-All 40 archon tests pass, including the outbox-specific suite:
-- `infrastructure/outbox` does not import IAM, graph, query, management, ingestion, or extraction internals
-- `infrastructure/outbox` may import shared_kernel (verified)
-- `shared_kernel` does not import bounded contexts, infrastructure, or FastAPI
-
-#### 6. Integration Tests — SKIPPED (no running dev instance)
-Integration tests require PostgreSQL+SpiceDB. All spec scenarios are fully covered
-by unit tests using proper fakes. The spec-alignment review confirmed integration
-test coverage exists in `tests/integration/test_outbox_consistency.py`.
-
-#### 7. Code Review — PASS
-- No direct `logger.*` or `print()` calls in outbox implementation or test files
-- No bare `MagicMock`/`AsyncMock` on domain aggregates — `_make_ds()` helper builds
-  real `DataSource` instances for cascade delete tests
-- No imports violating DDD layer rules
-- All 3 implementation commits carry `Spec-Ref` and `Task-Ref` trailers:
-  - `Spec-Ref: specs/shared-kernel/outbox.spec.md@86d0f4fc`
-  - `Task-Ref: task-017`
-- No hardcoded secrets or credentials
-- No stub markers, no future-placeholder comments, no empty test stubs
-- `stop()` correctly uses `_running = False` + `_shutdown_event.set()` + natural
-  `await task` — no `task.cancel()` in production code
-
-#### 8. Check Scripts — PASS (23/25 present; 2 pre-existing missing)
-Backend suite (`check-run-backend-suite.sh`) reports 23 PASS, 2 MISSING.
-
-The 2 MISSING checks (`check-alpha-local-vs-remote.sh` and
-`check-worker-result-not-committed.sh`) are **pre-existing absences on alpha**:
-`git show alpha:.hyperloop/checks/check-alpha-local-vs-remote.sh` → NOT ON ALPHA
-`git show alpha:.hyperloop/checks/check-worker-result-not-committed.sh` → NOT ON ALPHA
-
-Neither script was deleted by task-017 — they were never implemented. The suite
-script references them as planned future checks. Not a regression.
-
-All 23 present checks passed:
-- `check-branch-rebased-on-alpha.sh` — PASS (0 commits behind alpha)
-- `check-no-state-file-commits.sh` — PASS (0 state file commits on branch)
-- `check-no-foreign-task-commits.sh` — PASS
-- `check-no-check-script-deletions.sh` — PASS
-- `check-process-overlays-intact.sh` — PASS
-- `check-new-checks-pass-on-head.sh` — PASS (2 new checks introduced, both pass)
-- `check-branch-has-commits.sh` — PASS (11 commits ahead)
-- `check-no-source-regressions.sh` — PASS
-- `check-no-route-handler-removals.sh` — PASS
-- `check-no-test-regressions.sh` — PASS
-- `check-empty-test-stubs.sh` — PASS
-- `check-domain-aggregate-mocks.sh` — PASS
-- `check-no-direct-logger-usage.sh` — PASS
-- `check-no-coming-soon-stubs.sh` — PASS
-- `check-weak-test-assertions.sh` — PASS
-- `check-di-wiring-updated.sh` — PASS
-- `check-event-handlers-registered.sh` — PASS (all 3 handlers referenced in main.py)
-- `check-domain-events-have-consumers.sh` — PASS (all 27 domain events have consumers)
-- `check-pytest-env-skip-if-set.sh` — PASS
-- `check-cascade-delete-cleanup.sh` — PASS
-- `check-cascade-delete-empty-collection-mocks.sh` — PASS
-- `check-unused-fixtures.sh` — PASS
-- `check-no-future-placeholder-comments.sh` — PASS
+**Scenario: Transaction rollback** — COVERED
+- **Code:** Same shared-session design — no independent commit means a caller-level rollback
+  discards both the aggregate change and the outbox entry atomically.
+- **Unit test:** `TestOutboxWorkerTransactionAtomicity::test_failed_service_call_leaves_no_outbox_entries`
+  — verifies `session.commit` is never called, proving rollback discards the pending add.
+- **Integration test:** `TestAtomicityGuarantees::test_rollback_removes_both_group_and_outbox_entry`
+  — forces an exception inside `async_session.begin()` and asserts neither GroupModel
+  nor OutboxModel persists.
 
 ---
 
-### Spec Requirements Coverage
+### Requirement: Event Processing — COVERED
 
-All 6 SHALL requirements and all 11 scenarios are COVERED.
+**Scenario: Normal processing** — COVERED
+- **Code:** `OutboxWorker._process_entries()` calls `handler.handle(event_type, payload)`,
+  then `_mark_processed()` which executes `UPDATE outbox SET processed_at=now()`.
+- **Unit tests:** `TestOutboxWorkerProcessBatch::test_processes_unprocessed_entries`,
+  `test_marks_entry_as_processed`,
+  `TestOutboxWorkerProbeIntegration::test_calls_event_processed_on_success`.
+- **Integration test:** `TestOutboxWorkerProcessing::test_worker_processes_group_created_and_writes_to_spicedb`
+  — asserts `outbox_entry.processed_at is not None` and SpiceDB relationship present.
 
-**Transactional Event Storage** — COVERED
-- `OutboxRepository.append()` calls `session.add()` only; never commits. Calling
-  service owns the transaction boundary. Both success and rollback scenarios verified
-  by unit and integration tests.
+**Scenario: Transient failure** — COVERED
+- **Code:** `OutboxWorker._handle_processing_failure()` calls `_increment_retry()`
+  (sets `retry_count` and `last_error`) when `new_retry_count < max_retries`.
+- **Unit test:** `TestOutboxWorkerRetryBehavior::test_transient_failure_increments_retry_count`
+  — asserts `probe.event_processing_failed` called; `probe.event_moved_to_dlq` not called.
 
-**Event Processing** — COVERED
-- `OutboxWorker._process_entries()` dispatches, marks processed, handles transient
-  failures (increment retry), and permanent failures (move to DLQ).
-
-**Idempotent Event Handlers** — COVERED
-- SpiceDB handler uses TOUCH semantics. `fetch_unprocessed` filters `processed_at IS NULL`
-  and `failed_at IS NULL`. Duplicate delivery test confirms identical final state.
-
-**Concurrent Worker Safety** — COVERED
-- `fetch_unprocessed()` and `_process_batch()` use `.with_for_update(skip_locked=True)`.
-- `test_fetch_unprocessed_uses_for_update_skip_locked` compiles against PostgreSQL dialect
-  and asserts `"SKIP LOCKED"` in output.
-
-**Dual Delivery Mechanism** — COVERED
-- `PostgresNotifyEventSource` listens on `outbox_events` channel via asyncpg-listen.
-- Polling fallback runs every `poll_interval_seconds` (default 30s) using
-  `asyncio.wait_for(_shutdown_event.wait(), timeout=...)` for clean shutdown.
-
-**Event Fan-Out** — COVERED
-- `CompositeEventHandler.handle()` dispatches to all registered handlers for the event type.
-- `UnknownEventTypeError` raised for unregistered event types; caught before generic
-  `Exception` handler in worker; immediately moves to DLQ without retry increment.
+**Scenario: Permanent failure (dead letter)** — COVERED
+- **Code:** `_handle_processing_failure()` calls `_move_to_dlq()` (sets `failed_at=now()`)
+  when `new_retry_count >= max_retries`.
+- **Unit test:** `TestOutboxWorkerRetryBehavior::test_max_retries_moves_entry_to_dlq`
+  — asserts `probe.event_moved_to_dlq` called; `probe.event_processing_failed` not called.
 
 ---
 
-### Implementation Quality Notes
+### Requirement: Idempotent Event Handlers — COVERED
 
-**`feat(shared-kernel)`: UnknownEventTypeError**
-New `shared_kernel/outbox/exceptions.py` introduces `UnknownEventTypeError` — a domain
-exception (not `ValueError`) for permanent outbox failures. Exposes `.event_type` and
-`.registered_types`. 6-test unit suite plus 5 worker tests verify the contract including
-`_increment_retry` is not called.
+**Scenario: Duplicate delivery** — COVERED
+- **Code (primary guard):** `fetch_unprocessed()` filters `processed_at IS NULL` and
+  `failed_at IS NULL` — entries that committed successfully are never re-fetched.
+- **Code (handler idempotency):** SpiceDB client uses `OPERATION_TOUCH` (upsert semantics)
+  confirmed at `shared_kernel/authorization/spicedb/client.py:310`. Calling
+  `write_relationship` twice with the same tuple produces the same final state.
+- **Unit tests:**
+  - `TestOutboxWorkerIdempotency::test_already_processed_entry_excluded_from_fetch`
+    — compiles query and asserts `"processed_at IS NULL"` present.
+  - `TestOutboxWorkerIdempotency::test_failed_entries_excluded_from_fetch`
+    — asserts `"failed_at IS NULL"` present.
+  - `TestSpiceDBEventHandler` + `test_write_relationship_is_idempotent` in
+    `test_in_memory_provider.py` — verifies TOUCH semantics prevent duplicate SpiceDB entries.
 
-**`fix(management)`: cascade delete credential cleanup**
-`KnowledgeGraphService.delete()` now injects optional `ISecretStoreRepository` and calls
-`secret_store.delete(path, tenant_id)` for each `DataSource` with `credentials_path`
-before deletion. Tests use real `DataSource` instances via `_make_ds()` helper.
+**Note:** The previous findings cited a non-existent integration test class
+`TestIdempotentEventHandlers::test_handler_invoked_twice_produces_same_spicedb_state`.
+No such class exists in `test_outbox_consistency.py`. The idempotency contract is
+adequately covered by the three unit tests above (fetch filter + SpiceDB TOUCH).
+This is not a FAIL — the spec scenario is satisfied by composition of separately-tested
+mechanisms, which is acceptable under the SHALL requirement.
 
-**`fix(process)`: check scripts**
-`check-cascade-delete-empty-collection-mocks.sh` and `check-no-foreign-task-commits.sh`
-added to close pre-existing gaps in process infrastructure. Both new scripts pass.
+---
+
+### Requirement: Concurrent Worker Safety — COVERED
+
+**Scenario: Concurrent workers** — COVERED
+- **Code:** Both `OutboxRepository.fetch_unprocessed()` (repository.py:97) and
+  `OutboxWorker._process_batch()` (worker.py:207) use `.with_for_update(skip_locked=True)`.
+- **Unit test:** `TestOutboxWorkerConcurrentSafety::test_fetch_unprocessed_uses_for_update_skip_locked`
+  — compiles the SQLAlchemy query against the PostgreSQL dialect and asserts
+  `"SKIP LOCKED"` appears in the compiled SQL string.
+
+---
+
+### Requirement: Dual Delivery Mechanism — COVERED
+
+**Scenario: Real-time notification** — COVERED
+- **Code:** `PostgresNotifyEventSource` (event_sources/postgres_notify.py) listens on
+  `outbox_events` channel via `asyncpg-listen::NotificationListener`, invokes
+  `_process_single` callback with UUID from the notification payload.
+- **Unit tests:** `test_postgres_notify_event_source.py` — notification receipt, UUID
+  parsing, invalid payload handling, timeout handling, stop/start lifecycle.
+- **Integration test:** `TestOutboxWorkerNotifyProcessing::test_worker_processes_via_notify_not_polling`
+  — sets `poll_interval_seconds=999` so only NOTIFY can process the entry;
+  asserts `processed_at is not None` within 500ms.
+
+**Scenario: Polling fallback** — COVERED
+- **Code:** `OutboxWorker._poll_loop()` runs every `poll_interval_seconds` (default 30s)
+  using `asyncio.wait_for(_shutdown_event.wait(), timeout=self._poll_interval)` for clean
+  shutdown without skipping the current batch.
+- **Unit test:** `TestOutboxWorkerLifecycle::test_in_progress_batch_completes_before_shutdown`
+  — injects a slow `_process_batch` mock, starts the worker, calls `stop()` mid-batch,
+  asserts the batch completed before shutdown.
+
+---
+
+### Requirement: Event Fan-Out — COVERED
+
+**Scenario: Multiple handlers registered** — COVERED
+- **Code:** `CompositeEventHandler.handle()` (composite.py:83-91) retrieves all handlers
+  in `_handlers_by_type[event_type]` and iterates over all of them.
+- **Unit test:** `TestCompositeEventHandler::test_handle_fans_out_to_multiple_handlers`
+  — registers two `MockHandler` instances for `SharedEvent`, calls `handle()`,
+  asserts both `handler_a.handle` and `handler_b.handle` each called exactly once.
+
+**Scenario: Unknown event type** — COVERED
+- **Code:** `CompositeEventHandler.handle()` raises `UnknownEventTypeError` when
+  `_handlers_by_type.get(event_type)` returns `None`. `OutboxWorker._process_entries()`
+  catches `UnknownEventTypeError` *before* the generic `Exception` handler and
+  calls `_move_to_dlq()` directly — no `_increment_retry()`.
+- **Unit tests:**
+  - `TestCompositeEventHandler::test_handle_raises_for_unknown_event_type` — asserts
+    `UnknownEventTypeError` raised with `.event_type` and `.registered_types` attributes.
+  - `TestOutboxWorkerRetryBehavior::test_unknown_event_type_immediately_moves_to_dlq`
+    — asserts `probe.event_moved_to_dlq` called at retry_count=0;
+    `probe.event_processing_failed` not called.
+  - `TestOutboxWorkerRetryBehavior::test_retry_not_called_for_unknown_event_type`
+    — patches `_increment_retry` and asserts it is never called.
+
+---
+
+## Infrastructure Checks
+
+All 23 present check scripts PASS. 2 scripts are MISSING pre-existing absences:
+
+- `check-alpha-local-vs-remote.sh` — does not exist on alpha
+  (`git show alpha:.hyperloop/checks/check-alpha-local-vs-remote.sh` → fatal)
+- `check-worker-result-not-committed.sh` — does not exist on alpha
+  (`git show alpha:.hyperloop/checks/check-worker-result-not-committed.sh` → fatal)
+
+Neither script was deleted by task-017. They were never implemented on alpha.
+Not a regression; not a blocking issue for this review.
+
+Additional hygiene checks:
+- Branch is **0 commits behind alpha** (rebased) — PASS
+- No `.hyperloop/state/` files committed on branch — PASS
+- All 2484 unit tests pass — PASS (confirmed by running `uv run pytest tests/unit -q`)
+
+---
+
+## Verdict
+
+**PASS**
+
+All 6 SHALL requirements and all 11 scenarios from `specs/shared-kernel/outbox.spec.md`
+are implemented and tested. No requirement is MISSING or PARTIAL. The branch is
+fully rebased on alpha, carries no state file commits, and all 23 present process
+checks pass. The 2 MISSING check scripts are pre-existing platform gaps unrelated
+to this task.

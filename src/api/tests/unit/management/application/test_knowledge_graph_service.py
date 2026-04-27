@@ -17,7 +17,13 @@ from management.application.services.knowledge_graph_service import (
     KnowledgeGraphService,
 )
 from management.domain.aggregates import DataSource, KnowledgeGraph
-from management.domain.value_objects import KnowledgeGraphId
+from management.domain.value_objects import (
+    DataSourceId,
+    KnowledgeGraphId,
+    Schedule,
+    ScheduleType,
+)
+from shared_kernel.datasource_types import DataSourceAdapterType
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
     UnauthorizedError,
@@ -63,6 +69,34 @@ def mock_authz():
 def mock_probe():
     """Create a mock KnowledgeGraphServiceProbe."""
     return MagicMock()
+
+
+@pytest.fixture
+def mock_secret_store():
+    """Create a mock ISecretStoreRepository."""
+    return AsyncMock()
+
+
+@pytest.fixture
+def service_with_secret_store(
+    mock_session,
+    mock_kg_repo,
+    mock_ds_repo,
+    mock_authz,
+    mock_probe,
+    mock_secret_store,
+    tenant_id,
+):
+    """Create a KnowledgeGraphService with secret store for credential cascade tests."""
+    return KnowledgeGraphService(
+        session=mock_session,
+        knowledge_graph_repository=mock_kg_repo,
+        data_source_repository=mock_ds_repo,
+        secret_store=mock_secret_store,
+        authz=mock_authz,
+        scope_to_tenant=tenant_id,
+        probe=mock_probe,
+    )
 
 
 @pytest.fixture
@@ -116,6 +150,32 @@ def _make_kg(
     # Clear events from construction
     kg.collect_events()
     return kg
+
+
+def _make_ds(
+    ds_id: str = "ds-001",
+    kg_id: str = "kg-001",
+    tenant_id: str = "tenant-123",
+    name: str = "Test DS",
+    credentials_path: str | None = None,
+) -> DataSource:
+    """Create a DataSource instance for testing."""
+    now = datetime.now(UTC)
+    ds = DataSource(
+        id=DataSourceId(value=ds_id),
+        knowledge_graph_id=kg_id,
+        tenant_id=tenant_id,
+        name=name,
+        adapter_type=DataSourceAdapterType.GITHUB,
+        connection_config={"url": "https://github.com"},
+        credentials_path=credentials_path,
+        schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+        last_sync_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+    ds.collect_events()
+    return ds
 
 
 # ---- create ----
@@ -589,8 +649,8 @@ class TestKnowledgeGraphServiceDelete:
     ):
         """delete() deletes all data sources before deleting the KG."""
         kg = _make_kg(tenant_id=tenant_id)
-        ds1 = MagicMock(spec=DataSource)
-        ds2 = MagicMock(spec=DataSource)
+        ds1 = _make_ds(ds_id="ds-001", kg_id=kg.id.value, tenant_id=tenant_id)
+        ds2 = _make_ds(ds_id="ds-002", kg_id=kg.id.value, tenant_id=tenant_id)
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = kg
         mock_ds_repo.find_by_knowledge_graph.return_value = [ds1, ds2]
@@ -600,9 +660,7 @@ class TestKnowledgeGraphServiceDelete:
         result = await service.delete(user_id=user_id, kg_id=kg.id.value)
 
         assert result is True
-        # Each DS should be marked for deletion and deleted
-        ds1.mark_for_deletion.assert_called_once()
-        ds2.mark_for_deletion.assert_called_once()
+        # Each DS should be deleted
         assert mock_ds_repo.delete.call_count == 2
         mock_kg_repo.delete.assert_called_once_with(kg)
 
@@ -622,3 +680,59 @@ class TestKnowledgeGraphServiceDelete:
         mock_probe.knowledge_graph_deleted.assert_called_once_with(
             kg_id=kg.id.value,
         )
+
+    @pytest.mark.asyncio
+    async def test_delete_cascades_encrypted_credentials(
+        self,
+        service_with_secret_store,
+        mock_secret_store,
+        mock_authz,
+        mock_kg_repo,
+        mock_ds_repo,
+        user_id,
+        tenant_id,
+    ):
+        """delete() removes credentials for data sources that have a credentials_path.
+
+        Scenario: Knowledge graph cascade
+        - GIVEN a knowledge graph with data sources that have credentials
+        - WHEN the knowledge graph is deleted
+        - THEN all data source credentials are deleted from the secret store
+        """
+        kg = _make_kg(tenant_id=tenant_id)
+        # DS with credentials
+        ds_with_creds = _make_ds(
+            ds_id="ds-001",
+            kg_id=kg.id.value,
+            tenant_id=tenant_id,
+            credentials_path="datasource/ds-001/credentials",
+        )
+        # DS without credentials
+        ds_without_creds = _make_ds(
+            ds_id="ds-002",
+            kg_id=kg.id.value,
+            tenant_id=tenant_id,
+            credentials_path=None,
+        )
+
+        mock_authz.check_permission.return_value = True
+        mock_kg_repo.get_by_id.return_value = kg
+        mock_ds_repo.find_by_knowledge_graph.return_value = [
+            ds_with_creds,
+            ds_without_creds,
+        ]
+        mock_ds_repo.delete.return_value = True
+        mock_kg_repo.delete.return_value = True
+
+        result = await service_with_secret_store.delete(
+            user_id=user_id, kg_id=kg.id.value
+        )
+
+        assert result is True
+        # Only ds_with_creds should have its credentials deleted
+        mock_secret_store.delete.assert_called_once_with(
+            path="datasource/ds-001/credentials",
+            tenant_id=tenant_id,
+        )
+        # Both DSes should be deleted from the repository
+        assert mock_ds_repo.delete.call_count == 2

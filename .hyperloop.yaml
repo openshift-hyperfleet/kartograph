@@ -3,6 +3,7 @@ base_branch: alpha
 max_workers: 6
 max_task_rounds: 30
 max_cycles: 10000
+max_auditors: 25
 poll_interval: 30
 runtime: local
 repo: openshift-hyperfleet/kartograph

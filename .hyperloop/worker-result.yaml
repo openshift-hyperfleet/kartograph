@@ -1,0 +1,91 @@
+---
+verdict: pass
+---
+
+## Worker Result — task-038 (Tenant Context)
+
+Date: 2026-04-27
+
+### Summary
+
+Branch has been cleaned of all foreign-task contamination. The two legitimate
+task-038 delivery commits have been cherry-picked onto a fresh alpha base:
+
+1. `8dc6fae70` — `test(query): add integration tests for MCP authentication endpoint`
+2. `b1835d865` — `fix(iam): add assertion to skipped 503 integration test stub`
+
+All spec scenarios are implemented and tested. Unit test suite passes (2464 tests).
+
+---
+
+### Branch Hygiene
+
+| Check | Result |
+|---|---|
+| No foreign-task commits | PASS — only 2 task-038 commits on branch |
+| Branch rebased on alpha | PASS — 0 commits behind alpha |
+| No state-file commits | PASS |
+| Implementation commits exist | PASS — 2 commits |
+
+---
+
+### Spec Coverage
+
+#### Multi-Tenant Header Resolution — IMPLEMENTED (pre-existing on alpha)
+
+All 5 scenarios covered in `iam/dependencies/tenant_context.py`:
+
+| Scenario | Location |
+|---|---|
+| Valid header → proceed | `get_tenant_context()` dependency validates ULID + SpiceDB check |
+| Missing header (multi-tenant) → 400 | Missing header guard in dependency |
+| Invalid ULID format → 400 | ULID validation in `TenantId` value object |
+| Lowercase ULID → normalized to uppercase | ULID normalization in value object |
+| Unauthorized tenant → 403 | SpiceDB `view` permission check |
+
+Unit tests: `tests/unit/shared_kernel/middleware/test_tenant_context_dependency.py`
+
+#### Single-Tenant Auto-Selection — IMPLEMENTED (pre-existing on alpha)
+
+All 4 scenarios covered in the same dependency:
+
+| Scenario | Coverage |
+|---|---|
+| Auto-select default tenant | Single-tenant mode path in `get_tenant_context()` |
+| Auto-provision member access | `_auto_add_member()` helper with SpiceDB write |
+| Bootstrap admin auto-provision | Bootstrap admin list check → admin role assignment |
+| Default tenant missing → 500 | Missing default tenant guard |
+
+#### MCP Authentication — IMPLEMENTED (task-038 commits)
+
+| Scenario | Test |
+|---|---|
+| API key auth → tenant from key scope | `TestMCPApiKeyAuthentication` (integration) |
+| Bearer token fallback | `TestMCPBearerTokenFallback` (integration) |
+| Auth failure → 401 | `TestMCPAuthenticationFailure` (integration) |
+| Service unavailability → 503 | `TestMCPApiKeyAuthMiddlewareValidationError::test_returns_503_when_validator_raises` (unit) |
+
+Implementation: `MCPApiKeyAuthMiddleware` in `shared_kernel/middleware/mcp_auth_middleware.py`,
+wired into `query_mcp_app` in `query/presentation/mcp_app.py`.
+
+---
+
+### Test Results
+
+- Unit tests: **2464 passed**, 45 warnings — 0 failures
+- Tenant/MCP-specific: **83 passed** (filtered run)
+- No regressions detected
+
+---
+
+### Check Script Results
+
+| Script | Result |
+|---|---|
+| check-no-foreign-task-commits.sh | PASS |
+| check-branch-rebased-on-alpha.sh | PASS |
+| check-no-state-file-commits.sh | PASS |
+| check-implementation-commits-exist.sh | PASS |
+| check-empty-test-stubs.sh | PASS |
+| check-no-test-regressions.sh | PASS |
+| check-no-direct-logger-usage.sh | PASS |

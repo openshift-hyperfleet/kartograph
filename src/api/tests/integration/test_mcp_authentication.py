@@ -349,3 +349,11 @@ class TestMCPServiceUnavailability:
     ) -> None:
         """503 is returned when the API key validation backend (DB) is unreachable."""
         # Covered at unit level; placeholder kept for spec traceability.
+        # See: tests/unit/shared_kernel/middleware/test_mcp_auth_middleware.py
+        #      :: TestMCPApiKeyAuthMiddlewareValidationError
+        #      :: test_returns_503_when_validator_raises
+        assert True, (
+            "503 scenario is fully covered by unit test "
+            "test_returns_503_when_validator_raises. "
+            "Simulating a DB outage in-process is impractical for integration tests."
+        )

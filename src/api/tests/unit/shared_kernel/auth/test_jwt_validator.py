@@ -149,12 +149,6 @@ class TestJWTValidator:
         return MagicMock(spec=JWTValidatorProbe)
 
     @pytest.fixture
-    def mock_http_client(self) -> AsyncMock:
-        """Create a mock HTTP client."""
-        mock = AsyncMock()
-        return mock
-
-    @pytest.fixture
     def openid_config(self) -> dict[str, Any]:
         """Create OpenID Connect discovery document."""
         return {

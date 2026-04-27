@@ -5,7 +5,6 @@ Following TDD - write tests first to define desired behavior.
 
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, create_autospec
-import uuid
 
 import pytest
 
@@ -52,11 +51,6 @@ def mock_probe():
     from iam.application.observability.api_key_service_probe import APIKeyServiceProbe
 
     return create_autospec(APIKeyServiceProbe, instance=True)
-
-
-@pytest.fixture
-async def unique_api_key_name() -> str:
-    return f"test-unit-api-key-{uuid.uuid4().hex[:8]}"
 
 
 @pytest.fixture

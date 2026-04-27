@@ -45,6 +45,31 @@ AHEAD=$(git rev-list --count origin/alpha..alpha 2>/dev/null || echo "0")
 BEHIND=$(git rev-list --count alpha..origin/alpha 2>/dev/null || echo "0")
 
 if [[ "$AHEAD" -gt 5 ]]; then
+  # Before failing, check whether the task branch is ALREADY rebased on local alpha.
+  #
+  # WHY: check-alpha-local-vs-remote.sh is a preemptive warning that fires when local
+  # alpha is significantly ahead of origin/alpha, so implementers know to use
+  # 'git rebase alpha' instead of 'git rebase origin/alpha'. But once the task branch
+  # IS correctly rebased on local alpha, the local/remote divergence is harmless —
+  # origin/alpha being stale is normal orchestrator behavior and does not affect the
+  # branch. Continuing to exit 1 in this case causes a false positive that blocks
+  # every verification round even when the implementer did everything correctly.
+  #
+  # FIX: If merge-base(HEAD, alpha) equals the alpha tip, the branch is already on
+  # local alpha. Exit 0 with an informational note — the divergence is irrelevant.
+  BRANCH_MERGE_BASE=$(git merge-base HEAD alpha 2>/dev/null || echo "")
+  if [[ -n "$BRANCH_MERGE_BASE" && "$BRANCH_MERGE_BASE" == "$LOCAL_SHA" ]]; then
+    echo "INFO: Local 'alpha' is ${AHEAD} commit(s) ahead of 'origin/alpha', but the"
+    echo "      task branch is already rebased on local alpha (merge-base == alpha tip)."
+    echo "      The local/remote divergence is expected orchestrator behavior and is"
+    echo "      harmless on this branch."
+    echo ""
+    echo "      Always use 'git rebase alpha' (not 'git rebase origin/alpha') for any"
+    echo "      future rebases on this or other task branches."
+    exit 0
+  fi
+
+  # Branch is NOT yet on local alpha — the divergence matters.
   echo "ALPHA DIVERGENCE: Local 'alpha' is ${AHEAD} commit(s) ahead of 'origin/alpha'."
   echo ""
   echo "  Local  alpha: ${LOCAL_SHA}"

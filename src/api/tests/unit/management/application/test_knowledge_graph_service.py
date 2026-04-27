@@ -26,6 +26,7 @@ from management.domain.value_objects import (
 from shared_kernel.datasource_types import DataSourceAdapterType
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
+    KnowledgeGraphNotFoundError,
     UnauthorizedError,
 )
 from shared_kernel.authorization.types import (
@@ -88,7 +89,13 @@ def workspace_id():
 
 @pytest.fixture
 def service(
-    mock_session, mock_kg_repo, mock_ds_repo, mock_authz, mock_probe, tenant_id
+    mock_session,
+    mock_kg_repo,
+    mock_ds_repo,
+    mock_authz,
+    mock_probe,
+    mock_secret_store,
+    tenant_id,
 ):
     """Create a KnowledgeGraphService with mocked dependencies."""
     return KnowledgeGraphService(
@@ -98,6 +105,7 @@ def service(
         authz=mock_authz,
         scope_to_tenant=tenant_id,
         probe=mock_probe,
+        secret_store=mock_secret_store,
     )
 
 
@@ -478,14 +486,14 @@ class TestKnowledgeGraphServiceUpdate:
             )
 
     @pytest.mark.asyncio
-    async def test_update_raises_value_error_when_not_found(
+    async def test_update_raises_not_found_when_not_found(
         self, service, mock_authz, mock_kg_repo, user_id
     ):
-        """update() raises ValueError when KG not found."""
+        """update() raises KnowledgeGraphNotFoundError when KG not found."""
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = None
 
-        with pytest.raises(ValueError):
+        with pytest.raises(KnowledgeGraphNotFoundError):
             await service.update(
                 user_id=user_id,
                 kg_id="nonexistent",
@@ -497,12 +505,12 @@ class TestKnowledgeGraphServiceUpdate:
     async def test_update_rejects_different_tenant(
         self, service, mock_authz, mock_kg_repo, user_id
     ):
-        """update() raises ValueError when KG belongs to a different tenant."""
+        """update() raises KnowledgeGraphNotFoundError when KG belongs to a different tenant."""
         kg = _make_kg(tenant_id="other-tenant")
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = kg
 
-        with pytest.raises(ValueError):
+        with pytest.raises(KnowledgeGraphNotFoundError):
             await service.update(
                 user_id=user_id,
                 kg_id=kg.id.value,
@@ -767,3 +775,69 @@ class TestKnowledgeGraphServiceDelete:
         assert result is True
         mock_ds_repo.delete.assert_called_once()
         mock_kg_repo.delete.assert_called_once_with(kg)
+
+
+# ---- list_all ----
+
+
+class TestKnowledgeGraphServiceListAll:
+    """Tests for KnowledgeGraphService.list_all."""
+
+    @pytest.mark.asyncio
+    async def test_list_all_returns_only_visible_kgs(
+        self, service, mock_authz, mock_kg_repo, mock_probe, user_id, tenant_id
+    ):
+        """list_all() returns only KGs the user has VIEW permission on."""
+        kg1 = _make_kg(kg_id="kg-001", tenant_id=tenant_id)
+        kg2 = _make_kg(kg_id="kg-002", tenant_id=tenant_id)
+        kg3 = _make_kg(kg_id="kg-003", tenant_id=tenant_id)
+
+        mock_kg_repo.find_by_tenant.return_value = [kg1, kg2, kg3]
+
+        # Only kg1 and kg3 are visible
+        async def _check_permission(resource, permission, subject):
+            if "kg-002" in resource:
+                return False
+            return True
+
+        mock_authz.check_permission.side_effect = _check_permission
+
+        result = await service.list_all(user_id=user_id)
+
+        assert len(result) == 2
+        assert kg1 in result
+        assert kg3 in result
+        assert kg2 not in result
+
+    @pytest.mark.asyncio
+    async def test_list_all_probes_with_tenant_id(
+        self, service, mock_authz, mock_kg_repo, mock_probe, user_id, tenant_id
+    ):
+        """list_all() probes with tenant_id (not workspace_id)."""
+        kg1 = _make_kg(kg_id="kg-001", tenant_id=tenant_id)
+        mock_kg_repo.find_by_tenant.return_value = [kg1]
+        mock_authz.check_permission.return_value = True
+
+        await service.list_all(user_id=user_id)
+
+        mock_probe.knowledge_graphs_listed.assert_called_once_with(
+            tenant_id=tenant_id,
+            count=1,
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_all_returns_empty_list_when_none_visible(
+        self, service, mock_authz, mock_kg_repo, mock_probe, user_id, tenant_id
+    ):
+        """list_all() returns empty list when user can view none of the KGs."""
+        kg1 = _make_kg(kg_id="kg-001", tenant_id=tenant_id)
+        mock_kg_repo.find_by_tenant.return_value = [kg1]
+        mock_authz.check_permission.return_value = False
+
+        result = await service.list_all(user_id=user_id)
+
+        assert result == []
+        mock_probe.knowledge_graphs_listed.assert_called_once_with(
+            tenant_id=tenant_id,
+            count=0,
+        )

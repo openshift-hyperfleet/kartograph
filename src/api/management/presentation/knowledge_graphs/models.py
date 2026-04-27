@@ -24,6 +24,24 @@ class CreateKnowledgeGraphRequest(BaseModel):
     )
 
 
+class UpdateKnowledgeGraphRequest(BaseModel):
+    """Request model for updating a knowledge graph.
+
+    All fields are required — this is a full metadata update.
+    """
+
+    name: str = Field(
+        ...,
+        description="New name of the knowledge graph",
+        min_length=1,
+        max_length=100,
+    )
+    description: str = Field(
+        default="",
+        description="New description of the knowledge graph",
+    )
+
+
 class KnowledgeGraphListResponse(BaseModel):
     """Response containing a list of knowledge graphs.
 
@@ -55,6 +73,10 @@ class UpdateKnowledgeGraphRequest(BaseModel):
     description: str = Field(
         default="",
         description="New description for the knowledge graph",
+    )
+    count: int = Field(
+        default=0,
+        description="Total number of knowledge graphs returned",
     )
 
 

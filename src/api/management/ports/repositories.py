@@ -139,6 +139,17 @@ class IDataSourceRepository(Protocol):
         """
         ...
 
+    async def find_all(self) -> list[DataSource]:
+        """List all data sources across all knowledge graphs and tenants.
+
+        Used by the scheduler to find data sources with active (non-MANUAL)
+        schedules that may be due for a sync run.
+
+        Returns:
+            List of all DataSource aggregates
+        """
+        ...
+
 
 @runtime_checkable
 class IDataSourceSyncRunRepository(Protocol):

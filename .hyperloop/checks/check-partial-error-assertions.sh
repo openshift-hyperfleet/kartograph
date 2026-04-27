@@ -68,13 +68,17 @@ done
 
 # TypeScript/vitest patterns: similar OR-chained expect patterns
 if [[ -d "$UI_TEST_DIR" ]]; then
+  # NOTE: These patterns use -P (PCRE) so that \| is a literal pipe character.
+  # Without -P, grep uses BRE where \| is alternation, which causes \|\| to
+  # match any line containing "toContain" rather than only lines with a literal
+  # "||" between toContain calls (false-positive observed in task-039).
   TS_PATTERNS=(
     'expect.*toContain.*\|\|.*toContain'
     'toMatch.*\|\|.*toMatch'
   )
 
   for pattern in "${TS_PATTERNS[@]}"; do
-    hits=$(grep -rn \
+    hits=$(grep -rn -P \
       --include="*.ts" \
       --include="*.spec.ts" \
       --include="*.test.ts" \

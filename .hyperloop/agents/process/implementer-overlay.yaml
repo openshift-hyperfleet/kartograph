@@ -18,9 +18,5 @@ guidelines: |
   - Run check-no-route-handler-removals.sh before committing any change to presentation/routes.py.
   - Register every new EventHandler in main.py before committing: After implementing any class with a `supported_event_types()` method, import it in `main.py` and call `handler.register(<instance>)`. Run `bash .hyperloop/checks/check-event-handlers-registered.sh` to confirm.
   - Before publishing a new event type to the outbox, verify a consuming handler exists and is registered: Run `bash .hyperloop/checks/check-domain-events-have-consumers.sh` before committing.
-  - Rebase only against LOCAL alpha, never origin/alpha: Before rebasing, run `git fetch origin && git checkout alpha && git merge --ff-only origin/alpha`, then `git checkout <task-branch> && git rebase alpha`. Using `git rebase origin/alpha` directly can contaminate the branch with commits that are on local alpha but not yet pushed to origin.
-  - Run check-alpha-local-vs-remote.sh before any rebase operation: Confirm exit 0 (local and origin/alpha are in sync) before rebasing. If local alpha is ahead of origin, coordinate a push of alpha before rebasing.
-  - Run check-no-foreign-task-commits.sh before submitting: Confirm no commits with a foreign Task-Ref trailer are present on the branch. A foreign Task-Ref commit means the branch was rebased against a stale remote ref and must be rebuilt via cherry-pick from clean local alpha.
-  - Add .hyperloop/worker-result.yaml to .git/info/exclude immediately after branch creation: Run `echo '.hyperloop/worker-result.yaml' >> "$(git rev-parse --git-dir)/info/exclude"`.
   - All spec scenarios must be COVERED or have a formal blocker before submitting.
   - Every @pytest.mark.skip test must have at least one real assertion.

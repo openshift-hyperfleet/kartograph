@@ -1,4 +1,4 @@
-# Intake Review: Index & NFR Specs — 2026-04-23
+# Intake Review: Index & NFR Specs — 2026-04-23 (last reviewed: 2026-04-27)
 
 ## Specs Reviewed
 

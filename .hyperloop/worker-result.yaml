@@ -1,127 +1,124 @@
 ---
 verdict: pass
 ---
-## Worker Result — task-034 (specs/management/credentials.spec.md)
+## Spec Alignment Review — task-034 (specs/management/credentials.spec.md)
 
-Worker: verifier
+Worker: spec-reviewer
 Date: 2026-04-27
 
 ---
 
-### Verification Checks
+## Requirement Status Summary
 
-#### 1. Unit Tests — PASS
-2469 tests pass (75.66s). Zero failures, zero errors. The new tests for KG cascade
-credential deletion (`TestKnowledgeGraphServiceDelete`) and Fernet tenant isolation
-(`TestTenantIsolation`) all pass.
+| Requirement | Scenario | Status |
+|---|---|---|
+| Credential Encryption | Store credentials | COVERED |
+| Credential Encryption | Retrieve credentials | COVERED |
+| Credential Encryption | Credentials not found | COVERED |
+| Tenant Isolation | Same path, different tenants | COVERED |
+| Key Rotation | Key rotation | COVERED |
+| Credential Lifecycle | Data source deletion | COVERED |
+| Credential Lifecycle | Knowledge graph cascade | COVERED |
 
-#### 2. Linting (ruff check) — PASS
-Zero violations across 495 source files.
-
-#### 3. Formatting (ruff format --check) — PASS
-All 495 files correctly formatted.
-
-#### 4. Type Checking (mypy) — PASS
-`Success: no issues found in 495 source files`
-
-#### 5. Architecture Boundary Tests — PASS
-All 40 archon tests pass. No bounded-context import leakage detected.
-
-#### 6. Integration Tests — SKIPPED
-The spec gap was in the application/service layer. The fix is fully covered by unit
-tests. No integration infrastructure required for this change.
-
-#### 7. Code Review — PASS
-- No direct `logger.*` or `print()` calls in implementation files
-- No bare `MagicMock`/`AsyncMock` on domain aggregates — real `DataSource` aggregates
-  used via `_make_ds()` factory in KG service tests; `AsyncMock` used only for the
-  `ISecretStoreRepository` port (not a domain aggregate)
-- No DDD layer violations — `KnowledgeGraphService` imports `ISecretStoreRepository`
-  from `management.ports.secret_store` (correct layer)
-- All implementation commits carry `Task-Ref: task-034` trailers
-- No hardcoded secrets or environment-specific values
-- No stub markers, no future-placeholder comments, no empty test stubs
-- No weak test assertions, no test regressions
-- DI wiring in `knowledge_graph.py` correctly instantiates `FernetSecretStore` and
-  passes it to `KnowledgeGraphService`
-
-#### 8. Check Scripts (backend suite) — PASS (24/25)
-All substantive checks pass. The one "failure" is `check-alpha-local-vs-remote.sh`
-which reports that local `alpha` is 64 commits ahead of `origin/alpha`. This is an
-expected orchestrator environment condition (the orchestrator advances local alpha
-without pushing to origin) and is not a code quality defect. The branch is confirmed
-rebased on current local `alpha` by `check-branch-rebased-on-alpha.sh` (PASS).
-
-Passed checks (24):
-- check-no-check-script-deletions.sh ✓
-- check-process-overlays-intact.sh ✓
-- check-new-checks-pass-on-head.sh ✓ (2 new scripts pass)
-- check-branch-has-commits.sh ✓ (4 commits)
-- check-branch-rebased-on-alpha.sh ✓
-- check-no-state-file-commits.sh ✓
-- check-worker-result-not-committed.sh ✓
-- check-no-foreign-task-commits.sh ✓
-- check-no-source-regressions.sh ✓
-- check-no-route-handler-removals.sh ✓
-- check-no-test-regressions.sh ✓
-- check-empty-test-stubs.sh ✓
-- check-domain-aggregate-mocks.sh ✓
-- check-no-direct-logger-usage.sh ✓
-- check-no-coming-soon-stubs.sh ✓
-- check-weak-test-assertions.sh ✓
-- check-di-wiring-updated.sh ✓
-- check-event-handlers-registered.sh ✓
-- check-domain-events-have-consumers.sh ✓
-- check-pytest-env-skip-if-set.sh ✓
-- check-cascade-delete-cleanup.sh ✓
-- check-cascade-delete-empty-collection-mocks.sh ✓
-- check-unused-fixtures.sh ✓
-- check-no-future-placeholder-comments.sh ✓
+All SHALL/MUST requirements are implemented and tested. Verdict: **PASS**.
 
 ---
 
-### Spec Alignment
+## Requirement: Credential Encryption — COVERED
 
-All spec scenarios from `specs/management/credentials.spec.md` are now addressed:
+### Scenario: Store credentials
+**Implementation:** `src/api/management/infrastructure/repositories/fernet_secret_store.py:53-70`
+`FernetSecretStore.store()` encodes credentials as JSON, encrypts with `MultiFernet.encrypt()`,
+and upserts via `session.merge()` into a table with composite PK `(path, tenant_id)`.
 
-**Credential Encryption (store/retrieve/not-found)** — pre-existing, confirmed PASS.
+**Tests:**
+- Unit: `test_fernet_secret_store.py::TestFernetRoundTrip` — covers single key, multiple
+  credentials, and empty-value dicts.
+- Integration: `tests/integration/management/test_fernet_secret_store.py::TestRoundTrip::test_store_and_retrieve`
 
-**Tenant Isolation** — pre-existing implementation confirmed; new unit test
-`TestTenantIsolation` added for explicit coverage:
-- `test_same_path_different_tenant_raises_key_error` — PASS
-- `test_delete_with_wrong_tenant_does_not_delete` — PASS
+### Scenario: Retrieve credentials
+**Implementation:** `fernet_secret_store.py:72-93` — queries by `(path, tenant_id)`,
+decrypts with `MultiFernet.decrypt()`, returns parsed dict.
 
-**Key Rotation** — pre-existing, confirmed PASS.
+**Tests:** Same round-trip tests verify decrypted output matches original input.
 
-**Credential Lifecycle — Data source deletion** — pre-existing, confirmed PASS.
+### Scenario: Credentials not found
+**Implementation:** `fernet_secret_store.py:87-89` — raises `KeyError("Credentials not found")`
+when `scalar_one_or_none()` returns `None`.
 
-**Credential Lifecycle — Knowledge graph cascade** — FIXED by this task:
-
-*Implementation*: `KnowledgeGraphService.delete()` now accepts `secret_store:
-ISecretStoreRepository | None` and calls `await self._secret_store.delete(path=...,
-tenant_id=...)` for each data source with a `credentials_path` before removing the
-DS row. `FernetSecretStore` is wired into the dependency via `knowledge_graph.py`.
-
-*Tests*:
-- `test_delete_removes_credentials_for_data_sources_with_credentials_path` — Given a KG
-  with one DS with credentials and one without, when deleted, asserts `secret_store.delete`
-  called exactly once (correct DS), both DS rows removed, KG removed.
-- `test_delete_skips_credential_cleanup_when_no_secret_store` — When service has no
-  secret_store, DS and KG are still deleted without raising. Defensive nil-guard verified.
-- `test_delete_cascades_data_sources` — Updated to use real `DataSource` aggregates
-  (replacing previous `MagicMock(spec=DataSource)`) per no-domain-aggregate-mocks rule.
-
-Additionally, `test_deletes_groups_on_tenant_deletion` was added to `TestDeleteTenant`
-in `test_tenant_service.py` to satisfy the `check-cascade-delete-empty-collection-mocks.sh`
-check (all TestDelete* classes with collection mocks must have at least one non-empty
-list test exercising the loop body).
+**Tests:**
+- Unit: `TestRetrieveNotFound::test_raises_key_error`
+- Integration: `TestNotFound::test_nonexistent_path_raises_key_error`
 
 ---
 
-### Implementation Quality Notes
+## Requirement: Tenant Isolation — COVERED
 
-The fix is minimal and surgical: 12 lines changed in `knowledge_graph_service.py`,
-15 lines changed in `knowledge_graph.py` (DI wiring). Tests use real domain aggregates
-and a plain `AsyncMock` for the port interface — consistent with existing patterns. The
-`secret_store` parameter is optional (defaults to `None`) which maintains backward
-compatibility for any test that constructs `KnowledgeGraphService` without it.
+### Scenario: Same path, different tenants
+**Implementation:** `fernet_secret_store.py:80-83` — WHERE clause filters on both
+`path` AND `tenant_id`. `EncryptedCredentialModel` uses composite PK `(path, tenant_id)`
+for DB-level enforcement.
+
+**Tests:**
+- Unit: `TestTenantIsolation::test_same_path_different_tenant_raises_key_error` — stores
+  credentials for tenant A, attempts retrieval as tenant B, asserts `KeyError`.
+- Integration: `TestTenantIsolation::test_tenant_a_cannot_read_tenant_b`
+
+---
+
+## Requirement: Key Rotation — COVERED
+
+### Scenario: Key rotation
+**Implementation:** `fernet_secret_store.py:50` — `MultiFernet([Fernet(key) for key in encryption_keys])`.
+First key encrypts new credentials; all keys are tried for decryption. Rotation is achieved by
+prepending a new key to the list while retaining the old key as fallback.
+
+**Tests:**
+- Unit: `TestMultiFernetRotation::test_decrypt_with_rotated_keys` — encrypts with `key1`, creates
+  a new store with `[key2, key1]`, verifies old ciphertext decrypts successfully.
+- Integration: None (acceptable — the `MultiFernet` library behavior is deterministic and the unit
+  test fully covers the scenario).
+
+---
+
+## Requirement: Credential Lifecycle — COVERED
+
+### Scenario: Data source deletion
+**Implementation:** `src/api/management/application/services/data_source_service.py:384-392`
+— checks `ds.credentials_path` and calls `self._secret_store.delete(path=..., tenant_id=...)`
+before removing the data source record.
+
+**Tests:**
+- Unit: `test_data_source_service.py::test_delete_removes_credentials_if_path_exists`
+  — asserts `mock_secret_store.delete` is called with correct path and tenant.
+
+### Scenario: Knowledge graph cascade
+**Implementation:** `src/api/management/application/services/knowledge_graph_service.py:403-415`
+— `KnowledgeGraphService.delete()` iterates child data sources; for each DS where
+`ds.credentials_path` is set and `self._secret_store is not None`, calls
+`await self._secret_store.delete(path=ds.credentials_path, tenant_id=self._scope_to_tenant)`
+before invoking `self._ds_repo.delete(ds)`.
+
+DI wiring: `src/api/management/dependencies/knowledge_graph.py:50-58` — correctly instantiates
+`FernetSecretStore` and passes it as `secret_store=secret_store` to `KnowledgeGraphService`.
+
+**Tests:**
+- Unit: `test_knowledge_graph_service.py::test_delete_removes_credentials_for_data_sources_with_credentials_path`
+  — Given a KG with one DS with credentials and one without, asserts `secret_store.delete`
+  called exactly once (correct DS, correct path, correct tenant); both DS rows and KG removed.
+- Unit: `test_delete_skips_credential_cleanup_when_no_secret_store` — defensive nil-guard
+  test; verifies no error when `secret_store=None`.
+
+---
+
+## Files Reviewed
+
+- `src/api/management/infrastructure/repositories/fernet_secret_store.py`
+- `src/api/management/infrastructure/models/encrypted_credential.py`
+- `src/api/management/application/services/knowledge_graph_service.py`
+- `src/api/management/application/services/data_source_service.py`
+- `src/api/management/dependencies/knowledge_graph.py`
+- `src/api/tests/unit/management/infrastructure/test_fernet_secret_store.py`
+- `src/api/tests/integration/management/test_fernet_secret_store.py`
+- `src/api/tests/unit/management/application/test_knowledge_graph_service.py`
+- `src/api/tests/unit/management/application/test_data_source_service.py`

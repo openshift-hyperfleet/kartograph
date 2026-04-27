@@ -29,5 +29,6 @@ guidelines: |
   - When re-verifying after FAIL rounds, build a numbered checklist of every prior finding and confirm each independently.
   - Run check-no-test-regressions.sh before any PASS verdict.
   - Run check-no-foreign-task-commits.sh and treat any non-zero exit as a blocking FAIL: Foreign-task commits introduce duplicate test functions, schema conflicts, and type errors (e.g., ruff F811, mypy no-redef) that are the root cause — not symptoms — of downstream failures.
+  - When a prior round already failed due to foreign commits and the implementer claims cleanup, run check-no-foreign-task-commits.sh as the VERY FIRST check and issue an immediate FAIL without running any other checks if it exits non-zero; an implementer who could not clear the foreign commits does not benefit from further check results.
   - When ruff F811 or mypy no-redef failures appear, always check for duplicate symbol names introduced by foreign commits before concluding the implementer wrote bad code: Run `git log --oneline $(git merge-base HEAD alpha)..HEAD` and inspect each commit's Task-Ref trailer.
   - check-no-route-handler-removals.sh can false-positive on renames and in-file reordering: After the script reports a removal, verify the function name is truly absent from HEAD with `git show HEAD:<file> | grep -E "def <name>\("` before recording a FAIL.

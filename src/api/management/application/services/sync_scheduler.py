@@ -14,6 +14,8 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from croniter import CroniterBadCronError, croniter
+
 from management.domain.aggregates import DataSource
 from management.domain.entities.data_source_sync_run import DataSourceSyncRun
 from management.domain.value_objects import ScheduleType
@@ -108,8 +110,8 @@ class SyncSchedulerService:
         last sync (or all time if never synced) exceeds the interval duration.
 
         For CRON schedules: a sync is due if the most recent cron fire time
-        since the last sync has passed. (Currently raises NotImplementedError;
-        use INTERVAL schedules for automated syncs in this version.)
+        since the last sync has passed.  Uses ``croniter`` to evaluate the
+        expression against the current time.
 
         Args:
             now: The current time for comparison (defaults to UTC now).
@@ -134,11 +136,9 @@ class SyncSchedulerService:
                     triggered += 1
 
             elif ds.schedule.schedule_type == ScheduleType.CRON:
-                # TODO: Implement CRON schedule evaluation using a cron library
-                # (e.g., python-croniter). CRON schedules require parsing the
-                # expression and finding the most recent fire time relative to
-                # last_sync_at. For now, CRON schedules are not evaluated.
-                pass
+                if self._is_cron_due(ds.schedule.value, ds.last_sync_at, now):
+                    await self._trigger_sync(ds, now)
+                    triggered += 1
 
         return triggered
 
@@ -173,6 +173,60 @@ class SyncSchedulerService:
             return True
 
         return now >= last_sync_at + interval
+
+    def _is_cron_due(
+        self,
+        schedule_value: str | None,
+        last_sync_at: datetime | None,
+        now: datetime,
+    ) -> bool:
+        """Determine if a CRON schedule is due for a sync.
+
+        A CRON schedule is due when its most recent fire time (the last time
+        the expression would have fired at or before ``now``) is strictly after
+        ``last_sync_at``.  If the source has never been synced (``last_sync_at``
+        is ``None``) the schedule is always considered due.
+
+        Args:
+            schedule_value: Standard 5-field cron expression (e.g. ``"0 * * * *"``)
+            last_sync_at: When the data source last completed a sync
+            now: Current time (UTC-aware)
+
+        Returns:
+            ``True`` if a sync should be triggered, ``False`` otherwise.
+        """
+        if schedule_value is None:
+            return False
+
+        try:
+            if not croniter.is_valid(schedule_value):
+                return False
+
+            # croniter.get_prev() returns the most recent fire time *at or before*
+            # `now`.  We pass `now` as the start so the first call to get_prev
+            # walks back to find the previous fire time.
+            itr = croniter(schedule_value, now)
+            last_fire: datetime = itr.get_prev(datetime)
+
+            # croniter returns a naive datetime; normalise to UTC if the input
+            # datetimes are timezone-aware.
+            if now.tzinfo is not None and last_fire.tzinfo is None:
+                last_fire = last_fire.replace(tzinfo=UTC)
+
+        except (CroniterBadCronError, ValueError):
+            # Invalid expression — skip rather than crashing the scheduler.
+            return False
+
+        if last_sync_at is None:
+            # The source has never been synced → always due.
+            return True
+
+        # Normalise last_sync_at to naive UTC for comparison when needed.
+        normalised_last_sync = last_sync_at
+        if last_sync_at.tzinfo is not None and last_fire.tzinfo is None:
+            normalised_last_sync = last_sync_at.replace(tzinfo=None)
+
+        return last_fire > normalised_last_sync
 
     async def _trigger_sync(self, ds: DataSource, now: datetime) -> None:
         """Create a sync run record and emit SyncStarted event.

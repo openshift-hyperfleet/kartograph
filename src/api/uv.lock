@@ -505,6 +505,18 @@ wheels = [
 ]
 
 [[package]]
+name = "croniter"
+version = "6.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dateutil" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/df/de/5832661ed55107b8a09af3f0a2e71e0957226a59eb1dcf0a445cce6daf20/croniter-6.2.2.tar.gz", hash = "sha256:ba60832a5ec8e12e51b8691c3309a113d1cf6526bdf1a48150ce8ec7a532d0ab", size = 113762, upload-time = "2026-03-15T08:43:48.112Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d0/39/783980e78cb92c2d7bdb1fc7dbc86e94ccc6d58224d76a7f1f51b6c51e30/croniter-6.2.2-py3-none-any.whl", hash = "sha256:a5d17b1060974d36251ea4faf388233eca8acf0d09cbd92d35f4c4ac8f279960", size = 45422, upload-time = "2026-03-15T08:43:46.626Z" },
+]
+
+[[package]]
 name = "cryptography"
 version = "46.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1287,6 +1299,7 @@ dependencies = [
     { name = "authlib" },
     { name = "authzed" },
     { name = "bcrypt" },
+    { name = "croniter" },
     { name = "cyclopts" },
     { name = "dlt", extra = ["postgres"] },
     { name = "fastapi", extra = ["standard"] },
@@ -1313,6 +1326,7 @@ dev = [
     { name = "pytest-mock" },
     { name = "rich" },
     { name = "ruff" },
+    { name = "types-croniter" },
     { name = "types-psycopg2" },
     { name = "types-pyyaml" },
 ]
@@ -1326,6 +1340,7 @@ requires-dist = [
     { name = "authlib", specifier = ">=1.6.9" },
     { name = "authzed", specifier = ">=1.24.0" },
     { name = "bcrypt", specifier = ">=5.0.0" },
+    { name = "croniter", specifier = ">=3.0.0" },
     { name = "cyclopts", specifier = "==5.0.0a1" },
     { name = "dlt", extras = ["postgres"], specifier = ">=1.9.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.123.9" },
@@ -1352,6 +1367,7 @@ dev = [
     { name = "pytest-mock", specifier = ">=3.15.1" },
     { name = "rich", specifier = ">=14.2.0" },
     { name = "ruff", specifier = ">=0.14.8" },
+    { name = "types-croniter", specifier = ">=6.2.2" },
     { name = "types-psycopg2", specifier = ">=2.9.21.20251012" },
     { name = "types-pyyaml", specifier = ">=6.0.12" },
 ]
@@ -2966,6 +2982,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8f/28/7c85c8032b91dbe79725b6f17d2fffc595dff06a35c7a30a37bef73a1ab4/typer-0.20.0.tar.gz", hash = "sha256:1aaf6494031793e4876fb0bacfa6a912b551cf43c1e63c800df8b1a866720c37", size = 106492, upload-time = "2025-10-20T17:03:49.445Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/78/64/7713ffe4b5983314e9d436a90d5bd4f63b6054e2aca783a3cfc44cb95bbf/typer-0.20.0-py3-none-any.whl", hash = "sha256:5b463df6793ec1dca6213a3cf4c0f03bc6e322ac5e16e13ddd622a889489784a", size = 47028, upload-time = "2025-10-20T17:03:47.617Z" },
+]
+
+[[package]]
+name = "types-croniter"
+version = "6.2.2.20260408"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c5/e4/89a0101471d6fe4e912dad24c54ae7afd90a9eaa5c74adef2c81f383f8da/types_croniter-6.2.2.20260408.tar.gz", hash = "sha256:a28a18908db371654990d30a3fd99856adc5137e475a23dbda4b10dce85525da", size = 12040, upload-time = "2026-04-08T04:27:20.068Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c3/05/b32e67944ff33e83c181cadf5835858d63f4292a2f2ff5bf6a1edb7f6fed/types_croniter-6.2.2.20260408-py3-none-any.whl", hash = "sha256:242087a5b6e201b7004e55f71ed34f466951b74551c64ef1c6a8a08c47d3cc0d", size = 9732, upload-time = "2026-04-08T04:27:19.229Z" },
 ]
 
 [[package]]

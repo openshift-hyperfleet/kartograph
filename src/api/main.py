@@ -1,6 +1,9 @@
 """Main FastAPI application entry point."""
 
+import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,6 +47,254 @@ from shared_kernel.outbox.observability import (
     DefaultOutboxWorkerProbe,
 )
 from query.presentation.mcp import mcp_http_app_inner, query_mcp_app
+
+# Default work directory for JobPackage ZIP archives
+_JOB_PACKAGE_WORK_DIR = Path("/tmp/kartograph/job_packages")  # noqa: S108
+
+# Scheduler polling interval (seconds)
+_SCHEDULER_POLL_INTERVAL_SECONDS = 60
+
+
+# ---------------------------------------------------------------------------
+# Session-aware outbox handler wrappers
+#
+# These wrappers create a fresh database session per event call, ensuring
+# proper transaction isolation for handlers that need database access.
+# The bounded-context handlers are imported lazily to avoid circular imports
+# and to respect DDD layer boundaries in the module-level namespace.
+# ---------------------------------------------------------------------------
+
+
+class _SessionedSyncLifecycleHandler:
+    """Session-aware wrapper for SyncLifecycleHandler.
+
+    Creates a fresh SQLAlchemy session for each event, allowing the
+    SyncLifecycleHandler to manage its own transaction lifecycle.
+    Registered for all 7 sync lifecycle events.
+    """
+
+    _SUPPORTED: frozenset[str] = frozenset(
+        {
+            "SyncStarted",
+            "JobPackageProduced",
+            "IngestionFailed",
+            "MutationLogProduced",
+            "ExtractionFailed",
+            "MutationsApplied",
+            "MutationApplicationFailed",
+        }
+    )
+
+    def __init__(self, session_factory: Any) -> None:
+        self._session_factory = session_factory
+
+    def supported_event_types(self) -> frozenset[str]:
+        return self._SUPPORTED
+
+    async def handle(self, event_type: str, payload: dict[str, Any]) -> None:
+        from infrastructure.outbox.repository import OutboxRepository
+        from management.infrastructure.repositories.data_source_repository import (
+            DataSourceRepository,
+        )
+        from management.infrastructure.repositories.data_source_sync_run_repository import (
+            DataSourceSyncRunRepository,
+        )
+        from management.infrastructure.sync_lifecycle_handler import (
+            SyncLifecycleHandler,
+        )
+
+        async with self._session_factory() as session:
+            outbox = OutboxRepository(session=session)
+            ds_repo = DataSourceRepository(session=session, outbox=outbox)
+            sync_run_repo = DataSourceSyncRunRepository(session=session)
+            lifecycle_handler = SyncLifecycleHandler(
+                session=session,
+                sync_run_repository=sync_run_repo,
+                data_source_repository=ds_repo,
+            )
+            await lifecycle_handler.handle(event_type, payload)
+            # SyncLifecycleHandler manages its own transactions internally;
+            # commit is a no-op if all inner begin() blocks already committed.
+            await session.commit()
+
+
+class _SessionedIngestionEventHandler:
+    """Session-aware wrapper for IngestionEventHandler.
+
+    Creates a fresh session per event. The IngestionEventHandler writes
+    JobPackageProduced/IngestionFailed to the outbox; the session commit
+    here persists those outbox entries atomically.
+    """
+
+    _SUPPORTED: frozenset[str] = frozenset({"SyncStarted"})
+
+    def __init__(self, session_factory: Any) -> None:
+        self._session_factory = session_factory
+
+    def supported_event_types(self) -> frozenset[str]:
+        return self._SUPPORTED
+
+    async def handle(self, event_type: str, payload: dict[str, Any]) -> None:
+        from infrastructure.outbox.repository import OutboxRepository
+        from ingestion.application.services.ingestion_service import IngestionService
+        from ingestion.infrastructure.event_handler import IngestionEventHandler
+
+        async with self._session_factory() as session:
+            outbox = OutboxRepository(session=session)
+            # Adapter registry is empty; unknown adapter type will raise ValueError,
+            # causing IngestionFailed to be emitted by the handler.
+            # Real adapters are registered here as the platform evolves.
+            ingestion_service = IngestionService(
+                adapter_registry={},
+                work_dir=_JOB_PACKAGE_WORK_DIR,
+            )
+            ingestion_handler = IngestionEventHandler(
+                ingestion_service=ingestion_service,
+                outbox=outbox,
+            )
+            await ingestion_handler.handle(event_type, payload)
+            await session.commit()
+
+
+class _StubExtractionService:
+    """Stub extraction service that raises NotImplementedError.
+
+    Placeholder until the Claude Agent SDK extraction pipeline is implemented.
+    Any JobPackageProduced event will result in ExtractionFailed being emitted.
+    """
+
+    async def run(
+        self,
+        sync_run_id: str,
+        data_source_id: str,
+        knowledge_graph_id: str,
+        job_package_id: str,
+    ) -> str:
+        raise NotImplementedError(
+            "AI extraction pipeline is not yet implemented. "
+            "Register a real IExtractionService implementation to enable extraction."
+        )
+
+
+class _SessionedExtractionEventHandler:
+    """Session-aware wrapper for ExtractionEventHandler.
+
+    Signals the Extraction context to process a JobPackage. Currently
+    uses a stub service that emits ExtractionFailed until the Claude
+    Agent SDK pipeline is implemented.
+    """
+
+    _SUPPORTED: frozenset[str] = frozenset({"JobPackageProduced"})
+
+    def __init__(self, session_factory: Any) -> None:
+        self._session_factory = session_factory
+        self._extraction_service = _StubExtractionService()
+
+    def supported_event_types(self) -> frozenset[str]:
+        return self._SUPPORTED
+
+    async def handle(self, event_type: str, payload: dict[str, Any]) -> None:
+        from infrastructure.outbox.repository import OutboxRepository
+        from extraction.infrastructure.event_handler import ExtractionEventHandler
+
+        async with self._session_factory() as session:
+            outbox = OutboxRepository(session=session)
+            extraction_handler = ExtractionEventHandler(
+                extraction_service=self._extraction_service,
+                outbox=outbox,
+            )
+            await extraction_handler.handle(event_type, payload)
+            await session.commit()
+
+
+class _StubMutationLogApplier:
+    """Stub mutation log applier that raises NotImplementedError.
+
+    Placeholder until the AGE-backed mutation application pipeline is
+    wired into the outbox handler. Any MutationLogProduced event will
+    result in MutationApplicationFailed being emitted.
+    """
+
+    async def apply_mutation_log(self, mutation_log_id: str) -> bool:
+        raise NotImplementedError(
+            "Graph mutation application via outbox is not yet fully implemented. "
+            "Register a real IMutationLogApplier to enable graph writes from the outbox."
+        )
+
+
+class _SessionedGraphMutationEventHandler:
+    """Session-aware wrapper for GraphMutationEventHandler.
+
+    Applies MutationLogs to the Apache AGE graph database. Currently uses
+    a stub applier that emits MutationApplicationFailed until the full
+    graph write pipeline is wired to the outbox.
+    """
+
+    _SUPPORTED: frozenset[str] = frozenset({"MutationLogProduced"})
+
+    def __init__(self, session_factory: Any) -> None:
+        self._session_factory = session_factory
+        self._mutation_log_applier = _StubMutationLogApplier()
+
+    def supported_event_types(self) -> frozenset[str]:
+        return self._SUPPORTED
+
+    async def handle(self, event_type: str, payload: dict[str, Any]) -> None:
+        from infrastructure.outbox.repository import OutboxRepository
+        from graph.infrastructure.event_handler import GraphMutationEventHandler
+
+        async with self._session_factory() as session:
+            outbox = OutboxRepository(session=session)
+            graph_handler = GraphMutationEventHandler(
+                mutation_log_applier=self._mutation_log_applier,
+                outbox=outbox,
+            )
+            await graph_handler.handle(event_type, payload)
+            await session.commit()
+
+
+async def _run_scheduler_loop(session_factory: Any, poll_interval: int) -> None:
+    """Background asyncio task that periodically triggers scheduled syncs.
+
+    Polls data sources with INTERVAL or CRON schedules and initiates syncs
+    that are due. Runs until the event loop is stopped (app shutdown).
+
+    Args:
+        session_factory: SQLAlchemy async sessionmaker for database access
+        poll_interval: Seconds between scheduler runs
+    """
+    from infrastructure.outbox.repository import OutboxRepository
+    from management.application.services.sync_scheduler import SyncSchedulerService
+    from management.infrastructure.repositories.data_source_repository import (
+        DataSourceRepository,
+    )
+    from management.infrastructure.repositories.data_source_sync_run_repository import (
+        DataSourceSyncRunRepository,
+    )
+
+    while True:
+        try:
+            async with session_factory() as session:
+                outbox = OutboxRepository(session=session)
+                ds_repo = DataSourceRepository(session=session, outbox=outbox)
+                sync_run_repo = DataSourceSyncRunRepository(session=session)
+                scheduler = SyncSchedulerService(
+                    data_source_repository=ds_repo,
+                    sync_run_repository=sync_run_repo,
+                )
+                await scheduler.check_and_trigger_due_syncs()
+                await session.commit()
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            # Log but don't crash — scheduler must remain resilient
+            pass
+
+        try:
+            await asyncio.sleep(poll_interval)
+        except asyncio.CancelledError:
+            break
+
 
 # Configure structlog before any loggers are created
 configure_logging()
@@ -177,6 +428,35 @@ async def kartograph_lifespan(app: FastAPI):
         )
         handler.register(tenant_graph_handler, handler_name="tenant_graph")
 
+        # Register sync lifecycle handler: updates DataSourceSyncRun status
+        # as events flow through the pipeline (pending → ingesting → ai_extracting
+        # → applying → completed / failed).
+        sync_lifecycle_handler = _SessionedSyncLifecycleHandler(
+            session_factory=app.state.write_sessionmaker
+        )
+        handler.register(sync_lifecycle_handler, handler_name="sync_lifecycle")
+
+        # Register ingestion handler: processes SyncStarted events by running
+        # the adapter extract → package pipeline.
+        ingestion_handler = _SessionedIngestionEventHandler(
+            session_factory=app.state.write_sessionmaker
+        )
+        handler.register(ingestion_handler, handler_name="ingestion")
+
+        # Register extraction handler: processes JobPackageProduced events by
+        # signaling the Extraction context to run AI entity extraction.
+        extraction_handler = _SessionedExtractionEventHandler(
+            session_factory=app.state.write_sessionmaker
+        )
+        handler.register(extraction_handler, handler_name="extraction")
+
+        # Register graph mutation handler: processes MutationLogProduced events
+        # by applying the mutation log to the Apache AGE graph database.
+        graph_mutation_handler = _SessionedGraphMutationEventHandler(
+            session_factory=app.state.write_sessionmaker
+        )
+        handler.register(graph_mutation_handler, handler_name="graph_mutation")
+
         # Create event source for real-time NOTIFY processing
         event_source = PostgresNotifyEventSource(
             db_url=db_url,
@@ -196,6 +476,17 @@ async def kartograph_lifespan(app: FastAPI):
         await worker.start()
         app.state.outbox_worker = worker
 
+        # Start the sync scheduler background task.
+        # Periodically checks data sources with INTERVAL/CRON schedules and
+        # triggers syncs that are due (as if manually triggered).
+        scheduler_task = asyncio.create_task(
+            _run_scheduler_loop(
+                session_factory=app.state.write_sessionmaker,
+                poll_interval=_SCHEDULER_POLL_INTERVAL_SECONDS,
+            )
+        )
+        app.state.scheduler_task = scheduler_task
+
     # MCP lifespan - skip if already initialized (e.g., in tests with multiple lifespans)
     if not app.state._mcp_initialized:
         async with mcp_http_app_inner.lifespan(app):
@@ -204,6 +495,14 @@ async def kartograph_lifespan(app: FastAPI):
     else:
         # MCP already initialized in previous lifespan cycle
         yield
+
+    # Shutdown: stop scheduler background task
+    if hasattr(app.state, "scheduler_task"):
+        app.state.scheduler_task.cancel()
+        try:
+            await app.state.scheduler_task
+        except asyncio.CancelledError:
+            pass
 
     # Shutdown: stop outbox worker
     if hasattr(app.state, "outbox_worker"):

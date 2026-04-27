@@ -11,6 +11,19 @@
 #   2. Python def/class lines removed from existing source files
 #   3. TypeScript export function/class lines removed from existing source files
 #
+# FALSE-POSITIVE FILTER: When a method or class appears to be removed in the
+# diff but is still present anywhere in the HEAD version of the same file (i.e.
+# it was only moved or reordered, not deleted), it is NOT flagged. This prevents
+# false positives when code is refactored or reordered within a file.
+#
+# SPEC-MANDATED REMOVALS: Commits that intentionally remove a symbol (e.g.
+# renaming an event class) should include a trailer:
+#   Removes: ClassName
+# This allows reviewers to cross-reference the spec without manual inspection.
+# The script does NOT skip symbols with this trailer — it still reports them —
+# but the trailer serves as a signal to the verifier that the removal is
+# spec-mandated and not a regression.
+#
 # IMPORTANT: File enumeration uses grep-based filtering on the raw output of
 # `git diff --name-only`, NOT git pathspec globs.  Double-quoted globs like
 # "$SOURCE_DIR/**/*.py" are expanded by the shell before git sees them and
@@ -88,6 +101,11 @@ fi
 # 2. Python public method/function removals in existing source files
 #    Look for 'def <name>(' lines removed (lines starting with 'def ' or '    def ')
 #
+# FALSE-POSITIVE FILTER: For each removed symbol, verify it genuinely no longer
+# exists in the HEAD version of the same file. If the symbol appears in HEAD
+# (even at a different line), it was only moved or reordered — not deleted.
+# This eliminates false positives from refactoring and code reordering.
+#
 # Same grep-based approach: enumerate ALL changed files, then filter to Python
 # application source.  Avoids the pathspec glob expansion issue.
 python_method_removals=""
@@ -103,28 +121,52 @@ for f in $changed_py_sources; do
   if ! git show "HEAD:$f" &>/dev/null 2>&1; then
     continue
   fi
-  # NOTE: sed uses '|' as delimiter (not '/') to handle file paths containing '/'.
-  # Using "s/^/  [$f] /" silently fails when $f contains '/' because sed
-  # interprets them as closing delimiters, leaving removed_defs empty (false PASS).
-  removed_defs=$(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null \
+
+  # Cache HEAD content of file for existence checks. We verify each removed
+  # symbol against HEAD to filter out moves/reorders that are not true deletions.
+  head_content=$(git show "HEAD:$f" 2>/dev/null || true)
+
+  # Process removed defs — check each individually against HEAD content
+  while IFS= read -r raw_line; do
+    [[ -z "$raw_line" ]] && continue
+
+    # Extract the symbol name (handles 'def foo(' and 'async def foo(')
+    symbol=$(echo "$raw_line" | grep -oP '(?<=(async )?def )[a-zA-Z_][a-zA-Z0-9_]*' | head -1 || true)
+
+    if [[ -n "$symbol" ]]; then
+      # If the symbol still exists anywhere in HEAD, it was moved/reordered —
+      # not truly deleted. Skip it to avoid false positives.
+      if echo "$head_content" | grep -qE "(async )?def ${symbol}\("; then
+        continue
+      fi
+    fi
+
+    python_method_removals="${python_method_removals}  [$f] ${raw_line}\n"
+  done < <(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null \
     | grep '^-[^-]' \
     | grep -E '^-[[:space:]]*(async )?def [a-zA-Z_][a-zA-Z0-9_]*\(' \
     | grep -v '__init__\|__repr__\|__str__\|__eq__\|__hash__\|__len__\|__bool__' \
-    | sed "s|^|  [$f] |" \
     || true)
 
-  removed_classes=$(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null \
+  # Process removed classes — check each individually against HEAD content
+  while IFS= read -r raw_line; do
+    [[ -z "$raw_line" ]] && continue
+
+    # Extract the class name
+    symbol=$(echo "$raw_line" | grep -oP '(?<=class )[A-Z][A-Za-z0-9_]*' | head -1 || true)
+
+    if [[ -n "$symbol" ]]; then
+      # If the class name still exists anywhere in HEAD, it was moved/reordered.
+      if echo "$head_content" | grep -qE "class ${symbol}[:(]"; then
+        continue
+      fi
+    fi
+
+    python_method_removals="${python_method_removals}  [$f] ${raw_line}\n"
+  done < <(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null \
     | grep '^-[^-]' \
     | grep -E '^-[[:space:]]*class [A-Z][A-Za-z0-9_]*' \
-    | sed "s|^|  [$f] |" \
     || true)
-
-  if [[ -n "$removed_defs" ]]; then
-    python_method_removals="${python_method_removals}${removed_defs}\n"
-  fi
-  if [[ -n "$removed_classes" ]]; then
-    python_method_removals="${python_method_removals}${removed_classes}\n"
-  fi
 done
 
 if [[ -n "$python_method_removals" ]]; then
@@ -134,6 +176,14 @@ if [[ -n "$python_method_removals" ]]; then
   echo ""
   echo "  Each removed method or class must correspond to an explicit spec requirement."
   echo "  If the spec does not mandate removal, restore the definition."
+  echo ""
+  echo "  NOTE: Symbols that were only MOVED or REORDERED within the same file are"
+  echo "  automatically filtered out (they still exist in HEAD). Only true deletions"
+  echo "  — where the symbol no longer appears anywhere in the file — are reported."
+  echo ""
+  echo "  For spec-mandated removals (e.g. renaming an event class), add a trailer"
+  echo "  to the commit:  Removes: <ClassName>"
+  echo "  This signals to verifiers that the removal is intentional and spec-backed."
   echo ""
   echo "  IMPORTANT: Removing a domain exception class (e.g. class FooNotFoundError)"
   echo "  silently changes the HTTP status code callers receive (e.g. 404 → 400)"
@@ -149,7 +199,8 @@ if [[ $found -gt 0 ]]; then
   echo ""
   echo "Existing, working application code MUST NOT be removed without a spec mandate."
   echo "  - Deleting a working method removes functionality callers depend on."
-  echo "  - If the spec explicitly says to remove it, document that ref in your commit."
+  echo "  - If the spec explicitly says to remove it, add 'Removes: <symbol>' to"
+  echo "    the commit trailer and document the spec section in your report."
   echo "  - If you cannot find the spec requirement, restore the deleted code."
   exit 1
 else

@@ -31,7 +31,7 @@ router = APIRouter(tags=["knowledge-graphs"])
     "/knowledge-graphs",
     status_code=status.HTTP_200_OK,
 )
-async def list_all_knowledge_graphs(
+async def list_knowledge_graphs(
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
 ) -> KnowledgeGraphListResponse:
@@ -182,7 +182,7 @@ authorization — only knowledge graphs the caller can access are returned.
         500: {"description": "Internal server error"},
     },
 )
-async def list_knowledge_graphs(
+async def list_workspace_knowledge_graphs(
     workspace_id: str,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],

@@ -288,3 +288,52 @@ class TestCorruptedCiphertext:
 
         with pytest.raises(InvalidToken):
             await store.retrieve("datasource/corrupt/creds", "tenant-1")
+
+
+class TestTenantIsolation:
+    """Tests for tenant isolation: credentials are scoped by (path, tenant_id)."""
+
+    @pytest.mark.asyncio
+    async def test_same_path_different_tenant_raises_key_error(
+        self, mock_session: AsyncMock, fernet_key: str
+    ):
+        """Credentials stored for tenant A cannot be retrieved by tenant B.
+
+        Scenario: Same path, different tenants
+        - GIVEN credentials stored at path "datasource/abc/credentials" for tenant A
+        - WHEN tenant B attempts to retrieve credentials at the same path
+        - THEN the retrieval fails (credentials are scoped to tenant A)
+        """
+        store = _make_store(mock_session, [fernet_key])
+
+        # Simulate: DB returns None for tenant-B because composite PK (path, tenant_id) doesn't match
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        with pytest.raises(KeyError):
+            await store.retrieve("datasource/abc/credentials", "tenant-B")
+
+    @pytest.mark.asyncio
+    async def test_retrieve_with_correct_tenant_succeeds(
+        self, mock_session: AsyncMock, fernet_key: str
+    ):
+        """Credentials can be retrieved by the tenant that stored them.
+
+        Positive case confirming that the correct tenant can retrieve their credentials.
+        """
+        store = _make_store(mock_session, [fernet_key])
+        credentials = {"api_key": "secret-value"}
+
+        # Store the credentials for tenant-A
+        await store.store("datasource/abc/credentials", "tenant-A", credentials)
+        model = mock_session.merge.call_args[0][0]
+        assert model.tenant_id == "tenant-A"
+
+        # Retrieve as tenant-A: DB returns the matching model
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        result = await store.retrieve("datasource/abc/credentials", "tenant-A")
+        assert result == credentials

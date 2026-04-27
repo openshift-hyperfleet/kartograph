@@ -6,156 +6,147 @@ verdict: fail
 ---
 ## Alignment Audit — specs/management/data-sources.spec.md
 
-Auditor: spec-alignment
-Date: 2026-04-27
+Auditor: spec-alignment-reviewer
 Spec commit: 85d49a379a52479b33f9b39994d76795066899a6
+Date: 2026-04-27
 
 ---
 
 ### Summary
 
-**FAIL — 3 critical gaps, 1 minor gap**
-
-The domain and application layers are well-implemented and correctly model all
-spec behaviors. However, three spec requirements that require HTTP endpoints have
-no corresponding HTTP routes in the presentation layer. The service methods exist
-and are tested, but are unreachable by API clients.
-
----
-
-### Requirement 1: Data Source Creation — PASS
-
-- ULID ID generation via `DataSourceId.generate()` ✓ (`data_source.py:137`)
-- KG and tenant association enforced ✓ (`data_source_service.py:154-161`)
-- Schedule defaults to MANUAL ✓ (`data_source.py:144`)
-- Credentials encrypted and stored at `datasource/{id}/credentials` ✓ (`data_source_service.py:163-170`)
-- Only path stored, not raw credentials ✓
-- Duplicate name rejected via `uq_data_sources_kg_name` constraint ✓ (`data_source_repository.py:108-115`)
-- EDIT permission on KG verified ✓ (`data_source_service.py:129-144`)
-- HTTP endpoint: POST `/knowledge-graphs/{kg_id}/data-sources` ✓ (`routes.py:72`)
-
-**Minor gap:** `DuplicateDataSourceNameError` is raised by the repository but is
-not caught in the HTTP route handler (`routes.py:129-132`). It falls through to
-the generic `except Exception` clause and returns HTTP 500 instead of a meaningful
-error (e.g., 409 Conflict). The spec says the request "is rejected with a duplicate
-name error" — the current behavior rejects it, but as an opaque server error.
+The implementation has significant structural gaps: three of the six required HTTP
+endpoints are entirely absent. Service-layer logic exists for retrieval, update, and
+deletion, but none of those operations are reachable via the API. Additionally, the
+HTTP error-handling layer does not translate `DuplicateDataSourceNameError` to a
+proper client error, and there is no evidence that SpiceDB authorization relationships
+are cleaned up on deletion.
 
 ---
 
-### Requirement 2: Data Source Name Validation — PASS
+### PASS — Requirements Fully Implemented
 
-- Domain-level: `_validate_name()` enforces 1–100 chars ✓ (`data_source.py:90-102`)
-- Request-level: Pydantic `min_length=1, max_length=100` ✓ (`models.py:16-20`)
+#### Schedule Configuration (CRON / INTERVAL / MANUAL)
+- Domain value object `Schedule` in `management/domain/value_objects.py` enforces all
+  three types; CRON and INTERVAL reject a missing value with `InvalidScheduleError`;
+  MANUAL requires no value.
+- Comprehensive unit tests in `tests/unit/management/test_value_objects.py` (TestSchedule
+  class, lines ~135-211).
 
----
+#### Name Validation (1–100 characters)
+- Enforced at two layers: Pydantic schema (`presentation/data_sources/models.py`,
+  `min_length=1, max_length=100`) and domain aggregate
+  (`domain/aggregates/data_source.py` validation block).
 
-### Requirement 3: Schedule Configuration — PASS
+#### Credentials Encryption & Storage Path
+- On creation the service encrypts raw credentials and writes them to
+  `datasource/{id}/credentials` (`application/services/data_source_service.py` ~164–170).
+- The aggregate and response models store only the path; raw credentials are never
+  returned.
 
-- Three types (MANUAL, CRON, INTERVAL) defined ✓ (`value_objects.py:85-93`)
-- MANUAL: no value required ✓ (`value_objects.py:122-127`)
-- CRON/INTERVAL: value required, rejected if missing ✓ (`value_objects.py:117-121`)
+#### Default Schedule on Creation
+- `Schedule(schedule_type=ScheduleType.MANUAL)` is set as the default inside the
+  aggregate factory method (`domain/aggregates/data_source.py` ~line 144).
 
----
+#### ULID Generation
+- `DataSourceId.generate()` is called inside `DataSource.create()`
+  (`domain/aggregates/data_source.py` ~line 137).
 
-### Requirement 4: Data Source Retrieval — FAIL (missing HTTP endpoint)
+#### Knowledge Graph and Tenant Association
+- Both are set during `DataSource.create()` and persisted by the repository.
 
-**Gap:** The spec states: "WHEN the user requests it by ID, THEN the data source
-details are returned." The service method `DataSourceService.get()` is correctly
-implemented with VIEW permission enforcement and no-distinction between unauthorized
-and not-found (`data_source_service.py:183-216`). However, **there is no HTTP GET
-endpoint for a single data source by ID** (`GET /data-sources/{ds_id}`).
+#### Immutability After Deletion
+- Every mutation method in the aggregate (`update_connection_config`, `request_sync`,
+  `record_sync_completed`) raises `AggregateDeletedError` when `self._deleted` is True
+  (`domain/aggregates/data_source.py` ~lines 190–191, 226–227, 247–248).
 
-The only retrieval endpoint is the list endpoint
-(`GET /knowledge-graphs/{kg_id}/data-sources`) at `routes.py:28`. The `service.get()`
-is called internally by the sync-runs list endpoint for authorization, but it is
-not exposed as a standalone resource endpoint.
+#### Sync Triggering
+- `POST /data-sources/{ds_id}/sync` route exists (`presentation/data_sources/routes.py`
+  ~lines 136–184).
+- Service checks MANAGE permission, creates a sync run with status "pending", and emits
+  `DataSourceSyncRequested` (`application/services/data_source_service.py` ~lines 398–460;
+  `domain/events/data_source.py` ~lines 72–88).
 
----
+#### Sync Run Tracking (status / started_at / completed_at / error)
+- All four fields present in the SQLAlchemy model
+  (`infrastructure/models/data_source_sync_run.py` ~lines 45–64).
+- Cascade delete is defined via `ondelete="CASCADE"` on the FK
+  (`infrastructure/models/data_source_sync_run.py` ~line 42).
 
-### Requirement 5: Data Source Update — FAIL (missing HTTP endpoint)
+#### Permission Inheritance from Parent Knowledge Graph
+- SpiceDB schema defines inheritance:
+  ```
+  data_source.view = knowledge_graph->view
+  data_source.edit = knowledge_graph->edit
+  data_source.manage = knowledge_graph->manage
+  ```
+  (`shared_kernel/authorization/spicedb/schema.zed` ~lines 138–153).
+- Integration tests in `tests/integration/management/test_data_source_authorization.py`
+  verify the full inheritance chain.
 
-**Gap:** The service method `DataSourceService.update()` is fully implemented
-(`data_source_service.py:266-341`) and correctly:
-- Verifies EDIT permission on the data source ✓
-- Updates name and connection config ✓
-- Encrypts and stores new credentials at the system-managed path ✓
-- Does not allow the client to set `credentials_path` directly ✓
-- Delegates to `DataSource.update_connection()` which enforces immutability
-  (raises `AggregateDeletedError` if `_deleted=True`) ✓
-
-However, **there is no HTTP PUT or PATCH endpoint** for updating a data source.
-The entire update capability exists only at the service layer and is unreachable
-by API clients. This is a complete spec requirement that is unimplemented at the
-presentation layer.
-
----
-
-### Requirement 6: Immutability After Deletion — PASS
-
-- `DataSource._deleted` flag set by `mark_for_deletion()` ✓ (`data_source.py:256-285`)
-- `update_connection()` raises `AggregateDeletedError` if `_deleted=True` ✓ (`data_source.py:190-191`)
-- `request_sync()` raises `AggregateDeletedError` if `_deleted=True` ✓ (`data_source.py:226-227`)
-
-Note: The implementation uses hard deletion (physical row removal). After deletion,
-the SpiceDB relationships are cleaned up asynchronously via the outbox, so a
-subsequent update/sync request will first get 403 (unauthorized) due to missing
-authz relationships, or 404 if the race resolves after the DB delete. The in-flight
-`_deleted` guard protects against mutations within the same request lifecycle.
-
----
-
-### Requirement 7: Data Source Deletion — FAIL (missing HTTP endpoint)
-
-**Gap:** The service method `DataSourceService.delete()` is fully implemented
-(`data_source_service.py:343-396`) and correctly:
-- Verifies MANAGE permission ✓
-- Deletes encrypted credentials first ✓ (`data_source_service.py:385-389`)
-- Calls `mark_for_deletion()` on the aggregate ✓ (`data_source_service.py:391`)
-- Hard-deletes the record from PostgreSQL ✓
-- Emits `DataSourceDeleted` event via outbox → translator deletes SpiceDB relationships ✓
-  (`translator.py:255-283`)
-
-However, **there is no HTTP DELETE endpoint** for a data source. The delete
-capability exists only at the service layer and is unreachable by API clients.
+#### Unauthorized / Non-existent — No Distinction
+- `DataSourceService.get()` returns `None` for both the "cannot view" and "does not
+  exist" cases, and the service translates this to a uniform not-found response
+  (`application/services/data_source_service.py` ~lines 199–213).
 
 ---
 
-### Requirement 8: Sync Triggering — PASS
+### FAIL — Gaps Against Spec
 
-- MANAGE permission verified ✓ (`data_source_service.py:416-431`)
-- Sync run created with status "pending" ✓ (`data_source_service.py:443-451`)
-- `DataSourceSyncRequested` event emitted ✓ (`data_source.py:228-236`)
-- HTTP endpoint: POST `/data-sources/{ds_id}/sync` ✓ (`routes.py:136`)
+#### GAP 1 (Critical): No HTTP GET endpoint for individual data source retrieval
+- **Spec**: "The system SHALL return data source details only to users with `view`
+  permission."
+- **Evidence**: `DataSourceService.get()` is implemented (~line 183) and checks VIEW
+  permission correctly, but there is no route (`GET /data-sources/{ds_id}` or equivalent)
+  in `presentation/data_sources/routes.py`. The only read route is the collection listing.
+- **Impact**: The retrieval requirement is entirely unreachable via HTTP.
+
+#### GAP 2 (Critical): No HTTP PUT/PATCH endpoint for data source update
+- **Spec**: "The system SHALL allow users with `edit` permission to update data source
+  connection configuration."
+- **Evidence**: `DataSourceService.update()` is implemented (~lines 266–341), performs
+  the EDIT permission check, handles credential re-encryption, and blocks the
+  credentials_path from being set by the client. However, no HTTP route exposes this
+  method in `presentation/data_sources/routes.py`.
+- **Impact**: The update requirement is entirely unreachable via HTTP.
+
+#### GAP 3 (Critical): No HTTP DELETE endpoint for data source deletion
+- **Spec**: "The system SHALL allow users with `manage` permission to delete a data
+  source."
+- **Evidence**: `DataSourceService.delete()` is implemented (~lines 343–396) with the
+  MANAGE permission check, credential deletion, and data source deletion. However, no
+  HTTP route exposes this method in `presentation/data_sources/routes.py`.
+- **Impact**: The deletion requirement is entirely unreachable via HTTP.
+
+#### GAP 4 (High): `DuplicateDataSourceNameError` not handled in the HTTP layer
+- **Spec**: "WHEN a user attempts to create another with the same name / THEN the
+  request is rejected with a duplicate name error."
+- **Evidence**: The repository raises `DuplicateDataSourceNameError` on a UniqueConstraint
+  violation (`infrastructure/repositories/data_source_repository.py` ~lines 112–115), but
+  the creation route (`presentation/data_sources/routes.py` ~lines 100–133) does not catch
+  this exception. It falls through to the generic handler and returns HTTP 500 instead of
+  a proper 409 or 422.
+- **Impact**: Clients receive an opaque server error rather than an actionable duplicate-
+  name response.
+
+#### GAP 5 (Medium): SpiceDB authorization relationship cleanup not evident on deletion
+- **Spec**: "WHEN the user deletes the data source / THEN … authorization relationships
+  are cleaned up."
+- **Evidence**: `DataSourceService.delete()` deletes credentials, marks the aggregate
+  for deletion, and emits `DataSourceDeleted`. There is no explicit call to delete SpiceDB
+  relationships (no `delete_relationships` / `DeleteRelationships` call) in the service or
+  in any observable event handler for `DataSourceDeleted`.
+- **Impact**: Stale SpiceDB tuples for deleted data sources may accumulate, potentially
+  allowing ghost permission checks.
 
 ---
 
-### Requirement 9: Sync Run Tracking — PASS
+### File References
 
-- Status field with pending/running/completed/failed ✓ (DB CHECK constraint)
-- `started_at`, `completed_at`, `error` fields present ✓
-- Cascade deletion via `ondelete="CASCADE"` foreign key ✓
-
----
-
-### Requirement 10: Permission Inheritance — PASS
-
-SpiceDB schema correctly defines fully inherited permissions:
-```
-data_source.view   = knowledge_graph->view   (schema.zed:146)
-data_source.edit   = knowledge_graph->edit   (schema.zed:149)
-data_source.manage = knowledge_graph->manage (schema.zed:152)
-```
-No direct user/group relations on `data_source` — all access is through the parent KG.
-Integration tests verify inheritance chain (`test_data_source_authorization.py`).
-
----
-
-### Files Examined
-
-- `src/api/management/presentation/data_sources/routes.py` — **4 endpoints only; missing GET by ID, PUT/PATCH, DELETE**
-- `src/api/management/application/services/data_source_service.py` — all 5 CRUD + trigger_sync methods implemented
-- `src/api/management/domain/aggregates/data_source.py` — aggregate correctly models all business rules
-- `src/api/management/domain/value_objects.py` — Schedule validation correct
-- `src/api/management/infrastructure/repositories/data_source_repository.py` — hard delete, outbox events
-- `src/api/management/infrastructure/outbox/translator.py` — SpiceDB cleanup on delete ✓
-- `src/api/shared_kernel/authorization/spicedb/schema.zed` — permission inheritance correct
+| File | Notes |
+|------|-------|
+| `management/presentation/data_sources/routes.py` | Missing GET/{id}, PUT/PATCH/{id}, DELETE/{id} routes; DuplicateDataSourceNameError unhandled |
+| `management/application/services/data_source_service.py` | get(), update(), delete() exist but unexposed |
+| `management/domain/aggregates/data_source.py` | Creation, immutability, ULID — all correct |
+| `management/domain/value_objects.py` | Schedule validation — correct |
+| `management/infrastructure/repositories/data_source_repository.py` | Raises DuplicateDataSourceNameError — correct, but not caught upstream |
+| `shared_kernel/authorization/spicedb/schema.zed` | Permission inheritance — correct; cleanup on delete absent |

@@ -65,30 +65,28 @@ async def list_knowledge_graphs(
 
 @router.get(
     "/knowledge-graphs/{kg_id}",
-    status_code=status.HTTP_200_OK,
+    response_model=KnowledgeGraphResponse,
+    summary="Get knowledge graph by ID",
+    description="""
+Retrieve a knowledge graph by its ID.
+
+Returns 404 if the knowledge graph does not exist or if the caller lacks `view`
+access — no distinction is made to avoid leaking resource existence.
+""",
+    response_description="Knowledge graph details including name, workspace, and timestamps",
+    responses={
+        200: {"description": "Knowledge graph found and returned"},
+        401: {"description": "Authentication required"},
+        404: {"description": "Knowledge graph not found or caller lacks view access"},
+        500: {"description": "Internal server error"},
+    },
 )
 async def get_knowledge_graph(
     kg_id: str,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
 ) -> KnowledgeGraphResponse:
-    """Get a specific knowledge graph by ID.
-
-    Returns the knowledge graph details for the given ID. Returns 404 if
-    not found or if the user lacks VIEW permission (to prevent existence leakage).
-
-    Args:
-        kg_id: Knowledge Graph ID (ULID format)
-        current_user: Current authenticated user with tenant context
-        service: Knowledge graph service for orchestration
-
-    Returns:
-        KnowledgeGraphResponse with KG details
-
-    Raises:
-        HTTPException: 404 if KG not found or user lacks VIEW permission
-        HTTPException: 500 for unexpected errors
-    """
+    """Get a knowledge graph by ID."""
     try:
         kg = await service.get(
             user_id=current_user.user_id.value,
@@ -98,7 +96,7 @@ async def get_knowledge_graph(
         if kg is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Knowledge graph not found",
+                detail=f"Knowledge graph {kg_id} not found",
             )
 
         return KnowledgeGraphResponse.from_domain(kg)

@@ -1,6 +1,6 @@
 # Intake Record: NFR + Index Specs
 
-**Date:** 2026-04-24
+**Date:** 2026-04-27
 
 ## Specs Processed
 

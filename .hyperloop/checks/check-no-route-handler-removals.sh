@@ -19,8 +19,18 @@
 #      or deleted on this branch (grep-based, not pathspec globs).
 #   2. For each such file, grep the diff for lines matching
 #      '^-[[:space:]]*(async )?def [a-z]' (removed function definitions).
-#   3. Any match is a blocking failure unless the spec explicitly mandates
-#      the removal.
+#   3. For each candidate removal, verify the function name is truly absent
+#      from HEAD (handles renames and in-file reordering — both appear as
+#      '-def foo' in the diff but foo is still present in the final file).
+#   4. Only flag as a blocking failure when the function is absent from HEAD.
+#
+# FALSE-POSITIVE PATTERN:
+#   Renaming a route handler (e.g., list_foo → list_all_foos) produces a
+#   '-async def list_foo(' diff line.  If a *new* list_foo is also added in
+#   the same file for a different route scope, the name persists in HEAD and
+#   is NOT a true removal.  Similarly, pure reordering of unchanged functions
+#   generates '-def' lines in the diff without any functional change.  Both
+#   cases are correctly ignored by the HEAD-presence check below.
 #
 # check-service-route-coverage.sh is complementary but catches a different
 # failure mode: service methods with no HTTP route. This script catches the
@@ -29,7 +39,7 @@
 # Usage:
 #   ./check-no-route-handler-removals.sh [base_branch]
 #
-# Exit 0  — no route handlers removed.
+# Exit 0  — no route handlers truly removed.
 # Exit 1  — one or more async route handlers removed from routes.py files.
 
 set -euo pipefail
@@ -73,17 +83,43 @@ report=""
 
 for f in $changed_routes; do
   # Get the diff for this specific file using -- to avoid pathspec ambiguity.
-  removed_handlers=$(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null \
+  removed_handler_lines=$(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null \
     | grep '^-[^-]' \
     | grep -E '^-[[:space:]]*(async )?def [a-z_][a-zA-Z0-9_]*\(' \
     || true)
 
-  if [[ -n "$removed_handlers" ]]; then
-    report="${report}\n  File: $f\n"
-    while IFS= read -r line; do
-      # Strip the leading diff '-' and print with indentation.
-      report="${report}    ${line#-}\n"
-    done <<< "$removed_handlers"
+  if [[ -z "$removed_handler_lines" ]]; then
+    continue
+  fi
+
+  # For each candidate removal, verify the function is truly absent from HEAD.
+  # A '-def foo(' diff line can appear due to in-file reordering or a rename
+  # where the same name is reused for a different route; in both cases the
+  # function still exists in HEAD and is NOT a true removal.
+  truly_removed=""
+  while IFS= read -r line; do
+    # Extract the bare function name from the diff line.
+    func_name=$(echo "$line" | sed 's/^-[[:space:]]*//' \
+      | grep -oE '(async )?def [a-z_][a-zA-Z0-9_]*' \
+      | awk '{print $NF}')
+
+    if [[ -z "$func_name" ]]; then
+      continue
+    fi
+
+    # Check whether the function name still exists anywhere in the HEAD
+    # version of this file.  If it does, this is a rename/reorder — skip.
+    if git show "HEAD:$f" 2>/dev/null \
+        | grep -qE "^[[:space:]]*(async )?def ${func_name}\("; then
+      echo "  INFO: '${func_name}' appears removed in diff but still exists in HEAD ($f) — skipping (rename/reorder)."
+      continue
+    fi
+
+    truly_removed="${truly_removed}    ${line#-}\n"
+  done <<< "$removed_handler_lines"
+
+  if [[ -n "$truly_removed" ]]; then
+    report="${report}\n  File: $f\n${truly_removed}"
     found=$((found + 1))
   fi
 done

@@ -20,3 +20,5 @@ guidelines: |
   - Before publishing a new event type to the outbox, verify a consuming handler exists and is registered: Run `bash .hyperloop/checks/check-domain-events-have-consumers.sh` before committing.
   - All spec scenarios must be COVERED or have a formal blocker before submitting.
   - Every @pytest.mark.skip test must have at least one real assertion.
+  - Run check-no-foreign-task-commits.sh before submitting: Execute `bash .hyperloop/checks/check-no-foreign-task-commits.sh` and confirm exit 0; foreign-task commits (commits carrying a Task-Ref that differs from the current branch's task) introduce duplicate tests, schema conflicts, and type errors that are hard to diagnose.
+  - Never let a foreign-task commit onto your branch: If a rebase or merge accidentally pulls in commits from another task, remove them with `git rebase -i` before submitting; the presence of a foreign commit is a blocking defect even if all tests currently pass.

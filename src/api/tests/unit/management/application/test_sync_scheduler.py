@@ -365,3 +365,173 @@ class TestSyncSchedulerIntervalParsing:
 
         count = await scheduler.check_and_trigger_due_syncs(now=now)
         assert count == 1
+
+
+class TestSyncSchedulerCronSchedule:
+    """Tests for CRON schedule triggering.
+
+    Spec: GIVEN a data source with a CRON schedule,
+    WHEN the schedule fires, THEN a sync is initiated as if manually triggered.
+    """
+
+    @pytest.mark.asyncio
+    async def test_triggers_cron_sync_when_never_synced(self):
+        """Data source with CRON schedule and no prior sync should be triggered."""
+        # CRON fires every hour on the hour; now is 12:05
+        now = datetime(2024, 6, 1, 12, 5, 0, tzinfo=UTC)
+        ds = _make_data_source(
+            ds_id="ds-cron-001",
+            schedule_type=ScheduleType.CRON,
+            schedule_value="0 * * * *",  # Every hour
+            last_sync_at=None,  # Never synced
+        )
+        ds_repo = _FakeDataSourceRepository([ds])
+        run_repo = _FakeSyncRunRepository()
+
+        scheduler = SyncSchedulerService(
+            data_source_repository=ds_repo,
+            sync_run_repository=run_repo,
+        )
+
+        count = await scheduler.check_and_trigger_due_syncs(now=now)
+
+        assert count == 1
+        assert len(run_repo.saved) == 1
+        assert run_repo.saved[0].data_source_id == "ds-cron-001"
+        assert run_repo.saved[0].status == "pending"
+
+    @pytest.mark.asyncio
+    async def test_triggers_cron_sync_when_cron_fired_since_last_sync(self):
+        """Trigger when CRON has fired at least once since last_sync_at."""
+        # Now is 12:05, CRON last fired at 12:00, last sync was at 11:30
+        # → The 12:00 fire is newer than 11:30 → trigger
+        now = datetime(2024, 6, 1, 12, 5, 0, tzinfo=UTC)
+        last_sync_at = datetime(2024, 6, 1, 11, 30, 0, tzinfo=UTC)
+
+        ds = _make_data_source(
+            ds_id="ds-cron-002",
+            schedule_type=ScheduleType.CRON,
+            schedule_value="0 * * * *",  # Every hour on the hour
+            last_sync_at=last_sync_at,
+        )
+        ds_repo = _FakeDataSourceRepository([ds])
+        run_repo = _FakeSyncRunRepository()
+
+        scheduler = SyncSchedulerService(
+            data_source_repository=ds_repo,
+            sync_run_repository=run_repo,
+        )
+
+        count = await scheduler.check_and_trigger_due_syncs(now=now)
+
+        assert count == 1
+
+    @pytest.mark.asyncio
+    async def test_does_not_trigger_cron_when_synced_after_last_fire(self):
+        """Do NOT trigger when last sync happened after the CRON's most recent fire."""
+        # Now is 12:05, CRON last fired at 12:00, last sync was at 12:02
+        # → The 12:00 fire is older than 12:02 → do NOT trigger
+        now = datetime(2024, 6, 1, 12, 5, 0, tzinfo=UTC)
+        last_sync_at = datetime(2024, 6, 1, 12, 2, 0, tzinfo=UTC)
+
+        ds = _make_data_source(
+            ds_id="ds-cron-003",
+            schedule_type=ScheduleType.CRON,
+            schedule_value="0 * * * *",  # Every hour on the hour
+            last_sync_at=last_sync_at,
+        )
+        ds_repo = _FakeDataSourceRepository([ds])
+        run_repo = _FakeSyncRunRepository()
+
+        scheduler = SyncSchedulerService(
+            data_source_repository=ds_repo,
+            sync_run_repository=run_repo,
+        )
+
+        count = await scheduler.check_and_trigger_due_syncs(now=now)
+
+        assert count == 0
+        assert len(run_repo.saved) == 0
+
+    @pytest.mark.asyncio
+    async def test_triggers_cron_daily_schedule(self):
+        """Test a daily CRON expression (0 0 * * *)."""
+        # Now is 2024-06-02 08:00, daily CRON last fired at 2024-06-02 00:00
+        # Last sync was 2024-06-01 02:00 (before yesterday's midnight fire)
+        # The midnight fire on 2024-06-02 is newer than last sync → trigger
+        now = datetime(2024, 6, 2, 8, 0, 0, tzinfo=UTC)
+        last_sync_at = datetime(2024, 6, 1, 2, 0, 0, tzinfo=UTC)
+
+        ds = _make_data_source(
+            ds_id="ds-cron-004",
+            schedule_type=ScheduleType.CRON,
+            schedule_value="0 0 * * *",  # Every day at midnight
+            last_sync_at=last_sync_at,
+        )
+        ds_repo = _FakeDataSourceRepository([ds])
+        run_repo = _FakeSyncRunRepository()
+
+        scheduler = SyncSchedulerService(
+            data_source_repository=ds_repo,
+            sync_run_repository=run_repo,
+        )
+
+        count = await scheduler.check_and_trigger_due_syncs(now=now)
+
+        assert count == 1
+
+    @pytest.mark.asyncio
+    async def test_does_not_trigger_cron_before_first_fire(self):
+        """Do NOT trigger when CRON has not yet fired (now is before the first fire time)."""
+        # CRON: 0 15 * * * (fires at 15:00 each day)
+        # Now is 14:30 — the CRON has not yet fired today; last_sync_at is None
+        # The most recent fire is yesterday at 15:00, but since last_sync_at is None
+        # and the source was never synced, it SHOULD trigger.
+        # Reframe: test that if now is exactly at a cron boundary it fires correctly.
+        # Actually let's test: now is 11:59, CRON is "0 12 * * *" (noon), last sync = 11:58
+        # The previous fire is yesterday noon → older than last_sync_at → skip
+        now = datetime(2024, 6, 1, 11, 59, 0, tzinfo=UTC)
+        last_sync_at = datetime(2024, 6, 1, 11, 58, 0, tzinfo=UTC)
+
+        ds = _make_data_source(
+            ds_id="ds-cron-005",
+            schedule_type=ScheduleType.CRON,
+            schedule_value="0 12 * * *",  # Every day at noon
+            last_sync_at=last_sync_at,
+        )
+        ds_repo = _FakeDataSourceRepository([ds])
+        run_repo = _FakeSyncRunRepository()
+
+        scheduler = SyncSchedulerService(
+            data_source_repository=ds_repo,
+            sync_run_repository=run_repo,
+        )
+
+        count = await scheduler.check_and_trigger_due_syncs(now=now)
+
+        # The last fire was yesterday at noon (2024-05-31 12:00), which is BEFORE
+        # last_sync_at (2024-06-01 11:58). The next fire (today noon) hasn't happened yet.
+        assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_cron_sync_emits_sync_started_event(self):
+        """Triggering a CRON sync should publish a SyncStarted event via data source save."""
+        now = datetime(2024, 6, 1, 12, 5, 0, tzinfo=UTC)
+        ds = _make_data_source(
+            ds_id="ds-cron-006",
+            schedule_type=ScheduleType.CRON,
+            schedule_value="0 * * * *",  # Every hour
+            last_sync_at=None,
+        )
+        ds_repo = _FakeDataSourceRepositoryWithSave([ds])
+        run_repo = _FakeSyncRunRepository()
+
+        scheduler = SyncSchedulerService(
+            data_source_repository=ds_repo,
+            sync_run_repository=run_repo,
+        )
+
+        await scheduler.check_and_trigger_due_syncs(now=now)
+
+        # The data source should have been saved (which publishes SyncStarted via outbox)
+        assert len(ds_repo.saved) >= 1

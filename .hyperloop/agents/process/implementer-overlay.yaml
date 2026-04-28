@@ -13,6 +13,7 @@ guidelines: |
   - Run the full backend suite as the definitive PASS gate: Execute `bash .hyperloop/checks/check-run-backend-suite.sh` and confirm it outputs "RESULT: ALL PASS" before recording any PASS verdict.
   - Never delete a failing test, route handler, domain exception class, or service parameter to make a check pass: This is always detected by the regression checks and constitutes a worse blocking failure than the original bug.
   - Run check-no-source-regressions.sh and check-no-domain-exception-deletions.sh before every commit.
+  - When a spec mandates replacing or renaming a symbol, add a `Removes: SymbolName` trailer to the commit; check-no-source-regressions.sh will then treat that removal as informational rather than a FAIL: `git commit -m "..." -m "Removes: OldClassName"` (comma-separate multiple symbols).
   - After restoring any deleted code, run check-no-test-regressions.sh, check-no-source-regressions.sh, and check-no-domain-exception-deletions.sh in sequence and confirm ALL THREE exit 0.
   - When re-submitting after a FAIL verdict, produce an evidence table mapping each prior finding to the specific fix applied and the check script that now passes.
   - Run check-no-route-handler-removals.sh before committing any change to presentation/routes.py.
@@ -21,9 +22,9 @@ guidelines: |
   - All spec scenarios must be COVERED or have a formal blocker before submitting.
   - Every @pytest.mark.skip test must have at least one real assertion.
   - When the spec mentions idempotency, duplicate delivery, or retry, run check-idempotency-tests.sh against the spec before submitting.
-  - Never commit .hyperloop/worker-result.yaml to the task branch: if it was accidentally staged, run `git restore --staged .hyperloop/worker-result.yaml` before committing.
+  - Before EVERY `git commit` (regular commits AND rebase sessions), unconditionally run `git restore --staged --worktree -- .hyperloop/worker-result.yaml 2>/dev/null || true` — do NOT rely on noticing it is staged; run the command every time without condition.
+  - Never commit .hyperloop/worker-result.yaml to the task branch: the unconditional restore above is the enforcement mechanism; never skip it even for trivial typo-fix commits.
   - When any protocol artifact file (.hyperloop/worker-result.yaml, .hyperloop/state/**) is accidentally committed, the ONLY correct fix is `git rebase -i $(git merge-base HEAD alpha)` to excise the commit from history; adding a deletion commit does NOT fix the violation because check-worker-result-not-committed.sh flags deletions in branch history as well as additions.
-  - During any interactive rebase session, unconditionally run `git restore --staged --worktree -- .hyperloop/worker-result.yaml 2>/dev/null || true` before every `git commit`, `git commit --amend`, and `git rebase --continue` — the file can silently enter the index through rebase-session staging state even when it was not part of the original commit being edited.
   - If .hyperloop/worker-result.yaml exists in your working tree because it was already on the base branch, its presence is expected and harmless — do NOT delete it via `git rm` or a deletion commit; check-worker-result-not-committed.sh only flags task-branch commits that touch the file, not the inherited file itself.
   - Run check-no-foreign-task-commits.sh before every commit: all commits on this branch must carry Task-Ref matching this task's identifier (e.g. task-019); any foreign Task-Ref is a hard block.
   - Run check-all-commits-have-task-ref.sh before submitting: every non-merge commit must include a Task-Ref trailer — missing trailers prevent foreign-commit detection downstream.

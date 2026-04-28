@@ -67,6 +67,22 @@ if [[ -z "$MERGE_BASE" ]]; then
   exit 0
 fi
 
+# Collect spec-mandated removal symbols declared with 'Removes:' trailers.
+# When a commit intentionally replaces or renames a symbol (e.g. renaming an
+# event class per a spec requirement), it should carry:
+#   Removes: SymbolName
+# Comma-separated multiples are supported: Removes: FooClass, bar_method
+# Symbols covered by a Removes: trailer are reported as informational notices
+# rather than blocking failures, since the removal is declared intentional.
+removes_documented=""
+removes_documented=$(git log "$MERGE_BASE"..HEAD \
+    --format='%(trailers:key=Removes,valueonly)' 2>/dev/null \
+  | tr ',' '\n' \
+  | sed 's/^[[:space:]]*//' \
+  | sed 's/[[:space:]]*$//' \
+  | grep -v '^$' \
+  || true)
+
 echo "=== Checking for source code regressions (base: $BASE_BRANCH @ $MERGE_BASE) ==="
 
 found=0
@@ -109,6 +125,7 @@ fi
 # Same grep-based approach: enumerate ALL changed files, then filter to Python
 # application source.  Avoids the pathspec glob expansion issue.
 python_method_removals=""
+python_documented_removals=""
 changed_py_sources=$(git diff --name-only "$MERGE_BASE" HEAD 2>/dev/null \
   | grep -E '\.py$' \
   | grep "^$SOURCE_DIR/" \
@@ -141,7 +158,13 @@ for f in $changed_py_sources; do
       fi
     fi
 
-    python_method_removals="${python_method_removals}  [$f] ${raw_line}\n"
+    # Check if this removal is declared intentional via a 'Removes:' trailer.
+    if [[ -n "$symbol" ]] && [[ -n "$removes_documented" ]] && \
+       echo "$removes_documented" | grep -qxF "$symbol"; then
+      python_documented_removals="${python_documented_removals}  [$f] ${raw_line}  [Removes: ${symbol}]\n"
+    else
+      python_method_removals="${python_method_removals}  [$f] ${raw_line}\n"
+    fi
   done < <(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null \
     | grep '^-[^-]' \
     | grep -E '^-[[:space:]]*(async )?def [a-zA-Z_][a-zA-Z0-9_]*\(' \
@@ -162,12 +185,28 @@ for f in $changed_py_sources; do
       fi
     fi
 
-    python_method_removals="${python_method_removals}  [$f] ${raw_line}\n"
+    # Check if this removal is declared intentional via a 'Removes:' trailer.
+    if [[ -n "$symbol" ]] && [[ -n "$removes_documented" ]] && \
+       echo "$removes_documented" | grep -qxF "$symbol"; then
+      python_documented_removals="${python_documented_removals}  [$f] ${raw_line}  [Removes: ${symbol}]\n"
+    else
+      python_method_removals="${python_method_removals}  [$f] ${raw_line}\n"
+    fi
   done < <(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null \
     | grep '^-[^-]' \
     | grep -E '^-[[:space:]]*class [A-Z][A-Za-z0-9_]*' \
     || true)
 done
+
+if [[ -n "$python_documented_removals" ]]; then
+  echo ""
+  echo "--- Spec-mandated Python removals (Removes: trailer present — informational) ---"
+  printf "%b" "$python_documented_removals"
+  echo ""
+  echo "  These symbols have a 'Removes:' commit trailer declaring the removal intentional."
+  echo "  Verifiers: cross-reference each against the spec before accepting."
+  echo "  Not counted as a FAIL because the trailer explicitly declares the intent."
+fi
 
 if [[ -n "$python_method_removals" ]]; then
   echo ""
@@ -184,6 +223,7 @@ if [[ -n "$python_method_removals" ]]; then
   echo "  For spec-mandated removals (e.g. renaming an event class), add a trailer"
   echo "  to the commit:  Removes: <ClassName>"
   echo "  This signals to verifiers that the removal is intentional and spec-backed."
+  echo "  When the trailer is present, the check will NOT count the removal as a FAIL."
   echo ""
   echo "  IMPORTANT: Removing a domain exception class (e.g. class FooNotFoundError)"
   echo "  silently changes the HTTP status code callers receive (e.g. 404 → 400)"

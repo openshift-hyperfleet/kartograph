@@ -57,8 +57,13 @@ class AGEGraphProvisioner:
     def ensure_graph_exists(self, graph_name: str) -> None:
         """Create the AGE graph if it does not already exist.
 
-        Checks ag_catalog.ag_graph for existence before attempting creation.
-        If the graph already exists, returns without making any changes.
+        Uses a transaction-level advisory lock to make the existence check
+        and graph creation atomic, preventing race conditions under concurrent
+        duplicate event deliveries (e.g. outbox replay).
+
+        The connection is always committed or rolled back on every code path,
+        including the no-op/exists path, to avoid leaking open transactions
+        back to the connection pool.
 
         Args:
             graph_name: Name of the AGE graph (e.g., "tenant_01ARZ3NDEK...")
@@ -70,13 +75,25 @@ class AGEGraphProvisioner:
         conn = self._connection_factory.get_connection()
         try:
             with conn.cursor() as cursor:
+                # Acquire a transaction-level advisory lock keyed by graph name.
+                # This makes the check + create atomic: concurrent callers block
+                # here until the first caller's transaction commits or rolls back.
+                # The lock is released automatically when the transaction ends.
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
+                    (graph_name,),
+                )
+
                 # Check if graph exists in the AGE catalog
                 cursor.execute(
                     "SELECT 1 FROM ag_catalog.ag_graph WHERE name = %s",
                     (graph_name,),
                 )
                 if cursor.fetchone() is not None:
-                    # Graph already exists — idempotent no-op
+                    # Graph already exists — idempotent no-op.
+                    # Rollback to release advisory lock and cleanly end the
+                    # transaction; avoids leaking an open transaction to the pool.
+                    conn.rollback()
                     return
 
                 # Attempt to create the graph

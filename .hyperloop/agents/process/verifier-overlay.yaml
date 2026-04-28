@@ -30,5 +30,7 @@ guidelines: |
   - When re-verifying after FAIL rounds, build a numbered checklist of every prior finding and confirm each independently.
   - Run check-no-test-regressions.sh before any PASS verdict: this script now runs TWO comparison passes — (1) vs merge-base and (2) vs current alpha HEAD; BOTH must exit 0.
   - Run check-no-foreign-task-commits.sh and treat any non-zero exit as a blocking FAIL: commits with a Task-Ref that does not match the expected task contaminate the branch and cause rebase loops.
+  - A check reported as MISSING in the backend suite is a hard FAIL: the branch predates that script's addition to alpha; the implementer must run `git fetch origin && git branch -f alpha origin/alpha && git rebase alpha` to obtain the missing script before resubmitting.
+  - Run check-alpha-local-vs-remote.sh and treat any non-zero exit as a FAIL: a stale local alpha makes merge-base calculations unreliable for all content checks and causes newer check scripts to be silently absent from the worktree.
   - Run check-all-commits-have-task-ref.sh and treat any non-zero exit as a blocking FAIL: commits missing the trailer prevent downstream foreign-commit detection.
   - check-no-route-handler-removals.sh can false-positive on renames and in-file reordering: After the script reports a removal, verify the function name is truly absent from HEAD before recording a FAIL.

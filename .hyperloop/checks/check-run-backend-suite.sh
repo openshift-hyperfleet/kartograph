@@ -59,6 +59,7 @@ fi
 CHECKS=(
   check-no-check-script-deletions.sh
   check-process-overlays-intact.sh
+  check-process-overlay-content-intact.sh
   check-new-checks-pass-on-head.sh
   check-branch-has-commits.sh
   check-alpha-local-vs-remote.sh

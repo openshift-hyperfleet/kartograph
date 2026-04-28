@@ -100,11 +100,29 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
         self,
         slug: str,
         node_type: str | None = None,
+        knowledge_graph_id: str | None = None,
     ) -> list[NodeRecord]:
-        """Find nodes by their slug, optionally filtered by type."""
+        """Find nodes by their slug, optionally filtered by type and KnowledgeGraph.
+
+        Args:
+            slug: The entity slug (e.g., "alice-smith")
+            node_type: Optional type filter (e.g., "Person")
+            knowledge_graph_id: Optional KnowledgeGraph ID filter. When provided,
+                only nodes whose ``knowledge_graph_id`` property matches are returned.
+                When absent, nodes across all KnowledgeGraphs in the tenant graph
+                are returned.
+
+        Returns:
+            List of matching nodes.
+        """
         type_filter = f":{node_type}" if node_type else ""
+        kg_filter = (
+            f", knowledge_graph_id: '{knowledge_graph_id}'"
+            if knowledge_graph_id
+            else ""
+        )
         query = f"""
-            MATCH (n{type_filter} {{slug: '{slug}', graph_id: '{self._graph_id}'}})
+            MATCH (n{type_filter} {{slug: '{slug}', graph_id: '{self._graph_id}'{kg_filter}}})
             RETURN {{node: n}}
         """
         result = self._client.execute_cypher(query)

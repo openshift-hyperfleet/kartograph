@@ -816,3 +816,58 @@ class TestGetNeighborsCentralNodeAuthorization:
 
         assert isinstance(authorized_result.central_node, RedactedNodeRecord)
         assert authorized_result.central_node.id == unauthorized_node.id
+
+
+# ---------------------------------------------------------------------------
+# KnowledgeGraph ID propagation in search_by_slug
+# ---------------------------------------------------------------------------
+
+
+class TestSearchBySlugKnowledgeGraphIdPropagation:
+    """Spec: knowledge_graph_id filter is propagated correctly from enclave to query service.
+
+    The enclave is the primary consumer-facing API; it must pass through
+    the knowledge_graph_id parameter unchanged to the underlying query service
+    so that the repository-level filter is actually applied.
+    """
+
+    @pytest.mark.asyncio
+    async def test_knowledge_graph_id_is_forwarded_when_provided(
+        self,
+        service: GraphSecureEnclaveService,
+        mock_query_service: MagicMock,
+        mock_authz: AsyncMock,
+        authorized_node: NodeRecord,
+        kg_id: str,
+    ) -> None:
+        """search_by_slug must pass knowledge_graph_id to the underlying query service."""
+        mock_query_service.search_by_slug.return_value = [authorized_node]
+        mock_authz.check_permission.return_value = True
+
+        await service.search_by_slug("alice-smith", knowledge_graph_id=kg_id)
+
+        mock_query_service.search_by_slug.assert_called_once_with(
+            "alice-smith",
+            node_type=None,
+            knowledge_graph_id=kg_id,
+        )
+
+    @pytest.mark.asyncio
+    async def test_knowledge_graph_id_is_none_when_not_provided(
+        self,
+        service: GraphSecureEnclaveService,
+        mock_query_service: MagicMock,
+        mock_authz: AsyncMock,
+        authorized_node: NodeRecord,
+    ) -> None:
+        """search_by_slug must pass knowledge_graph_id=None when no filter is given."""
+        mock_query_service.search_by_slug.return_value = [authorized_node]
+        mock_authz.check_permission.return_value = True
+
+        await service.search_by_slug("alice-smith")
+
+        mock_query_service.search_by_slug.assert_called_once_with(
+            "alice-smith",
+            node_type=None,
+            knowledge_graph_id=None,
+        )

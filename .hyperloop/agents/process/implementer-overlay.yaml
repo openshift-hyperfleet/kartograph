@@ -28,3 +28,5 @@ guidelines: |
   - Run check-no-foreign-task-commits.sh before every commit: all commits on this branch must carry Task-Ref matching this task's identifier (e.g. task-019); any foreign Task-Ref is a hard block.
   - Run check-all-commits-have-task-ref.sh before submitting: every non-merge commit must include a Task-Ref trailer — missing trailers prevent foreign-commit detection downstream.
   - Never start work from a dirty branch: always `git checkout -b hyperloop/task-NNN origin/alpha` so the branch contains only commits for this task from the very first commit.
+  - A MISSING check in the backend suite means the branch predates that script's addition to alpha: run `git fetch origin && git branch -f alpha origin/alpha && git rebase alpha` to incorporate it, then re-run the suite before proceeding.
+  - Before your first commit, run `bash .hyperloop/checks/check-alpha-local-vs-remote.sh` to confirm local alpha matches origin/alpha; a stale local alpha means new check scripts added after branch creation are absent from your worktree.

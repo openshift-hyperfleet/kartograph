@@ -67,6 +67,12 @@ repos:
   # Auto-export system properties on value object changes
   - repo: local
     hooks:
+      - id: check-no-worker-result-staged
+        name: Block staged .hyperloop/worker-result.yaml (add/modify/delete)
+        entry: bash .hyperloop/checks/check-no-worker-result-staged.sh
+        language: system
+        pass_filenames: false
+        always_run: true
       - id: docs-export
         name: Export system properties documentation
         entry: bash -c 'make docs-export && git add website/src/data/system-properties.json'

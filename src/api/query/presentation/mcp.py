@@ -7,6 +7,7 @@ from fastmcp.dependencies import Depends
 from fastmcp.server.dependencies import get_http_headers
 
 from infrastructure.mcp_dependencies import (
+    get_mcp_secure_enclave,
     validate_mcp_api_key,
     validate_mcp_bearer_token,
 )
@@ -17,7 +18,7 @@ from query.dependencies import (
     get_mcp_query_service,
     get_prompt_repository,
 )
-from query.domain.value_objects import QueryError
+from query.domain.value_objects import QueryError, QueryResultRow
 from query.ports.file_repository_models import RemoteFileRepositoryResponse
 from shared_kernel.middleware.mcp_api_key_auth import MCPApiKeyAuthMiddleware
 
@@ -70,11 +71,100 @@ def _filter_internal_properties(data: Any) -> Any:
         return data
 
 
+def _value_matches_kg(value: Any, knowledge_graph_id: str) -> bool | None:
+    """Check whether a single value is an entity matching *knowledge_graph_id*.
+
+    Three-valued return:
+    - ``True``  — value is a NodeDict/EdgeDict and its ``knowledge_graph_id``
+                  property equals *knowledge_graph_id*.
+    - ``False`` — value is a NodeDict/EdgeDict but its ``knowledge_graph_id``
+                  is absent, empty, or different.
+    - ``None``  — value is a scalar (int, str, etc.); no entity determination
+                  can be made.
+
+    For plain dicts (map results), the function recurses and returns ``True``
+    if any nested entity matches, ``False`` if entities exist but none match,
+    or ``None`` if no entities are found.
+    """
+    if not isinstance(value, dict):
+        return None  # scalar — no entity to check
+
+    props = value.get("properties")
+    if isinstance(props, dict):
+        # This is an entity dict (NodeDict or EdgeDict)
+        kg_id = props.get("knowledge_graph_id")
+        if isinstance(kg_id, str) and kg_id and kg_id == knowledge_graph_id:
+            return True
+        return False  # entity present, but doesn't match
+
+    # Plain dict (map result) — recurse into values
+    nested_has_entity = False
+    nested_has_match = False
+    for v in value.values():
+        result = _value_matches_kg(v, knowledge_graph_id)
+        if result is not None:
+            nested_has_entity = True
+            if result:
+                nested_has_match = True
+
+    if not nested_has_entity:
+        return None  # map with no entity values inside
+    return nested_has_match
+
+
+def _filter_by_knowledge_graph(
+    rows: list[QueryResultRow],
+    knowledge_graph_id: str | None,
+) -> list[QueryResultRow]:
+    """Filter query result rows to only include those from *knowledge_graph_id*.
+
+    If *knowledge_graph_id* is None, all rows are returned unchanged.
+
+    Inclusion rules:
+    - Node row (``{"node": NodeDict}``):
+        included iff ``node.properties.knowledge_graph_id == knowledge_graph_id``
+    - Edge row (``{"edge": EdgeDict}``):
+        included iff ``edge.properties.knowledge_graph_id == knowledge_graph_id``
+    - Map row (``{"key": NodeDict, ...}``):
+        included iff at least one nested entity has the matching ``knowledge_graph_id``
+    - Scalar row (``{"value": 42}``):
+        always included — no entity to filter on (e.g., aggregation counts)
+
+    Args:
+        rows:               Raw result rows from the graph repository.
+        knowledge_graph_id: ID to filter by, or None to skip filtering.
+
+    Returns:
+        Filtered list of rows (original objects, not copies).
+    """
+    if knowledge_graph_id is None:
+        return rows
+
+    filtered: list[QueryResultRow] = []
+    for row in rows:
+        has_any_entity = False
+        has_matching_entity = False
+
+        for value in row.values():
+            match_result = _value_matches_kg(value, knowledge_graph_id)
+            if match_result is not None:
+                has_any_entity = True
+                if match_result:
+                    has_matching_entity = True
+
+        # Pure scalar rows (no entities) always pass through
+        if has_matching_entity or not has_any_entity:
+            filtered.append(row)
+
+    return filtered
+
+
 @mcp.tool
-def query_graph(
+async def query_graph(
     cypher: str,
     timeout_seconds: int = 30,
     max_rows: int = 1000,
+    knowledge_graph_id: str | None = None,
     service: MCPQueryService = Depends(get_mcp_query_service),  # type: ignore[arg-type]
 ) -> Dict[str, Any]:
     """Execute a Cypher query against the knowledge graph.
@@ -95,6 +185,10 @@ def query_graph(
             Default is 30 seconds. Maximum is 60 seconds.
         max_rows: Maximum number of rows to return. Default is 1000.
             Maximum is 10000.
+        knowledge_graph_id: Optional KnowledgeGraph ID to scope the results.
+            When provided, only entities belonging to that KnowledgeGraph
+            are returned. When omitted, results span all KnowledgeGraphs
+            in the tenant.
 
     Returns:
         A dictionary containing:
@@ -122,6 +216,9 @@ def query_graph(
 
         # Aggregations
         query_graph("MATCH (p:Person) RETURN count(p)")
+
+        # Scope to a specific KnowledgeGraph
+        query_graph("MATCH (p:Person) RETURN p", knowledge_graph_id="kg-01J...")
     """
 
     # Enforce maximum limits
@@ -141,14 +238,21 @@ def query_graph(
             "message": result.message,
         }
 
+    # Filter to the requested KnowledgeGraph (when provided)
+    rows = _filter_by_knowledge_graph(result.rows, knowledge_graph_id)
+
+    # Apply secure enclave: redact entities the caller is not authorized to see
+    secure_enclave = get_mcp_secure_enclave()
+    rows = await secure_enclave.apply_redaction(rows)
+
     # Filter internal properties before returning to agent
-    filtered_rows = _filter_internal_properties(result.rows)
+    filtered_rows = _filter_internal_properties(rows)
 
     # CypherQueryResult
     return {
         "success": True,
         "rows": filtered_rows,
-        "row_count": result.row_count,
+        "row_count": len(filtered_rows),
         "truncated": result.truncated,
         "execution_time_ms": result.execution_time_ms,
     }

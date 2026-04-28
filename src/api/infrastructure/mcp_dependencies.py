@@ -16,7 +16,30 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from iam.domain.aggregates.api_key import APIKey
+    from query.application.mcp_secure_enclave import MCPQuerySecureEnclave
     from query.ports.schema import ISchemaService
+
+
+def get_mcp_secure_enclave() -> "MCPQuerySecureEnclave":
+    """Get an MCPQuerySecureEnclave for the current MCP request.
+
+    Reads the authenticated user's identity from the ContextVar set by the
+    MCP auth middleware, then wires a SpiceDB client so the enclave can
+    enforce per-entity VIEW permissions.
+
+    Called inside tool functions (not at import time), so MCPAuthContext
+    is guaranteed to be available.
+
+    Returns:
+        MCPQuerySecureEnclave scoped to the current user.
+    """
+    from infrastructure.authorization_dependencies import get_spicedb_client
+    from query.application.mcp_secure_enclave import MCPQuerySecureEnclave
+    from shared_kernel.middleware.mcp_auth import get_mcp_auth_context
+
+    auth_context = get_mcp_auth_context()
+    authz = get_spicedb_client()
+    return MCPQuerySecureEnclave(authz=authz, user_id=auth_context.user_id)
 
 
 @dataclass(frozen=True)

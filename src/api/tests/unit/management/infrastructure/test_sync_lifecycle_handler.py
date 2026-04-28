@@ -11,6 +11,7 @@ Spec coverage:
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -40,9 +41,14 @@ def _make_sync_run(
 
 @pytest.fixture
 def mock_session():
-    """Mock AsyncSession with async commit."""
+    """Mock AsyncSession with begin() context manager."""
     session = MagicMock()
-    session.commit = AsyncMock()
+
+    @asynccontextmanager
+    async def _begin():
+        yield
+
+    session.begin = _begin
     return session
 
 

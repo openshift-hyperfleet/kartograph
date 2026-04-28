@@ -3,9 +3,9 @@ id: task-019
 title: Fix credential cleanup on knowledge graph cascade deletion
 spec_ref: specs/management/credentials.spec.md@d8a974c5e236d4e903397c5ddf61f32b75805b0f
 status: in_progress
-phase: verify
+phase: implement
 deps: 'deps:'
-round: 4
+round: 5
 branch: hyperloop/task-019
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/492
 ---

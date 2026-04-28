@@ -4,93 +4,111 @@ round: 4
 role: verifier
 verdict: fail
 ---
-## Verification Summary — specs/management/credentials.spec.md
+## Verification Summary — specs/management/credentials.spec.md (Round 8)
 
 ### Check Results
 
 | Check | Result | Detail |
-|-------|--------|--------|
-| 1. Unit Tests | PASS | 2404 passed, 0 failures |
-| 2. Linting (ruff check) | PASS | All checks passed |
-| 3. Formatting (ruff format --check) | PASS | 479 files already formatted |
-| 4. Type Checking (mypy) | PASS | No issues found in 479 source files |
-| 5. Architecture Boundary Tests | PASS | 40 passed |
-| 6. check-domain-aggregate-mocks.sh | FAIL | See below |
-| 7. Code Review | FAIL | Same as #6 |
+|---|---|---|
+| check-no-check-script-deletions.sh | PASS | |
+| check-process-overlays-intact.sh | PASS | |
+| check-process-overlay-content-intact.sh | **FAIL** | Line removed from verifier-overlay.yaml (see below) |
+| check-new-checks-pass-on-head.sh | **FAIL** | Inherits overlay content failure |
+| check-branch-has-commits.sh | PASS | 3 commits ahead of alpha |
+| check-alpha-local-vs-remote.sh | PASS | |
+| check-branch-rebased-on-alpha.sh | **FAIL** | 19 commits behind alpha — suite HALTS |
+| check-no-state-file-commits.sh | PASS | No state files in this branch's history |
+| check-worker-result-not-committed.sh | PASS | |
+| check-no-foreign-task-commits.sh | **FAIL** | 2 process-improvement commits on task-019 branch |
+| check-all-commits-have-task-ref.sh | PASS | All 3 commits have Task-Ref trailers |
+| check-no-source-regressions.sh | PASS | |
+| check-no-test-regressions.sh | PASS | Both passes (vs merge-base and vs alpha HEAD) |
+| Unit tests (uv run pytest tests/unit) | PASS | 2529 passed |
+| ruff check | PASS | Zero violations |
+| ruff format --check | PASS | All files formatted |
+| mypy | PASS | No errors in 500 source files |
+| Architecture boundary tests | PASS | 40 passed |
+| check-domain-aggregate-mocks.sh | PASS | |
+| check-empty-test-stubs.sh | PASS | |
+| check-no-direct-logger-usage.sh | PASS | |
+
+**Backend suite HALTS** at `check-branch-rebased-on-alpha.sh` — branch is 19 commits behind alpha.
 
 ---
 
-## Failing Check: Domain Aggregate Mocks
+### Failing Check Details
 
-`check-domain-aggregate-mocks.sh` fails. The newly added test
-`TestKnowledgeGraphServiceDelete::test_delete_cascades_encrypted_credentials`
-(lines 654–694 of `tests/unit/management/application/test_knowledge_graph_service.py`)
-introduces bare `MagicMock()` for domain aggregate `DataSource`:
+#### 1. FAIL: check-branch-rebased-on-alpha.sh
+Branch is **19 commits behind alpha**. The suite halts here. Alpha has advanced
+significantly since the merge-base (`605405ec`), including new process checks that
+are required to be present on any task branch.
+
+#### 2. FAIL: check-no-foreign-task-commits.sh
+Two commits with `Task-Ref: process-improvement` are on this task-019 branch:
+
+- `0ad1a72b65` — `chore(process): guard against overlay content regressions and worker-result deletion commits`
+- `92c30379c3` — `chore(process): enforce branch hygiene and close test-regression baseline gap`
+
+These process-improvement commits do NOT belong on the task-019 branch.
+
+#### 3. FAIL: check-process-overlay-content-intact.sh
+The foreign commit `0ad1a72b65` modified `.hyperloop/agents/process/verifier-overlay.yaml`
+by removing and rewriting the line:
 
 ```
-667:        ds1 = MagicMock()
-669:        ds2 = MagicMock()
-671:        ds3 = MagicMock()
+-  - Run check-no-test-regressions.sh before any PASS verdict.
 ```
 
-Per project guidelines (specs/nfr/testing.spec.md) and `AGENTS.md`, domain aggregates
-must **not** be mocked with bare `MagicMock()`/`AsyncMock()` because it hides interface
-regressions and bypasses domain validation logic.
-
-Note: Lines 620–621 in `test_delete_cascades_data_sources` are a **pre-existing**
-violation (present on `alpha` before this task). The check was already failing on those
-lines. This task added **three additional violations** in the new test.
+Even though it was replaced with a more detailed version (net +3 lines), the
+check detects any line removal as a content regression. The check itself was
+introduced by this same commit, creating a self-referential failure.
 
 ---
 
-## Required Fix (Narrow)
+### Spec Coverage (all requirements met by prior implementation)
 
-In `test_delete_cascades_encrypted_credentials`, replace bare `MagicMock()` with
-spec'd mocks or a `_make_ds()` factory. The simplest acceptable fix:
+| Requirement | Status |
+|---|---|
+| Credential Encryption — store/retrieve with Fernet | COVERED |
+| Credential Encryption — composite key (path, tenant_id) | COVERED |
+| Credential Encryption — not-found raises KeyError | COVERED |
+| Tenant Isolation — negative path (wrong tenant fails) | COVERED |
+| Tenant Isolation — positive path (correct tenant succeeds) | COVERED (`test_retrieve_with_correct_tenant_succeeds` added this round) |
+| Key Rotation — MultiFernet fallback decryption | COVERED |
+| Credential Lifecycle — DS deletion removes credentials | COVERED |
+| Credential Lifecycle — KG cascade deletes DS credentials | COVERED (`test_delete_cleans_up_credentials_for_each_data_source`) |
 
-```python
-from management.domain.models.data_source import DataSource  # adjust import
-
-# Option A — spec'd mock (acceptable when test only needs the interface)
-ds1 = MagicMock(spec=DataSource)
-ds1.credentials_path = "datasource/ds-001/credentials"
-ds2 = MagicMock(spec=DataSource)
-ds2.credentials_path = "datasource/ds-002/credentials"
-ds3 = MagicMock(spec=DataSource)
-ds3.credentials_path = None
-```
-
-Or, preferred per the process-overlay rules added in commit `d0aa5cdc`:
-
-```python
-# Option B — create a _make_ds() factory parallel to the existing _make_kg()
-def _make_ds(ds_id="ds-001", credentials_path=None, tenant_id="tenant-123"):
-    # Use the real DataSource constructor
-    ...
-
-ds1 = _make_ds(ds_id="ds-001", credentials_path="datasource/ds-001/credentials")
-ds2 = _make_ds(ds_id="ds-002", credentials_path="datasource/ds-002/credentials")
-ds3 = _make_ds(ds_id="ds-003", credentials_path=None)
-```
-
-The same fix should be applied to the pre-existing violations at lines 620–621 in
-`test_delete_cascades_data_sources`, but that is a pre-existing issue and **not** the
-cause of this task's FAIL verdict. Address lines 667–671 at minimum.
+The single task-019 delivery commit (`2b06159e7`) is correct and complete.
+All spec requirements are now covered. The unit test itself is well-written and
+passes cleanly.
 
 ---
 
-## Spec Coverage (Unaffected by the Fix)
+### Required Fix
 
-The implementation logic is correct and complete. All spec scenarios are covered:
+The branch must be cleaned to contain only the one task-019 delivery commit,
+rebased onto current alpha. The two foreign process-improvement commits must be
+dropped.
 
-- **Credential Encryption**: `FernetSecretStore.store/retrieve` — PASS
-- **Tenant Isolation**: Composite PK `(path, tenant_id)` — PASS
-- **Key Rotation**: `MultiFernet` with fallback keys — PASS
-- **Credential Lifecycle / data source deletion**: `DataSourceService.delete()` — PASS
-- **Credential Lifecycle / knowledge graph cascade**: `KnowledgeGraphService.delete()`
-  now calls `secret_store.delete()` for each DS with a `credentials_path` — PASS
-  (implementation correct; only the test mock style is the issue)
+**Option A — interactive rebase (preferred):**
+```bash
+git fetch origin alpha
+git rebase -i 605405ecf1c70cd6f8657b812d15052a0fe3b302
+# Mark 0ad1a72b65 and 92c30379c3 as 'drop', keep 2b06159e7
+git rebase origin/alpha
+bash .hyperloop/checks/check-run-backend-suite.sh   # must show ALL PASS
+```
 
-Commit trailers are present on both key implementation commits:
-- `54647a2c` (feat) — Spec-Ref + Task-Ref ✓
-- `dd7fa79b` (test) — Spec-Ref + Task-Ref ✓
+**Option B — cherry-pick onto fresh branch:**
+```bash
+git fetch origin alpha
+git checkout -b hyperloop/task-019-clean origin/alpha
+git cherry-pick 2b06159e728f5984e8e3f73ce56b679132803479
+bash .hyperloop/checks/check-run-backend-suite.sh   # must show ALL PASS
+git push --force-with-lease origin HEAD:hyperloop/task-019
+```
+
+Only cherry-pick `2b06159e7` (the task-019 commit). Do NOT include the two
+process-improvement commits. After the rebase, `check-process-overlay-content-intact.sh`
+should also pass because the merge-base will be current alpha, which already
+has the updated verifier-overlay.yaml content.

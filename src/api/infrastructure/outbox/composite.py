@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from shared_kernel.outbox.exceptions import UnknownEventTypeError
 from shared_kernel.outbox.ports import EventHandler
 
 if TYPE_CHECKING:
@@ -71,20 +70,20 @@ class CompositeEventHandler:
         """Dispatch an event to all registered handlers for that type.
 
         Handlers are called in registration order. If no handlers are
-        registered for the event type, raises UnknownEventTypeError.
+        registered for the event type, raises ValueError.
 
         Args:
             event_type: The name of the event type
             payload: The serialized event data
 
         Raises:
-            UnknownEventTypeError: If no handler is registered for the event type
+            ValueError: If no handler is registered for the event type
         """
         handlers = self._handlers_by_type.get(event_type)
         if handlers is None:
-            raise UnknownEventTypeError(
-                event_type,
-                frozenset(self._handlers_by_type.keys()),
+            raise ValueError(
+                f"No handler registered for event type: {event_type}. "
+                f"Registered types: {sorted(self._handlers_by_type.keys())}"
             )
 
         for handler in handlers:

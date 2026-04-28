@@ -24,6 +24,8 @@ guidelines: |
   - Run check-unused-fixtures.sh: A fixture defined but unused is always a missing test.
   - When check-run-backend-suite.sh does not output "RESULT: ALL PASS", treat every prior check result as UNVERIFIED and rerun ALL checks.
   - When check-no-source-regressions.sh exits non-zero, verify each flagged symbol genuinely no longer exists in HEAD before reporting FAIL.
+  - When check-no-source-regressions.sh reports items under "Spec-mandated Python removals (Removes: trailer present)", treat them as informational, not FAIL; still verify the spec mandates the removal before accepting.
+  - When check-worker-result-not-committed.sh fails, confirm the offending commit is a regular commit (not a rebase artifact): the unconditional pre-commit restore rule should prevent this — report the missing pre-commit gate as the root cause in your findings.
   - Never commit .hyperloop/worker-result.yaml to the task branch: Write the verdict file in the working directory but do NOT stage or commit it; if accidentally staged, run `git restore --staged .hyperloop/worker-result.yaml` before committing.
   - When worker-result.yaml is found in branch history (even as a deletion), the ONLY valid remediation is `git rebase -i $(git merge-base HEAD alpha)` to excise the commit — a deletion commit does NOT satisfy check-worker-result-not-committed.sh because that check flags any branch-history touch including deletions.
   - A PASS verdict is logically impossible when any row in your check table shows FAIL.

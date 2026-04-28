@@ -100,18 +100,25 @@ class GraphSecureEnclaveService:
         self,
         slug: str,
         node_type: str | None = None,
+        knowledge_graph_id: str | None = None,
     ) -> list[AuthorizedNode]:
         """Search for nodes by slug with per-entity authorization.
 
         Args:
             slug: The entity slug to search for.
             node_type: Optional type filter.
+            knowledge_graph_id: Optional KnowledgeGraph ID filter. When provided,
+                only nodes whose ``knowledge_graph_id`` property matches are returned.
+                When absent, nodes across all KnowledgeGraphs in the tenant graph
+                are returned.
 
         Returns:
             List of NodeRecord (authorized) or RedactedNodeRecord (unauthorized).
             Unauthorized nodes are NOT removed — graph topology is preserved.
         """
-        raw_nodes = self._query_service.search_by_slug(slug, node_type=node_type)
+        raw_nodes = self._query_service.search_by_slug(
+            slug, node_type=node_type, knowledge_graph_id=knowledge_graph_id
+        )
         return [await self._authorize_node(node) for node in raw_nodes]
 
     async def get_neighbors(

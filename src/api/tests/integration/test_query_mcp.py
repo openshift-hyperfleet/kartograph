@@ -210,7 +210,7 @@ class TestMCPQueryService:
 
         assert isinstance(result, QueryError)
         assert result.error_type == "forbidden"
-        assert "read-only" in result.message.lower() or "CREATE" in result.message
+        assert any(k in result.message.lower() for k in ["read-only", "create"])
 
     def test_execute_cypher_query_timeout_error(self, service):
         """Should return QueryError for timeouts."""

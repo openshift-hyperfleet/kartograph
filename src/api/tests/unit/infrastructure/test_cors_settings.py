@@ -110,7 +110,7 @@ class TestCORSWildcardOriginValidation:
 
         error_str = str(exc_info.value)
         # Error message should mention the constraint
-        assert "wildcard" in error_str.lower() or "credentials" in error_str.lower()
+        assert any(k in error_str.lower() for k in ["wildcard", "credentials"])
 
     def test_wildcard_among_other_origins_rejected_when_credentials_allowed(
         self,

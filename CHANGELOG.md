@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.33.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.8...v3.33.0) (2026-04-28)
+
+
+### Features
+
+* **deploy:** disable single-tenant mode in stage ([#447](https://github.com/openshift-hyperfleet/kartograph/issues/447)) ([b93fd61](https://github.com/openshift-hyperfleet/kartograph/commit/b93fd618ca022ce8e95404845a8eae0a0ec052a0))
+
 ## [3.32.8](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.7...v3.32.8) (2026-04-23)
 
 

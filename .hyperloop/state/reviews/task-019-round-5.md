@@ -4,97 +4,112 @@ round: 5
 role: verifier
 verdict: fail
 ---
-## Verification Summary — specs/management/credentials.spec.md (re-verification)
+## Verification Summary — specs/management/credentials.spec.md (round 7)
 
-This review rebased the branch on alpha (resolving 3 merge conflicts) then ran the
-full backend check suite.
+The branch carries one correct implementation commit but two foreign process-improvement
+commits, and the branch remains stale against alpha. The backend suite halts as before.
 
-### Check Results
+---
+
+## Check Results
 
 | Check | Result | Detail |
-|-------|--------|--------|
-| 1. Unit Tests | PASS | 2404 passed, 0 failures |
-| 2. Linting (ruff check) | PASS | All checks passed |
-| 3. Formatting (ruff format --check) | PASS | 483 files already formatted |
-| 4. Type Checking (mypy) | PASS | No issues found in 479 source files |
-| 5. Architecture Boundary Tests | PASS | 40 passed |
-| 6. check-domain-aggregate-mocks.sh | PASS | 0 violations (prior fix confirmed effective) |
-| 7. check-cascade-delete-empty-collection-mocks.sh | FAIL | Pre-existing violation, see below |
+|---|---|---|
+| check-branch-has-commits.sh | PASS | 3 commits ahead of alpha |
+| check-alpha-local-vs-remote.sh | PASS | within acceptable range |
+| check-branch-rebased-on-alpha.sh | **FAIL** | 20 commits behind alpha — suite halted |
+| check-no-state-file-commits.sh | PASS | no state files on branch |
+| check-no-source-regressions.sh | PASS | no source regressions |
+| check-no-test-regressions.sh | PASS | both merge-base and alpha-HEAD passes |
+| check-process-overlays-intact.sh | PASS | overlay files present |
+| check-process-overlay-content-intact.sh | **FAIL** | line removed from verifier-overlay.yaml (caused by the foreign process commit itself) |
+| check-all-commits-have-task-ref.sh | PASS | all commits have Task-Ref |
+| check-no-foreign-task-commits.sh | **FAIL** | 2 foreign commits with Task-Ref=process-improvement |
+| check-no-direct-logger-usage.sh | PASS | |
+| check-domain-aggregate-mocks.sh | PASS | |
+| check-no-coming-soon-stubs.sh | PASS | |
+| check-empty-test-stubs.sh | PASS | |
+| check-di-wiring-updated.sh | PASS | |
+| check-pytest-env-skip-if-set.sh | PASS | |
+| check-cascade-delete-empty-collection-mocks.sh | PASS | |
+| check-implementation-commits-exist.sh | PASS | 1 implementation commit found |
+| Unit tests (uv run pytest tests/unit) | PASS | 2529 passed |
+| Ruff lint | PASS | |
+| Ruff format | PASS | |
+| mypy | PASS | 0 errors in 500 source files |
+| Architecture boundary tests | PASS | 40 passed |
 
 ---
 
-## Failing Check: Cascade-Delete Empty Collection Mocks
+## Failing Checks — Details
 
-`check-cascade-delete-empty-collection-mocks.sh` fails on a **pre-existing violation**
-in `tests/unit/iam/application/test_tenant_service.py::TestDeleteTenant`. This file
-was **not touched by task-019** (diff against alpha is empty for this file).
+### 1. check-branch-rebased-on-alpha.sh: FAIL (blocking — halts suite)
 
-The check was added to alpha in commit `17861145` (process improvement) after
-this task was already in flight, but the corresponding fix to `test_tenant_service.py`
-was not included. Alpha itself fails this check. However, since the check is now
-part of the mandatory backend suite (`check-run-backend-suite.sh`), this branch
-cannot be verified as PASS until the violation is resolved.
+Branch is 20 commits behind alpha. The suite halts before running state-file checks.
 
-**Violation details:**
+Fix: `git rebase alpha` (after resolving the foreign commits below).
+
+### 2. check-no-foreign-task-commits.sh: FAIL
+
+Two process-improvement commits are on this task branch:
 
 ```
-Class 'TestDeleteTenant': 'mock_group_repo.list_by_tenant' is only ever
-mocked with return_value=[] (empty list). The cascade-delete loop
-body is never entered — the inner delete() is never tested.
+0ad1a72b65  Task-Ref=process-improvement
+  chore(process): guard against overlay content regressions and worker-result deletion commits
 
-Affected lines in test_tenant_service.py:
-  1283, 1329, 1401, 1484, 1547, 1604, 1644, 1713
+92c30379c3  Task-Ref=process-improvement
+  chore(process): enforce branch hygiene and close test-regression baseline gap
 ```
 
+These are orchestrator/process commits that should never land on a task branch.
+
+### 3. check-process-overlay-content-intact.sh: FAIL
+
+The foreign commit `92c30379c3` edited `verifier-overlay.yaml`, replacing:
+```
+  - Run check-no-test-regressions.sh before any PASS verdict.
+```
+with 3 new lines. The new check treats this as a line removal (net lines added but
+original line gone), causing the check to fail. This is a cascading failure caused
+entirely by the foreign commit presence.
+
 ---
 
-## Required Fix (Narrow and Self-Contained)
+## Implementation Quality
 
-Add **one new test** to `TestDeleteTenant` in
-`src/api/tests/unit/iam/application/test_tenant_service.py` that mocks
-`mock_group_repo.list_by_tenant` with a non-empty return value and asserts
-`mock_group_repo.delete` is called for each group.
+The single task-019 delivery commit `faf5b9e97` is correct:
 
-The simplest acceptable fix:
+- Adds `test_retrieve_with_correct_tenant_succeeds` to `TestTenantIsolation`
+- Covers the positive path of the tenant isolation scenario (correct tenant CAN retrieve)
+- Proper `Spec-Ref` and `Task-Ref: task-019` trailers present
+- Uses MagicMock for session/result (infrastructure mocks — acceptable)
+- Logical test flow: store → verify model tenant_id → mock DB return → retrieve → assert equality
 
-```python
-@pytest.mark.asyncio
-async def test_delete_cascades_groups(self, service, mock_group_repo, ...):
-    """delete() calls group_repo.delete() for each group in the tenant."""
-    from iam.domain.models import Group  # use real Group or a _make_group() factory
-    group = _make_group(tenant_id=tenant_id)  # real object, not MagicMock
-    mock_group_repo.list_by_tenant = AsyncMock(return_value=[group])
-    # ... set up other mocks ...
-    await service.delete(tenant_id=tenant_id, ...)
-    mock_group_repo.delete.assert_called_once_with(group)
+---
+
+## Spec Requirement Coverage (unchanged from round 6 — all covered)
+
+All 8 spec scenarios remain covered by the delivery commits accumulated across rounds.
+The positive tenant isolation test (`faf5b9e97`) adds coverage missing in round 6.
+
+---
+
+## Required Fix (same structural issue as rounds 4–6)
+
+The branch cannot be cleaned with `git rebase -i` because the 2 foreign commits
+introduce check scripts that will conflict during the rebase and the branch is also
+20 commits stale.
+
+**Recommended remediation** (orchestrator or human operator):
+
+```bash
+git fetch origin alpha:alpha
+git checkout -b hyperloop/task-019-clean alpha
+git cherry-pick faf5b9e97   # the single task-019 delivery commit
+bash .hyperloop/checks/check-run-backend-suite.sh   # expect all PASS
+# write PASS verdict, then:
+git push --force-with-lease origin HEAD:hyperloop/task-019
 ```
 
----
-
-## Implementation Quality (Unaffected by the Failing Check)
-
-The credential implementation itself is correct and complete:
-
-- **Credential Encryption**: `FernetSecretStore.store/retrieve` — PASS
-- **Tenant Isolation**: Composite PK `(path, tenant_id)` — PASS
-- **Key Rotation**: `MultiFernet` with fallback keys — PASS
-- **Credential Lifecycle / data source deletion**: `DataSourceService.delete()` — PASS
-- **Credential Lifecycle / knowledge graph cascade**: `KnowledgeGraphService.delete()`
-  injects `ISecretStoreRepository` and calls `secret_store.delete()` for each DS
-  with a `credentials_path` — PASS
-- **Domain aggregate mocks**: All replaced with real `_make_ds()` factory — PASS
-
-Commit trailers are present on all task-019 implementation commits:
-- `3ed67df2` (feat) — Spec-Ref + Task-Ref ✓
-- `07dd3715` (test) — Spec-Ref + Task-Ref ✓
-- `5e5e4b35` (fix) — Task-Ref ✓
-
----
-
-## Action Required
-
-1. Fix `tests/unit/iam/application/test_tenant_service.py::TestDeleteTenant`:
-   add at least one test that exercises `mock_group_repo.list_by_tenant` with a
-   non-empty list and asserts inner `delete()` was called for each item.
-2. Run `bash .hyperloop/checks/check-run-backend-suite.sh` — must exit 0.
-3. Commit the fix with a conventional commit message and Task-Ref trailer.
+Do NOT cherry-pick the two `process-improvement` commits (`0ad1a72b6`, `92c30379c`).
+Those belong on alpha via the process improvement workflow, not on this task branch.

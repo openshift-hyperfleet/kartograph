@@ -13,7 +13,6 @@ from iam.application.value_objects import CurrentUser
 from iam.dependencies.user import get_current_user
 from infrastructure.authorization_dependencies import get_spicedb_client
 from infrastructure.database.dependencies import get_write_session
-from infrastructure.settings import get_management_settings
 from infrastructure.outbox.repository import OutboxRepository
 from infrastructure.settings import get_management_settings
 from management.application.observability import DefaultKnowledgeGraphServiceProbe

@@ -48,8 +48,6 @@ pythonpath = ["."]
 
 [tool.pytest_env]
 # Database settings for integration tests
-# Network-location vars use skip_if_set = true so that isolated instances
-# (started via `make instance-up`) can override them with their unique ports.
 KARTOGRAPH_DB_HOST = { value = "localhost", skip_if_set = true }
 KARTOGRAPH_DB_PORT = { value = "5432", skip_if_set = true }
 KARTOGRAPH_DB_DATABASE = "kartograph"

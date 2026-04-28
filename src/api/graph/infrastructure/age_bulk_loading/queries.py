@@ -177,11 +177,21 @@ class AgeQueryBuilder:
         label: str,
         staging_table: str,
     ) -> sql.Composed:
-        """Build UPDATE query for merging properties on existing entities."""
+        """Build UPDATE query for merging properties on existing entities.
+
+        Uses the jsonb || merge operator so that properties present on the
+        existing entity but absent from the new batch are preserved.  This
+        implements the spec's idempotent-merge semantic:
+
+            THEN existing properties are preserved
+            AND new properties from set_properties are added
+        """
         return sql.SQL(
             """
             UPDATE {}.{} AS t
-            SET properties = (s.properties::text)::ag_catalog.agtype
+            SET properties = (
+                (t.properties::text)::jsonb || (s.properties::text)::jsonb
+            )::text::ag_catalog.agtype
             FROM {} AS s
             WHERE s.label = %s
             AND ag_catalog.agtype_object_field_text_agtype(

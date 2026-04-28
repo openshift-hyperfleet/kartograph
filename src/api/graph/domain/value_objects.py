@@ -8,7 +8,7 @@ on their attribute values.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -49,6 +49,13 @@ NODE_SYSTEM_PROPERTIES: frozenset[str] = frozenset({"slug"})
 # Edge-specific system properties (in addition to common)
 # Currently empty, but defined for future extensibility
 EDGE_SYSTEM_PROPERTIES: frozenset[str] = frozenset()
+
+# Properties stamped by the platform (not derived from type definitions)
+# These are automatically stamped on CREATE/UPDATE operations by the service layer.
+# They are NOT auto-added to DEFINE required_properties (unlike COMMON/NODE system props),
+# but they ARE excluded from schema learning (not added to optional_properties).
+# The service always stamps these before validation; callers cannot spoof them.
+PLATFORM_STAMPED_PROPERTIES: frozenset[str] = frozenset({"knowledge_graph_id"})
 
 
 def get_system_properties_for_entity(entity_type: EntityType) -> frozenset[str]:
@@ -290,6 +297,19 @@ class MutationOperation(BaseModel):
                 if not self.start_id or not self.end_id:
                     raise ValueError("CREATE edge requires 'start_id' and 'end_id'")
 
+            # Platform-stamped properties (e.g. knowledge_graph_id) must be present
+            # in set_properties at validation time. The service stamps these values
+            # before validation when apply_mutations() is called — callers must always
+            # provide knowledge_graph_id to the service method.
+            if not PLATFORM_STAMPED_PROPERTIES.issubset(self.set_properties.keys()):
+                missing = PLATFORM_STAMPED_PROPERTIES - self.set_properties.keys()
+                raise ValueError(
+                    f"CREATE requires {sorted(missing)} in set_properties. "
+                    "The system stamps these values when apply_mutations() is called "
+                    "with a knowledge_graph_id parameter. Ensure the caller passes "
+                    "knowledge_graph_id to the service, or include it in set_properties."
+                )
+
         elif self.op == "UPDATE":
             if not self.id:
                 raise ValueError("UPDATE requires 'id'")
@@ -345,6 +365,9 @@ class MutationResult(BaseModel):
         success: Whether all operations succeeded
         operations_applied: Number of operations successfully applied
         errors: List of error messages (empty if success=True)
+        error_kind: Category of failure — "validation" for bad input (JSON parse,
+            schema violations, missing required fields) or "server" for
+            infrastructure/database errors. None when success=True.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -352,3 +375,4 @@ class MutationResult(BaseModel):
     success: bool
     operations_applied: int
     errors: list[str] = Field(default_factory=list)
+    error_kind: Literal["validation", "server"] | None = None

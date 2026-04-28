@@ -67,6 +67,8 @@ CHECKS=(
   check-no-state-file-commits.sh
   check-worker-result-not-committed.sh
   check-no-foreign-task-commits.sh
+  check-no-ruff-violations.sh
+  check-no-mypy-violations.sh
   check-no-source-regressions.sh
   check-no-route-handler-removals.sh
   check-no-test-regressions.sh

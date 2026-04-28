@@ -1,72 +1,116 @@
 ---
 task_id: task-019
 round: 3
-role: spec-reviewer
+role: verifier
 verdict: fail
 ---
-## Spec Alignment Review — specs/management/credentials.spec.md
+## Verification Summary — specs/management/credentials.spec.md (round 7)
 
-### Requirement: Credential Encryption — COVERED
-
-**Scenario: Store credentials**
-- Code: `management/infrastructure/repositories/fernet_secret_store.py` — `FernetSecretStore.store()` encrypts via `MultiFernet.encrypt()` and stores via SQLAlchemy merge with composite PK `(path, tenant_id)` in `EncryptedCredentialModel`.
-- Test: `tests/unit/management/infrastructure/test_fernet_secret_store.py::TestFernetRoundTrip::test_round_trip_single_key` — ✓
-
-**Scenario: Retrieve credentials**
-- Code: `FernetSecretStore.retrieve()` queries by `(path, tenant_id)`, decrypts via `MultiFernet.decrypt()`, returns `dict[str, str]`.
-- Test: `TestFernetRoundTrip::test_round_trip_single_key` — ✓
-
-**Scenario: Credentials not found**
-- Code: `FernetSecretStore.retrieve()` raises `KeyError("Credentials not found")` when `scalar_one_or_none()` returns `None`.
-- Test: `TestRetrieveNotFound::test_raises_key_error` — ✓
+Three blocking check failures prevent a PASS verdict. The actual task-019 delivery commit is correct and well-formed; the failures are structural branch contamination issues.
 
 ---
 
-### Requirement: Tenant Isolation — COVERED
+## Check Results
 
-**Scenario: Same path, different tenants**
-- Code: `EncryptedCredentialModel` uses composite primary key `(path, tenant_id)`; `FernetSecretStore.retrieve()` filters the query on both columns, ensuring tenant-B cannot access tenant-A's row.
-- Test: `TestTenantIsolation::test_same_path_different_tenant_raises_key_error` — exercises the exact spec scenario (path "datasource/abc/credentials", tenant-B gets `KeyError`). ✓
-
----
-
-### Requirement: Key Rotation — COVERED
-
-**Scenario: Key rotation**
-- Code: `FernetSecretStore.__init__` constructs `MultiFernet([Fernet(key) for key in encryption_keys])`. The first key encrypts; all keys are tried for decryption, so credentials encrypted with an old key remain readable after rotation.
-- Test: `TestMultiFernetRotation::test_decrypt_with_rotated_keys` — encrypts with `key1`, creates a second store with `[key2, key1]`, asserts the old ciphertext decrypts correctly. ✓
-
----
-
-### Requirement: Credential Lifecycle — PARTIAL
-
-**Scenario: Data source deletion** — COVERED
-- Code: `management/application/services/data_source_service.py` — `DataSourceService.delete()` (lines 384–389) explicitly calls `self._secret_store.delete(path=ds.credentials_path, tenant_id=...)` when `ds.credentials_path` is set, inside the same transaction.
-- Test: `tests/unit/management/application/test_data_source_service.py::TestDataSourceServiceDelete::test_delete_removes_credentials_if_path_exists` — asserts `mock_secret_store.delete` is called with the correct path and tenant. ✓
-
-**Scenario: Knowledge graph cascade** — MISSING (FAIL)
-- The spec requires: WHEN a knowledge graph is deleted, THEN all data sources AND their credentials are deleted.
-- Code: `management/application/services/knowledge_graph_service.py` — `KnowledgeGraphService.delete()` (lines 399–408) calls `ds_repo.delete(ds)` for each data source but does **NOT** call `secret_store.delete()` for any data source's `credentials_path`. The class has no `_secret_store` attribute and no `ISecretStoreRepository` injection.
-- Database schema: `encrypted_credentials` has no foreign key referencing `data_sources`, so there is no DB-level cascade.
-- Test: `test_delete_cascades_data_sources` asserts only that `ds_repo.delete` is called twice; there is **no assertion** on any secret store mock and no secret store fixture is present. The test uses bare `MagicMock()` for `ds1`/`ds2` (pre-existing issue noted by prior reviewers), which hides any `credentials_path` check.
-- **Result:** The encrypted credential records are orphaned when a knowledge graph is deleted. This is a SHALL requirement with neither implementation nor test coverage.
-
----
-
-## What Is Needed to Pass
-
-To satisfy the **Knowledge graph cascade** scenario:
-
-1. **Implementation:** Inject `ISecretStoreRepository` into `KnowledgeGraphService.__init__` (optional parameter, mirroring the `data_source_repository` pattern). In `KnowledgeGraphService.delete()`, after finding data sources but before calling `ds_repo.delete(ds)`, check `ds.credentials_path` and call `secret_store.delete(path=ds.credentials_path, tenant_id=self._scope_to_tenant)` for each data source that has credentials.
-
-2. **Test:** Add a unit test in `TestKnowledgeGraphServiceDelete` (e.g., `test_delete_cascades_encrypted_credentials`) that:
-   - Creates a mock/fake `ISecretStoreRepository`
-   - Sets up data sources with `credentials_path` populated
-   - Calls `service.delete()`
-   - Asserts `secret_store.delete()` is called once per data source with the correct path and tenant
+| Check | Result | Detail |
+|---|---|---|
+| Unit tests (2529 passed) | PASS | `uv run pytest tests/unit` — 2529 passed, 0 failures |
+| Ruff linting | PASS | `ruff check .` — All checks passed |
+| Ruff formatting | PASS | `ruff format --check .` — 500 files already formatted |
+| Mypy type checking | PASS | `mypy .` — Success: no issues found in 500 source files |
+| Architecture boundary tests | PASS | `pytest tests/unit/test_architecture.py` — 40/40 passed |
+| check-no-check-script-deletions.sh | PASS | |
+| check-process-overlays-intact.sh | PASS | |
+| check-process-overlay-content-intact.sh | **FAIL** | See Finding #1 below |
+| check-branch-has-commits.sh | PASS | 3 commits ahead of alpha (1 implementation, 2 process) |
+| check-alpha-local-vs-remote.sh | PASS | Local and remote alpha agree at 308099a6 |
+| check-branch-rebased-on-alpha.sh | **FAIL** | See Finding #2 below |
+| check-no-state-file-commits.sh | PASS | No .hyperloop/state/ files committed on this branch |
+| check-no-source-regressions.sh | PASS | No unspecified source regressions detected |
+| check-no-test-regressions.sh | PASS | Both passes (merge-base and alpha HEAD) exit 0 |
+| check-no-direct-logger-usage.sh | PASS | No direct logger.* or print() calls found |
+| check-domain-aggregate-mocks.sh | PASS | No bare MagicMock/AsyncMock on domain aggregates |
+| check-empty-test-stubs.sh | PASS | No empty test stubs |
+| check-no-coming-soon-stubs.sh | PASS | No stub markers |
+| check-di-wiring-updated.sh | PASS | No service __init__ signatures modified |
+| check-pytest-env-skip-if-set.sh | PASS | All network-location vars use skip_if_set = true |
+| check-cascade-delete-empty-collection-mocks.sh | PASS | |
+| check-all-commits-have-task-ref.sh | PASS | All 3 commits have Task-Ref trailers |
+| check-no-foreign-task-commits.sh | **FAIL** | See Finding #3 below |
+| check-worker-result-not-committed.sh | PASS | |
+| check-implementation-commits-exist.sh | PASS | 1 implementation commit found |
 
 ---
 
-## NFR Note (non-blocking for this spec, but noted)
+## Findings
 
-`tests/unit/management/application/test_data_source_service.py` and `test_knowledge_graph_service.py` use `AsyncMock()` for repository and secret store ports rather than in-memory fake implementations. Per `specs/nfr/testing.spec.md` (SHALL: No Mocking Libraries for Domain or Application Logic), proper fake classes should be used. No fake for `ISecretStoreRepository` exists in `tests/fakes/`. This is a pre-existing pattern across the codebase; flagged for awareness but evaluated against `credentials.spec.md` only for this review's verdict.
+### Finding #1 — check-process-overlay-content-intact.sh: FAIL
+
+A line was removed from `.hyperloop/agents/process/verifier-overlay.yaml` relative to the merge-base:
+
+```
+-  - Run check-no-test-regressions.sh before any PASS verdict.
+```
+
+The line was replaced by an expanded version (3 lines beginning with the same text), but the original line was simultaneously removed. The check requires net lines ≥ 0 — the old text must remain when adding new text, or be edited in-place within a single commit. The rule was removed and replaced, violating the policy.
+
+**Fix:** Restore the original line alongside the replacement lines so no net removal occurs.
+
+**Note:** This failure was introduced by the process-improvement commit `0ad1a72b65`, which itself is a foreign-task commit (see Finding #3). Removing that commit via rebase would also eliminate this failure.
+
+### Finding #2 — check-branch-rebased-on-alpha.sh: FAIL
+
+Branch is **14 commits behind alpha**. Alpha HEAD is `308099a6` (chore(process): add pre-commit staged-deletion gate for worker-result.yaml). The merge-base is `605405ec`.
+
+Commits on alpha not incorporated:
+- 308099a6f — chore(process): add pre-commit staged-deletion gate for worker-result.yaml
+- 7418eb4e4 — chore(process): add ruff and mypy checks to backend suite
+- 52a82dc79 — chore(process): require atomic fetch-update-rebase sequence before submission
+- 1829028ef — chore: update config
+- e393a28e7 — chore(process): require propagation tests at every layer when a parameter is added
+- ea0601159 — chore(process): add implementer and verifier rules from task-005 findings
+- (and 8 more)
+
+**Fix:** Rebase onto current alpha after removing the foreign-task commits (see Finding #3).
+
+### Finding #3 — check-no-foreign-task-commits.sh: FAIL
+
+Two process-improvement agent commits are present on this task-019 branch:
+
+| SHA | Task-Ref | Subject |
+|---|---|---|
+| `0ad1a72b65` | process-improvement | chore(process): guard against overlay content regressions and worker-result deletion commits |
+| `92c30379c3` | process-improvement | chore(process): enforce branch hygiene and close test-regression baseline gap |
+
+These commits do not belong on `hyperloop/task-019`. They introduce process overlay changes and new check scripts unrelated to the credentials spec, and they are what cause Finding #1 (the overlay content regression).
+
+**Fix:** Rebase interactively, dropping `0ad1a72b65` and `92c30379c3`, keeping only `7e91017f3` (the actual task-019 delivery commit). Then rebase onto current alpha.
+
+---
+
+## Spec Requirement Coverage
+
+All 8 spec scenarios were covered by prior rounds and remain covered on this branch. The only task-019 commit (`7e91017f3`) adds a **positive tenant isolation test** (`test_retrieve_with_correct_tenant_succeeds`) that correctly verifies the happy-path: tenant-A can retrieve their own credentials. The test is well-formed, uses the established `_make_store` helper, has correct assertions, and carries both `Spec-Ref` and `Task-Ref` trailers.
+
+---
+
+## Required Fix
+
+The sole task-019 delivery commit (`7e91017f3`) is correct. The branch needs to be cleaned:
+
+```bash
+# Option A: interactive rebase to drop foreign commits, then rebase onto alpha
+git rebase -i 605405ecf  # drop 0ad1a72b65 and 92c30379c3
+git fetch origin alpha
+git rebase alpha
+bash .hyperloop/checks/check-run-backend-suite.sh   # expect ALL PASS
+
+# Option B: fresh branch from alpha, cherry-pick delivery commit
+git fetch origin alpha
+git checkout -b hyperloop/task-019-clean origin/alpha
+git cherry-pick 7e91017f3
+bash .hyperloop/checks/check-run-backend-suite.sh   # expect ALL PASS
+git push --force-with-lease origin HEAD:hyperloop/task-019
+```
+
+Only `7e91017f3` should be on the branch. Do NOT cherry-pick `0ad1a72b65`, `92c30379c3`, or any other process-improvement commits.

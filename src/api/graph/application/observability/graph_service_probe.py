@@ -40,6 +40,15 @@ class GraphServiceProbe(Protocol):
         """Record that a batch of mutations was applied."""
         ...
 
+    def mutation_server_error_occurred(self, errors: list[str]) -> None:
+        """Record that a server-side error occurred during mutation processing.
+
+        Called instead of logger.error() to comply with Domain-Oriented
+        Observability — the presentation layer delegates logging to the probe
+        rather than calling structlog directly.
+        """
+        ...
+
     def with_context(self, context: ObservationContext) -> GraphServiceProbe:
         """Create a new probe with observation context bound."""
         ...

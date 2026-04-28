@@ -52,7 +52,10 @@ class TestCreateDefineValidationInBatch:
             },
         )
 
-        result = service.apply_mutations([define_op, create_op])
+        # knowledge_graph_id required for CREATE ops; service stamps it before validation
+        result = service.apply_mutations(
+            [define_op, create_op], knowledge_graph_id="test-kg"
+        )
 
         # Should fail validation
         assert result.success is False
@@ -93,7 +96,10 @@ class TestCreateDefineValidationInBatch:
             },
         )
 
-        result = service.apply_mutations([define_op, create_op])
+        # knowledge_graph_id required; service stamps it before validation
+        result = service.apply_mutations(
+            [define_op, create_op], knowledge_graph_id="test-kg"
+        )
 
         assert result.success is True
 
@@ -134,6 +140,9 @@ class TestCreateDefineValidationInBatch:
             },
         )
 
-        result = service.apply_mutations([define_op, create_op])
+        # knowledge_graph_id required for CREATE ops; service stamps it before validation
+        result = service.apply_mutations(
+            [define_op, create_op], knowledge_graph_id="test-kg"
+        )
 
         assert result.success is True

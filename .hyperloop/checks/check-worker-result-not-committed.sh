@@ -61,6 +61,25 @@ if [[ -z "$MERGE_BASE" ]]; then
   exit 0
 fi
 
+# If origin/$BASE_BRANCH exists and yields a more recent merge-base (i.e., one
+# with fewer commits between it and HEAD), prefer it.  This handles the common
+# case where a PR is merged to origin/alpha after the local alpha ref was last
+# updated — the merged PR's commits (which may legitimately touch
+# worker-result.yaml as an orchestrator artifact) would otherwise appear in the
+# branch range and produce a false positive.  The same logic is used in
+# check-no-foreign-task-commits.sh.
+REMOTE_REF="origin/$BASE_BRANCH"
+if git show-ref --verify --quiet "refs/remotes/$REMOTE_REF" 2>/dev/null; then
+  MB_REMOTE=$(git merge-base HEAD "$REMOTE_REF" 2>/dev/null || echo "")
+  if [[ -n "$MB_REMOTE" && "$MB_REMOTE" != "$MERGE_BASE" ]]; then
+    COUNT_LOCAL=$(git rev-list --count "${MERGE_BASE}..HEAD" 2>/dev/null || echo "999999")
+    COUNT_REMOTE=$(git rev-list --count "${MB_REMOTE}..HEAD" 2>/dev/null || echo "999999")
+    if [[ "$COUNT_REMOTE" -lt "$COUNT_LOCAL" ]]; then
+      MERGE_BASE="$MB_REMOTE"
+    fi
+  fi
+fi
+
 echo "=== Checking that $TARGET_FILE never appears in branch commits (base: $BASE_BRANCH @ ${MERGE_BASE:0:8}) ==="
 
 # Check all diff-filter variants: Added, Copied, Deleted, Modified, Renamed

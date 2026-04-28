@@ -21,6 +21,7 @@ from shared_kernel.authorization.types import (
     format_subject,
 )
 
+from graph.application.observability import GraphServiceProbe
 from graph.application.services import (
     GraphMutationService,
     GraphSchemaService,
@@ -29,6 +30,7 @@ from graph.application.services import (
 from graph.dependencies import (
     get_graph_mutation_service,
     get_graph_secure_enclave_service,
+    get_graph_service_probe,
     get_schema_service,
 )
 from graph.domain.value_objects import (

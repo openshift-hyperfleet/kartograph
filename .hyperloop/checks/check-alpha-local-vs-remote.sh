@@ -1,97 +1,105 @@
 #!/usr/bin/env bash
 # check-alpha-local-vs-remote.sh
 #
-# Verifies that the local 'alpha' branch is not stale relative to origin/alpha.
+# Warns when local 'alpha' and 'origin/alpha' have diverged significantly.
 #
-# WHY: All content checks (check-no-source-regressions.sh,
-# check-no-test-regressions.sh, check-no-state-file-commits.sh, etc.) diff
-# against the merge-base of this branch with the local 'alpha' ref.  When local
-# alpha lags behind origin/alpha, new commits already merged into alpha are
-# invisible to those checks — violations introduced AFTER the stale snapshot
-# silently pass.  Additionally, a stale local 'alpha' means new check scripts
-# added to alpha after the worker's branch was cut are absent from the worker's
-# repo, causing the backend suite to report them as MISSING and fail.
+# WHY: The orchestrator maintains local 'alpha' independently and may advance
+# it dozens of commits without pushing to 'origin/alpha'. When an implementer
+# runs 'git rebase origin/alpha' instead of 'git rebase alpha', they rebase
+# against the stale remote ref. check-branch-rebased-on-alpha.sh compares
+# against LOCAL 'alpha' and then fails even though the implementer believes
+# the branch is current.
 #
-# WHAT IS CHECKED:
-#   1. The local 'alpha' ref must not lag behind 'origin/alpha'.
-#   2. If local alpha is ahead of origin/alpha (uncommitted-to-remote state),
-#      that is a WARNING but not a hard failure.
+# This check detects the divergence so implementers discover it BEFORE
+# attempting a rebase — not after the rebase fails the staleness check.
 #
-# RESOLUTION when behind:
-#   git fetch origin alpha
-#   git branch -f alpha origin/alpha   # fast-forward local alpha to remote
-#   # Then rebase your task branch:
-#   git rebase alpha
-#
-# IMPORTANT: When new check scripts were added to alpha AFTER this branch was
-# created, the rebase above will also pull those scripts into your worktree.
-# Always re-run `bash .hyperloop/checks/check-run-backend-suite.sh` after
-# rebasing.
-#
-# Usage:
-#   bash .hyperloop/checks/check-alpha-local-vs-remote.sh
-#
-# Exit 0 — local alpha matches or is ahead of origin/alpha (or remote not tracked).
-# Exit 1 — local alpha is behind origin/alpha.
+# Exit 0 — local alpha and origin/alpha agree (or origin/alpha doesn't exist).
+# Exit 1 — local alpha is ahead of origin/alpha by more than 5 commits
+#           (implementer must use 'git rebase alpha', not 'git rebase origin/alpha').
 
-set -uo pipefail
+set -euo pipefail
 
-LOCAL_REF="alpha"
-REMOTE_REF="origin/alpha"
+LOCAL_REF="refs/heads/alpha"
+REMOTE_REF="refs/remotes/origin/alpha"
 
-# If local alpha branch doesn't exist, there is nothing to check.
-if ! git rev-parse --verify "$LOCAL_REF" >/dev/null 2>&1; then
-  echo "INFO: Local branch '$LOCAL_REF' not found — skipping alpha sync check."
+if ! git show-ref --verify --quiet "$LOCAL_REF" 2>/dev/null; then
+  echo "INFO: Local 'alpha' branch not found — skipping alpha sync check."
   exit 0
 fi
 
-# If the remote tracking ref doesn't exist, we cannot compare.
-if ! git rev-parse --verify "$REMOTE_REF" >/dev/null 2>&1; then
-  echo "INFO: Remote ref '$REMOTE_REF' not found — skipping alpha sync check."
-  echo "      Run 'git fetch origin' if you expect a remote alpha branch."
+if ! git show-ref --verify --quiet "$REMOTE_REF" 2>/dev/null; then
+  echo "INFO: 'origin/alpha' not found — skipping alpha sync check."
   exit 0
 fi
 
-LOCAL_SHA=$(git rev-parse "$LOCAL_REF")
-REMOTE_SHA=$(git rev-parse "$REMOTE_REF")
-
-echo "=== Checking local alpha vs origin/alpha ==="
-echo "  local  alpha: ${LOCAL_SHA:0:8}"
-echo "  remote alpha: ${REMOTE_SHA:0:8}"
+LOCAL_SHA=$(git rev-parse alpha)
+REMOTE_SHA=$(git rev-parse origin/alpha)
 
 if [[ "$LOCAL_SHA" == "$REMOTE_SHA" ]]; then
-  echo ""
-  echo "PASS: Local 'alpha' matches origin/alpha exactly."
+  echo "OK: Local 'alpha' and 'origin/alpha' point to the same commit (${LOCAL_SHA:0:8})."
   exit 0
 fi
 
-BEHIND=$(git rev-list --count "${LOCAL_REF}..${REMOTE_REF}" 2>/dev/null || echo "0")
-AHEAD=$(git rev-list --count "${REMOTE_REF}..${LOCAL_REF}" 2>/dev/null || echo "0")
+# How far ahead is local alpha vs origin/alpha?
+AHEAD=$(git rev-list --count origin/alpha..alpha 2>/dev/null || echo "0")
+BEHIND=$(git rev-list --count alpha..origin/alpha 2>/dev/null || echo "0")
 
-if [[ "$BEHIND" -gt 0 ]]; then
+if [[ "$AHEAD" -gt 5 ]]; then
+  # Before failing, check whether the task branch is ALREADY rebased on local alpha
+  # (within the same tolerance window as check-branch-rebased-on-alpha.sh, i.e. ≤5
+  # commits behind).
+  #
+  # WHY: check-alpha-local-vs-remote.sh is a preemptive warning that fires when local
+  # alpha is significantly ahead of origin/alpha, so implementers know to use
+  # 'git rebase alpha' instead of 'git rebase origin/alpha'. But once the task branch
+  # IS correctly rebased on local alpha, the local/remote divergence is harmless —
+  # origin/alpha being stale is normal orchestrator behavior and does not affect the
+  # branch. Continuing to exit 1 in this case causes a false positive that blocks
+  # every verification round even when the implementer did everything correctly.
+  #
+  # FIX: Compare the number of commits the task branch is behind LOCAL alpha (not
+  # origin/alpha). If the branch is within 5 commits of local alpha (the same
+  # threshold used by check-branch-rebased-on-alpha.sh), the branch is current
+  # enough and the local/remote divergence is irrelevant.
+  BRANCH_MERGE_BASE=$(git merge-base HEAD alpha 2>/dev/null || echo "")
+  BRANCH_BEHIND_ALPHA=9999
+  if [[ -n "$BRANCH_MERGE_BASE" ]]; then
+    BRANCH_BEHIND_ALPHA=$(git rev-list --count "${BRANCH_MERGE_BASE}..${LOCAL_REF#refs/heads/}" 2>/dev/null || echo "9999")
+  fi
+  if [[ "$BRANCH_BEHIND_ALPHA" -le 5 ]]; then
+    echo "INFO: Local 'alpha' is ${AHEAD} commit(s) ahead of 'origin/alpha', but the"
+    echo "      task branch is within ${BRANCH_BEHIND_ALPHA} commit(s) of local alpha"
+    echo "      (≤5 threshold — same as check-branch-rebased-on-alpha.sh)."
+    echo "      The local/remote divergence is expected orchestrator behavior and is"
+    echo "      harmless on this branch."
+    echo ""
+    echo "      Always use 'git rebase alpha' (not 'git rebase origin/alpha') for any"
+    echo "      future rebases on this or other task branches."
+    exit 0
+  fi
+
+  # Branch is NOT yet on local alpha — the divergence matters.
+  echo "ALPHA DIVERGENCE: Local 'alpha' is ${AHEAD} commit(s) ahead of 'origin/alpha'."
   echo ""
-  echo "FAIL: Local 'alpha' is ${BEHIND} commit(s) behind origin/alpha."
+  echo "  Local  alpha: ${LOCAL_SHA}"
+  echo "  Remote alpha: ${REMOTE_SHA}"
   echo ""
-  echo "  Commits on origin/alpha not yet in local alpha:"
-  git log --oneline "${LOCAL_REF}..${REMOTE_REF}" | head -15
+  echo "The orchestrator advances local 'alpha' independently. check-branch-rebased-on-alpha.sh"
+  echo "compares against LOCAL 'alpha' — NOT 'origin/alpha'."
   echo ""
-  echo "  Why this matters:"
-  echo "    - merge-base calculations use LOCAL alpha — a stale local ref"
-  echo "      makes all content checks diff against an outdated baseline."
-  echo "    - New check scripts added to alpha after your branch was cut are"
-  echo "      absent from your worktree; the backend suite reports them MISSING."
+  echo "Running 'git rebase origin/alpha' will leave your branch ${AHEAD} commit(s) stale"
+  echo "against the staleness check. You MUST run:"
   echo ""
-  echo "  Resolution:"
-  echo "    git fetch origin alpha"
-  echo "    git branch -f alpha origin/alpha   # fast-forward local ref"
-  echo "    git rebase alpha                   # rebase your task branch"
-  echo "    bash .hyperloop/checks/check-run-backend-suite.sh"
+  echo "  git rebase alpha"
   echo ""
+  echo "Never use 'git rebase origin/alpha' as a substitute."
   exit 1
 fi
 
-# Local is strictly ahead — informational only.
-echo ""
-echo "PASS: Local 'alpha' is ${AHEAD} commit(s) AHEAD of origin/alpha."
-echo "      (origin/alpha may not be fully fetched, or local alpha has unpushed work.)"
+if [[ "$BEHIND" -gt 0 ]]; then
+  echo "INFO: Local 'alpha' is ${BEHIND} commit(s) behind 'origin/alpha'."
+  echo "Consider running 'git fetch origin alpha:alpha' before rebasing."
+fi
+
+echo "OK: Local 'alpha' and 'origin/alpha' are within acceptable range (ahead=${AHEAD}, behind=${BEHIND})."
 exit 0

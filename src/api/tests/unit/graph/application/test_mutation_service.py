@@ -613,7 +613,27 @@ class TestGraphMutationServiceApplyFromJSONL:
         assert result.success is False
         assert result.operations_applied == 0
         assert len(result.errors) > 0
-        assert "JSON" in result.errors[0] or "parse" in result.errors[0].lower()
+
+        # Error message must include both parse indicator and the line number.
+        # Use case-insensitive checks that are robust to message formatting.
+        import re
+
+        first_error = result.errors[0]
+        assert "JSON" in first_error or "parse" in first_error.lower(), (
+            f"Error message must mention JSON or parse, got: {first_error!r}"
+        )
+        assert re.search(r"\bline\s*1\b", first_error, re.IGNORECASE), (
+            f"Error message must include 'line 1' token, got: {first_error!r}"
+        )
+
+        # At least one error entry must provide the content preview.
+        # Order-agnostic check so it works even if more errors are added.
+        assert len(result.errors) >= 2, (
+            "Expected at least two error entries (parse error + content preview)"
+        )
+        assert any("line content" in err.lower() for err in result.errors), (
+            "At least one error entry must include 'Line content:' preview"
+        )
 
     def test_returns_error_on_invalid_mutation_operation(self):
         """Should return error result for invalid MutationOperation."""

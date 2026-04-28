@@ -25,11 +25,36 @@ class CreateKnowledgeGraphRequest(BaseModel):
 
 
 class KnowledgeGraphListResponse(BaseModel):
-    """Response model for listing knowledge graphs."""
+    """Response containing a list of knowledge graphs.
+
+    Attributes:
+        knowledge_graphs: List of knowledge graph details
+        count: Total number of knowledge graphs returned
+    """
 
     knowledge_graphs: list[KnowledgeGraphResponse] = Field(
+        ..., description="List of knowledge graphs"
+    )
+    count: int = Field(..., description="Number of knowledge graphs returned")
+
+
+class UpdateKnowledgeGraphRequest(BaseModel):
+    """Request body for updating a knowledge graph's metadata.
+
+    Attributes:
+        name: New name for the knowledge graph
+        description: New description for the knowledge graph
+    """
+
+    name: str = Field(
         ...,
-        description="List of knowledge graphs",
+        description="New name for the knowledge graph",
+        min_length=1,
+        max_length=100,
+    )
+    description: str = Field(
+        default="",
+        description="New description for the knowledge graph",
     )
 
 

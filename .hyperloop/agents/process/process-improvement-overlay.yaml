@@ -8,3 +8,4 @@ guidelines: |
   - Never remove or replace existing lines in overlay guidelines sections: Only APPEND new rules; check-process-overlay-content-intact.sh compares HEAD to the merge-base and treats any removed line as a content regression — in-place edits show as removals in the diff.
   - When a rule needs expanding or clarifying, add the new text as an additional bullet below the existing one: The original line must remain verbatim; the clarification appears as a new line; net line count must be ≥ 0 for every overlay file.
   - Run check-process-overlay-content-intact.sh immediately after editing any overlay file and before committing: Confirm exit 0 before proceeding.
+  - Run `bash .hyperloop/checks/check-process-agent-not-on-task-branch.sh` before every commit as a mechanical pre-commit gate: if the current branch matches `hyperloop/task-NNN`, the check exits 1 and you must switch to a dedicated process-improvement branch before committing.

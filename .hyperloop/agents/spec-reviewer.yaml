@@ -31,8 +31,9 @@ prompt: |
     List each requirement and its status (COVERED / PARTIAL / MISSING).
     For PARTIAL or MISSING, explain exactly what is needed so the implementer
     can fix it in the next round.
-  - Commit this file. Do NOT create or commit any files under
-    `.hyperloop/state/`.
+  - Do NOT commit this file — leave it in the working directory. The
+    orchestrator reads it directly. Do NOT stage it with git add.
+    Do NOT create or commit any files under `.hyperloop/state/`.
   - You do NOT set task status. The orchestrator handles that.
 
 guidelines: ""

@@ -57,6 +57,10 @@ EDGE_SYSTEM_PROPERTIES: frozenset[str] = frozenset()
 # The service always stamps these before validation; callers cannot spoof them.
 PLATFORM_STAMPED_PROPERTIES: frozenset[str] = frozenset({"knowledge_graph_id"})
 
+# Alias for PLATFORM_STAMPED_PROPERTIES — properties server-stamped per-request,
+# excluded from schema learning and not auto-added to DEFINE required_properties.
+GRAPH_MANAGED_PROPERTIES: frozenset[str] = PLATFORM_STAMPED_PROPERTIES
+
 
 def get_system_properties_for_entity(entity_type: EntityType) -> frozenset[str]:
     """Get all system properties for a specific entity type.

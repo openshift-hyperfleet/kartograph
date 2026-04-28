@@ -158,13 +158,16 @@ def get_graph_secure_enclave_service(
 def get_mutation_applier(
     client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
 ) -> MutationApplier:
-    """Get MutationApplier instance.
+    """Get MutationApplier instance routed to the current tenant's graph.
+
+    Uses ``get_age_graph_client`` so that mutations are always written to the
+    correct tenant-isolated graph (``tenant_{tenant_id}``).
 
     Args:
-        client: Request-scoped graph client
+        client: Request-scoped graph client for the tenant graph.
 
     Returns:
-        MutationApplier instance with AGE bulk loading strategy
+        MutationApplier instance with AGE bulk loading strategy.
     """
     # AgeBulkLoadingStrategy creates its own AgeIndexingStrategy by default
     strategy = AgeBulkLoadingStrategy()

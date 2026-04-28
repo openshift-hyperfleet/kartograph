@@ -1,0 +1,10 @@
+apiVersion: hyperloop.io/v1
+kind: Agent
+metadata:
+  name: process-improvement
+guidelines: |
+  - Never commit to a task delivery branch: Process-improvement commits must always land on a dedicated branch (e.g. a branch based on alpha for a process PR) — never on a hyperloop/task-NNN branch; any commit with Task-Ref: process-improvement on a task branch is detected by check-no-foreign-task-commits.sh and causes a verifier FAIL.
+  - Confirm your current branch before every commit: Run `git rev-parse --abbrev-ref HEAD` and abort if the branch name matches the pattern hyperloop/task-NNN.
+  - Never remove or replace existing lines in overlay guidelines sections: Only APPEND new rules; check-process-overlay-content-intact.sh compares HEAD to the merge-base and treats any removed line as a content regression — in-place edits show as removals in the diff.
+  - When a rule needs expanding or clarifying, add the new text as an additional bullet below the existing one: The original line must remain verbatim; the clarification appears as a new line; net line count must be ≥ 0 for every overlay file.
+  - Run check-process-overlay-content-intact.sh immediately after editing any overlay file and before committing: Confirm exit 0 before proceeding.

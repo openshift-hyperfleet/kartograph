@@ -66,8 +66,13 @@ echo "New check scripts introduced by this branch:"
 echo "$new_checks" | sed 's/^/  /'
 echo ""
 
+# Determine the expected task ref from the current branch name (if this is a task branch).
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+EXPECTED_TASK=$(echo "$CURRENT_BRANCH" | grep -oE 'task-[0-9]+' | head -1 || true)
+
 FAILED=()
 PASSED=()
+SKIPPED_FOREIGN=()
 
 while IFS= read -r check_path; do
   check_name=$(basename "$check_path")
@@ -84,6 +89,26 @@ while IFS= read -r check_path; do
     FAILED+=("$check_name (MISSING)")
     echo ""
     continue
+  fi
+
+  # On a task branch, skip scripts introduced by foreign (non-matching) commits.
+  # A process-improvement agent that committed to the wrong branch may introduce
+  # a check script that detects task-branch contamination and intentionally exits 1
+  # on any task branch — running it here would cascade check-no-foreign-task-commits.sh
+  # failures into a second, misleading FAIL under this script.
+  if [[ -n "$EXPECTED_TASK" ]]; then
+    intro_commit=$(git log --format="%H" "$MERGE_BASE"..HEAD -- "$check_path" 2>/dev/null | tail -1 || true)
+    if [[ -n "$intro_commit" ]]; then
+      intro_task_ref=$(git log -1 --format="%(trailers:key=Task-Ref,valueonly)" "$intro_commit" 2>/dev/null \
+        | tr -d '[:space:]' || true)
+      if [[ -n "$intro_task_ref" && "$intro_task_ref" != "$EXPECTED_TASK" ]]; then
+        echo "── $check_name — SKIPPED (introduced by foreign commit ${intro_commit:0:10}, Task-Ref: $intro_task_ref != $EXPECTED_TASK)"
+        echo "   check-no-foreign-task-commits.sh already flags this contamination."
+        SKIPPED_FOREIGN+=("$check_name (foreign: $intro_task_ref)")
+        echo ""
+        continue
+      fi
+    fi
   fi
 
   echo "── $check_name ──────────────────────────────────────"
@@ -105,6 +130,15 @@ if [[ ${#PASSED[@]} -gt 0 ]]; then
   for c in "${PASSED[@]}"; do
     echo "  ✓ $c"
   done
+  echo ""
+fi
+
+if [[ ${#SKIPPED_FOREIGN[@]} -gt 0 ]]; then
+  echo "SKIPPED — foreign-commit contamination (${#SKIPPED_FOREIGN[@]}):"
+  for c in "${SKIPPED_FOREIGN[@]}"; do
+    echo "  ⚠ $c"
+  done
+  echo "  (check-no-foreign-task-commits.sh is the authoritative failure for these)"
   echo ""
 fi
 

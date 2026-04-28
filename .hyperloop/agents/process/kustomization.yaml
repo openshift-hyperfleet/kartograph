@@ -6,3 +6,5 @@ patches:
     target: { kind: Agent, name: implementer }
   - path: verifier-overlay.yaml
     target: { kind: Agent, name: verifier }
+  - path: process-improvement-overlay.yaml
+    target: { kind: Agent, name: process-improvement }

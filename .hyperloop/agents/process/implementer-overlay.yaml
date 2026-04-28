@@ -21,3 +21,5 @@ guidelines: |
   - All spec scenarios must be COVERED or have a formal blocker before submitting.
   - Every @pytest.mark.skip test must have at least one real assertion.
   - When the spec mentions idempotency, duplicate delivery, or retry, run check-idempotency-tests.sh against the spec before submitting.
+  - Never commit .hyperloop/worker-result.yaml to the task branch: if it was accidentally staged, run `git restore --staged .hyperloop/worker-result.yaml` before committing.
+  - When any protocol artifact file (.hyperloop/worker-result.yaml, .hyperloop/state/**) is accidentally committed, the ONLY correct fix is `git rebase -i $(git merge-base HEAD alpha)` to excise the commit from history; adding a deletion commit does NOT fix the violation because check-worker-result-not-committed.sh flags deletions in branch history as well as additions.

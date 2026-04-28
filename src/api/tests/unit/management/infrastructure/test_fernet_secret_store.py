@@ -354,3 +354,30 @@ class TestTenantIsolation:
 
         assert result is False
         mock_session.delete.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_retrieve_with_correct_tenant_succeeds(
+        self, mock_session: AsyncMock, fernet_key: str
+    ):
+        """Credentials can be retrieved by the tenant that stored them.
+
+        Positive case: confirms the correct tenant CAN retrieve their credentials,
+        complementing the isolation test that verifies the wrong tenant CANNOT.
+
+        Spec: Tenant Isolation — same path, different tenants (positive path).
+        """
+        store = _make_store(mock_session, [fernet_key])
+        credentials = {"api_key": "secret-value"}
+
+        # Store the credentials for tenant-A
+        await store.store("datasource/abc/credentials", "tenant-A", credentials)
+        model = mock_session.merge.call_args[0][0]
+        assert model.tenant_id == "tenant-A"
+
+        # Retrieve as tenant-A: DB returns the matching model
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        result = await store.retrieve("datasource/abc/credentials", "tenant-A")
+        assert result == credentials

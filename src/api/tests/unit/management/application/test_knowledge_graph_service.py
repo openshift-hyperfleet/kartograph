@@ -79,6 +79,12 @@ def mock_probe():
 
 
 @pytest.fixture
+def mock_secret_store():
+    """Create a mock ISecretStoreRepository."""
+    return AsyncMock()
+
+
+@pytest.fixture
 def tenant_id():
     return "tenant-123"
 

@@ -7,7 +7,6 @@ from fastmcp.dependencies import Depends
 from fastmcp.server.dependencies import get_http_headers
 
 from infrastructure.mcp_dependencies import (
-    get_accessible_knowledge_graphs_for_mcp,
     get_mcp_secure_enclave,
     validate_mcp_api_key,
     validate_mcp_bearer_token,
@@ -24,7 +23,7 @@ from query.dependencies import (
     get_mcp_query_service,
     get_prompt_repository,
 )
-from query.ports.exceptions import InvalidRemoteFileURL, RemoteFileFetchFailed
+from query.domain.value_objects import QueryError, QueryResultRow
 from query.ports.file_repository_models import RemoteFileRepositoryResponse
 from shared_kernel.middleware.mcp_api_key_auth import MCPApiKeyAuthMiddleware
 from shared_kernel.middleware.mcp_auth import get_mcp_auth_context
@@ -191,67 +190,6 @@ def _filter_by_knowledge_graph(
     return filtered
 
 
-def _build_error_response(result: QueryError) -> Dict[str, Any]:
-    """Build the error response dict for a failed Cypher query.
-
-    Constructs the dict returned by `query_graph` when execution fails.
-    The `correlation_id` key is included only when the QueryError carries a
-    non-None value — forbidden and timeout errors always have one; syntax and
-    unknown errors do not.
-
-    Spec requirements:
-      - Keyword blacklist scenario: "the error response includes a correlation
-        ID for log lookup".
-      - Timeout scenario: "a timeout error is returned with a correlation ID
-        for debugging".
-      - Execution/unknown errors: no correlation_id generated — omit key
-        entirely to avoid a spurious null in the client response.
-
-    Args:
-        result: The QueryError value object from MCPQueryService.
-
-    Returns:
-        Dict containing at minimum: success=False, error_type, message.
-        When correlation_id is not None, the dict also contains correlation_id.
-    """
-    response: Dict[str, Any] = {
-        "success": False,
-        "error_type": result.error_type,
-        "message": result.message,
-    }
-    if result.correlation_id is not None:
-        response["correlation_id"] = result.correlation_id
-    return response
-
-
-def _clamp_query_params(
-    timeout_seconds: int,
-    max_rows: int,
-    max_timeout: int = 60,
-    max_limit: int = 10_000,
-) -> tuple[int, int]:
-    """Clamp query parameters to their spec-defined maximums.
-
-    Extracts the bounds enforcement from ``query_graph`` into a pure, testable
-    helper so the clamping logic can be verified independently of the FastMCP
-    tool wrapper.
-
-    Spec: mcp-server.spec.md
-      - Scenario: Query timeout — "max 60 seconds"
-      - Scenario: Result limiting — "max 10000"
-
-    Args:
-        timeout_seconds: Requested query timeout. Clamped to ``max_timeout``.
-        max_rows: Requested row limit. Clamped to ``max_limit``.
-        max_timeout: Upper bound for timeout_seconds (default 60 s per spec).
-        max_limit: Upper bound for max_rows (default 10 000 per spec).
-
-    Returns:
-        A tuple of ``(clamped_timeout_seconds, clamped_max_rows)``.
-    """
-    return min(timeout_seconds, max_timeout), min(max_rows, max_limit)
-
-
 @mcp.tool
 async def query_graph(
     cypher: str,
@@ -325,6 +263,13 @@ async def query_graph(
 
     if isinstance(result, QueryError):
         return _build_error_response(result)
+
+    # Filter to the requested KnowledgeGraph (when provided)
+    rows = _filter_by_knowledge_graph(result.rows, knowledge_graph_id)
+
+    # Apply secure enclave: redact entities the caller is not authorized to see
+    secure_enclave = get_mcp_secure_enclave()
+    rows = await secure_enclave.apply_redaction(rows)
 
     # Filter to the requested KnowledgeGraph (when provided)
     rows = _filter_by_knowledge_graph(result.rows, knowledge_graph_id)

@@ -8,8 +8,10 @@ from fastapi.testclient import TestClient
 
 from graph.domain.value_objects import (
     EdgeRecord,
+    EntityType,
     MutationResult,
     NodeRecord,
+    TypeDefinition,
 )
 from iam.application.value_objects import CurrentUser
 from iam.domain.value_objects import TenantId, UserId
@@ -147,6 +149,12 @@ def fake_graph_probe():
 
 
 @pytest.fixture
+def mock_schema_service():
+    """Mock GraphSchemaService for testing."""
+    return Mock()
+
+
+@pytest.fixture
 def mock_current_user():
     """Mock CurrentUser for authentication."""
     return CurrentUser(
@@ -170,7 +178,11 @@ def mock_authz_denied():
 
 @pytest.fixture
 def test_client(
-    mock_enclave_service, mock_mutation_service, mock_current_user, mock_authz_allowed
+    mock_enclave_service,
+    mock_mutation_service,
+    mock_schema_service,
+    mock_current_user,
+    mock_authz_allowed,
 ):
     """Create TestClient with mocked dependencies."""
     from fastapi import FastAPI
@@ -188,6 +200,9 @@ def test_client(
     )
     app.dependency_overrides[dependencies.get_graph_mutation_service] = (
         lambda: mock_mutation_service
+    )
+    app.dependency_overrides[dependencies.get_schema_service] = (
+        lambda: mock_schema_service
     )
     app.dependency_overrides[get_current_user] = lambda: mock_current_user
     app.dependency_overrides[get_spicedb_client] = lambda: mock_authz_allowed
@@ -791,3 +806,233 @@ class TestServerErrorProbeEmission:
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         # Validation errors must not trigger the server-error probe
         assert len(fake_graph_probe.server_error_calls) == 0
+
+
+class TestGetOntologyRoute:
+    """Tests for GET /graph/schema/ontology endpoint."""
+
+    def test_returns_all_type_definitions(self, test_client, mock_schema_service):
+        """Should return all type definitions as the ontology."""
+        person_def = TypeDefinition(
+            label="person",
+            entity_type=EntityType.NODE,
+            description="A person entity",
+            required_properties={"name"},
+            optional_properties={"email"},
+        )
+        knows_def = TypeDefinition(
+            label="knows",
+            entity_type=EntityType.EDGE,
+            description="Person knows another person",
+            required_properties=set(),
+            optional_properties=set(),
+        )
+        mock_schema_service.get_ontology.return_value = [person_def, knows_def]
+
+        response = test_client.get("/graph/schema/ontology")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) == 2
+        labels = {d["label"] for d in data}
+        assert labels == {"person", "knows"}
+        mock_schema_service.get_ontology.assert_called_once()
+
+    def test_returns_empty_list_when_no_definitions(
+        self, test_client, mock_schema_service
+    ):
+        """Should return empty list when no type definitions exist."""
+        mock_schema_service.get_ontology.return_value = []
+
+        response = test_client.get("/graph/schema/ontology")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data == []
+
+    def test_type_definition_includes_all_fields(
+        self, test_client, mock_schema_service
+    ):
+        """Should include labels, entity type, description, required and optional properties."""
+        person_def = TypeDefinition(
+            label="person",
+            entity_type=EntityType.NODE,
+            description="A person entity",
+            required_properties={"name"},
+            optional_properties={"email", "phone"},
+        )
+        mock_schema_service.get_ontology.return_value = [person_def]
+
+        response = test_client.get("/graph/schema/ontology")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        td = data[0]
+        assert td["label"] == "person"
+        assert td["entity_type"] == "node"
+        assert td["description"] == "A person entity"
+        assert set(td["required_properties"]) == {"name"}
+        assert set(td["optional_properties"]) == {"email", "phone"}
+
+
+class TestGetNodeLabelsRoute:
+    """Tests for GET /graph/schema/nodes endpoint."""
+
+    def test_returns_node_labels(self, test_client, mock_schema_service):
+        """Should return list of node type labels with count."""
+        mock_schema_service.get_node_labels.return_value = ["person", "repository"]
+
+        response = test_client.get("/graph/schema/nodes")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert set(data["labels"]) == {"person", "repository"}
+        assert data["count"] == 2
+
+    def test_passes_search_filter(self, test_client, mock_schema_service):
+        """Should pass search query param to service."""
+        mock_schema_service.get_node_labels.return_value = ["repository"]
+
+        response = test_client.get("/graph/schema/nodes?search=repo")
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_schema_service.get_node_labels.assert_called_once_with(
+            search="repo", has_property=None
+        )
+        data = response.json()
+        assert data["labels"] == ["repository"]
+        assert data["count"] == 1
+
+    def test_passes_has_property_filter(self, test_client, mock_schema_service):
+        """Should pass has_property query param to service."""
+        mock_schema_service.get_node_labels.return_value = ["person"]
+
+        response = test_client.get("/graph/schema/nodes?has_property=name")
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_schema_service.get_node_labels.assert_called_once_with(
+            search=None, has_property="name"
+        )
+        data = response.json()
+        assert data["labels"] == ["person"]
+
+    def test_returns_empty_when_no_matches(self, test_client, mock_schema_service):
+        """Should return empty labels list when no matches."""
+        mock_schema_service.get_node_labels.return_value = []
+
+        response = test_client.get("/graph/schema/nodes?search=nomatch")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["labels"] == []
+        assert data["count"] == 0
+
+
+class TestGetEdgeLabelsRoute:
+    """Tests for GET /graph/schema/edges endpoint."""
+
+    def test_returns_edge_labels(self, test_client, mock_schema_service):
+        """Should return list of edge type labels with count."""
+        mock_schema_service.get_edge_labels.return_value = ["knows", "owns"]
+
+        response = test_client.get("/graph/schema/edges")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert set(data["labels"]) == {"knows", "owns"}
+        assert data["count"] == 2
+
+    def test_passes_search_filter(self, test_client, mock_schema_service):
+        """Should pass search query param to service."""
+        mock_schema_service.get_edge_labels.return_value = ["knows"]
+
+        response = test_client.get("/graph/schema/edges?search=kno")
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_schema_service.get_edge_labels.assert_called_once_with(search="kno")
+
+
+class TestGetNodeSchemaRoute:
+    """Tests for GET /graph/schema/nodes/{label} endpoint."""
+
+    def test_returns_node_type_definition(self, test_client, mock_schema_service):
+        """Should return full TypeDefinition for existing node label."""
+        person_def = TypeDefinition(
+            label="person",
+            entity_type=EntityType.NODE,
+            description="A person entity",
+            required_properties={"name"},
+            optional_properties={"email"},
+        )
+        mock_schema_service.get_node_schema.return_value = person_def
+
+        response = test_client.get("/graph/schema/nodes/person")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["label"] == "person"
+        assert data["entity_type"] == "node"
+        assert data["description"] == "A person entity"
+        assert set(data["required_properties"]) == {"name"}
+        mock_schema_service.get_node_schema.assert_called_once_with("person")
+
+    def test_returns_404_for_unknown_label(self, test_client, mock_schema_service):
+        """Should return 404 when node label does not exist."""
+        mock_schema_service.get_node_schema.return_value = None
+
+        response = test_client.get("/graph/schema/nodes/widget")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        data = response.json()
+        assert "widget" in data["detail"]
+
+    def test_scopes_by_node_entity_type(self, test_client, mock_schema_service):
+        """Should request node schema specifically (not edge)."""
+        mock_schema_service.get_node_schema.return_value = None
+
+        test_client.get("/graph/schema/nodes/link")
+
+        mock_schema_service.get_node_schema.assert_called_once_with("link")
+        mock_schema_service.get_edge_schema.assert_not_called()
+
+
+class TestGetEdgeSchemaRoute:
+    """Tests for GET /graph/schema/edges/{label} endpoint."""
+
+    def test_returns_edge_type_definition(self, test_client, mock_schema_service):
+        """Should return full TypeDefinition for existing edge label."""
+        knows_def = TypeDefinition(
+            label="knows",
+            entity_type=EntityType.EDGE,
+            description="Person knows another person",
+            required_properties=set(),
+            optional_properties={"since"},
+        )
+        mock_schema_service.get_edge_schema.return_value = knows_def
+
+        response = test_client.get("/graph/schema/edges/knows")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["label"] == "knows"
+        assert data["entity_type"] == "edge"
+        mock_schema_service.get_edge_schema.assert_called_once_with("knows")
+
+    def test_returns_404_for_unknown_label(self, test_client, mock_schema_service):
+        """Should return 404 when edge label does not exist."""
+        mock_schema_service.get_edge_schema.return_value = None
+
+        response = test_client.get("/graph/schema/edges/widget")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_scopes_by_edge_entity_type(self, test_client, mock_schema_service):
+        """Should request edge schema specifically (not node)."""
+        mock_schema_service.get_edge_schema.return_value = None
+
+        test_client.get("/graph/schema/edges/link")
+
+        mock_schema_service.get_edge_schema.assert_called_once_with("link")
+        mock_schema_service.get_node_schema.assert_not_called()

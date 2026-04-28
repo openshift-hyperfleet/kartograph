@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.33.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.33.0...v3.33.1) (2026-04-28)
+
+
+### Bug Fixes
+
+* **deploy:** add IAM single tenant mode configuration ([#494](https://github.com/openshift-hyperfleet/kartograph/issues/494)) ([9d3d27a](https://github.com/openshift-hyperfleet/kartograph/commit/9d3d27a26acfdc3fcd4b0b938d4933b54742a37e))
+
 ## [3.33.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.8...v3.33.0) (2026-04-28)
 
 

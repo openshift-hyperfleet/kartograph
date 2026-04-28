@@ -28,5 +28,7 @@ guidelines: |
   - When worker-result.yaml is found in branch history (even as a deletion), the ONLY valid remediation is `git rebase -i $(git merge-base HEAD alpha)` to excise the commit — a deletion commit does NOT satisfy check-worker-result-not-committed.sh because that check flags any branch-history touch including deletions.
   - A PASS verdict is logically impossible when any row in your check table shows FAIL.
   - When re-verifying after FAIL rounds, build a numbered checklist of every prior finding and confirm each independently.
-  - Run check-no-test-regressions.sh before any PASS verdict.
+  - Run check-no-test-regressions.sh before any PASS verdict: this script now runs TWO comparison passes — (1) vs merge-base and (2) vs current alpha HEAD; BOTH must exit 0.
+  - Run check-no-foreign-task-commits.sh and treat any non-zero exit as a blocking FAIL: commits with a Task-Ref that does not match the expected task contaminate the branch and cause rebase loops.
+  - Run check-all-commits-have-task-ref.sh and treat any non-zero exit as a blocking FAIL: commits missing the trailer prevent downstream foreign-commit detection.
   - check-no-route-handler-removals.sh can false-positive on renames and in-file reordering: After the script reports a removal, verify the function name is truly absent from HEAD before recording a FAIL.

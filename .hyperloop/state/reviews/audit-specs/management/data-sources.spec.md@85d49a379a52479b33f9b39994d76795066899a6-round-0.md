@@ -4,7 +4,7 @@ round: 0
 role: auditor
 verdict: fail
 ---
-## Prior Verifier Verdict — task-034 (specs/management/credentials.spec.md)
+## Verifier Verdict — task-034 (specs/management/credentials.spec.md)
 
 Worker: verifier
 Date: 2026-04-27

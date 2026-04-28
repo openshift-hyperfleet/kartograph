@@ -115,6 +115,13 @@ spec:
                   key: SPICEDB_USE_TLS
             - name: SPICEDB_CERT_PATH
               value: /etc/spicedb-ca/service-ca.crt
+            # IAM config
+            - name: KARTOGRAPH_IAM_SINGLE_TENANT_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: kartograph-config
+                  key: KARTOGRAPH_IAM_SINGLE_TENANT_MODE
+                  optional: true
             # CORS config
             - name: KARTOGRAPH_CORS_ORIGINS
               valueFrom:

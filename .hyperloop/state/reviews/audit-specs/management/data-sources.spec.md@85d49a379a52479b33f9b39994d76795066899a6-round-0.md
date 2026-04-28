@@ -4,116 +4,97 @@ round: 0
 role: auditor
 verdict: fail
 ---
-## Verifier Verdict — task-034 (specs/management/credentials.spec.md)
+## Alignment Audit — specs/management/data-sources.spec.md
 
-Worker: verifier
-Date: 2026-04-27
-
----
-
-## Summary
-
-All spec requirements and scenarios are fully implemented and tested. The
-previously identified gap (Knowledge graph cascade credential deletion) has been
-addressed on this branch with correct implementation and unit test coverage.
-All verification checks pass.
+Four gaps were found. The application/domain layer is complete and correct,
+but the HTTP presentation layer is missing three required endpoints and has
+one error-handling deficiency.
 
 ---
 
-## Checks
+## GAP 1 — Missing HTTP endpoint: Data Source Retrieval
 
-### 1. Unit Tests — PASS
-2469 tests, 0 failures, 0 errors.
-`cd src/api && uv run pytest tests/unit -v`
+**Spec:** "The system SHALL return data source details only to users with
+`view` permission." (Scenarios: Authorized retrieval / Unauthorized or
+non-existent — no distinction between unauthorized and missing)
 
-### 2. Linting (ruff check) — PASS
-Zero violations across 495 files.
+**Finding:** `DataSourceService.get()` is fully and correctly implemented in
+`src/api/management/application/services/data_source_service.py` lines 183–216,
+including VIEW permission enforcement and existence-leakage prevention.
+However, no HTTP route exposes this to callers.
+`src/api/management/presentation/data_sources/routes.py` defines only:
 
-### 3. Formatting (ruff format) — PASS
-All 495 files already formatted.
+  - GET  /knowledge-graphs/{kg_id}/data-sources  (list)
+  - POST /knowledge-graphs/{kg_id}/data-sources  (create)
+  - POST /data-sources/{ds_id}/sync              (trigger sync)
+  - GET  /data-sources/{ds_id}/sync-runs         (list sync runs)
 
-### 4. Type Checking (mypy) — PASS
-No issues found in 495 source files.
-
-### 5. Architecture Boundary Tests — PASS
-All 40 pytest-archon tests pass. No bounded context boundary violations.
-
-### 6. Integration Tests — NOT RUN
-The implementation changes are in the application and dependency layers.
-Infrastructure/DB layer was tested in a prior run; unit coverage is sufficient
-for this verification round.
-
-### 7. Backend Check Suite — PASS (23/25 scripts)
-Two scripts referenced by `check-run-backend-suite.sh` are absent:
-- `check-alpha-local-vs-remote.sh` — intentionally removed on alpha (commit
-  `ccfff51a`) because it fired on verifiers who cannot fix the root cause.
-- `check-worker-result-not-committed.sh` — intentionally removed on alpha
-  (same commit) because it contradicted the agent protocol and always failed
-  on subsequent rounds due to prior history.
-
-Both scripts were removed by the project maintainer (`jsell-rh`) because they
-are structurally incompatible with the orchestrator model. Their absence is not
-a task-034 regression.
-
-All 23 present scripts passed, including:
-- `check-cascade-delete-cleanup.sh` — PASS
-- `check-cascade-delete-empty-collection-mocks.sh` — PASS
-- `check-domain-aggregate-mocks.sh` — PASS
-- `check-no-direct-logger-usage.sh` — PASS
-- `check-no-foreign-task-commits.sh` — PASS
-- `check-di-wiring-updated.sh` — PASS
+There is no `GET /data-sources/{ds_id}` route. Users have no API endpoint to
+retrieve a single data source by ID.
 
 ---
 
-## Scenario Coverage
+## GAP 2 — Missing HTTP endpoint: Data Source Update
 
-| Requirement | Scenario | Status |
-|---|---|---|
-| Credential Encryption | Store credentials | PASS |
-| Credential Encryption | Retrieve credentials | PASS |
-| Credential Encryption | Credentials not found | PASS |
-| Tenant Isolation | Same path, different tenants | PASS |
-| Key Rotation | Key rotation | PASS |
-| Credential Lifecycle | Data source deletion | PASS |
-| Credential Lifecycle | Knowledge graph cascade | PASS |
+**Spec:** "The system SHALL allow users with `edit` permission to update data
+source connection configuration." (Scenario: Update connection config — name,
+connection_config, raw credentials; credentials path not client-settable)
 
----
-
-## Gap Resolution Verified
-
-The Findings identified that `KnowledgeGraphService.delete()` did not delete
-encrypted credentials when cascading through child data sources. This has been
-fixed:
-
-**Implementation** (`knowledge_graph_service.py`):
-- `secret_store: ISecretStoreRepository | None = None` added to `__init__`.
-- In `delete()`, for each DS with `credentials_path` and a non-None
-  `secret_store`, calls `await self._secret_store.delete(path=..., tenant_id=...)`.
-
-**DI Wiring** (`management/dependencies/knowledge_graph.py`):
-- `FernetSecretStore` instantiated and injected into `KnowledgeGraphService`.
-
-**Unit Tests** (2 new tests, both PASS):
-- `test_delete_removes_credentials_for_data_sources_with_credentials_path`:
-  Asserts `secret_store.delete` called exactly once for the DS with credentials
-  (not for the DS without), and both DS + KG are still removed from DB.
-- `test_delete_skips_credential_cleanup_when_no_secret_store`:
-  Asserts no exception when `secret_store=None` but DS has a `credentials_path`.
-
-**Tenant Isolation Tests** (2 new tests in `test_fernet_secret_store.py`):
-- `test_same_path_different_tenant_raises_key_error`
-- `test_delete_with_wrong_tenant_does_not_delete`
-
-**Commit Trailers**: All 7 commits carry `Task-Ref: task-034`. Two commits also
-carry `Spec-Ref: specs/management/credentials.spec.md@774c6c8e`. No foreign
-task references detected.
+**Finding:** `DataSourceService.update()` is fully and correctly implemented in
+`src/api/management/application/services/data_source_service.py` lines 266–341,
+with EDIT permission check, credential re-encryption at
+`datasource/{id}/credentials`, and system-managed `credentials_path`.
+However, there is no `PATCH` or `PUT /data-sources/{ds_id}` HTTP route in
+`src/api/management/presentation/data_sources/routes.py`. The update capability
+is entirely inaccessible via the API.
 
 ---
 
-## Code Quality
+## GAP 3 — Missing HTTP endpoint: Data Source Deletion
 
-- No direct `logger.*` or `print()` calls in changed files.
-- No `MagicMock`/`AsyncMock` for domain aggregates — real `DataSource` and
-  `Group` aggregates used in delete tests.
-- No hardcoded secrets or environment-specific values.
-- Conventional commit format followed throughout.
+**Spec:** "The system SHALL allow users with `manage` permission to delete a
+data source." (Scenario: credentials deleted first, then DS, then authorization
+relationships cleaned up)
+
+**Finding:** `DataSourceService.delete()` is fully and correctly implemented in
+`src/api/management/application/services/data_source_service.py` lines 343–396:
+credentials deleted first (lines 385–389), data source deleted (line 392), and
+`DataSourceDeleted` event published via outbox (repository lines 151–163) which
+triggers downstream authorization cleanup. However, there is no
+`DELETE /data-sources/{ds_id}` HTTP route in
+`src/api/management/presentation/data_sources/routes.py`. Deletion is entirely
+inaccessible via the API.
+
+---
+
+## GAP 4 — Duplicate name error not surfaced correctly in HTTP response
+
+**Spec:** "WHEN a user attempts to create another [data source] with the same
+name, THEN the request is rejected with a duplicate name error."
+
+**Finding:** The domain layer correctly raises `DuplicateDataSourceNameError`
+(via `IntegrityError` on the `uq_data_sources_kg_name` constraint) in
+`src/api/management/infrastructure/repositories/data_source_repository.py`
+lines 107–115. However, the `create_data_source` HTTP route in
+`src/api/management/presentation/data_sources/routes.py` lines 119–132 handles
+only `UnauthorizedError` (→ 403), `ValueError` (→ 404), and catch-all
+`Exception` (→ 500). `DuplicateDataSourceNameError` falls through to the 500
+handler. The spec requires a meaningful duplicate-name error response, not a
+generic internal server error.
+
+---
+
+## Requirements that ARE correctly implemented
+
+| Requirement | Status |
+|---|---|
+| ULID generation, KG/tenant association, MANUAL schedule default | PASS |
+| Credential encryption at datasource/{id}/credentials | PASS |
+| Name validation 1–100 chars (domain + Pydantic layer) | PASS |
+| Schedule types MANUAL/CRON/INTERVAL; missing value validation | PASS |
+| Immutability after deletion (AggregateDeletedError in aggregate) | PASS |
+| Sync triggering: pending sync run created + event emitted | PASS |
+| Sync run lifecycle tracking (status/started_at/completed_at/error) | PASS |
+| Sync run cascade deletion via DB foreign key ON DELETE CASCADE | PASS |
+| Permission inheritance via SpiceDB schema (inherited from KG) | PASS |
+| Not-found / unauthorized conflation in service.get() | PASS |

@@ -202,6 +202,22 @@ async def get_neighbors(
     }
 
 
+@router.get("/schema/ontology", response_model=list[TypeDefinition])
+async def get_ontology_endpoint(
+    service: GraphSchemaService = Depends(get_schema_service),
+) -> list[TypeDefinition]:
+    """Get the complete graph ontology — all type definitions.
+
+    Returns all registered node and edge type definitions. Each definition
+    includes the label, entity type, description, required properties, and
+    optional properties discovered through schema evolution.
+
+    Returns:
+        List of all TypeDefinitions (nodes and edges combined)
+    """
+    return await run_in_threadpool(service.get_ontology)
+
+
 @router.get("/schema/nodes", response_model=SchemaLabelsResponse)
 async def get_node_labels_endpoint(
     search: str | None = None,

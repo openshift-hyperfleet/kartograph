@@ -6,12 +6,13 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.17.2",
-    "authlib>=1.6.9",  # CVE fix: transitive dep pinned for security
+    "authlib>=1.6.9", # CVE fix: transitive dep pinned for security
     "apache-age-python>=0.0.7",
     "asyncpg>=0.31.0",
     "asyncpg-listen>=0.0.9",
     "authzed>=1.24.0",
     "bcrypt>=5.0.0",
+    "croniter>=3.0.0",
     "cyclopts==5.0.0a1",
     "dlt[postgres]>=1.9.0",
     "fastapi[standard]>=0.123.9",
@@ -38,6 +39,7 @@ dev = [
     "pytest-mock>=3.15.1",
     "rich>=14.2.0",
     "ruff>=0.14.8",
+    "types-croniter>=6.2.2",
     "types-psycopg2>=2.9.21.20251012",
     "types-pyyaml>=6.0.12",
 ]

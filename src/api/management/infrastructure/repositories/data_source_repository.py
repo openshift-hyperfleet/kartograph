@@ -140,6 +140,13 @@ class DataSourceRepository(IDataSourceRepository):
         self._probe.data_sources_listed(knowledge_graph_id, len(data_sources))
         return data_sources
 
+    async def find_all(self) -> list[DataSource]:
+        """List all data sources across all knowledge graphs and tenants."""
+        stmt = select(DataSourceModel)
+        result = await self._session.execute(stmt)
+        models = result.scalars().all()
+        return [self._to_domain(model) for model in models]
+
     async def delete(self, data_source: DataSource) -> bool:
         stmt = select(DataSourceModel).where(DataSourceModel.id == data_source.id.value)
         result = await self._session.execute(stmt)

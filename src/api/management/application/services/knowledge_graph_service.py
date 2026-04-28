@@ -405,8 +405,9 @@ class KnowledgeGraphService:
             if self._ds_repo is not None:
                 data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
                 for ds in data_sources:
-                    # Delete associated encrypted credentials before removing the DS row
-                    if ds.credentials_path and self._secret_store is not None:
+                    # Clean up encrypted credentials before removing the row to
+                    # prevent orphaned credential blobs in the secret store.
+                    if self._secret_store is not None and ds.credentials_path:
                         await self._secret_store.delete(
                             path=ds.credentials_path,
                             tenant_id=self._scope_to_tenant,

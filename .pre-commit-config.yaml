@@ -55,9 +55,11 @@ repos:
         args: [--config-file=src/api/pyproject.toml, --ignore-missing-imports]
         additional_dependencies:
           - "apache-age-python"
+          - "croniter>=3.0.0"
           - "fastapi[standard]"
           - "pydantic-settings"
           - "psycopg2"
+          - "types-croniter>=6.2.2"
           - "types-psycopg2"
           - "types-PyYAML"
           - "pytest"

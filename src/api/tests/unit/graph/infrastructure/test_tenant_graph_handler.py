@@ -270,22 +270,95 @@ class TestAGEGraphProvisionerIdempotency:
         # Despite the error, connection must be returned
         mock_connection_factory.return_connection.assert_called_once_with(mock_conn)
 
-    def test_rolls_back_on_create_failure(self) -> None:
-        """Connection is rolled back when create_graph fails, then re-raises."""
+    def test_rollback_or_commit_called_on_no_op_path(self) -> None:
+        """Spec: DB connection must commit or rollback even on no-op path.
+
+        When the graph already exists, the connection must be committed or
+        rolled back before returning to the pool to avoid leaking open
+        transactions.
+
+        Spec: specs/iam/tenants.spec.md - Requirement: Tenant graph provisioning
+        'the database connection MUST be properly committed or rolled back on
+        all code paths (including the no-op/exists path)'
+        """
         provisioner, mock_connection_factory, mock_conn, mock_cursor = (
             self._make_provisioner()
         )
 
-        # Graph does not exist, but create_graph fails
+        # Simulate: graph ALREADY EXISTS — no-op path
+        mock_cursor.fetchone.return_value = (1,)
+
+        provisioner.ensure_graph_exists("tenant_abc123")
+
+        # Either commit or rollback MUST be called on the no-op path
+        assert mock_conn.commit.called or mock_conn.rollback.called, (
+            "Connection must commit or rollback on no-op path to avoid leaking "
+            "open transactions back to the connection pool"
+        )
+
+    def test_advisory_lock_acquired_for_atomicity(self) -> None:
+        """Spec: existence check and creation must be performed atomically.
+
+        An advisory lock must be acquired before the existence check to prevent
+        race conditions under concurrent duplicate event deliveries.
+
+        Spec: specs/iam/tenants.spec.md - Requirement: Tenant graph provisioning
+        'the existence check and graph creation MUST be performed atomically
+        (e.g. via CREATE GRAPH IF NOT EXISTS or an advisory lock)'
+        """
+        provisioner, mock_connection_factory, mock_conn, mock_cursor = (
+            self._make_provisioner()
+        )
+        mock_cursor.fetchone.return_value = None  # graph does not exist
+
+        provisioner.ensure_graph_exists("tenant_abc123")
+
+        # Verify that an advisory lock was acquired
+        all_calls = mock_cursor.execute.call_args_list
+        lock_calls = [
+            i
+            for i, c in enumerate(all_calls)
+            if "advisory" in str(c).lower() or "pg_advisory" in str(c).lower()
+        ]
+        assert len(lock_calls) >= 1, (
+            "Advisory lock must be acquired to make existence check + creation atomic"
+        )
+
+        # The advisory lock must be acquired BEFORE the existence check
+        existence_check_calls = [
+            i for i, c in enumerate(all_calls) if "ag_catalog.ag_graph" in str(c)
+        ]
+        assert lock_calls[0] < existence_check_calls[0], (
+            "Advisory lock must be acquired before the existence check"
+        )
+
+    def test_rolls_back_on_create_failure(self) -> None:
+        """Connection is rolled back when create_graph fails, then re-raises.
+
+        With the advisory lock, the call sequence is:
+        1. advisory lock (no-op)
+        2. existence check (returns None - graph not found)
+        3. create_graph (fails)
+        """
+        provisioner, mock_connection_factory, mock_conn, mock_cursor = (
+            self._make_provisioner()
+        )
+
+        # Graph does not exist, but create_graph fails.
+        # With advisory lock, there are now 3 execute calls:
+        # 1. advisory lock, 2. existence check, 3. create_graph (raises)
         call_count = [0]
 
         def execute_side_effect(sql, params=None):
             call_count[0] += 1
             if call_count[0] == 1:
-                # First call: existence check returns None (graph not found)
+                # First call: advisory lock — no-op
                 pass
             elif call_count[0] == 2:
-                # Second call: create_graph fails
+                # Second call: existence check — no-op (fetchone returns None)
+                pass
+            elif call_count[0] == 3:
+                # Third call: create_graph fails
                 raise RuntimeError("Cannot create graph")
 
         mock_cursor.execute.side_effect = execute_side_effect

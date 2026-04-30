@@ -522,3 +522,63 @@ class TestDataSourceSyncTracking:
 
         assert retrieved is not None
         assert retrieved.last_sync_at is not None
+
+
+class TestDeleteRollback:
+    """Tests that data source deletion is fully atomic — rolls back on failure.
+
+    The data source service deletes credentials and the DS record in a single
+    transaction. If any step fails, neither must persist. These integration
+    tests verify actual SQLAlchemy rollback semantics; unit-level mock sessions
+    cannot replicate this.
+    """
+
+    @pytest.mark.asyncio
+    async def test_data_source_deletion_rollback_on_failure(
+        self,
+        knowledge_graph_repository: KnowledgeGraphRepository,
+        data_source_repository: DataSourceRepository,
+        async_session,
+        test_tenant: str,
+        test_workspace: str,
+        clean_management_data: None,
+    ) -> None:
+        """When data source deletion fails mid-transaction, the DS is not deleted.
+
+        Simulates a failure inside the transaction after the delete is staged
+        but before it is committed, verifying full rollback.
+        """
+        # Arrange: create KG and DS
+        kg = KnowledgeGraph.create(
+            tenant_id=test_tenant,
+            workspace_id=test_workspace,
+            name="DS Rollback KG",
+            description="",
+        )
+        async with async_session.begin():
+            await knowledge_graph_repository.save(kg)
+
+        ds = DataSource.create(
+            knowledge_graph_id=kg.id.value,
+            tenant_id=test_tenant,
+            name="DS Rollback Test",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"repo": "org/repo"},
+        )
+        async with async_session.begin():
+            await data_source_repository.save(ds)
+
+        # Act: start a deletion transaction but raise before it commits
+        try:
+            async with async_session.begin():
+                ds.mark_for_deletion(deleted_by="user-1")
+                await data_source_repository.delete(ds)
+                raise Exception("Simulated failure before commit")
+        except Exception:
+            pass  # Expected: transaction must roll back
+
+        # Assert: DS still exists — no partial deletion
+        retrieved = await data_source_repository.get_by_id(ds.id)
+        assert retrieved is not None, (
+            "DataSource must not be deleted when the transaction rolls back"
+        )

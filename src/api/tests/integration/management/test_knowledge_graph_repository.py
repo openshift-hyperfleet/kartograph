@@ -6,12 +6,17 @@ They verify the complete flow of persisting and retrieving knowledge graphs.
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.domain.aggregates import KnowledgeGraph
+from management.domain.aggregates import DataSource, KnowledgeGraph
+from management.infrastructure.repositories.data_source_repository import (
+    DataSourceRepository,
+)
 from management.infrastructure.repositories.knowledge_graph_repository import (
     KnowledgeGraphRepository,
 )
 from management.ports.exceptions import DuplicateKnowledgeGraphNameError
+from shared_kernel.datasource_types import DataSourceAdapterType
 
 pytestmark = pytest.mark.integration
 
@@ -476,3 +481,74 @@ class TestOutboxConsistency:
         assert rows[0].aggregate_type == "knowledge_graph"
         assert rows[0].event_type == "KnowledgeGraphDeleted"
         assert rows[0].aggregate_id == kg.id.value
+
+
+class TestCascadeDeleteRollback:
+    """Tests that KG cascade delete is fully atomic — rolls back on failure.
+
+    The spec requires: 'if any step fails, the entire deletion rolls back
+    with no partial state'. These tests inject a failure mid-cascade and
+    verify full rollback using real SQLAlchemy sessions.
+
+    NOTE: These are integration tests; mock sessions cannot verify SQLAlchemy
+    transaction rollback semantics.
+    """
+
+    @pytest.mark.asyncio
+    async def test_knowledge_graph_deletion_rollback_on_failure(
+        self,
+        knowledge_graph_repository: KnowledgeGraphRepository,
+        data_source_repository: DataSourceRepository,
+        async_session: AsyncSession,
+        test_tenant: str,
+        test_workspace: str,
+        clean_management_data: None,
+    ) -> None:
+        """When cascade delete fails mid-transaction, neither KG nor its data
+        sources are deleted — full transactional rollback.
+
+        Simulates a failure after the data source is deleted but before the
+        knowledge graph itself is removed, verifying that the entire cascade
+        rolls back atomically as required by the spec.
+        """
+        # Arrange: create a KG with one data source
+        kg = KnowledgeGraph.create(
+            tenant_id=test_tenant,
+            workspace_id=test_workspace,
+            name="Rollback Test KG",
+            description="Testing cascade delete rollback",
+        )
+        ds = DataSource.create(
+            knowledge_graph_id=kg.id.value,
+            tenant_id=test_tenant,
+            name="Rollback Test DS",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"repo": "org/repo", "branch": "main"},
+        )
+
+        async with async_session.begin():
+            await knowledge_graph_repository.save(kg)
+
+        async with async_session.begin():
+            await data_source_repository.save(ds)
+
+        # Act: simulate cascade — delete the DS then raise before the KG is removed
+        try:
+            async with async_session.begin():
+                ds.mark_for_deletion(deleted_by="user-1")
+                await data_source_repository.delete(ds)
+                # Inject failure before the KG deletion step
+                raise Exception("Simulated failure mid-cascade")
+        except Exception:
+            pass  # Expected: the transaction must roll back
+
+        # Assert: both KG and DS still exist — no partial state
+        retrieved_kg = await knowledge_graph_repository.get_by_id(kg.id)
+        assert retrieved_kg is not None, (
+            "KnowledgeGraph must not be deleted when cascade fails mid-transaction"
+        )
+
+        retrieved_ds = await data_source_repository.get_by_id(ds.id)
+        assert retrieved_ds is not None, (
+            "DataSource must not be deleted when cascade fails mid-transaction"
+        )

@@ -17,6 +17,7 @@ from management.domain.aggregates import KnowledgeGraph
 from management.domain.value_objects import KnowledgeGraphId
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
+    KnowledgeGraphNotFoundError,
     UnauthorizedError,
 )
 from management.ports.repositories import (
@@ -340,10 +341,10 @@ class KnowledgeGraphService:
 
         kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
         if kg is None:
-            raise ValueError(f"Knowledge graph {kg_id} not found")
+            raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
 
         if kg.tenant_id != self._scope_to_tenant:
-            raise ValueError(f"Knowledge graph {kg_id} not found")
+            raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
 
         kg.update(name=name, description=description, updated_by=user_id)
 

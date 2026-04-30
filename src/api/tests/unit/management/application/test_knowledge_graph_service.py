@@ -2,13 +2,16 @@
 
 Tests verify authorization checks, repository interactions,
 transaction management, and observability probe calls.
+
+Collaborators use in-memory fakes (no MagicMock/AsyncMock for domain or
+application-layer ports) per specs/nfr/testing.spec.md.
 """
 
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -29,15 +32,29 @@ from management.ports.exceptions import (
     KnowledgeGraphNotFoundError,
     UnauthorizedError,
 )
-from shared_kernel.authorization.types import (
-    Permission,
-    RelationshipTuple,
+from shared_kernel.authorization.types import Permission
+from tests.fakes.authorization import InMemoryAuthorizationProvider
+from tests.fakes.management import (
+    InMemoryDataSourceRepository,
+    InMemoryKnowledgeGraphRepository,
+    InMemorySecretStoreRepository,
+    RecordingKnowledgeGraphServiceProbe,
 )
+
+
+# ---------------------------------------------------------------------------
+# Shared fixtures
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
 def mock_session():
-    """Create a mock AsyncSession with begin() context manager."""
+    """Create a mock AsyncSession with begin() context manager.
+
+    The session is mocked at the infrastructure boundary — unit tests of
+    the application service do not exercise real SQLAlchemy transaction
+    semantics.  Rollback behaviour is covered by integration tests.
+    """
     session = MagicMock()
 
     @asynccontextmanager
@@ -49,33 +66,33 @@ def mock_session():
 
 
 @pytest.fixture
-def mock_kg_repo():
-    """Create a mock IKnowledgeGraphRepository."""
-    return AsyncMock()
+def kg_repo():
+    """In-memory KnowledgeGraph repository."""
+    return InMemoryKnowledgeGraphRepository()
 
 
 @pytest.fixture
-def mock_ds_repo():
-    """Create a mock IDataSourceRepository."""
-    return AsyncMock()
+def ds_repo():
+    """In-memory DataSource repository."""
+    return InMemoryDataSourceRepository()
 
 
 @pytest.fixture
-def mock_secret_store():
-    """Create a mock ISecretStoreRepository."""
-    return AsyncMock()
+def secret_store():
+    """In-memory secret store."""
+    return InMemorySecretStoreRepository()
 
 
 @pytest.fixture
-def mock_authz():
-    """Create a mock AuthorizationProvider."""
-    return AsyncMock()
+def authz():
+    """In-memory authorization provider (full fake, no mocks)."""
+    return InMemoryAuthorizationProvider()
 
 
 @pytest.fixture
-def mock_probe():
-    """Create a mock KnowledgeGraphServiceProbe."""
-    return MagicMock()
+def probe():
+    """Concrete recording probe (no MagicMock)."""
+    return RecordingKnowledgeGraphServiceProbe()
 
 
 @pytest.fixture
@@ -94,25 +111,22 @@ def workspace_id():
 
 
 @pytest.fixture
-def service(
-    mock_session,
-    mock_kg_repo,
-    mock_ds_repo,
-    mock_secret_store,
-    mock_authz,
-    mock_probe,
-    tenant_id,
-):
-    """Create a KnowledgeGraphService with mocked dependencies."""
+def service(mock_session, kg_repo, ds_repo, secret_store, authz, probe, tenant_id):
+    """KnowledgeGraphService wired with in-memory fakes."""
     return KnowledgeGraphService(
         session=mock_session,
-        knowledge_graph_repository=mock_kg_repo,
-        data_source_repository=mock_ds_repo,
-        secret_store=mock_secret_store,
-        authz=mock_authz,
+        knowledge_graph_repository=kg_repo,
+        data_source_repository=ds_repo,
+        secret_store=secret_store,
+        authz=authz,
         scope_to_tenant=tenant_id,
-        probe=mock_probe,
+        probe=probe,
     )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def _make_kg(
@@ -164,6 +178,51 @@ def _make_ds(
     return ds
 
 
+async def _grant_workspace_edit(
+    authz: InMemoryAuthorizationProvider, workspace_id: str, user_id: str
+) -> None:
+    """Grant EDIT permission on a workspace to a user."""
+    await authz.write_relationship(
+        f"workspace:{workspace_id}", "editor", f"user:{user_id}"
+    )
+
+
+async def _grant_workspace_view(
+    authz: InMemoryAuthorizationProvider, workspace_id: str, user_id: str
+) -> None:
+    """Grant VIEW-only permission on a workspace to a user (member role)."""
+    await authz.write_relationship(
+        f"workspace:{workspace_id}", "member", f"user:{user_id}"
+    )
+
+
+async def _grant_kg_edit(
+    authz: InMemoryAuthorizationProvider, kg_id: str, user_id: str
+) -> None:
+    """Grant EDIT permission on a knowledge graph to a user."""
+    await authz.write_relationship(
+        f"knowledge_graph:{kg_id}", "editor", f"user:{user_id}"
+    )
+
+
+async def _grant_kg_view(
+    authz: InMemoryAuthorizationProvider, kg_id: str, user_id: str
+) -> None:
+    """Grant VIEW permission on a knowledge graph to a user."""
+    await authz.write_relationship(
+        f"knowledge_graph:{kg_id}", "viewer", f"user:{user_id}"
+    )
+
+
+async def _grant_kg_manage(
+    authz: InMemoryAuthorizationProvider, kg_id: str, user_id: str
+) -> None:
+    """Grant MANAGE permission on a knowledge graph to a user (admin role)."""
+    await authz.write_relationship(
+        f"knowledge_graph:{kg_id}", "admin", f"user:{user_id}"
+    )
+
+
 # ---- create ----
 
 
@@ -172,30 +231,35 @@ class TestKnowledgeGraphServiceCreate:
 
     @pytest.mark.asyncio
     async def test_create_checks_edit_permission_on_workspace(
-        self, service, mock_authz, user_id, workspace_id
+        self, service, authz, user_id, workspace_id
     ):
-        """create() must check EDIT permission on the workspace."""
-        mock_authz.check_permission.return_value = True
+        """create() requires EDIT on the workspace — VIEW alone is not enough."""
+        # member grants VIEW but not EDIT — create must fail
+        await _grant_workspace_view(authz, workspace_id, user_id)
+        with pytest.raises(UnauthorizedError):
+            await service.create(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                name="My KG",
+                description="desc",
+            )
 
-        await service.create(
+        # editor grants EDIT — create must succeed
+        await _grant_workspace_edit(authz, workspace_id, user_id)
+        result = await service.create(
             user_id=user_id,
             workspace_id=workspace_id,
             name="My KG",
             description="desc",
         )
-
-        mock_authz.check_permission.assert_called_once_with(
-            resource=f"workspace:{workspace_id}",
-            permission=Permission.EDIT,
-            subject=f"user:{user_id}",
-        )
+        assert result is not None
 
     @pytest.mark.asyncio
     async def test_create_raises_unauthorized_when_permission_denied(
-        self, service, mock_authz, mock_probe, user_id, workspace_id
+        self, service, authz, probe, user_id, workspace_id
     ):
         """create() raises UnauthorizedError when user lacks EDIT on workspace."""
-        mock_authz.check_permission.return_value = False
+        # No relationships written — all checks return False
 
         with pytest.raises(UnauthorizedError):
             await service.create(
@@ -205,18 +269,18 @@ class TestKnowledgeGraphServiceCreate:
                 description="desc",
             )
 
-        mock_probe.permission_denied.assert_called_once_with(
-            user_id=user_id,
-            resource_id=workspace_id,
-            permission=Permission.EDIT,
-        )
+        assert len(probe.permission_denied_calls) == 1
+        call = probe.permission_denied_calls[0]
+        assert call["user_id"] == user_id
+        assert call["resource_id"] == workspace_id
+        assert call["permission"] == Permission.EDIT
 
     @pytest.mark.asyncio
     async def test_create_saves_aggregate_via_repo(
-        self, service, mock_authz, mock_kg_repo, user_id, workspace_id, tenant_id
+        self, service, authz, kg_repo, user_id, workspace_id, tenant_id
     ):
         """create() saves the KnowledgeGraph aggregate through the repository."""
-        mock_authz.check_permission.return_value = True
+        await _grant_workspace_edit(authz, workspace_id, user_id)
 
         result = await service.create(
             user_id=user_id,
@@ -229,14 +293,14 @@ class TestKnowledgeGraphServiceCreate:
         assert result.description == "desc"
         assert result.tenant_id == tenant_id
         assert result.workspace_id == workspace_id
-        mock_kg_repo.save.assert_called_once()
+        assert len(kg_repo.saved) == 1
 
     @pytest.mark.asyncio
     async def test_create_probes_success(
-        self, service, mock_authz, mock_probe, user_id, workspace_id, tenant_id
+        self, service, authz, probe, user_id, workspace_id, tenant_id
     ):
         """create() calls probe on success."""
-        mock_authz.check_permission.return_value = True
+        await _grant_workspace_edit(authz, workspace_id, user_id)
 
         result = await service.create(
             user_id=user_id,
@@ -245,22 +309,29 @@ class TestKnowledgeGraphServiceCreate:
             description="desc",
         )
 
-        mock_probe.knowledge_graph_created.assert_called_once_with(
-            kg_id=result.id.value,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-            name="My KG",
-        )
+        assert len(probe.knowledge_graph_created_calls) == 1
+        call = probe.knowledge_graph_created_calls[0]
+        assert call["kg_id"] == result.id.value
+        assert call["tenant_id"] == tenant_id
+        assert call["workspace_id"] == workspace_id
+        assert call["name"] == "My KG"
 
     @pytest.mark.asyncio
     async def test_create_raises_duplicate_on_integrity_error(
-        self, service, mock_authz, mock_kg_repo, user_id, workspace_id
+        self, service, authz, kg_repo, user_id, workspace_id
     ):
         """create() catches IntegrityError and raises DuplicateKnowledgeGraphNameError."""
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.save.side_effect = IntegrityError(
-            "INSERT", {}, Exception("uq_knowledge_graphs_tenant_name")
-        )
+        await _grant_workspace_edit(authz, workspace_id, user_id)
+
+        # Simulate a duplicate by making save raise IntegrityError
+        original_save = kg_repo.save
+
+        async def raise_integrity_error(kg: KnowledgeGraph) -> None:
+            raise IntegrityError(
+                "INSERT", {}, Exception("uq_knowledge_graphs_tenant_name")
+            )
+
+        kg_repo.save = raise_integrity_error
 
         with pytest.raises(DuplicateKnowledgeGraphNameError):
             await service.create(
@@ -270,6 +341,8 @@ class TestKnowledgeGraphServiceCreate:
                 description="desc",
             )
 
+        kg_repo.save = original_save
+
 
 # ---- get ----
 
@@ -278,40 +351,36 @@ class TestKnowledgeGraphServiceGet:
     """Tests for KnowledgeGraphService.get."""
 
     @pytest.mark.asyncio
-    async def test_get_returns_none_when_not_found(
-        self, service, mock_kg_repo, user_id
-    ):
+    async def test_get_returns_none_when_not_found(self, service, authz, user_id):
         """get() returns None when KG is not found."""
-        mock_kg_repo.get_by_id.return_value = None
-
+        # Grant VIEW so the permission check doesn't prevent us from seeing
+        # the absence in the repo.  The KG simply doesn't exist.
         result = await service.get(user_id=user_id, kg_id="nonexistent")
 
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_checks_view_permission(
-        self, service, mock_authz, mock_kg_repo, user_id
-    ):
-        """get() checks VIEW permission on the knowledge graph."""
+    async def test_get_checks_view_permission(self, service, authz, kg_repo, user_id):
+        """get() requires VIEW on the knowledge graph — missing permission returns None."""
         kg = _make_kg()
-        mock_kg_repo.get_by_id.return_value = kg
-        mock_authz.check_permission.return_value = True
+        kg_repo.seed(kg)
 
-        await service.get(user_id=user_id, kg_id=kg.id.value)
+        # Without VIEW permission → None (no existence leakage)
+        result = await service.get(user_id=user_id, kg_id=kg.id.value)
+        assert result is None
 
-        mock_authz.check_permission.assert_called_once_with(
-            resource=f"knowledge_graph:{kg.id.value}",
-            permission=Permission.VIEW,
-            subject=f"user:{user_id}",
-        )
+        # Grant VIEW → KG returned
+        await _grant_kg_view(authz, kg.id.value, user_id)
+        result = await service.get(user_id=user_id, kg_id=kg.id.value)
+        assert result is kg
 
     @pytest.mark.asyncio
     async def test_get_returns_none_for_different_tenant(
-        self, service, mock_kg_repo, user_id
+        self, service, kg_repo, user_id
     ):
         """get() returns None when KG belongs to a different tenant."""
         kg = _make_kg(tenant_id="other-tenant")
-        mock_kg_repo.get_by_id.return_value = kg
+        kg_repo.seed(kg)
 
         result = await service.get(user_id=user_id, kg_id=kg.id.value)
 
@@ -319,12 +388,12 @@ class TestKnowledgeGraphServiceGet:
 
     @pytest.mark.asyncio
     async def test_get_returns_none_when_permission_denied(
-        self, service, mock_authz, mock_kg_repo, user_id
+        self, service, kg_repo, user_id
     ):
         """get() returns None when user lacks VIEW (no existence leakage)."""
         kg = _make_kg()
-        mock_kg_repo.get_by_id.return_value = kg
-        mock_authz.check_permission.return_value = False
+        kg_repo.seed(kg)
+        # No relationships written → VIEW denied
 
         result = await service.get(user_id=user_id, kg_id=kg.id.value)
 
@@ -332,19 +401,18 @@ class TestKnowledgeGraphServiceGet:
 
     @pytest.mark.asyncio
     async def test_get_returns_aggregate_on_success(
-        self, service, mock_authz, mock_kg_repo, mock_probe, user_id
+        self, service, authz, kg_repo, probe, user_id
     ):
         """get() returns the aggregate when authorized."""
         kg = _make_kg()
-        mock_kg_repo.get_by_id.return_value = kg
-        mock_authz.check_permission.return_value = True
+        kg_repo.seed(kg)
+        await _grant_kg_view(authz, kg.id.value, user_id)
 
         result = await service.get(user_id=user_id, kg_id=kg.id.value)
 
         assert result is kg
-        mock_probe.knowledge_graph_retrieved.assert_called_once_with(
-            kg_id=kg.id.value,
-        )
+        assert len(probe.knowledge_graph_retrieved_calls) == 1
+        assert probe.knowledge_graph_retrieved_calls[0]["kg_id"] == kg.id.value
 
 
 # ---- list_for_workspace ----
@@ -355,27 +423,26 @@ class TestKnowledgeGraphServiceListForWorkspace:
 
     @pytest.mark.asyncio
     async def test_list_checks_view_permission_on_workspace(
-        self, service, mock_authz, user_id, workspace_id
+        self, service, authz, user_id, workspace_id
     ):
-        """list_for_workspace() checks VIEW on the workspace."""
-        mock_authz.check_permission.return_value = True
-        mock_authz.read_relationships.return_value = []
+        """list_for_workspace() requires VIEW on the workspace — missing permission raises."""
+        # No relationships written → VIEW denied → should raise
+        with pytest.raises(UnauthorizedError):
+            await service.list_for_workspace(user_id=user_id, workspace_id=workspace_id)
 
-        await service.list_for_workspace(user_id=user_id, workspace_id=workspace_id)
-
-        mock_authz.check_permission.assert_called_once_with(
-            resource=f"workspace:{workspace_id}",
-            permission=Permission.VIEW,
-            subject=f"user:{user_id}",
+        # Grant VIEW → should succeed
+        await _grant_workspace_view(authz, workspace_id, user_id)
+        result = await service.list_for_workspace(
+            user_id=user_id, workspace_id=workspace_id
         )
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_list_raises_unauthorized_when_permission_denied(
-        self, service, mock_authz, user_id, workspace_id
+        self, service, user_id, workspace_id
     ):
         """list_for_workspace() raises UnauthorizedError when denied."""
-        mock_authz.check_permission.return_value = False
-
+        # No relationships written
         with pytest.raises(UnauthorizedError):
             await service.list_for_workspace(user_id=user_id, workspace_id=workspace_id)
 
@@ -383,62 +450,55 @@ class TestKnowledgeGraphServiceListForWorkspace:
     async def test_list_uses_read_relationships_to_discover_kgs(
         self,
         service,
-        mock_authz,
-        mock_kg_repo,
-        mock_probe,
+        authz,
+        kg_repo,
+        probe,
         user_id,
         workspace_id,
         tenant_id,
     ):
         """list_for_workspace() reads relationships to find KG IDs."""
-        mock_authz.check_permission.return_value = True
-        kg1 = _make_kg(kg_id="kg-001", tenant_id=tenant_id)
-        kg2 = _make_kg(kg_id="kg-002", tenant_id=tenant_id)
-        mock_authz.read_relationships.return_value = [
-            RelationshipTuple(
-                resource="knowledge_graph:kg-001",
-                relation="workspace",
-                subject=f"workspace:{workspace_id}",
-            ),
-            RelationshipTuple(
-                resource="knowledge_graph:kg-002",
-                relation="workspace",
-                subject=f"workspace:{workspace_id}",
-            ),
-        ]
-        mock_kg_repo.get_by_id.side_effect = [kg1, kg2]
+        await _grant_workspace_view(authz, workspace_id, user_id)
+
+        kg1 = _make_kg(kg_id="kg-001", tenant_id=tenant_id, workspace_id=workspace_id)
+        kg2 = _make_kg(kg_id="kg-002", tenant_id=tenant_id, workspace_id=workspace_id)
+        kg_repo.seed(kg1, kg2)
+
+        # Write workspace→KG relationships so the service can discover them
+        await authz.write_relationship(
+            "knowledge_graph:kg-001", "workspace", f"workspace:{workspace_id}"
+        )
+        await authz.write_relationship(
+            "knowledge_graph:kg-002", "workspace", f"workspace:{workspace_id}"
+        )
 
         result = await service.list_for_workspace(
             user_id=user_id, workspace_id=workspace_id
         )
 
         assert len(result) == 2
-        mock_probe.knowledge_graphs_listed.assert_called_once_with(
-            workspace_id=workspace_id,
-            count=2,
-        )
+        assert len(probe.knowledge_graphs_listed_calls) == 1
+        listed_call = probe.knowledge_graphs_listed_calls[0]
+        assert listed_call["workspace_id"] == workspace_id
+        assert listed_call["count"] == 2
 
     @pytest.mark.asyncio
     async def test_list_filters_by_tenant(
-        self, service, mock_authz, mock_kg_repo, user_id, workspace_id, tenant_id
+        self, service, authz, kg_repo, user_id, workspace_id, tenant_id
     ):
         """list_for_workspace() filters KGs that don't belong to the scoped tenant."""
-        mock_authz.check_permission.return_value = True
+        await _grant_workspace_view(authz, workspace_id, user_id)
+
         kg_own = _make_kg(kg_id="kg-001", tenant_id=tenant_id)
         kg_other = _make_kg(kg_id="kg-002", tenant_id="other-tenant")
-        mock_authz.read_relationships.return_value = [
-            RelationshipTuple(
-                resource="knowledge_graph:kg-001",
-                relation="workspace",
-                subject=f"workspace:{workspace_id}",
-            ),
-            RelationshipTuple(
-                resource="knowledge_graph:kg-002",
-                relation="workspace",
-                subject=f"workspace:{workspace_id}",
-            ),
-        ]
-        mock_kg_repo.get_by_id.side_effect = [kg_own, kg_other]
+        kg_repo.seed(kg_own, kg_other)
+
+        await authz.write_relationship(
+            "knowledge_graph:kg-001", "workspace", f"workspace:{workspace_id}"
+        )
+        await authz.write_relationship(
+            "knowledge_graph:kg-002", "workspace", f"workspace:{workspace_id}"
+        )
 
         result = await service.list_for_workspace(
             user_id=user_id, workspace_id=workspace_id
@@ -456,33 +516,38 @@ class TestKnowledgeGraphServiceUpdate:
 
     @pytest.mark.asyncio
     async def test_update_checks_edit_permission_on_kg(
-        self, service, mock_authz, mock_kg_repo, user_id
+        self, service, authz, kg_repo, user_id
     ):
-        """update() checks EDIT permission on the knowledge graph."""
+        """update() requires EDIT on the knowledge graph — VIEW alone is not enough."""
         kg = _make_kg()
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = kg
+        kg_repo.seed(kg)
 
-        await service.update(
+        # viewer role grants VIEW but not EDIT
+        await _grant_kg_view(authz, kg.id.value, user_id)
+        with pytest.raises(UnauthorizedError):
+            await service.update(
+                user_id=user_id,
+                kg_id=kg.id.value,
+                name="Updated",
+                description="Updated desc",
+            )
+
+        # editor role grants EDIT — update must succeed
+        await _grant_kg_edit(authz, kg.id.value, user_id)
+        result = await service.update(
             user_id=user_id,
             kg_id=kg.id.value,
             name="Updated",
             description="Updated desc",
         )
-
-        mock_authz.check_permission.assert_called_once_with(
-            resource=f"knowledge_graph:{kg.id.value}",
-            permission=Permission.EDIT,
-            subject=f"user:{user_id}",
-        )
+        assert result.name == "Updated"
 
     @pytest.mark.asyncio
     async def test_update_raises_unauthorized_when_permission_denied(
-        self, service, mock_authz, user_id
+        self, service, user_id
     ):
         """update() raises UnauthorizedError when denied."""
-        mock_authz.check_permission.return_value = False
-
+        # No relationships written
         with pytest.raises(UnauthorizedError):
             await service.update(
                 user_id=user_id,
@@ -493,11 +558,10 @@ class TestKnowledgeGraphServiceUpdate:
 
     @pytest.mark.asyncio
     async def test_update_raises_not_found_error_when_not_found(
-        self, service, mock_authz, mock_kg_repo, user_id
+        self, service, authz, user_id
     ):
         """update() raises KnowledgeGraphNotFoundError when KG not found."""
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = None
+        await _grant_kg_edit(authz, "nonexistent", user_id)
 
         with pytest.raises(KnowledgeGraphNotFoundError):
             await service.update(
@@ -509,12 +573,12 @@ class TestKnowledgeGraphServiceUpdate:
 
     @pytest.mark.asyncio
     async def test_update_rejects_different_tenant(
-        self, service, mock_authz, mock_kg_repo, user_id
+        self, service, authz, kg_repo, user_id
     ):
         """update() raises KnowledgeGraphNotFoundError when KG belongs to a different tenant."""
         kg = _make_kg(tenant_id="other-tenant")
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = kg
+        kg_repo.seed(kg)
+        await _grant_kg_edit(authz, kg.id.value, user_id)
 
         with pytest.raises(KnowledgeGraphNotFoundError):
             await service.update(
@@ -526,12 +590,12 @@ class TestKnowledgeGraphServiceUpdate:
 
     @pytest.mark.asyncio
     async def test_update_calls_aggregate_update_and_saves(
-        self, service, mock_authz, mock_kg_repo, mock_probe, user_id
+        self, service, authz, kg_repo, probe, user_id
     ):
         """update() calls kg.update() and saves via repo."""
         kg = _make_kg()
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = kg
+        kg_repo.seed(kg)
+        await _grant_kg_edit(authz, kg.id.value, user_id)
 
         result = await service.update(
             user_id=user_id,
@@ -542,23 +606,31 @@ class TestKnowledgeGraphServiceUpdate:
 
         assert result.name == "Updated"
         assert result.description == "New desc"
-        mock_kg_repo.save.assert_called_once_with(kg)
-        mock_probe.knowledge_graph_updated.assert_called_once_with(
-            kg_id=kg.id.value,
-            name="Updated",
-        )
+        assert len(kg_repo.saved) == 1
+        assert kg_repo.saved[0] is kg
+
+        assert len(probe.knowledge_graph_updated_calls) == 1
+        call = probe.knowledge_graph_updated_calls[0]
+        assert call["kg_id"] == kg.id.value
+        assert call["name"] == "Updated"
 
     @pytest.mark.asyncio
     async def test_update_raises_duplicate_on_integrity_error(
-        self, service, mock_authz, mock_kg_repo, user_id
+        self, service, authz, kg_repo, user_id
     ):
         """update() catches IntegrityError and raises DuplicateKnowledgeGraphNameError."""
         kg = _make_kg()
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = kg
-        mock_kg_repo.save.side_effect = IntegrityError(
-            "UPDATE", {}, Exception("uq_knowledge_graphs_tenant_name")
-        )
+        kg_repo.seed(kg)
+        await _grant_kg_edit(authz, kg.id.value, user_id)
+
+        original_save = kg_repo.save
+
+        async def raise_integrity_error(knowledge_graph: KnowledgeGraph) -> None:
+            raise IntegrityError(
+                "UPDATE", {}, Exception("uq_knowledge_graphs_tenant_name")
+            )
+
+        kg_repo.save = raise_integrity_error
 
         with pytest.raises(DuplicateKnowledgeGraphNameError):
             await service.update(
@@ -567,6 +639,8 @@ class TestKnowledgeGraphServiceUpdate:
                 name="Duplicate",
                 description="desc",
             )
+
+        kg_repo.save = original_save
 
 
 # ---- delete ----
@@ -577,40 +651,35 @@ class TestKnowledgeGraphServiceDelete:
 
     @pytest.mark.asyncio
     async def test_delete_checks_manage_permission_on_kg(
-        self, service, mock_authz, mock_kg_repo, mock_ds_repo, user_id
+        self, service, authz, kg_repo, ds_repo, user_id, tenant_id
     ):
-        """delete() checks MANAGE permission on the knowledge graph."""
-        kg = _make_kg()
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = kg
-        mock_ds_repo.find_by_knowledge_graph.return_value = []
-        mock_kg_repo.delete.return_value = True
+        """delete() requires MANAGE on the knowledge graph — EDIT alone is not enough."""
+        kg = _make_kg(tenant_id=tenant_id)
+        kg_repo.seed(kg)
 
-        await service.delete(user_id=user_id, kg_id=kg.id.value)
+        # editor grants EDIT but not MANAGE
+        await _grant_kg_edit(authz, kg.id.value, user_id)
+        with pytest.raises(UnauthorizedError):
+            await service.delete(user_id=user_id, kg_id=kg.id.value)
 
-        mock_authz.check_permission.assert_called_once_with(
-            resource=f"knowledge_graph:{kg.id.value}",
-            permission=Permission.MANAGE,
-            subject=f"user:{user_id}",
-        )
+        # admin grants MANAGE — delete must succeed
+        await _grant_kg_manage(authz, kg.id.value, user_id)
+        result = await service.delete(user_id=user_id, kg_id=kg.id.value)
+        assert result is True
 
     @pytest.mark.asyncio
     async def test_delete_raises_unauthorized_when_permission_denied(
-        self, service, mock_authz, user_id
+        self, service, user_id
     ):
         """delete() raises UnauthorizedError when denied."""
-        mock_authz.check_permission.return_value = False
-
+        # No relationships written
         with pytest.raises(UnauthorizedError):
             await service.delete(user_id=user_id, kg_id="kg-001")
 
     @pytest.mark.asyncio
-    async def test_delete_returns_false_when_not_found(
-        self, service, mock_authz, mock_kg_repo, mock_ds_repo, user_id
-    ):
+    async def test_delete_returns_false_when_not_found(self, service, authz, user_id):
         """delete() returns False when KG not found."""
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = None
+        await _grant_kg_manage(authz, "nonexistent", user_id)
 
         result = await service.delete(user_id=user_id, kg_id="nonexistent")
 
@@ -618,12 +687,12 @@ class TestKnowledgeGraphServiceDelete:
 
     @pytest.mark.asyncio
     async def test_delete_returns_false_for_different_tenant(
-        self, service, mock_authz, mock_kg_repo, user_id
+        self, service, authz, kg_repo, user_id
     ):
         """delete() returns False when KG belongs to a different tenant."""
         kg = _make_kg(tenant_id="other-tenant")
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = kg
+        kg_repo.seed(kg)
+        await _grant_kg_manage(authz, kg.id.value, user_id)
 
         result = await service.delete(user_id=user_id, kg_id=kg.id.value)
 
@@ -631,120 +700,132 @@ class TestKnowledgeGraphServiceDelete:
 
     @pytest.mark.asyncio
     async def test_delete_cascades_data_sources(
-        self, service, mock_authz, mock_kg_repo, mock_ds_repo, user_id, tenant_id
+        self, service, authz, kg_repo, ds_repo, user_id, tenant_id
     ):
         """delete() deletes all data sources before deleting the KG."""
         kg = _make_kg(tenant_id=tenant_id)
-        ds1 = MagicMock(spec=DataSource)
-        ds1.credentials_path = None  # no credentials to clean up
-        ds2 = MagicMock(spec=DataSource)
-        ds2.credentials_path = None  # no credentials to clean up
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = kg
-        mock_ds_repo.find_by_knowledge_graph.return_value = [ds1, ds2]
-        mock_ds_repo.delete.return_value = True
-        mock_kg_repo.delete.return_value = True
+        ds1 = _make_ds(ds_id="ds-001", kg_id=kg.id.value, tenant_id=tenant_id)
+        ds2 = _make_ds(ds_id="ds-002", kg_id=kg.id.value, tenant_id=tenant_id)
+
+        kg_repo.seed(kg)
+        ds_repo.seed(ds1, ds2)
+        await _grant_kg_manage(authz, kg.id.value, user_id)
 
         result = await service.delete(user_id=user_id, kg_id=kg.id.value)
 
         assert result is True
-        # Each DS should be deleted
-        assert mock_ds_repo.delete.call_count == 2
-        mock_kg_repo.delete.assert_called_once_with(kg)
+        assert len(ds_repo.deleted) == 2
+        assert len(kg_repo.deleted) == 1
 
     @pytest.mark.asyncio
     async def test_delete_calls_secret_store_delete_for_credential_bearing_ds(
         self,
         service,
-        mock_authz,
-        mock_kg_repo,
-        mock_ds_repo,
-        mock_secret_store,
+        authz,
+        kg_repo,
+        ds_repo,
+        secret_store,
         user_id,
         tenant_id,
     ):
         """delete() calls secret_store.delete for each DS that has credentials_path."""
         kg = _make_kg(tenant_id=tenant_id)
-        ds1 = MagicMock(spec=DataSource)
-        ds1.credentials_path = "datasource/ds-001/credentials"
-        ds1.tenant_id = tenant_id
-        ds2 = MagicMock(spec=DataSource)
-        ds2.credentials_path = "datasource/ds-002/credentials"
-        ds2.tenant_id = tenant_id
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = kg
-        mock_ds_repo.find_by_knowledge_graph.return_value = [ds1, ds2]
+        ds1 = _make_ds(
+            ds_id="ds-001",
+            kg_id=kg.id.value,
+            tenant_id=tenant_id,
+            credentials_path="datasource/ds-001/credentials",
+        )
+        ds2 = _make_ds(
+            ds_id="ds-002",
+            kg_id=kg.id.value,
+            tenant_id=tenant_id,
+            credentials_path="datasource/ds-002/credentials",
+        )
+
+        kg_repo.seed(kg)
+        ds_repo.seed(ds1, ds2)
+        await _grant_kg_manage(authz, kg.id.value, user_id)
 
         await service.delete(user_id=user_id, kg_id=kg.id.value)
 
-        # Both DS have credentials — secret_store.delete must be called for each
-        assert mock_secret_store.delete.call_count == 2
-        mock_secret_store.delete.assert_any_call(
-            path="datasource/ds-001/credentials",
-            tenant_id=tenant_id,
-        )
-        mock_secret_store.delete.assert_any_call(
-            path="datasource/ds-002/credentials",
-            tenant_id=tenant_id,
-        )
+        assert len(secret_store.delete_calls) == 2
+        paths_deleted = {c["path"] for c in secret_store.delete_calls}
+        assert paths_deleted == {
+            "datasource/ds-001/credentials",
+            "datasource/ds-002/credentials",
+        }
+        for call in secret_store.delete_calls:
+            assert call["tenant_id"] == tenant_id
 
     @pytest.mark.asyncio
     async def test_delete_skips_secret_store_for_ds_without_credentials(
         self,
         service,
-        mock_authz,
-        mock_kg_repo,
-        mock_ds_repo,
-        mock_secret_store,
+        authz,
+        kg_repo,
+        ds_repo,
+        secret_store,
         user_id,
         tenant_id,
     ):
         """delete() skips secret_store.delete for DS with no credentials_path."""
         kg = _make_kg(tenant_id=tenant_id)
-        ds = MagicMock(spec=DataSource)
-        ds.credentials_path = None
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = kg
-        mock_ds_repo.find_by_knowledge_graph.return_value = [ds]
+        ds = _make_ds(
+            ds_id="ds-001",
+            kg_id=kg.id.value,
+            tenant_id=tenant_id,
+            credentials_path=None,
+        )
+
+        kg_repo.seed(kg)
+        ds_repo.seed(ds)
+        await _grant_kg_manage(authz, kg.id.value, user_id)
 
         await service.delete(user_id=user_id, kg_id=kg.id.value)
 
-        # No credentials_path → secret_store.delete must NOT be called
-        mock_secret_store.delete.assert_not_called()
+        assert len(secret_store.delete_calls) == 0
 
     @pytest.mark.asyncio
     async def test_delete_secret_cleanup_happens_before_repo_delete(
         self,
-        service,
-        mock_authz,
-        mock_kg_repo,
-        mock_ds_repo,
-        mock_secret_store,
+        authz,
+        kg_repo,
+        mock_session,
         user_id,
         tenant_id,
+        probe,
     ):
         """delete() cleans up credentials BEFORE deleting the DS row."""
-        kg = _make_kg(tenant_id=tenant_id)
-        ds = MagicMock(spec=DataSource)
-        ds.credentials_path = "datasource/ds-001/credentials"
-        ds.tenant_id = tenant_id
         call_order: list[str] = []
 
-        async def track_secret_delete(**kwargs: object) -> bool:
-            call_order.append("secret_store.delete")
-            return True
+        # Fakes with shared call_log track cross-object ordering
+        ordered_secret_store = InMemorySecretStoreRepository(call_log=call_order)
+        ordered_ds_repo = InMemoryDataSourceRepository(call_log=call_order)
 
-        async def track_ds_delete(entity: object) -> bool:
-            call_order.append("ds_repo.delete")
-            return True
+        kg = _make_kg(tenant_id=tenant_id)
+        ds = _make_ds(
+            ds_id="ds-001",
+            kg_id=kg.id.value,
+            tenant_id=tenant_id,
+            credentials_path="datasource/ds-001/credentials",
+        )
 
-        mock_secret_store.delete.side_effect = track_secret_delete
-        mock_ds_repo.delete.side_effect = track_ds_delete
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = kg
-        mock_ds_repo.find_by_knowledge_graph.return_value = [ds]
+        kg_repo.seed(kg)
+        ordered_ds_repo.seed(ds)
+        await _grant_kg_manage(authz, kg.id.value, user_id)
 
-        await service.delete(user_id=user_id, kg_id=kg.id.value)
+        svc = KnowledgeGraphService(
+            session=mock_session,
+            knowledge_graph_repository=kg_repo,
+            data_source_repository=ordered_ds_repo,
+            secret_store=ordered_secret_store,
+            authz=authz,
+            scope_to_tenant=tenant_id,
+            probe=probe,
+        )
+
+        await svc.delete(user_id=user_id, kg_id=kg.id.value)
 
         assert call_order == ["secret_store.delete", "ds_repo.delete"], (
             "Credentials must be deleted before the DataSource row is removed"
@@ -752,29 +833,26 @@ class TestKnowledgeGraphServiceDelete:
 
     @pytest.mark.asyncio
     async def test_delete_probes_success(
-        self, service, mock_authz, mock_kg_repo, mock_ds_repo, mock_probe, user_id
+        self, service, authz, kg_repo, ds_repo, probe, user_id, tenant_id
     ):
         """delete() calls probe on success."""
-        kg = _make_kg()
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = kg
-        mock_ds_repo.find_by_knowledge_graph.return_value = []
-        mock_kg_repo.delete.return_value = True
+        kg = _make_kg(tenant_id=tenant_id)
+        kg_repo.seed(kg)
+        await _grant_kg_manage(authz, kg.id.value, user_id)
 
         await service.delete(user_id=user_id, kg_id=kg.id.value)
 
-        mock_probe.knowledge_graph_deleted.assert_called_once_with(
-            kg_id=kg.id.value,
-        )
+        assert len(probe.knowledge_graph_deleted_calls) == 1
+        assert probe.knowledge_graph_deleted_calls[0]["kg_id"] == kg.id.value
 
     @pytest.mark.asyncio
     async def test_delete_removes_credentials_for_data_sources_with_credentials_path(
         self,
         mock_session,
-        mock_kg_repo,
-        mock_ds_repo,
-        mock_authz,
-        mock_probe,
+        kg_repo,
+        ds_repo,
+        authz,
+        probe,
         user_id,
         tenant_id,
     ):
@@ -785,19 +863,19 @@ class TestKnowledgeGraphServiceDelete:
         delete() is called only for the data source that has credentials, and
         the KG and both data sources are still removed from the database.
         """
-        mock_secret_store = AsyncMock()
+        local_secret_store = InMemorySecretStoreRepository()
+
         service_with_secret_store = KnowledgeGraphService(
             session=mock_session,
-            knowledge_graph_repository=mock_kg_repo,
-            data_source_repository=mock_ds_repo,
-            authz=mock_authz,
+            knowledge_graph_repository=kg_repo,
+            data_source_repository=ds_repo,
+            authz=authz,
             scope_to_tenant=tenant_id,
-            probe=mock_probe,
-            secret_store=mock_secret_store,
+            probe=probe,
+            secret_store=local_secret_store,
         )
 
         kg = _make_kg(tenant_id=tenant_id)
-
         ds_with_creds = _make_ds(
             ds_id="ds-001",
             kg_id=kg.id.value,
@@ -811,11 +889,9 @@ class TestKnowledgeGraphServiceDelete:
             credentials_path=None,
         )
 
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = kg
-        mock_ds_repo.find_by_knowledge_graph.return_value = [ds_with_creds, ds_no_creds]
-        mock_ds_repo.delete.return_value = True
-        mock_kg_repo.delete.return_value = True
+        kg_repo.seed(kg)
+        ds_repo.seed(ds_with_creds, ds_no_creds)
+        await _grant_kg_manage(authz, kg.id.value, user_id)
 
         result = await service_with_secret_store.delete(
             user_id=user_id, kg_id=kg.id.value
@@ -823,22 +899,24 @@ class TestKnowledgeGraphServiceDelete:
 
         assert result is True
         # Credentials deleted only for the DS that has a credentials_path
-        mock_secret_store.delete.assert_called_once_with(
-            path="datasource/ds-001/credentials",
-            tenant_id=tenant_id,
+        assert len(local_secret_store.delete_calls) == 1
+        assert (
+            local_secret_store.delete_calls[0]["path"]
+            == "datasource/ds-001/credentials"
         )
+        assert local_secret_store.delete_calls[0]["tenant_id"] == tenant_id
         # Both data sources are deleted from the DB regardless
-        assert mock_ds_repo.delete.call_count == 2
-        mock_kg_repo.delete.assert_called_once_with(kg)
+        assert len(ds_repo.deleted) == 2
+        assert len(kg_repo.deleted) == 1
 
     @pytest.mark.asyncio
     async def test_delete_skips_credential_cleanup_when_no_secret_store(
         self,
         mock_session,
-        mock_kg_repo,
-        mock_ds_repo,
-        mock_authz,
-        mock_probe,
+        kg_repo,
+        ds_repo,
+        authz,
+        probe,
         user_id,
         tenant_id,
     ):
@@ -850,16 +928,15 @@ class TestKnowledgeGraphServiceDelete:
         """
         service_no_secret_store = KnowledgeGraphService(
             session=mock_session,
-            knowledge_graph_repository=mock_kg_repo,
-            data_source_repository=mock_ds_repo,
-            authz=mock_authz,
+            knowledge_graph_repository=kg_repo,
+            data_source_repository=ds_repo,
+            authz=authz,
             scope_to_tenant=tenant_id,
-            probe=mock_probe,
+            probe=probe,
             secret_store=None,
         )
 
         kg = _make_kg(tenant_id=tenant_id)
-
         ds_with_creds = _make_ds(
             ds_id="ds-001",
             kg_id=kg.id.value,
@@ -867,11 +944,9 @@ class TestKnowledgeGraphServiceDelete:
             credentials_path="datasource/ds-001/credentials",
         )
 
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = kg
-        mock_ds_repo.find_by_knowledge_graph.return_value = [ds_with_creds]
-        mock_ds_repo.delete.return_value = True
-        mock_kg_repo.delete.return_value = True
+        kg_repo.seed(kg)
+        ds_repo.seed(ds_with_creds)
+        await _grant_kg_manage(authz, kg.id.value, user_id)
 
         # Should not raise even though there's a credentials_path but no secret_store
         result = await service_no_secret_store.delete(
@@ -879,5 +954,5 @@ class TestKnowledgeGraphServiceDelete:
         )
 
         assert result is True
-        mock_ds_repo.delete.assert_called_once()
-        mock_kg_repo.delete.assert_called_once_with(kg)
+        assert len(ds_repo.deleted) == 1
+        assert len(kg_repo.deleted) == 1

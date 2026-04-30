@@ -7,6 +7,7 @@ on their attribute values.
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, TypeAlias
 
@@ -44,6 +45,7 @@ class MutationOperationType(str, Enum):
 COMMON_SYSTEM_PROPERTIES: frozenset[str] = frozenset({"data_source_id", "source_path"})
 
 # Node-specific system properties (in addition to common)
+# These are REQUIRED in CREATE operations and excluded from optional property tracking.
 NODE_SYSTEM_PROPERTIES: frozenset[str] = frozenset({"slug"})
 
 # Edge-specific system properties (in addition to common)
@@ -60,6 +62,17 @@ PLATFORM_STAMPED_PROPERTIES: frozenset[str] = frozenset({"knowledge_graph_id"})
 # Alias for PLATFORM_STAMPED_PROPERTIES — properties server-stamped per-request,
 # excluded from schema learning and not auto-added to DEFINE required_properties.
 GRAPH_MANAGED_PROPERTIES: frozenset[str] = PLATFORM_STAMPED_PROPERTIES
+
+# Auto-managed node timestamp properties.
+# These are stamped by the graph layer when mutations are applied — they are
+# NOT provided in the MutationLog by the extraction service, and are NOT
+# required in CREATE operations. They are excluded from schema-learning and
+# optional property tracking, but are available on every graph node.
+#
+# last_synced_at: set to the sync run timestamp when a node is created/updated.
+#   Used for staleness detection: nodes with last_synced_at < data_source.last_sync_at
+#   were not encountered in the most recent sync and may be stale.
+NODE_AUTO_TIMESTAMP_PROPERTIES: frozenset[str] = frozenset({"last_synced_at"})
 
 
 def get_system_properties_for_entity(entity_type: EntityType) -> frozenset[str]:
@@ -380,3 +393,34 @@ class MutationResult(BaseModel):
     operations_applied: int
     errors: list[str] = Field(default_factory=list)
     error_kind: Literal["validation", "server"] | None = None
+
+
+def is_node_stale(
+    node_last_synced_at: datetime,
+    data_source_last_sync_at: datetime,
+) -> bool:
+    """Determine whether a graph node is stale based on timestamp comparison.
+
+    Staleness is detected by comparing a node's last_synced_at timestamp
+    against the data source's last_sync_at timestamp. A node that was not
+    encountered during the most recent sync is considered stale — it may
+    represent a deleted or renamed entity.
+
+    This is the core of the staleness-based node lifecycle strategy:
+    instead of tracking explicit DELETE events, nodes that were not
+    touched in the latest sync run are detected retrospectively.
+
+    Spec: GIVEN a node with last_synced_at older than its data source's
+    last_sync_at, THEN the node is considered stale.
+
+    Args:
+        node_last_synced_at: The timestamp when the node was last updated
+            by a sync run. Set on CREATE/UPDATE operations.
+        data_source_last_sync_at: The timestamp when the data source last
+            completed a successful sync. Updated on MutationsApplied.
+
+    Returns:
+        True if the node is stale (last_synced_at < data_source_last_sync_at).
+        False if the node is current (last_synced_at >= data_source_last_sync_at).
+    """
+    return node_last_synced_at < data_source_last_sync_at

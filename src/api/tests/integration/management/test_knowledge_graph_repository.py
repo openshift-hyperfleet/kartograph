@@ -1,13 +1,19 @@
-"""Integration tests for KnowledgeGraphRepository.
+"""Integration tests for KnowledgeGraphRepository and KnowledgeGraphService.
 
 These tests require PostgreSQL to be running.
-They verify the complete flow of persisting and retrieving knowledge graphs.
+They verify the complete flow of persisting and retrieving knowledge graphs
+as well as service-level transactional atomicity.
 """
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.outbox.repository import OutboxRepository
+from management.application.observability import DefaultKnowledgeGraphServiceProbe
+from management.application.services.knowledge_graph_service import (
+    KnowledgeGraphService,
+)
 from management.domain.aggregates import DataSource, KnowledgeGraph
 from management.infrastructure.repositories.data_source_repository import (
     DataSourceRepository,
@@ -552,3 +558,169 @@ class TestCascadeDeleteRollback:
         assert retrieved_ds is not None, (
             "DataSource must not be deleted when cascade fails mid-transaction"
         )
+
+
+class TestKnowledgeGraphServiceCascadeAtomicity:
+    """Integration tests for KnowledgeGraphService.delete() transactional atomicity.
+
+    The spec requires: 'if any step fails, the entire deletion rolls back with
+    no partial state'.  These tests exercise the FULL service path — including
+    the ``async with self._session.begin()`` boundary in
+    ``KnowledgeGraphService.delete()`` — with real SQLAlchemy sessions.
+
+    This class complements ``TestCascadeDeleteRollback`` (which tests the
+    repository layer directly) by verifying that the SERVICE-LEVEL transaction
+    boundary also provides correct rollback semantics.
+    """
+
+    @pytest.mark.asyncio
+    async def test_service_delete_rolls_back_on_kg_deletion_failure(
+        self,
+        knowledge_graph_repository: KnowledgeGraphRepository,
+        data_source_repository: DataSourceRepository,
+        async_session: AsyncSession,
+        test_tenant: str,
+        test_workspace: str,
+        clean_management_data: None,
+    ) -> None:
+        """When KG deletion fails after DS cascade deletion, the entire service
+        transaction rolls back — neither the KG nor its data sources are removed.
+
+        Simulates a hard failure in ``KnowledgeGraphRepository.delete()`` AFTER
+        all data sources have been deleted within the same
+        ``async with session.begin()`` block in ``KnowledgeGraphService.delete()``.
+        The SQLAlchemy context manager must roll back all writes in the block.
+        """
+        from tests.fakes.authorization import InMemoryAuthorizationProvider
+
+        # --- Arrange: create KG with one data source ---
+        kg = KnowledgeGraph.create(
+            tenant_id=test_tenant,
+            workspace_id=test_workspace,
+            name="Service Rollback Test KG",
+            description="Verifies service-level atomicity",
+        )
+        ds = DataSource.create(
+            knowledge_graph_id=kg.id.value,
+            tenant_id=test_tenant,
+            name="Service Rollback Test DS",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"repo": "org/repo", "branch": "main"},
+        )
+
+        async with async_session.begin():
+            await knowledge_graph_repository.save(kg)
+
+        async with async_session.begin():
+            await data_source_repository.save(ds)
+
+        # --- Arrange: KG repo subclass that raises during delete ---
+        class FailingOnDeleteKGRepo(KnowledgeGraphRepository):
+            """Raises a RuntimeError when delete() is called.
+
+            Simulates a failure that occurs AFTER all data sources have been
+            deleted (within the same transaction) but BEFORE the KG row is
+            removed.
+            """
+
+            async def delete(self, knowledge_graph: KnowledgeGraph) -> bool:
+                raise RuntimeError(
+                    "Simulated KG deletion failure to verify service rollback"
+                )
+
+        outbox = OutboxRepository(session=async_session)
+        failing_kg_repo = FailingOnDeleteKGRepo(session=async_session, outbox=outbox)
+
+        # --- Arrange: authorization (in-memory; SpiceDB not needed here) ---
+        authz = InMemoryAuthorizationProvider()
+        await authz.write_relationship(
+            f"knowledge_graph:{kg.id.value}", "admin", "user:test-user"
+        )
+
+        svc = KnowledgeGraphService(
+            session=async_session,
+            knowledge_graph_repository=failing_kg_repo,
+            data_source_repository=data_source_repository,
+            authz=authz,
+            scope_to_tenant=test_tenant,
+            probe=DefaultKnowledgeGraphServiceProbe(),
+        )
+
+        # --- Act: delete must raise (the KG repo is wired to fail) ---
+        with pytest.raises(RuntimeError, match="Simulated KG deletion failure"):
+            await svc.delete(user_id="test-user", kg_id=kg.id.value)
+
+        # --- Assert: transaction rolled back — both KG and DS still exist ---
+        retrieved_kg = await knowledge_graph_repository.get_by_id(kg.id)
+        assert retrieved_kg is not None, (
+            "KnowledgeGraph must survive when service-level cascade fails; "
+            "the async with session.begin() block must roll back completely."
+        )
+
+        retrieved_ds = await data_source_repository.get_by_id(ds.id)
+        assert retrieved_ds is not None, (
+            "DataSource must survive when service-level cascade fails; "
+            "DS deletion must be rolled back together with the KG deletion."
+        )
+
+    @pytest.mark.asyncio
+    async def test_service_delete_commits_fully_on_success(
+        self,
+        knowledge_graph_repository: KnowledgeGraphRepository,
+        data_source_repository: DataSourceRepository,
+        async_session: AsyncSession,
+        test_tenant: str,
+        test_workspace: str,
+        clean_management_data: None,
+    ) -> None:
+        """When delete succeeds, both the KG and its data sources are removed.
+
+        Verifies the happy path of the service-level cascade to complement the
+        rollback test — the transaction must commit and leave no orphaned rows.
+        """
+        from tests.fakes.authorization import InMemoryAuthorizationProvider
+
+        kg = KnowledgeGraph.create(
+            tenant_id=test_tenant,
+            workspace_id=test_workspace,
+            name="Service Delete Commit KG",
+            description="Verifies successful service-level deletion",
+        )
+        ds = DataSource.create(
+            knowledge_graph_id=kg.id.value,
+            tenant_id=test_tenant,
+            name="Service Delete Commit DS",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"repo": "org/repo", "branch": "main"},
+        )
+
+        async with async_session.begin():
+            await knowledge_graph_repository.save(kg)
+
+        async with async_session.begin():
+            await data_source_repository.save(ds)
+
+        authz = InMemoryAuthorizationProvider()
+        await authz.write_relationship(
+            f"knowledge_graph:{kg.id.value}", "admin", "user:test-user"
+        )
+
+        svc = KnowledgeGraphService(
+            session=async_session,
+            knowledge_graph_repository=knowledge_graph_repository,
+            data_source_repository=data_source_repository,
+            authz=authz,
+            scope_to_tenant=test_tenant,
+            probe=DefaultKnowledgeGraphServiceProbe(),
+        )
+
+        result = await svc.delete(user_id="test-user", kg_id=kg.id.value)
+
+        assert result is True, "service.delete() must return True on success"
+
+        # Both KG and DS must be gone after a successful delete
+        retrieved_kg = await knowledge_graph_repository.get_by_id(kg.id)
+        assert retrieved_kg is None, "KnowledgeGraph must be deleted from the DB"
+
+        retrieved_ds = await data_source_repository.get_by_id(ds.id)
+        assert retrieved_ds is None, "DataSource must be deleted from the DB"

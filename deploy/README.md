@@ -1,5 +1,9 @@
 # Kartograph Deployment
 
+> [!Important]
+>
+> `deploy/apps/kartograph` is deprecated, replaced by https://gitlab.cee.redhat.com/hcm-gitops/fleet-gitops/-/tree/main/apps/kartograph
+
 ## Release Flow
 
 ```mermaid

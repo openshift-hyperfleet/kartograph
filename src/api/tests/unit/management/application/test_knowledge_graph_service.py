@@ -26,6 +26,7 @@ from management.domain.value_objects import (
 from shared_kernel.datasource_types import DataSourceAdapterType
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
+    KnowledgeGraphNotFoundError,
     UnauthorizedError,
 )
 from shared_kernel.authorization.types import (
@@ -491,14 +492,14 @@ class TestKnowledgeGraphServiceUpdate:
             )
 
     @pytest.mark.asyncio
-    async def test_update_raises_value_error_when_not_found(
+    async def test_update_raises_not_found_error_when_not_found(
         self, service, mock_authz, mock_kg_repo, user_id
     ):
-        """update() raises ValueError when KG not found."""
+        """update() raises KnowledgeGraphNotFoundError when KG not found."""
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = None
 
-        with pytest.raises(ValueError):
+        with pytest.raises(KnowledgeGraphNotFoundError):
             await service.update(
                 user_id=user_id,
                 kg_id="nonexistent",
@@ -510,12 +511,12 @@ class TestKnowledgeGraphServiceUpdate:
     async def test_update_rejects_different_tenant(
         self, service, mock_authz, mock_kg_repo, user_id
     ):
-        """update() raises ValueError when KG belongs to a different tenant."""
+        """update() raises KnowledgeGraphNotFoundError when KG belongs to a different tenant."""
         kg = _make_kg(tenant_id="other-tenant")
         mock_authz.check_permission.return_value = True
         mock_kg_repo.get_by_id.return_value = kg
 
-        with pytest.raises(ValueError):
+        with pytest.raises(KnowledgeGraphNotFoundError):
             await service.update(
                 user_id=user_id,
                 kg_id=kg.id.value,

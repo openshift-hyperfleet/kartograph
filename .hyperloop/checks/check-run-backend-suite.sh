@@ -83,6 +83,7 @@ CHECKS=(
   check-pytest-env-skip-if-set.sh
   check-cascade-delete-cleanup.sh
   check-cascade-delete-empty-collection-mocks.sh
+  check-cascade-delete-rollback-test.sh
   check-unused-fixtures.sh
   check-no-future-placeholder-comments.sh
 )

@@ -242,10 +242,17 @@ The system SHALL provide a JSONL editor for authoring and applying graph mutatio
 - THEN the file content is loaded into the editor
 - AND files larger than 5 MB activate large-file mode: editing is disabled, a summary of operation counts is shown, and the user can submit directly
 
+#### Scenario: Knowledge graph selection
+- GIVEN the mutations console
+- THEN a knowledge graph selector is displayed before the user can submit
+- AND the selector lists all knowledge graphs the user has `edit` permission on within the current workspace
+- AND no submission is possible until a knowledge graph is selected
+- AND the selected knowledge graph is used as the target for the mutation submission
+
 #### Scenario: Submission
-- GIVEN valid mutations in the editor
+- GIVEN valid mutations in the editor and a knowledge graph selected
 - WHEN the user clicks Apply Mutations (or presses Ctrl/Cmd+Enter)
-- THEN the mutations are submitted to the API and a floating progress indicator appears in the bottom-right corner
+- THEN the mutations are submitted to the API scoped to the selected knowledge graph and a floating progress indicator appears in the bottom-right corner
 - AND the indicator shows status (submitting / success / failed), operation count, and elapsed time
 - AND the indicator persists when the user navigates away from the mutations console
 - AND the indicator can be minimized to a compact pill or dismissed after completion

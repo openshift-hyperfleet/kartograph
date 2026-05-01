@@ -31,6 +31,7 @@ const { listNodeLabels, listEdgeLabels } = useGraphApi()
 const { listApiKeys, listWorkspaces } = useIamApi()
 const { extractErrorMessage } = useErrorHandler()
 const { hasTenant, currentTenantId, currentTenantName, tenantVersion } = useTenant()
+const { apiFetch } = useApiClient()
 
 // ── Stats state ──────────────────────────────────────────────────────────
 
@@ -45,37 +46,6 @@ const apiKeys = ref<APIKeyResponse[]>([])
 
 // KG count is fetched once during the redirect check and reused by the checklist.
 const kgCount = ref<number>(0)
-
-/**
- * True once the workspace list has been fetched and contains at least one entry.
- * Controls the workspace guidance panel (v-if="!hasWorkspace").
- */
-const hasWorkspace = computed(() => workspaces.value.length > 0)
-
-// ── Workspace creation dialog (opened from WorkspaceGuidance) ─────────────
-
-/**
- * Controls the inline workspace creation dialog.
- * The dialog guides the user to the full workspace management page where
- * they can create their first workspace with proper parent selection.
- * data-testid="dialog-create-workspace" is on the DialogContent below.
- */
-const showCreateWorkspaceDialog = ref(false)
-
-function openCreateWorkspaceDialog() {
-  showCreateWorkspaceDialog.value = true
-}
-
-function handleJoinWorkspace() {
-  toast.info('Contact a workspace admin', {
-    description: 'Ask a team workspace admin to add you as a member.',
-    action: {
-      label: 'Go to Workspaces',
-      onClick: () => navigateTo('/workspaces'),
-    },
-    duration: 6000,
-  })
-}
 
 // ── Onboarding state ─────────────────────────────────────────────────────
 
@@ -291,26 +261,28 @@ async function fetchStats() {
 onMounted(async () => {
   loadOnboardingState()
 
-  // Redirect returning users (those with query history) to the Explore section
-  // on the very first home-page visit of each browser session.
-  if (typeof sessionStorage !== 'undefined' && typeof localStorage !== 'undefined') {
+  // Redirect returning users (those with existing knowledge graphs) to the
+  // Explore section on the very first home-page visit of each browser session.
+  if (typeof sessionStorage !== 'undefined' && hasTenant.value) {
     const alreadyRedirected = sessionStorage.getItem(SESSION_REDIRECT_KEY)
-    if (!alreadyRedirected && hasTenant.value) {
-      const rawHistory = localStorage.getItem('kartograph:query-history')
-      if (rawHistory) {
-        try {
-          const history = JSON.parse(rawHistory)
-          if (Array.isArray(history) && history.length > 0) {
-            sessionStorage.setItem(SESSION_REDIRECT_KEY, 'true')
-            await navigateTo('/query')
-            return
-          }
-        } catch { /* ignore malformed history */ }
-      }
-    }
     if (!alreadyRedirected) {
-      // Mark redirect check as done so we don't repeat on every home visit
+      // Fetch KG count — use as redirect trigger AND populate the checklist ref.
+      try {
+        const result = await apiFetch<{ knowledge_graphs: { id: string }[] }>(
+          '/management/knowledge-graphs',
+        )
+        kgCount.value = result.knowledge_graphs?.length ?? 0
+      } catch {
+        // Graceful fallback: stay on home page, checklist shows KG step as not done.
+        kgCount.value = 0
+      }
+
       sessionStorage.setItem(SESSION_REDIRECT_KEY, 'true')
+
+      if (kgCount.value > 0) {
+        await navigateTo('/query')
+        return
+      }
     }
   }
 
@@ -371,7 +343,7 @@ watch(tenantVersion, () => {
       />
 
       <!-- B. Quick Stats Cards -->
-      <div v-if="hasWorkspace || statsLoading" class="grid grid-cols-2 gap-4 md:grid-cols-5">
+      <div class="grid grid-cols-2 gap-4 md:grid-cols-5">
         <NuxtLink
           v-for="stat in statsCards"
           :key="stat.label"

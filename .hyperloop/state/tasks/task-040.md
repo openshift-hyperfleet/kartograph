@@ -1,7 +1,7 @@
 ---
 id: task-040
 title: Fix KG creation — workspace selector and correct API endpoint
-spec_ref: specs/ui/experience.spec.md
+spec_ref: specs/ui/experience.spec.md@97bf3eeef007dbfe56dbe4d198ea9283e446a31d
 status: not-started
 phase: null
 deps: []

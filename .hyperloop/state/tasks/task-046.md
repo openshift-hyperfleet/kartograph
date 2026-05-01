@@ -1,7 +1,7 @@
 ---
 id: task-046
 title: Fix home page landing — KG-based redirect and new-user KG creation prompt
-spec_ref: specs/ui/experience.spec.md
+spec_ref: specs/ui/experience.spec.md@97bf3eeef007dbfe56dbe4d198ea9283e446a31d
 status: not-started
 phase: null
 deps:

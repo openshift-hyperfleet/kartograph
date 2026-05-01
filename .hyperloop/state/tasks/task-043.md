@@ -1,150 +1,74 @@
 ---
 id: task-043
-title: Add sync-run logs backend endpoint in Management context
+title: Implement UI — ontology design flow (intent, proposal review, type editing)
 spec_ref: specs/ui/experience.spec.md
 status: not-started
 phase: null
-deps: []
+deps:
+  - task-014
+  - task-015
 round: 0
 branch: null
 pr: null
 ---
 
-## Spec Gap
+## Spec Coverage
 
-**Requirement: Sync Monitoring — Scenario: Sync logs**
-> GIVEN a sync run (in progress or completed)
-> WHEN the user requests logs
-> THEN detailed logs for that run are displayed
+**Requirement: Ontology Design** — all 5 scenarios from `specs/ui/experience.spec.md`:
 
-## Root Cause
+1. **Intent description** — After a data source is connected, prompt the user to
+   describe (in free text) what problems or questions they want to solve with this data.
 
-The UI in `src/dev-ui/app/pages/data-sources/index.vue` already implements the
-"View Logs" button and the `fetchRunLogs` function that calls:
+2. **Agent-proposed ontology** — Submit intent to the backend; display the proposed
+   ontology (node types, edge types, properties) returned by the AI agent for review.
+   Note: the extraction backend endpoint is gated on AIHCM-174. Build the UI with a
+   loading/pending state and a clear stub contract so the backend can be wired in later
+   without UI changes.
 
-```
-GET /management/data-sources/{dsId}/sync-runs/{runId}/logs
-```
+3. **Ontology review and approval** — Present proposed types in a reviewable list.
+   The user can approve as-is or iterate. Extraction begins only after explicit approval.
 
-It expects the response `{ logs: string[] }` and renders them in a sheet panel.
+4. **Individual type editing** — Inline editor for each type: modify label, description,
+   required properties, optional properties, and relationship types. Validate that
+   `documentation_page` (or any type with a required property) enforces the constraint
+   (e.g., `source_url` must be required).
 
-However, the backend has **no such endpoint**. The Management presentation layer
-only exposes:
+5. **Ontology change after initial extraction** — When the ontology is modified on a KG
+   that has completed extraction, show a warning that full re-extraction will be triggered.
+   The user must confirm before the change is applied.
 
-- `GET /knowledge-graphs/{kg_id}/data-sources`
-- `POST /knowledge-graphs/{kg_id}/data-sources`
-- `POST /data-sources/{ds_id}/sync`
-- `GET /data-sources/{ds_id}/sync-runs`
+## Acceptance Criteria
 
-There is no logs route. Additionally, the `DataSourceSyncRun` domain entity has no
-`logs` field, and there is no database column or table for sync run log lines.
+- Intent description step renders after data source save and accepts free text (1–2000 chars).
+- Proposal review step renders a list of node types and edge types with their properties.
+- Each type in the list has an "Edit" action that opens the type editor inline or in a
+  side panel (no separate page navigation per the Interaction Principles requirement).
+- Approve button is disabled until the user has reviewed the proposal (opened or scrolled).
+- Re-extraction warning modal is shown when editing the ontology post-extraction; cancel
+  aborts the edit without saving.
+- All mutations show toast feedback (success or error).
+- Copy-to-clipboard is available for type slugs and any generated identifiers.
+- Tests are written first (TDD) in `src/dev-ui/app/tests/ontology.test.ts` before
+  implementing any component logic.
 
-The UI's `fetchRunLogs` call always fails with a 404/500 error, and the "View Logs"
-sheet shows the error state instead of actual log output.
+## UI Location
 
-## Changes Required
+- Flow is accessible from the data source detail page (step after "Connection configuration").
+- A separate "Ontology" tab or section on the data source detail page allows returning
+  users to view and edit the current ontology.
 
-This task adds **minimal viable log storage** to the Management bounded context:
-log lines as a list of strings appended to the sync run record. Ingestion and
-Extraction contexts will populate these logs as they are implemented (those are
-blocked on the AIHCM-174 spike); for now the endpoint returns an empty list for
-any run, which is correct and allows the UI to render "No log entries for this run."
+## Dependencies
 
-### 1. Domain Layer — `src/api/management/domain/entities/data_source_sync_run.py`
-
-Add a `logs` field to `DataSourceSyncRun`:
-
-```python
-@dataclass
-class DataSourceSyncRun:
-    id: str
-    data_source_id: str
-    status: str
-    started_at: datetime
-    completed_at: datetime | None
-    error: str | None
-    created_at: datetime
-    logs: list[str] = field(default_factory=list)  # NEW
-```
-
-### 2. Infrastructure — DB model and migration
-
-Update the SQLAlchemy model for `DataSourceSyncRun` to add a `logs` column
-(PostgreSQL `ARRAY(TEXT)`, nullable=False, server_default=`'{}'`):
-
-- `src/api/management/infrastructure/models/data_source_sync_run.py`:
-  Add `logs: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)`
-- Generate a new Alembic migration to add the `logs` column.
-
-Update the repository `DataSourceSyncRunRepository.find_by_data_source()` and
-`DataSourceSyncRunRepository.find_by_id()` to populate the `logs` field from
-the DB column when constructing domain objects.
-
-### 3. Presentation — New models and route
-
-**`src/api/management/presentation/data_sources/models.py`**
-
-Add a new response model:
-
-```python
-class SyncRunLogsResponse(BaseModel):
-    """Response model for sync run log lines."""
-    logs: list[str] = Field(default_factory=list, description="Log lines for this sync run")
-```
-
-**`src/api/management/presentation/data_sources/routes.py`**
-
-Add a new route:
-
-```python
-@router.get(
-    "/data-sources/{ds_id}/sync-runs/{run_id}/logs",
-    status_code=status.HTTP_200_OK,
-)
-async def get_sync_run_logs(
-    ds_id: str,
-    run_id: str,
-    current_user: Annotated[CurrentUser, Depends(get_current_user)],
-    service: Annotated[DataSourceService, Depends(get_data_source_service)],
-    sync_run_repo: Annotated[IDataSourceSyncRunRepository, Depends(get_sync_run_repository)],
-) -> SyncRunLogsResponse:
-    """Get log lines for a specific sync run.
-
-    The current user must have VIEW permission on the data source.
-    Returns an empty list if no logs have been captured yet.
-    """
-```
-
-The route must:
-1. Verify the user has VIEW permission on the data source (via `service.get`).
-2. Verify the sync run belongs to the data source.
-3. Return `SyncRunLogsResponse(logs=run.logs)`.
-4. Return 404 if the data source or sync run is not found.
-
-### 4. Port — repository interface update
-
-Update `IDataSourceSyncRunRepository` in
-`src/api/management/ports/repositories.py` to add `find_by_id`:
-
-```python
-async def find_by_id(self, run_id: str) -> DataSourceSyncRun | None: ...
-```
-
-(Used by the logs route to fetch a single run and verify it belongs to the DS.)
-
-### 5. Backend tests — `src/api/tests/`
-
-Write integration tests (or unit tests with fakes) that cover:
-
-1. **GET logs for own sync run returns 200 with empty list** when no logs captured.
-2. **GET logs returns 404 when sync run not found**.
-3. **GET logs returns 403 when user lacks VIEW permission on the data source**.
-4. **GET logs returns 200 with log lines** when `DataSourceSyncRun.logs` is populated.
+- **task-014** must be complete (design system, navigation scaffold, shadcn/vue components).
+- **task-015** must be complete (data source connection UI must exist; this flow continues
+  from the data source save step).
+- **AIHCM-174 extraction spike** (external blocker for AI proposal backend): the UI
+  stub/loading state allows task-043 to merge before the backend is ready.
 
 ## TDD Cycle
 
-1. Write backend tests first (they will fail — no route exists).
-2. Add domain `logs` field and update infrastructure.
-3. Add the route and models.
-4. Run `make test-integration` — all new tests must pass before committing.
-5. Confirm `cd src/dev-ui && pnpm test` still passes (UI tests already mock the API).
+1. Write tests in `src/dev-ui/app/tests/ontology.test.ts` (will fail initially).
+2. Implement components in `src/dev-ui/app/pages/data-sources/` or a dedicated
+   `ontology/` subdirectory.
+3. Run `cd src/dev-ui && pnpm test` — all tests must pass before committing.
+4. Commit atomically per conventional commit conventions.

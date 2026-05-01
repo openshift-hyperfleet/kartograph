@@ -3,12 +3,12 @@ id: task-063
 title: Ontology wizard and editor — add new node and edge types from scratch
 spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-043
 round: 0
 branch: hyperloop/task-063
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/525
 pr_title: 'feat(ui): add new-type buttons to ontology wizard step 4 and post-extraction
   editor'
 pr_description: "## What & Why\n\nThe Ontology Design spec requires that users can\

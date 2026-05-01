@@ -3,13 +3,13 @@ id: task-064
 title: Data sources — animated progress indicator for active sync phases
 spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-041
 - task-042
 round: 0
 branch: hyperloop/task-064
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/526
 pr_title: 'feat(ui): add animated phase progress indicator for active data source
   sync runs'
 pr_description: "## What & Why\n\nThe Sync Monitoring spec requires \"a progress indicator\

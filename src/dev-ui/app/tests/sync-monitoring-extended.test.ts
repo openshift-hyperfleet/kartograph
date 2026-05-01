@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from 'vitest'
 
 interface SyncRun {
   id: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  status: 'pending' | 'ingesting' | 'ai_extracting' | 'applying' | 'completed' | 'failed'
   started_at: string
   completed_at: string | null
   error: string | null
@@ -29,8 +29,12 @@ function getSyncPhaseLabel(status: SyncRun['status']): string {
   switch (status) {
     case 'pending':
       return 'Pending'
-    case 'running':
-      return 'In Progress'
+    case 'ingesting':
+      return 'Ingesting'
+    case 'ai_extracting':
+      return 'Extracting'
+    case 'applying':
+      return 'Applying'
     case 'completed':
       return 'Completed'
     case 'failed':
@@ -41,13 +45,13 @@ function getSyncPhaseLabel(status: SyncRun['status']): string {
 }
 
 function isActiveSyncPhase(status: SyncRun['status']): boolean {
-  return status === 'pending' || status === 'running'
+  return status === 'pending' || status === 'ingesting' || status === 'ai_extracting' || status === 'applying'
 }
 
 function getSyncBadgeVariant(status: SyncRun['status']): 'default' | 'destructive' | 'secondary' {
   if (status === 'completed') return 'default'
   if (status === 'failed') return 'destructive'
-  return 'secondary' // pending, running
+  return 'secondary' // pending, ingesting, ai_extracting, applying
 }
 
 function getDataSourceSyncStatus(syncRuns: SyncRun[]): string {
@@ -79,14 +83,60 @@ async function triggerSync(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Scenario: Active sync progress — phase display
+// Scenario: Active sync progress — real backend phase display
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('Sync Monitoring - real backend phase labels (ingesting/ai_extracting/applying)', () => {
+  it('shows "Ingesting" label for ingesting phase', () => {
+    expect(getSyncPhaseLabel('ingesting')).toBe('Ingesting')
+  })
+
+  it('shows "Extracting" label for ai_extracting phase', () => {
+    expect(getSyncPhaseLabel('ai_extracting')).toBe('Extracting')
+  })
+
+  it('shows "Applying" label for applying phase', () => {
+    expect(getSyncPhaseLabel('applying')).toBe('Applying')
+  })
+
+  it('isActiveSyncPhase returns true for ingesting status', () => {
+    expect(isActiveSyncPhase('ingesting')).toBe(true)
+  })
+
+  it('isActiveSyncPhase returns true for ai_extracting status', () => {
+    expect(isActiveSyncPhase('ai_extracting')).toBe(true)
+  })
+
+  it('isActiveSyncPhase returns true for applying status', () => {
+    expect(isActiveSyncPhase('applying')).toBe(true)
+  })
+
+  it('isActiveSyncPhase returns false for "running" (not a real backend status)', () => {
+    // The backend never emits 'running'; all in-progress phases are ingesting,
+    // ai_extracting, or applying. This assertion documents that 'running' must
+    // NOT be treated as an active phase.
+    const runningAsUnknown = 'running' as unknown as SyncRun['status']
+    expect(isActiveSyncPhase(runningAsUnknown)).toBe(false)
+  })
+
+  it('ingesting status uses "secondary" badge variant (in-progress)', () => {
+    expect(getSyncBadgeVariant('ingesting')).toBe('secondary')
+  })
+
+  it('ai_extracting status uses "secondary" badge variant (in-progress)', () => {
+    expect(getSyncBadgeVariant('ai_extracting')).toBe('secondary')
+  })
+
+  it('applying status uses "secondary" badge variant (in-progress)', () => {
+    expect(getSyncBadgeVariant('applying')).toBe('secondary')
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+// Scenario: Active sync progress — phase display (all statuses)
 // ────────────────────────────────────────────────────────────────────────────
 
 describe('Sync Monitoring - active sync progress phases', () => {
-  it('shows "In Progress" label for running sync', () => {
-    expect(getSyncPhaseLabel('running')).toBe('In Progress')
-  })
-
   it('shows "Pending" label for pending sync', () => {
     expect(getSyncPhaseLabel('pending')).toBe('Pending')
   })
@@ -97,10 +147,6 @@ describe('Sync Monitoring - active sync progress phases', () => {
 
   it('shows "Failed" label for failed sync', () => {
     expect(getSyncPhaseLabel('failed')).toBe('Failed')
-  })
-
-  it('isActiveSyncPhase returns true for running status', () => {
-    expect(isActiveSyncPhase('running')).toBe(true)
   })
 
   it('isActiveSyncPhase returns true for pending status', () => {
@@ -125,8 +171,8 @@ describe('Sync Monitoring - badge variants for sync status', () => {
     expect(getSyncBadgeVariant('failed')).toBe('destructive')
   })
 
-  it('running sync uses "secondary" badge variant (progress indicator)', () => {
-    expect(getSyncBadgeVariant('running')).toBe('secondary')
+  it('ingesting sync uses "secondary" badge variant (progress indicator)', () => {
+    expect(getSyncBadgeVariant('ingesting')).toBe('secondary')
   })
 
   it('pending sync uses "secondary" badge variant', () => {
@@ -141,10 +187,10 @@ describe('Sync Monitoring - data source current sync status', () => {
 
   it('shows the most recent run status (first in array)', () => {
     const runs: SyncRun[] = [
-      { id: 'run-2', status: 'running', started_at: '2024-01-02T10:00:00Z', completed_at: null, error: null, created_at: '2024-01-02T10:00:00Z' },
+      { id: 'run-2', status: 'ingesting', started_at: '2024-01-02T10:00:00Z', completed_at: null, error: null, created_at: '2024-01-02T10:00:00Z' },
       { id: 'run-1', status: 'completed', started_at: '2024-01-01T10:00:00Z', completed_at: '2024-01-01T10:00:30Z', error: null, created_at: '2024-01-01T10:00:00Z' },
     ]
-    expect(getDataSourceSyncStatus(runs)).toBe('running')
+    expect(getDataSourceSyncStatus(runs)).toBe('ingesting')
   })
 
   it('shows "completed" when the latest sync completed successfully', () => {
@@ -227,7 +273,7 @@ describe('Sync Monitoring - sync history list rendering', () => {
     const runs: SyncRun[] = [
       {
         id: 'run-3',
-        status: 'running',
+        status: 'ingesting',
         started_at: '2024-01-03T10:00:00Z',
         completed_at: null,
         error: null,

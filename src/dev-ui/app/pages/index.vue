@@ -15,6 +15,7 @@ import {
   Circle,
   X,
   Loader2,
+  GitGraph,
 } from 'lucide-vue-next'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -27,6 +28,7 @@ const { listNodeLabels, listEdgeLabels } = useGraphApi()
 const { listApiKeys, listWorkspaces } = useIamApi()
 const { extractErrorMessage } = useErrorHandler()
 const { hasTenant, currentTenantId, currentTenantName, tenantVersion } = useTenant()
+const { apiFetch } = useApiClient()
 
 // ── Stats state ──────────────────────────────────────────────────────────
 
@@ -36,6 +38,9 @@ const edgeTypeCount = ref<number | null>(null)
 const apiKeyCount = ref<number | null>(null)
 const workspaceCount = ref<number | null>(null)
 const apiKeys = ref<APIKeyResponse[]>([])
+
+// KG count is fetched once during the redirect check and reused by the checklist.
+const kgCount = ref<number>(0)
 
 // ── Onboarding state ─────────────────────────────────────────────────────
 
@@ -65,6 +70,13 @@ const checklistItems = computed(() => [
     description: 'You need a tenant to organize your knowledge graphs.',
     actionTo: '/tenants',
     actionLabel: 'Manage Tenants',
+  },
+  {
+    done: kgCount.value > 0,
+    label: 'Create a knowledge graph',
+    description: 'Organise your data sources into a queryable knowledge graph.',
+    actionTo: '/knowledge-graphs',
+    actionLabel: 'Create Knowledge Graph',
   },
   {
     done: (nodeTypeCount.value ?? 0) > 0,
@@ -100,6 +112,12 @@ const showChecklist = computed(() => {
 // ── Stats cards config ───────────────────────────────────────────────────
 
 const statsCards = computed(() => [
+  {
+    label: 'Knowledge Graphs',
+    count: kgCount.value,
+    icon: GitGraph,
+    to: '/knowledge-graphs',
+  },
   {
     label: 'Node Types',
     count: nodeTypeCount.value,
@@ -233,26 +251,28 @@ async function fetchStats() {
 onMounted(async () => {
   loadOnboardingState()
 
-  // Redirect returning users (those with query history) to the Explore section
-  // on the very first home-page visit of each browser session.
-  if (typeof sessionStorage !== 'undefined' && typeof localStorage !== 'undefined') {
+  // Redirect returning users (those with existing knowledge graphs) to the
+  // Explore section on the very first home-page visit of each browser session.
+  if (typeof sessionStorage !== 'undefined' && hasTenant.value) {
     const alreadyRedirected = sessionStorage.getItem(SESSION_REDIRECT_KEY)
-    if (!alreadyRedirected && hasTenant.value) {
-      const rawHistory = localStorage.getItem('kartograph:query-history')
-      if (rawHistory) {
-        try {
-          const history = JSON.parse(rawHistory)
-          if (Array.isArray(history) && history.length > 0) {
-            sessionStorage.setItem(SESSION_REDIRECT_KEY, 'true')
-            await navigateTo('/query')
-            return
-          }
-        } catch { /* ignore malformed history */ }
-      }
-    }
     if (!alreadyRedirected) {
-      // Mark redirect check as done so we don't repeat on every home visit
+      // Fetch KG count — use as redirect trigger AND populate the checklist ref.
+      try {
+        const result = await apiFetch<{ knowledge_graphs: { id: string }[] }>(
+          '/management/knowledge-graphs',
+        )
+        kgCount.value = result.knowledge_graphs?.length ?? 0
+      } catch {
+        // Graceful fallback: stay on home page, checklist shows KG step as not done.
+        kgCount.value = 0
+      }
+
       sessionStorage.setItem(SESSION_REDIRECT_KEY, 'true')
+
+      if (kgCount.value > 0) {
+        await navigateTo('/query')
+        return
+      }
     }
   }
 
@@ -293,7 +313,7 @@ watch(tenantVersion, () => {
       <Separator />
 
       <!-- B. Quick Stats Cards -->
-      <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div class="grid grid-cols-2 gap-4 md:grid-cols-5">
         <NuxtLink
           v-for="stat in statsCards"
           :key="stat.label"

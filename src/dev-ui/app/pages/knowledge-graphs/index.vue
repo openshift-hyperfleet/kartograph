@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { CopyableText } from '@/components/ui/copyable-text'
 import {
   Dialog,
   DialogContent,
@@ -273,6 +274,7 @@ watch(tenantVersion, () => {
               <div>
                 <p class="font-medium text-sm">{{ kg.name }}</p>
                 <p v-if="kg.description" class="text-xs text-muted-foreground">{{ kg.description }}</p>
+                <CopyableText :text="kg.id" label="Knowledge graph ID copied" class="mt-0.5" />
               </div>
             </div>
             <div class="flex items-center gap-2">

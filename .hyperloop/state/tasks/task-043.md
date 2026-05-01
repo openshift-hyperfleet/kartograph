@@ -1,7 +1,7 @@
 ---
 id: task-043
 title: Implement UI — ontology design flow (intent, proposal review, type editing)
-spec_ref: specs/ui/experience.spec.md
+spec_ref: specs/ui/experience.spec.md@97bf3eeef007dbfe56dbe4d198ea9283e446a31d
 status: not-started
 phase: null
 deps:

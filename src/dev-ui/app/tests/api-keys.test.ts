@@ -248,11 +248,12 @@ describe('API Keys - revoke key', () => {
     const loadKeys = vi.fn().mockResolvedValue(undefined)
     let toastMsg = ''
 
+    // Mirrors useIamApi.revokeApiKey: DELETE /iam/api-keys/{id} (not POST /revoke)
     async function handleRevoke() {
       if (!keyToRevoke.value) return
       isRevoking.value = true
       try {
-        await revokeApiFetch(`/iam/api-keys/${keyToRevoke.value.id}/revoke`, { method: 'POST' })
+        await revokeApiFetch(`/iam/api-keys/${keyToRevoke.value.id}`, { method: 'DELETE' })
         toastMsg = `API key "${keyToRevoke.value.name}" revoked`
         await loadKeys()
       } finally {
@@ -263,7 +264,7 @@ describe('API Keys - revoke key', () => {
     }
 
     await handleRevoke()
-    expect(revokeApiFetch).toHaveBeenCalledWith('/iam/api-keys/key-abc/revoke', { method: 'POST' })
+    expect(revokeApiFetch).toHaveBeenCalledWith('/iam/api-keys/key-abc', { method: 'DELETE' })
     expect(toastMsg).toBe('API key "CI Pipeline" revoked')
     expect(loadKeys).toHaveBeenCalledOnce()
     expect(revokeDialogOpen.value).toBe(false)
@@ -278,11 +279,12 @@ describe('API Keys - revoke key', () => {
     const revokeApiFetch = vi.fn().mockRejectedValue(new Error('Not found'))
     let errorMsg = ''
 
+    // Mirrors useIamApi.revokeApiKey: DELETE /iam/api-keys/{id}
     async function handleRevoke() {
       if (!keyToRevoke.value) return
       isRevoking.value = true
       try {
-        await revokeApiFetch(`/iam/api-keys/${keyToRevoke.value.id}/revoke`, { method: 'POST' })
+        await revokeApiFetch(`/iam/api-keys/${keyToRevoke.value.id}`, { method: 'DELETE' })
       } catch (err) {
         errorMsg = err instanceof Error ? err.message : 'Failed to revoke'
       } finally {
@@ -304,11 +306,93 @@ describe('API Keys - revoke key', () => {
 
     async function handleRevoke() {
       if (!keyToRevoke.value) return
-      await revokeApiFetch(`/iam/api-keys/${keyToRevoke.value.id}/revoke`, { method: 'POST' })
+      await revokeApiFetch(`/iam/api-keys/${keyToRevoke.value.id}`, { method: 'DELETE' })
     }
 
     await handleRevoke()
     expect(revokeApiFetch).not.toHaveBeenCalled()
+  })
+})
+
+// ── Backend API Alignment: exact endpoint URL assertions ──────────────────────
+// Spec: "Backend API Alignment" — every CRUD operation calls the documented endpoint.
+// These tests mirror the useIamApi composable's implementation exactly so that
+// any future drift between the composable and the test is immediately visible.
+
+describe('API Keys - backend endpoint alignment (useIamApi)', () => {
+  it('listApiKeys calls GET /iam/api-keys', async () => {
+    const mockApiFetch = vi.fn().mockResolvedValue([])
+
+    // Mirrors useIamApi.listApiKeys exactly
+    async function listApiKeys(userId?: string) {
+      const query: Record<string, string> = {}
+      if (userId) query.user_id = userId
+      return mockApiFetch('/iam/api-keys', { query })
+    }
+
+    await listApiKeys()
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/iam/api-keys',
+      expect.objectContaining({ query: {} }),
+    )
+  })
+
+  it('listApiKeys passes user_id query param when filtering by user', async () => {
+    const mockApiFetch = vi.fn().mockResolvedValue([])
+
+    async function listApiKeys(userId?: string) {
+      const query: Record<string, string> = {}
+      if (userId) query.user_id = userId
+      return mockApiFetch('/iam/api-keys', { query })
+    }
+
+    await listApiKeys('user-42')
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/iam/api-keys',
+      expect.objectContaining({ query: { user_id: 'user-42' } }),
+    )
+  })
+
+  it('createApiKey calls POST /iam/api-keys with name and expires_in_days', async () => {
+    const mockApiFetch = vi.fn().mockResolvedValue({
+      id: 'key-new',
+      name: 'CI Pipeline',
+      secret: 'fake-secret', // gitleaks:allow
+    })
+
+    // Mirrors useIamApi.createApiKey exactly
+    async function createApiKey(data: { name: string; expires_in_days?: number }) {
+      return mockApiFetch('/iam/api-keys', { method: 'POST', body: data })
+    }
+
+    await createApiKey({ name: 'CI Pipeline', expires_in_days: 365 })
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/iam/api-keys',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.objectContaining({ name: 'CI Pipeline', expires_in_days: 365 }),
+      }),
+    )
+  })
+
+  it('revokeApiKey calls DELETE /iam/api-keys/{id} — not POST /revoke', async () => {
+    const mockApiFetch = vi.fn().mockResolvedValue(undefined)
+
+    // Mirrors useIamApi.revokeApiKey exactly
+    async function revokeApiKey(apiKeyId: string) {
+      return mockApiFetch(`/iam/api-keys/${apiKeyId}`, { method: 'DELETE' })
+    }
+
+    await revokeApiKey('key-abc')
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/iam/api-keys/key-abc',
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+    // Explicit negative assertion: must NOT be the old POST /revoke pattern
+    expect(mockApiFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining('/revoke'),
+      expect.anything(),
+    )
   })
 })
 

@@ -348,13 +348,13 @@ describe('Design Language — Scenario: Elevation', () => {
 // Regression guard: scan all .vue files under pages/ and assert that no
 // font-bold (700) class appears inside the <template> block.
 
-function collectPageFiles(dir: string): string[] {
+function collectVueFiles(dir: string): string[] {
   const entries = readdirSync(dir, { withFileTypes: true })
   const files: string[] = []
   for (const entry of entries) {
     const full = resolve(dir, entry.name)
     if (entry.isDirectory()) {
-      files.push(...collectPageFiles(full))
+      files.push(...collectVueFiles(full))
     } else if (entry.name.endsWith('.vue')) {
       files.push(full)
     }
@@ -363,12 +363,37 @@ function collectPageFiles(dir: string): string[] {
 }
 
 const pagesDir = resolve(__dirname, '../pages')
-const pageFiles = collectPageFiles(pagesDir)
+const pageFiles = collectVueFiles(pagesDir)
 
 describe('Design Language — Scenario: Typography (page files, font-weight regression)', () => {
   for (const filePath of pageFiles) {
     const relativeName = filePath.split('/pages/')[1]
     it(`pages/${relativeName} does not use font-bold (max semibold per spec)`, () => {
+      const content = readFileSync(filePath, 'utf-8')
+      // Extract only the <template> section to avoid false positives from
+      // string literals inside <script> that name Tailwind classes
+      const templateMatch = content.match(/<template>([\s\S]*)<\/template>/)
+      const templateContent = templateMatch ? templateMatch[1] : content
+      expect(templateContent).not.toContain('font-bold')
+    })
+  }
+})
+
+// ── Scenario: Typography — font weight constraints in component files ──────────
+//
+// Spec: "font weights are limited to regular (400), medium (500), and semibold (600)"
+// Applied to "any text in the UI" — including component template content.
+//
+// Regression guard: scan all .vue files under components/ recursively and assert
+// that no font-bold (700) class appears inside the <template> block.
+
+const componentsDir = resolve(__dirname, '../components')
+const componentFiles = collectVueFiles(componentsDir)
+
+describe('Design Language — Scenario: Typography (component files, font-weight regression)', () => {
+  for (const filePath of componentFiles) {
+    const relativeName = filePath.split('/components/')[1]
+    it(`components/${relativeName} does not use font-bold (max semibold per spec)`, () => {
       const content = readFileSync(filePath, 'utf-8')
       // Extract only the <template> section to avoid false positives from
       // string literals inside <script> that name Tailwind classes

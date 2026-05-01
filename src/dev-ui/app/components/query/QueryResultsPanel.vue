@@ -276,21 +276,21 @@ watch(() => props.result, (newResult) => {
         <div class="flex items-center justify-between">
           <TabsList>
             <TabsTrigger value="table">
-              <span v-if="altHeld" class="mr-1 inline-flex size-4 items-center justify-center rounded bg-primary text-[10px] font-bold text-primary-foreground">1</span>
+              <span v-if="altHeld" class="mr-1 inline-flex size-4 items-center justify-center rounded bg-primary text-[10px] font-semibold text-primary-foreground">1</span>
               Table
               <Badge v-if="result" variant="secondary" class="ml-1.5 h-4 px-1 font-mono text-[10px]">
                 {{ result.row_count }}
               </Badge>
             </TabsTrigger>
             <TabsTrigger value="json">
-              <span v-if="altHeld" class="mr-1 inline-flex size-4 items-center justify-center rounded bg-primary text-[10px] font-bold text-primary-foreground">2</span>
+              <span v-if="altHeld" class="mr-1 inline-flex size-4 items-center justify-center rounded bg-primary text-[10px] font-semibold text-primary-foreground">2</span>
               JSON
             </TabsTrigger>
             <Tooltip>
               <TooltipTrigger as-child>
                 <span>
                   <TabsTrigger value="graph" :disabled="!hasGraphElements">
-                    <span v-if="altHeld && hasGraphElements" class="mr-1 inline-flex size-4 items-center justify-center rounded bg-primary text-[10px] font-bold text-primary-foreground">3</span>
+                    <span v-if="altHeld && hasGraphElements" class="mr-1 inline-flex size-4 items-center justify-center rounded bg-primary text-[10px] font-semibold text-primary-foreground">3</span>
                     Graph
                     <Badge v-if="graphNodeCount > 0" variant="secondary" class="ml-1.5 h-4 px-1 font-mono text-[10px]">
                       {{ graphNodeCount }}

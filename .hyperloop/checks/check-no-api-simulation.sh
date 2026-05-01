@@ -47,8 +47,6 @@ check_dir() {
     --include="*.js" \
     --exclude="*.test.*" \
     --exclude="*.spec.*" \
-    --exclude-dir=.venv \
-    --exclude-dir=node_modules \
     -E "new Promise[^)]*setTimeout[[:space:]]*\([[:space:]]*resolve" \
     "$dir" 2>/dev/null || true)
 

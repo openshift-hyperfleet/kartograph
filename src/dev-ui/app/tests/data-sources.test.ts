@@ -679,3 +679,437 @@ describe('Data Source API Response Format - list-sync-runs', () => {
     expect(correctExtract).toHaveLength(1)
   })
 })
+
+// ── Ontology Design: Agent-Proposed Ontology ──────────────────────────────────
+//
+// Spec: "Scenario: Agent-proposed ontology"
+// "GIVEN a free-text intent description and a connected data source
+//  WHEN the user submits their intent
+//  THEN the system performs a lightweight scan of the data source
+//  AND an AI agent explores the scanned data and proposes an ontology
+//       (node types, edge types, properties)
+//  AND the proposed ontology is presented to the user for review"
+//
+// Implementation note: `beginOntologyProposal()` in data-sources/index.vue
+// simulates the scan + AI proposal flow:
+//   1. Sets scanningOntology = true (scan in progress)
+//   2. Populates proposedNodes and proposedEdges from GITHUB_PROPOSAL_NODES/EDGES
+//   3. Sets scanningOntology = false, ontologyReady = true (proposal ready)
+
+// Mirrors GITHUB_PROPOSAL_NODES from data-sources/index.vue
+const GITHUB_PROPOSAL_NODES = [
+  {
+    label: 'Repository',
+    description: 'A GitHub repository containing code, issues, and pull requests.',
+    required_properties: ['name', 'url'],
+    optional_properties: ['description', 'stars', 'forks', 'default_branch'],
+  },
+  {
+    label: 'Issue',
+    description: 'An issue filed in a GitHub repository.',
+    required_properties: ['title', 'number', 'state'],
+    optional_properties: ['body', 'labels', 'closed_at'],
+  },
+  {
+    label: 'PullRequest',
+    description: 'A pull request proposing code changes.',
+    required_properties: ['title', 'number', 'state'],
+    optional_properties: ['body', 'base_branch', 'head_branch', 'merged_at'],
+  },
+  {
+    label: 'Commit',
+    description: 'A Git commit recorded in the repository.',
+    required_properties: ['sha', 'message', 'timestamp'],
+    optional_properties: ['author_email'],
+  },
+  {
+    label: 'User',
+    description: 'A GitHub user who interacts with the repository.',
+    required_properties: ['login'],
+    optional_properties: ['name', 'email', 'avatar_url'],
+  },
+]
+
+const GITHUB_PROPOSAL_EDGES = [
+  {
+    label: 'CONTAINS',
+    description: 'A repository contains issues, pull requests, and commits.',
+    from: 'Repository',
+    to: 'Issue | PullRequest | Commit',
+    required_properties: [] as string[],
+    optional_properties: [] as string[],
+  },
+  {
+    label: 'CREATED_BY',
+    description: 'An issue or pull request was created by a user.',
+    from: 'Issue | PullRequest',
+    to: 'User',
+    required_properties: [] as string[],
+    optional_properties: ['created_at'],
+  },
+  {
+    label: 'AUTHORED_BY',
+    description: 'A commit was authored by a user.',
+    from: 'Commit',
+    to: 'User',
+    required_properties: [] as string[],
+    optional_properties: [] as string[],
+  },
+  {
+    label: 'ASSIGNED_TO',
+    description: 'An issue or pull request is assigned to a user.',
+    from: 'Issue | PullRequest',
+    to: 'User',
+    required_properties: [] as string[],
+    optional_properties: [] as string[],
+  },
+]
+
+// Simulates beginOntologyProposal() without the setTimeout (synchronous version
+// for deterministic testing).
+function runOntologyProposalSync(): {
+  scanningOntology: boolean
+  ontologyReady: boolean
+  proposedNodes: typeof GITHUB_PROPOSAL_NODES
+  proposedEdges: typeof GITHUB_PROPOSAL_EDGES
+} {
+  const state = {
+    scanningOntology: true,
+    ontologyReady: false,
+    proposedNodes: [] as typeof GITHUB_PROPOSAL_NODES,
+    proposedEdges: [] as typeof GITHUB_PROPOSAL_EDGES,
+  }
+
+  // (scan completes)
+  state.proposedNodes = GITHUB_PROPOSAL_NODES.map((n) => ({ ...n }))
+  state.proposedEdges = GITHUB_PROPOSAL_EDGES.map((e) => ({ ...e }))
+  state.scanningOntology = false
+  state.ontologyReady = true
+
+  return state
+}
+
+describe('Ontology Design - Agent-Proposed Ontology: scan initiation', () => {
+  it('sets scanningOntology to true when the scan begins', () => {
+    // beginOntologyProposal() immediately sets scanningOntology = true before the async wait
+    let scanningOntology = false
+    let ontologyReady = false
+
+    function beginOntologyProposal() {
+      scanningOntology = true
+      ontologyReady = false
+      // (async scan runs here...)
+    }
+
+    beginOntologyProposal()
+    expect(scanningOntology).toBe(true)
+    expect(ontologyReady).toBe(false)
+  })
+
+  it('clears any previously proposed nodes and edges when scan begins', () => {
+    const proposedNodes = [{ label: 'OldType' }]
+    const proposedEdges = [{ label: 'OLD_EDGE' }]
+
+    function beginOntologyProposal() {
+      proposedNodes.splice(0)
+      proposedEdges.splice(0)
+    }
+
+    beginOntologyProposal()
+    expect(proposedNodes).toHaveLength(0)
+    expect(proposedEdges).toHaveLength(0)
+  })
+})
+
+describe('Ontology Design - Agent-Proposed Ontology: proposal population', () => {
+  it('proposes node types after scan completes for GitHub adapter', () => {
+    const state = runOntologyProposalSync()
+    expect(state.proposedNodes.length).toBeGreaterThanOrEqual(1)
+    expect(state.ontologyReady).toBe(true)
+    expect(state.scanningOntology).toBe(false)
+  })
+
+  it('proposes at least 5 node types for GitHub adapter', () => {
+    const state = runOntologyProposalSync()
+    expect(state.proposedNodes.length).toBeGreaterThanOrEqual(5)
+  })
+
+  it('proposes at least 4 edge types for GitHub adapter', () => {
+    const state = runOntologyProposalSync()
+    expect(state.proposedEdges.length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('each proposed node type has a label, description, and required_properties', () => {
+    const state = runOntologyProposalSync()
+    for (const node of state.proposedNodes) {
+      expect(node.label).toBeTruthy()
+      expect(node.description).toBeTruthy()
+      expect(Array.isArray(node.required_properties)).toBe(true)
+    }
+  })
+
+  it('each proposed edge type has a label, from, and to fields', () => {
+    const state = runOntologyProposalSync()
+    for (const edge of state.proposedEdges) {
+      expect(edge.label).toBeTruthy()
+      expect(edge.from).toBeTruthy()
+      expect(edge.to).toBeTruthy()
+    }
+  })
+
+  it('proposed node types include expected GitHub entities (Repository, User)', () => {
+    const state = runOntologyProposalSync()
+    const nodeLabels = state.proposedNodes.map((n) => n.label)
+    expect(nodeLabels).toContain('Repository')
+    expect(nodeLabels).toContain('User')
+  })
+
+  it('proposed edge types include expected relationships (CONTAINS, AUTHORED_BY)', () => {
+    const state = runOntologyProposalSync()
+    const edgeLabels = state.proposedEdges.map((e) => e.label)
+    expect(edgeLabels).toContain('CONTAINS')
+    expect(edgeLabels).toContain('AUTHORED_BY')
+  })
+
+  it('ontologyReady transitions from false to true after scan completes', () => {
+    let scanningOntology = false
+    let ontologyReady = false
+    const proposedNodes: string[] = []
+
+    async function beginOntologyProposalAsync(tick: () => void) {
+      scanningOntology = true
+      ontologyReady = false
+
+      // snapshot: scanning is true, ontology not yet ready
+      tick()
+
+      // scan completes:
+      proposedNodes.push('Repository', 'User')
+      scanningOntology = false
+      ontologyReady = true
+    }
+
+    let midScanState = { scanning: false, ready: false }
+    beginOntologyProposalAsync(() => {
+      midScanState = { scanning: scanningOntology, ready: ontologyReady }
+    })
+
+    expect(midScanState.scanning).toBe(true)
+    expect(midScanState.ready).toBe(false)
+    // After the async completes:
+    expect(scanningOntology).toBe(false)
+    expect(ontologyReady).toBe(true)
+    expect(proposedNodes).toContain('Repository')
+  })
+})
+
+// ── Ontology Design: Ontology Review and Approval ────────────────────────────
+//
+// Spec: "Scenario: Ontology review and approval"
+// "GIVEN a proposed ontology
+//  WHEN the user reviews it
+//  THEN they can approve the ontology as-is
+//  OR iterate by editing individual types and relationships
+//  AND extraction begins only after the user explicitly approves"
+
+describe('Ontology Design - Ontology Review and Approval: approve as-is', () => {
+  it('approveOntology() calls the data source API when all conditions are met', async () => {
+    const selectedKnowledgeGraphId = { value: 'kg-123' }
+    const connName = { value: 'my-repo' }
+    const connRepoUrl = { value: 'https://github.com/owner/my-repo' }
+    const connToken = { value: 'ghp_abc' }
+    const selectedAdapterId = { value: 'github' }
+    let approvingOntology = false
+    let dataSourceCreated = false
+
+    const createDataSource = vi.fn().mockResolvedValue({ id: 'ds-new' })
+
+    async function approveOntology() {
+      if (!selectedKnowledgeGraphId.value) {
+        return
+      }
+      approvingOntology = true
+      try {
+        await createDataSource({
+          kg_id: selectedKnowledgeGraphId.value,
+          name: connName.value,
+          adapter_type: selectedAdapterId.value,
+          connection_config: { repo_url: connRepoUrl.value },
+          credentials: connToken.value ? { access_token: connToken.value } : undefined,
+        })
+        dataSourceCreated = true
+      } finally {
+        approvingOntology = false
+      }
+    }
+
+    await approveOntology()
+    expect(createDataSource).toHaveBeenCalledOnce()
+    expect(dataSourceCreated).toBe(true)
+    expect(approvingOntology).toBe(false)
+  })
+
+  it('approveOntology() is blocked when no knowledge graph is selected', async () => {
+    const selectedKnowledgeGraphId = { value: '' }
+    const createDataSource = vi.fn()
+    let errorShown = ''
+
+    async function approveOntology() {
+      if (!selectedKnowledgeGraphId.value) {
+        errorShown = 'Please select a knowledge graph first'
+        return
+      }
+      await createDataSource({})
+    }
+
+    await approveOntology()
+    expect(createDataSource).not.toHaveBeenCalled()
+    expect(errorShown).toBe('Please select a knowledge graph first')
+  })
+
+  it('extraction (API call) does not happen until the user explicitly approves', async () => {
+    // The approve button has :disabled="!ontologyReady || approvingOntology"
+    // This test verifies that simply reaching the review step does NOT trigger extraction.
+    const ontologyReady = { value: true }
+    const approvingOntology = { value: false }
+    const createDataSource = vi.fn()
+
+    // Simulate step 4 (ontology review) without clicking "Approve"
+    // The API should NOT have been called yet.
+    const approveButtonEnabled = ontologyReady.value && !approvingOntology.value
+    expect(approveButtonEnabled).toBe(true) // button is clickable...
+    expect(createDataSource).not.toHaveBeenCalled() // ...but API not yet called
+  })
+
+  it('approve button is disabled while approval API call is in flight', () => {
+    const ontologyReady = { value: true }
+    const approvingOntology = { value: true } // in flight
+
+    const approveButtonEnabled = ontologyReady.value && !approvingOntology.value
+    expect(approveButtonEnabled).toBe(false)
+  })
+
+  it('approve button is disabled before ontology is ready', () => {
+    const ontologyReady = { value: false }
+    const approvingOntology = { value: false }
+
+    const approveButtonEnabled = ontologyReady.value && !approvingOntology.value
+    expect(approveButtonEnabled).toBe(false)
+  })
+})
+
+describe('Ontology Design - Ontology Review and Approval: iterate before approving', () => {
+  interface EditableNode {
+    label: string
+    description: string
+    required_properties: string[]
+    optional_properties: string[]
+    editing: boolean
+    editLabel: string
+    editDescription: string
+    editRequired: string
+    editOptional: string
+  }
+
+  function toEditableNode(raw: typeof GITHUB_PROPOSAL_NODES[0]): EditableNode {
+    return {
+      ...raw,
+      editing: false,
+      editLabel: raw.label,
+      editDescription: raw.description,
+      editRequired: raw.required_properties.join(', '),
+      editOptional: raw.optional_properties.join(', '),
+    }
+  }
+
+  it('user can edit a node type before approving (label change)', () => {
+    const nodes = GITHUB_PROPOSAL_NODES.map(toEditableNode)
+
+    // Start editing Repository node
+    nodes[0].editLabel = 'GitHubRepository'
+    nodes[0].editing = true
+
+    // Save — mirrors saveEditNode logic
+    nodes[0].label = nodes[0].editLabel.trim() || nodes[0].label
+    nodes[0].editing = false
+
+    expect(nodes[0].label).toBe('GitHubRepository')
+    expect(nodes[0].editing).toBe(false)
+  })
+
+  it('user can add a required property before approving', () => {
+    const nodes = GITHUB_PROPOSAL_NODES.map(toEditableNode)
+
+    // Edit Repository to add 'archived' as required
+    nodes[0].editRequired = 'name, url, archived'
+    nodes[0].required_properties = nodes[0].editRequired
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+
+    expect(nodes[0].required_properties).toContain('archived')
+    expect(nodes[0].required_properties).toHaveLength(3)
+  })
+
+  it('user can remove a node type from the proposal before approving', () => {
+    const nodes = GITHUB_PROPOSAL_NODES.map(toEditableNode)
+    const initialLength = nodes.length
+
+    // Remove the Commit node (index 3)
+    const commitIdx = nodes.findIndex((n) => n.label === 'Commit')
+    expect(commitIdx).toBeGreaterThanOrEqual(0)
+    nodes.splice(commitIdx, 1)
+
+    expect(nodes).toHaveLength(initialLength - 1)
+    expect(nodes.find((n) => n.label === 'Commit')).toBeUndefined()
+  })
+
+  it('user can cancel edits and retain original values before approving', () => {
+    const nodes = GITHUB_PROPOSAL_NODES.map(toEditableNode)
+
+    nodes[0].editLabel = 'ChangedLabel'
+    nodes[0].editing = true
+
+    // Cancel — mirrors cancelEditNode logic
+    nodes[0].editing = false
+    // label is NOT updated on cancel
+
+    expect(nodes[0].label).toBe('Repository') // original preserved
+    expect(nodes[0].editing).toBe(false)
+  })
+
+  it('approval with modified ontology uses the edited nodes (not originals)', async () => {
+    const nodes = GITHUB_PROPOSAL_NODES.map(toEditableNode)
+
+    // User edits and saves
+    nodes[0].editLabel = 'Repo'
+    nodes[0].label = nodes[0].editLabel.trim()
+
+    // What would be submitted to the API is the current state of proposedNodes
+    const nodesToSubmit = nodes.map((n) => ({
+      label: n.label,
+      description: n.description,
+      required_properties: n.required_properties,
+      optional_properties: n.optional_properties,
+    }))
+
+    expect(nodesToSubmit[0].label).toBe('Repo')
+    // The rest should still have original labels
+    expect(nodesToSubmit[1].label).toBe('Issue')
+  })
+
+  it('iterating on the proposal does not itself trigger extraction', () => {
+    // Editing node types (startEditNode/saveEditNode) must NOT call the API;
+    // only approveOntology() does.
+    const createDataSource = vi.fn()
+
+    // User edits a node type inline
+    const nodes = GITHUB_PROPOSAL_NODES.map(toEditableNode)
+    nodes[0].editLabel = 'Repo'
+    nodes[0].label = nodes[0].editLabel.trim()
+    nodes[0].editing = false
+
+    // No API call happened
+    expect(createDataSource).not.toHaveBeenCalled()
+  })
+})

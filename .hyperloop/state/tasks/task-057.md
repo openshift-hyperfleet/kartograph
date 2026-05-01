@@ -1,11 +1,12 @@
 ---
 id: task-057
-title: Audit interaction style — progressive disclosure and inline editing across all pages
+title: Audit interaction principles — progressive disclosure and inline actions
 spec_ref: specs/ui/experience.spec.md
 status: not-started
 phase: null
 deps:
-  - task-015
+  - task-050
+  - task-053
 round: 0
 branch: null
 pr: null
@@ -13,7 +14,9 @@ pr: null
 
 ## Spec Coverage
 
-**Requirement: Interaction Principles** — 2 scenarios from `specs/ui/experience.spec.md`:
+**Requirement: Interaction Principles** — 2 scenarios from `specs/ui/experience.spec.md`
+that are not covered by any existing task (task-049 covers focus indicators, task-053
+covers copy-to-clipboard and mutation feedback, task-054 covers keyboard shortcuts):
 
 ### Scenario: Progressive disclosure
 > GIVEN complex information
@@ -27,241 +30,200 @@ pr: null
 
 ## Context
 
-The Interaction Principles requirement was added in spec commit `21b516b59`. The
-"interaction principles gaps" intake pass (f3641b927) created tasks for 4 of the 6
-Interaction Principles scenarios:
+These two scenarios were added to the spec in commit `21b516b59` — after task-014
+(which implemented IAM pages) was marked complete. No subsequent task has explicitly
+verified either scenario against the actual implementation.
 
-- Focus indicators → task-049
-- Copy-to-clipboard + mutation feedback → task-053
-- Keyboard shortcuts → task-054
-
-The remaining 2 scenarios — progressive disclosure and inline actions over navigation —
-were never tasked. They are behavioral requirements with testable GIVEN/WHEN/THEN
-conditions, not design guidelines.
-
-**task-014 (complete)** implemented the IAM pages and uses sheet/panel patterns
-(e.g., workspace detail in a side panel, member list collapsed by default). However,
-that task was written before the Interaction Principles requirement existed, and no
-test explicitly asserts:
-- that resources default to a summary view with detail revealed on interaction
-- that editing a resource name does not navigate to a separate `/edit` route
-
-**task-015 (not-started)** implements the knowledge graph and data source pages.
-These pages must also conform to both scenarios before this audit can be comprehensive.
-Hence the dependency on task-015.
+The patterns were presumably implemented in practice (IAM pages use `<Sheet>` panels;
+data source/KG pages use expandable rows), but there has been no formal per-scenario
+verification or test coverage requirement placed on them.
 
 ## Pages to Audit
 
-### Progressive disclosure — pages with "complex information"
+**Progressive disclosure** — check every page that presents list data with per-item
+detail:
 
-| Page | Complex resource | Summary (default) | Detail (on demand) |
-|------|-----------------|-------------------|--------------------|
-| `pages/workspaces/index.vue` | Workspace with members | Workspace name + member count | Member list in side panel |
-| `pages/groups/index.vue` | Group with members | Group name + member count | Member list in side panel |
-| `pages/knowledge-graphs/index.vue` | KG with data sources | KG name + DS count + last sync | DS list / sync status on expand |
-| `pages/data-sources/index.vue` | DS with sync history | DS name + last-sync status | Full sync run history on expand |
-| `pages/query/index.vue` | Query result set | Row count + execution time | Full result table |
+| Page | Expected disclosure pattern |
+|------|----------------------------|
+| `pages/workspaces/index.vue` | Workspace members shown in an expandable section or side panel, not all inline |
+| `pages/groups/index.vue` | Group members shown on demand (expand or panel) |
+| `pages/api-keys/index.vue` | Key metadata (creation date, last used) visible in compact list; no overflow by default |
+| `pages/knowledge-graphs/index.vue` | KG details revealed on row expand or side panel |
+| `pages/data-sources/index.vue` | Sync history revealed on row expand; logs revealed on "View Logs" action |
+| `pages/graph/schema.vue` | Type properties revealed on expand (already implemented by task-016) |
+| `pages/graph/explorer.vue` | Node properties shown in a card; neighbors revealed on "expand" action |
 
-### Inline actions — pages with editable resources
+**Inline actions over navigation** — check every page that allows editing a resource:
 
-| Page | Resource | Edit action | Prohibited pattern |
-|------|----------|-------------|-------------------|
-| `pages/workspaces/index.vue` | Workspace name | In-place input or side sheet | No `/workspaces/{id}/edit` navigation |
-| `pages/groups/index.vue` | Group name | In-place input or side sheet | No `/groups/{id}/edit` navigation |
+| Page | Editable resource | Expected pattern |
+|------|-------------------|-----------------|
+| `pages/workspaces/index.vue` | Workspace name | In-place edit or side sheet; NOT `/workspaces/{id}/edit` navigation |
+| `pages/groups/index.vue` | Group name | In-place edit or side sheet; NOT `/groups/{id}/edit` navigation |
+| `pages/api-keys/index.vue` | Revoke action | Confirmation dialog inline; NOT a separate page |
+| `pages/knowledge-graphs/index.vue` | KG name / description | In-place or side sheet |
+| `pages/data-sources/index.vue` | Data source name | In-place or side sheet |
 
 ## Changes Required
 
-### 1. Audit existing tests (TDD: read tests before code)
+### 1. Audit implementation (determine PASS/FAIL per scenario per page)
 
-Read the following test files:
+Read the following files and verify:
+
+**Progressive disclosure checks:**
+- [ ] Workspace member list is hidden by default; revealed by an expand toggle or sheet trigger
+- [ ] Group member list is hidden by default; revealed on demand
+- [ ] KG detail (description, workspace) is summarized in the list row; expanded view shows more
+- [ ] Data source sync history is collapsed by default; a click or expand reveals the runs
+- [ ] Data source sync logs are not shown inline — a "View Logs" action opens a sheet (task-044
+     already implements this; verify it actually satisfies progressive disclosure)
+- [ ] Schema browser type properties are hidden by default; clicking a type row reveals them
+     (task-016 complete; confirm this pattern holds)
+- [ ] No page renders all detail fields in an always-expanded state for every list item
+
+**Inline actions checks:**
+- [ ] Workspace name edit does not navigate to a separate URL (e.g., no `router.push('/workspaces/edit')`)
+- [ ] Group name edit does not navigate to a separate URL
+- [ ] All dialogs and edit panels are `<Dialog>`, `<Sheet>`, or inline `<input>` — never a
+     full-page route change
+- [ ] Confirm that no `<router-link to=".../{id}/edit">` or `navigateTo('.../{id}/edit')`
+     exists in any IAM or management page component
+
+### 2. Audit existing tests for scenario coverage
+
+Read the following test files and confirm whether they assert the disclosure/inline patterns:
 
 - `src/dev-ui/app/tests/workspace-management.test.ts`
-- `src/dev-ui/app/tests/group-management.test.ts` (or `groups.test.ts`)
-- `src/dev-ui/app/tests/knowledge-graphs.test.ts`
-- `src/dev-ui/app/tests/data-sources.test.ts`
+- `src/dev-ui/app/tests/api-keys.test.ts`
+- (any group management test file)
 
-For each file, check:
+For each gap, write tests **before** fixing implementation.
 
-**Progressive disclosure:**
-1. Is there a test asserting that the detail panel/member list is hidden by default?
-2. Is there a test asserting it becomes visible after a user action (click expand, select
-   item, etc.)?
-3. Is the detail revealed via a sheet, drawer, or inline expand — NOT a page navigation?
-
-**Inline actions:**
-1. Is there a test asserting that clicking "Edit" on a workspace/group name does NOT
-   call `navigateTo` or change the route?
-2. Is there a test asserting that an editable input (or `contenteditable`) appears
-   in-place after clicking the edit action?
-
-### 2. Write missing tests (TDD before implementation)
-
-For each gap found in step 1, write tests **before** touching the implementation.
-
-**Progressive disclosure — workspace detail:**
+**Progressive disclosure test patterns:**
 
 ```typescript
-// src/dev-ui/app/tests/workspace-management.test.ts
-import { mount } from '@vue/test-utils'
-import WorkspacesPage from '@/pages/workspaces/index.vue'
-
+// Example — workspace members are NOT shown until expanded
 describe('Interaction Principles — Progressive disclosure', () => {
-  it('member list is hidden until a workspace is selected', async () => {
-    const wrapper = mount(WorkspacesPage, { /* provide mocked composables */ })
-    // No workspace selected → detail panel not visible
-    expect(wrapper.find('[data-testid="workspace-member-list"]').exists()).toBe(false)
+  it('workspace member list is hidden by default', async () => {
+    const wrapper = await mountWorkspacesPage()
+    // Before expanding, member list is not visible
+    expect(wrapper.find('[data-testid="workspace-members-list"]').exists()).toBe(false)
   })
 
-  it('member list appears in side panel after selecting a workspace', async () => {
-    const wrapper = mount(WorkspacesPage, { /* ... */ })
-    const workspaceRow = wrapper.find('[data-testid="workspace-row"]')
-    await workspaceRow.trigger('click')
-    // Detail revealed without page navigation
-    expect(wrapper.find('[data-testid="workspace-member-list"]').isVisible()).toBe(true)
+  it('workspace member list is revealed after clicking expand', async () => {
+    const wrapper = await mountWorkspacesPage()
+    await userEvent.click(wrapper.find('[data-testid="expand-workspace"]').element)
+    expect(wrapper.find('[data-testid="workspace-members-list"]').exists()).toBe(true)
+  })
+
+  it('sync history rows are collapsed by default on the data sources page', async () => {
+    const wrapper = await mountDataSourcesPage()
+    expect(wrapper.find('[data-testid="sync-run-history"]').isVisible()).toBe(false)
   })
 })
 ```
 
-**Inline actions — workspace name editing:**
+**Inline actions test patterns:**
 
 ```typescript
-describe('Interaction Principles — Inline actions over navigation', () => {
-  it('clicking Edit on workspace name does not navigate to a separate page', async () => {
+// Example — workspace name edit opens a sheet, not a page navigation
+describe('Interaction Principles — Inline actions', () => {
+  it('editing a workspace name opens a sheet instead of navigating', async () => {
     const navigateTo = vi.fn()
-    const wrapper = mount(WorkspacesPage, {
-      global: { provide: { navigateTo } }
-    })
-    const editButton = wrapper.find('[data-testid="edit-workspace-name"]')
-    await editButton.trigger('click')
-    expect(navigateTo).not.toHaveBeenCalled()
+    const wrapper = await mountWorkspacesPage({ navigateTo })
+    await userEvent.click(wrapper.find('[data-testid="edit-workspace-name"]').element)
+    // navigateTo must NOT have been called with an /edit route
+    expect(navigateTo).not.toHaveBeenCalledWith(expect.stringContaining('/edit'))
+    // The edit panel/dialog must be visible
+    expect(wrapper.find('[data-testid="workspace-edit-panel"]').exists()).toBe(true)
   })
 
-  it('clicking Edit reveals an in-place input or opens a side sheet', async () => {
-    const wrapper = mount(WorkspacesPage, { /* ... */ })
-    const editButton = wrapper.find('[data-testid="edit-workspace-name"]')
-    await editButton.trigger('click')
-    // One of: inline input becomes visible, OR a sheet component opens
-    const inlineInput = wrapper.find('[data-testid="workspace-name-input"]')
-    const sheet = wrapper.find('[data-testid="edit-workspace-sheet"]')
-    expect(inlineInput.exists() || sheet.exists()).toBe(true)
+  it('editing a group name opens a sheet instead of navigating', async () => {
+    const navigateTo = vi.fn()
+    const wrapper = await mountGroupsPage({ navigateTo })
+    await userEvent.click(wrapper.find('[data-testid="edit-group-name"]').element)
+    expect(navigateTo).not.toHaveBeenCalledWith(expect.stringContaining('/edit'))
+    expect(wrapper.find('[data-testid="group-edit-panel"]').exists()).toBe(true)
   })
 })
 ```
-
-Apply the same test patterns to `groups.test.ts` for group name editing, and to
-`knowledge-graphs.test.ts` / `data-sources.test.ts` for progressive disclosure
-of KG data sources and DS sync history.
 
 ### 3. Fix implementation gaps
 
-**If a detail panel is initially rendered but not hidden:**
-- Wrap it in a conditional: `v-if="selectedWorkspace !== null"` or equivalent.
-- Ensure the condition is `false` on initial render.
+**Progressive disclosure gap** — if a page renders all detail inline for every list item:
+- Move detail (member list, sync history, property list) into a collapsible section
+  using the shadcn/vue `Collapsible` component or a `v-show` toggle:
 
-**If clicking "Edit" navigates to a separate route:**
-- Remove the `<NuxtLink>` or `navigateTo()` call.
-- Replace with a reactive `isEditing` boolean that toggles an inline `<input>` or
-  opens a `<Sheet>`.
-
-  Inline edit pattern:
-  ```html
-  <template v-if="isEditing">
-    <Input
-      v-model="editName"
-      data-testid="workspace-name-input"
-      @keydown.enter="saveEdit"
-      @keydown.escape="cancelEdit"
-      @blur="saveEdit"
-    />
-  </template>
-  <template v-else>
-    <span>{{ workspace.name }}</span>
-    <Button
-      data-testid="edit-workspace-name"
-      variant="ghost"
-      size="icon"
-      @click="isEditing = true"
-    >
-      <Pencil class="size-4" />
+```vue
+<Collapsible v-model:open="isExpanded[workspace.id]">
+  <CollapsibleTrigger as-child>
+    <Button variant="ghost" size="sm" data-testid="expand-workspace">
+      <ChevronRight :class="isExpanded[workspace.id] ? 'rotate-90' : ''" class="h-4 w-4" />
     </Button>
-  </template>
-  ```
-
-  Sheet pattern (for more complex edits):
-  ```html
-  <Sheet v-model:open="editSheetOpen">
-    <SheetContent data-testid="edit-workspace-sheet">
-      <!-- edit form -->
-    </SheetContent>
-  </Sheet>
-  ```
-
-**If query results are always fully expanded:**
-- Show row count and execution time by default.
-- Reveal the full result table via a "Show results" toggle or keep it visible only
-  after execution (already implicit in the query console flow — verify this holds).
-
-### 4. Verify no navigation-to-separate-page patterns exist
-
-Run a grep scan for any navigation that would violate the "inline actions" scenario:
-
-```bash
-grep -r "navigateTo.*edit" src/dev-ui/app/pages/
-grep -r "NuxtLink.*edit" src/dev-ui/app/pages/
-grep -rn "router.push.*edit" src/dev-ui/app/pages/
+  </CollapsibleTrigger>
+  <CollapsibleContent>
+    <div data-testid="workspace-members-list">
+      <!-- member rows -->
+    </div>
+  </CollapsibleContent>
+</Collapsible>
 ```
 
-If any results point to workspace or group edit routes, those must be replaced with
-inline editing or side-sheet patterns.
+**Inline actions gap** — if any page navigates to a separate edit URL:
+- Replace `navigateTo('/workspaces/' + id + '/edit')` with:
+  ```typescript
+  editingWorkspaceId.value = id
+  editSheetOpen.value = true
+  ```
+- Ensure an `<Sheet>` or `<Dialog>` is already present on the page to handle the edit
+  (most IAM pages implemented by task-014 already use this pattern)
+
+### 4. Static search — confirm no `/edit` route navigations exist
+
+Run a targeted search across all `src/dev-ui/app/pages/` Vue files to confirm no
+component navigates to a path ending in `/edit` or `/new` as a full-page route for
+resource editing:
+
+```bash
+grep -rn "navigateTo.*\/edit\|router.push.*\/edit" src/dev-ui/app/pages/
+```
+
+If any results appear, convert each to an in-place sheet/dialog pattern and write a test
+that asserts the navigation does not occur.
 
 ## Acceptance Criteria
 
-**Progressive disclosure:**
-- Workspace and group detail panels (member lists) are hidden when no item is selected.
-- Selecting a workspace/group reveals its detail in a side panel or sheet without
-  navigating away.
-- KG data source list and DS sync history are collapsed (or count-only) by default and
-  expanded on user action.
-- At least one test per page (workspaces, groups, KGs, data sources) asserts the
-  summary-first / detail-on-demand pattern.
-
-**Inline actions over navigation:**
-- Clicking "Edit" on a workspace name or group name does NOT call `navigateTo` or
-  push a new route.
-- After clicking "Edit", an inline `<input>` or a `<Sheet>` becomes visible in the
-  same page context.
-- `grep` produces no results for `navigateTo.*edit` in `pages/workspaces/` or
-  `pages/groups/`.
-- At least one test per page (workspaces, groups) asserts that editing is in-place or
-  sheet-based.
-
-**Tests:**
-- All tests in the following files pass after changes:
-  - `src/dev-ui/app/tests/workspace-management.test.ts`
-  - `src/dev-ui/app/tests/group-management.test.ts`
-  - `src/dev-ui/app/tests/knowledge-graphs.test.ts`
-  - `src/dev-ui/app/tests/data-sources.test.ts`
-- `cd src/dev-ui && pnpm test` — no regressions.
+- No page renders all detail fields in an always-expanded state for every list item;
+  at minimum workspace members, group members, and sync run history are hidden by default.
+- Clicking an expand toggle reveals the detail without a page navigation.
+- Editing a workspace name or group name does not call `navigateTo` with an `/edit` path;
+  the edit UI opens in a `<Sheet>` or `<Dialog>` on the same page.
+- No `navigateTo('.../{id}/edit')` calls exist anywhere in `src/dev-ui/app/pages/`.
+- Tests in the relevant test files assert the disclosure and inline-action patterns.
+- All tests pass: `cd src/dev-ui && pnpm test`
+- No regressions in task-050 API alignment fixes or task-053 copy/mutation audit.
 
 ## UI Location
 
-- `src/dev-ui/app/pages/workspaces/index.vue`
-- `src/dev-ui/app/pages/groups/index.vue`
-- `src/dev-ui/app/pages/knowledge-graphs/index.vue`
-- `src/dev-ui/app/pages/data-sources/index.vue`
-- `src/dev-ui/app/pages/query/index.vue`
+- `src/dev-ui/app/pages/workspaces/index.vue` — member list disclosure, name edit panel
+- `src/dev-ui/app/pages/groups/index.vue` — member list disclosure, name edit panel
+- `src/dev-ui/app/pages/api-keys/index.vue` — compact list, revoke confirmation inline
+- `src/dev-ui/app/pages/knowledge-graphs/index.vue` — KG detail disclosure
+- `src/dev-ui/app/pages/data-sources/index.vue` — sync history collapse (verified by task-044)
+- `src/dev-ui/app/pages/graph/explorer.vue` — neighbor expansion (verified by task-016)
 
 ## Dependencies
 
-- **task-015** must be complete: knowledge graph and data source pages must exist in
-  their final form before this audit can verify those pages conform to both scenarios.
+- **task-050** must be complete: IAM pages must be in their final API-aligned state before
+  auditing interaction patterns on the same components.
+- **task-053** must be complete: the copy-to-clipboard and mutation feedback audit touches
+  the same page files; task-057 should layer on top without conflicts.
 
 ## TDD Cycle
 
-1. Read each page component and its test file; determine PASS/FAIL per scenario
-   (step 1 audit).
-2. Write failing tests for each gap (step 2).
-3. Fix implementation to make tests pass (step 3).
-4. Run the grep scan to confirm no edit-route navigations remain (step 4).
-5. Run `cd src/dev-ui && pnpm test` — all tests must pass before committing.
-6. Commit atomically per conventional commit conventions.
+1. Read each page component; check the disclosure and inline-action patterns (step 1 checklist).
+2. Run static search for `/edit` route navigations.
+3. Read existing test files; identify gaps.
+4. Write missing tests in the relevant test files (they will fail if patterns are absent).
+5. Fix any implementation gaps (collapsible sections, sheet-based edit panels).
+6. Run `cd src/dev-ui && pnpm test` — all tests must pass before committing.
+7. Commit atomically per conventional commit conventions.

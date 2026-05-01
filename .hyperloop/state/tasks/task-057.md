@@ -4,7 +4,7 @@ title: Audit interaction style — progressive disclosure and inline editing acr
   all pages
 spec_ref: specs/ui/experience.spec.md@86a2b5c71ec6c6af7ed222eae46139acec3974b3
 status: in_progress
-phase: spec-review
+phase: mark-ready
 deps:
 - task-015
 round: 0

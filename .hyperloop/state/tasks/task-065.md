@@ -114,6 +114,13 @@ pr_description: |
 > AND no submission is possible until a knowledge graph is selected
 > AND the selected knowledge graph is used as the target for the mutation submission
 
+**Requirement: Mutations Console — Scenario: Submission** (updated clause) from
+`specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da`:
+
+> GIVEN valid mutations in the editor **and a knowledge graph selected**
+> WHEN the user clicks Apply Mutations (or presses Ctrl/Cmd+Enter)
+> THEN the mutations are submitted to the API **scoped to the selected knowledge graph**
+
 ## Gap
 
 ### 1. No KG selector UI exists
@@ -124,7 +131,7 @@ Templates button — no `<Select>` or equivalent for picking a target knowledge 
 
 ### 2. Wrong API endpoint — broken mutations
 
-`src/dev-ui/app/composables/api/useGraphApi.ts` line 46:
+`src/dev-ui/app/composables/api/useGraphApi.ts` calls:
 
 ```typescript
 const response = await fetch(
@@ -133,7 +140,7 @@ const response = await fetch(
 )
 ```
 
-The backend route (verified in `src/api/graph/presentation/routes.py` line 77–78) is:
+The backend route (in `src/api/graph/presentation/routes.py`) is:
 
 ```python
 @router.post("/knowledge-graphs/{knowledge_graph_id}/mutations", ...)
@@ -145,7 +152,7 @@ path parameter — there is no tenant-wide mutations endpoint.
 
 ### 3. `useMutationSubmission.submit()` doesn't accept a KG ID
 
-`src/dev-ui/app/composables/useMutationSubmission.ts` line 42:
+`src/dev-ui/app/composables/useMutationSubmission.ts`:
 
 ```typescript
 async function submit(jsonlContent: string, opCount: number) {
@@ -327,6 +334,7 @@ async function submit(jsonlContent: string, opCount: number, knowledgeGraphId: s
 #### 3. Update `mutations.vue` — KG selector UI + gating
 
 Add state:
+
 ```typescript
 const selectedKgId = ref('')
 const knowledgeGraphs = ref<Array<{ id: string; name: string }>>([])
@@ -350,20 +358,16 @@ async function loadKnowledgeGraphs() {
 ```
 
 Watch tenant changes:
+
 ```typescript
 watch(hasTenant, (has) => {
   if (has) loadKnowledgeGraphs()
   else { knowledgeGraphs.value = []; selectedKgId.value = '' }
 }, { immediate: true })
-
-// On tenant switch, clear selection and reload
-watch(() => tenantVersion.value, () => {
-  selectedKgId.value = ''
-  loadKnowledgeGraphs()
-})
 ```
 
 Add KG selector UI above the action bar (in both editor view and large-file view):
+
 ```html
 <!-- Knowledge graph selector (required before submission) -->
 <div class="flex items-center gap-3">
@@ -381,12 +385,14 @@ Add KG selector UI above the action bar (in both editor view and large-file view
     </SelectContent>
   </Select>
   <p v-if="!loadingKgs && knowledgeGraphs.length === 0" class="text-xs text-muted-foreground">
-    No knowledge graphs. <NuxtLink to="/knowledge-graphs" class="text-primary underline">Create one first</NuxtLink>.
+    No knowledge graphs.
+    <NuxtLink to="/knowledge-graphs" class="text-primary underline">Create one first</NuxtLink>.
   </p>
 </div>
 ```
 
 Update submit button disabled condition:
+
 ```html
 <Button
   :disabled="submitting || preparing || (!editorContent.trim() && !largeFileMode) || !selectedKgId"
@@ -395,9 +401,11 @@ Update submit button disabled condition:
 ```
 
 Update `handleSubmit` to pass KG ID:
+
 ```typescript
+// Small file path:
 submission.submit(jsonlBody, result.operations.length, selectedKgId.value)
-// and for large files:
+// Large file path:
 submission.submit(body, opCount, selectedKgId.value)
 ```
 

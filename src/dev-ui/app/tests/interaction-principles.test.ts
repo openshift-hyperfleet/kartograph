@@ -257,6 +257,7 @@ describe('Navigation - sidebar section structure', () => {
         { label: 'Query Console', to: '/query' },
         { label: 'Schema Browser', to: '/graph/schema' },
         { label: 'Graph Explorer', to: '/graph/explorer' },
+        { label: 'Mutations Console', to: '/graph/mutations' },
       ],
     },
     {
@@ -287,12 +288,13 @@ describe('Navigation - sidebar section structure', () => {
     expect(navSections).toHaveLength(4)
   })
 
-  it('Explore section contains Query Console, Schema Browser, Graph Explorer', () => {
+  it('Explore section contains Query Console, Schema Browser, Graph Explorer, Mutations Console', () => {
     const explore = navSections.find((s) => s.title === 'Explore')!
     const labels = explore.items.map((i) => i.label)
     expect(labels).toContain('Query Console')
     expect(labels).toContain('Schema Browser')
     expect(labels).toContain('Graph Explorer')
+    expect(labels).toContain('Mutations Console')
   })
 
   it('Data section contains Knowledge Graphs and Data Sources', () => {

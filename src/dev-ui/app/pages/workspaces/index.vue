@@ -381,6 +381,8 @@ onMounted(() => {
 
 watch(tenantVersion, () => {
   if (hasTenant.value) {
+    // Clear stale data immediately so old tenant's workspaces are not shown during load
+    workspaces.value = []
     closeDetails()
     fetchWorkspaces()
   }

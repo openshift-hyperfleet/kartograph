@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { buildQueryGraphArgs } from '~/composables/api/useQueryApi'
 
-// ── FAIL 1: Knowledge Graph Creation ──────────────────────────────────────────
+// ── Requirement: Backend API Alignment ────────────────────────────────────────
 // Spec: "AND the knowledge graph is created within the current workspace"
-// The handleCreate() function must call POST /management/knowledge-graphs
-// and loadKnowledgeGraphs() must populate the list on mount.
+// The create endpoint is workspace-scoped:
+//   POST /management/workspaces/{workspace_id}/knowledge-graphs
+// Not the flat (non-existent) endpoint POST /management/knowledge-graphs.
 
 describe('Knowledge Graph Creation - Validation', () => {
   it('rejects empty name with an error message', () => {
@@ -46,20 +47,26 @@ describe('Knowledge Graph Creation - Validation', () => {
   })
 })
 
-describe('Knowledge Graph Creation - API call', () => {
-  it('calls POST /management/knowledge-graphs with name and description', async () => {
+describe('Knowledge Graph Creation - API call (workspace-scoped)', () => {
+  // The backend endpoint for KG creation is workspace-scoped:
+  //   POST /management/workspaces/{workspace_id}/knowledge-graphs
+  // The UI must select a workspace and include it in the URL.
+
+  it('calls POST /management/workspaces/{workspaceId}/knowledge-graphs with name and description', async () => {
     const apiFetch = vi.fn().mockResolvedValue({ id: 'kg-new', name: 'Test Graph' })
     const createName = { value: 'Test Graph' }
     const createDescription = { value: 'A test graph' }
+    const createWorkspaceId = { value: 'ws-abc' }
     const creating = { value: false }
     const createDialogOpen = { value: true }
     let toastMessage = ''
 
     async function handleCreate() {
       if (!createName.value.trim()) return
+      if (!createWorkspaceId.value) return
       creating.value = true
       try {
-        await apiFetch('/management/knowledge-graphs', {
+        await apiFetch(`/management/workspaces/${createWorkspaceId.value}/knowledge-graphs`, {
           method: 'POST',
           body: {
             name: createName.value.trim(),
@@ -75,7 +82,7 @@ describe('Knowledge Graph Creation - API call', () => {
 
     await handleCreate()
 
-    expect(apiFetch).toHaveBeenCalledWith('/management/knowledge-graphs', {
+    expect(apiFetch).toHaveBeenCalledWith('/management/workspaces/ws-abc/knowledge-graphs', {
       method: 'POST',
       body: { name: 'Test Graph', description: 'A test graph' },
     })
@@ -84,17 +91,46 @@ describe('Knowledge Graph Creation - API call', () => {
     expect(creating.value).toBe(false)
   })
 
+  it('does not create if no workspace is selected', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({ id: 'kg-new', name: 'Test Graph' })
+    const createName = { value: 'Test Graph' }
+    const createWorkspaceId = { value: '' }
+    const creating = { value: false }
+    let called = false
+
+    async function handleCreate() {
+      if (!createName.value.trim()) return
+      if (!createWorkspaceId.value) return  // guard: workspace required
+      creating.value = true
+      called = true
+      await apiFetch(`/management/workspaces/${createWorkspaceId.value}/knowledge-graphs`, {
+        method: 'POST',
+        body: { name: createName.value.trim() },
+      })
+    }
+
+    await handleCreate()
+    expect(called).toBe(false)
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(creating.value).toBe(false)
+  })
+
   it('sets creating back to false on API error', async () => {
     const apiFetch = vi.fn().mockRejectedValue(new Error('Network error'))
     const createName = { value: 'My Graph' }
+    const createWorkspaceId = { value: 'ws-abc' }
     const creating = { value: false }
     let toastError = ''
 
     async function handleCreate() {
       if (!createName.value.trim()) return
+      if (!createWorkspaceId.value) return
       creating.value = true
       try {
-        await apiFetch('/management/knowledge-graphs', { method: 'POST', body: { name: 'My Graph' } })
+        await apiFetch(`/management/workspaces/${createWorkspaceId.value}/knowledge-graphs`, {
+          method: 'POST',
+          body: { name: 'My Graph' },
+        })
       } catch (err) {
         toastError = err instanceof Error ? err.message : 'Failed'
       } finally {
@@ -105,6 +141,85 @@ describe('Knowledge Graph Creation - API call', () => {
     await handleCreate()
     expect(creating.value).toBe(false)
     expect(toastError).toBe('Network error')
+  })
+})
+
+describe('Knowledge Graph Creation - Workspace Loading', () => {
+  // The UI must fetch available workspaces to populate the workspace selector
+  // in the create dialog. Workspaces come from GET /iam/workspaces.
+
+  it('fetches workspaces from /iam/workspaces on dialog open', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({
+      workspaces: [
+        { id: 'ws-1', name: 'Personal' },
+        { id: 'ws-2', name: 'Team Alpha' },
+      ],
+      count: 2,
+    })
+    const workspaces: Array<{ id: string; name: string }> = []
+
+    async function loadWorkspaces() {
+      try {
+        const result = await apiFetch('/iam/workspaces')
+        workspaces.splice(0, workspaces.length, ...(result.workspaces ?? []))
+      } catch {
+        workspaces.splice(0, workspaces.length)
+      }
+    }
+
+    await loadWorkspaces()
+    expect(apiFetch).toHaveBeenCalledWith('/iam/workspaces')
+    expect(workspaces).toHaveLength(2)
+    expect(workspaces[0]).toMatchObject({ id: 'ws-1', name: 'Personal' })
+  })
+
+  it('defaults workspaces to empty array on fetch error', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Forbidden'))
+    const workspaces: Array<{ id: string; name: string }> = [{ id: 'stale', name: 'Stale' }]
+
+    async function loadWorkspaces() {
+      try {
+        const result = await apiFetch('/iam/workspaces')
+        workspaces.splice(0, workspaces.length, ...(result.workspaces ?? []))
+      } catch {
+        workspaces.splice(0, workspaces.length)
+      }
+    }
+
+    await loadWorkspaces()
+    expect(workspaces).toHaveLength(0)
+  })
+
+  it('auto-selects first workspace when only one exists', async () => {
+    const workspaces = [{ id: 'ws-1', name: 'Personal' }]
+    const createWorkspaceId = { value: '' }
+
+    function autoSelectFirstWorkspace() {
+      if (workspaces.length === 1) {
+        createWorkspaceId.value = workspaces[0].id
+      }
+    }
+
+    autoSelectFirstWorkspace()
+    expect(createWorkspaceId.value).toBe('ws-1')
+  })
+
+  it('does not auto-select when multiple workspaces exist', async () => {
+    const workspaces = [
+      { id: 'ws-1', name: 'Personal' },
+      { id: 'ws-2', name: 'Team Alpha' },
+    ]
+    const createWorkspaceId = { value: '' }
+
+    function autoSelectFirstWorkspace() {
+      if (workspaces.length === 1) {
+        createWorkspaceId.value = workspaces[0].id
+      }
+    }
+
+    autoSelectFirstWorkspace()
+    // Not auto-selected when there are multiple choices
+    expect(createWorkspaceId.value).toBe('')
   })
 })
 

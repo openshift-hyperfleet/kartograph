@@ -26,7 +26,7 @@ The system SHALL organize navigation around user goals, not internal architectur
 #### Scenario: Primary navigation
 - GIVEN an authenticated user
 - THEN the sidebar presents navigation grouped as:
-  - **Explore** — Query Console, Schema Browser, Graph Explorer
+  - **Explore** — Query Console, Schema Browser, Graph Explorer, Mutations Console
   - **Data** — Knowledge Graphs, Data Sources (with sync status)
   - **Connect** — API Keys, MCP Integration
   - **Settings** — Workspaces, Groups, Tenants
@@ -217,6 +217,55 @@ The system SHALL provide an interactive node browser with neighbor traversal.
 - WHEN the user expands its neighbors
 - THEN connected nodes and edges are shown with labels and direction
 - AND the user can drill into neighbors, building an exploration trail
+
+### Requirement: Mutations Console
+The system SHALL provide a JSONL editor for authoring and applying graph mutations directly.
+
+#### Scenario: Empty state
+- GIVEN the mutations console with no content loaded
+- THEN the user is presented with two primary actions (upload file, open editor) and a set of quick-start templates (Create Node, Create Edge, Update Properties, Delete Entity)
+- AND the user can drag and drop a .jsonl, .json, or .ndjson file onto the page to load it
+
+#### Scenario: JSONL editing
+- GIVEN the editor is open
+- THEN the editor provides JSON syntax highlighting, line numbers, JSONL-aware linting, and autocomplete for mutation operation fields
+- AND Ctrl/Cmd+Enter submits the mutations without leaving the editor
+
+#### Scenario: Live preview
+- GIVEN content in the editor
+- THEN a live preview panel shows the operation count broken down by type (DEFINE, CREATE, UPDATE, DELETE) and any validation warnings
+- AND parse errors are surfaced inline in the editor gutter
+
+#### Scenario: File upload
+- GIVEN a .jsonl, .json, or .ndjson file
+- WHEN the user uploads it via the file picker or drag and drop
+- THEN the file content is loaded into the editor
+- AND files larger than 5 MB activate large-file mode: editing is disabled, a summary of operation counts is shown, and the user can submit directly
+
+#### Scenario: Submission
+- GIVEN valid mutations in the editor
+- WHEN the user clicks Apply Mutations (or presses Ctrl/Cmd+Enter)
+- THEN the mutations are submitted to the API and a floating progress indicator appears in the bottom-right corner
+- AND the indicator shows status (submitting / success / failed), operation count, and elapsed time
+- AND the indicator persists when the user navigates away from the mutations console
+- AND the indicator can be minimized to a compact pill or dismissed after completion
+
+#### Scenario: Submission failure
+- GIVEN a failed mutation submission
+- THEN the floating indicator shows the error message
+- AND the number of operations applied before failure is displayed if any were processed
+
+#### Scenario: Template insertion
+- GIVEN a template (quick-start or from the templates panel)
+- WHEN the user selects it
+- THEN the template content is appended to any existing editor content
+- AND the editor is activated if it was not already open
+
+#### Scenario: Deep-link to editor with pre-filled content
+- GIVEN a URL with ?view=editor or ?template=<content>
+- WHEN the user navigates to /graph/mutations
+- THEN the editor is opened automatically
+- AND the template parameter content (if present) is inserted into the editor
 
 ### Requirement: API Key Management
 The system SHALL provide a UI for API key lifecycle management.

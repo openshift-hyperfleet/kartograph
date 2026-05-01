@@ -4,12 +4,12 @@ title: Design language — fix font-bold violations in QueryResultsPanel keyboar
   badges
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-066
 round: 0
 branch: hyperloop/task-067
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/529
 pr_title: 'fix(ui): replace font-bold with font-semibold in QueryResultsPanel keyboard
   shortcut badges'
 pr_description: "## What & Why\n\nThe `experience.spec.md` Design Language requirement\

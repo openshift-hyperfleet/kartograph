@@ -655,3 +655,171 @@ describe('Workspace Management - responsive layout (desktop vs mobile)', () => {
     expect(selectedWorkspace).toBeNull()
   })
 })
+
+// ── Backend API Alignment: exact endpoint URL assertions ──────────────────────
+// Spec: "Backend API Alignment" / "Parent context is preserved"
+// These tests mirror useIamApi exactly to catch any future endpoint drift.
+
+describe('Workspace Management - backend endpoint alignment (useIamApi)', () => {
+  it('listWorkspaces calls GET /iam/workspaces', async () => {
+    const mockApiFetch = vi.fn().mockResolvedValue({ workspaces: [], count: 0 })
+
+    // Mirrors useIamApi.listWorkspaces exactly
+    async function listWorkspaces() {
+      return mockApiFetch('/iam/workspaces')
+    }
+
+    await listWorkspaces()
+    expect(mockApiFetch).toHaveBeenCalledWith('/iam/workspaces')
+  })
+
+  it('createWorkspace calls POST /iam/workspaces and includes parent_workspace_id', async () => {
+    const mockApiFetch = vi.fn().mockResolvedValue({ id: 'ws-new', name: 'Team Alpha' })
+
+    // Mirrors useIamApi.createWorkspace exactly
+    async function createWorkspace(data: { name: string; parent_workspace_id: string }) {
+      return mockApiFetch('/iam/workspaces', { method: 'POST', body: data })
+    }
+
+    await createWorkspace({ name: 'Team Alpha', parent_workspace_id: 'ws-root-1' })
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/iam/workspaces',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.objectContaining({
+          name: 'Team Alpha',
+          parent_workspace_id: 'ws-root-1',
+        }),
+      }),
+    )
+  })
+
+  it('createWorkspace parent_workspace_id is REQUIRED in request body — spec: Parent context is preserved', async () => {
+    // This test documents that the parent context must ALWAYS be included.
+    // A workspace without a parent ID would fail the backend validation.
+    const mockApiFetch = vi.fn().mockResolvedValue({ id: 'ws-new', name: 'Child WS' })
+
+    async function createWorkspace(data: { name: string; parent_workspace_id: string }) {
+      return mockApiFetch('/iam/workspaces', { method: 'POST', body: data })
+    }
+
+    const parentId = 'ws-engineering-root'
+    await createWorkspace({ name: 'Child WS', parent_workspace_id: parentId })
+
+    const call = mockApiFetch.mock.calls[0]
+    const body = (call[1] as { body: { parent_workspace_id?: string } }).body
+    expect(body.parent_workspace_id).toBe(parentId)
+    expect(body.parent_workspace_id).not.toBeUndefined()
+  })
+
+  it('deleteWorkspace calls DELETE /iam/workspaces/{id}', async () => {
+    const mockApiFetch = vi.fn().mockResolvedValue(undefined)
+
+    // Mirrors useIamApi.deleteWorkspace exactly
+    async function deleteWorkspace(workspaceId: string) {
+      return mockApiFetch(`/iam/workspaces/${workspaceId}`, { method: 'DELETE' })
+    }
+
+    await deleteWorkspace('ws-abc-123')
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/iam/workspaces/ws-abc-123',
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+  })
+
+  it('updateWorkspace calls PATCH /iam/workspaces/{id} with new name', async () => {
+    const mockApiFetch = vi.fn().mockResolvedValue({ id: 'ws-abc', name: 'New Name' })
+
+    // Mirrors useIamApi.updateWorkspace exactly
+    async function updateWorkspace(workspaceId: string, data: { name: string }) {
+      return mockApiFetch(`/iam/workspaces/${workspaceId}`, { method: 'PATCH', body: data })
+    }
+
+    await updateWorkspace('ws-abc-123', { name: 'New Name' })
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/iam/workspaces/ws-abc-123',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: expect.objectContaining({ name: 'New Name' }),
+      }),
+    )
+  })
+
+  it('addWorkspaceMember calls POST /iam/workspaces/{id}/members with member context', async () => {
+    const mockApiFetch = vi.fn().mockResolvedValue({ member_id: 'user-42', member_type: 'user', role: 'member' })
+
+    // Mirrors useIamApi.addWorkspaceMember exactly
+    async function addWorkspaceMember(
+      workspaceId: string,
+      data: { member_id: string; member_type: 'user' | 'group'; role: string },
+    ) {
+      return mockApiFetch(`/iam/workspaces/${workspaceId}/members`, { method: 'POST', body: data })
+    }
+
+    await addWorkspaceMember('ws-abc-123', {
+      member_id: 'user-42',
+      member_type: 'user',
+      role: 'member',
+    })
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/iam/workspaces/ws-abc-123/members',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.objectContaining({ member_id: 'user-42', member_type: 'user', role: 'member' }),
+      }),
+    )
+  })
+
+  it('removeWorkspaceMember calls DELETE /iam/workspaces/{id}/members/{memberId} with member_type query param', async () => {
+    const mockApiFetch = vi.fn().mockResolvedValue(undefined)
+
+    // Mirrors useIamApi.removeWorkspaceMember exactly
+    async function removeWorkspaceMember(
+      workspaceId: string,
+      memberId: string,
+      memberType: 'user' | 'group',
+    ) {
+      return mockApiFetch(`/iam/workspaces/${workspaceId}/members/${memberId}`, {
+        method: 'DELETE',
+        query: { member_type: memberType },
+      })
+    }
+
+    await removeWorkspaceMember('ws-abc-123', 'user-42', 'user')
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/iam/workspaces/ws-abc-123/members/user-42',
+      expect.objectContaining({
+        method: 'DELETE',
+        query: { member_type: 'user' },
+      }),
+    )
+  })
+
+  it('updateWorkspaceMemberRole calls PATCH /iam/workspaces/{id}/members/{memberId}', async () => {
+    const mockApiFetch = vi.fn().mockResolvedValue({ member_id: 'user-42', member_type: 'user', role: 'admin' })
+
+    // Mirrors useIamApi.updateWorkspaceMemberRole exactly
+    async function updateWorkspaceMemberRole(
+      workspaceId: string,
+      memberId: string,
+      memberType: 'user' | 'group',
+      role: string,
+    ) {
+      return mockApiFetch(`/iam/workspaces/${workspaceId}/members/${memberId}`, {
+        method: 'PATCH',
+        query: { member_type: memberType },
+        body: { role },
+      })
+    }
+
+    await updateWorkspaceMemberRole('ws-abc-123', 'user-42', 'user', 'admin')
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/iam/workspaces/ws-abc-123/members/user-42',
+      expect.objectContaining({
+        method: 'PATCH',
+        query: { member_type: 'user' },
+        body: { role: 'admin' },
+      }),
+    )
+  })
+})

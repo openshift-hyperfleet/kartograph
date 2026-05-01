@@ -271,7 +271,23 @@ const GITHUB_PROPOSAL_EDGES: Omit<ProposedEdgeType, 'editing' | 'editLabel' | 'e
 
 const selectedAdapter = computed(() => adapters.find((a) => a.id === selectedAdapterId.value))
 
-function toProposedNode(n: typeof GITHUB_PROPOSAL_NODES[0]): ProposedNodeType {
+interface RawNodeType {
+  label: string
+  description: string
+  required_properties: string[]
+  optional_properties: string[]
+}
+
+interface RawEdgeType {
+  label: string
+  description: string
+  from: string
+  to: string
+  required_properties: string[]
+  optional_properties: string[]
+}
+
+function toProposedNode(n: RawNodeType): ProposedNodeType {
   return {
     ...n,
     editing: false,
@@ -282,7 +298,7 @@ function toProposedNode(n: typeof GITHUB_PROPOSAL_NODES[0]): ProposedNodeType {
   }
 }
 
-function toProposedEdge(e: typeof GITHUB_PROPOSAL_EDGES[0]): ProposedEdgeType {
+function toProposedEdge(e: RawEdgeType): ProposedEdgeType {
   return {
     ...e,
     editing: false,
@@ -382,7 +398,7 @@ function prevStep() {
   if (wizardStep.value > 1) wizardStep.value--
 }
 
-// ── Ontology proposal (simulated scan + AI proposal) ──────────────────────
+// ── Ontology proposal (real backend call: POST /management/ontology-proposals) ──
 
 async function beginOntologyProposal() {
   scanningOntology.value = true
@@ -390,13 +406,61 @@ async function beginOntologyProposal() {
   proposedNodes.value = []
   proposedEdges.value = []
 
-  // Simulate a lightweight scan of the data source (1.5s) followed by AI proposal
-  await new Promise<void>((resolve) => setTimeout(resolve, 1500))
+  try {
+    const { apiFetch } = useApiClient()
+    const result = await apiFetch<{
+      node_types: Array<{
+        label: string
+        description: string
+        required_properties: string[]
+        optional_properties: string[]
+      }>
+      edge_types: Array<{
+        label: string
+        description: string
+        from_type: string
+        to_type: string
+        required_properties: string[]
+        optional_properties: string[]
+      }>
+    }>('/management/ontology-proposals', {
+      method: 'POST',
+      body: {
+        adapter_type: selectedAdapterId.value,
+        intent: intentText.value,
+        connection_config: selectedAdapterId.value === 'github'
+          ? { repo_url: connRepoUrl.value }
+          : {},
+      },
+    })
 
-  proposedNodes.value = GITHUB_PROPOSAL_NODES.map(toProposedNode)
-  proposedEdges.value = GITHUB_PROPOSAL_EDGES.map(toProposedEdge)
-  scanningOntology.value = false
-  ontologyReady.value = true
+    proposedNodes.value = (result.node_types ?? []).map((n) =>
+      toProposedNode({
+        label: n.label,
+        description: n.description,
+        required_properties: n.required_properties,
+        optional_properties: n.optional_properties,
+      }),
+    )
+    proposedEdges.value = (result.edge_types ?? []).map((e) =>
+      toProposedEdge({
+        label: e.label,
+        description: e.description,
+        from: e.from_type,
+        to: e.to_type,
+        required_properties: e.required_properties,
+        optional_properties: e.optional_properties,
+      }),
+    )
+    ontologyReady.value = true
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Failed to propose ontology'
+    toast.error('Ontology proposal failed', { description: msg })
+    // Fall back to empty proposal so the user can still proceed
+    ontologyReady.value = true
+  } finally {
+    scanningOntology.value = false
+  }
 }
 
 // ── Per-type inline editing ────────────────────────────────────────────────
@@ -526,12 +590,32 @@ async function loadKnowledgeGraphs() {
 
 // ── Data source API helpers ────────────────────────────────────────────────
 
+interface OntologyNodeType {
+  label: string
+  description: string
+  required_properties: string[]
+  optional_properties: string[]
+}
+
+interface OntologyEdgeType {
+  label: string
+  description: string
+  from_type: string
+  to_type: string
+  required_properties: string[]
+  optional_properties: string[]
+}
+
 async function createDataSource(params: {
   kg_id: string
   name: string
   adapter_type: string
   connection_config: Record<string, string>
   credentials?: Record<string, string>
+  ontology?: {
+    node_types: OntologyNodeType[]
+    edge_types: OntologyEdgeType[]
+  }
 }) {
   const { apiFetch } = useApiClient()
   return apiFetch(`/management/knowledge-graphs/${params.kg_id}/data-sources`, {
@@ -541,6 +625,7 @@ async function createDataSource(params: {
       adapter_type: params.adapter_type,
       connection_config: params.connection_config,
       credentials: params.credentials,
+      ontology: params.ontology,
     },
   })
 }
@@ -555,6 +640,26 @@ async function approveOntology() {
 
   approvingOntology.value = true
   try {
+    // Serialise the user-reviewed (and possibly edited) proposed ontology so
+    // it travels with the data source creation request.  The backend stores
+    // these types in connection_config['_ontology'] for use during extraction.
+    const ontologyPayload = {
+      node_types: proposedNodes.value.map((n) => ({
+        label: n.label,
+        description: n.description,
+        required_properties: n.required_properties,
+        optional_properties: n.optional_properties,
+      })),
+      edge_types: proposedEdges.value.map((e) => ({
+        label: e.label,
+        description: e.description,
+        from_type: e.from,
+        to_type: e.to,
+        required_properties: e.required_properties,
+        optional_properties: e.optional_properties,
+      })),
+    }
+
     await createDataSource({
       kg_id: selectedKnowledgeGraphId.value,
       name: connName.value,
@@ -563,6 +668,7 @@ async function approveOntology() {
         repo_url: connRepoUrl.value,
       },
       credentials: connToken.value ? { access_token: connToken.value } : undefined,
+      ontology: ontologyPayload,
     })
     toast.success('Data source connected', {
       description: `${connName.value} has been connected and extraction will begin shortly.`,

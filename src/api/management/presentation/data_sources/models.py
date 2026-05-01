@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from pydantic import BaseModel, Field
@@ -9,6 +10,86 @@ from pydantic import BaseModel, Field
 from management.application.services.data_source_service import DataSourceWithLatestRun
 from management.domain.aggregates import DataSource
 from management.domain.entities import DataSourceSyncRun
+
+
+class NodeTypeDefinition(BaseModel):
+    """A proposed or approved node type in the knowledge graph ontology."""
+
+    label: str = Field(..., description="The node type label (e.g., 'Repository')")
+    description: str = Field(
+        ..., description="Human-readable description of the node type"
+    )
+    required_properties: list[str] = Field(
+        default_factory=list,
+        description="Properties that must be present on every node of this type",
+    )
+    optional_properties: list[str] = Field(
+        default_factory=list,
+        description="Properties that may be present on nodes of this type",
+    )
+
+
+class EdgeTypeDefinition(BaseModel):
+    """A proposed or approved edge type in the knowledge graph ontology."""
+
+    label: str = Field(..., description="The edge type label (e.g., 'CONTAINS')")
+    description: str = Field(
+        ..., description="Human-readable description of the edge type"
+    )
+    from_type: str = Field(..., description="The source node type label")
+    to_type: str = Field(..., description="The target node type label")
+    required_properties: list[str] = Field(
+        default_factory=list,
+        description="Properties that must be present on every edge of this type",
+    )
+    optional_properties: list[str] = Field(
+        default_factory=list,
+        description="Properties that may be present on edges of this type",
+    )
+
+
+class OntologyDefinition(BaseModel):
+    """A complete ontology definition with node and edge types."""
+
+    node_types: list[NodeTypeDefinition] = Field(
+        default_factory=list,
+        description="Node types in the ontology",
+    )
+    edge_types: list[EdgeTypeDefinition] = Field(
+        default_factory=list,
+        description="Edge types in the ontology",
+    )
+
+
+class ProposeOntologyRequest(BaseModel):
+    """Request model for proposing an ontology for a data source."""
+
+    adapter_type: str = Field(
+        ...,
+        description="Adapter type (e.g., 'github')",
+    )
+    intent: str = Field(
+        ...,
+        description="Free-text description of what the user wants to learn from this data",
+        min_length=1,
+    )
+    connection_config: dict | None = Field(
+        default=None,
+        description="Optional connection configuration for the adapter (used for lightweight scan)",
+    )
+
+
+class ProposeOntologyResponse(BaseModel):
+    """Response model for a proposed ontology."""
+
+    node_types: list[NodeTypeDefinition] = Field(
+        default_factory=list,
+        description="Proposed node types based on the adapter and intent",
+    )
+    edge_types: list[EdgeTypeDefinition] = Field(
+        default_factory=list,
+        description="Proposed edge types based on the adapter and intent",
+    )
 
 
 class CreateDataSourceRequest(BaseModel):
@@ -32,6 +113,30 @@ class CreateDataSourceRequest(BaseModel):
         default=None,
         description="Optional credentials to encrypt and store securely",
     )
+    ontology: OntologyDefinition | None = Field(
+        default=None,
+        description=(
+            "Optional approved ontology (node and edge types) to associate with this "
+            "data source. When provided, the approved types are stored with the data "
+            "source configuration and used to guide extraction."
+        ),
+    )
+
+    def build_connection_config_with_ontology(self) -> dict:
+        """Return connection_config merged with the approved ontology.
+
+        The ontology is stored under the reserved ``_ontology`` key so it
+        travels with the data source configuration without requiring a
+        separate database column at this stage.
+
+        Returns:
+            A copy of connection_config with ``_ontology`` injected when
+            an ontology was provided, or the original dict otherwise.
+        """
+        config = dict(self.connection_config)
+        if self.ontology is not None:
+            config["_ontology"] = json.loads(self.ontology.model_dump_json())
+        return config
 
 
 class DataSourceResponse(BaseModel):

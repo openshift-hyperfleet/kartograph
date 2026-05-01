@@ -20,12 +20,128 @@ from management.presentation.data_sources.models import (
     DataSourceListResponse,
     DataSourceResponse,
     DataSourceWithSyncResponse,
+    EdgeTypeDefinition,
+    NodeTypeDefinition,
+    ProposeOntologyRequest,
+    ProposeOntologyResponse,
     SyncRunLogsResponse,
     SyncRunResponse,
 )
 from shared_kernel.datasource_types import DataSourceAdapterType
 
 router = APIRouter(tags=["data-sources"])
+
+# ── Hardcoded ontology proposals by adapter type ──────────────────────────────
+#
+# This is the "tracer bullet" implementation: the full API pipeline is wired up
+# end-to-end even though the AI inference logic is not yet implemented.  The
+# proposals are deterministic based on adapter_type so the UI always receives a
+# real HTTP response rather than a simulated timeout.  A future iteration will
+# replace this with an AI agent that scans the connected data source.
+
+_GITHUB_NODE_PROPOSALS: list[NodeTypeDefinition] = [
+    NodeTypeDefinition(
+        label="Repository",
+        description="A GitHub repository containing code, issues, and pull requests.",
+        required_properties=["name", "url"],
+        optional_properties=["description", "stars", "forks", "default_branch"],
+    ),
+    NodeTypeDefinition(
+        label="Issue",
+        description="An issue filed in a GitHub repository.",
+        required_properties=["title", "number", "state"],
+        optional_properties=["body", "labels", "closed_at"],
+    ),
+    NodeTypeDefinition(
+        label="PullRequest",
+        description="A pull request proposing code changes.",
+        required_properties=["title", "number", "state"],
+        optional_properties=["body", "base_branch", "head_branch", "merged_at"],
+    ),
+    NodeTypeDefinition(
+        label="Commit",
+        description="A Git commit recorded in the repository.",
+        required_properties=["sha", "message", "timestamp"],
+        optional_properties=["author_email"],
+    ),
+    NodeTypeDefinition(
+        label="User",
+        description="A GitHub user who interacts with the repository.",
+        required_properties=["login"],
+        optional_properties=["name", "email", "avatar_url"],
+    ),
+]
+
+_GITHUB_EDGE_PROPOSALS: list[EdgeTypeDefinition] = [
+    EdgeTypeDefinition(
+        label="CONTAINS",
+        description="A repository contains issues, pull requests, and commits.",
+        from_type="Repository",
+        to_type="Issue | PullRequest | Commit",
+        required_properties=[],
+        optional_properties=[],
+    ),
+    EdgeTypeDefinition(
+        label="CREATED_BY",
+        description="An issue or pull request was created by a user.",
+        from_type="Issue | PullRequest",
+        to_type="User",
+        required_properties=[],
+        optional_properties=["created_at"],
+    ),
+    EdgeTypeDefinition(
+        label="AUTHORED_BY",
+        description="A commit was authored by a user.",
+        from_type="Commit",
+        to_type="User",
+        required_properties=[],
+        optional_properties=[],
+    ),
+    EdgeTypeDefinition(
+        label="ASSIGNED_TO",
+        description="An issue or pull request is assigned to a user.",
+        from_type="Issue | PullRequest",
+        to_type="User",
+        required_properties=[],
+        optional_properties=[],
+    ),
+]
+
+
+@router.post(
+    "/ontology-proposals",
+    status_code=status.HTTP_200_OK,
+)
+async def propose_ontology(
+    request: ProposeOntologyRequest,
+    _current_user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> ProposeOntologyResponse:
+    """Propose an ontology (node and edge types) for a data source.
+
+    Accepts a free-text intent description and the adapter type, then returns
+    a proposed ontology that the user can review and edit before approving.
+
+    This is a "tracer bullet" implementation: the full API pipeline is wired
+    end-to-end with deterministic proposals based on adapter type.  A future
+    iteration will replace this with an AI agent that performs a lightweight
+    scan of the connected data source and uses the intent to tailor the proposal.
+
+    Args:
+        request: Ontology proposal request with adapter_type, intent, and
+                 optional connection_config
+        _current_user: Current authenticated user (required for tenant context)
+
+    Returns:
+        ProposeOntologyResponse with proposed node and edge types
+    """
+    if request.adapter_type == DataSourceAdapterType.GITHUB.value:
+        return ProposeOntologyResponse(
+            node_types=_GITHUB_NODE_PROPOSALS,
+            edge_types=_GITHUB_EDGE_PROPOSALS,
+        )
+
+    # Unknown adapter: return empty proposal so the UI can still proceed
+    return ProposeOntologyResponse(node_types=[], edge_types=[])
 
 
 @router.get(
@@ -157,7 +273,7 @@ async def create_data_source(
             kg_id=kg_id,
             name=request.name,
             adapter_type=adapter_type,
-            connection_config=request.connection_config,
+            connection_config=request.build_connection_config_with_ontology(),
             raw_credentials=request.credentials,
         )
         return DataSourceResponse.from_domain(ds)

@@ -2,7 +2,7 @@
 id: task-049
 title: Fix focus ring inconsistencies — ring-2 → ring-[3px] on custom interactive
   elements
-spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
+spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: complete
 phase: null
 deps: []

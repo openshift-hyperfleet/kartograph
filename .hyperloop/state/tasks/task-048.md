@@ -1,7 +1,7 @@
 ---
 id: task-048
 title: Update schema browser cross-navigation — add ontology editor link per type
-spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
+spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: complete
 phase: null
 deps:

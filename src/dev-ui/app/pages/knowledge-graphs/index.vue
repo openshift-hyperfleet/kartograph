@@ -305,21 +305,23 @@ watch(tenantVersion, () => {
           <!-- Workspace selection -->
           <div class="space-y-1.5">
             <Label for="kg-workspace">Workspace <span class="text-destructive">*</span></Label>
-            <select
-              v-if="!loadingWorkspaces && workspaces.length > 0"
-              id="kg-workspace"
+            <Select
               v-model="selectedWorkspaceId"
-              :disabled="creating"
-              class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              @change="createWorkspaceError = ''"
+              :disabled="creating || loadingWorkspaces || workspaces.length === 0"
+              @update:model-value="createWorkspaceError = ''"
             >
-              <option value="">Select a workspace...</option>
-              <option v-for="ws in workspaces" :key="ws.id" :value="ws.id">{{ ws.name }}</option>
-            </select>
-            <div v-else-if="loadingWorkspaces" class="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 class="size-4 animate-spin" /> Loading workspaces...
-            </div>
-            <p v-else class="text-sm text-muted-foreground">
+              <SelectTrigger class="w-full">
+                <SelectValue
+                  :placeholder="loadingWorkspaces ? 'Loading workspaces...' : 'Select a workspace...'"
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="ws in workspaces" :key="ws.id" :value="ws.id">
+                  {{ ws.name }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p v-if="!loadingWorkspaces && workspaces.length === 0" class="text-sm text-muted-foreground">
               No workspaces found. <NuxtLink to="/settings/workspaces" class="text-primary underline">Create a workspace first</NuxtLink>.
             </p>
             <p v-if="createWorkspaceError" class="text-sm text-destructive">{{ createWorkspaceError }}</p>

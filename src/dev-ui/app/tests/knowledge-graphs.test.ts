@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { buildQueryGraphArgs } from '~/composables/api/useQueryApi'
 
-// ── Requirement: Backend API Alignment ────────────────────────────────────────
+// ── Knowledge Graph Creation ───────────────────────────────────────────────────
 // Spec: "AND the knowledge graph is created within the current workspace"
-// The create endpoint is workspace-scoped:
-//   POST /management/workspaces/{workspace_id}/knowledge-graphs
-// Not the flat (non-existent) endpoint POST /management/knowledge-graphs.
+// The handleCreate() function must call
+// POST /management/workspaces/{workspace_id}/knowledge-graphs
+// and loadKnowledgeGraphs() must populate the list on mount.
 
 describe('Knowledge Graph Creation - Validation', () => {
   it('rejects empty name with an error message', () => {
@@ -45,28 +45,44 @@ describe('Knowledge Graph Creation - Validation', () => {
     expect(result).toBe(true)
     expect(createNameError.value).toBe('')
   })
+
+  it('blocks creation when no workspace is selected', () => {
+    const createName = { value: 'My Graph' }
+    const selectedWorkspaceId = { value: '' }
+    const createWorkspaceError = { value: '' }
+
+    function handleCreate() {
+      createWorkspaceError.value = ''
+      if (!selectedWorkspaceId.value) {
+        createWorkspaceError.value = 'Please select a workspace'
+        return false
+      }
+      if (!createName.value.trim()) return false
+      return true
+    }
+
+    const result = handleCreate()
+    expect(result).toBe(false)
+    expect(createWorkspaceError.value).toBe('Please select a workspace')
+  })
 })
 
-describe('Knowledge Graph Creation - API call (workspace-scoped)', () => {
-  // The backend endpoint for KG creation is workspace-scoped:
-  //   POST /management/workspaces/{workspace_id}/knowledge-graphs
-  // The UI must select a workspace and include it in the URL.
-
-  it('calls POST /management/workspaces/{workspaceId}/knowledge-graphs with name and description', async () => {
+describe('Knowledge Graph Creation - API call', () => {
+  it('calls POST /management/workspaces/{workspace_id}/knowledge-graphs with name and description', async () => {
     const apiFetch = vi.fn().mockResolvedValue({ id: 'kg-new', name: 'Test Graph' })
     const createName = { value: 'Test Graph' }
     const createDescription = { value: 'A test graph' }
-    const createWorkspaceId = { value: 'ws-abc' }
+    const selectedWorkspaceId = { value: 'ws-123' }
     const creating = { value: false }
     const createDialogOpen = { value: true }
     let toastMessage = ''
 
     async function handleCreate() {
+      if (!selectedWorkspaceId.value) return
       if (!createName.value.trim()) return
-      if (!createWorkspaceId.value) return
       creating.value = true
       try {
-        await apiFetch(`/management/workspaces/${createWorkspaceId.value}/knowledge-graphs`, {
+        await apiFetch(`/management/workspaces/${selectedWorkspaceId.value}/knowledge-graphs`, {
           method: 'POST',
           body: {
             name: createName.value.trim(),
@@ -82,7 +98,7 @@ describe('Knowledge Graph Creation - API call (workspace-scoped)', () => {
 
     await handleCreate()
 
-    expect(apiFetch).toHaveBeenCalledWith('/management/workspaces/ws-abc/knowledge-graphs', {
+    expect(apiFetch).toHaveBeenCalledWith('/management/workspaces/ws-123/knowledge-graphs', {
       method: 'POST',
       body: { name: 'Test Graph', description: 'A test graph' },
     })
@@ -91,26 +107,27 @@ describe('Knowledge Graph Creation - API call (workspace-scoped)', () => {
     expect(creating.value).toBe(false)
   })
 
-  it('does not create if no workspace is selected', async () => {
+  it('does not call API when workspace is not selected', async () => {
     const apiFetch = vi.fn().mockResolvedValue({ id: 'kg-new', name: 'Test Graph' })
     const createName = { value: 'Test Graph' }
-    const createWorkspaceId = { value: '' }
+    const selectedWorkspaceId = { value: '' }
     const creating = { value: false }
-    let called = false
 
     async function handleCreate() {
+      if (!selectedWorkspaceId.value) return
       if (!createName.value.trim()) return
-      if (!createWorkspaceId.value) return  // guard: workspace required
       creating.value = true
-      called = true
-      await apiFetch(`/management/workspaces/${createWorkspaceId.value}/knowledge-graphs`, {
-        method: 'POST',
-        body: { name: createName.value.trim() },
-      })
+      try {
+        await apiFetch(`/management/workspaces/${selectedWorkspaceId.value}/knowledge-graphs`, {
+          method: 'POST',
+          body: { name: createName.value.trim() },
+        })
+      } finally {
+        creating.value = false
+      }
     }
 
     await handleCreate()
-    expect(called).toBe(false)
     expect(apiFetch).not.toHaveBeenCalled()
     expect(creating.value).toBe(false)
   })
@@ -118,16 +135,16 @@ describe('Knowledge Graph Creation - API call (workspace-scoped)', () => {
   it('sets creating back to false on API error', async () => {
     const apiFetch = vi.fn().mockRejectedValue(new Error('Network error'))
     const createName = { value: 'My Graph' }
-    const createWorkspaceId = { value: 'ws-abc' }
+    const selectedWorkspaceId = { value: 'ws-456' }
     const creating = { value: false }
     let toastError = ''
 
     async function handleCreate() {
+      if (!selectedWorkspaceId.value) return
       if (!createName.value.trim()) return
-      if (!createWorkspaceId.value) return
       creating.value = true
       try {
-        await apiFetch(`/management/workspaces/${createWorkspaceId.value}/knowledge-graphs`, {
+        await apiFetch(`/management/workspaces/${selectedWorkspaceId.value}/knowledge-graphs`, {
           method: 'POST',
           body: { name: 'My Graph' },
         })

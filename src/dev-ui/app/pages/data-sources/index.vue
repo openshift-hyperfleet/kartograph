@@ -545,9 +545,9 @@ async function loadDataSources() {
         for (const ds of sources) {
           try {
             // Backend returns list[SyncRunResponse] as a direct JSON array.
-            ds.sync_runs = await apiFetch<SyncRun[]>(
+            ds.sync_runs = (await apiFetch<SyncRun[]>(
               `/management/data-sources/${ds.id}/sync-runs`
-            )
+            )) ?? []
           } catch {
             ds.sync_runs = []
           }

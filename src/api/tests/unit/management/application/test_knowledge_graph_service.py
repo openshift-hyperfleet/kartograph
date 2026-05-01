@@ -956,3 +956,83 @@ class TestKnowledgeGraphServiceDelete:
         assert result is True
         assert len(ds_repo.deleted) == 1
         assert len(kg_repo.deleted) == 1
+
+
+# ---- list_all ----
+
+
+class TestKnowledgeGraphServiceListAll:
+    """Tests for KnowledgeGraphService.list_all.
+
+    Spec requirement (FAIL-4): the Mutations Console KG selector must show only
+    knowledge graphs the user has 'edit' permission on. list_all() accepts an
+    optional permission parameter (default Permission.VIEW) so the route can
+    pass Permission.EDIT when needed.
+    """
+
+    @pytest.mark.asyncio
+    async def test_list_all_view_permission_returns_viewable_kgs(
+        self, service, authz, kg_repo, user_id, tenant_id
+    ):
+        """list_all() with default VIEW permission returns KGs user can view."""
+        kg1 = _make_kg(kg_id="kg-view-001", tenant_id=tenant_id)
+        kg2 = _make_kg(kg_id="kg-view-002", tenant_id=tenant_id)
+        kg_repo.seed(kg1, kg2)
+
+        # Grant VIEW on kg1 only
+        await _grant_kg_view(authz, kg1.id.value, user_id)
+
+        result = await service.list_all(user_id=user_id, permission=Permission.VIEW)
+
+        assert len(result) == 1
+        assert result[0].id.value == kg1.id.value
+
+    @pytest.mark.asyncio
+    async def test_list_all_edit_permission_returns_editable_kgs_only(
+        self, service, authz, kg_repo, user_id, tenant_id
+    ):
+        """list_all(permission=EDIT) returns only KGs the user can edit.
+
+        A user with VIEW on one KG and EDIT on another should see only the
+        EDIT-capable one when permission=Permission.EDIT is passed.
+        """
+        kg_view_only = _make_kg(kg_id="kg-view-only", tenant_id=tenant_id)
+        kg_editable = _make_kg(kg_id="kg-editable", tenant_id=tenant_id)
+        kg_repo.seed(kg_view_only, kg_editable)
+
+        # Grant VIEW on kg_view_only, EDIT on kg_editable
+        await _grant_kg_view(authz, kg_view_only.id.value, user_id)
+        await _grant_kg_edit(authz, kg_editable.id.value, user_id)
+
+        result = await service.list_all(user_id=user_id, permission=Permission.EDIT)
+
+        assert len(result) == 1
+        assert result[0].id.value == kg_editable.id.value
+
+    @pytest.mark.asyncio
+    async def test_list_all_edit_permission_excludes_view_only_kgs(
+        self, service, authz, kg_repo, user_id, tenant_id
+    ):
+        """list_all(permission=EDIT) does NOT return KGs the user can only view."""
+        kg = _make_kg(kg_id="kg-view-only", tenant_id=tenant_id)
+        kg_repo.seed(kg)
+        await _grant_kg_view(authz, kg.id.value, user_id)
+
+        result = await service.list_all(user_id=user_id, permission=Permission.EDIT)
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_list_all_default_permission_is_view(
+        self, service, authz, kg_repo, user_id, tenant_id
+    ):
+        """list_all() with no explicit permission defaults to VIEW."""
+        kg = _make_kg(kg_id="kg-view-default", tenant_id=tenant_id)
+        kg_repo.seed(kg)
+        await _grant_kg_view(authz, kg.id.value, user_id)
+
+        # Call without permission arg — should return the viewable KG
+        result = await service.list_all(user_id=user_id)
+
+        assert len(result) == 1
+        assert result[0].id.value == kg.id.value

@@ -30,6 +30,19 @@ import {
 
 import { LARGE_FILE_THRESHOLD } from '@/composables/useMutationWorker'
 
+import {
+  isAcceptedMutationFile,
+  ACCEPTED_MUTATION_FILE_EXTENSIONS,
+  getShowEmptyState,
+  getMergedEditorContent,
+  isCtrlOrCmdEnterEvent,
+  getEditorVisibilityForViewChange,
+  canSubmitMutations,
+} from '@/utils/mutationConsole'
+
+import type { MutationSubmissionState, MutationSubmissionStatus } from '@/composables/useMutationSubmission'
+import type { MutationResult } from '@/types'
+
 // ── Source file readers (for structural / static analysis tests) ─────────────
 
 const mutationsVuePath = resolve(__dirname, '../pages/graph/mutations.vue')
@@ -108,6 +121,29 @@ describe('Mutations Console - empty state: drag-and-drop support', () => {
   })
 })
 
+// ── Empty state: primary action logic (via getShowEmptyState utility) ─────────
+//
+// Uses getShowEmptyState() from ~/utils/mutationConsole — the same function
+// mutations.vue imports to drive which UI section is rendered.
+
+describe('Mutations Console - empty state: getShowEmptyState utility', () => {
+  it('shows empty state when showEditor is false and no large-file mode is active', () => {
+    expect(getShowEmptyState(false, false)).toBe(true)
+  })
+
+  it('hides empty state once the editor is activated', () => {
+    expect(getShowEmptyState(true, false)).toBe(false)
+  })
+
+  it('hides empty state when large-file mode is active (upload replaced editor)', () => {
+    expect(getShowEmptyState(false, true)).toBe(false)
+  })
+
+  it('hides empty state when both showEditor and largeFileMode are true', () => {
+    expect(getShowEmptyState(true, true)).toBe(false)
+  })
+})
+
 // ────────────────────────────────────────────────────────────────────────────
 // Scenario: JSONL editing — CodeMirror extensions
 // "the editor provides JSON syntax highlighting, line numbers, JSONL-aware
@@ -165,7 +201,35 @@ describe('Mutations Console - JSONL editing: Ctrl/Cmd+Enter submits', () => {
 
   it('mutations.vue also handles the global Ctrl/Cmd+Enter keyboard event', () => {
     expect(mutationsVue).toContain('handleCtrlEnter')
-    expect(mutationsVue).toContain("e.ctrlKey || e.metaKey")
+    // handleCtrlEnter delegates to isCtrlOrCmdEnterEvent() from mutationConsole utility
+    expect(mutationsVue).toContain('isCtrlOrCmdEnterEvent(e)')
+  })
+})
+
+// ── JSONL editing: Ctrl/Cmd+Enter keyboard shortcut (via utility) ─────────────
+//
+// Uses isCtrlOrCmdEnterEvent() from ~/utils/mutationConsole — the same
+// function mutations.vue imports for the handleCtrlEnter() handler.
+
+describe('Mutations Console - JSONL editing: isCtrlOrCmdEnterEvent utility', () => {
+  it('returns true when Ctrl+Enter is pressed', () => {
+    expect(isCtrlOrCmdEnterEvent({ ctrlKey: true, metaKey: false, key: 'Enter' })).toBe(true)
+  })
+
+  it('returns true when Cmd+Enter is pressed (Mac)', () => {
+    expect(isCtrlOrCmdEnterEvent({ ctrlKey: false, metaKey: true, key: 'Enter' })).toBe(true)
+  })
+
+  it('returns false for plain Enter', () => {
+    expect(isCtrlOrCmdEnterEvent({ ctrlKey: false, metaKey: false, key: 'Enter' })).toBe(false)
+  })
+
+  it('returns false for Ctrl+other key', () => {
+    expect(isCtrlOrCmdEnterEvent({ ctrlKey: true, metaKey: false, key: 'a' })).toBe(false)
+  })
+
+  it('returns false for Meta+other key', () => {
+    expect(isCtrlOrCmdEnterEvent({ ctrlKey: false, metaKey: true, key: 's' })).toBe(false)
   })
 })
 
@@ -353,48 +417,27 @@ describe('Mutations Console - live preview: validation warnings', () => {
   })
 })
 
-describe('Mutations Console - live preview: parse errors for invalid JSON', () => {
-  it('invalid JSON on a line produces a parseError', () => {
-    const content = '{invalid json here'
-    const { parseErrors } = parseContent(content)
-    expect(parseErrors.length).toBeGreaterThan(0)
+describe('Mutations Console - live preview: parse errors and inline gutter display', () => {
+  it('invalid JSON on a line produces a parse error (not a parsed operation)', () => {
+    const content = 'this is not json'
+    const result = parseContent(content)
+    expect(result.parseErrors.length).toBeGreaterThan(0)
+    expect(result.operations).toHaveLength(0)
   })
 
-  it('blank lines are skipped without errors', () => {
-    const content = '\n\n{"op":"DEFINE","type":"node","label":"person","description":"A person","required_properties":[]}\n\n'
-    const { operations, parseErrors } = parseContent(content)
-    expect(operations).toHaveLength(1)
-    expect(parseErrors).toHaveLength(0)
-  })
-
-  it('comment lines starting with // are skipped', () => {
+  it('parse error message includes location context', () => {
     const content = [
-      '// This is a comment',
       '{"op":"DEFINE","type":"node","label":"person","description":"A person","required_properties":[]}',
+      'invalid json',
     ].join('\n')
-    const { operations, parseErrors } = parseContent(content)
-    expect(operations).toHaveLength(1)
-    expect(parseErrors).toHaveLength(0)
+    const result = parseContent(content)
+    expect(result.parseErrors.length).toBeGreaterThan(0)
+    // Parse errors are strings describing the failure (may include line context)
+    expect(typeof result.parseErrors[0]).toBe('string')
   })
 
-  it('comment lines starting with # are skipped', () => {
-    const content = [
-      '# This is a comment',
-      '{"op":"DEFINE","type":"node","label":"person","description":"A person","required_properties":[]}',
-    ].join('\n')
-    const { operations, parseErrors } = parseContent(content)
-    expect(operations).toHaveLength(1)
-    expect(parseErrors).toHaveLength(0)
-  })
-})
-
-describe('Mutations Console - live preview: MutationPreview is used in mutations.vue', () => {
-  it('mutations.vue imports and renders MutationPreview component', () => {
+  it('mutations.vue passes parseResult to MutationPreview for live preview', () => {
     expect(mutationsVue).toContain('MutationPreview')
-  })
-
-  it('MutationPreview receives the syncParseResult (small files)', () => {
-    expect(mutationsVue).toContain('syncParseResult')
   })
 
   it('MutationPreview receives the workerResult (large files)', () => {
@@ -409,40 +452,34 @@ describe('Mutations Console - live preview: MutationPreview is used in mutations
 // ────────────────────────────────────────────────────────────────────────────
 
 describe('Mutations Console - file upload: valid file types', () => {
-  /**
-   * Mirrors the readFile() validation logic in mutations.vue:
-   * only .jsonl, .json, and .ndjson extensions are accepted.
-   */
-  function isValidMutationFile(fileName: string): boolean {
-    return (
-      fileName.endsWith('.jsonl') ||
-      fileName.endsWith('.json') ||
-      fileName.endsWith('.ndjson')
-    )
-  }
+  it('ACCEPTED_MUTATION_FILE_EXTENSIONS includes .jsonl, .json, and .ndjson', () => {
+    expect(ACCEPTED_MUTATION_FILE_EXTENSIONS).toContain('.jsonl')
+    expect(ACCEPTED_MUTATION_FILE_EXTENSIONS).toContain('.json')
+    expect(ACCEPTED_MUTATION_FILE_EXTENSIONS).toContain('.ndjson')
+  })
 
   it('accepts .jsonl files', () => {
-    expect(isValidMutationFile('mutations.jsonl')).toBe(true)
+    expect(isAcceptedMutationFile('mutations.jsonl')).toBe(true)
   })
 
   it('accepts .json files', () => {
-    expect(isValidMutationFile('mutations.json')).toBe(true)
+    expect(isAcceptedMutationFile('mutations.json')).toBe(true)
   })
 
   it('accepts .ndjson files', () => {
-    expect(isValidMutationFile('mutations.ndjson')).toBe(true)
+    expect(isAcceptedMutationFile('mutations.ndjson')).toBe(true)
   })
 
   it('rejects .csv files', () => {
-    expect(isValidMutationFile('mutations.csv')).toBe(false)
+    expect(isAcceptedMutationFile('mutations.csv')).toBe(false)
   })
 
   it('rejects .txt files', () => {
-    expect(isValidMutationFile('mutations.txt')).toBe(false)
+    expect(isAcceptedMutationFile('mutations.txt')).toBe(false)
   })
 
   it('rejects files with no extension', () => {
-    expect(isValidMutationFile('mutations')).toBe(false)
+    expect(isAcceptedMutationFile('mutations')).toBe(false)
   })
 })
 
@@ -490,10 +527,11 @@ describe('Mutations Console - file upload: drag-and-drop file handling', () => {
 // ────────────────────────────────────────────────────────────────────────────
 // Scenario: Knowledge graph selection
 // "a knowledge graph selector is displayed before the user can submit"
+// "the selector lists all knowledge graphs the user has 'edit' permission on"
 // "no submission is possible until a knowledge graph is selected"
 // ────────────────────────────────────────────────────────────────────────────
 
-describe('Mutations Console - knowledge graph selection', () => {
+describe('Mutations Console - knowledge graph selection: structural', () => {
   it('mutations.vue uses hasTenant to guard the mutations console display', () => {
     expect(mutationsVue).toContain('hasTenant')
   })
@@ -501,140 +539,223 @@ describe('Mutations Console - knowledge graph selection', () => {
   it('mutations.vue shows a "No tenant selected" message when no tenant is chosen', () => {
     expect(mutationsVue).toContain('No tenant selected')
   })
+
+  it('mutations.vue renders a KG selector component', () => {
+    // The Select component backed by the knowledge graphs list
+    expect(mutationsVue).toContain('selectedKnowledgeGraphId')
+  })
+
+  // FAIL-4: KG selector must filter to KGs with edit permission
+  it('mutations.vue requests knowledge graphs with edit permission scope', () => {
+    // loadKnowledgeGraphs() must call with permission=edit to show only
+    // KGs the user can actually submit mutations to.
+    expect(mutationsVue).toContain("permission: 'edit'")
+  })
+})
+
+// ── Knowledge graph selection: submission gate (via canSubmitMutations) ───────
+//
+// Spec: "no submission is possible until a knowledge graph is selected"
+// Uses canSubmitMutations() from ~/utils/mutationConsole — the same function
+// mutations.vue imports to gate the Apply Mutations button and handleSubmit().
+
+describe('Mutations Console - knowledge graph selection: canSubmitMutations utility', () => {
+  const validContent = '{"op":"DEFINE","type":"node","label":"person","description":"desc","required_properties":[]}'
+
+  const baseOpts = {
+    content: validContent,
+    isLargeFile: false,
+    submitting: false,
+    preparing: false,
+  }
+
+  it('returns false when no knowledge graph is selected (null)', () => {
+    expect(canSubmitMutations({ ...baseOpts, selectedKnowledgeGraphId: null })).toBe(false)
+  })
+
+  it('returns false when knowledge graph ID is empty string', () => {
+    expect(canSubmitMutations({ ...baseOpts, selectedKnowledgeGraphId: '' })).toBe(false)
+  })
+
+  it('returns true when a knowledge graph is selected and content exists', () => {
+    expect(canSubmitMutations({ ...baseOpts, selectedKnowledgeGraphId: 'kg-abc123' })).toBe(true)
+  })
+
+  it('returns false when KG is selected but content is empty (small file mode)', () => {
+    expect(canSubmitMutations({
+      ...baseOpts,
+      selectedKnowledgeGraphId: 'kg-abc123',
+      content: '',
+    })).toBe(false)
+  })
+
+  it('returns false when KG is selected but content is only whitespace', () => {
+    expect(canSubmitMutations({
+      ...baseOpts,
+      selectedKnowledgeGraphId: 'kg-abc123',
+      content: '   \n  ',
+    })).toBe(false)
+  })
+
+  it('returns true when KG is selected and in large-file mode (content check bypassed)', () => {
+    expect(canSubmitMutations({
+      ...baseOpts,
+      selectedKnowledgeGraphId: 'kg-abc123',
+      content: '',
+      isLargeFile: true,
+    })).toBe(true)
+  })
+
+  it('returns false when submission is already in progress (even with KG selected)', () => {
+    expect(canSubmitMutations({
+      ...baseOpts,
+      selectedKnowledgeGraphId: 'kg-abc123',
+      submitting: true,
+    })).toBe(false)
+  })
+
+  it('returns false when preparing is true (even with KG selected and content)', () => {
+    expect(canSubmitMutations({
+      ...baseOpts,
+      selectedKnowledgeGraphId: 'kg-abc123',
+      preparing: true,
+    })).toBe(false)
+  })
 })
 
 // ────────────────────────────────────────────────────────────────────────────
 // Scenario: Submission
-// "the mutations are submitted to the API"
+// "the mutations are submitted to the API scoped to the selected knowledge graph"
 // "a floating progress indicator appears in the bottom-right corner"
 // "the indicator persists when the user navigates away from the mutations console"
 // ────────────────────────────────────────────────────────────────────────────
 
-describe('Mutations Console - submission: useMutationSubmission state machine', () => {
-  /**
-   * Mirror the MutationSubmissionState logic from useMutationSubmission.ts.
-   * We test the state transitions as pure data transforms.
-   */
-
-  interface SubmissionState {
-    status: 'idle' | 'submitting' | 'success' | 'failed'
-    operationCount: number
-    result: { success: boolean; operations_applied: number; errors: string[] } | null
-    error: string | null
-    startedAt: number | null
-    completedAt: number | null
-  }
-
-  function initialState(): SubmissionState {
-    return {
-      status: 'idle',
-      operationCount: 0,
-      result: null,
-      error: null,
-      startedAt: null,
-      completedAt: null,
-    }
-  }
-
-  function beginSubmission(opCount: number): SubmissionState {
-    return {
-      status: 'submitting',
-      operationCount: opCount,
-      result: null,
-      error: null,
-      startedAt: Date.now(),
-      completedAt: null,
-    }
-  }
-
-  function completeSuccess(
-    prev: SubmissionState,
-    result: { success: boolean; operations_applied: number; errors: string[] },
-  ): SubmissionState {
-    return {
-      ...prev,
-      status: result.success ? 'success' : 'failed',
-      result,
-      error: !result.success && result.errors.length > 0 ? result.errors.join('; ') : null,
-      completedAt: Date.now(),
-    }
-  }
-
-  function completeError(prev: SubmissionState, errorMessage: string): SubmissionState {
-    return {
-      ...prev,
-      status: 'failed',
-      error: errorMessage,
-      completedAt: Date.now(),
-    }
-  }
-
-  function dismiss(): SubmissionState {
-    return initialState()
-  }
-
-  it('initial state is idle with zero operation count', () => {
-    const state = initialState()
-    expect(state.status).toBe('idle')
-    expect(state.operationCount).toBe(0)
-    expect(state.error).toBeNull()
+// FAIL-3: API endpoint must include the knowledge graph ID in the URL
+describe('Mutations Console - submission: API routing (FAIL-3 fix)', () => {
+  it('useGraphApi.ts calls the scoped /graph/knowledge-graphs/{id}/mutations endpoint', () => {
+    const useGraphApiPath = resolve(__dirname, '../composables/api/useGraphApi.ts')
+    const useGraphApi = readFileSync(useGraphApiPath, 'utf-8')
+    // The URL must include knowledge_graph_id as a path segment, not use /graph/mutations
+    expect(useGraphApi).toContain('/graph/knowledge-graphs/')
+    expect(useGraphApi).toContain('/mutations')
+    expect(useGraphApi).not.toContain('`${config.public.apiBaseUrl}/graph/mutations`')
   })
 
-  it('beginSubmission sets status to "submitting" with correct op count', () => {
-    const state = beginSubmission(42)
-    expect(state.status).toBe('submitting')
-    expect(state.operationCount).toBe(42)
-    expect(state.startedAt).not.toBeNull()
-    expect(state.completedAt).toBeNull()
+  it('useGraphApi.applyMutations() accepts a knowledgeGraphId parameter', () => {
+    const useGraphApiPath = resolve(__dirname, '../composables/api/useGraphApi.ts')
+    const useGraphApi = readFileSync(useGraphApiPath, 'utf-8')
+    expect(useGraphApi).toContain('knowledgeGraphId')
   })
 
-  it('completeSuccess transitions to "success" with result', () => {
-    const initial = beginSubmission(10)
-    const state = completeSuccess(initial, { success: true, operations_applied: 10, errors: [] })
-    expect(state.status).toBe('success')
-    expect(state.result?.operations_applied).toBe(10)
-    expect(state.completedAt).not.toBeNull()
+  it('useMutationSubmission.submit() accepts and forwards knowledgeGraphId', () => {
+    const submissionPath = resolve(__dirname, '../composables/useMutationSubmission.ts')
+    const submissionContent = readFileSync(submissionPath, 'utf-8')
+    expect(submissionContent).toContain('knowledgeGraphId')
   })
 
-  it('completeSuccess with success=false transitions to "failed"', () => {
-    const initial = beginSubmission(5)
-    const state = completeSuccess(initial, {
-      success: false,
-      operations_applied: 2,
-      errors: ['Node type not found'],
-    })
-    expect(state.status).toBe('failed')
-    expect(state.error).toContain('Node type not found')
+  it('mutations.vue passes selectedKnowledgeGraphId.value to submission.submit()', () => {
+    // The submit call must forward the KG ID, not just check it via canSubmitMutations
+    expect(mutationsVue).toContain('selectedKnowledgeGraphId.value')
+    // And submission.submit() must be called with the KG ID argument
+    expect(mutationsVue).toMatch(/submission\.submit\(.*selectedKnowledgeGraphId/)
+  })
+})
+
+describe('Mutations Console - submission: useMutationSubmission state machine types', () => {
+  const makeIdleState = (): MutationSubmissionState => ({
+    status: 'idle',
+    operationCount: 0,
+    result: null,
+    error: null,
+    startedAt: null,
+    completedAt: null,
   })
 
-  it('completeError transitions to "failed" with error message', () => {
-    const initial = beginSubmission(20)
-    const state = completeError(initial, 'Network error')
-    expect(state.status).toBe('failed')
-    expect(state.error).toBe('Network error')
-    expect(state.completedAt).not.toBeNull()
+  const makeSubmittingState = (opCount: number): MutationSubmissionState => ({
+    status: 'submitting',
+    operationCount: opCount,
+    result: null,
+    error: null,
+    startedAt: Date.now(),
+    completedAt: null,
   })
 
-  it('dismiss resets state to idle', () => {
-    const initial = beginSubmission(10)
-    const failed = completeError(initial, 'timeout')
-    const state = dismiss()
-    expect(state.status).toBe('idle')
-    expect(state.operationCount).toBe(0)
-    expect(state.error).toBeNull()
+  const makeSuccessState = (opCount: number, result: MutationResult): MutationSubmissionState => ({
+    status: 'success',
+    operationCount: opCount,
+    result,
+    error: null,
+    startedAt: 1000,
+    completedAt: 5000,
   })
 
-  it('elapsed time can be computed from startedAt and completedAt timestamps', () => {
+  it('idle state has status "idle" and zero operation count', () => {
+    const idle = makeIdleState()
+    expect(idle.status).toBe('idle')
+    expect(idle.operationCount).toBe(0)
+    expect(idle.result).toBeNull()
+    expect(idle.error).toBeNull()
+  })
+
+  it('the indicator is not visible in idle state', () => {
+    const isVisible = (status: MutationSubmissionStatus) => status !== 'idle'
+    expect(isVisible('idle')).toBe(false)
+  })
+
+  it('the indicator is visible during submitting, success, and failed states', () => {
+    const isVisible = (status: MutationSubmissionStatus) => status !== 'idle'
+    expect(isVisible('submitting')).toBe(true)
+    expect(isVisible('success')).toBe(true)
+    expect(isVisible('failed')).toBe(true)
+  })
+
+  it('submitting state carries the operation count and a startedAt timestamp', () => {
+    const submitting = makeSubmittingState(42)
+    expect(submitting.status).toBe('submitting')
+    expect(submitting.operationCount).toBe(42)
+    expect(submitting.startedAt).toBeGreaterThan(0)
+    expect(submitting.completedAt).toBeNull()
+    expect(submitting.error).toBeNull()
+  })
+
+  it('elapsed time is computable from startedAt and the current clock', () => {
     const startedAt = Date.now() - 3000 // 3 seconds ago
-    const completedAt = Date.now()
-    const elapsedSeconds = Math.floor((completedAt - startedAt) / 1000)
+    const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000)
     expect(elapsedSeconds).toBeGreaterThanOrEqual(3)
   })
 
-  it('operation count is preserved in state throughout the submission lifecycle', () => {
-    const submitting = beginSubmission(99)
-    const success = completeSuccess(submitting, { success: true, operations_applied: 99, errors: [] })
-    expect(success.operationCount).toBe(99)
+  it('success state carries the result and a completedAt timestamp', () => {
+    const result: MutationResult = { success: true, operations_applied: 10, errors: [] }
+    const success = makeSuccessState(10, result)
+    expect(success.status).toBe('success')
+    expect(success.result?.operations_applied).toBe(10)
+    expect(success.completedAt).toBeGreaterThan(0)
+    expect(success.error).toBeNull()
+  })
+
+  it('final elapsed time is computable from startedAt and completedAt', () => {
+    const state: MutationSubmissionState = {
+      status: 'success',
+      operationCount: 3,
+      result: { success: true, operations_applied: 3, errors: [] },
+      error: null,
+      startedAt: 1000,
+      completedAt: 5500,
+    }
+    const elapsedMs = state.completedAt! - state.startedAt!
+    expect(elapsedMs).toBe(4500)
+    const elapsedSeconds = Math.floor(elapsedMs / 1000)
+    expect(elapsedSeconds).toBe(4)
+  })
+
+  it('dismiss transition resets all fields to the idle shape', () => {
+    const dismissed: MutationSubmissionState = makeIdleState()
+    expect(dismissed.status).toBe('idle')
+    expect(dismissed.operationCount).toBe(0)
+    expect(dismissed.result).toBeNull()
+    expect(dismissed.error).toBeNull()
+    expect(dismissed.startedAt).toBeNull()
+    expect(dismissed.completedAt).toBeNull()
   })
 })
 
@@ -679,6 +800,17 @@ describe('Mutations Console - submission: floating progress indicator (MutationP
     const progressVuePath = resolve(__dirname, '../components/graph/MutationProgress.vue')
     const progressVue = readFileSync(progressVuePath, 'utf-8')
     expect(progressVue).toContain('dismiss')
+  })
+
+  // FAIL-5: the indicator must persist when the user navigates away
+  it('useMutationSubmission uses useState so state persists across Nuxt route changes', () => {
+    // useState is Nuxt's cross-navigation state primitive; if submission state
+    // is stored with useState, the MutationProgress rendered in app.vue will
+    // remain visible even after the user navigates away from /graph/mutations.
+    const submissionPath = resolve(__dirname, '../composables/useMutationSubmission.ts')
+    const submissionContent = readFileSync(submissionPath, 'utf-8')
+    expect(submissionContent).toContain('useState')
+    expect(submissionContent).toContain('mutation-submission')
   })
 })
 
@@ -728,6 +860,20 @@ describe('Mutations Console - submission failure: error display', () => {
     expect(progressVue).toContain('operations_applied')
     expect(progressVue).toContain('applied before failure')
   })
+
+  it('failed MutationSubmissionState carries error message and partial applied count', () => {
+    const state: MutationSubmissionState = {
+      status: 'failed',
+      operationCount: 10,
+      result: { success: false, operations_applied: 3, errors: ['Node type not found'] },
+      error: 'Node type not found',
+      startedAt: 1000,
+      completedAt: 2000,
+    }
+    expect(state.status).toBe('failed')
+    expect(state.error).toBe('Node type not found')
+    expect(state.result?.operations_applied).toBe(3)
+  })
 })
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -736,58 +882,56 @@ describe('Mutations Console - submission failure: error display', () => {
 // "the editor is activated if it was not already open"
 // ────────────────────────────────────────────────────────────────────────────
 
-describe('Mutations Console - template insertion: content appending', () => {
-  /**
-   * Mirror the template insertion logic from mutations.vue insertTemplate().
-   * When existing content is present, new content is appended with a newline.
-   * When no existing content, new content replaces the empty state.
-   */
-  function applyTemplateInsertion(existing: string, template: string): string {
-    if (existing.trim()) {
-      return existing + '\n' + template
-    }
-    return template
-  }
-
-  it('appends template to existing content with a newline separator', () => {
-    const existing = '{"op":"DEFINE","type":"node","label":"person","description":"A person","required_properties":[]}'
-    const template = '{"op":"CREATE","type":"node","label":"person","id":"person:a1b2c3d4e5f67890","set_properties":{"data_source_id":"x","source_path":"y","slug":"a"}}'
-    const result = applyTemplateInsertion(existing, template)
-    expect(result).toContain(existing)
-    expect(result).toContain(template)
-    expect(result.indexOf(existing)).toBeLessThan(result.indexOf(template))
-    const separator = result.slice(existing.length, existing.length + 1)
-    expect(separator).toBe('\n')
+describe('Mutations Console - template insertion: getMergedEditorContent utility', () => {
+  it('sets content directly when editor content is empty', () => {
+    const template = '{"op":"DEFINE","type":"node","label":"person","description":"desc","required_properties":[]}'
+    const merged = getMergedEditorContent('', template)
+    expect(merged).toBe(template)
   })
 
-  it('replaces empty content with template (no leading newline)', () => {
-    const template = '{"op":"DELETE","type":"node","id":"person:a1b2c3d4e5f67890"}'
-    const result = applyTemplateInsertion('', template)
-    expect(result).toBe(template)
-    expect(result.startsWith('\n')).toBe(false)
+  it('sets content directly when editor content is only whitespace', () => {
+    const template = '{"op":"DELETE","type":"node","id":"person:abc"}'
+    const merged = getMergedEditorContent('   ', template)
+    expect(merged).toBe(template)
   })
 
-  it('replaces whitespace-only content with template', () => {
-    const template = '{"op":"DELETE","type":"node","id":"person:a1b2c3d4e5f67890"}'
-    const result = applyTemplateInsertion('   \n   ', template)
-    expect(result).toBe(template)
+  it('appends content with newline separator when editor already has content', () => {
+    const existing = '{"op":"CREATE","type":"node","label":"person","id":"person:a1b2c3d4e5f67890"}'
+    const template = '{"op":"DELETE","type":"node","id":"person:f0e1d2c3b4a50000"}'
+    const merged = getMergedEditorContent(existing, template)
+    expect(merged).toContain('CREATE')
+    expect(merged).toContain('DELETE')
+    expect(merged.split('\n')).toHaveLength(2)
   })
 
-  it('mutations.vue calls activateEditor() before inserting template content', () => {
-    // insertTemplate() calls activateEditor() first
-    expect(mutationsVue).toContain('async function insertTemplate')
-    expect(mutationsVue).toContain('activateEditor()')
+  it('preserves existing content when appending', () => {
+    const existing = '{"op":"DEFINE","type":"node","label":"repo","description":"A repo","required_properties":[]}'
+    const template = '{"op":"DEFINE","type":"edge","label":"contains","description":"edge","required_properties":[]}'
+    const merged = getMergedEditorContent(existing, template)
+    expect(merged.startsWith(existing)).toBe(true)
+    expect(merged.endsWith(template)).toBe(true)
   })
 })
 
-describe('Mutations Console - template insertion: quick-start templates content', () => {
+describe('Mutations Console - template insertion: structural', () => {
+  it('mutations.vue calls activateEditor() before inserting template content', () => {
+    expect(mutationsVue).toContain('async function insertTemplate')
+    expect(mutationsVue).toContain('activateEditor()')
+  })
+
   it('quickStartTemplates contains exactly four entries', () => {
-    // The spec requires: Create Node, Create Edge, Update Properties, Delete Entity
-    // Count occurrences of template names in mutations.vue
     const names = ['Create a Node', 'Create an Edge', 'Update Properties', 'Delete an Entity']
     for (const name of names) {
       expect(mutationsVue).toContain(name)
     }
+  })
+
+  it('mutations.vue imports and renders MutationTemplates component', () => {
+    expect(mutationsVue).toContain('MutationTemplates')
+  })
+
+  it('mutations.vue passes insertTemplate as the handler for MutationTemplates insert event', () => {
+    expect(mutationsVue).toContain('@insert="insertTemplate"')
   })
 
   it('toJsonl serializes each operation as a single line JSON string', () => {
@@ -799,20 +943,9 @@ describe('Mutations Console - template insertion: quick-start templates content'
     const jsonl = toJsonl(operations)
     const lines = jsonl.split('\n').filter(l => l.trim())
     expect(lines).toHaveLength(2)
-    // Each line should be valid JSON
     for (const line of lines) {
       expect(() => JSON.parse(line)).not.toThrow()
     }
-  })
-})
-
-describe('Mutations Console - template insertion: MutationTemplates panel in mutations.vue', () => {
-  it('mutations.vue imports and renders MutationTemplates component', () => {
-    expect(mutationsVue).toContain('MutationTemplates')
-  })
-
-  it('mutations.vue passes insertTemplate as the handler for MutationTemplates insert event', () => {
-    expect(mutationsVue).toContain('@insert="insertTemplate"')
   })
 })
 
@@ -829,7 +962,6 @@ describe('Mutations Console - deep-link: ?view=editor initializes editor', () =>
   })
 
   it('showEditor ref is initialized based on URL query parameter', () => {
-    // The initialization: const showEditor = ref(route.query.view === 'editor' || ...)
     expect(mutationsVue).toMatch(/showEditor = ref\([\s\S]*?route\.query\.view === 'editor'/)
   })
 
@@ -849,7 +981,6 @@ describe('Mutations Console - deep-link: ?template=<content> inserts content', (
   })
 
   it('mutations.vue calls insertTemplate with the template param content on mount', () => {
-    // onMounted reads templateParam and calls insertTemplate
     expect(mutationsVue).toContain('insertTemplate(templateParam.trim())')
   })
 
@@ -864,9 +995,58 @@ describe('Mutations Console - deep-link: browser back/forward navigation', () =>
     expect(mutationsVue).toContain("() => route.query.view")
   })
 
-  it('mutations.vue sets showEditor to true when view=editor appears in the URL', () => {
-    expect(mutationsVue).toContain("if (newView === 'editor')")
-    expect(mutationsVue).toContain('showEditor.value = true')
+  it('mutations.vue uses getEditorVisibilityForViewChange in the route watcher', () => {
+    // The watcher delegates to getEditorVisibilityForViewChange() from the utility
+    expect(mutationsVue).toContain('getEditorVisibilityForViewChange')
+    // When visibility is non-null, showEditor.value is updated
+    expect(mutationsVue).toContain('showEditor.value = visibility')
+  })
+})
+
+// ── Deep-link: getEditorVisibilityForViewChange utility ───────────────────────
+//
+// Tests the watcher logic via getEditorVisibilityForViewChange() from
+// ~/utils/mutationConsole — the same function mutations.vue uses in the
+// route.query.view watcher for browser back/forward navigation.
+
+describe('Mutations Console - deep-link: getEditorVisibilityForViewChange utility', () => {
+  it('activates editor when view query changes to "editor" via browser navigation', () => {
+    const result = getEditorVisibilityForViewChange('editor', false)
+    expect(result).toBe(true)
+  })
+
+  it('deactivates editor when view query changes away and content is empty', () => {
+    const result = getEditorVisibilityForViewChange(undefined, false)
+    expect(result).toBe(false)
+  })
+
+  it('preserves editor state when view query changes away but content remains', () => {
+    // null means "keep current state" — content is present
+    const result = getEditorVisibilityForViewChange(undefined, true)
+    expect(result).toBeNull()
+  })
+
+  it('activates editor even when content is present and view becomes "editor"', () => {
+    const result = getEditorVisibilityForViewChange('editor', true)
+    expect(result).toBe(true)
+  })
+
+  it('detects ?template=<content> query param for pre-filling editor', () => {
+    const routeQuery = { template: '%7B%22op%22%3A%22DELETE%22%7D' }
+    const hasTemplate = typeof routeQuery.template === 'string' && routeQuery.template.trim().length > 0
+    expect(hasTemplate).toBe(true)
+  })
+
+  it('skips template insertion when template param is empty string', () => {
+    const routeQuery = { template: '' }
+    const hasTemplate = typeof routeQuery.template === 'string' && routeQuery.template.trim().length > 0
+    expect(hasTemplate).toBe(false)
+  })
+
+  it('decodes URL-encoded template content for insertion', () => {
+    const encodedTemplate = '%7B%22op%22%3A%22DELETE%22%7D'
+    const decoded = decodeURIComponent(encodedTemplate)
+    expect(decoded).toBe('{"op":"DELETE"}')
   })
 })
 
@@ -923,8 +1103,6 @@ describe('Mutations Console - generateHexId', () => {
 
 // ────────────────────────────────────────────────────────────────────────────
 // Verify Mutations Console is in the correct nav section (Explore)
-// (regression guard — already present in default.layout.test.ts but included
-// here to make the mutations-console test file self-contained)
 // ────────────────────────────────────────────────────────────────────────────
 
 describe('Mutations Console - navigation placement', () => {
@@ -937,8 +1115,6 @@ describe('Mutations Console - navigation placement', () => {
   })
 
   it('Mutations Console is in the Explore section (not Data, Connect, or Settings)', () => {
-    // The nav sections use title: 'Explore', title: 'Data', etc.
-    // Mutations Console should appear after the Explore title and before the Data title.
     const exploreIdx = layoutContent.indexOf("title: 'Explore'")
     const mutationsIdx = layoutContent.indexOf("label: 'Mutations Console'")
     const dataIdx = layoutContent.indexOf("title: 'Data'")

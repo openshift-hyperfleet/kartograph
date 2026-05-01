@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from iam.application.value_objects import CurrentUser
 from iam.dependencies.user import get_current_user
@@ -23,6 +23,7 @@ from management.presentation.knowledge_graphs.models import (
     KnowledgeGraphResponse,
     UpdateKnowledgeGraphRequest,
 )
+from shared_kernel.authorization.types import Permission
 
 router = APIRouter(tags=["knowledge-graphs"])
 
@@ -34,23 +35,42 @@ router = APIRouter(tags=["knowledge-graphs"])
 async def list_knowledge_graphs(
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+    permission: Annotated[
+        Literal["view", "edit"],
+        Query(
+            description=(
+                "Filter by the minimum permission the caller must have on each "
+                "knowledge graph. Use 'edit' to show only KGs the user can submit "
+                "mutations to (e.g. for the Mutations Console KG selector)."
+            )
+        ),
+    ] = "view",
 ) -> KnowledgeGraphListResponse:
-    """List all knowledge graphs visible to the current user in their tenant.
+    """List all knowledge graphs accessible to the current user in their tenant.
 
-    Returns knowledge graphs filtered by VIEW permission via SpiceDB.
+    Returns knowledge graphs filtered by SpiceDB permission checks.
+
+    - ``?permission=view`` (default): returns all KGs the user can read.
+    - ``?permission=edit``: returns only KGs the user can mutate — used by the
+      Mutations Console to populate the knowledge-graph selector.
 
     Args:
         current_user: Current authenticated user with tenant context
         service: Knowledge graph service for orchestration
+        permission: Minimum permission level to filter by (view or edit)
 
     Returns:
-        KnowledgeGraphListResponse with all viewable KGs
+        KnowledgeGraphListResponse with all accessible KGs
 
     Raises:
         HTTPException: 500 for unexpected errors
     """
+    perm = Permission.EDIT if permission == "edit" else Permission.VIEW
     try:
-        kgs = await service.list_all(user_id=current_user.user_id.value)
+        kgs = await service.list_all(
+            user_id=current_user.user_id.value,
+            permission=perm,
+        )
         kg_responses = [KnowledgeGraphResponse.from_domain(kg) for kg in kgs]
         return KnowledgeGraphListResponse(
             knowledge_graphs=kg_responses,

@@ -40,6 +40,7 @@ class DataSourceSyncRun:
     completed_at: datetime | None
     error: str | None
     created_at: datetime
+    logs: list[str] = field(default_factory=list)
 
     def is_terminal(self) -> bool:
         """Return True if the sync run is in a terminal state.

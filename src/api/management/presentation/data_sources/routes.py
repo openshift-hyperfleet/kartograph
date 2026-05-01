@@ -18,6 +18,7 @@ from management.ports.repositories import IDataSourceSyncRunRepository
 from management.presentation.data_sources.models import (
     CreateDataSourceRequest,
     DataSourceResponse,
+    SyncRunLogsResponse,
     SyncRunResponse,
 )
 from shared_kernel.datasource_types import DataSourceAdapterType
@@ -236,4 +237,74 @@ async def list_sync_runs(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to list sync runs",
+        )
+
+
+@router.get(
+    "/data-sources/{ds_id}/sync-runs/{run_id}/logs",
+    status_code=status.HTTP_200_OK,
+)
+async def get_sync_run_logs(
+    ds_id: str,
+    run_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+    sync_run_repo: Annotated[
+        IDataSourceSyncRunRepository, Depends(get_sync_run_repository)
+    ],
+) -> SyncRunLogsResponse:
+    """Get log lines for a specific sync run.
+
+    The current user must have VIEW permission on the data source (enforced
+    via service.get which returns None for unauthorized or missing resources).
+    Verifies that the sync run belongs to the requested data source.
+
+    Returns an empty list if no logs have been captured yet — this is correct
+    until the Ingestion and Extraction contexts start populating logs.
+
+    Args:
+        ds_id: Data Source ID the sync run belongs to
+        run_id: Sync Run ID to fetch logs for
+        current_user: Current authenticated user with tenant context
+        service: Data source service for authorization check
+        sync_run_repo: Sync run repository for fetching the run
+
+    Returns:
+        SyncRunLogsResponse with ordered log lines (may be empty)
+
+    Raises:
+        HTTPException: 404 if DS not found, user lacks VIEW permission,
+                       sync run not found, or run doesn't belong to this DS
+        HTTPException: 500 for unexpected errors
+    """
+    try:
+        # Verify user can VIEW the data source (returns None if not authorized)
+        ds = await service.get(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+        )
+
+        if ds is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Data source not found",
+            )
+
+        # Fetch the sync run and verify it belongs to this data source
+        sync_run = await sync_run_repo.get_by_id(run_id)
+
+        if sync_run is None or sync_run.data_source_id != ds_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Sync run not found",
+            )
+
+        return SyncRunLogsResponse(logs=sync_run.logs)
+
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch sync run logs",
         )

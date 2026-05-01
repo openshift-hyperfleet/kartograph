@@ -268,7 +268,7 @@ onMounted(fetchTenants)
       <div class="flex items-center gap-3">
         <Building2 class="size-6 text-muted-foreground" />
         <div>
-          <h1 class="text-2xl font-bold tracking-tight">Tenants</h1>
+          <h1 class="text-2xl font-semibold tracking-tight">Tenants</h1>
           <p class="text-sm text-muted-foreground">Manage tenant organizations and membership</p>
         </div>
       </div>

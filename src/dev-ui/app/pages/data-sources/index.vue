@@ -865,7 +865,7 @@ function closeLogs() {
           <Cable class="size-5 text-primary" />
         </div>
         <div>
-          <h1 class="text-2xl font-bold tracking-tight">Data Sources</h1>
+          <h1 class="text-2xl font-semibold tracking-tight">Data Sources</h1>
           <p class="text-sm text-muted-foreground">
             Connect external data sources to your knowledge graphs for automated extraction
           </p>

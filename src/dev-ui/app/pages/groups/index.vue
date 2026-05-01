@@ -319,7 +319,7 @@ watch(tenantVersion, () => {
       <div class="flex items-center gap-3">
         <Users class="size-6 text-muted-foreground" />
         <div>
-          <h1 class="text-2xl font-bold tracking-tight">Groups</h1>
+          <h1 class="text-2xl font-semibold tracking-tight">Groups</h1>
           <p class="text-sm text-muted-foreground">Create and manage user groups for permissions</p>
         </div>
       </div>

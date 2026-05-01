@@ -177,7 +177,7 @@ watch(tenantVersion, () => {
           <BookOpen class="size-5 text-primary" />
         </div>
         <div>
-          <h1 class="text-2xl font-bold tracking-tight">Knowledge Graphs</h1>
+          <h1 class="text-2xl font-semibold tracking-tight">Knowledge Graphs</h1>
           <p class="text-sm text-muted-foreground">
             Create and manage knowledge graphs that map your data sources into structured graphs
           </p>

@@ -318,7 +318,7 @@ watch(tenantVersion, () => {
         <div class="flex items-center gap-3">
           <LayoutDashboard class="size-6 text-muted-foreground" />
           <div>
-            <h1 class="text-2xl font-bold tracking-tight">
+            <h1 class="text-2xl font-semibold tracking-tight">
               Welcome to Kartograph
             </h1>
             <p class="text-sm text-muted-foreground">
@@ -356,7 +356,7 @@ watch(tenantVersion, () => {
                 <component :is="stat.icon" class="size-4 text-muted-foreground" />
               </div>
               <div class="min-w-0">
-                <div class="text-2xl font-bold tracking-tight">
+                <div class="text-2xl font-semibold tracking-tight">
                   <template v-if="statsLoading">
                     <Loader2 class="size-5 animate-spin text-muted-foreground" />
                   </template>

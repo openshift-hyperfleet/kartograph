@@ -388,7 +388,7 @@ onBeforeUnmount(() => {
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-3">
         <Terminal class="size-6 text-muted-foreground" />
-        <h1 class="text-2xl font-bold tracking-tight">Cypher Console</h1>
+        <h1 class="text-2xl font-semibold tracking-tight">Cypher Console</h1>
       </div>
       <div class="flex items-center gap-1 xl:hidden">
         <Tooltip>

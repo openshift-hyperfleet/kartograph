@@ -11,12 +11,20 @@ import {
   FileCode, Play, Trash2, Upload, Loader2,
   FileUp, XCircle, AlertTriangle, Building2,
   Plus, GitBranch, RefreshCw, BookOpen,
+  BookMarked,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Separator } from '@/components/ui/separator'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Tooltip, TooltipContent, TooltipTrigger,
 } from '@/components/ui/tooltip'
@@ -42,6 +50,15 @@ import { parseContent, toJsonl, generateHexId, getBreakdown, type ParseResult } 
 
 // Worker-based parsing for large files
 import { useMutationWorker, LARGE_FILE_THRESHOLD } from '@/composables/useMutationWorker'
+
+// Pure utilities for this page (testable without mounting)
+import {
+  isAcceptedMutationFile,
+  getMergedEditorContent,
+  isCtrlOrCmdEnterEvent,
+  getEditorVisibilityForViewChange,
+  canSubmitMutations,
+} from '@/utils/mutationConsole'
 
 // ── Quick Start Templates ───────────────────────────────────────────────────
 
@@ -83,6 +100,40 @@ const { ctrlHeld } = useModifierKeys()
 const submission = useMutationSubmission()
 const router = useRouter()
 const route = useRoute()
+
+// ── Knowledge Graph selection ───────────────────────────────────────────────
+
+interface KnowledgeGraphItem {
+  id: string
+  name: string
+}
+
+const knowledgeGraphs = ref<KnowledgeGraphItem[]>([])
+const selectedKnowledgeGraphId = ref('')
+const loadingKgs = ref(false)
+
+async function loadKnowledgeGraphs() {
+  if (!hasTenant.value) return
+  loadingKgs.value = true
+  try {
+    const { apiFetch } = useApiClient()
+    const result = await apiFetch<{ knowledge_graphs: KnowledgeGraphItem[] }>(
+      '/management/knowledge-graphs',
+    )
+    knowledgeGraphs.value = result.knowledge_graphs ?? []
+  } catch {
+    knowledgeGraphs.value = []
+  } finally {
+    loadingKgs.value = false
+  }
+}
+
+// Reload KG list whenever the tenant changes; reset selection on change
+watch(hasTenant, (has) => {
+  selectedKnowledgeGraphId.value = ''
+  if (has) loadKnowledgeGraphs()
+  else knowledgeGraphs.value = []
+}, { immediate: true })
 
 // ── Worker ─────────────────────────────────────────────────────────────────
 
@@ -127,13 +178,13 @@ function deactivateEditor() {
 
 // Handle browser back/forward button
 watch(() => route.query.view, (newView) => {
-  if (newView === 'editor') {
-    showEditor.value = true
-  } else {
-    // Only deactivate if there's no content to preserve
-    if (!editorContent.value.trim() && !largeFileMode.value) {
-      showEditor.value = false
-    }
+  const hasContent = !!editorContent.value.trim() || largeFileMode.value
+  const visibility = getEditorVisibilityForViewChange(
+    typeof newView === 'string' ? newView : undefined,
+    hasContent,
+  )
+  if (visibility !== null) {
+    showEditor.value = visibility
   }
 })
 
@@ -230,11 +281,7 @@ async function insertTemplate(content: string) {
     view.focus()
   } else {
     // CM still not ready — set content on the ref, CM will pick it up when it initializes
-    if (editorContent.value.trim()) {
-      editorContent.value += '\n' + content
-    } else {
-      editorContent.value = content
-    }
+    editorContent.value = getMergedEditorContent(editorContent.value, content)
   }
   submission.dismiss()
 }
@@ -251,7 +298,18 @@ function showAllTemplates() {
 const preparing = ref(false)
 
 async function handleSubmit() {
-  if (submitting.value || preparing.value || !editorContent.value.trim()) return
+  if (!canSubmitMutations({
+    selectedKnowledgeGraphId: selectedKnowledgeGraphId.value,
+    content: editorContent.value,
+    isLargeFile: isLargeFile.value,
+    submitting: submitting.value,
+    preparing: preparing.value,
+  })) {
+    if (!selectedKnowledgeGraphId.value) {
+      toast.error('Select a knowledge graph before applying mutations')
+    }
+    return
+  }
 
   // For large files, skip client-side re-parse and submit raw content directly
   if (isLargeFile.value) {
@@ -312,7 +370,7 @@ function handleDrop(event: DragEvent) {
 }
 
 function readFile(file: File) {
-  if (!file.name.endsWith('.jsonl') && !file.name.endsWith('.json') && !file.name.endsWith('.ndjson')) {
+  if (!isAcceptedMutationFile(file.name)) {
     toast.error('Invalid file type', { description: 'Please upload a .jsonl, .json, or .ndjson file.' })
     return
   }
@@ -346,11 +404,7 @@ function readFile(file: File) {
       }
     } else {
       // Small file: set content directly — CM will pick it up via reactivity
-      if (editorContent.value.trim()) {
-        editorContent.value += '\n' + text
-      } else {
-        editorContent.value = text
-      }
+      editorContent.value = getMergedEditorContent(editorContent.value, text)
       toast.success(`Loaded ${file.name}`)
     }
     submission.dismiss()
@@ -374,7 +428,7 @@ function handleDragLeave() {
 // ── Keyboard Shortcut (global fallback) ────────────────────────────────────
 
 function handleCtrlEnter(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+  if (isCtrlOrCmdEnterEvent(e)) {
     e.preventDefault()
     handleSubmit()
   }
@@ -702,13 +756,46 @@ onBeforeUnmount(() => {
             </CardContent>
           </Card>
 
+          <!-- Knowledge graph selector -->
+          <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <BookMarked class="size-4 shrink-0 text-muted-foreground" />
+              <span class="text-sm text-muted-foreground shrink-0">Target:</span>
+              <Select
+                v-model="selectedKnowledgeGraphId"
+                :disabled="loadingKgs || submitting"
+              >
+                <SelectTrigger class="h-9 flex-1 min-w-[200px] max-w-[320px]">
+                  <SelectValue
+                    :placeholder="loadingKgs ? 'Loading knowledge graphs…' : 'Select a knowledge graph'"
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="kg in knowledgeGraphs"
+                    :key="kg.id"
+                    :value="kg.id"
+                  >
+                    {{ kg.name }}
+                  </SelectItem>
+                  <div
+                    v-if="!loadingKgs && knowledgeGraphs.length === 0"
+                    class="px-2 py-4 text-center text-xs text-muted-foreground"
+                  >
+                    No knowledge graphs found
+                  </div>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
           <!-- Action bar -->
           <div class="flex items-center gap-3">
             <Tooltip>
               <TooltipTrigger as-child>
                 <Button
-                  :disabled="submitting || preparing || (!editorContent.trim() && !largeFileMode)"
-                  :class="ctrlHeld && !submitting && !preparing && (editorContent.trim() || largeFileMode) ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''"
+                  :disabled="!canSubmitMutations({ selectedKnowledgeGraphId, content: editorContent, isLargeFile: isLargeFile, submitting, preparing })"
+                  :class="ctrlHeld && canSubmitMutations({ selectedKnowledgeGraphId, content: editorContent, isLargeFile: isLargeFile, submitting, preparing }) ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''"
                   @click="handleSubmit"
                 >
                   <Loader2 v-if="submitting || preparing" class="mr-2 size-4 animate-spin" />

@@ -30,6 +30,7 @@ import {
   Settings2,
   BookOpen,
   GitBranch,
+  FileEdit,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -284,6 +285,7 @@ const navSections = computed<NavSection[]>(() => {
         { label: 'Query Console', icon: Terminal, to: '/query' },
         { label: 'Schema Browser', icon: Database, to: '/graph/schema' },
         { label: 'Graph Explorer', icon: Share2, to: '/graph/explorer' },
+        { label: 'Mutations Console', icon: FileEdit, to: '/graph/mutations' },
       ],
     },
     {

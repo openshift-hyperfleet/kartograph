@@ -93,6 +93,7 @@ function buildNavSections(activeSyncCount: number): NavSection[] {
         { label: 'Query Console', to: '/query' },
         { label: 'Schema Browser', to: '/graph/schema' },
         { label: 'Graph Explorer', to: '/graph/explorer' },
+        { label: 'Mutations Console', to: '/graph/mutations' },
       ],
     },
     {
@@ -329,6 +330,43 @@ describe('Default layout — navSections computed with badge', () => {
       .find((s) => s.title === 'Data')!
       .items.find((i) => i.label === 'Data Sources')!
     expect(dsItem.ariaLabel).toBeUndefined()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Spec: Navigation Structure — Primary navigation (task-059)
+// Mutations Console must appear in the Explore nav group
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Default layout — Explore nav group includes Mutations Console (task-059)', () => {
+  it('Mutations Console nav item is present in the Explore section', () => {
+    const sections = buildNavSections(0)
+    const exploreSection = sections.find((s) => s.title === 'Explore')!
+    const mutationsItem = exploreSection.items.find((i) => i.label === 'Mutations Console')
+    expect(mutationsItem).toBeDefined()
+  })
+
+  it('Mutations Console nav item links to /graph/mutations', () => {
+    const sections = buildNavSections(0)
+    const exploreSection = sections.find((s) => s.title === 'Explore')!
+    const mutationsItem = exploreSection.items.find((i) => i.label === 'Mutations Console')!
+    expect(mutationsItem.to).toBe('/graph/mutations')
+  })
+
+  it('Mutations Console is NOT present in any other nav section', () => {
+    const sections = buildNavSections(0)
+    const nonExploreSections = sections.filter((s) => s.title !== 'Explore')
+    for (const section of nonExploreSections) {
+      const found = section.items.find((i) => i.label === 'Mutations Console')
+      expect(found, `Mutations Console should not appear in "${section.title}" section`).toBeUndefined()
+    }
+  })
+
+  it('Explore items appear in order: Query Console, Schema Browser, Graph Explorer, Mutations Console', () => {
+    const sections = buildNavSections(0)
+    const exploreSection = sections.find((s) => s.title === 'Explore')!
+    const labels = exploreSection.items.map((i) => i.label)
+    expect(labels).toEqual(['Query Console', 'Schema Browser', 'Graph Explorer', 'Mutations Console'])
   })
 })
 

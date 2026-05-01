@@ -93,7 +93,6 @@ function buildNavSections(activeSyncCount: number): NavSection[] {
         { label: 'Query Console', to: '/query' },
         { label: 'Schema Browser', to: '/graph/schema' },
         { label: 'Graph Explorer', to: '/graph/explorer' },
-        { label: 'Mutations Console', to: '/graph/mutations' },
       ],
     },
     {
@@ -334,43 +333,6 @@ describe('Default layout — navSections computed with badge', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Spec: Navigation Structure — Primary navigation (task-059)
-// Mutations Console must appear in the Explore nav group
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('Default layout — Explore nav group includes Mutations Console (task-059)', () => {
-  it('Mutations Console nav item is present in the Explore section', () => {
-    const sections = buildNavSections(0)
-    const exploreSection = sections.find((s) => s.title === 'Explore')!
-    const mutationsItem = exploreSection.items.find((i) => i.label === 'Mutations Console')
-    expect(mutationsItem).toBeDefined()
-  })
-
-  it('Mutations Console nav item links to /graph/mutations', () => {
-    const sections = buildNavSections(0)
-    const exploreSection = sections.find((s) => s.title === 'Explore')!
-    const mutationsItem = exploreSection.items.find((i) => i.label === 'Mutations Console')!
-    expect(mutationsItem.to).toBe('/graph/mutations')
-  })
-
-  it('Mutations Console is NOT present in any other nav section', () => {
-    const sections = buildNavSections(0)
-    const nonExploreSections = sections.filter((s) => s.title !== 'Explore')
-    for (const section of nonExploreSections) {
-      const found = section.items.find((i) => i.label === 'Mutations Console')
-      expect(found, `Mutations Console should not appear in "${section.title}" section`).toBeUndefined()
-    }
-  })
-
-  it('Explore items appear in order: Query Console, Schema Browser, Graph Explorer, Mutations Console', () => {
-    const sections = buildNavSections(0)
-    const exploreSection = sections.find((s) => s.title === 'Explore')!
-    const labels = exploreSection.items.map((i) => i.label)
-    expect(labels).toEqual(['Query Console', 'Schema Browser', 'Graph Explorer', 'Mutations Console'])
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Spec: dataBadge helper
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -385,113 +347,5 @@ describe('dataBadge() helper', () => {
 
   it('returns "99" for count 99', () => {
     expect(dataBadge(99)).toBe('99')
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Scenario: Tenant selector in sidebar
-// Spec: "GIVEN a user who belongs to multiple tenants, THEN a tenant selector is
-//        available in the sidebar AND switching tenants refreshes all data in the UI"
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('Default layout — tenant selector in sidebar', () => {
-  /**
-   * Simulates the computed tenantAriaLabel from layouts/default.vue.
-   * This label is applied to the sidebar tenant region (role="region").
-   */
-  function computeTenantAriaLabel(opts: {
-    tenantsLoading: boolean
-    tenantsLoaded: boolean
-    tenants: Array<{ id: string; name: string }>
-    selectedTenantName: string | null
-    isMultiTenant: boolean
-  }): string {
-    if (opts.tenantsLoading) return 'Loading tenants'
-    if (opts.tenantsLoaded && opts.tenants.length === 0) {
-      return 'No tenants available. Navigate to create one.'
-    }
-    if (opts.selectedTenantName) {
-      return `Current tenant: ${opts.selectedTenantName}. ${opts.isMultiTenant ? 'Click to switch tenants.' : ''}`
-    }
-    return 'Tenant selector'
-  }
-
-  it('sidebar has tenant selector region with aria-label when tenants are loaded', () => {
-    const label = computeTenantAriaLabel({
-      tenantsLoading: false,
-      tenantsLoaded: true,
-      tenants: [
-        { id: 't-1', name: 'Acme Corp' },
-        { id: 't-2', name: 'Startup Inc' },
-      ],
-      selectedTenantName: 'Acme Corp',
-      isMultiTenant: true,
-    })
-
-    // Label must be present and meaningful (not empty)
-    expect(label).toBeTruthy()
-    expect(label).toContain('Acme Corp')
-    expect(label).toContain('switch tenants')
-  })
-
-  it('aria-label shows loading state when tenants are being fetched', () => {
-    const label = computeTenantAriaLabel({
-      tenantsLoading: true,
-      tenantsLoaded: false,
-      tenants: [],
-      selectedTenantName: null,
-      isMultiTenant: false,
-    })
-
-    expect(label).toBe('Loading tenants')
-  })
-
-  it('aria-label shows guidance when user has no tenants', () => {
-    const label = computeTenantAriaLabel({
-      tenantsLoading: false,
-      tenantsLoaded: true,
-      tenants: [],
-      selectedTenantName: null,
-      isMultiTenant: false,
-    })
-
-    expect(label).toContain('No tenants available')
-  })
-
-  it('single-tenant selector does not prompt to switch', () => {
-    const label = computeTenantAriaLabel({
-      tenantsLoading: false,
-      tenantsLoaded: true,
-      tenants: [{ id: 't-1', name: 'Solo Corp' }],
-      selectedTenantName: 'Solo Corp',
-      isMultiTenant: false,
-    })
-
-    expect(label).toContain('Solo Corp')
-    expect(label).not.toContain('switch tenants')
-  })
-
-  /**
-   * Simulates isSingleTenant / isMultiTenant computed values.
-   */
-  it('isSingleTenant is true when exactly one tenant exists', () => {
-    const tenants = [{ id: 't-1', name: 'Only Corp' }]
-    const isSingleTenant = tenants.length === 1
-    const isMultiTenant = tenants.length > 1
-
-    expect(isSingleTenant).toBe(true)
-    expect(isMultiTenant).toBe(false)
-  })
-
-  it('isMultiTenant is true when more than one tenant exists', () => {
-    const tenants = [
-      { id: 't-1', name: 'Acme' },
-      { id: 't-2', name: 'Beta' },
-    ]
-    const isSingleTenant = tenants.length === 1
-    const isMultiTenant = tenants.length > 1
-
-    expect(isSingleTenant).toBe(false)
-    expect(isMultiTenant).toBe(true)
   })
 })

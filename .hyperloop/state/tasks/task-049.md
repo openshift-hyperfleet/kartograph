@@ -4,7 +4,7 @@ title: Fix focus ring inconsistencies — ring-2 → ring-[3px] on custom intera
   elements
 spec_ref: specs/ui/experience.spec.md@86a2b5c71ec6c6af7ed222eae46139acec3974b3
 status: in_progress
-phase: verify
+phase: spec-review
 deps: []
 round: 0
 branch: hyperloop/task-049

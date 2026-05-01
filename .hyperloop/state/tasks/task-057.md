@@ -2,7 +2,7 @@
 id: task-057
 title: Audit interaction style — progressive disclosure and inline editing across
   all pages
-spec_ref: specs/ui/experience.spec.md@86a2b5c71ec6c6af7ed222eae46139acec3974b3
+spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
 status: complete
 phase: null
 deps:

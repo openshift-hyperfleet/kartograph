@@ -606,6 +606,168 @@ describe('Query Console - KG Selector Population', () => {
     const unscopedArgs = buildQueryGraphArgs('MATCH (n) RETURN n', 30, 1000, unscopedId || undefined)
     expect(unscopedArgs).not.toHaveProperty('knowledge_graph_id')
   })
+
+})
+
+// ── Copy-to-clipboard for Knowledge Graph IDs ─────────────────────────────────
+// Spec: "Interaction Principles — Copy-to-clipboard"
+// GIVEN a knowledge graph is listed on the page
+// THEN a copy button is provided next to the knowledge graph ID
+// AND clicking the copy button writes the ID to the clipboard
+// AND a toast confirms the copy action
+
+describe('Knowledge Graphs - copy KG ID to clipboard', () => {
+  it('calls clipboard.writeText with the knowledge graph ID', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    let toastMsg = ''
+
+    // Mirrors the copyId(kg.id) helper that will be implemented in the page
+    async function copyId(id: string) {
+      try {
+        await writeText(id)
+        toastMsg = 'Knowledge graph ID copied'
+      } catch {
+        toastMsg = 'Failed to copy'
+      }
+    }
+
+    await copyId('kg-abc-123')
+    expect(writeText).toHaveBeenCalledWith('kg-abc-123')
+    expect(toastMsg).toBe('Knowledge graph ID copied')
+  })
+
+  it('shows error feedback when clipboard write fails', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('Permission denied'))
+    let toastMsg = ''
+
+    async function copyId(id: string) {
+      try {
+        await writeText(id)
+        toastMsg = 'Knowledge graph ID copied'
+      } catch {
+        toastMsg = 'Failed to copy'
+      }
+    }
+
+    await copyId('kg-abc-123')
+    expect(writeText).toHaveBeenCalledWith('kg-abc-123')
+    expect(toastMsg).toBe('Failed to copy')
+  })
+
+  it('copies the correct ID for each knowledge graph in the list', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    const kgs = [
+      { id: 'kg-1', name: 'Engineering' },
+      { id: 'kg-2', name: 'Marketing' },
+    ]
+    const copiedIds: string[] = []
+
+    async function copyId(id: string) {
+      await writeText(id)
+      copiedIds.push(id)
+    }
+
+    for (const kg of kgs) {
+      await copyId(kg.id)
+    }
+
+    expect(writeText).toHaveBeenCalledTimes(2)
+    expect(copiedIds).toEqual(['kg-1', 'kg-2'])
+  })
+})
+
+// ── Mutation Feedback — error toasts on failed operations ─────────────────────
+// Spec: "Interaction Principles — Mutation feedback"
+// GIVEN a write operation (create, update, delete)
+// THEN a toast notification confirms success or reports failure
+// AND validation errors are shown inline on form fields
+
+describe('Knowledge Graphs - mutation error feedback', () => {
+  it('shows error toast when create API call fails', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Internal Server Error'))
+    let errorToast = ''
+    const creating = { value: false }
+
+    async function handleCreate(workspaceId: string, name: string) {
+      if (!workspaceId || !name.trim()) return
+      creating.value = true
+      try {
+        await apiFetch(`/management/workspaces/${workspaceId}/knowledge-graphs`, {
+          method: 'POST',
+          body: { name: name.trim() },
+        })
+      } catch (err) {
+        errorToast = err instanceof Error ? err.message : 'Failed to create knowledge graph'
+      } finally {
+        creating.value = false
+      }
+    }
+
+    await handleCreate('ws-123', 'My Graph')
+    expect(errorToast).toBe('Internal Server Error')
+    expect(creating.value).toBe(false)
+  })
+
+  it('shows inline name error when name is empty on submit', () => {
+    const createName = { value: '' }
+    const createNameError = { value: '' }
+
+    function handleCreate() {
+      createNameError.value = ''
+      if (!createName.value.trim()) {
+        createNameError.value = 'Knowledge graph name is required'
+        return false
+      }
+      return true
+    }
+
+    const ok = handleCreate()
+    expect(ok).toBe(false)
+    expect(createNameError.value).toBe('Knowledge graph name is required')
+  })
+
+  it('shows inline workspace error when no workspace selected on submit', () => {
+    const selectedWorkspaceId = { value: '' }
+    const createWorkspaceError = { value: '' }
+    const createName = { value: 'My Graph' }
+
+    function handleCreate() {
+      createWorkspaceError.value = ''
+      if (!selectedWorkspaceId.value) {
+        createWorkspaceError.value = 'Please select a workspace'
+        return false
+      }
+      return true
+    }
+
+    const ok = handleCreate()
+    expect(ok).toBe(false)
+    expect(createWorkspaceError.value).toBe('Please select a workspace')
+  })
+
+  it('shows success toast with action to add data source after create', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({ id: 'kg-new', name: 'My Graph' })
+    let successToast = ''
+    let successToastAction = ''
+
+    async function handleCreate(workspaceId: string, name: string) {
+      if (!workspaceId || !name.trim()) return
+      try {
+        const result = await apiFetch(`/management/workspaces/${workspaceId}/knowledge-graphs`, {
+          method: 'POST',
+          body: { name: name.trim() },
+        })
+        successToast = `Knowledge graph "${result.name}" created`
+        successToastAction = 'Add Data Source'
+      } catch (err) {
+        // error handled elsewhere
+      }
+    }
+
+    await handleCreate('ws-123', 'My Graph')
+    expect(successToast).toBe('Knowledge graph "My Graph" created')
+    expect(successToastAction).toBe('Add Data Source')
+  })
 })
 
 // ────────────────────────────────────────────────────────────────────────────

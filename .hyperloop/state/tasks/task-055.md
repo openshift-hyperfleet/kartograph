@@ -1,13 +1,47 @@
 ---
 id: task-055
 title: Audit and verify Responsive Design — desktop sidebar collapsible, mobile sheet overlay
-spec_ref: specs/ui/experience.spec.md
+spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
 status: not-started
 phase: null
 deps: []
 round: 0
 branch: null
 pr: null
+pr_title: "fix(ui): verify responsive layout — collapsible sidebar on desktop, sheet overlay on mobile"
+pr_description: |
+  ## What & Why
+
+  Audits the **Responsive Design** requirement from `specs/ui/experience.spec.md`.
+  task-014 implemented the initial layout; this task formally verifies both scenarios
+  and fixes any gaps, ensuring the UI is usable on desktop and tablet/mobile.
+
+  ## Spec Requirements Satisfied
+
+  - **Scenario: Desktop layout** — Sidebar visible and collapsible at ≥lg breakpoint;
+    content uses multi-column layouts where appropriate.
+  - **Scenario: Tablet/mobile layout** — Sidebar collapses to a sheet overlay at narrow
+    screens; layouts adapt to single-column.
+
+  ## Key Design Decisions
+
+  - Sidebar collapse uses `useMediaQuery('(min-width: 1024px)')` (VueUse) already in
+    `default.vue`; the audit verifies it functions at both breakpoints.
+  - Mobile sheet overlay uses shadcn/vue `<Sheet>` component for the sidebar drawer.
+  - Content grid classes (`grid-cols-1` on mobile, `lg:grid-cols-2` on desktop) are
+    verified across KG, data source, and IAM pages.
+
+  ## Files Affected
+
+  - `src/dev-ui/app/layouts/default.vue` — sidebar collapsible / sheet overlay
+  - Page components where column layouts need fixing
+  - `src/dev-ui/app/tests/responsive-layout.test.ts` — spec scenario tests
+
+  ## How to Verify
+
+  1. Open dev UI at desktop width → sidebar visible, content multi-column.
+  2. Resize to < 1024px → sidebar hidden, hamburger opens sheet overlay.
+  3. `cd src/dev-ui && pnpm test` passes.
 ---
 
 ## Spec Coverage

@@ -1,7 +1,7 @@
 ---
 id: task-058
 title: Audit tenant selector — verify all tenant-scoped pages refresh on tenant switch
-spec_ref: specs/ui/experience.spec.md
+spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
 status: not-started
 phase: null
 deps:
@@ -11,6 +11,45 @@ deps:
 round: 0
 branch: null
 pr: null
+pr_title: "fix(ui): verify tenant selector — all scoped pages reload data on tenant switch"
+pr_description: |
+  ## What & Why
+
+  Audits the **Tenant and Workspace Context — Tenant selector** scenario from
+  `specs/ui/experience.spec.md`. task-014 implemented the visible tenant selector;
+  this task verifies the second clause: switching tenants must refresh all data in the
+  UI. A stale data cache after a tenant switch would show the wrong tenant's resources.
+
+  ## Spec Requirements Satisfied
+
+  - **Scenario: Tenant selector** — Tenant selector is available in the sidebar; switching
+    tenants refreshes all data in the UI (KGs, data sources, workspaces, groups, API keys,
+    query results).
+
+  ## Key Design Decisions
+
+  Each page that holds tenant-scoped data must `watch(currentTenantId, reload, { immediate: true })`.
+  The `useTenant()` composable exposes `currentTenantId` as a reactive ref; pages that
+  use direct `onMounted` loads without watching it will miss tenant switches.
+
+  ## Files Affected
+
+  - `src/dev-ui/app/pages/**/*.vue` — pages with tenant-scoped data fetches
+  - `src/dev-ui/app/composables/useTenant.ts` — tenant context composable
+  - `src/dev-ui/app/tests/tenant-selector.test.ts` — spec scenario tests
+
+  ## How to Verify
+
+  1. Log in with a user belonging to 2 tenants.
+  2. Select Tenant A → see Tenant A's KGs.
+  3. Switch to Tenant B → all page data updates to Tenant B's resources.
+  4. `cd src/dev-ui && pnpm test` passes.
+
+  ## Caveats
+
+  Depends on task-040 (KG endpoint fix), task-041 (data source response format), and
+  task-050 (IAM alignment) so all pages are in their correct API-aligned state before
+  the cross-page tenant refresh audit runs.
 ---
 
 ## Spec Coverage

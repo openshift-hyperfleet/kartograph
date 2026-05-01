@@ -1,7 +1,7 @@
 ---
 id: task-060
 title: Mutations Console — core editor (empty state, JSONL editing, live preview, file upload, templates, deep-link)
-spec_ref: specs/ui/experience.spec.md
+spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
 status: not-started
 phase: null
 deps:
@@ -9,6 +9,61 @@ deps:
 round: 0
 branch: null
 pr: null
+pr_title: "feat(ui): implement Mutations Console — JSONL editor, live preview, file upload, templates, deep-link"
+pr_description: |
+  ## What & Why
+
+  Implements or audits six of the eight Mutations Console scenarios from
+  `specs/ui/experience.spec.md`. The Mutations Console is the power-user path for
+  authoring and applying graph mutations directly, without going through the ingestion
+  pipeline. The page at `/graph/mutations` may already exist; this task verifies every
+  scenario line-by-line before writing any new code (TDD audit approach).
+
+  ## Spec Requirements Satisfied
+
+  - **Empty state** — Two primary action buttons (Upload File, Open Editor) plus four
+    quick-start template chips (Create Node, Create Edge, Update Properties, Delete Entity).
+    Page-level drag-and-drop accepts `.jsonl`, `.json`, `.ndjson`.
+  - **JSONL editing** — CodeMirror 6 editor with JSON syntax highlighting, line numbers,
+    JSONL-aware linting (per-line parse errors in gutter), and mutation field autocomplete.
+    `Ctrl/Cmd+Enter` submits without leaving the editor.
+  - **Live preview** — Panel showing op-count breakdown by type (DEFINE/CREATE/UPDATE/DELETE)
+    and validation warnings, updating within 300 ms of typing. Parse errors surfaced
+    inline in the gutter.
+  - **File upload** — File picker and drag-and-drop both populate the editor. Files > 5 MB
+    activate large-file mode: editor disabled, op-count summary shown, submit still enabled.
+  - **Template insertion** — Content appended to existing editor content; editor activated
+    if closed.
+  - **Deep-link** — `?view=editor` opens editor on page load; `?template=<content>` inserts
+    the decoded content.
+
+  ## Key Design Decisions
+
+  The CodeMirror 6 wrapper (`useCodemirror` composable) is shared with the Query Console.
+  The JSONL linter validates each line independently as JSON — blank lines are allowed.
+  Large-file mode uses a Web Worker for background parsing to keep the UI responsive.
+
+  ## Files Affected
+
+  - `src/dev-ui/app/pages/graph/mutations.vue` — main page (audit + fix gaps)
+  - `src/dev-ui/app/components/graph/MutationPreview.vue` — live preview panel
+  - `src/dev-ui/app/components/graph/MutationTemplates.vue` — template chip list
+  - `src/dev-ui/app/lib/codemirror/mutation-jsonl/` — linter + autocomplete extensions
+  - `src/dev-ui/app/tests/mutations-console.test.ts` — all spec scenario tests (created)
+
+  ## How to Verify
+
+  1. Navigate to `/graph/mutations` → empty state with two buttons and four template chips.
+  2. Click "Open Editor" → CodeMirror editor with line numbers appears.
+  3. Type invalid JSON on a line → gutter error marker appears.
+  4. Upload a `.jsonl` file > 5 MB → large-file mode summary shown.
+  5. Navigate to `/graph/mutations?view=editor` → editor opens automatically.
+  6. `cd src/dev-ui && pnpm test` passes with all mutations-console scenario tests.
+
+  ## Caveats
+
+  Depends on task-059 (Mutations Console in sidebar nav) landing first. The submission
+  flow (floating progress indicator) is handled separately by task-061.
 ---
 
 ## Spec Coverage

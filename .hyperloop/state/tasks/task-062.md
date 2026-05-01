@@ -1,7 +1,7 @@
 ---
 id: task-062
 title: Audit workspace guidance — first-time tenant entry with no personal workspace
-spec_ref: specs/ui/experience.spec.md
+spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
 status: not-started
 phase: null
 deps:
@@ -10,6 +10,52 @@ deps:
 round: 0
 branch: null
 pr: null
+pr_title: "feat(ui): add workspace guidance prompt for first-time tenant entry with no workspaces"
+pr_description: |
+  ## What & Why
+
+  Implements the **Tenant and Workspace Context — Workspace guidance** scenario from
+  `specs/ui/experience.spec.md`. Without this prompt, a new user entering a tenant with
+  no workspaces lands on a blank page or the wrong empty state — they have no path
+  forward. This is logically prior to the KG creation prompt (task-046): a user with
+  no workspace cannot have KGs.
+
+  ## Spec Requirements Satisfied
+
+  - **Scenario: Workspace guidance** — When a user enters a tenant for the first time and
+    no personal workspace exists, the UI suggests creating one or joining an existing team
+    workspace. The KG creation prompt (task-046) must NOT appear when workspace guidance
+    is active; the two prompts are mutually exclusive and ordered correctly.
+
+  ## Key Design Decisions
+
+  - `WorkspaceGuidance.vue` is a dedicated component mounted from `pages/index.vue`
+    under `v-if="!hasWorkspace"`. The KG creation prompt is gated under
+    `v-else-if="knowledgeGraphs.length === 0"`.
+  - "Join a Team Workspace" lists workspaces in the tenant the user is not yet a member of.
+    If invitation-based, it shows a message to contact a workspace admin.
+  - The component uses shadcn/vue primitives (Button, Card) and OKLCH amber as the
+    primary action color, consistent with the Kartograph design language.
+
+  ## Files Affected
+
+  - `src/dev-ui/app/pages/index.vue` — home page v-if / v-else-if orchestration
+  - `src/dev-ui/app/components/workspaces/WorkspaceGuidance.vue` — guidance component
+  - `src/dev-ui/app/tests/workspace-guidance.test.ts` — 7 spec scenario tests (created)
+
+  ## How to Verify
+
+  1. Log in as a user with no workspaces in the current tenant.
+  2. Home page shows "Get started with your first workspace" guidance, not the KG prompt.
+  3. Click "Create Workspace" → dialog opens; create workspace → guidance disappears.
+  4. Log in as a user who already has a workspace → guidance prompt absent.
+  5. `cd src/dev-ui && pnpm test` passes (all 7 workspace-guidance tests).
+
+  ## Caveats
+
+  Depends on task-014 (workspace pages + `listWorkspaces()` composable) and task-046
+  (home page KG redirect / new-user prompt) completing first so the home page structure
+  is stable before this task adds its `v-if` guard layer.
 ---
 
 ## Spec Coverage

@@ -1,7 +1,7 @@
 ---
 id: task-051
 title: Audit MCP integration page — Get Started Querying scenarios and API alignment
-spec_ref: specs/ui/experience.spec.md
+spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
 status: not-started
 phase: null
 deps:
@@ -9,6 +9,46 @@ deps:
 round: 0
 branch: null
 pr: null
+pr_title: "fix(ui): verify MCP integration page — Get Started Querying all three scenarios"
+pr_description: |
+  ## What & Why
+
+  Audits the `/integrate/mcp` page against the **Get Started Querying (MCP Connection)**
+  requirement in `specs/ui/experience.spec.md`. This page is the primary on-ramp for
+  connecting AI agents to a Kartograph knowledge graph, so correctness is high-value.
+
+  ## Spec Requirements Satisfied
+
+  - **Scenario: API key creation inline** — When no active API keys exist the page
+    prompts the user to create one inline (no redirect to a separate API Keys page).
+  - **Scenario: Copy-paste connection command** — Active API key is used to render a
+    ready-to-paste MCP config snippet (endpoint URL + key); a copy button is provided.
+  - **Scenario: Secret shown once** — Newly created key secret is displayed exactly once
+    in the UI; navigating away makes it unrecoverable.
+
+  ## Key Design Decisions
+
+  Backend API alignment (task-050) is a prerequisite so that the API key list call and
+  the create call succeed before this audit begins. Secret-shown-once is enforced by
+  clearing the plaintext from local component state on unmount/navigation, never
+  persisting to `localStorage`.
+
+  ## Files Affected
+
+  - `src/dev-ui/app/pages/integrate/mcp.vue` — audit target
+  - `src/dev-ui/app/tests/mcp-integration.test.ts` — spec scenario tests (created here)
+
+  ## How to Verify
+
+  1. `make dev` — start the dev environment.
+  2. Navigate to `/integrate/mcp` with no API keys → inline creation prompt appears.
+  3. Create a key → secret is displayed; navigate away → secret not retrievable.
+  4. Return with active key → config snippet shown with copy button.
+  5. `cd src/dev-ui && pnpm test` passes with no regressions.
+
+  ## Caveats
+
+  Depends on task-050 (backend API alignment audit for IAM pages) completing first.
 ---
 
 ## Spec Coverage

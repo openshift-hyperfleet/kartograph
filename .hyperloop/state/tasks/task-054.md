@@ -1,7 +1,7 @@
 ---
 id: task-054
 title: Implement keyboard shortcuts — slash-to-focus-search and discoverable Ctrl/Cmd+Enter
-spec_ref: specs/ui/experience.spec.md
+spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
 status: not-started
 phase: null
 deps:
@@ -9,6 +9,45 @@ deps:
 round: 0
 branch: null
 pr: null
+pr_title: "feat(ui): add slash-to-search and Ctrl/Cmd+Enter shortcuts with discoverable tooltips"
+pr_description: |
+  ## What & Why
+
+  Implements the **Keyboard shortcuts** scenario from the **Interaction Principles**
+  requirement in `specs/ui/experience.spec.md`. Power users expect keyboard shortcuts
+  and discoverability via tooltips so they can learn them without reading docs.
+
+  ## Spec Requirements Satisfied
+
+  - **Scenario: Keyboard shortcuts** — `/` focuses the global search or page-level search
+    input; `Ctrl/Cmd+Enter` executes the current query in the Query Console. Both are
+    discoverable via tooltip or documentation text.
+
+  ## Key Design Decisions
+
+  - `/` shortcut: global `keydown` listener in `default.vue` that focuses the
+    `<SearchInput>` if the focused element is not already an input/textarea.
+  - `Ctrl/Cmd+Enter`: hoisted from the query console's CodeMirror keymap into a
+    tooltip on the Run button so the shortcut is visible without pressing it.
+  - Tooltips use shadcn/vue `<Tooltip>` component, consistent with the design system.
+
+  ## Files Affected
+
+  - `src/dev-ui/app/layouts/default.vue` — slash key global listener
+  - `src/dev-ui/app/pages/query/index.vue` — Ctrl/Cmd+Enter tooltip on Run button
+  - `src/dev-ui/app/tests/keyboard-shortcuts.test.ts` — spec scenario tests
+
+  ## How to Verify
+
+  1. Press `/` on any non-input page → search input focuses.
+  2. In the Query Console, hover the Run button → `Ctrl+Enter / Cmd+Enter` tooltip shown.
+  3. With a query in the editor, press `Ctrl+Enter` → query executes.
+  4. `cd src/dev-ui && pnpm test` passes.
+
+  ## Caveats
+
+  Depends on task-045 (KG scope selector in Query Console) landing first, as the
+  query console page structure must be stable before tooltip wiring.
 ---
 
 ## Spec Coverage

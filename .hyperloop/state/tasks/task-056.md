@@ -1,13 +1,44 @@
 ---
 id: task-056
 title: Audit and verify Dark Mode — header toggle and session-persistent preference
-spec_ref: specs/ui/experience.spec.md
+spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
 status: not-started
 phase: null
 deps: []
 round: 0
 branch: null
 pr: null
+pr_title: "fix(ui): verify dark mode toggle visibility and session-persistent color preference"
+pr_description: |
+  ## What & Why
+
+  Formally audits the **Dark Mode** requirement from `specs/ui/experience.spec.md`.
+  task-014 built the initial design system with `useColorMode`; this task verifies the
+  toggle is visible in the header and that the preference survives a page reload.
+
+  ## Spec Requirements Satisfied
+
+  - **Scenario: Toggle** — A dark/light mode toggle is present in the header on every
+    page; the user's preference persists across browser sessions.
+
+  ## Key Design Decisions
+
+  - Color mode is managed by Nuxt's `useColorMode()` composable (backed by
+    `localStorage`). The audit verifies the toggle button exists in `default.vue`
+    and that `colorMode.preference` is set, not just `colorMode.value`.
+  - Both light and dark OKLCH token sets are verified to render visible text and
+    sufficient contrast.
+
+  ## Files Affected
+
+  - `src/dev-ui/app/layouts/default.vue` — header dark mode toggle
+  - `src/dev-ui/app/tests/color-mode.test.ts` — spec scenario tests (extended or verified)
+
+  ## How to Verify
+
+  1. Open dev UI → Moon/Sun toggle visible in header.
+  2. Switch to dark mode, reload → dark mode still active.
+  3. `cd src/dev-ui && pnpm test` passes (including existing color-mode tests).
 ---
 
 ## Spec Coverage

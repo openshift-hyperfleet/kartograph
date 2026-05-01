@@ -1,7 +1,7 @@
 ---
 id: task-061
 title: Mutations Console — submission flow (floating progress indicator, failure handling)
-spec_ref: specs/ui/experience.spec.md
+spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
 status: not-started
 phase: null
 deps:
@@ -9,6 +9,58 @@ deps:
 round: 0
 branch: null
 pr: null
+pr_title: "feat(ui): add Mutations Console floating progress indicator persisted across navigation"
+pr_description: |
+  ## What & Why
+
+  Implements the Submission and Submission failure scenarios of the **Mutations Console**
+  requirement from `specs/ui/experience.spec.md`. The key architectural challenge is that
+  the floating indicator must persist when the user navigates away from `/graph/mutations`
+  — this requires app-level (global) state, not page-level state.
+
+  ## Spec Requirements Satisfied
+
+  - **Scenario: Submission** — Clicking Apply Mutations (or `Ctrl/Cmd+Enter`) submits
+    mutations to the API; a floating indicator appears bottom-right showing status
+    (submitting / success / failed), operation count, and elapsed time. The indicator
+    persists on navigation, can be minimized to a compact pill, and dismissed after
+    completion.
+  - **Scenario: Submission failure** — The floating indicator shows the error message;
+    if any operations were applied before failure, that count is displayed.
+
+  ## Key Design Decisions
+
+  - A Pinia store (`useMutationSubmission` composable backed by `provide`/`inject`)
+    holds submission state at the app root, ensuring cross-page persistence.
+  - `MutationProgress.vue` is mounted in `layouts/default.vue` so it renders on every
+    route.
+  - The minimized pill links back to `/graph/mutations` so the user can return from
+    wherever they navigated.
+  - Timer uses `setInterval` locally within the component to avoid polluting the store
+    with a live-updating timestamp.
+
+  ## Files Affected
+
+  - `src/dev-ui/app/composables/useMutationSubmission.ts` — global submission state
+  - `src/dev-ui/app/components/graph/MutationProgress.vue` — floating indicator
+  - `src/dev-ui/app/layouts/default.vue` — mounts the indicator globally
+  - `src/dev-ui/app/pages/graph/mutations.vue` — wires submit button to the composable
+  - `src/dev-ui/app/tests/mutations-submission.test.ts` — 10 spec scenario tests (created)
+
+  ## How to Verify
+
+  1. Enter mutations in the editor, click Apply Mutations → indicator appears bottom-right.
+  2. Navigate to `/query` while submission is in progress → indicator still visible.
+  3. On success → indicator shows green check + operation count.
+  4. On failure → indicator shows red error message and ops-applied-before-failure count.
+  5. Minimize → compact pill; expand → full card.
+  6. Dismiss → indicator hidden.
+  7. `cd src/dev-ui && pnpm test` passes.
+
+  ## Caveats
+
+  Depends on task-060 (core editor) landing first, as the `submitMutations()` function
+  and editor state must exist before the global indicator can be wired to them.
 ---
 
 ## Spec Coverage

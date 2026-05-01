@@ -1,13 +1,43 @@
 ---
 id: task-059
 title: Navigation update — add Mutations Console to Explore sidebar group
-spec_ref: specs/ui/experience.spec.md
+spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
 status: not-started
 phase: null
 deps: []
 round: 0
 branch: null
 pr: null
+pr_title: "feat(ui): add Mutations Console to Explore sidebar navigation group"
+pr_description: |
+  ## What & Why
+
+  The experience spec was updated to add "Mutations Console" to the Explore navigation
+  group. task-014 implemented the original sidebar against the older spec which listed
+  only Query Console, Schema Browser, and Graph Explorer. This task patches the sidebar
+  to match the current spec, unlocking navigation to `/graph/mutations`.
+
+  ## Spec Requirements Satisfied
+
+  - **Requirement: Navigation Structure — Scenario: Primary navigation** — Explore group
+    lists: Query Console, Schema Browser, Graph Explorer, **Mutations Console** in order.
+
+  ## Key Design Decisions
+
+  - Nav item label: "Mutations Console"; icon: `FileCode` or `TerminalSquare` (Lucide).
+  - Route: `/graph/mutations` (page already exists from prior work).
+  - Positioned after Graph Explorer and before the Data group separator.
+
+  ## Files Affected
+
+  - `src/dev-ui/app/layouts/default.vue` — Explore nav group definition
+  - `src/dev-ui/app/tests/default.layout.test.ts` — navigation structure tests
+
+  ## How to Verify
+
+  1. Open dev UI → sidebar Explore group shows four items in order.
+  2. Click "Mutations Console" → `/graph/mutations` loads.
+  3. `cd src/dev-ui && pnpm test` passes (presence, link, order assertions).
 ---
 
 ## Spec Coverage

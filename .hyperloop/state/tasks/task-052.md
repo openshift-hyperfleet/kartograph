@@ -1,13 +1,51 @@
 ---
 id: task-052
 title: Audit and implement Design Language — OKLCH tokens, typography, border radius, elevation
-spec_ref: specs/ui/experience.spec.md
+spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
 status: not-started
 phase: null
 deps: []
 round: 0
 branch: null
 pr: null
+pr_title: "fix(ui): enforce Kartograph design language — OKLCH tokens, typography, border radius, elevation"
+pr_description: |
+  ## What & Why
+
+  Audits every UI surface against the **Design Language** requirement in
+  `specs/ui/experience.spec.md` and fixes any deviations. Visual consistency
+  is foundational — it affects every page and every future component.
+
+  ## Spec Requirements Satisfied
+
+  - **Scenario: Component library** — shadcn/vue (Reka UI) primitives, Tailwind CSS,
+    CVA variants, Lucide Vue Next icons.
+  - **Scenario: Color theme** — OKLCH CSS custom properties; warm amber/orange primary
+    (`oklch(0.5768 0.2469 29.23)` light / `oklch(0.6857 0.1560 17.57)` dark); neutral
+    gray scale for backgrounds/cards/borders; coral/red destructive; 5-color chart palette.
+  - **Scenario: Typography** — System font stack; `text-sm` body; uppercase `text-[11px]`
+    tracking-wider section headers; weights limited to 400/500/600.
+  - **Scenario: Border radius** — Base `0.625rem`; `rounded-xl` cards, `rounded-md`
+    buttons/inputs, `rounded-full` badges.
+  - **Scenario: Elevation** — `shadow-sm` cards, `shadow-xs` buttons; predominantly flat.
+
+  ## Key Design Decisions
+
+  Deviations are fixed in `app.css` / `tailwind.config.ts` first, then tracked down
+  per-component. Components that diverge from shadcn/vue primitives are flagged for
+  refactor or wrapped in a thin conforming layer.
+
+  ## Files Affected
+
+  - `src/dev-ui/app/assets/css/app.css` — OKLCH token definitions
+  - `src/dev-ui/tailwind.config.ts` — border-radius and shadow scale
+  - All component files where deviations are found
+
+  ## How to Verify
+
+  1. Open Storybook or the dev UI and visually confirm warm amber primary color.
+  2. Inspect any card: `shadow-sm` + `rounded-xl`.
+  3. `cd src/dev-ui && pnpm test` passes.
 ---
 
 ## Spec Coverage

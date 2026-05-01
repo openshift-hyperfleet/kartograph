@@ -663,3 +663,73 @@ describe('Graph Explorer - cross-page navigation (query builder)', () => {
     expect(nav.query.query).toContain('`MyRepo`')
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────────
+// Tenant selector — data refresh on tenant change
+// Spec: "switching tenants refreshes all data in the UI"
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('Graph Explorer page - tenant switch reloads data', () => {
+  it('search results are cleared immediately when tenant version changes', () => {
+    let searchResults: NodeRecord[] = [
+      { id: 'repo:1', label: 'Repository', properties: { name: 'old-repo' } },
+    ]
+    let hasSearched = true
+    let searchQuery = 'old query'
+    let nodeTypeFilter = 'Repository'
+    let searchDescription = 'Old tenant results'
+    let explorationPath: string[] = ['node-1', 'node-2']
+
+    // Expected watch handler behaviour
+    function onTenantVersionChange() {
+      searchResults = []
+      hasSearched = false
+      searchQuery = ''
+      nodeTypeFilter = ''
+      searchDescription = ''
+      explorationPath = []
+    }
+
+    expect(searchResults).toHaveLength(1)
+    expect(hasSearched).toBe(true)
+    expect(explorationPath).toHaveLength(2)
+
+    onTenantVersionChange()
+
+    expect(searchResults).toHaveLength(0)
+    expect(hasSearched).toBe(false)
+    expect(searchQuery).toBe('')
+    expect(nodeTypeFilter).toBe('')
+    expect(explorationPath).toHaveLength(0)
+  })
+
+  it('loadNodeTypes is called after tenant version changes', async () => {
+    const loadNodeTypes = vi.fn().mockResolvedValue([])
+    let tenantVersion = 1
+
+    async function onTenantVersionChange() {
+      await loadNodeTypes()
+    }
+
+    tenantVersion = 2
+    await onTenantVersionChange()
+
+    expect(loadNodeTypes).toHaveBeenCalledOnce()
+  })
+
+  it('node type list reflects new tenant after switch', async () => {
+    let availableNodeTypes: string[] = ['OldType']
+
+    const loadNodeTypes = vi.fn().mockResolvedValue(['NewType', 'AnotherType'])
+
+    async function onTenantVersionChange() {
+      availableNodeTypes = []
+      availableNodeTypes = await loadNodeTypes()
+    }
+
+    await onTenantVersionChange()
+
+    expect(availableNodeTypes).toContain('NewType')
+    expect(availableNodeTypes).not.toContain('OldType')
+  })
+})

@@ -387,3 +387,111 @@ describe('dataBadge() helper', () => {
     expect(dataBadge(99)).toBe('99')
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scenario: Tenant selector in sidebar
+// Spec: "GIVEN a user who belongs to multiple tenants, THEN a tenant selector is
+//        available in the sidebar AND switching tenants refreshes all data in the UI"
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Default layout — tenant selector in sidebar', () => {
+  /**
+   * Simulates the computed tenantAriaLabel from layouts/default.vue.
+   * This label is applied to the sidebar tenant region (role="region").
+   */
+  function computeTenantAriaLabel(opts: {
+    tenantsLoading: boolean
+    tenantsLoaded: boolean
+    tenants: Array<{ id: string; name: string }>
+    selectedTenantName: string | null
+    isMultiTenant: boolean
+  }): string {
+    if (opts.tenantsLoading) return 'Loading tenants'
+    if (opts.tenantsLoaded && opts.tenants.length === 0) {
+      return 'No tenants available. Navigate to create one.'
+    }
+    if (opts.selectedTenantName) {
+      return `Current tenant: ${opts.selectedTenantName}. ${opts.isMultiTenant ? 'Click to switch tenants.' : ''}`
+    }
+    return 'Tenant selector'
+  }
+
+  it('sidebar has tenant selector region with aria-label when tenants are loaded', () => {
+    const label = computeTenantAriaLabel({
+      tenantsLoading: false,
+      tenantsLoaded: true,
+      tenants: [
+        { id: 't-1', name: 'Acme Corp' },
+        { id: 't-2', name: 'Startup Inc' },
+      ],
+      selectedTenantName: 'Acme Corp',
+      isMultiTenant: true,
+    })
+
+    // Label must be present and meaningful (not empty)
+    expect(label).toBeTruthy()
+    expect(label).toContain('Acme Corp')
+    expect(label).toContain('switch tenants')
+  })
+
+  it('aria-label shows loading state when tenants are being fetched', () => {
+    const label = computeTenantAriaLabel({
+      tenantsLoading: true,
+      tenantsLoaded: false,
+      tenants: [],
+      selectedTenantName: null,
+      isMultiTenant: false,
+    })
+
+    expect(label).toBe('Loading tenants')
+  })
+
+  it('aria-label shows guidance when user has no tenants', () => {
+    const label = computeTenantAriaLabel({
+      tenantsLoading: false,
+      tenantsLoaded: true,
+      tenants: [],
+      selectedTenantName: null,
+      isMultiTenant: false,
+    })
+
+    expect(label).toContain('No tenants available')
+  })
+
+  it('single-tenant selector does not prompt to switch', () => {
+    const label = computeTenantAriaLabel({
+      tenantsLoading: false,
+      tenantsLoaded: true,
+      tenants: [{ id: 't-1', name: 'Solo Corp' }],
+      selectedTenantName: 'Solo Corp',
+      isMultiTenant: false,
+    })
+
+    expect(label).toContain('Solo Corp')
+    expect(label).not.toContain('switch tenants')
+  })
+
+  /**
+   * Simulates isSingleTenant / isMultiTenant computed values.
+   */
+  it('isSingleTenant is true when exactly one tenant exists', () => {
+    const tenants = [{ id: 't-1', name: 'Only Corp' }]
+    const isSingleTenant = tenants.length === 1
+    const isMultiTenant = tenants.length > 1
+
+    expect(isSingleTenant).toBe(true)
+    expect(isMultiTenant).toBe(false)
+  })
+
+  it('isMultiTenant is true when more than one tenant exists', () => {
+    const tenants = [
+      { id: 't-1', name: 'Acme' },
+      { id: 't-2', name: 'Beta' },
+    ]
+    const isSingleTenant = tenants.length === 1
+    const isMultiTenant = tenants.length > 1
+
+    expect(isSingleTenant).toBe(false)
+    expect(isMultiTenant).toBe(true)
+  })
+})

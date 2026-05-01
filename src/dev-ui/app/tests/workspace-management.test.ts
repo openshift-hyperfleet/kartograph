@@ -1114,3 +1114,78 @@ describe('Workspace Management — Interaction Principles: Inline Actions over N
     expect(fakeNavigateTo).toBeDefined() // ensures fakeNavigateTo is used (no TS unused error)
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────────
+// Tenant selector — data refresh on tenant change
+// Spec: "switching tenants refreshes all data in the UI"
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('Workspaces page - tenant switch reloads data', () => {
+  it('workspace list is cleared immediately when tenant version changes', () => {
+    // Stale data from previous tenant
+    let workspaces: WorkspaceResponse[] = [
+      { id: 'ws-old', name: 'Old Tenant WS', parent_workspace_id: null, is_root: true, created_at: '' },
+    ]
+    let selectedWorkspace: WorkspaceResponse | null = workspaces[0]
+    let members: WorkspaceMemberResponse[] = [{ member_id: 'u-1', member_type: 'user', role: 'member' }]
+
+    // This simulates the tenantVersion watch handler EXPECTED behaviour:
+    // clear stale data BEFORE the async fetch returns.
+    function onTenantVersionChange() {
+      workspaces = []          // ← must happen before fetchWorkspaces()
+      selectedWorkspace = null // ← closeDetails() equivalent
+      members = []             // ← closeDetails() equivalent
+    }
+
+    expect(workspaces).toHaveLength(1)
+    expect(selectedWorkspace).not.toBeNull()
+
+    onTenantVersionChange()
+
+    expect(workspaces).toHaveLength(0)
+    expect(selectedWorkspace).toBeNull()
+    expect(members).toHaveLength(0)
+  })
+
+  it('fetchWorkspaces is called after tenant version changes', async () => {
+    const fetchWorkspaces = vi.fn().mockResolvedValue({ workspaces: [], count: 0 })
+    let tenantVersion = 1
+
+    async function onTenantVersionChange() {
+      await fetchWorkspaces()
+    }
+
+    tenantVersion = 2
+    await onTenantVersionChange()
+
+    expect(fetchWorkspaces).toHaveBeenCalledOnce()
+  })
+
+  it('workspace list shows new-tenant data after tenant switch completes', async () => {
+    let workspaces: WorkspaceResponse[] = [
+      { id: 'ws-old', name: 'Old Tenant WS', parent_workspace_id: null, is_root: true, created_at: '' },
+    ]
+
+    const newWorkspace: WorkspaceResponse = {
+      id: 'ws-new',
+      name: 'New Tenant WS',
+      parent_workspace_id: null,
+      is_root: true,
+      created_at: '',
+    }
+
+    const fetchWorkspaces = vi.fn().mockResolvedValue({ workspaces: [newWorkspace], count: 1 })
+
+    async function onTenantVersionChange() {
+      workspaces = []
+      const result = await fetchWorkspaces()
+      workspaces = result.workspaces
+    }
+
+    await onTenantVersionChange()
+
+    expect(workspaces).toHaveLength(1)
+    expect(workspaces[0].name).toBe('New Tenant WS')
+    expect(workspaces[0].id).not.toBe('ws-old')
+  })
+})

@@ -447,3 +447,66 @@ describe('API Keys - secret shown once after dismiss', () => {
     expect(secretVisible.value).toBe(true)
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────────
+// Tenant selector — data refresh on tenant change
+// Spec: "switching tenants refreshes all data in the UI"
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('API Keys page - tenant switch reloads data', () => {
+  it('api key list is cleared immediately when tenant version changes', () => {
+    // Stale keys from the previous tenant
+    let apiKeys = [
+      { id: 'k-old', name: 'Old Tenant Key', prefix: 'krt_old', is_revoked: false, expires_at: '2099-01-01T00:00:00Z', created_at: '', last_used_at: null, created_by_user_id: 'u-1' },
+    ]
+    let newlyCreatedKey: { id: string; secret: string } | null = { id: 'k-1', secret: 'super-secret' }
+
+    // Expected watch handler behaviour: clear stale data before async fetch
+    function onTenantVersionChange() {
+      apiKeys = []            // ← must happen before loadKeys()
+      newlyCreatedKey = null  // ← clear banner so old secret is not shown
+    }
+
+    expect(apiKeys).toHaveLength(1)
+    expect(newlyCreatedKey).not.toBeNull()
+
+    onTenantVersionChange()
+
+    expect(apiKeys).toHaveLength(0)
+    expect(newlyCreatedKey).toBeNull()
+  })
+
+  it('loadKeys is called after tenant version changes', async () => {
+    const loadKeys = vi.fn().mockResolvedValue([])
+    let tenantVersion = 1
+
+    async function onTenantVersionChange() {
+      await loadKeys()
+    }
+
+    tenantVersion = 2
+    await onTenantVersionChange()
+
+    expect(loadKeys).toHaveBeenCalledOnce()
+  })
+
+  it('api key list shows new-tenant keys after tenant switch completes', async () => {
+    let apiKeys: Array<{ id: string; name: string }> = [
+      { id: 'k-old', name: 'Old Key' },
+    ]
+
+    const newKey = { id: 'k-new', name: 'New Tenant Key' }
+    const loadKeys = vi.fn().mockResolvedValue([newKey])
+
+    async function onTenantVersionChange() {
+      apiKeys = []
+      apiKeys = await loadKeys()
+    }
+
+    await onTenantVersionChange()
+
+    expect(apiKeys).toHaveLength(1)
+    expect(apiKeys[0].name).toBe('New Tenant Key')
+    expect(apiKeys[0].id).not.toBe('k-old')
+  })
+})

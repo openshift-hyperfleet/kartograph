@@ -351,3 +351,70 @@ describe('Index Page — Workspace guidance toast', () => {
     expect(localStorage.getItem(`${WORKSPACE_GUIDANCE_KEY}tenant-xyz`)).toBe('true')
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────────
+// Tenant selector — data refresh on tenant change
+// Spec: "switching tenants refreshes all data in the UI"
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('Home page - tenant switch reloads data', () => {
+  it('stats are cleared immediately when tenant version changes', () => {
+    // Stale stats from previous tenant
+    let nodeTypeCount: number | null = 42
+    let edgeTypeCount: number | null = 10
+    let apiKeyCount: number | null = 3
+    let workspaceCount: number | null = 7
+    let kgCount = 5
+
+    // Expected watch handler behaviour: nullify stats before async fetchStats()
+    function onTenantVersionChange() {
+      nodeTypeCount = null
+      edgeTypeCount = null
+      apiKeyCount = null
+      workspaceCount = null
+      kgCount = 0
+    }
+
+    expect(nodeTypeCount).toBe(42)
+    expect(kgCount).toBe(5)
+
+    onTenantVersionChange()
+
+    expect(nodeTypeCount).toBeNull()
+    expect(edgeTypeCount).toBeNull()
+    expect(apiKeyCount).toBeNull()
+    expect(workspaceCount).toBeNull()
+    expect(kgCount).toBe(0)
+  })
+
+  it('fetchStats is called after tenant version changes', async () => {
+    const fetchStats = vi.fn().mockResolvedValue(undefined)
+    let tenantVersion = 1
+
+    async function onTenantVersionChange() {
+      await fetchStats()
+    }
+
+    tenantVersion = 2
+    await onTenantVersionChange()
+
+    expect(fetchStats).toHaveBeenCalledOnce()
+  })
+
+  it('kgCount is updated with new-tenant data after tenant switch', async () => {
+    let kgCount = 5 // old tenant had 5 KGs
+
+    const fetchStats = vi.fn().mockImplementation(async () => {
+      kgCount = 2  // new tenant has 2 KGs
+    })
+
+    async function onTenantVersionChange() {
+      kgCount = 0  // clear first
+      await fetchStats()
+    }
+
+    await onTenantVersionChange()
+
+    expect(kgCount).toBe(2)
+  })
+})

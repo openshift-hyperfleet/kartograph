@@ -53,7 +53,7 @@ import {
 
 interface SyncRun {
   id: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  status: 'pending' | 'ingesting' | 'ai_extracting' | 'applying' | 'completed' | 'failed'
   started_at: string
   completed_at: string | null
   error: string | null
@@ -103,6 +103,29 @@ interface ProposedEdgeType {
   editDescription: string
   editRequired: string
   editOptional: string
+}
+
+// ── Sync phase helpers ─────────────────────────────────────────────────────
+
+/**
+ * Map a backend sync-run status to a user-readable label.
+ * The backend emits: pending, ingesting, ai_extracting, applying, completed, failed.
+ * The value "running" is never emitted by the backend.
+ */
+function syncPhaseLabel(status: SyncRun['status']): string {
+  const labels: Record<SyncRun['status'], string> = {
+    pending:       'Pending',
+    ingesting:     'Ingesting',
+    ai_extracting: 'Extracting',
+    applying:      'Applying',
+    completed:     'Completed',
+    failed:        'Failed',
+  }
+  return labels[status] ?? status
+}
+
+function isActiveSyncPhase(status: SyncRun['status']): boolean {
+  return status === 'pending' || status === 'ingesting' || status === 'ai_extracting' || status === 'applying'
 }
 
 // ── Composables ────────────────────────────────────────────────────────────
@@ -723,7 +746,7 @@ function closeLogs() {
               <Badge
                 :variant="ds.sync_runs?.[0]?.status === 'completed' ? 'default' : ds.sync_runs?.[0]?.status === 'failed' ? 'destructive' : 'secondary'"
               >
-                {{ ds.sync_runs?.[0]?.status ?? 'idle' }}
+                {{ ds.sync_runs?.[0] ? syncPhaseLabel(ds.sync_runs[0].status) : 'Idle' }}
               </Badge>
               <!-- Edit Ontology button (FAIL 2) -->
               <Tooltip>
@@ -751,7 +774,7 @@ function closeLogs() {
             <div class="space-y-1">
               <div v-for="run in ds.sync_runs" :key="run.id" class="flex items-center gap-2 text-xs text-muted-foreground">
                 <Badge :variant="run.status === 'completed' ? 'default' : run.status === 'failed' ? 'destructive' : 'secondary'" class="text-[10px]">
-                  {{ run.status }}
+                  {{ syncPhaseLabel(run.status) }}
                 </Badge>
                 <span>{{ new Date(run.started_at).toLocaleString() }}</span>
                 <span v-if="run.completed_at">

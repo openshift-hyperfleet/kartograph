@@ -2,12 +2,12 @@
 id: task-063
 title: Ontology wizard and editor — add new node and edge types from scratch
 spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps:
 - task-043
 round: 0
-branch: null
+branch: hyperloop/task-063
 pr: null
 pr_title: 'feat(ui): add new-type buttons to ontology wizard step 4 and post-extraction
   editor'

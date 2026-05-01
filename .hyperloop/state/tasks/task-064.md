@@ -2,13 +2,13 @@
 id: task-064
 title: Data sources — animated progress indicator for active sync phases
 spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps:
 - task-041
 - task-042
 round: 0
-branch: null
+branch: hyperloop/task-064
 pr: null
 pr_title: 'feat(ui): add animated phase progress indicator for active data source
   sync runs'

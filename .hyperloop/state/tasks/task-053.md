@@ -1,7 +1,7 @@
 ---
 id: task-053
 title: Cross-page copy-to-clipboard and mutation feedback consistency audit
-spec_ref: specs/ui/experience.spec.md
+spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
 status: not-started
 phase: null
 deps:
@@ -11,6 +11,46 @@ deps:
 round: 0
 branch: null
 pr: null
+pr_title: "fix(ui): standardize copy-to-clipboard buttons and toast feedback across all pages"
+pr_description: |
+  ## What & Why
+
+  Audits all pages for the two **Interaction Principles** scenarios covering
+  copy-to-clipboard and mutation feedback. These patterns appear on nearly every page
+  (API keys, MCP config snippets, KG IDs, workspace IDs) and must be consistent
+  to meet the spec and user expectations.
+
+  ## Spec Requirements Satisfied
+
+  - **Scenario: Copy-to-clipboard** — Every identifier, config snippet, or secret has a
+    copy button; a toast confirms the action.
+  - **Scenario: Mutation feedback** — Every write operation (create, update, delete) shows
+    a toast notification on success or failure; validation errors appear inline on form
+    fields.
+
+  ## Key Design Decisions
+
+  A shared `useCopyToClipboard()` composable provides consistent copy + toast behavior.
+  A shared `useFormToast()` pattern wraps API calls and surfaces errors. Both are
+  audited across IAM pages, KG pages, data-source pages, and the MCP integration page.
+
+  ## Files Affected
+
+  - `src/dev-ui/app/composables/useCopyToClipboard.ts` — shared copy helper
+  - All page components where copy buttons or mutation feedback is missing
+  - `src/dev-ui/app/tests/copy-feedback.test.ts` — cross-page spec scenario tests
+
+  ## How to Verify
+
+  1. On any page with a copyable value, click the copy button → toast appears.
+  2. Submit a create/update/delete form → success toast appears.
+  3. Submit with invalid data → inline error appears on the offending field.
+  4. `cd src/dev-ui && pnpm test` passes.
+
+  ## Caveats
+
+  Depends on task-015 (KG/data source UI), task-050 (IAM alignment), and task-051
+  (MCP page) landing first so all pages exist before this cross-page audit runs.
 ---
 
 ## Spec Coverage

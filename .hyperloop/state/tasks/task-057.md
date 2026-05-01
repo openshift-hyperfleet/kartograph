@@ -1,7 +1,7 @@
 ---
 id: task-057
 title: Audit interaction principles — progressive disclosure and inline actions
-spec_ref: specs/ui/experience.spec.md
+spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
 status: not-started
 phase: null
 deps:
@@ -10,6 +10,45 @@ deps:
 round: 0
 branch: null
 pr: null
+pr_title: "fix(ui): enforce progressive disclosure and inline-action patterns across all pages"
+pr_description: |
+  ## What & Why
+
+  Audits two **Interaction Principles** scenarios from `specs/ui/experience.spec.md`
+  not covered by other tasks: progressive disclosure (summary → detail on demand) and
+  inline actions (edit in-place, not on a separate page). These patterns directly
+  affect perceived UI quality and the "minimal friction" goal stated in the spec purpose.
+
+  ## Spec Requirements Satisfied
+
+  - **Scenario: Progressive disclosure** — Complex information pages show a summary by
+    default; detail is revealed on demand via expand, drill-in, or sheet.
+  - **Scenario: Inline actions over navigation** — Editable resources (workspace name,
+    group name) are edited in-place or in a side panel, not on a separate edit page.
+
+  ## Key Design Decisions
+
+  - Detail reveal uses `<Collapsible>` or `<Sheet>` components from shadcn/vue.
+  - Inline editing uses the pattern: click label → becomes `<Input>` → blur/Enter saves.
+    Alternatively, a side-panel `<Sheet>` opens with a minimal edit form.
+  - No separate `/edit` routes are introduced for resources covered by this requirement.
+
+  ## Files Affected
+
+  - Workspace, group, and user list pages in `src/dev-ui/app/pages/`
+  - Data source and KG detail panels
+  - `src/dev-ui/app/tests/interaction-principles.test.ts` — spec scenario tests
+
+  ## How to Verify
+
+  1. On the Workspaces page, click a workspace name → edit in-place or sheet opens.
+  2. On the sync history panel, complex log entries show a summary; detail revealed on expand.
+  3. `cd src/dev-ui && pnpm test` passes.
+
+  ## Caveats
+
+  Depends on task-050 (API alignment) and task-053 (copy/feedback) completing first so
+  the pages this task audits are in their correct final state.
 ---
 
 ## Spec Coverage

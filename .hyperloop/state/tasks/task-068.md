@@ -2,11 +2,11 @@
 id: task-068
 title: Backend API Alignment — test data source creation uses KG-scoped endpoint
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-068
 pr: null
 pr_title: 'test(ui): verify data source creation uses KG-scoped POST endpoint'
 pr_description: "## What & Why\n\nThe `experience.spec.md` spec was updated to add\

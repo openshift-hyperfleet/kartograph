@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { readFileSync } from 'fs'
+import { resolve } from 'path'
 
 // ── Dark Mode Logic ────────────────────────────────────────────────────────────
 //
@@ -182,5 +184,89 @@ describe('Color Mode - CSS class application', () => {
 
     applyMode(fakeEl)
     expect(classes.has('dark')).toBe(false)
+  })
+})
+
+// ── Dark Mode — toggle present in header ───────────────────────────────────────
+//
+// Spec: "Dark Mode > Toggle"
+// Verifies that:
+//   1. The toggle button exists and calls toggleColorMode in default.vue
+//   2. Moon and Sun icons from lucide-vue-next are used
+//   3. The toggle appears inside the <header> region (not in sidebar or settings)
+//   4. The useColorMode composable is imported in the layout
+//   5. The composable correctly uses classList.add('dark') on documentElement
+//   6. The composable writes to localStorage on toggle
+
+describe('Dark Mode - toggle in header', () => {
+  it('default.vue renders a dark mode toggle button in the header', () => {
+    const layoutContent = readFileSync(
+      resolve(__dirname, '../layouts/default.vue'),
+      'utf-8',
+    )
+    // The toggle button must call toggleColorMode
+    expect(layoutContent).toContain('toggleColorMode')
+    // It must use Moon and Sun icons from lucide-vue-next
+    expect(layoutContent).toContain('Moon')
+    expect(layoutContent).toContain('Sun')
+    // The toggle must be inside the header (not a settings page)
+    const toggleIndex = layoutContent.indexOf('toggleColorMode')
+    expect(toggleIndex).toBeGreaterThan(-1)
+  })
+
+  it('dark mode toggle is located inside the <header> element, not the sidebar', () => {
+    const layoutContent = readFileSync(
+      resolve(__dirname, '../layouts/default.vue'),
+      'utf-8',
+    )
+    // Extract the header element's content
+    const headerStart = layoutContent.indexOf('<header ')
+    const headerEnd = layoutContent.indexOf('</header>')
+    expect(headerStart).toBeGreaterThan(-1)
+    expect(headerEnd).toBeGreaterThan(headerStart)
+
+    const headerContent = layoutContent.slice(headerStart, headerEnd + '</header>'.length)
+
+    // The @click handler calling toggleColorMode must be inside the header (not sidebar or settings)
+    expect(headerContent).toContain('@click="toggleColorMode"')
+    // Moon and Sun icons must also be present in the header
+    expect(headerContent).toContain('Moon')
+    expect(headerContent).toContain('Sun')
+  })
+
+  it('default.vue imports useColorMode composable', () => {
+    const layoutContent = readFileSync(
+      resolve(__dirname, '../layouts/default.vue'),
+      'utf-8',
+    )
+    expect(layoutContent).toContain('useColorMode')
+  })
+
+  it('useColorMode applies "dark" class to documentElement', () => {
+    const composableContent = readFileSync(
+      resolve(__dirname, '../composables/useColorMode.ts'),
+      'utf-8',
+    )
+    expect(composableContent).toContain('classList.add')
+    expect(composableContent).toContain("'dark'")
+  })
+
+  it('useColorMode writes to localStorage on toggle', () => {
+    const composableContent = readFileSync(
+      resolve(__dirname, '../composables/useColorMode.ts'),
+      'utf-8',
+    )
+    expect(composableContent).toContain('localStorage.setItem')
+    expect(composableContent).toContain('kartograph-color-mode')
+  })
+
+  it('dark mode toggle has an accessible label via tooltip', () => {
+    const layoutContent = readFileSync(
+      resolve(__dirname, '../layouts/default.vue'),
+      'utf-8',
+    )
+    // Tooltip with Switch to light/dark mode label must be present
+    expect(layoutContent).toContain('Switch to light mode')
+    expect(layoutContent).toContain('Switch to dark mode')
   })
 })

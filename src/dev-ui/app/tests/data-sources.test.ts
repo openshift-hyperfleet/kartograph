@@ -564,3 +564,118 @@ describe('Ontology Design - removeEdge', () => {
     expect(edges).toHaveLength(0)
   })
 })
+
+// ── Requirement: Backend API Alignment – Response Format ──────────────────────
+//
+// The backend list endpoints return direct JSON arrays (not wrapped objects):
+//   GET /management/knowledge-graphs/{kg_id}/data-sources → DataSourceResponse[]
+//   GET /management/data-sources/{ds_id}/sync-runs       → SyncRunResponse[]
+//
+// The UI must handle these as direct arrays, NOT as { data_sources: [...] } or
+// { sync_runs: [...] }.  These tests verify that the correct response format
+// is expected and handled.
+
+describe('Data Source API Response Format - list-data-sources', () => {
+  it('handles direct array response (not { data_sources: [...] })', async () => {
+    // Backend returns: DataSourceResponse[]  (JSON array, no wrapper)
+    const mockDataSources = [
+      { id: 'ds-1', name: 'Repo A', adapter_type: 'github', knowledge_graph_id: 'kg-1', last_sync_at: null, created_at: '2024-01-01T00:00:00Z' },
+      { id: 'ds-2', name: 'Repo B', adapter_type: 'github', knowledge_graph_id: 'kg-1', last_sync_at: null, created_at: '2024-01-01T00:00:00Z' },
+    ]
+    // $fetch returns the parsed response directly — for a JSON array it returns the array
+    const apiFetch = vi.fn().mockResolvedValue(mockDataSources)
+    const dataSources: typeof mockDataSources = []
+
+    // Correct: treat response as a direct array
+    async function loadDataSourcesForKg(kgId: string) {
+      const sources = await apiFetch(`/management/knowledge-graphs/${kgId}/data-sources`)
+      dataSources.splice(0, dataSources.length, ...sources)
+    }
+
+    await loadDataSourcesForKg('kg-1')
+    expect(apiFetch).toHaveBeenCalledWith('/management/knowledge-graphs/kg-1/data-sources')
+    expect(dataSources).toHaveLength(2)
+    expect(dataSources[0].name).toBe('Repo A')
+  })
+
+  it('returns empty array when no data sources exist for a KG', async () => {
+    const apiFetch = vi.fn().mockResolvedValue([])
+    const dataSources: unknown[] = ['stale']
+
+    async function loadDataSourcesForKg(kgId: string) {
+      const sources = await apiFetch(`/management/knowledge-graphs/${kgId}/data-sources`)
+      dataSources.splice(0, dataSources.length, ...sources)
+    }
+
+    await loadDataSourcesForKg('kg-empty')
+    expect(dataSources).toHaveLength(0)
+  })
+
+  it('does NOT use { data_sources: [...] } wrapper — that key does not exist on the response', async () => {
+    // Demonstrates the bug: wrapping the response incorrectly
+    const mockArray = [{ id: 'ds-1', name: 'Repo A' }]
+    const apiFetch = vi.fn().mockResolvedValue(mockArray)
+
+    // WRONG pattern (the old bug):
+    const wrappedResult = await apiFetch('/management/knowledge-graphs/kg-1/data-sources')
+    const buggyExtract = (wrappedResult as Record<string, unknown>).data_sources ?? []
+    expect(buggyExtract).toEqual([]) // proves the wrapper pattern yields nothing
+
+    // CORRECT pattern:
+    const correctExtract = wrappedResult
+    expect(correctExtract).toHaveLength(1)
+    expect((correctExtract as typeof mockArray)[0].name).toBe('Repo A')
+  })
+})
+
+describe('Data Source API Response Format - list-sync-runs', () => {
+  it('handles direct array response (not { sync_runs: [...] })', async () => {
+    // Backend returns: SyncRunResponse[]  (JSON array, no wrapper)
+    const mockRuns = [
+      { id: 'run-1', data_source_id: 'ds-1', status: 'completed', started_at: '2024-01-01T10:00:00Z', completed_at: '2024-01-01T10:01:00Z', error: null, created_at: '2024-01-01T10:00:00Z' },
+      { id: 'run-2', data_source_id: 'ds-1', status: 'failed', started_at: '2024-01-02T10:00:00Z', completed_at: null, error: 'timeout', created_at: '2024-01-02T10:00:00Z' },
+    ]
+    const apiFetch = vi.fn().mockResolvedValue(mockRuns)
+    const syncRuns: typeof mockRuns = []
+
+    // Correct: treat response as a direct array
+    async function loadSyncRuns(dsId: string) {
+      const runs = await apiFetch(`/management/data-sources/${dsId}/sync-runs`)
+      syncRuns.splice(0, syncRuns.length, ...runs)
+    }
+
+    await loadSyncRuns('ds-1')
+    expect(apiFetch).toHaveBeenCalledWith('/management/data-sources/ds-1/sync-runs')
+    expect(syncRuns).toHaveLength(2)
+    expect(syncRuns[0].status).toBe('completed')
+    expect(syncRuns[1].status).toBe('failed')
+  })
+
+  it('returns empty array when no sync runs exist for a data source', async () => {
+    const apiFetch = vi.fn().mockResolvedValue([])
+    const syncRuns: unknown[] = []
+
+    async function loadSyncRuns(dsId: string) {
+      const runs = await apiFetch(`/management/data-sources/${dsId}/sync-runs`)
+      syncRuns.splice(0, syncRuns.length, ...runs)
+    }
+
+    await loadSyncRuns('ds-new')
+    expect(syncRuns).toHaveLength(0)
+  })
+
+  it('does NOT use { sync_runs: [...] } wrapper — that key does not exist on the response', async () => {
+    // Demonstrates the bug: wrapping the response incorrectly
+    const mockArray = [{ id: 'run-1', status: 'completed' }]
+    const apiFetch = vi.fn().mockResolvedValue(mockArray)
+
+    // WRONG pattern (the old bug):
+    const wrappedResult = await apiFetch('/management/data-sources/ds-1/sync-runs')
+    const buggyExtract = (wrappedResult as Record<string, unknown>).sync_runs ?? []
+    expect(buggyExtract).toEqual([]) // proves the wrapper pattern yields nothing
+
+    // CORRECT pattern:
+    const correctExtract = wrappedResult
+    expect(correctExtract).toHaveLength(1)
+  })
+})

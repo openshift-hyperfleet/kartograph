@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import SyncPhaseIndicator from '@/components/graph/SyncPhaseIndicator.vue'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import {
   Dialog,
@@ -919,11 +920,11 @@ function closeLogs() {
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <Badge
-                :variant="ds.sync_runs?.[0]?.status === 'completed' ? 'default' : ds.sync_runs?.[0]?.status === 'failed' ? 'destructive' : 'secondary'"
-              >
-                {{ ds.sync_runs?.[0] ? syncPhaseLabel(ds.sync_runs[0].status) : 'Idle' }}
-              </Badge>
+              <SyncPhaseIndicator
+                v-if="ds.sync_runs?.[0]"
+                :status="ds.sync_runs[0].status"
+              />
+              <Badge v-else variant="secondary" class="text-[10px]">Idle</Badge>
               <!-- Edit Ontology button (FAIL 2) -->
               <Tooltip>
                 <TooltipTrigger as-child>
@@ -949,9 +950,7 @@ function closeLogs() {
             <p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Sync History</p>
             <div class="space-y-1">
               <div v-for="run in ds.sync_runs" :key="run.id" class="flex items-center gap-2 text-xs text-muted-foreground">
-                <Badge :variant="run.status === 'completed' ? 'default' : run.status === 'failed' ? 'destructive' : 'secondary'" class="text-[10px]">
-                  {{ syncPhaseLabel(run.status) }}
-                </Badge>
+                <SyncPhaseIndicator :status="run.status" />
                 <span>{{ new Date(run.started_at).toLocaleString() }}</span>
                 <span v-if="run.completed_at">
                   ({{ Math.round((new Date(run.completed_at).getTime() - new Date(run.started_at).getTime()) / 1000) }}s)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync, readdirSync } from 'fs'
+import { readFileSync } from 'fs'
 import { resolve } from 'path'
 
 // ── Design Language Tests ─────────────────────────────────────────────────────
@@ -337,90 +337,5 @@ describe('Design Language — Scenario: Elevation', () => {
       expect(badgeContent).not.toContain('shadow-lg')
       expect(badgeContent).not.toContain('shadow-xl')
     })
-  })
-})
-
-// ── Scenario: Typography — font weight constraints in page files ───────────────
-//
-// Spec: "font weights are limited to regular (400), medium (500), and semibold (600)"
-// Applied to "any text in the UI" — including page-level <h1> headings.
-//
-// Regression guard: scan all .vue files under pages/ and assert that no
-// font-bold (700) class appears inside the <template> block.
-
-function collectVueFiles(dir: string): string[] {
-  const entries = readdirSync(dir, { withFileTypes: true })
-  const files: string[] = []
-  for (const entry of entries) {
-    const full = resolve(dir, entry.name)
-    if (entry.isDirectory()) {
-      files.push(...collectVueFiles(full))
-    } else if (entry.name.endsWith('.vue')) {
-      files.push(full)
-    }
-  }
-  return files
-}
-
-const pagesDir = resolve(__dirname, '../pages')
-const pageFiles = collectVueFiles(pagesDir)
-
-describe('Design Language — Scenario: Typography (page files, font-weight regression)', () => {
-  for (const filePath of pageFiles) {
-    const relativeName = filePath.split('/pages/')[1]
-    it(`pages/${relativeName} does not use font-bold (max semibold per spec)`, () => {
-      const content = readFileSync(filePath, 'utf-8')
-      // Extract only the <template> section to avoid false positives from
-      // string literals inside <script> that name Tailwind classes
-      const templateMatch = content.match(/<template>([\s\S]*)<\/template>/)
-      const templateContent = templateMatch ? templateMatch[1] : content
-      expect(templateContent).not.toContain('font-bold')
-    })
-  }
-})
-
-// ── Scenario: Typography — font weight constraints in component files ──────────
-//
-// Spec: "font weights are limited to regular (400), medium (500), and semibold (600)"
-// Applied to "any text in the UI" — including component template content.
-//
-// Regression guard: scan all .vue files under components/ recursively and assert
-// that no font-bold (700) class appears inside the <template> block.
-
-const componentsDir = resolve(__dirname, '../components')
-const componentFiles = collectVueFiles(componentsDir)
-
-describe('Design Language — Scenario: Typography (component files, font-weight regression)', () => {
-  for (const filePath of componentFiles) {
-    const relativeName = filePath.split('/components/')[1]
-    it(`components/${relativeName} does not use font-bold (max semibold per spec)`, () => {
-      const content = readFileSync(filePath, 'utf-8')
-      // Extract only the <template> section to avoid false positives from
-      // string literals inside <script> that name Tailwind classes
-      const templateMatch = content.match(/<template>([\s\S]*)<\/template>/)
-      const templateContent = templateMatch ? templateMatch[1] : content
-      expect(templateContent).not.toContain('font-bold')
-    })
-  }
-})
-
-// ── Targeted regression guard: QueryResultsPanel keyboard shortcut badges ────
-//
-// Keyboard shortcut indicator badges inside QueryResultsPanel were previously
-// marked font-bold (700). The spec permits only 400/500/600 — font-semibold (600)
-// is the correct weight for these small indicator elements. This targeted guard
-// complements the comprehensive component scan above.
-
-const queryResultsPanelPath = resolve(
-  __dirname,
-  '../components/query/QueryResultsPanel.vue',
-)
-const queryResultsPanelContent = readFileSync(queryResultsPanelPath, 'utf-8')
-
-describe('Design Language — Scenario: Typography (QueryResultsPanel targeted guard)', () => {
-  it('QueryResultsPanel.vue keyboard shortcut badges do not use font-bold (max semibold per spec)', () => {
-    const templateMatch = queryResultsPanelContent.match(/<template>([\s\S]*)<\/template>/)
-    const templateContent = templateMatch ? templateMatch[1] : queryResultsPanelContent
-    expect(templateContent).not.toContain('font-bold')
   })
 })

@@ -401,7 +401,7 @@ onBeforeUnmount(() => {
       <div>
         <div class="flex items-center gap-3">
           <FileCode class="size-6 text-muted-foreground" />
-          <h1 class="text-2xl font-bold tracking-tight">Mutations Console</h1>
+          <h1 class="text-2xl font-semibold tracking-tight">Mutations Console</h1>
         </div>
         <p class="mt-1 text-muted-foreground">Author and submit JSONL mutations to the knowledge graph.</p>
       </div>

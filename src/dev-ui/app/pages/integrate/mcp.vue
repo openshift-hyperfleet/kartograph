@@ -292,7 +292,7 @@ async function copyHeaderValue(key: string, value: string) {
         <Plug class="size-5 text-primary" />
       </div>
       <div>
-        <h1 class="text-2xl font-bold tracking-tight">MCP Integration</h1>
+        <h1 class="text-2xl font-semibold tracking-tight">MCP Integration</h1>
         <p class="text-sm text-muted-foreground">
           Connect AI agents to your knowledge graph via the Model Context Protocol.
         </p>

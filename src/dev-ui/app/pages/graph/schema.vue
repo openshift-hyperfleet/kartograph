@@ -264,7 +264,7 @@ onUnmounted(() => {
     <div>
       <div class="flex items-center gap-3">
         <Database class="size-6 text-muted-foreground" />
-        <h1 class="text-2xl font-bold tracking-tight">Schema Browser</h1>
+        <h1 class="text-2xl font-semibold tracking-tight">Schema Browser</h1>
       </div>
       <p class="mt-1 text-muted-foreground">
         Browse and inspect the knowledge graph schema definitions.

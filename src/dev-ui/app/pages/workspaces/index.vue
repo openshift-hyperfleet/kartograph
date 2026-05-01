@@ -394,7 +394,7 @@ watch(tenantVersion, () => {
       <div class="flex items-center gap-3">
         <FolderTree class="size-6 text-muted-foreground" />
         <div>
-          <h1 class="text-2xl font-bold tracking-tight">Workspaces</h1>
+          <h1 class="text-2xl font-semibold tracking-tight">Workspaces</h1>
           <p class="text-sm text-muted-foreground">Organize resources with hierarchical workspaces</p>
         </div>
       </div>

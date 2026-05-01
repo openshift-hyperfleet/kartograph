@@ -291,7 +291,7 @@ function maskedSecret(secret: string): string {
           <KeyRound class="size-5 text-primary" />
         </div>
         <div>
-          <h1 class="text-2xl font-bold tracking-tight">API Keys</h1>
+          <h1 class="text-2xl font-semibold tracking-tight">API Keys</h1>
           <p class="text-sm text-muted-foreground">
             Create, view, and manage API keys for authenticating with Kartograph.
           </p>

@@ -45,7 +45,7 @@ function filteredLabels(
   })
 }
 
-// ── Cross-Navigation Logic (mirrors navigateToQuery / navigateToExplorer / navigateToMutations) ──
+// ── Cross-Navigation Logic (mirrors navigateToQuery / navigateToExplorer / navigateToOntologyEditor) ──
 
 function buildQueryNavigation(label: string, entityType: 'node' | 'edge') {
   const cypher =
@@ -59,16 +59,8 @@ function buildExplorerNavigation(label: string) {
   return { path: '/graph/explorer', query: { type: label } }
 }
 
-function buildMutationsNavigation(label: string, entityType: 'node' | 'edge') {
-  const template = JSON.stringify({
-    op: 'DEFINE',
-    type: entityType,
-    label,
-    description: '',
-    required_properties: [],
-    optional_properties: [],
-  })
-  return { path: '/graph/mutations', query: { template } }
+function buildOntologyEditorNavigation(label: string) {
+  return { path: '/data-sources', query: { openOntologyType: label } }
 }
 
 // ── Keyboard Shortcut Logic ───────────────────────────────────────────────────
@@ -297,29 +289,61 @@ describe('Schema Browser - cross-navigation to graph explorer', () => {
   })
 })
 
-describe('Schema Browser - cross-navigation to ontology editor (mutations)', () => {
-  it('builds a DEFINE node template with correct shape', () => {
-    const nav = buildMutationsNavigation('Repository', 'node')
-    expect(nav.path).toBe('/graph/mutations')
-    const parsed = JSON.parse(nav.query.template)
-    expect(parsed.op).toBe('DEFINE')
-    expect(parsed.type).toBe('node')
-    expect(parsed.label).toBe('Repository')
-    expect(parsed.description).toBe('')
-    expect(parsed.required_properties).toEqual([])
-    expect(parsed.optional_properties).toEqual([])
+describe('Schema Browser - cross-navigation to ontology editor', () => {
+  it('navigates to /data-sources with openOntologyType query param for node types', () => {
+    const nav = buildOntologyEditorNavigation('FileNode')
+    expect(nav.path).toBe('/data-sources')
+    expect(nav.query.openOntologyType).toBe('FileNode')
   })
 
-  it('builds a DEFINE edge template for edge types', () => {
-    const nav = buildMutationsNavigation('AUTHORED', 'edge')
-    const parsed = JSON.parse(nav.query.template)
-    expect(parsed.type).toBe('edge')
-    expect(parsed.label).toBe('AUTHORED')
+  it('navigates to /data-sources with openOntologyType query param for edge types', () => {
+    const nav = buildOntologyEditorNavigation('AUTHORED_BY')
+    expect(nav.path).toBe('/data-sources')
+    expect(nav.query.openOntologyType).toBe('AUTHORED_BY')
   })
 
-  it('template is valid JSON', () => {
-    const nav = buildMutationsNavigation('Issue', 'node')
-    expect(() => JSON.parse(nav.query.template)).not.toThrow()
+  it('does NOT navigate to /graph/mutations', () => {
+    const nav = buildOntologyEditorNavigation('Repository')
+    expect(nav.path).not.toBe('/graph/mutations')
+  })
+
+  it('preserves the exact label in the query parameter', () => {
+    const nav = buildOntologyEditorNavigation('My Node Type')
+    expect(nav.query.openOntologyType).toBe('My Node Type')
+  })
+})
+
+describe('Schema Browser - schema.vue uses ontology editor (not mutations console)', () => {
+  const schemaVuePath = resolve(__dirname, '../pages/graph/schema.vue')
+  const schemaContent = readFileSync(schemaVuePath, 'utf-8')
+
+  it('third button tooltip says "Edit in ontology editor" not "Edit type definition"', () => {
+    expect(schemaContent).toContain('Edit in ontology editor')
+    expect(schemaContent).not.toContain('Edit type definition')
+  })
+
+  it('schema.vue calls navigateToOntologyEditor, not navigateToMutations', () => {
+    expect(schemaContent).toContain('navigateToOntologyEditor')
+    expect(schemaContent).not.toContain('navigateToMutations(')
+  })
+
+  it('schema.vue navigates to /data-sources with openOntologyType param', () => {
+    expect(schemaContent).toContain('/data-sources')
+    expect(schemaContent).toContain('openOntologyType')
+  })
+
+  it('schema.vue does NOT navigate to /graph/mutations for the type editor button', () => {
+    // navigateToMutationsCreate is still allowed for the empty-state button
+    // but the per-type third button must use the ontology editor
+    expect(schemaContent).not.toContain("path: '/graph/mutations'")
+  })
+
+  it('query console button (first) still navigates to /query', () => {
+    expect(schemaContent).toContain("path: '/query'")
+  })
+
+  it('graph explorer button (second) still navigates to /graph/explorer', () => {
+    expect(schemaContent).toContain("path: '/graph/explorer'")
   })
 })
 

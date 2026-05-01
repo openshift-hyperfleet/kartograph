@@ -420,3 +420,175 @@ class TestListSyncRunsRoute:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_sync_run_repo.find_by_data_source.assert_not_called()
+
+
+class TestGetSyncRunLogsRoute:
+    """Tests for GET /management/data-sources/{ds_id}/sync-runs/{run_id}/logs endpoint.
+
+    Spec: "Sync Monitoring — Scenario: Sync logs"
+    GIVEN a sync run (in progress or completed)
+    WHEN the user requests logs
+    THEN detailed logs for that run are displayed
+    """
+
+    def test_get_logs_returns_200_with_empty_list_when_no_logs(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        """Should return 200 with empty logs list when no logs captured yet."""
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.get_by_id.return_value = sample_sync_run
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}"
+            f"/sync-runs/{sample_sync_run.id}/logs"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result == {"logs": []}
+
+    def test_get_logs_returns_200_with_log_lines(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        """Should return 200 with populated log lines when logs exist."""
+        log_lines = [
+            "2026-04-30T10:00:01Z INFO Starting sync",
+            "2026-04-30T10:00:05Z INFO Fetched 100 items",
+            "2026-04-30T10:00:10Z INFO Sync completed",
+        ]
+        sample_sync_run_with_logs = DataSourceSyncRun(
+            id=sample_sync_run.id,
+            data_source_id=sample_sync_run.data_source_id,
+            status="completed",
+            started_at=sample_sync_run.started_at,
+            completed_at=sample_sync_run.completed_at,
+            error=None,
+            created_at=sample_sync_run.created_at,
+            logs=log_lines,
+        )
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.get_by_id.return_value = sample_sync_run_with_logs
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}"
+            f"/sync-runs/{sample_sync_run.id}/logs"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["logs"] == log_lines
+
+    def test_get_logs_returns_404_when_data_source_not_found(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+    ) -> None:
+        """Should return 404 when data source is not found or user lacks VIEW permission."""
+        mock_ds_service.get.return_value = None
+
+        response = test_client.get(
+            "/management/data-sources/01JPQRST1234567890ABCDEFDS"
+            "/sync-runs/01JPQRST1234567890ABCDEFSR/logs"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_sync_run_repo.get_by_id.assert_not_called()
+
+    def test_get_logs_returns_404_when_sync_run_not_found(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Should return 404 when sync run does not exist."""
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.get_by_id.return_value = None
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}"
+            "/sync-runs/01JPQRST1234567890NONEXIST/logs"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_get_logs_returns_404_when_sync_run_belongs_to_different_ds(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        """Should return 404 when sync run exists but belongs to a different DS."""
+        other_ds_run = DataSourceSyncRun(
+            id=sample_sync_run.id,
+            data_source_id="01JPQRST1234567890OTHERFDS",  # different DS
+            status="completed",
+            started_at=sample_sync_run.started_at,
+            completed_at=None,
+            error=None,
+            created_at=sample_sync_run.created_at,
+        )
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.get_by_id.return_value = other_ds_run
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}"
+            f"/sync-runs/{sample_sync_run.id}/logs"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_get_logs_calls_service_get_for_authorization(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """Should call service.get to verify VIEW permission before fetching logs."""
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.get_by_id.return_value = sample_sync_run
+
+        test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}"
+            f"/sync-runs/{sample_sync_run.id}/logs"
+        )
+
+        mock_ds_service.get.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            ds_id=sample_data_source.id.value,
+        )
+
+    def test_get_logs_calls_repo_get_by_id_with_run_id(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        """Should call repo.get_by_id with the provided run_id."""
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.get_by_id.return_value = sample_sync_run
+
+        test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}"
+            f"/sync-runs/{sample_sync_run.id}/logs"
+        )
+
+        mock_sync_run_repo.get_by_id.assert_called_once_with(sample_sync_run.id)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 # Valid sync run status values representing the lifecycle state machine.
@@ -40,6 +40,7 @@ class DataSourceSyncRun:
     completed_at: datetime | None
     error: str | None
     created_at: datetime
+    logs: list[str] = field(default_factory=list)
 
     def is_terminal(self) -> bool:
         """Return True if the sync run is in a terminal state.

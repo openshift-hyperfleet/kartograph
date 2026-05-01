@@ -1,7 +1,7 @@
 spec_path: specs/ui/experience.spec.md
 spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
-total_tasks: 0
-completed: 0
+total_tasks: 1
+completed: 1
 failed: 0
 failure_themes: []
 last_audit: null

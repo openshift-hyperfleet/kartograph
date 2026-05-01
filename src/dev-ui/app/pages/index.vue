@@ -30,7 +30,7 @@ import type { SchemaLabelsResponse, APIKeyResponse, WorkspaceListResponse, Works
 const { listNodeLabels, listEdgeLabels } = useGraphApi()
 const { listApiKeys, listWorkspaces } = useIamApi()
 const { extractErrorMessage } = useErrorHandler()
-const { hasTenant, currentTenantId, currentTenantName, tenantVersion } = useTenant()
+const { hasTenant, currentTenantName, tenantVersion } = useTenant()
 const { apiFetch } = useApiClient()
 
 // ── Stats state ──────────────────────────────────────────────────────────
@@ -46,6 +46,37 @@ const apiKeys = ref<APIKeyResponse[]>([])
 
 // KG count is fetched once during the redirect check and reused by the checklist.
 const kgCount = ref<number>(0)
+
+/**
+ * True once the workspace list has been fetched and contains at least one entry.
+ * Controls the workspace guidance panel (v-if="!hasWorkspace").
+ */
+const hasWorkspace = computed(() => workspaces.value.length > 0)
+
+// ── Workspace creation dialog (opened from WorkspaceGuidance) ─────────────
+
+/**
+ * Controls the inline workspace creation dialog.
+ * The dialog guides the user to the full workspace management page where
+ * they can create their first workspace with proper parent selection.
+ * data-testid="dialog-create-workspace" is on the DialogContent below.
+ */
+const showCreateWorkspaceDialog = ref(false)
+
+function openCreateWorkspaceDialog() {
+  showCreateWorkspaceDialog.value = true
+}
+
+function handleJoinWorkspace() {
+  toast.info('Contact a workspace admin', {
+    description: 'Ask a team workspace admin to add you as a member.',
+    action: {
+      label: 'Go to Workspaces',
+      onClick: () => navigateTo('/workspaces'),
+    },
+    duration: 6000,
+  })
+}
 
 // ── Onboarding state ─────────────────────────────────────────────────────
 
@@ -194,25 +225,6 @@ const quickActions = [
 
 const SESSION_REDIRECT_KEY = 'kartograph:home-redirect-done'
 
-// ── Workspace guidance (once per tenant) ─────────────────────────────────
-
-const WORKSPACE_GUIDANCE_KEY = 'kartograph:workspace-guidance:'
-
-function showWorkspaceGuidanceIfNeeded() {
-  if (!currentTenantId.value || workspaceCount.value !== 0) return
-  const key = `${WORKSPACE_GUIDANCE_KEY}${currentTenantId.value}`
-  if (typeof localStorage !== 'undefined' && localStorage.getItem(key)) return
-  if (typeof localStorage !== 'undefined') localStorage.setItem(key, 'true')
-  toast('Create or join a workspace', {
-    description: 'Workspaces help you organise your knowledge graphs. Create one or ask a team member to invite you.',
-    action: {
-      label: 'Manage Workspaces',
-      onClick: () => navigateTo('/workspaces'),
-    },
-    duration: 8000,
-  })
-}
-
 // ── Data fetching ────────────────────────────────────────────────────────
 
 async function fetchStats() {
@@ -253,9 +265,6 @@ async function fetchStats() {
   }
 
   statsLoading.value = false
-
-  // Workspace guidance: prompt if no workspaces exist in this tenant
-  showWorkspaceGuidanceIfNeeded()
 }
 
 onMounted(async () => {
@@ -343,7 +352,7 @@ watch(tenantVersion, () => {
       />
 
       <!-- B. Quick Stats Cards -->
-      <div class="grid grid-cols-2 gap-4 md:grid-cols-5">
+      <div v-if="hasWorkspace || statsLoading" class="grid grid-cols-2 gap-4 md:grid-cols-5">
         <NuxtLink
           v-for="stat in statsCards"
           :key="stat.label"

@@ -602,7 +602,7 @@ async function copyHeaderValue(key: string, value: string) {
       <!-- Endpoint Details (collapsible) -->
       <Card>
         <button
-          class="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset rounded-lg"
+          class="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset rounded-lg"
           :aria-expanded="showDetails" aria-controls="endpoint-details-content" @click="showDetails = !showDetails">
           <div class="flex items-center gap-2">
             <Info class="size-4 text-muted-foreground" />
@@ -682,7 +682,7 @@ async function copyHeaderValue(key: string, value: string) {
       <!-- Available Tools (collapsible) -->
       <Card>
         <button
-          class="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset rounded-lg"
+          class="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset rounded-lg"
           :aria-expanded="showTools" aria-controls="tools-content" @click="showTools = !showTools">
           <div class="flex items-center gap-2">
             <Terminal class="size-4 text-muted-foreground" />

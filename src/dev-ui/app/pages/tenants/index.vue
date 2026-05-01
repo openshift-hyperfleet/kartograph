@@ -330,7 +330,7 @@ onMounted(fetchTenants)
             :key="tenant.id"
             role="listitem"
             tabindex="0"
-            class="flex items-center gap-2 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            class="flex items-center gap-2 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset"
             :class="[
               selectedTenant?.id === tenant.id ? 'bg-muted' : '',
             ]"

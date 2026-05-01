@@ -430,7 +430,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
               <TooltipTrigger as-child>
                 <DropdownMenuTrigger as-child>
                   <button
-                    class="flex w-full items-center justify-center rounded-md bg-sidebar-accent p-2 transition-colors hover:bg-sidebar-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                    class="flex w-full items-center justify-center rounded-md bg-sidebar-accent p-2 transition-colors hover:bg-sidebar-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-sidebar-ring/50"
                     :aria-label="tenantAriaLabel"
                   >
                     <Building2 class="size-4 shrink-0 text-sidebar-primary" aria-hidden="true" />
@@ -443,7 +443,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
             </Tooltip>
             <DropdownMenuTrigger v-else as-child>
               <button
-                class="flex w-full items-center gap-2 rounded-md bg-sidebar-accent px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                class="flex w-full items-center gap-2 rounded-md bg-sidebar-accent px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-sidebar-ring/50"
                 :aria-label="tenantAriaLabel"
               >
                 <Building2 class="size-4 shrink-0 text-sidebar-primary" aria-hidden="true" />
@@ -678,7 +678,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
             <DropdownMenu v-else>
               <DropdownMenuTrigger as-child>
                 <button
-                  class="flex w-full items-center gap-2 rounded-md bg-sidebar-accent px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                  class="flex w-full items-center gap-2 rounded-md bg-sidebar-accent px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-sidebar-ring/50"
                   :aria-label="tenantAriaLabel"
                 >
                   <Building2 class="size-4 shrink-0 text-sidebar-primary" aria-hidden="true" />

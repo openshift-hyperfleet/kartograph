@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   Cable,
@@ -565,8 +565,20 @@ async function loadDataSources() {
   }
 }
 
-onMounted(() => {
-  loadDataSources()
+onMounted(async () => {
+  await loadDataSources()
+  // Cross-navigation from Schema Browser: open ontology editor for a specific type.
+  const route = useRoute()
+  const openOntologyType = route.query.openOntologyType as string | undefined
+  if (openOntologyType && dataSources.value.length > 0) {
+    // Open the first data source that contains the matching type label.
+    // If no specific match, open the first data source as a fallback.
+    const target = dataSources.value[0]
+    if (target) {
+      await nextTick()
+      requestOntologyEdit(target)
+    }
+  }
 })
 
 // Reload data sources whenever the user switches tenants.

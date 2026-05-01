@@ -1,128 +1,74 @@
 ---
 id: task-042
-title: Fix sync-run phase status types and display labels in UI
+title: Implement UI — ontology design flow (intent, proposal review, type editing)
 spec_ref: specs/ui/experience.spec.md
 status: not-started
 phase: null
-deps: []
+deps:
+  - task-014
+  - task-015
 round: 0
 branch: null
 pr: null
 ---
 
-## Spec Gap
+## Spec Coverage
 
-**Requirement: Sync Monitoring — Scenario: Active sync progress**
-> GIVEN a data source with a sync in progress
-> WHEN the user views the data source
-> THEN they see the current sync status (ingesting, extracting, applying)
-> AND a progress indicator appropriate to the current phase
+**Requirement: Ontology Design** — all 5 scenarios from `specs/ui/experience.spec.md`:
 
-## Root Cause
+1. **Intent description** — After a data source is connected, prompt the user to
+   describe (in free text) what problems or questions they want to solve with this data.
 
-The backend `DataSourceSyncRun` domain entity defines the following valid status values:
+2. **Agent-proposed ontology** — Submit intent to the backend; display the proposed
+   ontology (node types, edge types, properties) returned by the AI agent for review.
+   Note: the extraction backend endpoint is gated on AIHCM-174. Build the UI with a
+   loading/pending state and a clear stub contract so the backend can be wired in later
+   without UI changes.
 
-```python
-VALID_STATUSES = frozenset(
-    {"pending", "ingesting", "ai_extracting", "applying", "completed", "failed"}
-)
-```
+3. **Ontology review and approval** — Present proposed types in a reviewable list.
+   The user can approve as-is or iterate. Extraction begins only after explicit approval.
 
-The `SyncRunResponse` serialises the status field verbatim from the domain — so the
-API actually returns `"ingesting"`, `"ai_extracting"`, and `"applying"` for in-progress
-runs. The value `"running"` is never returned by the backend.
+4. **Individual type editing** — Inline editor for each type: modify label, description,
+   required properties, optional properties, and relationship types. Validate that
+   `documentation_page` (or any type with a required property) enforces the constraint
+   (e.g., `source_url` must be required).
 
-However, the UI in `src/dev-ui/app/pages/data-sources/index.vue` defines:
+5. **Ontology change after initial extraction** — When the ontology is modified on a KG
+   that has completed extraction, show a warning that full re-extraction will be triggered.
+   The user must confirm before the change is applied.
 
-```typescript
-interface SyncRun {
-  status: 'pending' | 'running' | 'completed' | 'failed'
-  ...
-}
-```
+## Acceptance Criteria
 
-This type omits `'ingesting' | 'ai_extracting' | 'applying'` and includes `'running'`
-which the backend never emits. As a result:
+- Intent description step renders after data source save and accepts free text (1–2000 chars).
+- Proposal review step renders a list of node types and edge types with their properties.
+- Each type in the list has an "Edit" action that opens the type editor inline or in a
+  side panel (no separate page navigation per the Interaction Principles requirement).
+- Approve button is disabled until the user has reviewed the proposal (opened or scrolled).
+- Re-extraction warning modal is shown when editing the ontology post-extraction; cancel
+  aborts the edit without saving.
+- All mutations show toast feedback (success or error).
+- Copy-to-clipboard is available for type slugs and any generated identifiers.
+- Tests are written first (TDD) in `src/dev-ui/app/tests/ontology.test.ts` before
+  implementing any component logic.
 
-- TypeScript silently accepts backend `'ingesting'` because the field is typed as a
-  union of strings, but the badge logic has no case for it.
-- The badge shows raw status strings like `"ai_extracting"` instead of
-  human-readable labels ("Extracting").
-- The phase progress indicator doesn't distinguish the three in-progress phases.
+## UI Location
 
-The tests in `src/dev-ui/app/tests/sync-monitoring-extended.test.ts` test with
-`'running'` status which is never sent by the backend — those tests are inadvertently
-testing against a fiction.
+- Flow is accessible from the data source detail page (step after "Connection configuration").
+- A separate "Ontology" tab or section on the data source detail page allows returning
+  users to view and edit the current ontology.
 
-Also, the `SyncRunResponse` model description in
-`src/api/management/presentation/data_sources/models.py` incorrectly documents the
-status field as "pending, running, completed, failed" instead of the actual values.
+## Dependencies
 
-## Changes Required
-
-### 1. `src/dev-ui/app/tests/sync-monitoring-extended.test.ts`
-
-Write tests **before** updating the implementation:
-
-1. **Phase label for `ingesting`**: Assert `getSyncPhaseLabel('ingesting') === 'Ingesting'`.
-2. **Phase label for `ai_extracting`**: Assert `getSyncPhaseLabel('ai_extracting') === 'Extracting'`.
-3. **Phase label for `applying`**: Assert `getSyncPhaseLabel('applying') === 'Applying'`.
-4. **`isActiveSyncPhase` for `ingesting`**: Assert `true`.
-5. **`isActiveSyncPhase` for `ai_extracting`**: Assert `true`.
-6. **`isActiveSyncPhase` for `applying`**: Assert `true`.
-7. **`isActiveSyncPhase` for `running`**: Assert `false` (it is not a real status).
-8. **Badge variant for `ingesting`**: Assert `'secondary'` (in-progress).
-9. **Badge variant for `ai_extracting`**: Assert `'secondary'` (in-progress).
-10. **Badge variant for `applying`**: Assert `'secondary'` (in-progress).
-
-Update existing tests that use `'running'` status to use real backend statuses
-(`'ingesting'`, `'ai_extracting'`, or `'applying'`) as appropriate.
-
-### 2. `src/dev-ui/app/pages/data-sources/index.vue`
-
-- Update `SyncRun.status` type:
-  ```typescript
-  interface SyncRun {
-    status: 'pending' | 'ingesting' | 'ai_extracting' | 'applying' | 'completed' | 'failed'
-    ...
-  }
-  ```
-- Add a `syncPhaseLabel` helper that maps each status to a user-readable string:
-  ```typescript
-  function syncPhaseLabel(status: SyncRun['status']): string {
-    const labels: Record<SyncRun['status'], string> = {
-      pending:      'Pending',
-      ingesting:    'Ingesting',
-      ai_extracting: 'Extracting',
-      applying:     'Applying',
-      completed:    'Completed',
-      failed:       'Failed',
-    }
-    return labels[status] ?? status
-  }
-  ```
-- Update the sync history badge display to use `syncPhaseLabel(run.status)` as the
-  badge text instead of `run.status`.
-- Update the top-level data source badge (current sync indicator) to also use
-  `syncPhaseLabel`.
-- Update `isActiveSyncPhase` helper to include `'ingesting' | 'ai_extracting' | 'applying'`
-  (and remove `'running'`).
-
-### 3. `src/api/management/presentation/data_sources/models.py`
-
-Fix the `SyncRunResponse.status` field description from:
-```python
-status: str = Field(..., description="Sync run status (pending, running, completed, failed)")
-```
-to:
-```python
-status: str = Field(..., description="Sync run status (pending, ingesting, ai_extracting, applying, completed, failed)")
-```
+- **task-014** must be complete (design system, navigation scaffold, shadcn/vue components).
+- **task-015** must be complete (data source connection UI must exist; this flow continues
+  from the data source save step).
+- **AIHCM-174 extraction spike** (external blocker for AI proposal backend): the UI
+  stub/loading state allows task-042 to merge before the backend is ready.
 
 ## TDD Cycle
 
-1. Write the new and updated tests in `sync-monitoring-extended.test.ts`
-   (they will fail because `getSyncPhaseLabel('ingesting')` returns `'Unknown'`).
-2. Update `data-sources/index.vue` with the corrected type and helper function.
-3. Fix the `SyncRunResponse` description in `models.py`.
-4. Run `cd src/dev-ui && pnpm test` — all tests must pass before committing.
+1. Write tests in `src/dev-ui/app/tests/ontology.test.ts` (will fail initially).
+2. Implement components in `src/dev-ui/app/pages/data-sources/` or a dedicated
+   `ontology/` subdirectory.
+3. Run `cd src/dev-ui && pnpm test` — all tests must pass before committing.
+4. Commit atomically per conventional commit conventions.

@@ -25,6 +25,13 @@ import {
   DialogFooter,
   DialogClose,
 } from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 const { hasTenant, currentTenantName, tenantVersion } = useTenant()
 const { extractErrorMessage } = useErrorHandler()
@@ -35,7 +42,14 @@ interface KnowledgeGraphItem {
   id: string
   name: string
   description?: string
+  workspace_id?: string
   created_at?: string
+}
+
+interface WorkspaceOption {
+  id: string
+  name: string
+  is_root?: boolean
 }
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -50,6 +64,12 @@ const createName = ref('')
 const createDescription = ref('')
 const creating = ref(false)
 const createNameError = ref('')
+
+// Workspace selector (required for creation — KGs are workspace-scoped)
+const workspaces = ref<WorkspaceOption[]>([])
+const loadingWorkspaces = ref(false)
+const createWorkspaceId = ref('')
+const createWorkspaceIdError = ref('')
 
 // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -69,23 +89,53 @@ async function loadKnowledgeGraphs() {
   }
 }
 
+async function loadWorkspaces() {
+  loadingWorkspaces.value = true
+  try {
+    const { apiFetch } = useApiClient()
+    const result = await apiFetch<{ workspaces: WorkspaceOption[]; count: number }>(
+      '/iam/workspaces'
+    )
+    workspaces.value = result.workspaces ?? []
+    // Auto-select when only one workspace is available
+    if (workspaces.value.length === 1) {
+      createWorkspaceId.value = workspaces.value[0].id
+    }
+  } catch {
+    workspaces.value = []
+  } finally {
+    loadingWorkspaces.value = false
+  }
+}
+
 function openCreateDialog() {
   createName.value = ''
   createDescription.value = ''
   createNameError.value = ''
+  createWorkspaceId.value = ''
+  createWorkspaceIdError.value = ''
   createDialogOpen.value = true
+  loadWorkspaces()
 }
 
 async function handleCreate() {
   createNameError.value = ''
+  createWorkspaceIdError.value = ''
+
   if (!createName.value.trim()) {
     createNameError.value = 'Knowledge graph name is required'
     return
   }
+  if (!createWorkspaceId.value) {
+    createWorkspaceIdError.value = 'Please select a workspace'
+    return
+  }
+
   creating.value = true
   try {
     const { apiFetch } = useApiClient()
-    await apiFetch('/management/knowledge-graphs', {
+    // Knowledge graphs are workspace-scoped: POST /management/workspaces/{id}/knowledge-graphs
+    await apiFetch(`/management/workspaces/${createWorkspaceId.value}/knowledge-graphs`, {
       method: 'POST',
       body: {
         name: createName.value.trim(),
@@ -248,7 +298,7 @@ watch(tenantVersion, () => {
         <DialogHeader>
           <DialogTitle>Create Knowledge Graph</DialogTitle>
           <DialogDescription>
-            Create a new knowledge graph
+            Create a new knowledge graph in a workspace
             <template v-if="currentTenantName">
               within <span class="font-medium">{{ currentTenantName }}</span>
             </template>
@@ -256,6 +306,29 @@ watch(tenantVersion, () => {
           </DialogDescription>
         </DialogHeader>
         <form class="space-y-4" @submit.prevent="handleCreate">
+          <!-- Workspace selector (required — KGs are workspace-scoped) -->
+          <div class="space-y-1.5">
+            <Label for="kg-workspace">Workspace <span class="text-destructive">*</span></Label>
+            <Select v-model="createWorkspaceId" :disabled="creating || loadingWorkspaces">
+              <SelectTrigger id="kg-workspace">
+                <SelectValue :placeholder="loadingWorkspaces ? 'Loading workspaces…' : 'Select a workspace'" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem
+                  v-for="ws in workspaces"
+                  :key="ws.id"
+                  :value="ws.id"
+                >
+                  {{ ws.name }}{{ ws.is_root ? ' (Root)' : '' }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p v-if="createWorkspaceIdError" class="text-sm text-destructive">{{ createWorkspaceIdError }}</p>
+            <p v-else class="text-xs text-muted-foreground">
+              Knowledge graphs are organized within workspaces.
+            </p>
+          </div>
+
           <div class="space-y-1.5">
             <Label for="kg-name">Name <span class="text-destructive">*</span></Label>
             <Input
@@ -283,7 +356,7 @@ watch(tenantVersion, () => {
             <DialogClose as-child>
               <Button type="button" variant="outline" :disabled="creating">Cancel</Button>
             </DialogClose>
-            <Button type="submit" :disabled="creating || !createName.trim()">
+            <Button type="submit" :disabled="creating || !createName.trim() || !createWorkspaceId">
               <Loader2 v-if="creating" class="mr-2 size-4 animate-spin" />
               {{ creating ? 'Creating...' : 'Create' }}
             </Button>

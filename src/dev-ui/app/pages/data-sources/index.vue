@@ -514,17 +514,17 @@ async function loadDataSources() {
     const all: DataSourceItem[] = []
     for (const kg of kgs) {
       try {
-        const dsResult = await apiFetch<{ data_sources: DataSourceItem[] }>(
+        // Backend returns list[DataSourceResponse] as a direct JSON array.
+        const sources = await apiFetch<DataSourceItem[]>(
           `/management/knowledge-graphs/${kg.id}/data-sources`
         )
-        const sources = dsResult.data_sources ?? []
         // Fetch sync runs for each data source so the card can show history.
         for (const ds of sources) {
           try {
-            const runResult = await apiFetch<{ sync_runs: SyncRun[] }>(
+            // Backend returns list[SyncRunResponse] as a direct JSON array.
+            ds.sync_runs = await apiFetch<SyncRun[]>(
               `/management/data-sources/${ds.id}/sync-runs`
             )
-            ds.sync_runs = runResult.sync_runs ?? []
           } catch {
             ds.sync_runs = []
           }

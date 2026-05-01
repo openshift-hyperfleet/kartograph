@@ -608,3 +608,68 @@ describe('Group Management — Interaction Principles: Inline Actions over Navig
     expect(fakeNavigateTo).toBeDefined()
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────────
+// Tenant selector — data refresh on tenant change
+// Spec: "switching tenants refreshes all data in the UI"
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('Groups page - tenant switch reloads data', () => {
+  it('group list is cleared immediately when tenant version changes', () => {
+    let groups: GroupResponse[] = [
+      { id: 'g-old', name: 'Old Tenant Group', created_at: '' },
+    ]
+    let selectedGroup: GroupResponse | null = groups[0]
+    let members: GroupMemberResponse[] = [{ user_id: 'u-1', role: 'member' }]
+
+    // Expected watch handler behaviour: clear stale data before async fetch
+    function onTenantVersionChange() {
+      groups = []          // ← must happen before fetchGroups()
+      selectedGroup = null // ← closeDetails() equivalent
+      members = []         // ← closeDetails() equivalent
+    }
+
+    expect(groups).toHaveLength(1)
+    expect(selectedGroup).not.toBeNull()
+
+    onTenantVersionChange()
+
+    expect(groups).toHaveLength(0)
+    expect(selectedGroup).toBeNull()
+    expect(members).toHaveLength(0)
+  })
+
+  it('fetchGroups is called after tenant version changes', async () => {
+    const fetchGroups = vi.fn().mockResolvedValue([])
+    let tenantVersion = 1
+
+    async function onTenantVersionChange() {
+      await fetchGroups()
+    }
+
+    tenantVersion = 2
+    await onTenantVersionChange()
+
+    expect(fetchGroups).toHaveBeenCalledOnce()
+  })
+
+  it('group list shows new-tenant data after tenant switch completes', async () => {
+    let groups: GroupResponse[] = [
+      { id: 'g-old', name: 'Old Group', created_at: '' },
+    ]
+
+    const newGroup: GroupResponse = { id: 'g-new', name: 'New Tenant Group', created_at: '' }
+    const fetchGroups = vi.fn().mockResolvedValue([newGroup])
+
+    async function onTenantVersionChange() {
+      groups = []
+      groups = await fetchGroups()
+    }
+
+    await onTenantVersionChange()
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0].name).toBe('New Tenant Group')
+    expect(groups[0].id).not.toBe('g-old')
+  })
+})

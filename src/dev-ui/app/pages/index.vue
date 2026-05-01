@@ -299,7 +299,16 @@ onMounted(async () => {
 })
 
 watch(tenantVersion, () => {
-  if (hasTenant.value) fetchStats()
+  if (hasTenant.value) {
+    // Clear stale stats immediately so old tenant's data is not shown during load
+    nodeTypeCount.value = null
+    edgeTypeCount.value = null
+    apiKeyCount.value = null
+    apiKeys.value = []
+    workspaceCount.value = null
+    kgCount.value = 0
+    fetchStats()
+  }
 })
 </script>
 

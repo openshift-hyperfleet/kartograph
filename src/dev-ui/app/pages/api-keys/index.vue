@@ -113,6 +113,8 @@ onMounted(() => {
 // Re-fetch when tenant changes
 watch(tenantVersion, () => {
   if (hasTenant.value) {
+    // Clear stale data immediately so old tenant's keys are not shown during load
+    apiKeys.value = []
     newlyCreatedKey.value = null
     secretCopied.value = false
     loadKeys()

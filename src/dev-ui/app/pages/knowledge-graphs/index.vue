@@ -162,9 +162,11 @@ onMounted(() => {
 })
 
 watch(tenantVersion, () => {
-  loadKnowledgeGraphs()
+  // Clear stale data immediately so old tenant's KGs are not shown during load
+  knowledgeGraphs.value = []
   workspaces.value = []
   selectedWorkspaceId.value = ''
+  loadKnowledgeGraphs()
 })
 </script>
 

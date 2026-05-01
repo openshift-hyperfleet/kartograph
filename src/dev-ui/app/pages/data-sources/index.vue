@@ -640,6 +640,8 @@ onMounted(async () => {
 
 // Reload data sources whenever the user switches tenants.
 watch(tenantVersion, () => {
+  // Clear stale data immediately so old tenant's sources are not shown during load
+  dataSources.value = []
   loadDataSources()
 })
 

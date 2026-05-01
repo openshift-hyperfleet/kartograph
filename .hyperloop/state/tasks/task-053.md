@@ -3,7 +3,7 @@ id: task-053
 title: Cross-page copy-to-clipboard and mutation feedback consistency audit
 spec_ref: specs/ui/experience.spec.md@14b2efabc5d0910e59494fd9b111b00c8a4383b3
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-015
 - task-050

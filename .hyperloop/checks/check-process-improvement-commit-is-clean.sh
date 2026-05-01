@@ -30,6 +30,18 @@ set -uo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
+# ── Verification-mode early exit ───────────────────────────────────────────────
+# When no files are staged, we are in verification context (not pre-commit).
+# All three invariants (branch, staged files, overlay removals) require a
+# pending commit to be meaningful. Exit 0 immediately so this script does not
+# false-positive when the orchestrator runs it during merge verification on a
+# clean task branch.
+staged_files=$(git diff --cached --name-only 2>/dev/null || true)
+if [[ -z "$staged_files" ]]; then
+  echo "PASS: No staged files — verification mode; pre-commit invariants do not apply."
+  exit 0
+fi
+
 FAIL=0
 
 # ── 1. Branch must NOT be a task branch ───────────────────────────────────────

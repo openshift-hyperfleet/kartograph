@@ -322,6 +322,10 @@ const breadcrumbs = computed(() => {
 })
 
 const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
+
+// Close the mobile sheet whenever the route changes so the overlay does not
+// persist across programmatic navigations or browser history traversal.
+watch(() => route.path, () => { closeMobile() })
 </script>
 
 <template>

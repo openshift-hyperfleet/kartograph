@@ -49,6 +49,7 @@ class DataSourceSyncRunRepository(IDataSourceSyncRunRepository):
             model.status = sync_run.status
             model.completed_at = sync_run.completed_at
             model.error = sync_run.error
+            model.logs = sync_run.logs
         else:
             model = DataSourceSyncRunModel(
                 id=sync_run.id,
@@ -58,6 +59,7 @@ class DataSourceSyncRunRepository(IDataSourceSyncRunRepository):
                 completed_at=sync_run.completed_at,
                 error=sync_run.error,
                 created_at=sync_run.created_at,
+                logs=sync_run.logs,
             )
             self._session.add(model)
 
@@ -100,4 +102,5 @@ class DataSourceSyncRunRepository(IDataSourceSyncRunRepository):
             completed_at=model.completed_at,
             error=model.error,
             created_at=model.created_at,
+            logs=model.logs if model.logs is not None else [],
         )

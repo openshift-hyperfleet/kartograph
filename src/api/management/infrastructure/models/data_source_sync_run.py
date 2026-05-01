@@ -7,6 +7,7 @@ tracks the status and timing of a data source synchronization.
 from datetime import datetime
 
 from sqlalchemy import (
+    ARRAY,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -61,6 +62,12 @@ class DataSourceSyncRunModel(Base):
         DateTime(timezone=True),
         insert_default=_utc_now,
         nullable=False,
+    )
+    logs: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        nullable=False,
+        default=list,
+        server_default="{}",
     )
 
     __table_args__ = (

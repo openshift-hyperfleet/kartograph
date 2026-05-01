@@ -75,6 +75,15 @@ class DataSourceResponse(BaseModel):
         )
 
 
+class SyncRunLogsResponse(BaseModel):
+    """Response model for sync run log lines."""
+
+    logs: list[str] = Field(
+        default_factory=list,
+        description="Ordered log lines captured during this sync run",
+    )
+
+
 class SyncRunResponse(BaseModel):
     """Response model for a data source sync run."""
 

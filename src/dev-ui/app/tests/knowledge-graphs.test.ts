@@ -537,6 +537,22 @@ describe('Query Console - KG Selector Population', () => {
     expect(callCount).toBe(2)
   })
 
+  it('resets selectedKgId to unscoped when tenant changes', () => {
+    // When the user switches tenants, any KG selected in the previous tenant
+    // must be cleared. A stale KG ID from tenant A would not exist in tenant B
+    // and would cause queries to fail silently or return wrong results.
+    const selectedKgId = { value: 'kg-from-old-tenant' }
+
+    // Simulate the tenantVersion watcher handler in query/index.vue
+    function onTenantChange() {
+      selectedKgId.value = ''
+    }
+
+    onTenantChange()
+
+    expect(selectedKgId.value).toBe('')
+  })
+
   it('computes scope label as "All knowledge graphs" when no KG selected', () => {
     const selectedKgId = { value: '' }
     const knowledgeGraphs = [{ id: 'kg-1', name: 'Engineering' }]

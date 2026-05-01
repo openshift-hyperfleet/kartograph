@@ -363,7 +363,9 @@ onMounted(() => {
   }
 })
 
-// Re-fetch schema and KG list when tenant changes
+// Re-fetch schema and KG list when tenant changes.
+// selectedKgId is reset so a KG from the old tenant does not carry over —
+// that ID would not exist in the new tenant and would cause query failures.
 watch(tenantVersion, () => {
   if (hasTenant.value) {
     result.value = null
@@ -371,6 +373,7 @@ watch(tenantVersion, () => {
     executionTime.value = null
     nodeLabels.value = []
     edgeLabels.value = []
+    selectedKgId.value = ''
     fetchSchema()
     loadKnowledgeGraphs()
   }

@@ -75,6 +75,13 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: check-no-multiple-alembic-heads
+        name: Block pushes that leave multiple Alembic migration heads
+        entry: bash .hyperloop/checks/check-no-multiple-alembic-heads.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
       - id: docs-export
         name: Export system properties documentation
         entry: bash -c 'make docs-export && git add website/src/data/system-properties.json'

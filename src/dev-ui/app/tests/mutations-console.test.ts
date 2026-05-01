@@ -529,6 +529,7 @@ describe('Mutations Console - file upload: drag-and-drop file handling', () => {
 // "a knowledge graph selector is displayed before the user can submit"
 // "the selector lists all knowledge graphs the user has 'edit' permission on"
 // "no submission is possible until a knowledge graph is selected"
+// "the selected knowledge graph is used as the target for the mutation submission"
 // ────────────────────────────────────────────────────────────────────────────
 
 describe('Mutations Console - knowledge graph selection: structural', () => {
@@ -1120,5 +1121,56 @@ describe('Mutations Console - navigation placement', () => {
     const dataIdx = layoutContent.indexOf("title: 'Data'")
     expect(mutationsIdx).toBeGreaterThan(exploreIdx)
     expect(mutationsIdx).toBeLessThan(dataIdx)
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+// Design Language — Typography: no font-bold (700) in page files
+// Spec: "font weights are limited to regular (400), medium (500), and semibold (600)"
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('Design Language - Typography: no font-bold in page files', () => {
+  const pagesDir = resolve(__dirname, '../pages')
+
+  function getPagesFiles(): string[] {
+    // Read all .vue files in pages and its subdirectories
+    const { readdirSync, statSync } = require('fs')
+    const files: string[] = []
+
+    function walk(dir: string) {
+      for (const entry of readdirSync(dir)) {
+        const full = `${dir}/${entry}`
+        if (statSync(full).isDirectory()) {
+          walk(full)
+        } else if (entry.endsWith('.vue')) {
+          files.push(full)
+        }
+      }
+    }
+
+    walk(pagesDir)
+    return files
+  }
+
+  it('no page file uses font-bold (weight 700) — must use font-semibold (600) or lighter', () => {
+    const pageFiles = getPagesFiles()
+    const violations: string[] = []
+
+    for (const file of pageFiles) {
+      const content = readFileSync(file, 'utf-8')
+      if (content.includes('font-bold')) {
+        const relativePath = file.replace(resolve(__dirname, '..'), '')
+        violations.push(relativePath)
+      }
+    }
+
+    if (violations.length > 0) {
+      throw new Error(
+        `font-bold (weight 700) violates the typography spec (max: semibold/600).\n` +
+        `Found in:\n${violations.map(f => `  - ${f}`).join('\n')}`
+      )
+    }
+
+    expect(violations).toHaveLength(0)
   })
 })

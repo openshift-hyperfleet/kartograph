@@ -5,6 +5,21 @@ The Kartograph UI enables platform admins and developers to go from "I have a da
 
 ## Requirements
 
+### Requirement: Backend API Alignment
+The system SHALL successfully complete all resource operations by correctly integrating with the backend REST API.
+
+#### Scenario: Resource operations succeed end-to-end
+- GIVEN a user performs any create, read, update, or delete operation via the UI
+- WHEN the operation is submitted
+- THEN the corresponding backend API call succeeds (2xx response)
+- AND the UI reflects the updated state without requiring a manual refresh
+
+#### Scenario: Parent context is preserved
+- GIVEN a resource that is scoped to a parent (e.g., a knowledge graph within a workspace)
+- WHEN the user creates or lists that resource
+- THEN the UI includes the parent context required by the API
+- AND the operation succeeds
+
 ### Requirement: Navigation Structure
 The system SHALL organize navigation around user goals, not internal architecture.
 

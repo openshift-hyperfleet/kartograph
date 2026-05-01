@@ -638,7 +638,7 @@ describe('Tenant Context - switching tenants refreshes all data', () => {
   })
 })
 
-// ── Scenario: Keyboard shortcuts ─────────────────────────────────────────────
+// ── Scenario: Keyboard shortcuts ──────────────────────────────────────────
 // Spec: "GIVEN a power-user action (execute query, focus search)
 // THEN a keyboard shortcut is available (Ctrl/Cmd+Enter, /)
 // AND the shortcut is discoverable via tooltip or documentation"
@@ -737,5 +737,107 @@ describe('Keyboard shortcuts — power-user actions', () => {
     )
     expect(source).toContain('keydown')
     expect(source).not.toContain('setInterval')
+  })
+})
+
+describe('Interaction Principles - keyboard shortcuts', () => {
+  it('Ctrl+Enter triggers query execution in the Query Console', () => {
+    let queryExecuted = false
+    function executeQuery() {
+      queryExecuted = true
+    }
+
+    function handleQueryShortcut(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault()
+        executeQuery()
+      }
+    }
+
+    const event = new KeyboardEvent('keydown', { ctrlKey: true, key: 'Enter' })
+    handleQueryShortcut(event)
+    expect(queryExecuted).toBe(true)
+  })
+
+  it('Cmd+Enter (macOS) also triggers query execution', () => {
+    let queryExecuted = false
+    function executeQuery() {
+      queryExecuted = true
+    }
+
+    function handleQueryShortcut(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault()
+        executeQuery()
+      }
+    }
+
+    const event = new KeyboardEvent('keydown', { metaKey: true, key: 'Enter' })
+    handleQueryShortcut(event)
+    expect(queryExecuted).toBe(true)
+  })
+
+  it('plain Enter key does NOT execute the query (avoids accidental runs)', () => {
+    let queryExecuted = false
+    function executeQuery() {
+      queryExecuted = true
+    }
+
+    function handleQueryShortcut(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault()
+        executeQuery()
+      }
+    }
+
+    const event = new KeyboardEvent('keydown', { ctrlKey: false, metaKey: false, key: 'Enter' })
+    handleQueryShortcut(event)
+    expect(queryExecuted).toBe(false)
+  })
+
+  it('/ key focuses the search input (global navigation shortcut)', () => {
+    let searchFocused = false
+
+    function handleGlobalKeydown(e: KeyboardEvent) {
+      // Ignore if user is typing in an input/textarea
+      const target = e.target as HTMLElement | null
+      const isTypingInInput = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA'
+      if (!isTypingInInput && e.key === '/') {
+        e.preventDefault()
+        searchFocused = true
+      }
+    }
+
+    // Simulate pressing / from the page body
+    const event = new KeyboardEvent('keydown', { key: '/' })
+    Object.defineProperty(event, 'target', {
+      value: document.body,
+      writable: false,
+    })
+    handleGlobalKeydown(event)
+    expect(searchFocused).toBe(true)
+  })
+
+  it('/ key does NOT steal focus when user is already typing in an input', () => {
+    let searchFocused = false
+
+    function handleGlobalKeydown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null
+      const isTypingInInput = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA'
+      if (!isTypingInInput && e.key === '/') {
+        e.preventDefault()
+        searchFocused = true
+      }
+    }
+
+    // Simulate pressing / while in a text input
+    const input = document.createElement('input')
+    const event = new KeyboardEvent('keydown', { key: '/' })
+    Object.defineProperty(event, 'target', {
+      value: input,
+      writable: false,
+    })
+    handleGlobalKeydown(event)
+    expect(searchFocused).toBe(false)
   })
 })

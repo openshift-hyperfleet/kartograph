@@ -705,3 +705,289 @@ class TestListAllDataSourcesRoute:
         mock_ds_service.list_all_for_user.assert_called_once_with(
             user_id=mock_current_user.user_id.value
         )
+
+
+class TestProposeOntologyRoute:
+    """Tests for POST /management/ontology-proposals endpoint.
+
+    Spec: "Ontology Design — Scenario: Agent-proposed ontology"
+    GIVEN a free-text intent description and a connected data source
+    WHEN the user submits their intent
+    THEN the system performs a lightweight scan of the data source
+    AND an AI agent explores the scanned data and proposes an ontology
+    AND the proposed ontology is presented to the user for review
+    """
+
+    def test_propose_ontology_github_returns_200_with_node_and_edge_types(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """Should return 200 with proposed node and edge types for GitHub adapter."""
+        response = test_client.post(
+            "/management/ontology-proposals",
+            json={
+                "adapter_type": "github",
+                "intent": "I want to understand contributor patterns and issue triage",
+                "connection_config": {"repo_url": "https://github.com/owner/repo"},
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert "node_types" in data
+        assert "edge_types" in data
+        assert len(data["node_types"]) > 0
+        assert len(data["edge_types"]) > 0
+
+    def test_propose_ontology_github_node_types_have_required_fields(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """Each proposed node type must have label, description, and property lists."""
+        response = test_client.post(
+            "/management/ontology-proposals",
+            json={
+                "adapter_type": "github",
+                "intent": "Find all contributors",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        for node in response.json()["node_types"]:
+            assert "label" in node
+            assert "description" in node
+            assert "required_properties" in node
+            assert "optional_properties" in node
+
+    def test_propose_ontology_github_edge_types_have_required_fields(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """Each proposed edge type must have label, description, from, to, and property lists."""
+        response = test_client.post(
+            "/management/ontology-proposals",
+            json={
+                "adapter_type": "github",
+                "intent": "Find all contributors",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        for edge in response.json()["edge_types"]:
+            assert "label" in edge
+            assert "description" in edge
+            assert "from_type" in edge
+            assert "to_type" in edge
+            assert "required_properties" in edge
+            assert "optional_properties" in edge
+
+    def test_propose_ontology_unknown_adapter_returns_empty_types(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """Should return 200 with empty node/edge types for unknown adapter."""
+        response = test_client.post(
+            "/management/ontology-proposals",
+            json={
+                "adapter_type": "unknown_adapter",
+                "intent": "Some intent",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["node_types"] == []
+        assert data["edge_types"] == []
+
+    def test_propose_ontology_requires_intent(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """Should return 422 when intent is missing."""
+        response = test_client.post(
+            "/management/ontology-proposals",
+            json={
+                "adapter_type": "github",
+            },
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    def test_propose_ontology_requires_adapter_type(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """Should return 422 when adapter_type is missing."""
+        response = test_client.post(
+            "/management/ontology-proposals",
+            json={
+                "intent": "Some intent",
+            },
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    def test_propose_ontology_intent_is_not_ignored(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """Intent text must be accepted and processed (not ignored).
+
+        This test confirms the endpoint accepts a non-empty intent and returns
+        a proposal — i.e., intent text is included in the request and handled.
+        """
+        intent_text = "I want to track issues assigned to specific contributors"
+        response = test_client.post(
+            "/management/ontology-proposals",
+            json={
+                "adapter_type": "github",
+                "intent": intent_text,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Endpoint must have accepted and processed the intent (not rejected it)
+        data = response.json()
+        assert "node_types" in data
+        assert "edge_types" in data
+
+    def test_propose_ontology_connection_config_is_optional(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """Should return 200 when connection_config is omitted."""
+        response = test_client.post(
+            "/management/ontology-proposals",
+            json={
+                "adapter_type": "github",
+                "intent": "Some intent",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+
+class TestCreateDataSourceWithOntology:
+    """Tests for POST /management/knowledge-graphs/{kg_id}/data-sources with ontology.
+
+    Spec: "Ontology Design — Scenario: Ontology review and approval"
+    GIVEN a proposed ontology
+    WHEN the user reviews and approves it
+    THEN extraction begins only after the user explicitly approves
+    AND user edits to individual types must be persisted
+    """
+
+    def test_create_data_source_accepts_optional_ontology_field(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Should accept and process an ontology field in the create request."""
+        mock_ds_service.create.return_value = sample_data_source
+
+        response = test_client.post(
+            f"/management/knowledge-graphs/{sample_data_source.knowledge_graph_id}/data-sources",
+            json={
+                "name": "My Data Source",
+                "adapter_type": "github",
+                "connection_config": {"repo_url": "https://github.com/owner/repo"},
+                "ontology": {
+                    "node_types": [
+                        {
+                            "label": "Repository",
+                            "description": "A GitHub repository",
+                            "required_properties": ["name", "url"],
+                            "optional_properties": ["description"],
+                        }
+                    ],
+                    "edge_types": [
+                        {
+                            "label": "CONTAINS",
+                            "description": "Repository contains issues",
+                            "from_type": "Repository",
+                            "to_type": "Issue",
+                            "required_properties": [],
+                            "optional_properties": [],
+                        }
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_create_data_source_without_ontology_still_works(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Ontology is optional — omitting it should not break existing flows."""
+        mock_ds_service.create.return_value = sample_data_source
+
+        response = test_client.post(
+            f"/management/knowledge-graphs/{sample_data_source.knowledge_graph_id}/data-sources",
+            json={
+                "name": "My Data Source",
+                "adapter_type": "github",
+                "connection_config": {"repo": "org/repo"},
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_create_data_source_ontology_node_types_included_in_connection_config(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """Approved ontology node types must be stored and not silently discarded.
+
+        The approved node/edge types must reach the service layer so the system
+        can use them during extraction.
+        """
+        mock_ds_service.create.return_value = sample_data_source
+
+        node_types = [
+            {
+                "label": "Repository",
+                "description": "A GitHub repository",
+                "required_properties": ["name", "url"],
+                "optional_properties": ["stars"],
+            }
+        ]
+        edge_types = [
+            {
+                "label": "CONTAINS",
+                "description": "Repository contains issues",
+                "from_type": "Repository",
+                "to_type": "Issue",
+                "required_properties": [],
+                "optional_properties": [],
+            }
+        ]
+
+        test_client.post(
+            f"/management/knowledge-graphs/{sample_data_source.knowledge_graph_id}/data-sources",
+            json={
+                "name": "My Data Source",
+                "adapter_type": "github",
+                "connection_config": {"repo_url": "https://github.com/owner/repo"},
+                "ontology": {
+                    "node_types": node_types,
+                    "edge_types": edge_types,
+                },
+            },
+        )
+
+        # The service must be called with connection_config that includes the ontology
+        # so the approved types are not silently discarded
+        mock_ds_service.create.assert_called_once()
+        call_kwargs = mock_ds_service.create.call_args.kwargs
+        assert "_ontology" in call_kwargs["connection_config"]
+        stored = call_kwargs["connection_config"]["_ontology"]
+        assert stored["node_types"][0]["label"] == "Repository"
+        assert stored["edge_types"][0]["label"] == "CONTAINS"

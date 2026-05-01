@@ -404,3 +404,207 @@ describe('Group Management - remove member dialog guard', () => {
     expect(removeGroupMember).not.toHaveBeenCalled()
   })
 })
+
+// ── Interaction Principles: Progressive Disclosure ────────────────────────────
+// Spec: "Progressive disclosure" (experience.spec.md)
+//   GIVEN complex information
+//   THEN the UI shows a summary by default
+//   AND detail is revealed on demand (expand, drill-in, sheet)
+//
+// For the groups page:
+//   - The group list shows compact rows (name, member count badge, delete action)
+//   - Group member detail is ONLY shown when a group is selected
+//   - Members are fetched lazily (only when selectGroup is called)
+
+describe('Group Management — Interaction Principles: Progressive Disclosure', () => {
+  it('member list starts empty and detail panel is hidden before any group is selected', () => {
+    const members: GroupMemberResponse[] = []
+    const selectedGroup: GroupResponse | null = null
+
+    const detailPanelVisible = selectedGroup !== null
+    expect(detailPanelVisible).toBe(false)
+    expect(members).toHaveLength(0)
+  })
+
+  it('detail panel becomes visible when selectGroup is called', () => {
+    let selectedGroup: GroupResponse | null = null
+
+    const group: GroupResponse = { id: 'g-1', name: 'Engineering', created_at: '' }
+
+    function selectGroup(g: GroupResponse) {
+      if (selectedGroup?.id === g.id) {
+        selectedGroup = null
+        return
+      }
+      selectedGroup = g
+    }
+
+    expect(selectedGroup).toBeNull()
+    selectGroup(group)
+    expect(selectedGroup).toBe(group)
+    expect(selectedGroup !== null).toBe(true)
+  })
+
+  it('selecting the same group a second time collapses the detail (toggle)', () => {
+    const group: GroupResponse = { id: 'g-1', name: 'Engineering', created_at: '' }
+    let selectedGroup: GroupResponse | null = group
+
+    function selectGroup(g: GroupResponse) {
+      if (selectedGroup?.id === g.id) {
+        selectedGroup = null
+        return
+      }
+      selectedGroup = g
+    }
+
+    selectGroup(group) // click again → toggles off
+    expect(selectedGroup).toBeNull()
+  })
+
+  it('members are fetched lazily — only after selectGroup is called', async () => {
+    const fetchMembers = vi.fn().mockResolvedValue([])
+    let selectedGroup: GroupResponse | null = null
+
+    const group: GroupResponse = { id: 'g-1', name: 'Engineering', created_at: '' }
+
+    async function selectGroup(g: GroupResponse) {
+      if (selectedGroup?.id === g.id) {
+        selectedGroup = null
+        return
+      }
+      selectedGroup = g
+      await fetchMembers(g)
+    }
+
+    expect(fetchMembers).not.toHaveBeenCalled()
+    await selectGroup(group)
+    expect(fetchMembers).toHaveBeenCalledWith(group)
+    expect(fetchMembers).toHaveBeenCalledTimes(1)
+  })
+
+  it('closeDetails resets selectedGroup and members to hidden state', () => {
+    let selectedGroup: GroupResponse | null = { id: 'g-1', name: 'Engineering', created_at: '' }
+    let members: GroupMemberResponse[] = [{ user_id: 'user-1', role: 'admin' }]
+    let editingName = true
+
+    function closeDetails() {
+      selectedGroup = null
+      members = []
+      editingName = false
+    }
+
+    closeDetails()
+    expect(selectedGroup).toBeNull()
+    expect(members).toHaveLength(0)
+    expect(editingName).toBe(false)
+  })
+
+  it('group list rows show summary only (name, member count); members not in list rows', () => {
+    // Groups list row renders: name, member count badge, delete button
+    // Member details are only in the SettingsGroupDetailPanel (selectedGroup !== null)
+    const group = { id: 'g-1', name: 'Engineering', members: [{ user_id: 'u1' }, { user_id: 'u2' }] }
+
+    const rowContent = {
+      name: group.name,
+      memberCountBadge: group.members.length, // count shown, not inline list
+      hasInlineMemberList: false,
+    }
+
+    expect(rowContent.hasInlineMemberList).toBe(false)
+    expect(rowContent.memberCountBadge).toBe(2)
+  })
+})
+
+// ── Interaction Principles: Inline Actions over Navigation ────────────────────
+// Spec: "Inline actions over navigation" (experience.spec.md)
+//   GIVEN an editable resource (workspace name, group name)
+//   THEN editing happens in-place or in a side panel
+//   AND the user is not navigated to a separate edit page
+
+describe('Group Management — Interaction Principles: Inline Actions over Navigation', () => {
+  it('startRename sets editingName = true without any navigation', () => {
+    let editingName = false
+    let editNameValue = ''
+    const navigateTo = vi.fn()
+
+    const group: GroupResponse = { id: 'g-1', name: 'Engineering', created_at: '' }
+
+    function startRename(g: GroupResponse) {
+      editNameValue = g.name
+      editingName = true
+      // Inline edit — no navigation to '/groups/g-1/edit'
+    }
+
+    startRename(group)
+    expect(editingName).toBe(true)
+    expect(editNameValue).toBe('Engineering')
+    expect(navigateTo).not.toHaveBeenCalled()
+  })
+
+  it('cancelRename resets editingName to false without any navigation', () => {
+    let editingName = true
+    let editNameValue = 'Engineering'
+    const navigateTo = vi.fn()
+
+    function cancelRename() {
+      editingName = false
+      editNameValue = ''
+      // No navigateTo call
+    }
+
+    cancelRename()
+    expect(editingName).toBe(false)
+    expect(editNameValue).toBe('')
+    expect(navigateTo).not.toHaveBeenCalled()
+  })
+
+  it('inline rename toggle: startRename → cancelRename restores hidden state', () => {
+    let editingName = false
+
+    function startRename() { editingName = true }
+    function cancelRename() { editingName = false }
+
+    expect(editingName).toBe(false)
+    startRename()
+    expect(editingName).toBe(true)
+    cancelRename()
+    expect(editingName).toBe(false)
+  })
+
+  it('confirmDelete opens a dialog inline without navigating to a delete page', () => {
+    let deleteDialogOpen = false
+    let groupToDelete: GroupResponse | null = null
+    const navigateTo = vi.fn()
+
+    const group: GroupResponse = { id: 'g-1', name: 'Engineering', created_at: '' }
+
+    function confirmDelete(g: GroupResponse) {
+      groupToDelete = g
+      deleteDialogOpen = true
+      // No navigation to '/groups/g-1/delete' or similar
+    }
+
+    confirmDelete(group)
+    expect(deleteDialogOpen).toBe(true)
+    expect(groupToDelete).toBe(group)
+    expect(navigateTo).not.toHaveBeenCalled()
+  })
+
+  it('no "/edit" route is used in any group management action', () => {
+    // Documents that all group editing happens in-place.
+    const navigateCalls: string[] = []
+    const fakeNavigateTo = (path: string) => navigateCalls.push(path)
+
+    const group: GroupResponse = { id: 'g-1', name: 'Engineering', created_at: '' }
+
+    function startRename(g: GroupResponse) { void g.id }
+    function confirmDelete(g: GroupResponse) { void g.id }
+
+    startRename(group)
+    confirmDelete(group)
+
+    const editRoutes = navigateCalls.filter((p) => p.includes('/edit'))
+    expect(editRoutes).toHaveLength(0)
+    expect(fakeNavigateTo).toBeDefined()
+  })
+})

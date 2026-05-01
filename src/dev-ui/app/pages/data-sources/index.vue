@@ -89,6 +89,7 @@ interface ProposedNodeType {
   editDescription: string
   editRequired: string
   editOptional: string
+  editError?: string
 }
 
 interface ProposedEdgeType {
@@ -103,6 +104,7 @@ interface ProposedEdgeType {
   editDescription: string
   editRequired: string
   editOptional: string
+  editError?: string
 }
 
 // ── Sync phase helpers ─────────────────────────────────────────────────────
@@ -408,7 +410,17 @@ function startEditNode(index: number) {
 
 function saveEditNode(index: number) {
   const n = proposedNodes.value[index]
-  n.label = n.editLabel.trim() || n.label
+  const trimmedLabel = n.editLabel.trim()
+  if (!trimmedLabel) {
+    n.editError = 'Label is required'
+    return
+  }
+  if (proposedNodes.value.some((x, i) => i !== index && x.label === trimmedLabel)) {
+    n.editError = 'A type with this label already exists'
+    return
+  }
+  n.editError = ''
+  n.label = trimmedLabel
   n.description = n.editDescription
   n.required_properties = n.editRequired.split(',').map((s) => s.trim()).filter(Boolean)
   n.optional_properties = n.editOptional.split(',').map((s) => s.trim()).filter(Boolean)
@@ -417,6 +429,7 @@ function saveEditNode(index: number) {
 
 function cancelEditNode(index: number) {
   proposedNodes.value[index].editing = false
+  proposedNodes.value[index].editError = ''
 }
 
 function removeNode(index: number) {
@@ -434,7 +447,17 @@ function startEditEdge(index: number) {
 
 function saveEditEdge(index: number) {
   const e = proposedEdges.value[index]
-  e.label = e.editLabel.trim() || e.label
+  const trimmedLabel = e.editLabel.trim()
+  if (!trimmedLabel) {
+    e.editError = 'Label is required'
+    return
+  }
+  if (proposedEdges.value.some((x, i) => i !== index && x.label === trimmedLabel)) {
+    e.editError = 'A type with this label already exists'
+    return
+  }
+  e.editError = ''
+  e.label = trimmedLabel
   e.description = e.editDescription
   e.required_properties = e.editRequired.split(',').map((s) => s.trim()).filter(Boolean)
   e.optional_properties = e.editOptional.split(',').map((s) => s.trim()).filter(Boolean)
@@ -443,10 +466,43 @@ function saveEditEdge(index: number) {
 
 function cancelEditEdge(index: number) {
   proposedEdges.value[index].editing = false
+  proposedEdges.value[index].editError = ''
 }
 
 function removeEdge(index: number) {
   proposedEdges.value.splice(index, 1)
+}
+
+// ── Add new types (wizard) ─────────────────────────────────────────────────
+
+function addNode() {
+  proposedNodes.value.push({
+    label: '',
+    description: '',
+    required_properties: [],
+    optional_properties: [],
+    editing: true,
+    editLabel: '',
+    editDescription: '',
+    editRequired: '',
+    editOptional: '',
+  })
+}
+
+function addEdge() {
+  proposedEdges.value.push({
+    label: '',
+    description: '',
+    from: '',
+    to: '',
+    required_properties: [],
+    optional_properties: [],
+    editing: true,
+    editLabel: '',
+    editDescription: '',
+    editRequired: '',
+    editOptional: '',
+  })
 }
 
 // ── Knowledge graph loader ─────────────────────────────────────────────────
@@ -645,6 +701,114 @@ function closeOntologyEditor() {
   pendingOntologyEditDsId.value = null
   editNodes.value = []
   editEdges.value = []
+}
+
+// ── Ontology editor dialog — type editing ─────────────────────────────────
+
+function startEditNodeEditor(index: number) {
+  const n = editNodes.value[index]
+  n.editLabel = n.label
+  n.editDescription = n.description
+  n.editRequired = n.required_properties.join(', ')
+  n.editOptional = n.optional_properties.join(', ')
+  n.editError = ''
+  n.editing = true
+}
+
+function saveEditNodeEditor(index: number) {
+  const n = editNodes.value[index]
+  const trimmedLabel = n.editLabel.trim()
+  if (!trimmedLabel) {
+    n.editError = 'Label is required'
+    return
+  }
+  if (editNodes.value.some((x, i) => i !== index && x.label === trimmedLabel)) {
+    n.editError = 'A type with this label already exists'
+    return
+  }
+  n.editError = ''
+  n.label = trimmedLabel
+  n.description = n.editDescription
+  n.required_properties = n.editRequired.split(',').map((s) => s.trim()).filter(Boolean)
+  n.optional_properties = n.editOptional.split(',').map((s) => s.trim()).filter(Boolean)
+  n.editing = false
+}
+
+function cancelEditNodeEditor(index: number) {
+  editNodes.value[index].editing = false
+  editNodes.value[index].editError = ''
+}
+
+function removeNodeEditor(index: number) {
+  editNodes.value.splice(index, 1)
+}
+
+function startEditEdgeEditor(index: number) {
+  const e = editEdges.value[index]
+  e.editLabel = e.label
+  e.editDescription = e.description
+  e.editRequired = e.required_properties.join(', ')
+  e.editOptional = e.optional_properties.join(', ')
+  e.editError = ''
+  e.editing = true
+}
+
+function saveEditEdgeEditor(index: number) {
+  const e = editEdges.value[index]
+  const trimmedLabel = e.editLabel.trim()
+  if (!trimmedLabel) {
+    e.editError = 'Label is required'
+    return
+  }
+  if (editEdges.value.some((x, i) => i !== index && x.label === trimmedLabel)) {
+    e.editError = 'A type with this label already exists'
+    return
+  }
+  e.editError = ''
+  e.label = trimmedLabel
+  e.description = e.editDescription
+  e.required_properties = e.editRequired.split(',').map((s) => s.trim()).filter(Boolean)
+  e.optional_properties = e.editOptional.split(',').map((s) => s.trim()).filter(Boolean)
+  e.editing = false
+}
+
+function cancelEditEdgeEditor(index: number) {
+  editEdges.value[index].editing = false
+  editEdges.value[index].editError = ''
+}
+
+function removeEdgeEditor(index: number) {
+  editEdges.value.splice(index, 1)
+}
+
+function addEditNode() {
+  editNodes.value.push({
+    label: '',
+    description: '',
+    required_properties: [],
+    optional_properties: [],
+    editing: true,
+    editLabel: '',
+    editDescription: '',
+    editRequired: '',
+    editOptional: '',
+  })
+}
+
+function addEditEdge() {
+  editEdges.value.push({
+    label: '',
+    description: '',
+    from: '',
+    to: '',
+    required_properties: [],
+    optional_properties: [],
+    editing: true,
+    editLabel: '',
+    editDescription: '',
+    editRequired: '',
+    editOptional: '',
+  })
 }
 
 // ── FAIL 3: Sync Logs (View Logs per sync run) ────────────────────────────
@@ -1141,7 +1305,8 @@ function closeLogs() {
                     <div class="grid grid-cols-2 gap-3">
                       <div class="space-y-1">
                         <Label class="text-xs">Label</Label>
-                        <Input v-model="node.editLabel" class="h-8 text-xs" />
+                        <Input v-model="node.editLabel" class="h-8 text-xs" @input="node.editError = ''" />
+                        <p v-if="node.editError" class="text-xs text-destructive">{{ node.editError }}</p>
                       </div>
                       <div class="space-y-1">
                         <Label class="text-xs">Description</Label>
@@ -1171,6 +1336,11 @@ function closeLogs() {
                   </CardContent>
                 </Card>
               </div>
+              <!-- Add Node Type button -->
+              <Button variant="outline" size="sm" class="mt-2 w-full gap-2" @click="addNode">
+                <Plus class="size-4" />
+                Add Node Type
+              </Button>
             </div>
 
             <!-- Edge types -->
@@ -1237,11 +1407,22 @@ function closeLogs() {
                     <div class="grid grid-cols-2 gap-3">
                       <div class="space-y-1">
                         <Label class="text-xs">Label</Label>
-                        <Input v-model="edge.editLabel" class="h-8 text-xs" />
+                        <Input v-model="edge.editLabel" class="h-8 text-xs" @input="edge.editError = ''" />
+                        <p v-if="edge.editError" class="text-xs text-destructive">{{ edge.editError }}</p>
                       </div>
                       <div class="space-y-1">
                         <Label class="text-xs">Description</Label>
                         <Input v-model="edge.editDescription" class="h-8 text-xs" />
+                      </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                      <div class="space-y-1">
+                        <Label class="text-xs">From type</Label>
+                        <Input v-model="edge.from" placeholder="e.g. Repository" class="h-8 text-xs" />
+                      </div>
+                      <div class="space-y-1">
+                        <Label class="text-xs">To type</Label>
+                        <Input v-model="edge.to" placeholder="e.g. Issue" class="h-8 text-xs" />
                       </div>
                     </div>
                     <div class="grid grid-cols-2 gap-3">
@@ -1267,6 +1448,11 @@ function closeLogs() {
                   </CardContent>
                 </Card>
               </div>
+              <!-- Add Edge Type button -->
+              <Button variant="outline" size="sm" class="mt-2 w-full gap-2" @click="addEdge">
+                <Plus class="size-4" />
+                Add Edge Type
+              </Button>
             </div>
           </template>
 
@@ -1346,8 +1532,11 @@ function closeLogs() {
                   </div>
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
-                  <Button variant="ghost" size="icon" class="size-7" @click="startEditNode(idx)">
+                  <Button variant="ghost" size="icon" class="size-7" @click="startEditNodeEditor(idx)">
                     <Pencil class="size-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" class="size-7 text-destructive hover:text-destructive" @click="removeNodeEditor(idx)">
+                    <Trash2 class="size-3.5" />
                   </Button>
                 </div>
               </CardContent>
@@ -1355,7 +1544,8 @@ function closeLogs() {
                 <div class="grid grid-cols-2 gap-3">
                   <div class="space-y-1">
                     <Label class="text-xs">Label</Label>
-                    <Input v-model="node.editLabel" class="h-8 text-xs" />
+                    <Input v-model="node.editLabel" class="h-8 text-xs" @input="node.editError = ''" />
+                    <p v-if="node.editError" class="text-xs text-destructive">{{ node.editError }}</p>
                   </div>
                   <div class="space-y-1">
                     <Label class="text-xs">Description</Label>
@@ -1373,16 +1563,21 @@ function closeLogs() {
                   </div>
                 </div>
                 <div class="flex justify-end gap-2">
-                  <Button variant="ghost" size="sm" class="h-7 text-xs" @click="cancelEditNode(idx)">
+                  <Button variant="ghost" size="sm" class="h-7 text-xs" @click="cancelEditNodeEditor(idx)">
                     <X class="mr-1 size-3" /> Cancel
                   </Button>
-                  <Button size="sm" class="h-7 text-xs" @click="saveEditNode(idx)">
+                  <Button size="sm" class="h-7 text-xs" @click="saveEditNodeEditor(idx)">
                     <Check class="mr-1 size-3" /> Save
                   </Button>
                 </div>
               </CardContent>
             </Card>
           </div>
+          <!-- Add Node Type button -->
+          <Button variant="outline" size="sm" class="mt-2 w-full gap-2" @click="addEditNode">
+            <Plus class="size-4" />
+            Add Node Type
+          </Button>
         </div>
 
         <!-- Edge types -->
@@ -1399,32 +1594,63 @@ function closeLogs() {
                   <p class="text-xs text-muted-foreground">{{ edge.description }}</p>
                   <p class="text-xs text-muted-foreground/70 mt-0.5">{{ edge.from }} → {{ edge.to }}</p>
                 </div>
-                <Button variant="ghost" size="icon" class="size-7 shrink-0" @click="startEditEdge(idx)">
-                  <Pencil class="size-3.5" />
-                </Button>
+                <div class="flex shrink-0 items-center gap-1">
+                  <Button variant="ghost" size="icon" class="size-7 shrink-0" @click="startEditEdgeEditor(idx)">
+                    <Pencil class="size-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" class="size-7 shrink-0 text-destructive hover:text-destructive" @click="removeEdgeEditor(idx)">
+                    <Trash2 class="size-3.5" />
+                  </Button>
+                </div>
               </CardContent>
               <CardContent v-else class="space-y-3 p-3">
                 <div class="grid grid-cols-2 gap-3">
                   <div class="space-y-1">
                     <Label class="text-xs">Label</Label>
-                    <Input v-model="edge.editLabel" class="h-8 text-xs" />
+                    <Input v-model="edge.editLabel" class="h-8 text-xs" @input="edge.editError = ''" />
+                    <p v-if="edge.editError" class="text-xs text-destructive">{{ edge.editError }}</p>
                   </div>
                   <div class="space-y-1">
                     <Label class="text-xs">Description</Label>
                     <Input v-model="edge.editDescription" class="h-8 text-xs" />
                   </div>
                 </div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="space-y-1">
+                    <Label class="text-xs">From type</Label>
+                    <Input v-model="edge.from" placeholder="e.g. Repository" class="h-8 text-xs" />
+                  </div>
+                  <div class="space-y-1">
+                    <Label class="text-xs">To type</Label>
+                    <Input v-model="edge.to" placeholder="e.g. Issue" class="h-8 text-xs" />
+                  </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="space-y-1">
+                    <Label class="text-xs">Required properties</Label>
+                    <Input v-model="edge.editRequired" placeholder="comma-separated" class="h-8 text-xs" />
+                  </div>
+                  <div class="space-y-1">
+                    <Label class="text-xs">Optional properties</Label>
+                    <Input v-model="edge.editOptional" placeholder="comma-separated" class="h-8 text-xs" />
+                  </div>
+                </div>
                 <div class="flex justify-end gap-2">
-                  <Button variant="ghost" size="sm" class="h-7 text-xs" @click="cancelEditEdge(idx)">
+                  <Button variant="ghost" size="sm" class="h-7 text-xs" @click="cancelEditEdgeEditor(idx)">
                     <X class="mr-1 size-3" /> Cancel
                   </Button>
-                  <Button size="sm" class="h-7 text-xs" @click="saveEditEdge(idx)">
+                  <Button size="sm" class="h-7 text-xs" @click="saveEditEdgeEditor(idx)">
                     <Check class="mr-1 size-3" /> Save
                   </Button>
                 </div>
               </CardContent>
             </Card>
           </div>
+          <!-- Add Edge Type button -->
+          <Button variant="outline" size="sm" class="mt-2 w-full gap-2" @click="addEditEdge">
+            <Plus class="size-4" />
+            Add Edge Type
+          </Button>
         </div>
 
         <DialogFooter class="pt-4">

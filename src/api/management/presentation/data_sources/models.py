@@ -90,7 +90,8 @@ class SyncRunResponse(BaseModel):
     id: str = Field(..., description="Sync Run ID (ULID format)")
     data_source_id: str = Field(..., description="Data Source ID this run belongs to")
     status: str = Field(
-        ..., description="Sync run status (pending, running, completed, failed)"
+        ...,
+        description="Sync run status (pending, ingesting, ai_extracting, applying, completed, failed)",
     )
     started_at: datetime = Field(..., description="When the sync run started")
     completed_at: datetime | None = Field(

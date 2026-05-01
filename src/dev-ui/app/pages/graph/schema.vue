@@ -4,7 +4,7 @@ import { toast } from 'vue-sonner'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import {
   Database, GitBranch, Search, Loader2, Info, ChevronRight, ChevronDown,
-  Building2, Terminal, Share2, FileCode, Plus,
+  Building2, Terminal, Share2, FileCode, PenLine, Plus,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -196,19 +196,10 @@ function navigateToExplorer(label: string) {
   })
 }
 
-function navigateToMutations(label: string, entityType: 'node' | 'edge') {
-  const template = JSON.stringify({
-    op: 'DEFINE',
-    type: entityType,
-    label,
-    description: '',
-    required_properties: [],
-    optional_properties: [],
-  })
-
+function navigateToOntologyEditor(label: string) {
   navigateTo({
-    path: '/graph/mutations',
-    query: { template },
+    path: '/data-sources',
+    query: { openOntologyType: label },
   })
 }
 
@@ -439,12 +430,12 @@ onUnmounted(() => {
                           variant="ghost"
                           size="icon"
                           class="size-7"
-                          @click.stop="navigateToMutations(filteredNodeLabels[virtualRow.index], 'node')"
+                          @click.stop="navigateToOntologyEditor(filteredNodeLabels[virtualRow.index])"
                         >
-                          <FileCode class="size-3.5" />
+                          <PenLine class="size-3.5" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent><p>Edit type definition</p></TooltipContent>
+                      <TooltipContent><p>Edit in ontology editor</p></TooltipContent>
                     </Tooltip>
                   </div>
                 </div>
@@ -634,12 +625,12 @@ onUnmounted(() => {
                           variant="ghost"
                           size="icon"
                           class="size-7"
-                          @click.stop="navigateToMutations(filteredEdgeLabels[virtualRow.index], 'edge')"
+                          @click.stop="navigateToOntologyEditor(filteredEdgeLabels[virtualRow.index])"
                         >
-                          <FileCode class="size-3.5" />
+                          <PenLine class="size-3.5" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent><p>Edit type definition</p></TooltipContent>
+                      <TooltipContent><p>Edit in ontology editor</p></TooltipContent>
                     </Tooltip>
                   </div>
                 </div>

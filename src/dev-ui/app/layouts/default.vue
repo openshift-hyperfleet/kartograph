@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import kartographLogo from '~/assets/kartograph-logo.png'
 import {
@@ -64,6 +64,7 @@ const { isDark, toggle: toggleColorMode } = useColorMode()
 // ── Auth & Tenant state ────────────────────────────────────────────────────
 const { user, isAuthenticated, logout } = useAuth()
 const { listTenants, listWorkspaces } = useIamApi()
+const { apiFetch } = useApiClient()
 const { extractErrorMessage } = useErrorHandler()
 const {
   currentTenantId,
@@ -201,6 +202,7 @@ interface NavItem {
   to: string
   disabled?: boolean
   badge?: string
+  ariaLabel?: string
 }
 
 interface NavSection {
@@ -210,38 +212,75 @@ interface NavSection {
 
 const homeItem: NavItem = { label: 'Home', icon: LayoutDashboard, to: '/' }
 
-const navSections: NavSection[] = [
-  {
-    title: 'Explore',
-    items: [
-      { label: 'Query Console', icon: Terminal, to: '/query' },
-      { label: 'Schema Browser', icon: Database, to: '/graph/schema' },
-      { label: 'Graph Explorer', icon: Share2, to: '/graph/explorer' },
-    ],
-  },
-  {
-    title: 'Data',
-    items: [
-      { label: 'Knowledge Graphs', icon: BookOpen, to: '/knowledge-graphs' },
-      { label: 'Data Sources', icon: Cable, to: '/data-sources' },
-    ],
-  },
-  {
-    title: 'Connect',
-    items: [
-      { label: 'API Keys', icon: KeyRound, to: '/api-keys' },
-      { label: 'MCP Integration', icon: Plug, to: '/integrate/mcp' },
-    ],
-  },
-  {
-    title: 'Settings',
-    items: [
-      { label: 'Workspaces', icon: FolderTree, to: '/workspaces' },
-      { label: 'Groups', icon: Users, to: '/groups' },
-      { label: 'Tenants', icon: Building2, to: '/tenants' },
-    ],
-  },
-]
+// Active sync statuses matching the backend (task-042 canonical values)
+const ACTIVE_SYNC_STATUSES = new Set(['pending', 'ingesting', 'ai_extracting', 'applying'])
+
+const activeSyncCount = ref(0)
+
+async function fetchActiveSyncCount() {
+  if (!hasTenant.value) return
+  try {
+    const result = await apiFetch<{ data_sources: Array<{ latest_sync_run?: { status: string } }> }>(
+      '/management/data-sources',
+    )
+    activeSyncCount.value = (result.data_sources ?? []).filter(
+      (ds) => ds.latest_sync_run && ACTIVE_SYNC_STATUSES.has(ds.latest_sync_run.status),
+    ).length
+  } catch {
+    // Best-effort — badge is an optional indicator, not critical UI
+    activeSyncCount.value = 0
+  }
+}
+
+watch(currentTenantId, (id) => {
+  if (id) fetchActiveSyncCount()
+  else activeSyncCount.value = 0
+}, { immediate: true })
+
+const navSections = computed<NavSection[]>(() => {
+  const badge = activeSyncCount.value > 0 ? String(activeSyncCount.value) : undefined
+  const dsAriaLabel = badge
+    ? `Data Sources — ${activeSyncCount.value} active sync${activeSyncCount.value === 1 ? '' : 's'}`
+    : undefined
+  return [
+    {
+      title: 'Explore',
+      items: [
+        { label: 'Query Console', icon: Terminal, to: '/query' },
+        { label: 'Schema Browser', icon: Database, to: '/graph/schema' },
+        { label: 'Graph Explorer', icon: Share2, to: '/graph/explorer' },
+      ],
+    },
+    {
+      title: 'Data',
+      items: [
+        { label: 'Knowledge Graphs', icon: BookOpen, to: '/knowledge-graphs' },
+        {
+          label: 'Data Sources',
+          icon: Cable,
+          to: '/data-sources',
+          badge,
+          ariaLabel: dsAriaLabel,
+        },
+      ],
+    },
+    {
+      title: 'Connect',
+      items: [
+        { label: 'API Keys', icon: KeyRound, to: '/api-keys' },
+        { label: 'MCP Integration', icon: Plug, to: '/integrate/mcp' },
+      ],
+    },
+    {
+      title: 'Settings',
+      items: [
+        { label: 'Workspaces', icon: FolderTree, to: '/workspaces' },
+        { label: 'Groups', icon: Users, to: '/groups' },
+        { label: 'Tenants', icon: Building2, to: '/tenants' },
+      ],
+    },
+  ]
+})
 
 function isActive(to: string): boolean {
   if (to === '/') return route.path === '/'
@@ -551,6 +590,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
                   <NuxtLink
                     v-else
                     :to="item.to"
+                    :aria-label="item.ariaLabel"
                     :class="[
                       'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
                       isActive(item.to)
@@ -560,6 +600,9 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
                   >
                     <component :is="item.icon" class="size-4 shrink-0" />
                     <span class="truncate">{{ item.label }}</span>
+                    <Badge v-if="item.badge" variant="secondary" class="ml-auto text-[10px] px-1.5 py-0">
+                      {{ item.badge }}
+                    </Badge>
                   </NuxtLink>
                 </template>
               </template>
@@ -717,6 +760,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
                   <NuxtLink
                     v-else
                     :to="item.to"
+                    :aria-label="item.ariaLabel"
                     :class="[
                       'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
                       isActive(item.to)
@@ -727,6 +771,9 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
                   >
                     <component :is="item.icon" class="size-4 shrink-0" />
                     <span>{{ item.label }}</span>
+                    <Badge v-if="item.badge" variant="secondary" class="ml-auto text-[10px] px-1.5 py-0">
+                      {{ item.badge }}
+                    </Badge>
                   </NuxtLink>
                 </template>
               </div>

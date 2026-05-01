@@ -3,8 +3,10 @@
 Provides fast, self-contained test doubles for:
 - IKnowledgeGraphRepository
 - IDataSourceRepository
+- IDataSourceSyncRunRepository
 - ISecretStoreRepository
 - KnowledgeGraphServiceProbe
+- DataSourceServiceProbe
 
 These fakes implement the full port protocols using in-memory storage and
 record all mutation calls so tests can assert on behavior without resorting
@@ -15,6 +17,7 @@ from specs/nfr/testing.spec.md.
 from __future__ import annotations
 
 from management.domain.aggregates import DataSource, KnowledgeGraph
+from management.domain.entities import DataSourceSyncRun
 from management.domain.value_objects import DataSourceId, KnowledgeGraphId
 
 
@@ -234,5 +237,114 @@ class RecordingKnowledgeGraphServiceProbe:
         )
 
     def with_context(self, context: object) -> "RecordingKnowledgeGraphServiceProbe":
+        """Return self — context is not used in tests."""
+        return self
+
+
+class InMemoryDataSourceSyncRunRepository:
+    """In-memory fake implementing IDataSourceSyncRunRepository.
+
+    Stores DataSourceSyncRun entities in a dict keyed by id string.
+    Records all save calls so tests can assert on interactions
+    without using MagicMock.
+    """
+
+    def __init__(self) -> None:
+        self._store: dict[str, DataSourceSyncRun] = {}
+        self.saved: list[DataSourceSyncRun] = []
+
+    async def save(self, sync_run: DataSourceSyncRun) -> None:
+        self.saved.append(sync_run)
+        self._store[sync_run.id] = sync_run
+
+    async def get_by_id(self, sync_run_id: str) -> DataSourceSyncRun | None:
+        return self._store.get(sync_run_id)
+
+    async def find_by_data_source(self, data_source_id: str) -> list[DataSourceSyncRun]:
+        return [
+            sr for sr in self._store.values() if sr.data_source_id == data_source_id
+        ]
+
+    async def get_latest_for_data_source(
+        self, data_source_id: str
+    ) -> DataSourceSyncRun | None:
+        runs = [
+            sr for sr in self._store.values() if sr.data_source_id == data_source_id
+        ]
+        if not runs:
+            return None
+        return max(runs, key=lambda r: r.created_at)
+
+
+class RecordingDataSourceServiceProbe:
+    """Concrete recording probe implementing DataSourceServiceProbe protocol.
+
+    Records every method call in per-method lists so tests can assert on
+    which events were raised and what arguments were passed.  This is a
+    concrete class — NOT a MagicMock(spec=...) — as required by the testing
+    NFR (specs/nfr/testing.spec.md).
+    """
+
+    def __init__(self) -> None:
+        self.data_source_created_calls: list[dict] = []
+        self.data_source_creation_failed_calls: list[dict] = []
+        self.data_source_retrieved_calls: list[dict] = []
+        self.data_source_updated_calls: list[dict] = []
+        self.data_source_deleted_calls: list[dict] = []
+        self.data_source_deletion_failed_calls: list[dict] = []
+        self.data_sources_listed_calls: list[dict] = []
+        self.sync_requested_calls: list[dict] = []
+        self.permission_denied_calls: list[dict] = []
+
+    def data_source_created(
+        self,
+        ds_id: str,
+        kg_id: str,
+        tenant_id: str,
+        name: str,
+    ) -> None:
+        self.data_source_created_calls.append(
+            {"ds_id": ds_id, "kg_id": kg_id, "tenant_id": tenant_id, "name": name}
+        )
+
+    def data_source_creation_failed(
+        self,
+        kg_id: str,
+        name: str,
+        error: str,
+    ) -> None:
+        self.data_source_creation_failed_calls.append(
+            {"kg_id": kg_id, "name": name, "error": error}
+        )
+
+    def data_source_retrieved(self, ds_id: str) -> None:
+        self.data_source_retrieved_calls.append({"ds_id": ds_id})
+
+    def data_source_updated(self, ds_id: str, name: str) -> None:
+        self.data_source_updated_calls.append({"ds_id": ds_id, "name": name})
+
+    def data_source_deleted(self, ds_id: str) -> None:
+        self.data_source_deleted_calls.append({"ds_id": ds_id})
+
+    def data_source_deletion_failed(self, ds_id: str, error: str) -> None:
+        self.data_source_deletion_failed_calls.append({"ds_id": ds_id, "error": error})
+
+    def data_sources_listed(self, kg_id: str, count: int) -> None:
+        self.data_sources_listed_calls.append({"kg_id": kg_id, "count": count})
+
+    def sync_requested(self, ds_id: str) -> None:
+        self.sync_requested_calls.append({"ds_id": ds_id})
+
+    def permission_denied(
+        self,
+        user_id: str,
+        resource_id: str,
+        permission: str,
+    ) -> None:
+        self.permission_denied_calls.append(
+            {"user_id": user_id, "resource_id": resource_id, "permission": permission}
+        )
+
+    def with_context(self, context: object) -> "RecordingDataSourceServiceProbe":
         """Return self — context is not used in tests."""
         return self

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -23,11 +22,21 @@ from management.domain.value_objects import (
 from management.ports.exceptions import UnauthorizedError
 from shared_kernel.authorization.types import Permission
 from shared_kernel.datasource_types import DataSourceAdapterType
+from tests.fakes.authorization import InMemoryAuthorizationProvider
+from tests.fakes.management import (
+    InMemoryDataSourceRepository,
+    InMemoryDataSourceSyncRunRepository,
+    InMemoryKnowledgeGraphRepository,
+    InMemorySecretStoreRepository,
+    RecordingDataSourceServiceProbe,
+)
 
 
 @pytest.fixture
 def mock_session():
-    """Create a mock AsyncSession with begin() context manager."""
+    """Create a fake AsyncSession with begin() context manager."""
+    from unittest.mock import MagicMock
+
     session = MagicMock()
 
     @asynccontextmanager
@@ -39,33 +48,33 @@ def mock_session():
 
 
 @pytest.fixture
-def mock_ds_repo():
-    return AsyncMock()
+def ds_repo():
+    return InMemoryDataSourceRepository()
 
 
 @pytest.fixture
-def mock_kg_repo():
-    return AsyncMock()
+def kg_repo():
+    return InMemoryKnowledgeGraphRepository()
 
 
 @pytest.fixture
-def mock_secret_store():
-    return AsyncMock()
+def secret_store():
+    return InMemorySecretStoreRepository()
 
 
 @pytest.fixture
-def mock_sync_run_repo():
-    return AsyncMock()
+def sync_run_repo():
+    return InMemoryDataSourceSyncRunRepository()
 
 
 @pytest.fixture
-def mock_authz():
-    return AsyncMock()
+def authz():
+    return InMemoryAuthorizationProvider()
 
 
 @pytest.fixture
-def mock_probe():
-    return MagicMock()
+def probe():
+    return RecordingDataSourceServiceProbe()
 
 
 @pytest.fixture
@@ -86,23 +95,23 @@ def kg_id():
 @pytest.fixture
 def service(
     mock_session,
-    mock_ds_repo,
-    mock_kg_repo,
-    mock_secret_store,
-    mock_sync_run_repo,
-    mock_authz,
-    mock_probe,
+    ds_repo,
+    kg_repo,
+    secret_store,
+    sync_run_repo,
+    authz,
+    probe,
     tenant_id,
 ):
     return DataSourceService(
         session=mock_session,
-        data_source_repository=mock_ds_repo,
-        knowledge_graph_repository=mock_kg_repo,
-        secret_store=mock_secret_store,
-        sync_run_repository=mock_sync_run_repo,
-        authz=mock_authz,
+        data_source_repository=ds_repo,
+        knowledge_graph_repository=kg_repo,
+        secret_store=secret_store,
+        sync_run_repository=sync_run_repo,
+        authz=authz,
         scope_to_tenant=tenant_id,
-        probe=mock_probe,
+        probe=probe,
     )
 
 
@@ -158,11 +167,13 @@ class TestDataSourceServiceCreate:
 
     @pytest.mark.asyncio
     async def test_create_checks_edit_permission_on_kg(
-        self, service, mock_authz, user_id, kg_id, mock_kg_repo, tenant_id
+        self, service, authz, user_id, kg_id, kg_repo, tenant_id
     ):
         """create() must check EDIT permission on the knowledge graph."""
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = _make_kg(kg_id=kg_id, tenant_id=tenant_id)
+        await authz.write_relationship(
+            f"knowledge_graph:{kg_id}", "editor", f"user:{user_id}"
+        )
+        kg_repo.seed(_make_kg(kg_id=kg_id, tenant_id=tenant_id))
 
         await service.create(
             user_id=user_id,
@@ -172,18 +183,19 @@ class TestDataSourceServiceCreate:
             connection_config={"url": "https://github.com"},
         )
 
-        mock_authz.check_permission.assert_called_once_with(
-            resource=f"knowledge_graph:{kg_id}",
-            permission=Permission.EDIT,
-            subject=f"user:{user_id}",
-        )
+        assert len(authz.check_permission_calls) == 1
+        assert authz.check_permission_calls[0] == {
+            "resource": f"knowledge_graph:{kg_id}",
+            "permission": Permission.EDIT,
+            "subject": f"user:{user_id}",
+        }
 
     @pytest.mark.asyncio
     async def test_create_raises_unauthorized_when_permission_denied(
-        self, service, mock_authz, mock_probe, user_id, kg_id
+        self, service, probe, user_id, kg_id
     ):
         """create() raises UnauthorizedError when user lacks EDIT on KG."""
-        mock_authz.check_permission.return_value = False
+        # No relationship written — permission denied
 
         with pytest.raises(UnauthorizedError):
             await service.create(
@@ -194,15 +206,17 @@ class TestDataSourceServiceCreate:
                 connection_config={"url": "https://github.com"},
             )
 
-        mock_probe.permission_denied.assert_called_once()
+        assert len(probe.permission_denied_calls) == 1
 
     @pytest.mark.asyncio
     async def test_create_verifies_kg_exists_and_belongs_to_tenant(
-        self, service, mock_authz, mock_kg_repo, user_id, kg_id
+        self, service, authz, user_id, kg_id
     ):
         """create() raises ValueError when KG not found."""
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = None
+        await authz.write_relationship(
+            f"knowledge_graph:{kg_id}", "editor", f"user:{user_id}"
+        )
+        # KG not seeded — get_by_id returns None
 
         with pytest.raises(ValueError, match="not found"):
             await service.create(
@@ -215,13 +229,13 @@ class TestDataSourceServiceCreate:
 
     @pytest.mark.asyncio
     async def test_create_rejects_kg_from_different_tenant(
-        self, service, mock_authz, mock_kg_repo, user_id, kg_id
+        self, service, authz, kg_repo, user_id, kg_id
     ):
         """create() raises ValueError when KG belongs to different tenant."""
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = _make_kg(
-            kg_id=kg_id, tenant_id="other-tenant"
+        await authz.write_relationship(
+            f"knowledge_graph:{kg_id}", "editor", f"user:{user_id}"
         )
+        kg_repo.seed(_make_kg(kg_id=kg_id, tenant_id="other-tenant"))
 
         with pytest.raises(ValueError, match="different tenant"):
             await service.create(
@@ -236,17 +250,19 @@ class TestDataSourceServiceCreate:
     async def test_create_stores_credentials_when_provided(
         self,
         service,
-        mock_authz,
-        mock_kg_repo,
-        mock_secret_store,
-        mock_ds_repo,
+        authz,
+        kg_repo,
+        secret_store,
+        ds_repo,
         user_id,
         kg_id,
         tenant_id,
     ):
         """create() stores credentials via secret store when raw_credentials provided."""
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = _make_kg(kg_id=kg_id, tenant_id=tenant_id)
+        await authz.write_relationship(
+            f"knowledge_graph:{kg_id}", "editor", f"user:{user_id}"
+        )
+        kg_repo.seed(_make_kg(kg_id=kg_id, tenant_id=tenant_id))
         creds = {"token": "abc123"}
 
         await service.create(
@@ -258,19 +274,21 @@ class TestDataSourceServiceCreate:
             raw_credentials=creds,
         )
 
-        mock_secret_store.store.assert_called_once()
-        call_kwargs = mock_secret_store.store.call_args.kwargs
-        assert "datasource/" in call_kwargs.get("path", "")
-        assert call_kwargs.get("tenant_id") == tenant_id
-        assert call_kwargs.get("credentials") == creds
+        assert len(secret_store.store_calls) == 1
+        call_info = secret_store.store_calls[0]
+        assert "datasource/" in call_info.get("path", "")
+        assert call_info.get("tenant_id") == tenant_id
+        assert call_info.get("credentials") == creds
 
     @pytest.mark.asyncio
     async def test_create_probes_success(
-        self, service, mock_authz, mock_kg_repo, mock_probe, user_id, kg_id, tenant_id
+        self, service, authz, kg_repo, probe, user_id, kg_id, tenant_id
     ):
         """create() calls probe on success."""
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = _make_kg(kg_id=kg_id, tenant_id=tenant_id)
+        await authz.write_relationship(
+            f"knowledge_graph:{kg_id}", "editor", f"user:{user_id}"
+        )
+        kg_repo.seed(_make_kg(kg_id=kg_id, tenant_id=tenant_id))
 
         result = await service.create(
             user_id=user_id,
@@ -280,12 +298,13 @@ class TestDataSourceServiceCreate:
             connection_config={},
         )
 
-        mock_probe.data_source_created.assert_called_once_with(
-            ds_id=result.id.value,
-            kg_id=kg_id,
-            tenant_id=tenant_id,
-            name="My DS",
-        )
+        assert len(probe.data_source_created_calls) == 1
+        assert probe.data_source_created_calls[0] == {
+            "ds_id": result.id.value,
+            "kg_id": kg_id,
+            "tenant_id": tenant_id,
+            "name": "My DS",
+        }
 
 
 # ---- get ----
@@ -295,40 +314,39 @@ class TestDataSourceServiceGet:
     """Tests for DataSourceService.get."""
 
     @pytest.mark.asyncio
-    async def test_get_returns_none_when_not_found(
-        self, service, mock_ds_repo, user_id
-    ):
+    async def test_get_returns_none_when_not_found(self, service, ds_repo, user_id):
         """get() returns None when DS not found."""
-        mock_ds_repo.get_by_id.return_value = None
+        # DS not seeded
 
         result = await service.get(user_id=user_id, ds_id="nonexistent")
 
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_checks_view_permission(
-        self, service, mock_authz, mock_ds_repo, user_id
-    ):
+    async def test_get_checks_view_permission(self, service, authz, ds_repo, user_id):
         """get() checks VIEW permission on the data source."""
         ds = _make_ds()
-        mock_ds_repo.get_by_id.return_value = ds
-        mock_authz.check_permission.return_value = True
+        ds_repo.seed(ds)
+        await authz.write_relationship(
+            f"data_source:{ds.id.value}", "view", f"user:{user_id}"
+        )
 
         await service.get(user_id=user_id, ds_id=ds.id.value)
 
-        mock_authz.check_permission.assert_called_once_with(
-            resource=f"data_source:{ds.id.value}",
-            permission=Permission.VIEW,
-            subject=f"user:{user_id}",
-        )
+        assert len(authz.check_permission_calls) == 1
+        assert authz.check_permission_calls[0] == {
+            "resource": f"data_source:{ds.id.value}",
+            "permission": Permission.VIEW,
+            "subject": f"user:{user_id}",
+        }
 
     @pytest.mark.asyncio
     async def test_get_returns_none_for_different_tenant(
-        self, service, mock_ds_repo, user_id
+        self, service, ds_repo, user_id
     ):
         """get() returns None when DS belongs to a different tenant."""
         ds = _make_ds(tenant_id="other-tenant")
-        mock_ds_repo.get_by_id.return_value = ds
+        ds_repo.seed(ds)
 
         result = await service.get(user_id=user_id, ds_id=ds.id.value)
 
@@ -336,12 +354,12 @@ class TestDataSourceServiceGet:
 
     @pytest.mark.asyncio
     async def test_get_returns_none_when_permission_denied(
-        self, service, mock_authz, mock_ds_repo, user_id
+        self, service, authz, ds_repo, user_id
     ):
         """get() returns None when user lacks VIEW (no existence leakage)."""
         ds = _make_ds()
-        mock_ds_repo.get_by_id.return_value = ds
-        mock_authz.check_permission.return_value = False
+        ds_repo.seed(ds)
+        # No relationship written — permission denied
 
         result = await service.get(user_id=user_id, ds_id=ds.id.value)
 
@@ -349,17 +367,20 @@ class TestDataSourceServiceGet:
 
     @pytest.mark.asyncio
     async def test_get_returns_aggregate_on_success(
-        self, service, mock_authz, mock_ds_repo, mock_probe, user_id
+        self, service, authz, ds_repo, probe, user_id
     ):
         """get() returns the aggregate when authorized."""
         ds = _make_ds()
-        mock_ds_repo.get_by_id.return_value = ds
-        mock_authz.check_permission.return_value = True
+        ds_repo.seed(ds)
+        await authz.write_relationship(
+            f"data_source:{ds.id.value}", "view", f"user:{user_id}"
+        )
 
         result = await service.get(user_id=user_id, ds_id=ds.id.value)
 
         assert result is ds
-        mock_probe.data_source_retrieved.assert_called_once_with(ds_id=ds.id.value)
+        assert len(probe.data_source_retrieved_calls) == 1
+        assert probe.data_source_retrieved_calls[0] == {"ds_id": ds.id.value}
 
 
 # ---- list_for_knowledge_graph ----
@@ -370,51 +391,55 @@ class TestDataSourceServiceListForKnowledgeGraph:
 
     @pytest.mark.asyncio
     async def test_list_checks_view_permission_on_kg(
-        self, service, mock_authz, mock_ds_repo, mock_kg_repo, user_id, kg_id, tenant_id
+        self, service, authz, ds_repo, kg_repo, user_id, kg_id, tenant_id
     ):
         """list_for_knowledge_graph() checks VIEW on the KG."""
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = _make_kg(kg_id=kg_id, tenant_id=tenant_id)
-        mock_ds_repo.find_by_knowledge_graph.return_value = []
+        await authz.write_relationship(
+            f"knowledge_graph:{kg_id}", "viewer", f"user:{user_id}"
+        )
+        kg_repo.seed(_make_kg(kg_id=kg_id, tenant_id=tenant_id))
 
         await service.list_for_knowledge_graph(user_id=user_id, kg_id=kg_id)
 
-        mock_authz.check_permission.assert_called_once_with(
-            resource=f"knowledge_graph:{kg_id}",
-            permission=Permission.VIEW,
-            subject=f"user:{user_id}",
-        )
+        assert len(authz.check_permission_calls) == 1
+        assert authz.check_permission_calls[0] == {
+            "resource": f"knowledge_graph:{kg_id}",
+            "permission": Permission.VIEW,
+            "subject": f"user:{user_id}",
+        }
 
     @pytest.mark.asyncio
     async def test_list_raises_unauthorized_when_denied(
-        self, service, mock_authz, user_id, kg_id
+        self, service, authz, user_id, kg_id
     ):
         """list_for_knowledge_graph() raises UnauthorizedError when denied."""
-        mock_authz.check_permission.return_value = False
+        # No relationship written — permission denied
 
         with pytest.raises(UnauthorizedError):
             await service.list_for_knowledge_graph(user_id=user_id, kg_id=kg_id)
 
     @pytest.mark.asyncio
     async def test_list_raises_unauthorized_when_kg_not_found(
-        self, service, mock_authz, mock_kg_repo, user_id, kg_id
+        self, service, authz, kg_repo, user_id, kg_id
     ):
         """list_for_knowledge_graph() raises UnauthorizedError when KG not found."""
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = None
+        await authz.write_relationship(
+            f"knowledge_graph:{kg_id}", "viewer", f"user:{user_id}"
+        )
+        # KG not seeded
 
         with pytest.raises(UnauthorizedError, match="not accessible"):
             await service.list_for_knowledge_graph(user_id=user_id, kg_id=kg_id)
 
     @pytest.mark.asyncio
     async def test_list_raises_unauthorized_for_different_tenant_kg(
-        self, service, mock_authz, mock_kg_repo, user_id, kg_id
+        self, service, authz, kg_repo, user_id, kg_id
     ):
         """list_for_knowledge_graph() rejects KG belonging to different tenant."""
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = _make_kg(
-            kg_id=kg_id, tenant_id="other-tenant"
+        await authz.write_relationship(
+            f"knowledge_graph:{kg_id}", "viewer", f"user:{user_id}"
         )
+        kg_repo.seed(_make_kg(kg_id=kg_id, tenant_id="other-tenant"))
 
         with pytest.raises(UnauthorizedError, match="not accessible"):
             await service.list_for_knowledge_graph(user_id=user_id, kg_id=kg_id)
@@ -423,28 +448,28 @@ class TestDataSourceServiceListForKnowledgeGraph:
     async def test_list_returns_data_sources(
         self,
         service,
-        mock_authz,
-        mock_ds_repo,
-        mock_kg_repo,
-        mock_probe,
+        authz,
+        ds_repo,
+        kg_repo,
+        probe,
         user_id,
         kg_id,
         tenant_id,
     ):
         """list_for_knowledge_graph() returns data sources from repo."""
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = _make_kg(kg_id=kg_id, tenant_id=tenant_id)
+        await authz.write_relationship(
+            f"knowledge_graph:{kg_id}", "viewer", f"user:{user_id}"
+        )
+        kg_repo.seed(_make_kg(kg_id=kg_id, tenant_id=tenant_id))
         ds1 = _make_ds(ds_id="ds-001")
         ds2 = _make_ds(ds_id="ds-002")
-        mock_ds_repo.find_by_knowledge_graph.return_value = [ds1, ds2]
+        ds_repo.seed(ds1, ds2)
 
         result = await service.list_for_knowledge_graph(user_id=user_id, kg_id=kg_id)
 
         assert len(result) == 2
-        mock_probe.data_sources_listed.assert_called_once_with(
-            kg_id=kg_id,
-            count=2,
-        )
+        assert len(probe.data_sources_listed_calls) == 1
+        assert probe.data_sources_listed_calls[0] == {"kg_id": kg_id, "count": 2}
 
 
 # ---- update ----
@@ -455,12 +480,14 @@ class TestDataSourceServiceUpdate:
 
     @pytest.mark.asyncio
     async def test_update_checks_edit_permission_on_ds(
-        self, service, mock_authz, mock_ds_repo, user_id
+        self, service, authz, ds_repo, user_id
     ):
         """update() checks EDIT permission on the data source."""
         ds = _make_ds()
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.get_by_id.return_value = ds
+        ds_repo.seed(ds)
+        await authz.write_relationship(
+            f"data_source:{ds.id.value}", "edit", f"user:{user_id}"
+        )
 
         await service.update(
             user_id=user_id,
@@ -469,18 +496,19 @@ class TestDataSourceServiceUpdate:
             connection_config={"url": "https://new.com"},
         )
 
-        mock_authz.check_permission.assert_called_once_with(
-            resource=f"data_source:{ds.id.value}",
-            permission=Permission.EDIT,
-            subject=f"user:{user_id}",
-        )
+        assert len(authz.check_permission_calls) == 1
+        assert authz.check_permission_calls[0] == {
+            "resource": f"data_source:{ds.id.value}",
+            "permission": Permission.EDIT,
+            "subject": f"user:{user_id}",
+        }
 
     @pytest.mark.asyncio
     async def test_update_raises_unauthorized_when_denied(
-        self, service, mock_authz, user_id
+        self, service, authz, user_id
     ):
         """update() raises UnauthorizedError when denied."""
-        mock_authz.check_permission.return_value = False
+        # No relationship written — permission denied
 
         with pytest.raises(UnauthorizedError):
             await service.update(
@@ -491,11 +519,13 @@ class TestDataSourceServiceUpdate:
 
     @pytest.mark.asyncio
     async def test_update_raises_value_error_when_not_found(
-        self, service, mock_authz, mock_ds_repo, user_id
+        self, service, authz, ds_repo, user_id
     ):
         """update() raises ValueError when DS not found."""
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.get_by_id.return_value = None
+        await authz.write_relationship(
+            "data_source:nonexistent", "edit", f"user:{user_id}"
+        )
+        # DS not seeded
 
         with pytest.raises(ValueError):
             await service.update(
@@ -506,12 +536,14 @@ class TestDataSourceServiceUpdate:
 
     @pytest.mark.asyncio
     async def test_update_rejects_different_tenant(
-        self, service, mock_authz, mock_ds_repo, user_id
+        self, service, authz, ds_repo, user_id
     ):
         """update() raises ValueError when DS belongs to a different tenant."""
         ds = _make_ds(tenant_id="other-tenant")
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.get_by_id.return_value = ds
+        ds_repo.seed(ds)
+        await authz.write_relationship(
+            f"data_source:{ds.id.value}", "edit", f"user:{user_id}"
+        )
 
         with pytest.raises(ValueError):
             await service.update(
@@ -522,12 +554,14 @@ class TestDataSourceServiceUpdate:
 
     @pytest.mark.asyncio
     async def test_update_stores_credentials_when_provided(
-        self, service, mock_authz, mock_ds_repo, mock_secret_store, user_id, tenant_id
+        self, service, authz, ds_repo, secret_store, user_id, tenant_id
     ):
         """update() stores credentials via secret store when raw_credentials provided."""
         ds = _make_ds()
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.get_by_id.return_value = ds
+        ds_repo.seed(ds)
+        await authz.write_relationship(
+            f"data_source:{ds.id.value}", "edit", f"user:{user_id}"
+        )
         creds = {"token": "new-token"}
 
         await service.update(
@@ -536,20 +570,20 @@ class TestDataSourceServiceUpdate:
             raw_credentials=creds,
         )
 
-        mock_secret_store.store.assert_called_once()
-        call_kwargs = mock_secret_store.store.call_args.kwargs
-        assert "datasource/" in call_kwargs.get("path", "")
-        assert call_kwargs.get("tenant_id") == tenant_id
-        assert call_kwargs.get("credentials") == creds
+        assert len(secret_store.store_calls) == 1
+        call_info = secret_store.store_calls[0]
+        assert "datasource/" in call_info.get("path", "")
+        assert call_info.get("tenant_id") == tenant_id
+        assert call_info.get("credentials") == creds
 
     @pytest.mark.asyncio
-    async def test_update_probes_success(
-        self, service, mock_authz, mock_ds_repo, mock_probe, user_id
-    ):
+    async def test_update_probes_success(self, service, authz, ds_repo, probe, user_id):
         """update() probes success when name is updated."""
         ds = _make_ds()
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.get_by_id.return_value = ds
+        ds_repo.seed(ds)
+        await authz.write_relationship(
+            f"data_source:{ds.id.value}", "edit", f"user:{user_id}"
+        )
 
         await service.update(
             user_id=user_id,
@@ -558,10 +592,11 @@ class TestDataSourceServiceUpdate:
             connection_config={"url": "https://new.com"},
         )
 
-        mock_probe.data_source_updated.assert_called_once_with(
-            ds_id=ds.id.value,
-            name="Updated",
-        )
+        assert len(probe.data_source_updated_calls) == 1
+        assert probe.data_source_updated_calls[0] == {
+            "ds_id": ds.id.value,
+            "name": "Updated",
+        }
 
 
 # ---- delete ----
@@ -572,39 +607,43 @@ class TestDataSourceServiceDelete:
 
     @pytest.mark.asyncio
     async def test_delete_checks_manage_permission_on_ds(
-        self, service, mock_authz, mock_ds_repo, user_id
+        self, service, authz, ds_repo, user_id
     ):
         """delete() checks MANAGE permission on the data source."""
         ds = _make_ds()
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.get_by_id.return_value = ds
-        mock_ds_repo.delete.return_value = True
+        ds_repo.seed(ds)
+        await authz.write_relationship(
+            f"data_source:{ds.id.value}", "manage", f"user:{user_id}"
+        )
 
         await service.delete(user_id=user_id, ds_id=ds.id.value)
 
-        mock_authz.check_permission.assert_called_once_with(
-            resource=f"data_source:{ds.id.value}",
-            permission=Permission.MANAGE,
-            subject=f"user:{user_id}",
-        )
+        assert len(authz.check_permission_calls) == 1
+        assert authz.check_permission_calls[0] == {
+            "resource": f"data_source:{ds.id.value}",
+            "permission": Permission.MANAGE,
+            "subject": f"user:{user_id}",
+        }
 
     @pytest.mark.asyncio
     async def test_delete_raises_unauthorized_when_denied(
-        self, service, mock_authz, user_id
+        self, service, authz, user_id
     ):
         """delete() raises UnauthorizedError when denied."""
-        mock_authz.check_permission.return_value = False
+        # No relationship written — permission denied
 
         with pytest.raises(UnauthorizedError):
             await service.delete(user_id=user_id, ds_id="ds-001")
 
     @pytest.mark.asyncio
     async def test_delete_returns_false_when_not_found(
-        self, service, mock_authz, mock_ds_repo, user_id
+        self, service, authz, ds_repo, user_id
     ):
         """delete() returns False when DS not found."""
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.get_by_id.return_value = None
+        await authz.write_relationship(
+            "data_source:nonexistent", "manage", f"user:{user_id}"
+        )
+        # DS not seeded
 
         result = await service.delete(user_id=user_id, ds_id="nonexistent")
 
@@ -612,12 +651,14 @@ class TestDataSourceServiceDelete:
 
     @pytest.mark.asyncio
     async def test_delete_returns_false_for_different_tenant(
-        self, service, mock_authz, mock_ds_repo, user_id
+        self, service, authz, ds_repo, user_id
     ):
         """delete() returns False when DS belongs to a different tenant."""
         ds = _make_ds(tenant_id="other-tenant")
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.get_by_id.return_value = ds
+        ds_repo.seed(ds)
+        await authz.write_relationship(
+            f"data_source:{ds.id.value}", "manage", f"user:{user_id}"
+        )
 
         result = await service.delete(user_id=user_id, ds_id=ds.id.value)
 
@@ -625,34 +666,36 @@ class TestDataSourceServiceDelete:
 
     @pytest.mark.asyncio
     async def test_delete_removes_credentials_if_path_exists(
-        self, service, mock_authz, mock_ds_repo, mock_secret_store, user_id, tenant_id
+        self, service, authz, ds_repo, secret_store, user_id, tenant_id
     ):
         """delete() deletes credentials from secret store if credentials_path is set."""
         ds = _make_ds(credentials_path="datasource/ds-001/credentials")
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.get_by_id.return_value = ds
-        mock_ds_repo.delete.return_value = True
-
-        await service.delete(user_id=user_id, ds_id=ds.id.value)
-
-        mock_secret_store.delete.assert_called_once_with(
-            path="datasource/ds-001/credentials",
-            tenant_id=tenant_id,
+        ds_repo.seed(ds)
+        await authz.write_relationship(
+            f"data_source:{ds.id.value}", "manage", f"user:{user_id}"
         )
 
+        await service.delete(user_id=user_id, ds_id=ds.id.value)
+
+        assert len(secret_store.delete_calls) == 1
+        assert secret_store.delete_calls[0] == {
+            "path": "datasource/ds-001/credentials",
+            "tenant_id": tenant_id,
+        }
+
     @pytest.mark.asyncio
-    async def test_delete_probes_success(
-        self, service, mock_authz, mock_ds_repo, mock_probe, user_id
-    ):
+    async def test_delete_probes_success(self, service, authz, ds_repo, probe, user_id):
         """delete() calls probe on success."""
         ds = _make_ds()
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.get_by_id.return_value = ds
-        mock_ds_repo.delete.return_value = True
+        ds_repo.seed(ds)
+        await authz.write_relationship(
+            f"data_source:{ds.id.value}", "manage", f"user:{user_id}"
+        )
 
         await service.delete(user_id=user_id, ds_id=ds.id.value)
 
-        mock_probe.data_source_deleted.assert_called_once_with(ds_id=ds.id.value)
+        assert len(probe.data_source_deleted_calls) == 1
+        assert probe.data_source_deleted_calls[0] == {"ds_id": ds.id.value}
 
 
 # ---- trigger_sync ----
@@ -663,70 +706,80 @@ class TestDataSourceServiceTriggerSync:
 
     @pytest.mark.asyncio
     async def test_trigger_sync_checks_manage_permission(
-        self, service, mock_authz, mock_ds_repo, mock_sync_run_repo, user_id
+        self, service, authz, ds_repo, sync_run_repo, user_id
     ):
         """trigger_sync() checks MANAGE permission on the data source."""
         ds = _make_ds()
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.get_by_id.return_value = ds
+        ds_repo.seed(ds)
+        await authz.write_relationship(
+            f"data_source:{ds.id.value}", "manage", f"user:{user_id}"
+        )
 
         await service.trigger_sync(user_id=user_id, ds_id=ds.id.value)
 
-        mock_authz.check_permission.assert_called_once_with(
-            resource=f"data_source:{ds.id.value}",
-            permission=Permission.MANAGE,
-            subject=f"user:{user_id}",
-        )
+        assert len(authz.check_permission_calls) == 1
+        assert authz.check_permission_calls[0] == {
+            "resource": f"data_source:{ds.id.value}",
+            "permission": Permission.MANAGE,
+            "subject": f"user:{user_id}",
+        }
 
     @pytest.mark.asyncio
     async def test_trigger_sync_raises_unauthorized_when_denied(
-        self, service, mock_authz, user_id
+        self, service, authz, user_id
     ):
         """trigger_sync() raises UnauthorizedError when denied."""
-        mock_authz.check_permission.return_value = False
+        # No relationship written — permission denied
 
         with pytest.raises(UnauthorizedError):
             await service.trigger_sync(user_id=user_id, ds_id="ds-001")
 
     @pytest.mark.asyncio
     async def test_trigger_sync_raises_value_error_when_not_found(
-        self, service, mock_authz, mock_ds_repo, user_id
+        self, service, authz, ds_repo, user_id
     ):
         """trigger_sync() raises ValueError when DS not found."""
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.get_by_id.return_value = None
+        await authz.write_relationship(
+            "data_source:nonexistent", "manage", f"user:{user_id}"
+        )
+        # DS not seeded
 
         with pytest.raises(ValueError):
             await service.trigger_sync(user_id=user_id, ds_id="nonexistent")
 
     @pytest.mark.asyncio
     async def test_trigger_sync_rejects_different_tenant(
-        self, service, mock_authz, mock_ds_repo, user_id
+        self, service, authz, ds_repo, user_id
     ):
         """trigger_sync() raises ValueError when DS belongs to a different tenant."""
         ds = _make_ds(tenant_id="other-tenant")
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.get_by_id.return_value = ds
+        ds_repo.seed(ds)
+        await authz.write_relationship(
+            f"data_source:{ds.id.value}", "manage", f"user:{user_id}"
+        )
 
         with pytest.raises(ValueError):
             await service.trigger_sync(user_id=user_id, ds_id=ds.id.value)
 
     @pytest.mark.asyncio
     async def test_trigger_sync_creates_sync_run_and_saves_ds(
-        self, service, mock_authz, mock_ds_repo, mock_sync_run_repo, mock_probe, user_id
+        self, service, authz, ds_repo, sync_run_repo, probe, user_id
     ):
         """trigger_sync() creates a sync run and saves the data source."""
         ds = _make_ds()
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.get_by_id.return_value = ds
+        ds_repo.seed(ds)
+        await authz.write_relationship(
+            f"data_source:{ds.id.value}", "manage", f"user:{user_id}"
+        )
 
         result = await service.trigger_sync(user_id=user_id, ds_id=ds.id.value)
 
         assert result.data_source_id == ds.id.value
         assert result.status == "pending"
-        mock_sync_run_repo.save.assert_called_once()
-        mock_ds_repo.save.assert_called_once()
-        mock_probe.sync_requested.assert_called_once_with(ds_id=ds.id.value)
+        assert len(sync_run_repo.saved) == 1
+        assert len(ds_repo.saved) == 1
+        assert len(probe.sync_requested_calls) == 1
+        assert probe.sync_requested_calls[0] == {"ds_id": ds.id.value}
 
 
 class TestDataSourceServiceListAllForUser:
@@ -735,18 +788,19 @@ class TestDataSourceServiceListAllForUser:
     @pytest.mark.asyncio
     async def test_returns_all_data_sources_across_kgs(
         self,
-        service: DataSourceService,
-        mock_kg_repo: AsyncMock,
-        mock_ds_repo: AsyncMock,
-        mock_sync_run_repo: AsyncMock,
-        mock_authz: AsyncMock,
-        user_id: str,
-    ) -> None:
+        service,
+        authz,
+        kg_repo,
+        ds_repo,
+        sync_run_repo,
+        user_id,
+        tenant_id,
+    ):
         """list_all_for_user() aggregates data sources from all accessible KGs."""
         from management.domain.entities import DataSourceSyncRun
 
-        kg1 = _make_kg(kg_id="kg-1")
-        kg2 = _make_kg(kg_id="kg-2")
+        kg1 = _make_kg(kg_id="kg-1", tenant_id=tenant_id)
+        kg2 = _make_kg(kg_id="kg-2", tenant_id=tenant_id)
         ds1 = _make_ds(ds_id="ds-1", kg_id="kg-1")
         ds2 = _make_ds(ds_id="ds-2", kg_id="kg-2")
         now = datetime.now(UTC)
@@ -760,18 +814,11 @@ class TestDataSourceServiceListAllForUser:
             created_at=now,
         )
 
-        mock_kg_repo.find_by_tenant.return_value = [kg1, kg2]
-        mock_authz.check_permission.return_value = True
-
-        async def ds_side_effect(knowledge_graph_id: str) -> list[DataSource]:
-            return [ds1] if knowledge_graph_id == "kg-1" else [ds2]
-
-        mock_ds_repo.find_by_knowledge_graph.side_effect = ds_side_effect
-
-        async def run_side_effect(data_source_id: str) -> DataSourceSyncRun | None:
-            return run1 if data_source_id == "ds-1" else None
-
-        mock_sync_run_repo.get_latest_for_data_source.side_effect = run_side_effect
+        kg_repo.seed(kg1, kg2)
+        ds_repo.seed(ds1, ds2)
+        await sync_run_repo.save(run1)
+        await authz.write_relationship("knowledge_graph:kg-1", "viewer", f"user:{user_id}")
+        await authz.write_relationship("knowledge_graph:kg-2", "viewer", f"user:{user_id}")
 
         result = await service.list_all_for_user(user_id=user_id)
 
@@ -787,32 +834,24 @@ class TestDataSourceServiceListAllForUser:
     @pytest.mark.asyncio
     async def test_excludes_kgs_user_cannot_view(
         self,
-        service: DataSourceService,
-        mock_kg_repo: AsyncMock,
-        mock_ds_repo: AsyncMock,
-        mock_sync_run_repo: AsyncMock,
-        mock_authz: AsyncMock,
-        user_id: str,
-    ) -> None:
+        service,
+        authz,
+        kg_repo,
+        ds_repo,
+        user_id,
+        tenant_id,
+    ):
         """list_all_for_user() excludes data sources from KGs the user cannot VIEW."""
-        kg_allowed = _make_kg(kg_id="kg-allowed")
-        kg_denied = _make_kg(kg_id="kg-denied")
+        kg_allowed = _make_kg(kg_id="kg-allowed", tenant_id=tenant_id)
+        kg_denied = _make_kg(kg_id="kg-denied", tenant_id=tenant_id)
         ds_allowed = _make_ds(ds_id="ds-allowed", kg_id="kg-allowed")
 
-        mock_kg_repo.find_by_tenant.return_value = [kg_allowed, kg_denied]
-
-        async def perm_side_effect(
-            resource: str, permission: object, subject: str
-        ) -> bool:
-            return "kg-allowed" in resource
-
-        mock_authz.check_permission.side_effect = perm_side_effect
-
-        async def ds_side_effect(knowledge_graph_id: str) -> list[DataSource]:
-            return [ds_allowed] if knowledge_graph_id == "kg-allowed" else []
-
-        mock_ds_repo.find_by_knowledge_graph.side_effect = ds_side_effect
-        mock_sync_run_repo.get_latest_for_data_source.return_value = None
+        kg_repo.seed(kg_allowed, kg_denied)
+        ds_repo.seed(ds_allowed)
+        # Only grant VIEW on kg-allowed (not kg-denied)
+        await authz.write_relationship(
+            "knowledge_graph:kg-allowed", "viewer", f"user:{user_id}"
+        )
 
         result = await service.list_all_for_user(user_id=user_id)
 
@@ -822,14 +861,10 @@ class TestDataSourceServiceListAllForUser:
     @pytest.mark.asyncio
     async def test_returns_empty_list_when_no_accessible_kgs(
         self,
-        service: DataSourceService,
-        mock_kg_repo: AsyncMock,
-        mock_authz: AsyncMock,
-        user_id: str,
-    ) -> None:
+        service,
+        user_id,
+    ):
         """list_all_for_user() returns empty list when user has no accessible KGs."""
-        mock_kg_repo.find_by_tenant.return_value = []
-
         result = await service.list_all_for_user(user_id=user_id)
 
         assert result == []
@@ -837,21 +872,20 @@ class TestDataSourceServiceListAllForUser:
     @pytest.mark.asyncio
     async def test_data_source_with_no_sync_run_has_none_latest(
         self,
-        service: DataSourceService,
-        mock_kg_repo: AsyncMock,
-        mock_ds_repo: AsyncMock,
-        mock_sync_run_repo: AsyncMock,
-        mock_authz: AsyncMock,
-        user_id: str,
-    ) -> None:
+        service,
+        authz,
+        kg_repo,
+        ds_repo,
+        user_id,
+        tenant_id,
+    ):
         """list_all_for_user() sets latest_sync_run=None for sources with no runs."""
-        kg = _make_kg(kg_id="kg-1")
+        kg = _make_kg(kg_id="kg-1", tenant_id=tenant_id)
         ds = _make_ds(ds_id="ds-1", kg_id="kg-1")
 
-        mock_kg_repo.find_by_tenant.return_value = [kg]
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.find_by_knowledge_graph.return_value = [ds]
-        mock_sync_run_repo.get_latest_for_data_source.return_value = None
+        kg_repo.seed(kg)
+        ds_repo.seed(ds)
+        await authz.write_relationship("knowledge_graph:kg-1", "viewer", f"user:{user_id}")
 
         result = await service.list_all_for_user(user_id=user_id)
 

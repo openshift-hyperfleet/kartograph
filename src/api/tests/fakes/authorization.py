@@ -79,6 +79,7 @@ class InMemoryAuthorizationProvider:
 
     def __init__(self) -> None:
         self._relationships: list[_StoredRelationship] = []
+        self.check_permission_calls: list[dict] = []
 
     # ------------------------------------------------------------------
     # Helpers
@@ -206,6 +207,9 @@ class InMemoryAuthorizationProvider:
         Uses the schema-derived permission → relation map.  Falls back to
         treating the permission name as a direct relation when no mapping exists.
         """
+        self.check_permission_calls.append(
+            {"resource": resource, "permission": permission, "subject": subject}
+        )
         resource_type = self._parse_resource_type(resource)
         key = (resource_type, permission)
         granting_relations = _PERMISSION_GRANTS.get(key, [permission])

@@ -1,14 +1,14 @@
 ---
 id: task-047
 title: Add sync-status badge to Data Sources sidebar nav item
-spec_ref: specs/ui/experience.spec.md@97bf3eeef007dbfe56dbe4d198ea9283e446a31d
-status: not_started
-phase: null
+spec_ref: specs/ui/experience.spec.md@86a2b5c71ec6c6af7ed222eae46139acec3974b3
+status: in_progress
+phase: implement
 deps:
 - task-041
 - task-042
 round: 0
-branch: null
+branch: hyperloop/task-047
 pr: null
 pr_title: null
 pr_description: null

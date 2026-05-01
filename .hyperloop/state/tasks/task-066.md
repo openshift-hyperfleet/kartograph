@@ -3,11 +3,11 @@ id: task-066
 title: Design language — fix font weight violations in page headers and add regression
   tests
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-066
 pr: null
 pr_title: 'fix(ui): replace font-bold with font-semibold in page headers to comply
   with design language spec'

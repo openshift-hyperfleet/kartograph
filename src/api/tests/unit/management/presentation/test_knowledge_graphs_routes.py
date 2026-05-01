@@ -25,6 +25,7 @@ from management.ports.exceptions import (
     KnowledgeGraphNotFoundError,
     UnauthorizedError,
 )
+from shared_kernel.authorization.types import Permission
 
 
 @pytest.fixture
@@ -100,19 +101,36 @@ class TestListKnowledgeGraphsRoute:
         assert result["knowledge_graphs"][0]["id"] == sample_knowledge_graph.id.value
         assert result["knowledge_graphs"][0]["name"] == sample_knowledge_graph.name
 
-    def test_list_knowledge_graphs_calls_list_all(
+    def test_list_knowledge_graphs_calls_list_all_with_view_permission_by_default(
         self,
         test_client: TestClient,
         mock_kg_service: AsyncMock,
         mock_current_user: CurrentUser,
     ) -> None:
-        """Should call service.list_all with the current user's ID."""
+        """Should call service.list_all with VIEW permission when no ?permission param."""
         mock_kg_service.list_all.return_value = []
 
         test_client.get("/management/knowledge-graphs")
 
         mock_kg_service.list_all.assert_called_once_with(
-            user_id=mock_current_user.user_id.value
+            user_id=mock_current_user.user_id.value,
+            permission=Permission.VIEW,
+        )
+
+    def test_list_knowledge_graphs_calls_list_all_with_edit_permission(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """Should call service.list_all with EDIT permission when ?permission=edit."""
+        mock_kg_service.list_all.return_value = []
+
+        test_client.get("/management/knowledge-graphs?permission=edit")
+
+        mock_kg_service.list_all.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            permission=Permission.EDIT,
         )
 
     def test_list_knowledge_graphs_returns_empty_list(

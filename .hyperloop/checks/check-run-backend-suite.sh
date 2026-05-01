@@ -58,6 +58,7 @@ fi
 # - Content checks last (only meaningful on a clean, rebased branch)
 CHECKS=(
   check-no-check-script-deletions.sh
+  check-no-check-script-modifications.sh
   check-process-overlays-intact.sh
   check-process-overlay-content-intact.sh
   check-new-checks-pass-on-head.sh

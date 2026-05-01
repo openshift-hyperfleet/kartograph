@@ -13,6 +13,7 @@ import {
   Loader2,
   CircleCheck,
   Zap,
+  X,
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -261,6 +262,11 @@ async function copySecret() {
   if (ok) secretCopied.value = true
 }
 
+function dismissSecret() {
+  newlyCreatedKey.value = null
+  secretCopied.value = false
+}
+
 async function copyEndpoint() {
   const ok = await copyToClipboard(mcpEndpointUrl.value, 'MCP endpoint URL')
   if (ok) {
@@ -315,7 +321,7 @@ async function copyHeaderValue(key: string, value: string) {
       </Alert>
 
       <!-- Newly created key banner -->
-      <Alert v-if="newlyCreatedKey" class="border-green-500/30 bg-green-500/5">
+      <Alert v-if="newlyCreatedKey" data-testid="new-key-banner" class="border-green-500/30 bg-green-500/5">
         <CircleCheck class="size-4 text-green-600 dark:text-green-400" />
         <AlertDescription class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div class="min-w-0">
@@ -325,7 +331,7 @@ async function copyHeaderValue(key: string, value: string) {
           </div>
           <div class="flex items-center gap-2 shrink-0">
             <code class="rounded bg-muted px-2 py-1 font-mono text-xs truncate max-w-[180px]"
-              :title="newlyCreatedKey.secret">
+              :title="newlyCreatedKey.secret" data-testid="api-key-secret">
               {{ newlyCreatedKey.secret }}
             </code>
             <Tooltip>
@@ -337,6 +343,16 @@ async function copyHeaderValue(key: string, value: string) {
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Copy the raw API key secret</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <Button variant="ghost" size="icon" class="shrink-0 size-7 text-muted-foreground hover:text-foreground"
+                  data-testid="dismiss-secret-panel" aria-label="Dismiss key banner"
+                  @click="dismissSecret">
+                  <X class="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Dismiss — the secret will not be shown again</TooltipContent>
             </Tooltip>
           </div>
         </AlertDescription>
@@ -435,7 +451,8 @@ async function copyHeaderValue(key: string, value: string) {
 
             <!-- State: No keys at all — prompt to create -->
             <template v-else>
-              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                data-testid="create-key-prompt">
                 <p class="text-sm text-muted-foreground">
                   No API keys found. Create one to generate connection configs.
                 </p>
@@ -500,14 +517,15 @@ async function copyHeaderValue(key: string, value: string) {
               </p>
               <div class="relative">
                 <pre class="overflow-x-auto rounded-md border bg-muted/50
-                   p-4 pr-14 font-mono text-[13px] leading-relaxed 
-                   text-foreground 
-                   whitespace-pre">{{ mcpConfigClaudeDisplay(configSecret) }}</pre>
+                   p-4 pr-14 font-mono text-[13px] leading-relaxed
+                   text-foreground
+                   whitespace-pre" data-testid="mcp-snippet">{{ mcpConfigClaudeDisplay(configSecret) }}</pre>
                 <Tooltip>
                   <TooltipTrigger as-child>
                     <Button variant="ghost" size="icon"
                       class="absolute right-2 top-2 size-8 text-muted-foreground hover:text-foreground"
                       :class="copiedConfigTab === 'Claude Code' ? 'text-green-600 dark:text-green-400' : ''"
+                      data-testid="copy-snippet-button"
                       @click="copyConfig('Claude Code', mcpConfigClaudeCopy(configSecret))">
                       <component :is="copiedConfigTab === 'Claude Code' ? Check : Copy" class="size-4" />
                     </Button>

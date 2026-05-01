@@ -12,8 +12,12 @@
 # SCOPE: Only commits between the merge-base with the base branch and HEAD are
 # checked. Commits on the base branch itself are not inspected.
 #
-# EXEMPTIONS: Merge commits (two parents) are skipped — their message is
-# auto-generated and Task-Ref attribution flows from the constituent commits.
+# EXEMPTIONS:
+# - Merge commits (two parents) — auto-generated, attribution flows from parents.
+# - GitHub squash-merge commits (subject ends with (#NNN)) — these are upstream
+#   PR commits that leaked onto the branch via rebase contamination. They
+#   originate from a different branch's merged PR and will never carry a
+#   Task-Ref trailer.
 #
 # Usage:
 #   bash .hyperloop/checks/check-all-commits-have-task-ref.sh [base_branch]
@@ -50,6 +54,7 @@ echo "=== Checking that all branch commits have Task-Ref trailers (base: $BASE_B
 MISSING_TRAILER=""
 COMMIT_COUNT=0
 MERGE_SKIPPED=0
+PR_MERGE_SKIPPED=0
 
 while IFS= read -r sha; do
   [[ -z "$sha" ]] && continue
@@ -58,6 +63,13 @@ while IFS= read -r sha; do
   parent_count=$(git log -1 --format="%P" "$sha" 2>/dev/null | wc -w | tr -d ' ' || echo "1")
   if [[ "$parent_count" -ge 2 ]]; then
     MERGE_SKIPPED=$((MERGE_SKIPPED + 1))
+    continue
+  fi
+
+  # Skip GitHub squash-merge commits — subject ends with (#NNN)
+  subject=$(git log -1 --format='%s' "$sha" 2>/dev/null || true)
+  if [[ "$subject" =~ \(#[0-9]+\)$ ]]; then
+    PR_MERGE_SKIPPED=$((PR_MERGE_SKIPPED + 1))
     continue
   fi
 
@@ -75,7 +87,7 @@ while IFS= read -r sha; do
 done < <(git rev-list "${MERGE_BASE}..HEAD" 2>/dev/null || true)
 
 echo ""
-echo "Examined $COMMIT_COUNT non-merge commit(s) (skipped $MERGE_SKIPPED merge commit(s))."
+echo "Examined $COMMIT_COUNT commit(s) (skipped $MERGE_SKIPPED merge, $PR_MERGE_SKIPPED upstream PR)."
 
 if [[ -z "$MISSING_TRAILER" ]]; then
   echo "PASS: All commits have Task-Ref trailers."

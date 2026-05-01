@@ -4,11 +4,11 @@ title: Design language — fix font weight violations in page headers and add re
   tests
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-066
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/528
 pr_title: 'fix(ui): replace font-bold with font-semibold in page headers to comply
   with design language spec'
 pr_description: "## What & Why\n\nThe `experience.spec.md` Design Language requirement\

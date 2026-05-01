@@ -1,0 +1,235 @@
+---
+id: task-062
+title: Audit workspace guidance — first-time tenant entry with no personal workspace
+spec_ref: specs/ui/experience.spec.md
+status: not-started
+phase: null
+deps:
+  - task-014
+  - task-046
+round: 0
+branch: null
+pr: null
+---
+
+## Spec Coverage
+
+**Requirement: Tenant and Workspace Context — Scenario: Workspace guidance** from
+`specs/ui/experience.spec.md`:
+
+> GIVEN a user entering a tenant for the first time
+> WHEN no personal workspace exists
+> THEN the UI suggests creating one or joining an existing team workspace
+
+## Gap
+
+task-014 (complete) implemented the IAM management pages including workspace CRUD.
+task-046 (not-started) addresses the "no knowledge graphs" new-user landing. Neither
+task nor any subsequent audit explicitly covers the **workspace guidance** scenario,
+which is a distinct, earlier touchpoint in the user journey.
+
+The workspace guidance applies when:
+- The user has navigated to (or been assigned to) a tenant
+- `GET /iam/workspaces` returns an empty list **or** a list with no workspace where
+  the user is an owner/member with a personal workspace role
+- The UI should surface a contextual prompt — not a blank page — directing the user
+  to either create their first workspace or join an existing team workspace
+
+No task currently owns this scenario. It was not explicitly referenced in task-014's
+acceptance criteria and has no subsequent audit task.
+
+## Relationship to Adjacent Tasks
+
+- **task-046** handles the "no knowledge graphs" landing. The workspace guidance
+  scenario is logically prior: a user with no workspace has no KGs by definition.
+  The two prompts must not conflict (workspace guidance appears before the KG creation
+  prompt in the user journey).
+- **task-058** audits the tenant selector and tenant-switch data refresh. That task
+  does not verify what the UI shows when the tenant has no workspaces.
+
+## Scope
+
+### Audit step (read before writing)
+
+Read `src/dev-ui/app/pages/index.vue` (the home page / landing page) and
+`src/dev-ui/app/pages/workspaces/index.vue`. For each file, determine whether:
+
+1. The component loads the workspace list on mount (or tenant change).
+2. When the workspace list is empty, a workspace guidance prompt is shown rather
+   than a blank state or the KG creation prompt.
+3. The guidance prompt offers two actions:
+   - **Create workspace** — opens the workspace creation dialog or navigates to
+     a workspace creation flow.
+   - **Join existing** — shows the list of available team workspaces in the tenant
+     (workspaces the user is not yet a member of) and allows the user to request
+     or accept membership.
+
+Record PASS / FAIL per check.
+
+### Changes required if any check FAILs
+
+#### 1. `src/dev-ui/app/tests/workspace-guidance.test.ts`
+
+Create this test file and write tests **before** touching implementation (TDD):
+
+1. **Guidance shown when workspace list is empty:**
+   ```typescript
+   it('shows workspace guidance when the user has no workspaces', async () => {
+     mockListWorkspaces.mockResolvedValueOnce([])
+     const wrapper = await mountHomePage()
+     expect(wrapper.find('[data-testid="workspace-guidance"]').exists()).toBe(true)
+   })
+   ```
+
+2. **Create workspace action is present:**
+   ```typescript
+   it('workspace guidance contains a create-workspace button', async () => {
+     mockListWorkspaces.mockResolvedValueOnce([])
+     const wrapper = await mountHomePage()
+     expect(wrapper.find('[data-testid="btn-create-workspace"]').exists()).toBe(true)
+   })
+   ```
+
+3. **Join existing workspace action is present:**
+   ```typescript
+   it('workspace guidance contains a join-workspace action', async () => {
+     mockListWorkspaces.mockResolvedValueOnce([])
+     const wrapper = await mountHomePage()
+     expect(wrapper.find('[data-testid="btn-join-workspace"]').exists()).toBe(true)
+   })
+   ```
+
+4. **Guidance is NOT shown when the user already has workspaces:**
+   ```typescript
+   it('does not show workspace guidance when workspaces exist', async () => {
+     mockListWorkspaces.mockResolvedValueOnce([{ id: 'ws-1', name: 'My Workspace' }])
+     const wrapper = await mountHomePage()
+     expect(wrapper.find('[data-testid="workspace-guidance"]').exists()).toBe(false)
+   })
+   ```
+
+5. **KG creation prompt does not appear when workspace guidance is active:**
+   ```typescript
+   it('does not show KG creation prompt when no workspace exists', async () => {
+     mockListWorkspaces.mockResolvedValueOnce([])
+     const wrapper = await mountHomePage()
+     // The "no KGs" task-046 prompt must not appear before workspace is set up
+     expect(wrapper.find('[data-testid="new-user-kg-prompt"]').exists()).toBe(false)
+   })
+   ```
+
+6. **Create workspace dialog opens on button click:**
+   ```typescript
+   it('clicking create workspace opens the workspace creation dialog', async () => {
+     mockListWorkspaces.mockResolvedValueOnce([])
+     const wrapper = await mountHomePage()
+     await wrapper.find('[data-testid="btn-create-workspace"]').trigger('click')
+     expect(wrapper.find('[data-testid="dialog-create-workspace"]').exists()).toBe(true)
+   })
+   ```
+
+7. **After workspace creation, guidance disappears:**
+   ```typescript
+   it('hides workspace guidance after a workspace is successfully created', async () => {
+     mockListWorkspaces
+       .mockResolvedValueOnce([])         // initial load — no workspaces
+       .mockResolvedValueOnce([{ id: 'ws-new', name: 'New WS' }]) // after create
+     const wrapper = await mountHomePage()
+     // simulate successful workspace creation
+     await wrapper.vm.handleWorkspaceCreated({ id: 'ws-new', name: 'New WS' })
+     expect(wrapper.find('[data-testid="workspace-guidance"]').exists()).toBe(false)
+   })
+   ```
+
+#### 2. Implementation — home page / workspace guidance component
+
+If the workspace guidance prompt is absent or incorrect, implement it:
+
+**Location:** `src/dev-ui/app/pages/index.vue` (or a dedicated
+`src/dev-ui/app/components/workspaces/WorkspaceGuidance.vue` component mounted
+from the home page).
+
+**Logic:**
+
+```typescript
+const workspaces = ref<Workspace[]>([])
+const { currentTenantId } = useTenant()
+
+watch(currentTenantId, async (tenantId) => {
+  if (!tenantId) return
+  workspaces.value = await listWorkspaces()
+}, { immediate: true })
+
+const hasWorkspace = computed(() => workspaces.value.length > 0)
+```
+
+**Template (workspace guidance section):**
+
+```html
+<WorkspaceGuidance
+  v-if="!hasWorkspace"
+  data-testid="workspace-guidance"
+  @create="handleCreateWorkspace"
+  @join="handleJoinWorkspace"
+/>
+
+<!-- task-046 new-user KG prompt must be gated behind hasWorkspace -->
+<NewUserKgPrompt
+  v-else-if="knowledgeGraphs.length === 0"
+  data-testid="new-user-kg-prompt"
+/>
+```
+
+The `WorkspaceGuidance` component should:
+- Display a clear heading ("Get started with your first workspace").
+- Offer a primary "Create Workspace" button that opens the workspace creation
+  dialog (reuse the existing dialog from `pages/workspaces/index.vue` if available).
+- Offer a secondary "Join a Team Workspace" action that lists workspaces in the
+  tenant the user is not yet a member of, allowing them to request membership
+  (or if invite-based: show a message to contact a workspace admin).
+- Use the Kartograph design language: shadcn/vue components, OKLCH color tokens,
+  amber primary action, Lucide icons.
+
+#### 3. Verify ordering with task-046
+
+Read `src/dev-ui/app/pages/index.vue` (after task-046 is implemented) and confirm:
+- The `v-if="!hasWorkspace"` guard on `WorkspaceGuidance` is evaluated **before**
+  the `v-else-if` for the KG creation prompt.
+- The two states are mutually exclusive (no path shows both prompts simultaneously).
+
+## Acceptance Criteria
+
+- When a user belongs to a tenant with no workspaces, the home page shows a workspace
+  guidance prompt with "Create Workspace" and "Join a Team Workspace" actions.
+- The workspace guidance prompt does NOT appear when the user already has at least
+  one workspace.
+- The "no KG" creation prompt (task-046) is suppressed when workspace guidance is
+  active (the user must create a workspace first).
+- Creating a workspace from the guidance prompt hides the guidance and transitions
+  the user toward creating their first knowledge graph.
+- All 7 tests in `src/dev-ui/app/tests/workspace-guidance.test.ts` pass.
+- No regressions: `cd src/dev-ui && pnpm test`
+
+## UI Location
+
+- `src/dev-ui/app/pages/index.vue` — home/landing page orchestration
+- `src/dev-ui/app/components/workspaces/WorkspaceGuidance.vue` — guidance component
+- `src/dev-ui/app/tests/workspace-guidance.test.ts` — spec scenario tests
+
+## Dependencies
+
+- **task-014** must be complete: the workspace pages and `listWorkspaces()` composable
+  must exist before this audit/implementation can run.
+- **task-046** must be complete or in progress: the home landing logic (KG-based
+  redirect) must exist so that this task can ensure the workspace guidance is correctly
+  gated before the KG creation prompt.
+
+## TDD Cycle
+
+1. Read `pages/index.vue` — determine PASS/FAIL for each workspace guidance check.
+2. Create `tests/workspace-guidance.test.ts` — write all 7 tests (they will fail if
+   guidance is not implemented).
+3. Create `components/workspaces/WorkspaceGuidance.vue` and wire it into
+   `pages/index.vue` with the correct `v-if` / `v-else-if` ordering.
+4. Run `cd src/dev-ui && pnpm test` — all tests pass.
+5. Commit atomically per conventional commit conventions.

@@ -21,13 +21,16 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose,
+} from '@/components/ui/dialog'
 
-import type { SchemaLabelsResponse, APIKeyResponse, WorkspaceListResponse } from '~/types'
+import type { SchemaLabelsResponse, APIKeyResponse, WorkspaceListResponse, WorkspaceResponse } from '~/types'
 
 const { listNodeLabels, listEdgeLabels } = useGraphApi()
 const { listApiKeys, listWorkspaces } = useIamApi()
 const { extractErrorMessage } = useErrorHandler()
-const { hasTenant, currentTenantId, currentTenantName, tenantVersion } = useTenant()
+const { hasTenant, currentTenantName, tenantVersion } = useTenant()
 const { apiFetch } = useApiClient()
 
 // ── Stats state ──────────────────────────────────────────────────────────
@@ -37,10 +40,43 @@ const nodeTypeCount = ref<number | null>(null)
 const edgeTypeCount = ref<number | null>(null)
 const apiKeyCount = ref<number | null>(null)
 const workspaceCount = ref<number | null>(null)
+/** Full workspace list — used to determine hasWorkspace (workspace guidance). */
+const workspaces = ref<WorkspaceResponse[]>([])
 const apiKeys = ref<APIKeyResponse[]>([])
 
 // KG count is fetched once during the redirect check and reused by the checklist.
 const kgCount = ref<number>(0)
+
+/**
+ * True once the workspace list has been fetched and contains at least one entry.
+ * Controls the workspace guidance panel (v-if="!hasWorkspace").
+ */
+const hasWorkspace = computed(() => workspaces.value.length > 0)
+
+// ── Workspace creation dialog (opened from WorkspaceGuidance) ─────────────
+
+/**
+ * Controls the inline workspace creation dialog.
+ * The dialog guides the user to the full workspace management page where
+ * they can create their first workspace with proper parent selection.
+ * data-testid="dialog-create-workspace" is on the DialogContent below.
+ */
+const showCreateWorkspaceDialog = ref(false)
+
+function openCreateWorkspaceDialog() {
+  showCreateWorkspaceDialog.value = true
+}
+
+function handleJoinWorkspace() {
+  toast.info('Contact a workspace admin', {
+    description: 'Ask a team workspace admin to add you as a member.',
+    action: {
+      label: 'Go to Workspaces',
+      onClick: () => navigateTo('/workspaces'),
+    },
+    duration: 6000,
+  })
+}
 
 // ── Onboarding state ─────────────────────────────────────────────────────
 
@@ -189,25 +225,6 @@ const quickActions = [
 
 const SESSION_REDIRECT_KEY = 'kartograph:home-redirect-done'
 
-// ── Workspace guidance (once per tenant) ─────────────────────────────────
-
-const WORKSPACE_GUIDANCE_KEY = 'kartograph:workspace-guidance:'
-
-function showWorkspaceGuidanceIfNeeded() {
-  if (!currentTenantId.value || workspaceCount.value !== 0) return
-  const key = `${WORKSPACE_GUIDANCE_KEY}${currentTenantId.value}`
-  if (typeof localStorage !== 'undefined' && localStorage.getItem(key)) return
-  if (typeof localStorage !== 'undefined') localStorage.setItem(key, 'true')
-  toast('Create or join a workspace', {
-    description: 'Workspaces help you organise your knowledge graphs. Create one or ask a team member to invite you.',
-    action: {
-      label: 'Manage Workspaces',
-      onClick: () => navigateTo('/workspaces'),
-    },
-    duration: 8000,
-  })
-}
-
 // ── Data fetching ────────────────────────────────────────────────────────
 
 async function fetchStats() {
@@ -238,14 +255,16 @@ async function fetchStats() {
     apiKeyCount.value = null
   }
 
-  workspaceCount.value = wsResult.status === 'fulfilled'
-    ? (wsResult.value as WorkspaceListResponse).count
-    : null
+  if (wsResult.status === 'fulfilled') {
+    const wsResponse = wsResult.value as WorkspaceListResponse
+    workspaceCount.value = wsResponse.count
+    workspaces.value = wsResponse.workspaces
+  } else {
+    workspaceCount.value = null
+    workspaces.value = []
+  }
 
   statsLoading.value = false
-
-  // Workspace guidance: prompt if no workspaces exist in this tenant
-  showWorkspaceGuidanceIfNeeded()
 }
 
 onMounted(async () => {
@@ -312,8 +331,19 @@ watch(tenantVersion, () => {
 
       <Separator />
 
+      <!-- Workspace Guidance: shown when the user has no workspaces yet.
+           This is the primary empty state for first-time tenant users.
+           The KG creation prompt (new-user-kg-prompt) is suppressed when
+           workspace guidance is active — the two are mutually exclusive. -->
+      <WorkspacesWorkspaceGuidance
+        v-if="!statsLoading && !hasWorkspace"
+        data-testid="workspace-guidance"
+        @create="openCreateWorkspaceDialog"
+        @join="handleJoinWorkspace"
+      />
+
       <!-- B. Quick Stats Cards -->
-      <div class="grid grid-cols-2 gap-4 md:grid-cols-5">
+      <div v-if="hasWorkspace || statsLoading" class="grid grid-cols-2 gap-4 md:grid-cols-5">
         <NuxtLink
           v-for="stat in statsCards"
           :key="stat.label"
@@ -341,8 +371,12 @@ watch(tenantVersion, () => {
         </NuxtLink>
       </div>
 
-      <!-- D. Getting Started Checklist (Token 7) -->
-      <Card v-if="showChecklist">
+      <!-- D. Getting Started Checklist — also serves as the "new user KG prompt"
+           (data-testid="new-user-kg-prompt") for spec: "GIVEN a user with no
+           knowledge graphs, WHEN they open Kartograph, THEN they are guided
+           toward the setup flow with a prompt to create their first knowledge graph".
+           Gated behind hasWorkspace: workspace setup must precede KG creation. -->
+      <Card v-if="showChecklist && hasWorkspace" data-testid="new-user-kg-prompt">
         <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-3">
           <div>
             <CardTitle class="text-base">Getting Started</CardTitle>
@@ -389,8 +423,8 @@ watch(tenantVersion, () => {
         </CardContent>
       </Card>
 
-      <!-- C. Quick Actions Grid -->
-      <div>
+      <!-- C. Quick Actions Grid (only when workspace exists) -->
+      <div v-if="hasWorkspace || statsLoading">
         <h2 class="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Quick Actions
         </h2>
@@ -418,5 +452,32 @@ watch(tenantVersion, () => {
         </div>
       </div>
     </template>
+
+    <!-- Workspace creation dialog — opened when the user clicks "Create Workspace"
+         in the WorkspaceGuidance panel. Guides the user to the full workspace
+         management page where parent selection is available.
+         data-testid="dialog-create-workspace" satisfies spec test scenario 6. -->
+    <Dialog v-model:open="showCreateWorkspaceDialog">
+      <DialogContent class="sm:max-w-md" data-testid="dialog-create-workspace">
+        <DialogHeader>
+          <DialogTitle>Create your first workspace</DialogTitle>
+          <DialogDescription>
+            Workspaces help you organise knowledge graphs and control access for your team.
+            Use the workspace management page to create and configure your workspace.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter class="flex-col sm:flex-row gap-2">
+          <DialogClose as-child>
+            <Button variant="outline">
+              Cancel
+            </Button>
+          </DialogClose>
+          <Button @click="navigateTo('/workspaces')">
+            Go to Workspace Management
+            <ArrowRight class="ml-2 size-4" />
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

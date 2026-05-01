@@ -3,7 +3,7 @@ id: task-058
 title: Audit tenant selector — verify all tenant-scoped pages refresh on tenant switch
 spec_ref: specs/ui/experience.spec.md@86a2b5c71ec6c6af7ed222eae46139acec3974b3
 status: in_progress
-phase: mark-ready
+phase: merge
 deps:
 - task-040
 - task-041

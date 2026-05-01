@@ -117,8 +117,11 @@ async function loadKnowledgeGraphs() {
   loadingKgs.value = true
   try {
     const { apiFetch } = useApiClient()
+    // Request only KGs the user has 'edit' permission on — the spec requires
+    // the selector to list only graphs the user can submit mutations to.
     const result = await apiFetch<{ knowledge_graphs: KnowledgeGraphItem[] }>(
       '/management/knowledge-graphs',
+      { query: { permission: 'edit' } },
     )
     knowledgeGraphs.value = result.knowledge_graphs ?? []
   } catch {
@@ -329,7 +332,7 @@ async function handleSubmit() {
     })
     const body = cleanLines.join('\n')
     preparing.value = false
-    submission.submit(body, opCount)
+    submission.submit(selectedKnowledgeGraphId.value, body, opCount)
     return
   }
 
@@ -347,7 +350,7 @@ async function handleSubmit() {
 
   // Convert parsed operations to clean JSONL for submission
   const jsonlBody = toJsonl(result.operations)
-  submission.submit(jsonlBody, result.operations.length)
+  submission.submit(selectedKnowledgeGraphId.value, jsonlBody, result.operations.length)
 }
 
 function clearEditor() {

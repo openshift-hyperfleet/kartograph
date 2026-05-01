@@ -1,0 +1,15 @@
+---
+id: task-040
+title: Fix UI backend API alignment — correct endpoint wiring and parent context
+spec_ref: specs/ui/experience.spec.md
+status: not_started
+phase: null
+deps:
+- task-014
+- task-016
+round: 0
+branch: null
+pr: null
+pr_title: null
+pr_description: null
+---

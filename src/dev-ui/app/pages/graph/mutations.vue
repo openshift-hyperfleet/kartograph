@@ -145,7 +145,8 @@ async function loadKnowledgeGraphs() {
     const { apiFetch } = useApiClient()
     // Request only KGs the user has 'edit' permission on within the selected
     // workspace — the spec requires "within the current workspace" scoping.
-    // TODO: backend must support ?workspace_id= filter on GET /management/knowledge-graphs
+    // Backend supports ?workspace_id= filter on GET /management/knowledge-graphs
+    // via KnowledgeGraphService.list_for_workspace_with_permission().
     const result = await apiFetch<{ knowledge_graphs: KnowledgeGraphItem[] }>(
       '/management/knowledge-graphs',
       { query: { permission: 'edit', workspace_id: selectedWorkspaceId.value } },

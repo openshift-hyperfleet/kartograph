@@ -1030,3 +1030,192 @@ class TestKnowledgeGraphServiceListAll:
 
         assert len(result) == 1
         assert result[0].id.value == kg.id.value
+
+
+# ---- list_for_workspace_with_permission ----
+
+
+class TestListForWorkspaceWithPermission:
+    """Tests for KnowledgeGraphService.list_for_workspace_with_permission.
+
+    Spec: Mutations Console KG selector must list all KGs the user has 'edit'
+    permission on *within the current workspace*.
+    GET /management/knowledge-graphs?workspace_id=<id>&permission=edit
+
+    Unlike list_for_workspace(), this method does NOT require workspace-level
+    VIEW permission — per-KG permission checks are sufficient.
+    """
+
+    @pytest.mark.asyncio
+    async def test_returns_only_kgs_in_workspace_with_edit_permission(
+        self, service, authz, kg_repo, user_id, workspace_id, tenant_id
+    ):
+        """Returns only KGs linked to the workspace that user can EDIT."""
+        kg1 = _make_kg(kg_id="kg-001", tenant_id=tenant_id, workspace_id=workspace_id)
+        kg2 = _make_kg(kg_id="kg-002", tenant_id=tenant_id, workspace_id=workspace_id)
+        kg_repo.seed(kg1, kg2)
+
+        # Both KGs are linked to the workspace via SpiceDB relationships
+        await authz.write_relationship(
+            "knowledge_graph:kg-001", "workspace", f"workspace:{workspace_id}"
+        )
+        await authz.write_relationship(
+            "knowledge_graph:kg-002", "workspace", f"workspace:{workspace_id}"
+        )
+
+        # Only kg1 has EDIT permission
+        await _grant_kg_edit(authz, kg1.id.value, user_id)
+        # kg2 has VIEW only
+        await _grant_kg_view(authz, kg2.id.value, user_id)
+
+        result = await service.list_for_workspace_with_permission(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            permission=Permission.EDIT,
+        )
+
+        assert len(result) == 1
+        assert result[0].id.value == kg1.id.value
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_when_no_kgs_in_workspace(
+        self, service, authz, user_id, workspace_id
+    ):
+        """Returns an empty list when no KGs are linked to the workspace."""
+        # No workspace→KG relationships
+        result = await service.list_for_workspace_with_permission(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            permission=Permission.EDIT,
+        )
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_when_user_has_no_edit_permission_on_any_kg(
+        self, service, authz, kg_repo, user_id, workspace_id, tenant_id
+    ):
+        """Returns empty list when user can only view all KGs in the workspace."""
+        kg = _make_kg(kg_id="kg-readonly", tenant_id=tenant_id)
+        kg_repo.seed(kg)
+
+        await authz.write_relationship(
+            "knowledge_graph:kg-readonly", "workspace", f"workspace:{workspace_id}"
+        )
+        # VIEW only — not EDIT
+        await _grant_kg_view(authz, kg.id.value, user_id)
+
+        result = await service.list_for_workspace_with_permission(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            permission=Permission.EDIT,
+        )
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_does_not_require_workspace_view_permission(
+        self, service, authz, kg_repo, user_id, workspace_id, tenant_id
+    ):
+        """Does NOT raise UnauthorizedError even when user has no workspace-level role.
+
+        Unlike list_for_workspace(), this method performs per-KG permission checks
+        only. A user with EDIT on a KG can see it in the Mutations Console selector
+        regardless of their workspace-level role.
+        """
+        kg = _make_kg(kg_id="kg-edit-only", tenant_id=tenant_id)
+        kg_repo.seed(kg)
+
+        await authz.write_relationship(
+            "knowledge_graph:kg-edit-only", "workspace", f"workspace:{workspace_id}"
+        )
+        # Grant EDIT on KG directly, but NO workspace-level permission
+        await _grant_kg_edit(authz, kg.id.value, user_id)
+
+        # Should NOT raise UnauthorizedError
+        result = await service.list_for_workspace_with_permission(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            permission=Permission.EDIT,
+        )
+
+        assert len(result) == 1
+        assert result[0].id.value == kg.id.value
+
+    @pytest.mark.asyncio
+    async def test_filters_kgs_from_other_tenants(
+        self, service, authz, kg_repo, user_id, workspace_id, tenant_id
+    ):
+        """Excludes KGs that belong to a different tenant even if linked to workspace."""
+        kg_own = _make_kg(kg_id="kg-own", tenant_id=tenant_id)
+        kg_other = _make_kg(kg_id="kg-other", tenant_id="other-tenant")
+        kg_repo.seed(kg_own, kg_other)
+
+        await authz.write_relationship(
+            "knowledge_graph:kg-own", "workspace", f"workspace:{workspace_id}"
+        )
+        await authz.write_relationship(
+            "knowledge_graph:kg-other", "workspace", f"workspace:{workspace_id}"
+        )
+        await _grant_kg_edit(authz, kg_own.id.value, user_id)
+        await _grant_kg_edit(authz, kg_other.id.value, user_id)
+
+        result = await service.list_for_workspace_with_permission(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            permission=Permission.EDIT,
+        )
+
+        assert len(result) == 1
+        assert result[0].id.value == kg_own.id.value
+
+    @pytest.mark.asyncio
+    async def test_calls_probe_on_success(
+        self, service, authz, kg_repo, probe, user_id, workspace_id, tenant_id
+    ):
+        """Calls probe.knowledge_graphs_listed() with workspace_id and count."""
+        kg = _make_kg(kg_id="kg-probe", tenant_id=tenant_id)
+        kg_repo.seed(kg)
+
+        await authz.write_relationship(
+            "knowledge_graph:kg-probe", "workspace", f"workspace:{workspace_id}"
+        )
+        await _grant_kg_edit(authz, kg.id.value, user_id)
+
+        await service.list_for_workspace_with_permission(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            permission=Permission.EDIT,
+        )
+
+        assert len(probe.knowledge_graphs_listed_calls) == 1
+        call = probe.knowledge_graphs_listed_calls[0]
+        assert call["workspace_id"] == workspace_id
+        assert call["count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_view_permission_returns_viewable_kgs_in_workspace(
+        self, service, authz, kg_repo, user_id, workspace_id, tenant_id
+    ):
+        """list_for_workspace_with_permission(permission=VIEW) returns viewable KGs."""
+        kg1 = _make_kg(kg_id="kg-viewable", tenant_id=tenant_id)
+        kg2 = _make_kg(kg_id="kg-no-perm", tenant_id=tenant_id)
+        kg_repo.seed(kg1, kg2)
+
+        await authz.write_relationship(
+            "knowledge_graph:kg-viewable", "workspace", f"workspace:{workspace_id}"
+        )
+        await authz.write_relationship(
+            "knowledge_graph:kg-no-perm", "workspace", f"workspace:{workspace_id}"
+        )
+        await _grant_kg_view(authz, kg1.id.value, user_id)
+        # No permission on kg2
+
+        result = await service.list_for_workspace_with_permission(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            permission=Permission.VIEW,
+        )
+
+        assert len(result) == 1
+        assert result[0].id.value == kg1.id.value

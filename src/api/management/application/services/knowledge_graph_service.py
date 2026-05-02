@@ -268,6 +268,67 @@ class KnowledgeGraphService:
 
         return kgs
 
+    async def list_for_workspace_with_permission(
+        self,
+        user_id: str,
+        workspace_id: str,
+        permission: Permission = Permission.VIEW,
+    ) -> list[KnowledgeGraph]:
+        """List knowledge graphs in a workspace filtered by per-KG permission.
+
+        Discovers KGs linked to the workspace via SpiceDB relationships, then
+        filters to those the user has the requested permission on.
+
+        Unlike list_for_workspace(), this method does NOT require workspace-level
+        VIEW permission — per-KG permission checks are sufficient. This supports
+        the Mutations Console KG selector which must show KGs the user can EDIT
+        within the selected workspace, regardless of their workspace role.
+
+        Args:
+            user_id: The user requesting the list
+            workspace_id: The workspace to filter by
+            permission: Minimum permission to check on each KG (VIEW or EDIT)
+
+        Returns:
+            KGs in the workspace that the user has the requested permission on.
+            Returns an empty list when the workspace has no KGs or when the user
+            lacks the requested permission on all workspace KGs.
+        """
+        # Discover KG IDs linked to the workspace via SpiceDB relationships
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.KNOWLEDGE_GRAPH,
+            relation=RelationType.WORKSPACE,
+            subject_type=ResourceType.WORKSPACE,
+            subject_id=workspace_id,
+        )
+
+        # Extract KG IDs from relationship tuples (format: "knowledge_graph:<id>")
+        kg_ids: list[str] = []
+        for rel_tuple in tuples:
+            parts = rel_tuple.resource.split(":")
+            if len(parts) == 2:
+                kg_ids.append(parts[1])
+
+        # Filter by per-KG permission (no workspace-level check required)
+        kgs: list[KnowledgeGraph] = []
+        for kg_id in kg_ids:
+            has_perm = await self._check_permission(
+                user_id=user_id,
+                resource_type=ResourceType.KNOWLEDGE_GRAPH,
+                resource_id=kg_id,
+                permission=permission,
+            )
+            if has_perm:
+                kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
+                if kg is not None and kg.tenant_id == self._scope_to_tenant:
+                    kgs.append(kg)
+
+        self._probe.knowledge_graphs_listed(
+            workspace_id=workspace_id,
+            count=len(kgs),
+        )
+        return kgs
+
     async def list_all(
         self,
         user_id: str,

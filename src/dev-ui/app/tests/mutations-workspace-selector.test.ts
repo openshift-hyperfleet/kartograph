@@ -131,4 +131,11 @@ describe('Mutations Console — workspace selector structural checks', () => {
     // Both selections must reset when the tenant changes (prevents stale cross-tenant data)
     expect(mutVue).toMatch(/selectedWorkspaceId\.value\s*=\s*''/)
   })
+
+  it('passes permission=edit to the knowledge-graphs API call', () => {
+    // Spec: "the selector lists all knowledge graphs the user has `edit` permission on
+    // within the current workspace" — the API call must include permission: 'edit' so
+    // the backend returns only KGs the user can mutate, not all readable KGs.
+    expect(mutVue).toMatch(/permission.*edit|edit.*permission/)
+  })
 })

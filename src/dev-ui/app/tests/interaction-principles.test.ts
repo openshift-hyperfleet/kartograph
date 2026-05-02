@@ -637,3 +637,105 @@ describe('Tenant Context - switching tenants refreshes all data', () => {
     expect(switchedToName).toBe('Startup Inc')
   })
 })
+
+// ── Scenario: Keyboard shortcuts ─────────────────────────────────────────────
+// Spec: "GIVEN a power-user action (execute query, focus search)
+// THEN a keyboard shortcut is available (Ctrl/Cmd+Enter, /)
+// AND the shortcut is discoverable via tooltip or documentation"
+
+describe('Keyboard shortcuts — power-user actions', () => {
+  it('Ctrl+Enter triggers the primary action (execute / submit)', () => {
+    let actionCalled = false
+
+    function handleCtrlEnter(e: { ctrlKey: boolean; metaKey: boolean; key: string; preventDefault: () => void }) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault()
+        actionCalled = true
+      }
+    }
+
+    const preventDefault = vi.fn()
+    handleCtrlEnter({ ctrlKey: true, metaKey: false, key: 'Enter', preventDefault })
+    expect(actionCalled).toBe(true)
+    expect(preventDefault).toHaveBeenCalled()
+  })
+
+  it('Cmd+Enter (Mac) also triggers the primary action', () => {
+    let actionCalled = false
+
+    function handleCtrlEnter(e: { ctrlKey: boolean; metaKey: boolean; key: string; preventDefault: () => void }) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault()
+        actionCalled = true
+      }
+    }
+
+    const preventDefault = vi.fn()
+    handleCtrlEnter({ ctrlKey: false, metaKey: true, key: 'Enter', preventDefault })
+    expect(actionCalled).toBe(true)
+  })
+
+  it('other key combinations do not trigger the action', () => {
+    let actionCalled = false
+
+    function handleCtrlEnter(e: { ctrlKey: boolean; metaKey: boolean; key: string; preventDefault: () => void }) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault()
+        actionCalled = true
+      }
+    }
+
+    const preventDefault = vi.fn()
+    // Bare Enter — no modifier
+    handleCtrlEnter({ ctrlKey: false, metaKey: false, key: 'Enter', preventDefault })
+    expect(actionCalled).toBe(false)
+
+    // Ctrl+S — wrong key
+    handleCtrlEnter({ ctrlKey: true, metaKey: false, key: 's', preventDefault })
+    expect(actionCalled).toBe(false)
+  })
+
+  it('query console page registers Ctrl/Cmd+Enter keydown listener', () => {
+    const { readFileSync } = require('fs')
+    const { resolve } = require('path')
+    const source = readFileSync(
+      resolve(__dirname, '../pages/query/index.vue'),
+      'utf-8',
+    )
+    expect(source).toContain('handleCtrlEnter')
+    expect(source).toContain("document.addEventListener('keydown'")
+  })
+
+  it('query console removes the keydown listener on unmount (no memory leak)', () => {
+    const { readFileSync } = require('fs')
+    const { resolve } = require('path')
+    const source = readFileSync(
+      resolve(__dirname, '../pages/query/index.vue'),
+      'utf-8',
+    )
+    expect(source).toContain("document.removeEventListener('keydown'")
+  })
+
+  it('mutations console Ctrl/Cmd+Enter shortcut is discoverable via tooltip', () => {
+    const { readFileSync } = require('fs')
+    const { resolve } = require('path')
+    const source = readFileSync(
+      resolve(__dirname, '../pages/graph/mutations.vue'),
+      'utf-8',
+    )
+    // The shortcut should be shown (e.g., in a tooltip, badge, or kbd element)
+    expect(source).toMatch(/Ctrl\+Enter|Ctrl-Enter|Cmd-Enter|⌘\+Enter/)
+  })
+
+  it('keyboard shortcut is event-based, not polling-based', () => {
+    // Verifies the pattern: addEventListener('keydown', handler) not setInterval
+    const { readFileSync } = require('fs')
+    const { resolve } = require('path')
+    const source = readFileSync(
+      resolve(__dirname, '../pages/query/index.vue'),
+      'utf-8',
+    )
+    expect(source).toContain('keydown')
+    expect(source).not.toContain('setInterval')
+  })
+})

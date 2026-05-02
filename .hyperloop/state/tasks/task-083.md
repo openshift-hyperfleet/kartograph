@@ -3,11 +3,11 @@ id: task-083
 title: Data Sources UI — live sync status polling for active syncs
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-083
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/546
 pr_title: 'feat(ui): poll sync status while a data source sync is active'
 pr_description: "## What & Why\n\nThe spec requires:\n\n> **Requirement: Sync Monitoring\
   \ — Scenario: Active sync progress**\n> GIVEN a data source with a sync in progress\n\

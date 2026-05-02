@@ -3,11 +3,11 @@ id: task-082
 title: Data Sources UI — persist ontology edits to backend after extraction
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-082
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/545
 pr_title: 'feat(ui): persist post-extraction ontology edits via PATCH on data source'
 pr_description: "## What & Why\n\nThe spec requires:\n\n> **Requirement: Ontology\
   \ Design — Scenario: Ontology change after initial extraction**\n> GIVEN a knowledge\

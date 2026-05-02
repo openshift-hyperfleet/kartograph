@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   Cable,
@@ -142,6 +142,9 @@ function syncPhaseLabel(status: SyncRun['status']): string {
 function isActiveSyncPhase(status: SyncRun['status']): boolean {
   return status === 'pending' || status === 'ingesting' || status === 'ai_extracting' || status === 'applying'
 }
+
+// Statuses that indicate a sync is in progress and the page should poll.
+const ACTIVE_STATUSES: SyncRun['status'][] = ['pending', 'ingesting', 'ai_extracting', 'applying']
 
 // ── Composables ────────────────────────────────────────────────────────────
 
@@ -634,8 +637,53 @@ async function loadDataSources() {
   }
 }
 
+// ── Sync polling ───────────────────────────────────────────────────────────
+
+/**
+ * True if at least one data source has a sync currently in progress.
+ * Uses the most recent sync run (first in the array) as the source of truth.
+ */
+const hasActiveSyncs = computed(() =>
+  dataSources.value.some((ds) => {
+    const latestStatus = ds.sync_runs?.[0]?.status
+    return latestStatus !== undefined && ACTIVE_STATUSES.includes(latestStatus)
+  }),
+)
+
+/** Holds the active setInterval handle, or null when not polling. */
+const pollInterval = ref<ReturnType<typeof setInterval> | null>(null)
+
+/**
+ * Clears the poll interval and resets the ref.
+ * Safe to call when no interval is running.
+ */
+function stopPolling() {
+  if (pollInterval.value !== null) {
+    clearInterval(pollInterval.value)
+    pollInterval.value = null
+  }
+}
+
+/**
+ * Starts polling every 5 seconds while any data source has an active sync.
+ * Guards against starting a second interval if one is already running.
+ * Automatically stops when all syncs reach a terminal state.
+ */
+function startPolling() {
+  if (pollInterval.value !== null) return // already polling
+  pollInterval.value = setInterval(async () => {
+    await loadDataSources()
+    if (!hasActiveSyncs.value) {
+      stopPolling()
+    }
+  }, 5000)
+}
+
 onMounted(async () => {
   await loadDataSources()
+  if (hasActiveSyncs.value) {
+    startPolling()
+  }
   // Cross-navigation from Schema Browser: open ontology editor for a specific type.
   const route = useRoute()
   const openOntologyType = route.query.openOntologyType as string | undefined
@@ -648,6 +696,11 @@ onMounted(async () => {
       requestOntologyEdit(target)
     }
   }
+})
+
+onUnmounted(() => {
+  // Always clear the poll interval to prevent memory leaks when navigating away.
+  stopPolling()
 })
 
 // Reload data sources whenever the user switches tenants.
@@ -663,6 +716,10 @@ async function triggerSync(dsId: string) {
     await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
     toast.success('Sync triggered', { description: 'The data source sync has been initiated.' })
     await loadDataSources()
+    // The newly triggered sync is now active — start polling if not already running.
+    if (hasActiveSyncs.value) {
+      startPolling()
+    }
   } catch {
     toast.error('Failed to trigger sync')
   }

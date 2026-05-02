@@ -1,21 +1,21 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   BookOpen,
   Plus,
   Building2,
   Loader2,
-  ArrowRight,
-  Search,
   Cable,
   Database,
+  Pencil,
+  Trash2,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { CopyableText } from '@/components/ui/copyable-text'
 import {
   Dialog,
@@ -26,6 +26,16 @@ import {
   DialogFooter,
   DialogClose,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from '@/components/ui/alert-dialog'
 import {
   Select,
   SelectContent,
@@ -71,6 +81,20 @@ const selectedWorkspaceId = ref('')
 const creating = ref(false)
 const createNameError = ref('')
 const createWorkspaceError = ref('')
+
+// Edit dialog
+const editDialogOpen = ref(false)
+const editingKgId = ref('')
+const editName = ref('')
+const editDescription = ref('')
+const editNameError = ref('')
+const saving = ref(false)
+
+// Delete dialog
+const deleteDialogOpen = ref(false)
+const deletingKgId = ref('')
+const deletingKgName = ref('')
+const deleting = ref(false)
 
 // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -153,6 +177,68 @@ async function handleCreate() {
     })
   } finally {
     creating.value = false
+  }
+}
+
+function openEditDialog(kg: KnowledgeGraphItem) {
+  editingKgId.value = kg.id
+  editName.value = kg.name
+  editDescription.value = kg.description ?? ''
+  editNameError.value = ''
+  editDialogOpen.value = true
+}
+
+async function handleEdit() {
+  editNameError.value = ''
+  if (!editName.value.trim()) {
+    editNameError.value = 'Knowledge graph name is required'
+    return
+  }
+  saving.value = true
+  try {
+    const { apiFetch } = useApiClient()
+    await apiFetch(`/management/knowledge-graphs/${editingKgId.value}`, {
+      method: 'PATCH',
+      body: {
+        name: editName.value.trim(),
+        description: editDescription.value.trim(),
+      },
+    })
+    toast.success('Knowledge graph updated')
+    editDialogOpen.value = false
+    await loadKnowledgeGraphs()
+  } catch (err) {
+    toast.error('Failed to update knowledge graph', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    saving.value = false
+  }
+}
+
+function openDeleteDialog(kg: KnowledgeGraphItem) {
+  deletingKgId.value = kg.id
+  deletingKgName.value = kg.name
+  deleteDialogOpen.value = true
+}
+
+async function handleDelete() {
+  deleting.value = true
+  try {
+    const { apiFetch } = useApiClient()
+    await apiFetch(`/management/knowledge-graphs/${deletingKgId.value}`, {
+      method: 'DELETE',
+    })
+    toast.success(`Knowledge graph "${deletingKgName.value}" deleted`)
+    deleteDialogOpen.value = false
+    await loadKnowledgeGraphs()
+  } catch (err) {
+    toast.error('Failed to delete knowledge graph', {
+      description: extractErrorMessage(err),
+    })
+    deleteDialogOpen.value = false
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -286,6 +372,19 @@ watch(tenantVersion, () => {
                 <Database class="mr-1.5 size-3.5" />
                 Query
               </Button>
+              <Button size="sm" variant="outline" @click="openEditDialog(kg)">
+                <Pencil class="mr-1.5 size-3.5" />
+                Edit
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                class="text-destructive hover:bg-destructive/10"
+                @click="openDeleteDialog(kg)"
+              >
+                <Trash2 class="mr-1.5 size-3.5" />
+                Delete
+              </Button>
             </div>
           </div>
         </div>
@@ -365,5 +464,72 @@ watch(tenantVersion, () => {
         </form>
       </DialogContent>
     </Dialog>
+
+    <!-- Edit Knowledge Graph Dialog -->
+    <Dialog v-model:open="editDialogOpen">
+      <DialogContent class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit Knowledge Graph</DialogTitle>
+          <DialogDescription>
+            Update the name or description of this knowledge graph.
+          </DialogDescription>
+        </DialogHeader>
+        <form class="space-y-4" @submit.prevent="handleEdit">
+          <div class="space-y-1.5">
+            <Label for="edit-kg-name">Name <span class="text-destructive">*</span></Label>
+            <Input
+              id="edit-kg-name"
+              v-model="editName"
+              placeholder="e.g. Engineering Knowledge Base"
+              :disabled="saving"
+              @input="editNameError = ''"
+            />
+            <p v-if="editNameError" class="text-sm text-destructive">{{ editNameError }}</p>
+          </div>
+          <div class="space-y-1.5">
+            <Label for="edit-kg-description">Description</Label>
+            <Input
+              id="edit-kg-description"
+              v-model="editDescription"
+              placeholder="What does this knowledge graph represent?"
+              :disabled="saving"
+            />
+          </div>
+          <DialogFooter>
+            <DialogClose as-child>
+              <Button type="button" variant="outline" :disabled="saving">Cancel</Button>
+            </DialogClose>
+            <Button type="submit" :disabled="saving || !editName.trim()">
+              <Loader2 v-if="saving" class="mr-2 size-4 animate-spin" />
+              {{ saving ? 'Saving...' : 'Save' }}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Delete Knowledge Graph AlertDialog -->
+    <AlertDialog v-model:open="deleteDialogOpen">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete "{{ deletingKgName }}"?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will permanently delete the knowledge graph and all of its connected data sources.
+            This action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel :disabled="deleting">Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            :disabled="deleting"
+            @click.prevent="handleDelete"
+          >
+            <Loader2 v-if="deleting" class="mr-2 size-4 animate-spin" />
+            {{ deleting ? 'Deleting...' : 'Delete' }}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>

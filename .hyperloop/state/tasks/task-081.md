@@ -3,12 +3,12 @@ id: task-081
 title: Data Sources UI — add delete and connection-config update for existing data
   sources
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps:
 - task-080
 round: 0
-branch: null
+branch: hyperloop/task-081
 pr: null
 pr_title: 'feat(ui): add delete and credential-update operations to Data Sources page'
 pr_description: "## What & Why\n\nThe spec requires:\n\n> **Backend API Alignment\

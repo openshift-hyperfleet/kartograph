@@ -3,11 +3,11 @@ id: task-065
 title: Mutations Console — knowledge graph selector and scoped API submission
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: spec-review
+phase: implement
 deps:
 - task-060
 - task-061
-round: 0
+round: 1
 branch: hyperloop/task-065
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/532
 pr_title: 'feat(ui): add knowledge graph selector to Mutations Console and fix scoped

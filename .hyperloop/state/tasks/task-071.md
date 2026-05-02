@@ -3,11 +3,11 @@ id: task-071
 title: Knowledge Graph Creation — test post-creation data source prompt
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-071
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/535
 pr_title: 'test(ui): verify KG creation prompts user to add their first data source'
 pr_description: "## What & Why\n\nThe `experience.spec.md` spec (Requirement: Knowledge\
   \ Graph Creation,\nScenario: Create knowledge graph) requires:\n\n> AND the user\

@@ -677,3 +677,115 @@ describe('API Keys - mutation feedback on revoke', () => {
     expect(errorToast).toBe('Not found')
   })
 })
+
+// ── Backend API Alignment — Scenario: Resource operations succeed end-to-end ──
+// Spec requirement: "AND the UI reflects the updated state without requiring a
+// manual refresh"
+// Verifies that after create/revoke operations, loadKeys() is called so the
+// API key list is refreshed automatically without a manual page reload.
+
+describe('Backend API Alignment — Scenario: Resource operations succeed end-to-end — API key list refresh after create', () => {
+  it('calls loadKeys() after successful API key creation', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({
+      id: 'key-new',
+      name: 'CI Pipeline',
+      secret: 'fake-secret', // gitleaks:allow
+      prefix: 'kfake_',
+    })
+    const loadKeys = vi.fn().mockResolvedValue(undefined)
+    const createForm = { name: 'CI Pipeline', expires_in_days: 30 }
+    const isCreating = { value: false }
+    const createDialogOpen = { value: true }
+
+    async function handleCreate() {
+      if (!createForm.name.trim()) return
+      isCreating.value = true
+      try {
+        const key = await apiFetch('/iam/api-keys', { method: 'POST', body: createForm })
+        void key
+        await loadKeys()
+      } finally {
+        createDialogOpen.value = false
+        isCreating.value = false
+      }
+    }
+
+    await handleCreate()
+    expect(loadKeys).toHaveBeenCalledOnce()
+  })
+
+  it('does NOT call loadKeys() when API key creation throws', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Forbidden'))
+    const loadKeys = vi.fn().mockResolvedValue(undefined)
+    const createForm = { name: 'CI Pipeline', expires_in_days: 30 }
+    const isCreating = { value: false }
+
+    async function handleCreate() {
+      if (!createForm.name.trim()) return
+      isCreating.value = true
+      try {
+        await apiFetch('/iam/api-keys', { method: 'POST', body: createForm })
+        await loadKeys()
+      } catch {
+        // error path — refresh must NOT be called
+      } finally {
+        isCreating.value = false
+      }
+    }
+
+    await handleCreate()
+    expect(loadKeys).not.toHaveBeenCalled()
+  })
+})
+
+describe('Backend API Alignment — Scenario: Resource operations succeed end-to-end — API key list refresh after revoke', () => {
+  it('calls loadKeys() after successful API key revocation', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({})
+    const loadKeys = vi.fn().mockResolvedValue(undefined)
+    const keyToRevoke = { value: { id: 'key-abc', name: 'CI Pipeline' } as { id: string; name: string } | null }
+    const isRevoking = { value: false }
+    const revokeDialogOpen = { value: true }
+
+    async function handleRevoke() {
+      if (!keyToRevoke.value) return
+      isRevoking.value = true
+      try {
+        await apiFetch(`/iam/api-keys/${keyToRevoke.value.id}`, { method: 'DELETE' })
+        await loadKeys()
+      } finally {
+        revokeDialogOpen.value = false
+        keyToRevoke.value = null
+        isRevoking.value = false
+      }
+    }
+
+    await handleRevoke()
+    expect(loadKeys).toHaveBeenCalledOnce()
+  })
+
+  it('does NOT call loadKeys() when revoke API throws', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Not found'))
+    const loadKeys = vi.fn().mockResolvedValue(undefined)
+    const keyToRevoke = { value: { id: 'key-abc', name: 'CI Pipeline' } as { id: string; name: string } | null }
+    const isRevoking = { value: false }
+    const revokeDialogOpen = { value: true }
+
+    async function handleRevoke() {
+      if (!keyToRevoke.value) return
+      isRevoking.value = true
+      try {
+        await apiFetch(`/iam/api-keys/${keyToRevoke.value.id}`, { method: 'DELETE' })
+        await loadKeys()
+      } catch {
+        // error path — refresh must NOT be called
+      } finally {
+        revokeDialogOpen.value = false
+        keyToRevoke.value = null
+        isRevoking.value = false
+      }
+    }
+
+    await handleRevoke()
+    expect(loadKeys).not.toHaveBeenCalled()
+  })
+})

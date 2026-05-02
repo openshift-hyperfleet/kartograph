@@ -105,17 +105,50 @@ if [[ -n "$CONFLICTING" ]]; then
   done <<< "$CONFLICTING"
   echo ""
 fi
-echo "Root cause: the branch contains a commit whose content overlaps with"
-echo "changes already merged to alpha.  This is typically caused by writing"
-echo "code outside the task's spec scope (e.g., modifying files not referenced"
-echo "in the spec that were already updated by a different merged PR)."
-echo ""
-echo "Resolution:"
-echo "  1. Identify the offending commit(s):"
-echo "     git log --oneline \$(git merge-base HEAD alpha)..HEAD"
-echo "  2. Check whether alpha already contains equivalent changes to those files:"
-echo "     git log --oneline alpha -- <conflicting-file>"
-echo "  3. Drop the out-of-scope commit(s) via interactive rebase:"
-echo "     git rebase -i \$(git merge-base HEAD alpha)"
-echo "     # Mark stray commits as 'drop' and save"
+
+# Detect whether ANY conflicting file is a test file.
+TEST_FILE_CONFLICTS=""
+while IFS= read -r f; do
+  if [[ "$f" =~ (\.test\.(ts|js)|\.spec\.(ts|js)|test_.*\.py|_test\.py)$ ]]; then
+    TEST_FILE_CONFLICTS="$TEST_FILE_CONFLICTS $f"
+  fi
+done <<< "$CONFLICTING"
+
+if [[ -n "$TEST_FILE_CONFLICTS" ]]; then
+  echo "TEST FILE CONFLICT DETECTED"
+  echo "One or more conflicting files are test files:"
+  for f in $TEST_FILE_CONFLICTS; do
+    echo "  $f"
+  done
+  echo ""
+  echo "IMPORTANT: For test file conflicts the correct resolution is MERGE, not DROP."
+  echo "Dropping a test file commit silently reduces test coverage — this is always wrong."
+  echo ""
+  echo "Resolution:"
+  echo "  1. Run: git rebase alpha"
+  echo "  2. When the conflict appears, open the conflicting test file."
+  echo "  3. Keep ALL describe/it/def test_ blocks from BOTH sides of the conflict."
+  echo "     Do NOT pick just one side. Do NOT delete blocks from either side."
+  echo "  4. Remove git conflict markers (<<<<<<<, =======, >>>>>>>)."
+  echo "  5. Check for duplicate describe blocks (same name) and deduplicate only"
+  echo "     exact duplicates; different tests with similar names must both be kept."
+  echo "  6. Run: git add <conflicting-file> && git rebase --continue"
+  echo "  7. Run the test suite to verify all tests pass."
+  echo "  8. Run: bash .hyperloop/checks/check-no-test-regressions.sh"
+  echo "  9. Re-run this check to confirm exit 0."
+else
+  echo "Root cause: the branch contains a commit whose content overlaps with"
+  echo "changes already merged to alpha.  This is typically caused by writing"
+  echo "code outside the task's spec scope (e.g., modifying files not referenced"
+  echo "in the spec that were already updated by a different merged PR)."
+  echo ""
+  echo "Resolution:"
+  echo "  1. Identify the offending commit(s):"
+  echo "     git log --oneline \$(git merge-base HEAD alpha)..HEAD"
+  echo "  2. Check whether alpha already contains equivalent changes to those files:"
+  echo "     git log --oneline alpha -- <conflicting-file>"
+  echo "  3. Drop the out-of-scope commit(s) via interactive rebase:"
+  echo "     git rebase -i \$(git merge-base HEAD alpha)"
+  echo "     # Mark stray commits as 'drop' and save"
+fi
 exit 1

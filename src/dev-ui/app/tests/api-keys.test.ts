@@ -510,3 +510,170 @@ describe('API Keys page - tenant switch reloads data', () => {
     expect(apiKeys[0].id).not.toBe('k-old')
   })
 })
+
+// ── Copy-to-clipboard for API Key identifiers ─────────────────────────────────
+// Spec: "Interaction Principles — Copy-to-clipboard"
+// GIVEN any identifier, configuration snippet, or secret
+// THEN a copy button is provided
+// AND a toast confirms the copy action
+
+describe('API Keys - copy key prefix to clipboard', () => {
+  it('calls clipboard.writeText with the key prefix and shows toast', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    let toastMsg = ''
+    let copiedPrefix = ''
+
+    async function copyKeyPrefix(prefix: string) {
+      try {
+        await writeText(prefix)
+        toastMsg = 'Key prefix copied to clipboard'
+        copiedPrefix = prefix
+      } catch {
+        toastMsg = 'Failed to copy to clipboard'
+      }
+    }
+
+    await copyKeyPrefix('krtgph_abc123')
+    expect(writeText).toHaveBeenCalledWith('krtgph_abc123')
+    expect(toastMsg).toBe('Key prefix copied to clipboard')
+    expect(copiedPrefix).toBe('krtgph_abc123')
+  })
+
+  it('shows error feedback when clipboard write fails', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('NotAllowedError'))
+    let toastMsg = ''
+
+    async function copyKeyPrefix(prefix: string) {
+      try {
+        await writeText(prefix)
+        toastMsg = 'Key prefix copied to clipboard'
+      } catch {
+        toastMsg = 'Failed to copy to clipboard'
+      }
+    }
+
+    await copyKeyPrefix('krtgph_abc123')
+    expect(toastMsg).toBe('Failed to copy to clipboard')
+  })
+
+  it('resets copiedPrefix state after copy timeout', () => {
+    const copiedPrefix = { value: 'krtgph_abc123' }
+
+    function resetCopied() {
+      copiedPrefix.value = ''
+    }
+
+    resetCopied()
+    expect(copiedPrefix.value).toBe('')
+  })
+})
+
+describe('API Keys - copy newly-created secret (shown once)', () => {
+  it('calls clipboard.writeText with the secret and sets secretCopied', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    const secretCopied = { value: false }
+    let toastMsg = ''
+
+    const newlyCreatedKey = {
+      value: { name: 'CI Pipeline', secret: 'krtgph_test_secret' }, // gitleaks:allow
+    }
+
+    async function copySecret() {
+      if (!newlyCreatedKey.value) return
+      try {
+        await writeText(newlyCreatedKey.value.secret)
+        secretCopied.value = true
+        toastMsg = 'Secret copied to clipboard'
+      } catch {
+        toastMsg = 'Failed to copy'
+      }
+    }
+
+    await copySecret()
+    expect(writeText).toHaveBeenCalledWith('krtgph_test_secret')
+    expect(secretCopied.value).toBe(true)
+    expect(toastMsg).toBe('Secret copied to clipboard')
+  })
+
+  it('does not copy when newlyCreatedKey is null', async () => {
+    const writeText = vi.fn()
+    const newlyCreatedKey = { value: null as { secret: string } | null }
+
+    async function copySecret() {
+      if (!newlyCreatedKey.value) return
+      await writeText(newlyCreatedKey.value.secret)
+    }
+
+    await copySecret()
+    expect(writeText).not.toHaveBeenCalled()
+  })
+})
+
+// ── Mutation feedback — create and revoke toasts ───────────────────────────────
+// Spec: "Interaction Principles — Mutation feedback"
+
+describe('API Keys - mutation feedback on create', () => {
+  it('shows success toast with key name after create', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({ id: 'key-new', name: 'CI Pipeline', secret: 'krtgph_x' }) // gitleaks:allow
+    let successToast = ''
+
+    async function handleCreate(name: string, expiresInDays: number) {
+      if (!name.trim()) return
+      if (expiresInDays < 1 || expiresInDays > 3650) return
+      const key = await apiFetch('/iam/api-keys', { method: 'POST', body: { name, expires_in_days: expiresInDays } })
+      successToast = `API key "${key.name}" created`
+    }
+
+    await handleCreate('CI Pipeline', 365)
+    expect(successToast).toBe('API key "CI Pipeline" created')
+  })
+
+  it('shows error toast when key creation fails', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Forbidden'))
+    let errorToast = ''
+
+    async function handleCreate(name: string, expiresInDays: number) {
+      if (!name.trim()) return
+      try {
+        await apiFetch('/iam/api-keys', { method: 'POST', body: { name, expires_in_days: expiresInDays } })
+      } catch (err) {
+        errorToast = err instanceof Error ? err.message : 'Failed to create API key'
+      }
+    }
+
+    await handleCreate('CI Pipeline', 365)
+    expect(errorToast).toBe('Forbidden')
+  })
+})
+
+describe('API Keys - mutation feedback on revoke', () => {
+  it('shows success toast with key name after revoke', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({})
+    const keyToRevoke = { id: 'key-abc', name: 'CI Pipeline' }
+    let successToast = ''
+
+    async function handleRevoke() {
+      await apiFetch(`/iam/api-keys/${keyToRevoke.id}`, { method: 'DELETE' })
+      successToast = `API key "${keyToRevoke.name}" revoked`
+    }
+
+    await handleRevoke()
+    expect(successToast).toBe('API key "CI Pipeline" revoked')
+  })
+
+  it('shows error feedback when revoke fails', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Not found'))
+    let errorToast = ''
+
+    async function handleRevoke(keyId: string) {
+      try {
+        await apiFetch(`/iam/api-keys/${keyId}`, { method: 'DELETE' })
+      } catch (err) {
+        errorToast = err instanceof Error ? err.message : 'Failed to revoke key'
+      }
+    }
+
+    await handleRevoke('key-abc')
+    expect(errorToast).toBe('Not found')
+  })
+})

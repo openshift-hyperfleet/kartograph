@@ -31,6 +31,13 @@ import {
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from '@/components/ui/sheet'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 // CodeMirror
 import { useCodemirror } from '@/composables/useCodemirror'
 import { kartographTheme, jsonHighlightStyle } from '@/lib/codemirror/theme'
@@ -440,7 +447,7 @@ function handleCtrlEnter(e: KeyboardEvent) {
 
 onMounted(() => {
   document.addEventListener('keydown', handleCtrlEnter)
-  loadWorkspaces()
+  loadKnowledgeGraphs()
 
   const templateParam = route.query.template
   if (typeof templateParam === 'string' && templateParam.trim()) {

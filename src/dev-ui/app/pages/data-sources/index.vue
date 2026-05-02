@@ -29,6 +29,7 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import SyncPhaseIndicator from '@/components/graph/SyncPhaseIndicator.vue'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { CopyableText } from '@/components/ui/copyable-text'
 import {
   Dialog,
   DialogContent,
@@ -919,6 +920,7 @@ function closeLogs() {
               <div>
                 <p class="font-medium text-sm">{{ ds.name }}</p>
                 <p class="text-xs text-muted-foreground">{{ ds.adapter_type }}</p>
+                <CopyableText :text="ds.id" label="Data source ID copied" class="mt-0.5" />
               </div>
             </div>
             <div class="flex items-center gap-2">

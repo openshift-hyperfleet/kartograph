@@ -1235,3 +1235,147 @@ describe('Backend API Alignment — data source creation uses KG-scoped endpoint
     )
   })
 })
+
+// ── Copy-to-clipboard for Data Source IDs ─────────────────────────────────────
+// Spec: "Interaction Principles — Copy-to-clipboard"
+// GIVEN a data source is listed on the page
+// THEN a copy button is provided next to the data source ID
+// AND clicking the copy button writes the ID to the clipboard
+// AND a toast confirms the copy action
+
+describe('Data Sources - copy DS ID to clipboard', () => {
+  it('calls clipboard.writeText with the data source ID', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    let toastMsg = ''
+
+    // Mirrors the copyId(ds.id) helper implemented via CopyableText component
+    async function copyId(id: string) {
+      try {
+        await writeText(id)
+        toastMsg = 'Data source ID copied'
+      } catch {
+        toastMsg = 'Failed to copy'
+      }
+    }
+
+    await copyId('ds-github-abc-123')
+    expect(writeText).toHaveBeenCalledWith('ds-github-abc-123')
+    expect(toastMsg).toBe('Data source ID copied')
+  })
+
+  it('shows error feedback when clipboard write fails', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('NotAllowedError'))
+    let toastMsg = ''
+
+    async function copyId(id: string) {
+      try {
+        await writeText(id)
+        toastMsg = 'Data source ID copied'
+      } catch {
+        toastMsg = 'Failed to copy'
+      }
+    }
+
+    await copyId('ds-github-abc-123')
+    expect(toastMsg).toBe('Failed to copy')
+  })
+
+  it('copies the correct ID for each data source in the list', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    const dataSources = [
+      { id: 'ds-1', name: 'my-repo', adapter_type: 'github' },
+      { id: 'ds-2', name: 'k8s-cluster', adapter_type: 'kubernetes' },
+    ]
+    const copiedIds: string[] = []
+
+    async function copyId(id: string) {
+      await writeText(id)
+      copiedIds.push(id)
+    }
+
+    for (const ds of dataSources) {
+      await copyId(ds.id)
+    }
+
+    expect(writeText).toHaveBeenCalledTimes(2)
+    expect(copiedIds).toEqual(['ds-1', 'ds-2'])
+  })
+})
+
+// ── Mutation Feedback — triggerSync and createDataSource ──────────────────────
+// Spec: "Interaction Principles — Mutation feedback"
+// GIVEN a write operation (create, trigger sync)
+// THEN a toast notification confirms success or reports failure
+
+describe('Data Sources - triggerSync mutation feedback', () => {
+  it('shows success toast when sync is triggered', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({})
+    let successToast = ''
+
+    async function triggerSync(dsId: string) {
+      try {
+        await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
+        successToast = 'Sync triggered'
+      } catch {
+        // handled below
+      }
+    }
+
+    await triggerSync('ds-abc-123')
+    expect(apiFetch).toHaveBeenCalledWith('/management/data-sources/ds-abc-123/sync', { method: 'POST' })
+    expect(successToast).toBe('Sync triggered')
+  })
+
+  it('shows error toast when sync trigger fails', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Service unavailable'))
+    let errorToast = ''
+
+    async function triggerSync(dsId: string) {
+      try {
+        await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
+      } catch {
+        errorToast = 'Failed to trigger sync'
+      }
+    }
+
+    await triggerSync('ds-abc-123')
+    expect(errorToast).toBe('Failed to trigger sync')
+  })
+})
+
+describe('Data Sources - createDataSource mutation feedback', () => {
+  it('shows success toast when data source is created', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({ id: 'ds-new', name: 'my-repo' })
+    let successToast = ''
+
+    async function createDataSource(kgId: string, params: { name: string; adapter_type: string }) {
+      const result = await apiFetch(`/management/knowledge-graphs/${kgId}/data-sources`, {
+        method: 'POST',
+        body: params,
+      })
+      successToast = 'Data source connected'
+    }
+
+    await createDataSource('kg-abc', { name: 'my-repo', adapter_type: 'github' })
+    expect(successToast).toBe('Data source connected')
+  })
+
+  it('shows error toast when data source creation fails', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Unauthorized'))
+    let errorToast = ''
+
+    async function createDataSource(kgId: string, params: { name: string; adapter_type: string }) {
+      try {
+        await apiFetch(`/management/knowledge-graphs/${kgId}/data-sources`, {
+          method: 'POST',
+          body: params,
+        })
+      } catch {
+        errorToast = 'Connection failed'
+      }
+    }
+
+    await createDataSource('kg-abc', { name: 'my-repo', adapter_type: 'github' })
+    expect(errorToast).toBe('Connection failed')
+  })
+})

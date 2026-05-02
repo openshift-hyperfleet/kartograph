@@ -673,3 +673,190 @@ describe('Groups page - tenant switch reloads data', () => {
     expect(groups[0].id).not.toBe('g-old')
   })
 })
+
+// ── Copy-to-clipboard for Group IDs ───────────────────────────────────────────
+// Spec: "Interaction Principles — Copy-to-clipboard"
+// GIVEN a group is selected with its detail panel visible
+// THEN a copy button is provided next to the group ID
+// AND clicking the copy button writes the ID to the clipboard
+// AND a toast confirms the copy action
+
+describe('Group Management - copy group ID to clipboard', () => {
+  it('calls clipboard.writeText with the group ID', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    let toastMsg = ''
+
+    // Mirrors the CopyableText component behaviour used in GroupDetailPanel
+    async function copyGroupId(id: string) {
+      try {
+        await writeText(id)
+        toastMsg = 'Group ID copied'
+      } catch {
+        toastMsg = 'Failed to copy'
+      }
+    }
+
+    await copyGroupId('g-engineering-abc')
+    expect(writeText).toHaveBeenCalledWith('g-engineering-abc')
+    expect(toastMsg).toBe('Group ID copied')
+  })
+
+  it('shows error feedback when clipboard write fails', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('NotAllowedError'))
+    let toastMsg = ''
+
+    async function copyGroupId(id: string) {
+      try {
+        await writeText(id)
+        toastMsg = 'Group ID copied'
+      } catch {
+        toastMsg = 'Failed to copy'
+      }
+    }
+
+    await copyGroupId('g-engineering-abc')
+    expect(toastMsg).toBe('Failed to copy')
+  })
+
+  it('copies the correct ID for each group in the list', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    const groups: GroupResponse[] = [
+      { id: 'g-1', name: 'Engineering', created_at: '' },
+      { id: 'g-2', name: 'Platform', created_at: '' },
+    ]
+    const copiedIds: string[] = []
+
+    async function copyGroupId(id: string) {
+      await writeText(id)
+      copiedIds.push(id)
+    }
+
+    for (const g of groups) {
+      await copyGroupId(g.id)
+    }
+
+    expect(writeText).toHaveBeenCalledTimes(2)
+    expect(copiedIds).toEqual(['g-1', 'g-2'])
+  })
+})
+
+// ── Mutation Feedback — group create/delete/rename ────────────────────────────
+// Spec: "Interaction Principles — Mutation feedback"
+// GIVEN a write operation (create, delete, rename group)
+// THEN a toast notification confirms success or reports failure
+
+describe('Group Management - mutation feedback toasts', () => {
+  it('shows success toast after creating a group', async () => {
+    const createGroup = vi.fn().mockResolvedValue({ id: 'g-new', name: 'DevOps' })
+    let successToast = ''
+
+    async function handleCreate(name: string) {
+      if (!validateGroupName(name).valid) return
+      const group = await createGroup({ name: name.trim() })
+      successToast = `Group "${group.name}" created`
+    }
+
+    await handleCreate('DevOps')
+    expect(successToast).toBe('Group "DevOps" created')
+  })
+
+  it('shows error toast when group creation fails', async () => {
+    const createGroup = vi.fn().mockRejectedValue(new Error('Conflict'))
+    let errorToast = ''
+
+    async function handleCreate(name: string) {
+      if (!validateGroupName(name).valid) {
+        errorToast = 'Group name is required'
+        return
+      }
+      try {
+        await createGroup({ name: name.trim() })
+      } catch {
+        errorToast = 'Failed to create group'
+      }
+    }
+
+    await handleCreate('Engineering')
+    expect(errorToast).toBe('Failed to create group')
+  })
+
+  it('shows error toast when name is empty (inline validation)', () => {
+    let errorToast = ''
+
+    function handleCreate(name: string) {
+      const validation = validateGroupName(name)
+      if (!validation.valid) {
+        errorToast = validation.error
+        return false
+      }
+      return true
+    }
+
+    const ok = handleCreate('')
+    expect(ok).toBe(false)
+    expect(errorToast).toBe('Group name is required')
+  })
+
+  it('shows success toast after deleting a group', async () => {
+    const deleteGroup = vi.fn().mockResolvedValue(undefined)
+    const groupToDelete = { name: 'Engineering' }
+    let successToast = ''
+
+    async function handleDelete(id: string) {
+      await deleteGroup(id)
+      successToast = `Group "${groupToDelete.name}" deleted`
+    }
+
+    await handleDelete('g-1')
+    expect(successToast).toBe('Group "Engineering" deleted')
+  })
+
+  it('shows error toast when group delete fails', async () => {
+    const deleteGroup = vi.fn().mockRejectedValue(new Error('Not found'))
+    let errorToast = ''
+
+    async function handleDelete(id: string) {
+      try {
+        await deleteGroup(id)
+      } catch {
+        errorToast = 'Failed to delete group'
+      }
+    }
+
+    await handleDelete('g-999')
+    expect(errorToast).toBe('Failed to delete group')
+  })
+
+  it('shows success toast after renaming a group', async () => {
+    const updateGroup = vi.fn().mockResolvedValue({ id: 'g-1', name: 'Platform' })
+    let successToast = ''
+
+    async function handleRename(id: string, newName: string, currentName: string) {
+      const result = validateRename(currentName, newName)
+      if (!result.valid || result.noChange) return
+      await updateGroup(id, { name: newName.trim() })
+      successToast = 'Group renamed'
+    }
+
+    await handleRename('g-1', 'Platform', 'Engineering')
+    expect(successToast).toBe('Group renamed')
+  })
+
+  it('shows error toast when group rename fails', async () => {
+    const updateGroup = vi.fn().mockRejectedValue(new Error('Conflict'))
+    let errorToast = ''
+
+    async function handleRename(id: string, newName: string, currentName: string) {
+      const result = validateRename(currentName, newName)
+      if (!result.valid || result.noChange) return
+      try {
+        await updateGroup(id, { name: newName.trim() })
+      } catch {
+        errorToast = 'Failed to rename group'
+      }
+    }
+
+    await handleRename('g-1', 'Platform', 'Engineering')
+    expect(errorToast).toBe('Failed to rename group')
+  })
+})

@@ -1,15 +1,21 @@
 <script setup lang="ts">
-import type { HTMLAttributes } from 'vue'
-import { type AlertDialogTitleProps, AlertDialogTitle } from 'reka-ui'
-import { cn } from '@/lib/utils'
+import type { HTMLAttributes } from "vue"
+import { reactiveOmit } from "@vueuse/core"
+import { type AlertDialogTitleProps, AlertDialogTitle, useForwardProps } from "reka-ui"
+import { cn } from "@/lib/utils"
 
-const props = defineProps<AlertDialogTitleProps & { class?: HTMLAttributes['class'] }>()
+const props = defineProps<AlertDialogTitleProps & { class?: HTMLAttributes["class"] }>()
+
+const delegatedProps = reactiveOmit(props, "class")
+
+const forwardedProps = useForwardProps(delegatedProps)
 </script>
 
 <template>
   <AlertDialogTitle
     data-slot="alert-dialog-title"
-    :class="cn('text-lg font-semibold', props.class)"
+    v-bind="forwardedProps"
+    :class="cn('text-lg leading-none font-semibold', props.class)"
   >
     <slot />
   </AlertDialogTitle>

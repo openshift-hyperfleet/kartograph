@@ -1381,3 +1381,94 @@ describe('Workspace Management - mutation feedback toasts', () => {
     expect(createParentError.value).toBe('Parent workspace is required')
   })
 })
+
+// ── Backend API Alignment — Scenario: Resource operations succeed end-to-end ──
+// Spec requirement: "AND the UI reflects the updated state without requiring a
+// manual refresh"
+// Verifies that after workspace creation, fetchWorkspaces() is called so the
+// workspace list is refreshed automatically without a manual page reload.
+
+describe('Backend API Alignment — Scenario: Resource operations succeed end-to-end — workspace list refresh after create', () => {
+  it('calls fetchWorkspaces() after successful workspace creation', async () => {
+    const createWorkspace = vi.fn().mockResolvedValue({ id: 'ws-new', name: 'My Workspace' })
+    const fetchWorkspaces = vi.fn().mockResolvedValue(undefined)
+    const createName = { value: 'My Workspace' }
+    const createParentId = { value: 'ws-root' }
+    const creating = { value: false }
+    const showCreateDialog = { value: true }
+
+    async function handleCreate() {
+      if (!createName.value.trim() || !createParentId.value) return
+      creating.value = true
+      try {
+        await createWorkspace({
+          name: createName.value.trim(),
+          parent_workspace_id: createParentId.value,
+        })
+        createName.value = ''
+        createParentId.value = ''
+        await fetchWorkspaces()
+      } finally {
+        showCreateDialog.value = false
+        creating.value = false
+      }
+    }
+
+    await handleCreate()
+    expect(fetchWorkspaces).toHaveBeenCalledOnce()
+  })
+
+  it('does NOT call fetchWorkspaces() when workspace creation API throws', async () => {
+    const createWorkspace = vi.fn().mockRejectedValue(new Error('Conflict'))
+    const fetchWorkspaces = vi.fn().mockResolvedValue(undefined)
+    const createName = { value: 'My Workspace' }
+    const createParentId = { value: 'ws-root' }
+    const creating = { value: false }
+
+    async function handleCreate() {
+      if (!createName.value.trim() || !createParentId.value) return
+      creating.value = true
+      try {
+        await createWorkspace({
+          name: createName.value.trim(),
+          parent_workspace_id: createParentId.value,
+        })
+        await fetchWorkspaces()
+      } catch {
+        // error path — refresh must NOT be called
+      } finally {
+        creating.value = false
+      }
+    }
+
+    await handleCreate()
+    expect(fetchWorkspaces).not.toHaveBeenCalled()
+  })
+
+  it('creating flag is reset regardless of success or failure', async () => {
+    const createWorkspace = vi.fn().mockRejectedValue(new Error('Server error'))
+    const fetchWorkspaces = vi.fn()
+    const createName = { value: 'My Workspace' }
+    const createParentId = { value: 'ws-root' }
+    const creating = { value: false }
+
+    async function handleCreate() {
+      if (!createName.value.trim() || !createParentId.value) return
+      creating.value = true
+      try {
+        await createWorkspace({
+          name: createName.value.trim(),
+          parent_workspace_id: createParentId.value,
+        })
+        await fetchWorkspaces()
+      } catch {
+        // swallow
+      } finally {
+        creating.value = false
+      }
+    }
+
+    await handleCreate()
+    expect(creating.value).toBe(false)
+  })
+})

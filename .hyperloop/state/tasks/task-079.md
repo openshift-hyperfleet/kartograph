@@ -3,11 +3,11 @@ id: task-079
 title: Knowledge Graphs UI — add inline edit (rename/re-describe) and delete with
   confirmation
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-079
 pr: null
 pr_title: 'feat(ui): add edit and delete operations to Knowledge Graphs page'
 pr_description: "## What & Why\n\nThe spec requires:\n\n> **Backend API Alignment\

@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import type { AlertDialogOverlayProps } from "reka-ui"
 import type { HTMLAttributes } from "vue"
 import { reactiveOmit } from "@vueuse/core"
-import { AlertDialogOverlay } from "reka-ui"
+import { type AlertDialogOverlayProps, AlertDialogOverlay } from "reka-ui"
 import { cn } from "@/lib/utils"
 
 const props = defineProps<AlertDialogOverlayProps & { class?: HTMLAttributes["class"] }>()

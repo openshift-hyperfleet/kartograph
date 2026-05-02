@@ -3,7 +3,7 @@ id: task-044
 title: Implement UI — sync log viewer (Sync Monitoring > Sync logs)
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: verify
+phase: spec-review
 deps:
 - task-014
 - task-041

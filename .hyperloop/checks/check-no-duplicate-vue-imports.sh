@@ -9,12 +9,6 @@
 # Root cause of task-045 blocking defect: task-074 added Select imports to
 # mutations.vue without removing the pre-existing Select import block.
 #
-# NOTE: The grep is intentionally restricted to lines that look like actual
-# import/export statements.  A naive `grep -oE "from '...'"` also matches
-# substrings inside test-assertion string literals such as:
-#   expect(SFC).toContain("from '@/lib/foo'")
-# which causes a false positive (root cause of task-125 false FAIL).
-#
 # Usage:
 #   bash .hyperloop/checks/check-no-duplicate-vue-imports.sh [file...]
 #
@@ -58,18 +52,11 @@ for file in "${files[@]}"; do
   [[ -z "$file" ]] && continue
   [[ ! -f "$file" ]] && continue
 
-  # Extract `from '...'` / `from "..."` module specifiers ONLY from lines that
-  # are actual import/export statements or the closing `} from '...'` of a
-  # multi-line import block.  A plain grep -oE "from '...'" also matches
-  # substrings inside test-assertion string literals such as:
-  #   expect(SFC).toContain("from '@/lib/foo'")
-  # which produces a false positive.  The two-step approach below:
-  #   1. Filters to lines starting with import/export keyword or `}` (multi-line
-  #      import closing brace), so plain string-literal lines are excluded.
-  #   2. Extracts the module specifier from the filtered set.
+  # Extract all `from '...'` and `from "..."` module specifiers, including
+  # multi-line import blocks collapsed to just their from clause.
+  # Count occurrences of each unique module specifier; flag any > 1.
   duplicates=$(
-    grep -E "^\s*(import|export)\s[^;\"']*from\s+['\"][^'\"]+['\"]|^\s*\}\s+from\s+['\"][^'\"]+['\"]" "$file" 2>/dev/null \
-      | grep -oE "from ['\"][^'\"]+['\"]" \
+    grep -oE "from ['\"][^'\"]+['\"]" "$file" 2>/dev/null \
       | sort \
       | uniq -d \
       || true
@@ -91,28 +78,13 @@ echo ""
 if [[ $failed -gt 0 ]]; then
   echo "FAIL: $failed file(s) contain duplicate imports."
   echo ""
-  echo "Root cause pattern A — existing file extension:"
-  echo "  When extending a Vue component that already imports from a UI library"
-  echo "  (e.g. @/components/ui/select), new feature code re-imports the same"
-  echo "  symbols without removing the original import block."
-  echo ""
-  echo "Root cause pattern B — new shadcn/vue component files (most common):"
-  echo "  'import type { X }' and 'import { Y }' from the SAME module are BOTH"
-  echo "  counted as duplicate imports from that module, even though they use"
-  echo "  different TypeScript syntax. This is the typical pattern in new"
-  echo "  shadcn/vue components generated from reka-ui primitives."
-  echo ""
-  echo "  WRONG (two lines from same module):"
-  echo "    import type { AlertDialogActionProps } from \"reka-ui\""
-  echo "    import { AlertDialogAction } from \"reka-ui\""
-  echo ""
-  echo "  CORRECT (one line using inline 'type' modifier):"
-  echo "    import { type AlertDialogActionProps, AlertDialogAction } from \"reka-ui\""
+  echo "Root cause pattern: when extending a Vue component that already imports"
+  echo "from a UI library (e.g. @/components/ui/select), adding new feature code"
+  echo "re-imports the same symbols without removing the original import block."
   echo ""
   echo "Fix for each failing file:"
   echo "  1. Open the file and search for multiple 'from <module>' lines."
-  echo "  2. Merge all imports from the same module into a single statement."
-  echo "     For type-only imports, use the inline 'type' modifier: { type X, Y }"
+  echo "  2. Merge the named imports into a single import statement."
   echo "  3. Re-run this check to confirm exit 0."
   exit 1
 else

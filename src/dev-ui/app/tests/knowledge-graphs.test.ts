@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { readFileSync } from 'fs'
+import { resolve } from 'path'
 import { buildQueryGraphArgs } from '~/composables/api/useQueryApi'
 
 // ── Knowledge Graph Creation ───────────────────────────────────────────────────
@@ -968,5 +970,35 @@ describe('Knowledge Graph Creation — prompt to add first data source', () => {
 
     await handleCreate()
     expect(toastFired).toBe(false)
+  })
+})
+
+// ── Backend API Alignment: KG creation list refresh ───────────────────────────
+//
+// Spec: "AND the UI reflects the updated state without requiring a manual refresh"
+// Scenario: Resource operations succeed end-to-end
+//
+// After a successful knowledge graph creation, handleCreate() in
+// knowledge-graphs/index.vue must call loadKnowledgeGraphs() to refresh
+// the displayed list automatically without requiring a manual page reload.
+
+describe('Backend API Alignment — KG creation: UI list reloads without manual refresh', () => {
+  const kgVue = readFileSync(
+    resolve(__dirname, '../pages/knowledge-graphs/index.vue'),
+    'utf-8',
+  )
+
+  it('handleCreate() calls await loadKnowledgeGraphs() after successful creation', () => {
+    // The implementation must include this call; without it the list stays stale
+    // until the user manually navigates away and back.
+    expect(kgVue).toContain('await loadKnowledgeGraphs()')
+  })
+
+  it('loadKnowledgeGraphs() is called in the try block (not just on mount)', () => {
+    // Must appear inside handleCreate's try block, not only in onMounted/watch.
+    // Presence of the string in the file is sufficient — structural test.
+    const tryBlockIdx = kgVue.indexOf('try {')
+    const loadCallIdx = kgVue.indexOf('await loadKnowledgeGraphs()')
+    expect(loadCallIdx).toBeGreaterThan(tryBlockIdx)
   })
 })

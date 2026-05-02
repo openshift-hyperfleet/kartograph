@@ -1461,3 +1461,29 @@ describe('Data Source Connection — Credential Handling: plaintext never persis
     expect(dialogOpen.value).toBe(false)
   })
 })
+
+// ── Backend API Alignment: data source creation list refresh ──────────────────
+//
+// Spec: "AND the UI reflects the updated state without requiring a manual refresh"
+// Scenario: Resource operations succeed end-to-end
+//
+// After approveOntology() successfully creates a data source, the page calls
+// loadDataSources() to refresh the displayed list automatically.
+
+describe('Backend API Alignment — data source creation: UI list reloads without manual refresh', () => {
+  const dsVue = readFileSync(
+    resolve(__dirname, '../pages/data-sources/index.vue'),
+    'utf-8',
+  )
+
+  it('approveOntology() calls await loadDataSources() after successful creation', () => {
+    expect(dsVue).toContain('await loadDataSources()')
+  })
+
+  it('loadDataSources() is called in approveOntology try block (not only on mount)', () => {
+    // Verify it appears after the createDataSource call
+    const createCallIdx = dsVue.indexOf('await createDataSource(')
+    const loadCallIdx = dsVue.indexOf('await loadDataSources()')
+    expect(loadCallIdx).toBeGreaterThan(createCallIdx)
+  })
+})

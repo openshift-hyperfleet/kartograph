@@ -46,9 +46,10 @@ pr_description: |
   ## Spec Requirements Satisfied
 
   **Requirement: Backend API Alignment — Scenario: Resource operations succeed
-  end-to-end** from `specs/ui/experience.spec.md`:
+  end-to-end** from `specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da`:
 
   > GIVEN a user performs any create, read, update, or **delete** operation via the UI
+  > WHEN the operation is submitted
   > THEN the corresponding backend API call succeeds (2xx response)
 
   The `AlertDialog` component is the correct UI primitive for the delete
@@ -112,7 +113,7 @@ pr_description: |
 
 ## Spec Coverage
 
-**Requirement: Backend API Alignment** from `specs/ui/experience.spec.md`:
+**Requirement: Backend API Alignment** from `specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da`:
 
 > GIVEN a user performs any create, read, update, or **delete** operation via the UI
 > WHEN the operation is submitted

@@ -3,9 +3,9 @@ id: task-069
 title: Data source credential handling — test plaintext not persisted in browser
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: merge
+phase: implement
 deps: []
-round: 0
+round: 1
 branch: hyperloop/task-069
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/533
 pr_title: 'test(ui): verify credential plaintext is never persisted in the browser'

@@ -77,9 +77,14 @@ PYEOF
     return 0  # No clear+reload watch pattern found in this file
   fi
 
-  # Derive the test file name from the vue file path
+  # Derive the test file name from the vue file path.
+  # For pages/<domain>/index.vue the companion test is <domain>.test.ts, not index.test.ts,
+  # so use the parent directory name whenever the file itself is named "index.vue".
   local basename
   basename=$(basename "$vue_file" .vue)
+  if [[ "$basename" == "index" ]]; then
+    basename=$(basename "$(dirname "$vue_file")")
+  fi
   # Look for any test file that matches the component name
   local test_files
   test_files=$(find "$TESTS_DIR" -name "${basename}.test.ts" -o -name "${basename}-*.test.ts" 2>/dev/null | head -10)

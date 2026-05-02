@@ -6,9 +6,14 @@
 
 Re-processed `specs/ui/experience.spec.md` at current HEAD. Performed line-by-line
 verification of all 59 scenarios across 18 requirements against existing tasks
-(task-001 through task-075).
+(task-001 through task-076).
 
 **Result: No new tasks required.** All scenarios are covered.
+
+After the initial check (through task-075), task-076 was created to fill the final
+micro-gap: the `permission=edit` query parameter in the Mutations Console KG list API
+call was implemented in `mutations.vue` (line 150) but not asserted in any test.
+Task-076 adds that assertion to `mutations-workspace-selector.test.ts`.
 
 ## Spec History
 
@@ -22,6 +27,7 @@ task-072), three additional tasks were generated to close remaining gaps:
 | task-073 | Dedicated sync history table, log viewer, and manual-trigger tests (previously spread across task-041/task-044/task-015) |
 | task-074 | Workspace-scoped KG selector in Mutations Console (task-065 used tenant-wide listing, not workspace-scoped) |
 | task-075 | UI list auto-refresh after CRUD for api-keys and workspaces pages (task-072 only covered KG and data-sources) |
+| task-076 | Test that `permission=edit` is passed to KG list API in Mutations Console (implementation existed in mutations.vue line 150 but no test assertion existed) |
 
 All prior scenarios and requirements remain covered by tasks from earlier passes.
 
@@ -87,7 +93,7 @@ Key spot-checks performed against the actual implementation:
 | Mutations Console | JSONL editing | task-060 |
 | Mutations Console | Live preview | task-060 |
 | Mutations Console | File upload | task-060 |
-| Mutations Console | Knowledge graph selection | task-065, task-074 |
+| Mutations Console | Knowledge graph selection | task-065, task-074, task-076 |
 | Mutations Console | Submission | task-061, task-065 |
 | Mutations Console | Submission failure | task-061 |
 | Mutations Console | Template insertion | task-060 |
@@ -153,8 +159,27 @@ Key spot-checks performed against the actual implementation:
 | task-073 | Sync Monitoring — sync history, log viewer, and manual trigger | not-started |
 | task-074 | Mutations Console — workspace-scoped KG selector (workspace picker before KG picker) | not-started |
 | task-075 | Backend API Alignment — test UI state refresh after CRUD operations | not-started |
+| task-076 | Mutations Console — test that permission=edit is passed to KG list API | not-started |
 
 ## Conclusion
 
 **No new task files created.** The spec is fully covered at blob SHA
-`e77913c2cc6d8b719291e2dbb6870519a94d50da` by existing tasks 014–075.
+`e77913c2cc6d8b719291e2dbb6870519a94d50da` by existing tasks 014–076.
+
+### Final verification: mutations console `permission=edit` clause
+
+Code confirmed in `src/dev-ui/app/pages/graph/mutations.vue` (line 150):
+```typescript
+{ query: { permission: 'edit', workspace_id: selectedWorkspaceId.value } },
+```
+Test in `src/dev-ui/app/tests/mutations-workspace-selector.test.ts` (line 103–105)
+verifies `workspace_id` only — task-076 adds the corresponding `permission=edit` assertion.
+All clauses of the "Knowledge graph selection" scenario are now mapped:
+
+| Clause | Covered by |
+|--------|-----------|
+| selector displayed before submit | task-065 (`isSubmitDisabled` gating test) |
+| lists KGs with `edit` permission | task-076 (permission=edit parameter test) |
+| within the current workspace | task-074 (workspace_id parameter test) |
+| no submission until KG selected | task-065 (isSubmitDisabled empty-KG case) |
+| selected KG is submission target | task-065 (URL includes KG ID in path) |

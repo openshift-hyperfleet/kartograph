@@ -91,6 +91,10 @@ class _FakeSyncRunRepository:
     async def find_by_data_source(self, data_source_id: str) -> list[Any]:
         return []
 
+    async def get_latest_for_data_source(self, data_source_id: str) -> Any | None:
+        runs = [r for r in self.saved if r.data_source_id == data_source_id]
+        return max(runs, key=lambda r: r.created_at) if runs else None
+
 
 class _FakeDataSourceRepositoryWithSave(_FakeDataSourceRepository):
     """Fake data source repository that tracks saves after sync triggering."""

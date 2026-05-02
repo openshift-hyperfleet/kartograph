@@ -3,7 +3,7 @@ id: task-070
 title: Keyboard shortcut discoverability — test tooltip and kbd hints
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: spec-review
+phase: mark-ready
 deps: []
 round: 2
 branch: hyperloop/task-070

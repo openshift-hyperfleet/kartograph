@@ -8,120 +8,118 @@ deps: []
 round: 0
 branch: null
 pr: null
-pr_title: "feat(management): add GET /management/data-sources flat list endpoint with latest_sync_run"
+pr_title: "feat(management): add GET /management/data-sources with latest_sync_run for nav badge"
 pr_description: |
   ## What & Why
 
-  The sidebar layout in `src/dev-ui/app/layouts/default.vue` shows a count badge on
-  the "Data Sources" nav item indicating how many data sources currently have an active
-  sync in progress. This satisfies the spec's Navigation Structure requirement:
+  The Kartograph sidebar nav item for **Data Sources** is specified to show a live sync-status
+  badge — the primary navigation scenario in the UI spec reads:
 
-  > **Data** — Knowledge Graphs, **Data Sources (with sync status)**
+  > **Data** — Knowledge Graphs, Data Sources (with sync status)
 
-  The badge implementation calls:
+  The UI layout (`src/dev-ui/app/layouts/default.vue`) already implements the badge by
+  calling:
 
   ```typescript
-  const result = await apiFetch<{ data_sources: Array<{ latest_sync_run?: { status: string } }> }>(
-    '/management/data-sources'
-  )
+  const result = await apiFetch<{
+    data_sources: Array<{ latest_sync_run?: { status: string } }>
+  }>('/management/data-sources')
+  activeSyncCount.value = result.data_sources.filter(
+    ds => ds.latest_sync_run && ACTIVE_SYNC_STATUSES.has(ds.latest_sync_run.status)
+  ).length
   ```
 
-  However, `GET /management/data-sources` **does not exist** in the Management API.
-  The only data-sources list endpoint is `GET /management/knowledge-graphs/{kg_id}/data-sources`
-  (scoped to a single KG). The sidebar silently catches the 404 and shows no badge
-  (`activeSyncCount` stays 0), so the "(with sync status)" clause is never satisfied.
+  This call currently returns a **404** because no `GET /management/data-sources`
+  endpoint exists. The layout's `catch` block degrades gracefully (badge stays at 0),
+  so the UI does not crash — but the spec-required "sync status" on the nav item is
+  never visible.
 
-  This PR adds the missing flat list endpoint scoped to the authenticated user's tenant,
-  with an embedded `latest_sync_run` object so the badge works with a single API call.
+  This PR adds the missing backend route and the service method it needs.
 
   ## Spec Requirements Satisfied
 
   **Requirement: Navigation Structure — Scenario: Primary navigation** from
   `specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da`:
 
-  > GIVEN an authenticated user
   > THEN the sidebar presents navigation grouped as:
-  >   - **Data** — Knowledge Graphs, **Data Sources (with sync status)**
+  > - **Data** — Knowledge Graphs, Data Sources (with sync status)
 
-  The "(with sync status)" clause requires the sidebar nav item to reflect live sync
-  state. Without a working backend endpoint, the badge always shows 0 and the clause fails.
+  The "(with sync status)" qualifier requires the backend to supply a tenant-wide
+  data-sources list with embedded `latest_sync_run` status so the badge can reflect
+  active syncs without mounting the full data-sources page.
 
-  **Requirement: Backend API Alignment — Scenario: Resource operations succeed end-to-end**:
+  **Requirement: Backend API Alignment — Scenario: Resource operations succeed end-to-end**
 
   > THEN the corresponding backend API call succeeds (2xx response)
+  > AND the UI reflects the updated state without requiring a manual refresh
 
-  The sidebar currently calls a non-existent endpoint (returns 404). Making it return
-  2xx satisfies this scenario for the sidebar's implicit read operation.
+  The current `GET /management/data-sources` call never returns 2xx, so the badge
+  never reflects real sync state.
 
   ## Key Design Decisions
 
-  - **New route `GET /management/data-sources`**: Returns all data sources accessible
-    to the current user in their tenant, across all knowledge graphs. Access is inferred
-    from SpiceDB VIEW permission on the parent knowledge graph (same pattern as the
-    existing KG-scoped list route).
-
-  - **Embedded `latest_sync_run`**: A new `DataSourceWithSyncResponse` model wraps
-    `DataSourceResponse` and adds an optional `latest_sync_run: SyncRunResponse | None`
-    field. This avoids N+1 API calls from the sidebar and is the shape the frontend
-    already expects.
-
-  - **No pagination (V1)**: The sidebar only needs the status of active syncs, not
-    full pagination. Returns all data sources in the tenant. If tenant scale becomes
-    an issue, pagination can be added in a follow-up.
-
-  - **Authorization**: Only data sources belonging to knowledge graphs the user has
-    VIEW permission on are returned — consistent with existing KG authorization patterns.
-
-  - **TDD first**: Unit tests for the service method, integration tests for the route,
-    before any implementation.
+  - **New route is additive**: no existing routes are changed.
+  - **Service method `list_all_visible(user_id)`**: iterates over all knowledge graphs
+    the user can VIEW, then collects data sources per KG. This reuses the existing
+    `list_for_knowledge_graph` service method, keeping domain logic in one place. An
+    N+1 is acceptable here because this is a lightweight badge-fetch called on tenant
+    load — not a high-frequency or paginated endpoint.
+  - **`latest_sync_run` embed**: the `DataSourceResponse` is extended with an optional
+    `latest_sync_run` field that returns the most recent sync run's status, `started_at`,
+    and `completed_at`. The sync-run repository's `find_by_data_source` is already
+    efficient (returns ordered by `created_at DESC`); only the first result is needed.
+  - **Response envelope**: `{ data_sources: [...], count: N }` to match the layout's
+    TypeScript type and to be consistent with other list responses (e.g.,
+    `KnowledgeGraphListResponse`).
+  - **Authorization**: the user must have VIEW permission on each KG to see its data
+    sources (same check already done in `list_for_knowledge_graph`). No new permission
+    types are introduced.
 
   ## Files Affected
 
   - `src/api/management/application/services/data_source_service.py` — add
-    `list_all_for_user(user_id)` method that fetches all KGs the user can see, then
-    all data sources for each, plus the latest sync run per data source.
-  - `src/api/management/presentation/data_sources/models.py` — add
-    `DataSourceWithSyncResponse` model with embedded `latest_sync_run`.
-  - `src/api/management/presentation/data_sources/routes.py` — add
-    `GET /data-sources` route (no KG prefix) returning
-    `{ data_sources: list[DataSourceWithSyncResponse], count: int }`.
-  - `src/api/tests/unit/management/test_data_source_service.py` — add unit tests
-    for `list_all_for_user`.
-  - `src/api/tests/integration/management/test_data_sources_routes.py` — add
-    integration test for the new route.
-  - `src/dev-ui/app/layouts/default.vue` — update `fetchActiveSyncCount` to handle
-    the response type correctly (response is `{ data_sources: [...] }`, not an array).
-    Also align the active status set: use `'ai_extracting'` not `'extracting'` (task-042
-    fixes the status labels; this endpoint should emit the canonical backend values).
+    `list_all_visible(user_id)` method that aggregates data sources across all accessible KGs.
+  - `src/api/management/presentation/data_sources/models.py` — extend
+    `DataSourceResponse` with an optional `latest_sync_run: SyncRunSummary | None` field;
+    add `SyncRunSummary` dataclass.
+  - `src/api/management/presentation/data_sources/routes.py` — add new route
+    `GET /data-sources` returning `DataSourceListResponse`.
+  - `src/api/tests/unit/management/services/test_data_source_service.py` — new tests
+    for `list_all_visible`.
+  - `src/api/tests/unit/management/presentation/test_data_sources_routes.py` — new
+    tests for `GET /management/data-sources`.
 
   ## How to Verify
 
-  1. `make test-unit` — new unit tests for `list_all_for_user` pass green.
-  2. `make instance-up && make test-integration` — new route integration tests pass.
-  3. Call `GET /management/data-sources` with a valid API key while a sync is in progress
-     — verify the response includes `latest_sync_run` with an active status.
-  4. Open the dev UI with an active sync in progress — verify the Data Sources nav item
-     shows a numbered badge (e.g., "1").
-  5. When all syncs are completed or failed, verify the badge disappears.
+  1. Run `make test-unit` — new tests pass green.
+  2. Start dev instance (`make dev` or `make instance-up`) and run `make test-integration`.
+  3. Call `GET /management/data-sources` (authenticated) — verify the response is
+     `{ data_sources: [...], count: N }` with `latest_sync_run` embedded.
+  4. Trigger a sync (`POST /management/data-sources/{id}/sync`), then re-call the flat
+     list — verify `latest_sync_run.status` reflects the new run's status.
+  5. Open the dev UI — verify the Data Sources sidebar nav item shows a numeric badge
+     when a sync is running.
 
   ## TDD Cycle
 
-  1. Write unit tests for `list_all_for_user` (RED).
-  2. Implement `list_all_for_user` in the data source service (GREEN).
-  3. Write integration test for `GET /management/data-sources` (RED).
-  4. Add the route and `DataSourceWithSyncResponse` model (GREEN).
-  5. Update the default layout to remove the silent failure (GREEN for sidebar test).
-  6. `make test-unit && make test-integration` exits 0.
+  1. Write unit tests for `list_all_visible` (RED).
+  2. Implement `list_all_visible` in the service (GREEN).
+  3. Write unit/integration tests for the new route (RED).
+  4. Add the route and response model changes (GREEN).
+  5. Run `make test-unit && make test-integration`.
+  6. Commit atomically.
 
   ## Caveats
 
-  - This endpoint is additive; no existing routes are changed.
-  - `latest_sync_run` is the most recent run ordered by `created_at DESC`. If a data
-    source has never synced, `latest_sync_run` is `null`.
-  - The sidebar's active status set must use `'ai_extracting'` not `'extracting'`
-    (the backend canonical value). The status set in `default.vue` already uses
-    `'ai_extracting'` (`ACTIVE_SYNC_STATUSES` constant), so no frontend change is needed
-    beyond typing alignment.
+  - `latest_sync_run` is the single most-recent run by `created_at DESC`. If a data
+    source has never been synced, `latest_sync_run` is `null`.
+  - This endpoint is intentionally simple (no pagination, no filters). The full
+    per-data-source detail (including full sync history) remains on the KG-scoped
+    routes.
+  - Once this PR lands, remove the graceful-degradation comment from the layout
+    (`// Best-effort — badge is an optional indicator, not critical UI`) and update
+    the corresponding test in `default.layout.test.ts` to assert the badge IS shown
+    rather than just not crashing on 404.
 ---
 
 ## Spec Coverage
@@ -129,226 +127,264 @@ pr_description: |
 **Requirement: Navigation Structure — Scenario: Primary navigation** from
 `specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da`:
 
-> GIVEN an authenticated user
 > THEN the sidebar presents navigation grouped as:
->   - **Data** — Knowledge Graphs, **Data Sources (with sync status)**
+> - **Data** — Knowledge Graphs, Data Sources **(with sync status)**
 
 ## Gap
 
-### `GET /management/data-sources` does not exist
+### Missing route: `GET /management/data-sources`
 
-**File:** `src/dev-ui/app/layouts/default.vue`
-
-The sidebar calls this endpoint to populate the active sync badge:
+The layout (`src/dev-ui/app/layouts/default.vue`) calls this endpoint to power the
+sync-status badge on the Data Sources sidebar nav item:
 
 ```typescript
-const result = await apiFetch<{ data_sources: Array<{ latest_sync_run?: { status: string } }> }>(
-  '/management/data-sources',
-)
-activeSyncCount.value = (result.data_sources ?? []).filter(
-  (ds) => ds.latest_sync_run && ACTIVE_SYNC_STATUSES.has(ds.latest_sync_run.status),
-).length
+const result = await apiFetch<{
+  data_sources: Array<{ latest_sync_run?: { status: string } }>
+}>('/management/data-sources')
 ```
 
-The endpoint is not registered in the Management API. The only existing data-source
-list endpoint is `GET /management/knowledge-graphs/{kg_id}/data-sources` which requires
-a specific KG ID and is not suitable for the sidebar's tenant-wide active sync count.
+The current backend (`src/api/management/presentation/data_sources/routes.py`) only
+defines these routes:
 
-**Consequence:** The `apiFetch` call throws (404 → network error), the `catch` block
-sets `activeSyncCount.value = 0`, and the badge is never shown. The "(with sync status)"
-clause of the Navigation Structure spec is never satisfied.
+| Method | Path |
+|--------|------|
+| GET    | `/knowledge-graphs/{kg_id}/data-sources` |
+| POST   | `/knowledge-graphs/{kg_id}/data-sources` |
+| POST   | `/data-sources/{ds_id}/sync` |
+| GET    | `/data-sources/{ds_id}/sync-runs` |
+| GET    | `/data-sources/{ds_id}/sync-runs/{run_id}/logs` |
 
-### `DataSourceResponse` does not include `latest_sync_run`
+`GET /data-sources` (flat, tenant-wide) **does not exist**. FastAPI returns a 404
+for every call from the layout. The `catch` block in `fetchActiveSyncCount` absorbs
+the error and sets `activeSyncCount` to 0, so the badge is permanently invisible even
+when data sources are actively syncing.
 
-**File:** `src/api/management/presentation/data_sources/models.py`
+### The UI badge is fully implemented — only the backend endpoint is missing
 
-```python
-class DataSourceResponse(BaseModel):
-    id: str
-    knowledge_graph_id: str
-    tenant_id: str
-    name: str
-    adapter_type: str
-    schedule_type: str
-    last_sync_at: datetime | None   # ← only a timestamp, not the full run object
-    created_at: datetime
-    updated_at: datetime
+`src/dev-ui/app/layouts/default.vue` (lines ~219–237):
+```typescript
+const ACTIVE_SYNC_STATUSES = new Set(['pending', 'ingesting', 'ai_extracting', 'applying'])
+const activeSyncCount = ref(0)
+
+async function fetchActiveSyncCount() {
+  if (!hasTenant.value) return
+  try {
+    const result = await apiFetch<{ data_sources: Array<{ latest_sync_run?: { status: string } }> }>(
+      '/management/data-sources',
+    )
+    activeSyncCount.value = (result.data_sources ?? []).filter(
+      (ds) => ds.latest_sync_run && ACTIVE_SYNC_STATUSES.has(ds.latest_sync_run.status),
+    ).length
+  } catch {
+    activeSyncCount.value = 0
+  }
+}
 ```
 
-The sidebar expects `latest_sync_run: { status: string }` — an embedded sync run
-object. The current `DataSourceResponse` only has `last_sync_at` (a timestamp with no
-status). Even if the flat list endpoint existed, the response shape would be wrong.
+The badge logic, nav item wiring, and test coverage in
+`src/dev-ui/app/tests/default.layout.test.ts` are complete. The backend is the
+only missing piece.
 
 ## Scope
 
 ### TDD — write tests first
 
-**Unit test (add to data source service test file):**
+**Unit tests** (add to `src/api/tests/unit/management/services/test_data_source_service.py`):
 
 ```python
-class TestListAllForUser:
-    """Unit tests for DataSourceService.list_all_for_user."""
+class TestListAllVisible:
+    """Tests for DataSourceService.list_all_visible."""
 
-    async def test_returns_all_data_sources_across_kgs(
-        self, service, mock_kg_service, mock_ds_repo, mock_sync_run_repo
+    async def test_returns_data_sources_across_all_accessible_kgs(
+        self, service, mock_authz, mock_kg_repo, mock_ds_repo
     ):
-        # Arrange: user has 2 KGs each with 1 data source
-        kg1, kg2 = make_kg("kg-1"), make_kg("kg-2")
-        ds1 = make_ds("ds-1", kg_id="kg-1")
-        ds2 = make_ds("ds-2", kg_id="kg-2")
-        run1 = make_run("run-1", ds_id="ds-1", status="completed")
-        mock_kg_service.list_all.return_value = [kg1, kg2]
-        mock_ds_repo.list_for_kg.side_effect = lambda kg_id: (
-            [ds1] if kg_id == "kg-1" else [ds2]
-        )
-        mock_sync_run_repo.get_latest_for_data_source.side_effect = lambda ds_id: (
-            run1 if ds_id == "ds-1" else None
+        # Arrange: two accessible KGs, one DS each
+        kg1_id, kg2_id = "kg-1", "kg-2"
+        mock_authz.check_permission.return_value = True  # user can VIEW both KGs
+        mock_kg_repo.list_all.return_value = [KG(id=kg1_id), KG(id=kg2_id)]
+        mock_ds_repo.find_by_knowledge_graph.side_effect = lambda kg_id: (
+            [DS(id="ds-1", kg_id=kg_id)] if kg_id == kg1_id else [DS(id="ds-2", kg_id=kg_id)]
         )
 
-        result = await service.list_all_for_user(user_id="user-1")
+        result = await service.list_all_visible(user_id="user-1")
 
         assert len(result) == 2
-        # ds1 has a latest_sync_run
-        ds1_result = next(r for r in result if r.data_source.id.value == "ds-1")
-        assert ds1_result.latest_sync_run is not None
-        assert ds1_result.latest_sync_run.status == "completed"
-        # ds2 has no latest sync run
-        ds2_result = next(r for r in result if r.data_source.id.value == "ds-2")
-        assert ds2_result.latest_sync_run is None
+        assert {ds.id for ds in result} == {"ds-1", "ds-2"}
+
+    async def test_excludes_data_sources_from_inaccessible_kgs(
+        self, service, mock_authz, mock_kg_repo, mock_ds_repo
+    ):
+        mock_authz.check_permission.return_value = False  # user cannot VIEW any KG
+        mock_kg_repo.list_all.return_value = [KG(id="kg-private")]
+
+        result = await service.list_all_visible(user_id="user-1")
+        assert result == []
+
+    async def test_returns_empty_when_no_kgs_exist(
+        self, service, mock_authz, mock_kg_repo
+    ):
+        mock_kg_repo.list_all.return_value = []
+        result = await service.list_all_visible(user_id="user-1")
+        assert result == []
 ```
 
-**Integration test (add to data sources route test file):**
+**Route unit tests** (add to `src/api/tests/unit/management/presentation/test_data_sources_routes.py`):
 
 ```python
-async def test_list_all_data_sources_returns_flat_list(
-    authenticated_client, created_data_source, created_sync_run
-):
-    """GET /management/data-sources returns all data sources with latest_sync_run."""
-    resp = await authenticated_client.get("/management/data-sources")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "data_sources" in data
-    assert "count" in data
-    assert data["count"] == 1
-    ds = data["data_sources"][0]
-    assert ds["id"] == created_data_source.id
-    assert ds["latest_sync_run"] is not None
-    assert ds["latest_sync_run"]["status"] == created_sync_run.status
+class TestListAllDataSources:
+    """Tests for GET /management/data-sources."""
+
+    def test_returns_200_with_data_source_list_envelope(
+        self, test_client, mock_service, sample_data_source
+    ):
+        mock_service.list_all_visible.return_value = [sample_data_source]
+        response = test_client.get("/management/data-sources")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "data_sources" in data
+        assert "count" in data
+        assert data["count"] == 1
+
+    def test_includes_latest_sync_run_when_present(
+        self, test_client, mock_service, mock_sync_run_repo,
+        sample_data_source, sample_sync_run
+    ):
+        mock_service.list_all_visible.return_value = [sample_data_source]
+        mock_sync_run_repo.find_by_data_source.return_value = [sample_sync_run]
+        response = test_client.get("/management/data-sources")
+
+        assert response.status_code == 200
+        ds = response.json()["data_sources"][0]
+        assert ds["latest_sync_run"] is not None
+        assert ds["latest_sync_run"]["status"] == sample_sync_run.status.value
+
+    def test_latest_sync_run_is_null_when_no_runs(
+        self, test_client, mock_service, mock_sync_run_repo, sample_data_source
+    ):
+        mock_service.list_all_visible.return_value = [sample_data_source]
+        mock_sync_run_repo.find_by_data_source.return_value = []
+        response = test_client.get("/management/data-sources")
+
+        assert response.status_code == 200
+        ds = response.json()["data_sources"][0]
+        assert ds["latest_sync_run"] is None
+
+    def test_returns_403_when_not_authenticated(self, unauthenticated_client):
+        response = unauthenticated_client.get("/management/data-sources")
+        assert response.status_code in (401, 403)
 ```
 
 ### Implementation
 
-#### 1. New service method `list_all_for_user`
+#### 1. Extend `DataSourceResponse` model
 
-Add to `src/api/management/application/services/data_source_service.py`:
-
-```python
-async def list_all_for_user(
-    self, user_id: str
-) -> list[DataSourceWithLatestRun]:
-    """Return all data sources accessible to the user across the tenant.
-
-    Discovers accessible knowledge graphs (VIEW permission) then
-    aggregates their data sources, fetching the latest sync run per source.
-
-    Args:
-        user_id: Authenticated user requesting the list.
-
-    Returns:
-        List of (DataSource, optional latest SyncRun) pairs.
-    """
-    kgs = await self._kg_service.list_all(
-        user_id=user_id, permission=Permission.VIEW
-    )
-    result: list[DataSourceWithLatestRun] = []
-    for kg in kgs:
-        data_sources = await self._ds_repo.list_for_knowledge_graph(
-            knowledge_graph_id=kg.id.value
-        )
-        for ds in data_sources:
-            latest_run = await self._sync_run_repo.get_latest_for_data_source(
-                data_source_id=ds.id.value
-            )
-            result.append(DataSourceWithLatestRun(
-                data_source=ds, latest_sync_run=latest_run
-            ))
-    return result
-```
-
-#### 2. New response model `DataSourceWithSyncResponse`
-
-Add to `src/api/management/presentation/data_sources/models.py`:
+In `src/api/management/presentation/data_sources/models.py`, add:
 
 ```python
-class DataSourceWithSyncResponse(BaseModel):
-    """Data source response with embedded latest sync run."""
-
+class SyncRunSummary(BaseModel):
+    """Lightweight sync run summary for embedding in data source responses."""
     id: str
-    knowledge_graph_id: str
-    tenant_id: str
-    name: str
-    adapter_type: str
-    schedule_type: str
-    last_sync_at: datetime | None
-    created_at: datetime
-    updated_at: datetime
-    latest_sync_run: SyncRunResponse | None = None
+    status: str
+    started_at: str
+    completed_at: str | None = None
+
+class DataSourceResponse(BaseModel):
+    # ... existing fields ...
+    latest_sync_run: SyncRunSummary | None = None
 
     @classmethod
-    def from_domain(
-        cls,
-        ds: DataSource,
-        latest_run: DataSourceSyncRun | None = None,
-    ) -> DataSourceWithSyncResponse:
-        return cls(
-            id=ds.id.value,
-            knowledge_graph_id=ds.knowledge_graph_id,
-            tenant_id=ds.tenant_id,
-            name=ds.name,
-            adapter_type=ds.adapter_type.value,
-            schedule_type=ds.schedule.schedule_type.value,
-            last_sync_at=ds.last_sync_at,
-            created_at=ds.created_at,
-            updated_at=ds.updated_at,
-            latest_sync_run=SyncRunResponse.from_domain(latest_run) if latest_run else None,
-        )
-
+    def from_domain(cls, ds: DataSource) -> "DataSourceResponse":
+        # ... unchanged base fields ...
+        # latest_sync_run is populated by the route handler, not the domain object
 
 class DataSourceListResponse(BaseModel):
-    """Response for flat data source list."""
-    data_sources: list[DataSourceWithSyncResponse]
+    """Envelope for the flat data-sources list."""
+    data_sources: list[DataSourceResponse]
     count: int
 ```
 
-#### 3. New route `GET /management/data-sources`
+#### 2. New service method `list_all_visible`
 
-Add to `src/api/management/presentation/data_sources/routes.py`:
+In `src/api/management/application/services/data_source_service.py`:
+
+```python
+async def list_all_visible(self, user_id: str) -> list[DataSource]:
+    """List all data sources visible to the user across all accessible KGs.
+
+    Iterates over all knowledge graphs in the tenant. For each KG where the
+    user has VIEW permission, collects the data sources. Used by the nav-badge
+    endpoint which needs a tenant-wide flat list.
+
+    Args:
+        user_id: The user requesting the list
+
+    Returns:
+        All data sources in the tenant that the user can see, in KG order.
+    """
+    all_kgs = await self._kg_repo.list_all()
+    result: list[DataSource] = []
+    for kg in all_kgs:
+        has_view = await self._check_permission(
+            user_id=user_id,
+            resource_type=ResourceType.KNOWLEDGE_GRAPH,
+            resource_id=kg.id.value,
+            permission=Permission.VIEW,
+        )
+        if has_view:
+            sources = await self._ds_repo.find_by_knowledge_graph(kg.id.value)
+            result.extend(sources)
+    self._probe.data_sources_listed(count=len(result))
+    return result
+```
+
+#### 3. New route `GET /data-sources`
+
+In `src/api/management/presentation/data_sources/routes.py`:
 
 ```python
 @router.get(
     "/data-sources",
     status_code=status.HTTP_200_OK,
-    summary="List all data sources across the tenant",
-    description="""
-List all data sources accessible to the current user across all their knowledge graphs.
-
-Includes the latest sync run per data source embedded in the response, enabling
-the sidebar navigation to show a live count of active syncs without additional
-API calls.
-""",
 )
 async def list_all_data_sources(
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[DataSourceService, Depends(get_data_source_service)],
+    sync_run_repo: Annotated[IDataSourceSyncRunRepository, Depends(get_sync_run_repository)],
 ) -> DataSourceListResponse:
-    """List all data sources in the tenant with latest sync run status."""
+    """List all data sources visible to the current user across all knowledge graphs.
+
+    Used by the UI navigation badge to show the number of active syncs.
+    Each data source includes its most recent sync run (latest_sync_run) so
+    the client can determine sync status without additional requests.
+
+    Returns:
+        DataSourceListResponse with embedded latest_sync_run per data source.
+    """
     try:
-        pairs = await service.list_all_for_user(user_id=current_user.user_id.value)
-        responses = [
-            DataSourceWithSyncResponse.from_domain(pair.data_source, pair.latest_sync_run)
-            for pair in pairs
-        ]
-        return DataSourceListResponse(data_sources=responses, count=len(responses))
+        data_sources = await service.list_all_visible(
+            user_id=current_user.user_id.value,
+        )
+
+        ds_responses: list[DataSourceResponse] = []
+        for ds in data_sources:
+            runs = await sync_run_repo.find_by_data_source(ds.id.value)
+            latest = runs[0] if runs else None
+            response = DataSourceResponse.from_domain(ds)
+            if latest is not None:
+                response.latest_sync_run = SyncRunSummary(
+                    id=latest.id,
+                    status=latest.status.value,
+                    started_at=latest.started_at.isoformat(),
+                    completed_at=latest.completed_at.isoformat() if latest.completed_at else None,
+                )
+            ds_responses.append(response)
+
+        return DataSourceListResponse(
+            data_sources=ds_responses,
+            count=len(ds_responses),
+        )
+
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -358,20 +394,22 @@ async def list_all_data_sources(
 
 ## Acceptance Criteria
 
-- `GET /management/data-sources` returns HTTP 200 with `{ data_sources: [...], count: N }`.
-- Each item in `data_sources` includes `latest_sync_run: { id, status, started_at, ... } | null`.
-- Only data sources belonging to KGs the user has VIEW permission on are returned.
-- The sidebar badge correctly shows the count of active syncs when any data source has
-  status in `{pending, ingesting, ai_extracting, applying}`.
-- When no syncs are active, `activeSyncCount` is 0 and no badge is rendered.
-- New unit tests and integration tests pass (`make test-unit && make test-integration`).
-- No regressions on existing data source routes.
+- `GET /management/data-sources` (authenticated) returns HTTP 200 with:
+  - `{ data_sources: [...], count: N }` envelope
+  - Each entry includes `latest_sync_run: { id, status, started_at, completed_at }` or `null`
+  - `latest_sync_run.status` is one of: `pending | ingesting | ai_extracting | applying | completed | failed`
+- Unauthenticated requests return 401 or 403.
+- The Data Sources sidebar nav item in the UI shows a numeric badge when
+  `latest_sync_run.status ∈ { pending, ingesting, ai_extracting, applying }`.
+- Badge updates when the user switches tenants.
+- Existing routes are unaffected (no regression).
+- All new tests pass before committing (`make test-unit`).
 
 ## TDD Cycle
 
-1. Write unit tests for `list_all_for_user` (RED).
-2. Implement `list_all_for_user` and `DataSourceWithLatestRun` dataclass (GREEN).
-3. Write integration test for `GET /management/data-sources` (RED).
-4. Add `DataSourceWithSyncResponse`, `DataSourceListResponse`, and the route (GREEN).
-5. Run `make test-unit && make test-integration` — all pass.
-6. Manually verify sidebar badge in dev UI with an active sync.
+1. Write unit tests for `list_all_visible` service method (RED).
+2. Implement `list_all_visible` (GREEN).
+3. Write route unit tests for `GET /management/data-sources` (RED).
+4. Add `DataSourceListResponse`, `SyncRunSummary`, and the route (GREEN).
+5. Run `make test-unit`.
+6. Commit atomically.

@@ -3,11 +3,11 @@ id: task-077
 title: Management API — add workspace_id filter to GET /management/knowledge-graphs
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-077
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/541
 pr_title: 'feat(management): add optional workspace_id filter to knowledge-graphs
   list endpoint'
 pr_description: "## What & Why\n\nThe Mutations Console UI (task-074) must satisfy\

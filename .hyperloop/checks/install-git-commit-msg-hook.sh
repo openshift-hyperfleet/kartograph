@@ -39,6 +39,7 @@ HOOK_FILE="$HOOKS_DIR/commit-msg"
 GUARD_MARKER="# task-ref trailer guard (hyperloop)"
 GUARD_BLOCK="${GUARD_MARKER}
 COMMIT_MSG_FILE_TR=\"\$1\"
+COMMIT_MSG_TR=\$(cat \"\$COMMIT_MSG_FILE_TR\")
 SUBJECT_TR=\$(head -1 \"\$COMMIT_MSG_FILE_TR\")
 # Skip merge commits
 if [[ -f \"\$(git rev-parse --git-dir 2>/dev/null)/MERGE_HEAD\" ]]; then
@@ -48,56 +49,25 @@ fi
 if [[ \"\$SUBJECT_TR\" =~ \\(#[0-9]+\\)\$ ]]; then
   exit 0
 fi
-# Use git's strict trailer parser instead of grep so that a blank line within
-# the trailer block is caught here at commit time. A blank line between
-# Task-Ref: and Co-Authored-By: causes git to discard Task-Ref as a trailer,
-# making %(trailers:key=Task-Ref,valueonly) return empty in downstream checks
-# even though the text 'Task-Ref: task-NNN' is visually present (root cause of
-# task-133 FAIL: check-task-owns-branch-commits.sh failed due to broken block).
-PARSED_TASK_REF=\"\"
-if command -v git >/dev/null 2>&1; then
-  PARSED_TASK_REF=\$(git interpret-trailers --parse \"\$COMMIT_MSG_FILE_TR\" 2>/dev/null \
-    | grep -iE '^Task-Ref:[[:space:]]*' | head -1 || true)
-fi
-if [[ -n \"\$PARSED_TASK_REF\" ]]; then
+if echo \"\$COMMIT_MSG_TR\" | grep -qiE '^Task-Ref:[[:space:]]*'; then
   exit 0
 fi
-# Distinguish between missing trailer and broken block (present in body text
-# but not parseable by git due to a blank line within the trailer block).
-RAW_TASK_REF=\$(grep -iE '^Task-Ref:[[:space:]]*' \"\$COMMIT_MSG_FILE_TR\" | head -1 || true)
 echo ''
-if [[ -n \"\$RAW_TASK_REF\" ]]; then
-  echo 'ERROR: Task-Ref trailer found but NOT recognised by git — broken trailer block.'
-  echo ''
-  echo 'A blank line within the trailer block causes git to discard all trailers'
-  echo 'above it. Only the final contiguous block is parsed.'
-  echo ''
-  echo 'WRONG (blank line breaks the block):'
-  echo '  Task-Ref: task-NNN'
-  echo '                        ← remove this blank line'
-  echo '  Co-Authored-By: Claude <noreply@anthropic.com>'
-  echo ''
-  echo 'CORRECT (one contiguous block — no blank lines between trailers):'
-  echo '  Task-Ref: task-NNN'
-  echo '  Co-Authored-By: Claude <noreply@anthropic.com>'
-else
-  echo 'ERROR: Commit message is missing a Task-Ref trailer.'
-  echo ''
-  echo 'Every commit on a task branch must include:'
-  echo ''
-  echo '  Task-Ref: task-NNN'
-  echo ''
-  echo 'Add it to the END of the commit message body, in a contiguous trailer block:'
-  echo ''
-  echo '  feat: brief subject'
-  echo ''
-  echo '  Optional longer body.'
-  echo ''
-  echo '  Task-Ref: task-NNN'
-  echo '  Co-Authored-By: Claude <noreply@anthropic.com>'
-  echo ''
-  echo 'This applies to ALL commits, including documentation and trivial fixes.'
-fi
+echo 'ERROR: Commit message is missing a Task-Ref trailer.'
+echo ''
+echo 'Every commit on a task branch must include:'
+echo ''
+echo '  Task-Ref: task-NNN'
+echo ''
+echo 'Add it to the END of the commit message body (after a blank line):'
+echo ''
+echo '  feat: brief subject'
+echo ''
+echo '  Optional longer body.'
+echo ''
+echo '  Task-Ref: task-NNN'
+echo ''
+echo 'This applies to ALL commits, including documentation and trivial fixes.'
 echo ''
 exit 1"
 

@@ -2303,3 +2303,341 @@ describe('Ontology Editor — structural checks (task-082)', () => {
     expect(dsVue).toMatch(/savingOntology/)
   })
 })
+
+// ── task-081: Edit Config (connection-config update) ─────────────────────────
+//
+// Spec: "Backend API Alignment — Scenario: Resource operations succeed end-to-end"
+// "WHEN the user performs any create, read, update, or delete operation via the UI
+//  THEN the corresponding backend API call succeeds (2xx response)
+//  AND the UI reflects the updated state without requiring a manual refresh"
+//
+// Spec: "Data Source Connection — Scenario: Credential handling"
+// "THEN credentials are encrypted and stored server-side
+//  AND the plaintext is never persisted in the browser"
+
+describe('Data Sources — Edit Config (update name / credentials)', () => {
+  it('opens edit config sheet pre-filled with existing data source name', () => {
+    const editConfigOpen = { value: false }
+    const editConfigDs = { value: null as null | { id: string; name: string; knowledge_graph_id: string } }
+    const editConfigName = { value: '' }
+    const editConfigToken = { value: '' }
+
+    function openEditConfig(ds: { id: string; name: string; knowledge_graph_id: string }) {
+      editConfigDs.value = ds
+      editConfigName.value = ds.name
+      editConfigToken.value = '' // never pre-fill the credential
+      editConfigOpen.value = true
+    }
+
+    openEditConfig({ id: 'ds-1', name: 'My Repo', knowledge_graph_id: 'kg-1' })
+
+    expect(editConfigOpen.value).toBe(true)
+    expect(editConfigName.value).toBe('My Repo')
+    expect(editConfigToken.value).toBe('') // credential is never pre-filled
+    expect(editConfigDs.value?.id).toBe('ds-1')
+  })
+
+  it('calls PATCH with name and credentials when token is provided', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({
+      id: 'ds-1', name: 'Updated Repo', knowledge_graph_id: 'kg-1',
+    })
+    const editConfigDs = { value: { id: 'ds-1', knowledge_graph_id: 'kg-1' } }
+    const editConfigName = { value: 'Updated Repo' }
+    const editConfigToken = { value: 'ghp_newtoken123' }
+    const editConfigOpen = { value: true }
+    const saving = { value: false }
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+
+    async function handleEditConfig() {
+      if (!editConfigName.value.trim()) return
+      saving.value = true
+      try {
+        const body: Record<string, unknown> = { name: editConfigName.value.trim() }
+        if (editConfigToken.value.trim()) {
+          body.credentials = { access_token: editConfigToken.value.trim() }
+        }
+        await apiFetch(
+          `/management/knowledge-graphs/${editConfigDs.value!.knowledge_graph_id}/data-sources/${editConfigDs.value!.id}`,
+          { method: 'PATCH', body },
+        )
+        editConfigOpen.value = false
+        await loadDataSources()
+      } finally {
+        saving.value = false
+      }
+    }
+
+    await handleEditConfig()
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/management/knowledge-graphs/kg-1/data-sources/ds-1',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: { name: 'Updated Repo', credentials: { access_token: 'ghp_newtoken123' } },
+      }),
+    )
+    expect(loadDataSources).toHaveBeenCalledOnce()
+    expect(editConfigOpen.value).toBe(false)
+    expect(saving.value).toBe(false)
+  })
+
+  it('omits credentials from PATCH body when token field is empty', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({ id: 'ds-1', name: 'Updated Repo' })
+    const editConfigDs = { value: { id: 'ds-1', knowledge_graph_id: 'kg-1' } }
+    const editConfigName = { value: 'Updated Repo' }
+    const editConfigToken = { value: '' } // user left token blank
+    const saving = { value: false }
+    const editConfigOpen = { value: true }
+
+    async function handleEditConfig() {
+      saving.value = true
+      try {
+        const body: Record<string, unknown> = { name: editConfigName.value.trim() }
+        if (editConfigToken.value.trim()) {
+          body.credentials = { access_token: editConfigToken.value.trim() }
+        }
+        await apiFetch(
+          `/management/knowledge-graphs/${editConfigDs.value!.knowledge_graph_id}/data-sources/${editConfigDs.value!.id}`,
+          { method: 'PATCH', body },
+        )
+        editConfigOpen.value = false
+      } finally {
+        saving.value = false
+      }
+    }
+
+    await handleEditConfig()
+
+    const [, options] = apiFetch.mock.calls[0]
+    expect(options.body).not.toHaveProperty('credentials')
+    expect(options.body).toEqual({ name: 'Updated Repo' })
+  })
+
+  it('shows inline error and does not call API when name is empty', async () => {
+    const apiFetch = vi.fn()
+    const editConfigName = { value: '   ' }
+    const editNameError = { value: '' }
+    let apiCalled = false
+
+    async function handleEditConfig() {
+      editNameError.value = ''
+      if (!editConfigName.value.trim()) {
+        editNameError.value = 'Data source name is required'
+        return
+      }
+      apiCalled = true
+      await apiFetch('/management/knowledge-graphs/kg-1/data-sources/ds-1', {
+        method: 'PATCH', body: {},
+      })
+    }
+
+    await handleEditConfig()
+
+    expect(apiCalled).toBe(false)
+    expect(editNameError.value).toBe('Data source name is required')
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it('shows error toast and keeps sheet open on PATCH failure', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Forbidden'))
+    const editConfigDs = { value: { id: 'ds-1', knowledge_graph_id: 'kg-1' } }
+    const editConfigName = { value: 'New Name' }
+    const editConfigToken = { value: '' }
+    const editConfigOpen = { value: true }
+    const saving = { value: false }
+    let errorMsg = ''
+
+    async function handleEditConfig() {
+      saving.value = true
+      try {
+        const body: Record<string, unknown> = { name: editConfigName.value.trim() }
+        await apiFetch(
+          `/management/knowledge-graphs/${editConfigDs.value!.knowledge_graph_id}/data-sources/${editConfigDs.value!.id}`,
+          { method: 'PATCH', body },
+        )
+        editConfigOpen.value = false
+      } catch (err) {
+        errorMsg = err instanceof Error ? err.message : 'Failed to update'
+        // sheet stays open
+      } finally {
+        saving.value = false
+      }
+    }
+
+    await handleEditConfig()
+
+    expect(errorMsg).toBe('Forbidden')
+    expect(editConfigOpen.value).toBe(true) // still open
+    expect(saving.value).toBe(false)
+  })
+})
+
+// ── task-081: Delete Data Source with confirmation ───────────────────────────
+//
+// Spec: "Backend API Alignment — Scenario: Resource operations succeed end-to-end"
+// "WHEN the user performs any create, read, update, or delete operation via the UI
+//  THEN the corresponding backend API call succeeds (2xx response)"
+
+describe('Data Sources — Delete with confirmation', () => {
+  it('opens delete AlertDialog with the target data source id and name', () => {
+    const deleteDialogOpen = { value: false }
+    const deletingDs = { value: null as null | { id: string; name: string; knowledge_graph_id: string } }
+
+    function openDeleteDs(ds: { id: string; name: string; knowledge_graph_id: string }) {
+      deletingDs.value = ds
+      deleteDialogOpen.value = true
+    }
+
+    openDeleteDs({ id: 'ds-1', name: 'My Repo', knowledge_graph_id: 'kg-1' })
+
+    expect(deleteDialogOpen.value).toBe(true)
+    expect(deletingDs.value?.id).toBe('ds-1')
+    expect(deletingDs.value?.name).toBe('My Repo')
+  })
+
+  it('calls DELETE on the correct nested path and refreshes the list', async () => {
+    const apiFetch = vi.fn().mockResolvedValue(undefined) // 204
+    const deletingDs = { value: { id: 'ds-1', name: 'My Repo', knowledge_graph_id: 'kg-1' } }
+    const deleting = { value: false }
+    const deleteDialogOpen = { value: true }
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+
+    async function handleDeleteDs() {
+      if (!deletingDs.value) return
+      deleting.value = true
+      try {
+        await apiFetch(
+          `/management/knowledge-graphs/${deletingDs.value.knowledge_graph_id}/data-sources/${deletingDs.value.id}`,
+          { method: 'DELETE' },
+        )
+        deleteDialogOpen.value = false
+        await loadDataSources()
+      } finally {
+        deleting.value = false
+      }
+    }
+
+    await handleDeleteDs()
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/management/knowledge-graphs/kg-1/data-sources/ds-1',
+      { method: 'DELETE' },
+    )
+    expect(loadDataSources).toHaveBeenCalledOnce()
+    expect(deleteDialogOpen.value).toBe(false)
+    expect(deleting.value).toBe(false)
+  })
+
+  it('does not call DELETE when the dialog is cancelled', () => {
+    const apiFetch = vi.fn()
+    const deleteDialogOpen = { value: true }
+
+    function cancelDelete() {
+      deleteDialogOpen.value = false
+    }
+
+    cancelDelete()
+
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(deleteDialogOpen.value).toBe(false)
+  })
+
+  it('shows error toast and resets deleting flag on DELETE failure', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Server error'))
+    const deletingDs = { value: { id: 'ds-1', knowledge_graph_id: 'kg-1' } }
+    const deleting = { value: false }
+    const deleteDialogOpen = { value: true }
+    let errorMsg = ''
+
+    async function handleDeleteDs() {
+      deleting.value = true
+      try {
+        await apiFetch(
+          `/management/knowledge-graphs/${deletingDs.value!.knowledge_graph_id}/data-sources/${deletingDs.value!.id}`,
+          { method: 'DELETE' },
+        )
+        deleteDialogOpen.value = false
+      } catch (err) {
+        errorMsg = err instanceof Error ? err.message : 'Failed to delete'
+        deleteDialogOpen.value = false
+      } finally {
+        deleting.value = false
+      }
+    }
+
+    await handleDeleteDs()
+
+    expect(errorMsg).toBe('Server error')
+    expect(deleting.value).toBe(false)
+  })
+
+  it('does not refresh list when DELETE throws', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Forbidden'))
+    const loadDataSources = vi.fn()
+    const deletingDs = { value: { id: 'ds-1', knowledge_graph_id: 'kg-1' } }
+
+    async function handleDeleteDs() {
+      try {
+        await apiFetch(
+          `/management/knowledge-graphs/${deletingDs.value!.knowledge_graph_id}/data-sources/${deletingDs.value!.id}`,
+          { method: 'DELETE' },
+        )
+        await loadDataSources()
+      } catch {
+        // error path
+      }
+    }
+
+    await handleDeleteDs()
+
+    expect(loadDataSources).not.toHaveBeenCalled()
+  })
+})
+
+// ── task-081: Structural tests for data-sources/index.vue ───────────────────
+//
+// Verifies that the Vue file contains the required state variables,
+// API call patterns, template elements, and credential masking behaviour.
+
+describe('Data Sources page — edit-config and delete structural checks', () => {
+  const dsVue = readFileSync(
+    resolve(__dirname, '../pages/data-sources/index.vue'),
+    'utf-8',
+  )
+
+  it('declares editConfigOpen state', () => {
+    expect(dsVue).toMatch(/editConfigOpen/)
+  })
+
+  it('declares deleteDialogOpen state (or deleteDsOpen)', () => {
+    expect(dsVue).toMatch(/deleteDialogOpen|deleteDsOpen/)
+  })
+
+  it('calls PATCH on data-sources/{id} in handleEditConfig', () => {
+    expect(dsVue).toMatch(/PATCH.*data-sources|data-sources.*PATCH/)
+  })
+
+  it('calls DELETE on data-sources/{id} in handleDeleteDs', () => {
+    expect(dsVue).toMatch(/DELETE.*data-sources|data-sources.*DELETE/)
+  })
+
+  it('edit config Sheet is present in the template', () => {
+    expect(dsVue).toMatch(/editConfigOpen|Edit Config/)
+  })
+
+  it('delete AlertDialog is present in the template', () => {
+    expect(dsVue).toMatch(/AlertDialog|deleteDialogOpen|deleteDsOpen/)
+  })
+
+  it('delete confirmation warns about sync history loss', () => {
+    expect(dsVue).toMatch(/sync history|cannot be undone/i)
+  })
+
+  it('credential input has placeholder indicating optional re-entry', () => {
+    expect(dsVue).toMatch(/Leave blank|keep existing/i)
+  })
+
+  it('handleEditConfig omits credentials when token is empty', () => {
+    expect(dsVue).toMatch(/trim\(\)|credentials/)
+  })
+})

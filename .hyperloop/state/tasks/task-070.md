@@ -3,9 +3,9 @@ id: task-070
 title: Keyboard shortcut discoverability — test tooltip and kbd hints
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: verify
+phase: implement
 deps: []
-round: 1
+round: 2
 branch: hyperloop/task-070
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/534
 pr_title: 'test(ui): verify keyboard shortcuts are discoverable via tooltip and kbd

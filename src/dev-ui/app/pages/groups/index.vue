@@ -12,6 +12,10 @@ import { Badge } from '@/components/ui/badge'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Card, CardContent } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -517,48 +521,44 @@ watch(tenantVersion, () => {
       </DialogContent>
     </Dialog>
 
-    <!-- Delete Confirmation Dialog -->
-    <Dialog v-model:open="deleteDialogOpen">
-      <DialogContent class="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Delete Group</DialogTitle>
-          <DialogDescription>
+    <!-- Delete Confirmation AlertDialog -->
+    <AlertDialog v-model:open="deleteDialogOpen">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Group</AlertDialogTitle>
+          <AlertDialogDescription>
             Are you sure you want to delete
             <span class="font-semibold">{{ groupToDelete?.name }}</span>? This action cannot be
             undone.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogClose as-child>
-            <Button variant="outline" :disabled="isDeleting">Cancel</Button>
-          </DialogClose>
-          <Button variant="destructive" :disabled="isDeleting" @click="handleDelete">
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel :disabled="isDeleting">Cancel</AlertDialogCancel>
+          <AlertDialogAction :disabled="isDeleting" @click.prevent="handleDelete">
             <Loader2 v-if="isDeleting" class="mr-2 size-4 animate-spin" />
             Delete
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
 
-    <!-- Remove member confirmation dialog -->
-    <Dialog v-model:open="showRemoveMemberDialog">
-      <DialogContent class="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Remove Member</DialogTitle>
-          <DialogDescription>
+    <!-- Remove member confirmation AlertDialog -->
+    <AlertDialog v-model:open="showRemoveMemberDialog">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove Member</AlertDialogTitle>
+          <AlertDialogDescription>
             Are you sure you want to remove user "{{ memberToRemove?.user_id }}" from "{{ selectedGroup?.name }}"?
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogClose as-child>
-            <Button variant="outline">Cancel</Button>
-          </DialogClose>
-          <Button variant="destructive" :disabled="removingMember" @click="handleRemoveMember">
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction :disabled="removingMember" @click.prevent="handleRemoveMember">
             <Loader2 v-if="removingMember" class="mr-2 size-4 animate-spin" />
             Remove
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>

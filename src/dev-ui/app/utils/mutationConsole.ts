@@ -82,6 +82,9 @@ export function isCtrlOrCmdEnterEvent(e: {
  * Submission is blocked when:
  * - A submission is already in progress (`submitting`) or the large-file
  *   payload is being prepared (`preparing`).
+ * - `selectedWorkspaceId` is provided but empty — the Mutations Console
+ *   scopes the KG list to a workspace, so a workspace must be chosen first.
+ *   When this field is absent (legacy callers), the workspace gate is skipped.
  * - No knowledge graph has been selected (`selectedKnowledgeGraphId` is
  *   null or empty).
  * - For small files: the editor content is empty.
@@ -89,6 +92,7 @@ export function isCtrlOrCmdEnterEvent(e: {
  *   known to be non-empty from the upload step.)
  */
 export function canSubmitMutations(opts: {
+  selectedWorkspaceId?: string | null
   selectedKnowledgeGraphId: string | null
   content: string
   isLargeFile: boolean
@@ -96,6 +100,10 @@ export function canSubmitMutations(opts: {
   preparing: boolean
 }): boolean {
   if (opts.submitting || opts.preparing) return false
+  // Gate on workspace only when the field is explicitly provided in opts.
+  // This preserves backward compatibility: callers that do not pass
+  // selectedWorkspaceId (e.g. existing unit tests) retain original behaviour.
+  if ('selectedWorkspaceId' in opts && !opts.selectedWorkspaceId) return false
   if (!opts.selectedKnowledgeGraphId) return false
   if (!opts.isLargeFile && !opts.content.trim()) return false
   return true

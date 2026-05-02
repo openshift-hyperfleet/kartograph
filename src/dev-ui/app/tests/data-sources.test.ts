@@ -1113,3 +1113,125 @@ describe('Ontology Design - Ontology Review and Approval: iterate before approvi
     expect(createDataSource).not.toHaveBeenCalled()
   })
 })
+
+// ── Backend API Alignment — Parent context is preserved ───────────────────────
+//
+// Spec: "GIVEN a resource that is scoped to a parent (e.g., a knowledge graph
+//        within a workspace)
+//        WHEN the user creates or lists that resource
+//        THEN the UI includes the parent context required by the API"
+//
+// This block mirrors the pattern in sync-monitoring-extended.test.ts for triggerSync():
+// extract createDataSource as a parameterized function, inject apiFetch as a mock,
+// and assert the URL path contains the parent knowledge graph ID.
+
+/**
+ * Mirrors createDataSource() in data-sources/index.vue.
+ * Takes apiFetch as a parameter so tests can inject a mock and assert the
+ * exact URL that is constructed for the KG-scoped POST endpoint.
+ */
+async function createDataSourceWithFetch(
+  params: {
+    kg_id: string
+    name: string
+    adapter_type: string
+    connection_config: Record<string, string>
+    credentials?: Record<string, string>
+  },
+  apiFetch: (
+    url: string,
+    opts: { method: string; body: Record<string, unknown> },
+  ) => Promise<unknown>,
+) {
+  return apiFetch(`/management/knowledge-graphs/${params.kg_id}/data-sources`, {
+    method: 'POST',
+    body: {
+      name: params.name,
+      adapter_type: params.adapter_type,
+      connection_config: params.connection_config,
+      credentials: params.credentials,
+    },
+  })
+}
+
+describe('Backend API Alignment — data source creation uses KG-scoped endpoint', () => {
+  // Spec: Backend API Alignment — Scenario: Parent context is preserved
+  // "THEN the UI includes the parent context required by the API"
+  it('POST URL includes the parent knowledge graph ID', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({ id: 'ds-new' })
+    await createDataSourceWithFetch(
+      {
+        kg_id: 'kg-abc123',
+        name: 'my-repo',
+        adapter_type: 'github',
+        connection_config: { repo_url: 'https://github.com/owner/my-repo' },
+        credentials: { access_token: 'ghp_test' },
+      },
+      apiFetch,
+    )
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/management/knowledge-graphs/kg-abc123/data-sources',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  // Spec: Backend API Alignment — Scenario: Parent context is preserved
+  // "THEN the UI includes the parent context required by the API"
+  // Verifies the KG ID is dynamic — not hardcoded or shared across calls.
+  it('KG ID in the URL path changes when a different knowledge graph is selected', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({ id: 'ds-new-2' })
+    await createDataSourceWithFetch(
+      {
+        kg_id: 'kg-xyz789',
+        name: 'another-repo',
+        adapter_type: 'github',
+        connection_config: { repo_url: 'https://github.com/org/another-repo' },
+      },
+      apiFetch,
+    )
+    const calledUrl = (apiFetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
+    expect(calledUrl).toContain('kg-xyz789')
+    expect(calledUrl).not.toContain('kg-abc123')
+  })
+
+  // Spec: Backend API Alignment — Scenario: Parent context is preserved
+  // Data sources are scoped to a knowledge graph, not a workspace.
+  it('does NOT use a workspace-scoped path (data sources are KG-scoped, not workspace-scoped)', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({ id: 'ds-new' })
+    await createDataSourceWithFetch(
+      { kg_id: 'kg-1', name: 'repo', adapter_type: 'github', connection_config: {} },
+      apiFetch,
+    )
+    const calledUrl = (apiFetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
+    expect(calledUrl).toContain('/management/knowledge-graphs/')
+    expect(calledUrl).not.toContain('/management/workspaces/')
+  })
+
+  // Spec: Backend API Alignment — Scenario: Resource operations succeed end-to-end
+  // "THEN the corresponding backend API call succeeds" — verifies the request body
+  // carries all required fields for the backend to process the creation.
+  it('request body includes name, adapter_type, and connection_config', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({ id: 'ds-new' })
+    await createDataSourceWithFetch(
+      {
+        kg_id: 'kg-1',
+        name: 'my-repo',
+        adapter_type: 'github',
+        connection_config: { repo_url: 'https://github.com/owner/my-repo' },
+        credentials: { access_token: 'ghp_test' },
+      },
+      apiFetch,
+    )
+    expect(apiFetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        body: expect.objectContaining({
+          name: 'my-repo',
+          adapter_type: 'github',
+          connection_config: { repo_url: 'https://github.com/owner/my-repo' },
+          credentials: { access_token: 'ghp_test' },
+        }),
+      }),
+    )
+  })
+})

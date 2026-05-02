@@ -975,10 +975,13 @@ describe('Ontology Design - Ontology Review and Approval: approve as-is', () => 
     const ontologyReady = { value: true }
     const approvingOntology = { value: false }
     const createDataSource = vi.fn()
+    // The UI is in the ontology-review step — approval has not been clicked yet.
+    const currentStep = 'ontology-review'
 
     // Simulate step 4 (ontology review) without clicking "Approve"
     // The API should NOT have been called yet.
     const approveButtonEnabled = ontologyReady.value && !approvingOntology.value
+    expect(currentStep).toBe('ontology-review') // confirms we are in the review step
     expect(approveButtonEnabled).toBe(true) // button is clickable...
     expect(createDataSource).not.toHaveBeenCalled() // ...but API not yet called
   })

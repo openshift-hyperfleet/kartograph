@@ -21,6 +21,7 @@ import {
   Lock,
   ScrollText,
   FileText,
+  Settings,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -50,6 +51,16 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -903,6 +914,82 @@ function closeLogs() {
   runLogs.value = []
   logsError.value = null
 }
+
+// ── task-081: Edit Config (connection-config update) ──────────────────────
+
+const editConfigOpen = ref(false)
+const editConfigDs = ref<DataSourceItem | null>(null)
+const editConfigName = ref('')
+const editConfigToken = ref('')
+const editConfigNameError = ref('')
+const savingConfig = ref(false)
+
+function openEditConfig(ds: DataSourceItem) {
+  editConfigDs.value = ds
+  editConfigName.value = ds.name
+  editConfigToken.value = '' // never pre-fill; credential is server-side only
+  editConfigNameError.value = ''
+  editConfigOpen.value = true
+}
+
+async function handleEditConfig() {
+  editConfigNameError.value = ''
+  if (!editConfigName.value.trim()) {
+    editConfigNameError.value = 'Data source name is required'
+    return
+  }
+  savingConfig.value = true
+  try {
+    const { apiFetch } = useApiClient()
+    const body: Record<string, unknown> = { name: editConfigName.value.trim() }
+    if (editConfigToken.value.trim()) {
+      body.credentials = { access_token: editConfigToken.value.trim() }
+    }
+    // PATCH /management/knowledge-graphs/{kg_id}/data-sources/{ds_id}
+    await apiFetch(`/management/knowledge-graphs/${editConfigDs.value!.knowledge_graph_id}/data-sources/${editConfigDs.value!.id}`, { method: 'PATCH', body })
+    toast.success('Data source updated')
+    editConfigOpen.value = false
+    await loadDataSources()
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to update data source'
+    toast.error('Failed to update data source', { description: msg })
+    // sheet stays open so user can retry
+  } finally {
+    savingConfig.value = false
+  }
+}
+
+// ── task-081: Delete Data Source ──────────────────────────────────────────
+
+const deleteDsOpen = ref(false)
+const deletingDs = ref<DataSourceItem | null>(null)
+const deletingDsFlag = ref(false)
+
+function openDeleteDs(ds: DataSourceItem) {
+  deletingDs.value = ds
+  deleteDsOpen.value = true
+}
+
+async function handleDeleteDs() {
+  if (!deletingDs.value) return
+  deletingDsFlag.value = true
+  try {
+    const { apiFetch } = useApiClient()
+    // DELETE /management/knowledge-graphs/{kg_id}/data-sources/{ds_id}
+    await apiFetch(`/management/knowledge-graphs/${deletingDs.value.knowledge_graph_id}/data-sources/${deletingDs.value.id}`, { method: 'DELETE' })
+    const name = deletingDs.value.name
+    toast.success(`Data source "${name}" deleted`)
+    deleteDsOpen.value = false
+    await loadDataSources()
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to delete data source'
+    toast.error('Failed to delete data source', { description: msg })
+    deleteDsOpen.value = false
+  } finally {
+    deletingDsFlag.value = false
+    deletingDs.value = null
+  }
+}
 </script>
 
 <template>
@@ -990,6 +1077,21 @@ function closeLogs() {
                   <p v-else>Edit the node and edge types for this data source</p>
                 </TooltipContent>
               </Tooltip>
+              <!-- Edit Config button (task-081) -->
+              <Button size="sm" variant="outline" @click="openEditConfig(ds)">
+                <Settings class="mr-1.5 size-3.5" />
+                Edit Config
+              </Button>
+              <!-- Delete button (task-081) -->
+              <Button
+                size="sm"
+                variant="outline"
+                class="text-destructive hover:bg-destructive/10"
+                @click="openDeleteDs(ds)"
+              >
+                <Trash2 class="mr-1.5 size-3.5" />
+                Delete
+              </Button>
               <Button size="sm" variant="outline" @click="triggerSync(ds.id)">
                 Sync Now
               </Button>
@@ -1711,6 +1813,83 @@ function closeLogs() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <!-- ─── task-081: Edit Config Sheet ─────────────────────────────────── -->
+    <Sheet v-model:open="editConfigOpen">
+      <SheetContent side="right" class="w-full sm:max-w-md">
+        <SheetHeader>
+          <SheetTitle>Edit Data Source</SheetTitle>
+          <SheetDescription>
+            Update the name or rotate the access credentials for this data source.
+          </SheetDescription>
+        </SheetHeader>
+        <form class="mt-6 space-y-4" @submit.prevent="handleEditConfig">
+          <div class="space-y-1.5">
+            <Label for="edit-ds-name">Name <span class="text-destructive">*</span></Label>
+            <Input
+              id="edit-ds-name"
+              v-model="editConfigName"
+              placeholder="e.g. my-org/my-repo"
+              :disabled="savingConfig"
+              @input="editConfigNameError = ''"
+            />
+            <p v-if="editConfigNameError" class="text-sm text-destructive">{{ editConfigNameError }}</p>
+          </div>
+          <div class="space-y-1.5">
+            <Label for="edit-ds-token">Access Token</Label>
+            <Input
+              id="edit-ds-token"
+              v-model="editConfigToken"
+              type="password"
+              placeholder="Leave blank to keep existing credential"
+              :disabled="savingConfig"
+            />
+            <p class="text-xs text-muted-foreground">
+              The current credential is stored encrypted server-side and is never shown here.
+              Enter a new token only if you need to rotate it.
+            </p>
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              :disabled="savingConfig"
+              @click="editConfigOpen = false"
+            >
+              Cancel
+            </Button>
+            <Button type="submit" :disabled="savingConfig || !editConfigName.trim()">
+              <Loader2 v-if="savingConfig" class="mr-2 size-4 animate-spin" />
+              {{ savingConfig ? 'Saving...' : 'Save' }}
+            </Button>
+          </div>
+        </form>
+      </SheetContent>
+    </Sheet>
+
+    <!-- ─── task-081: Delete Data Source AlertDialog ───────────────────── -->
+    <AlertDialog v-model:open="deleteDsOpen">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete "{{ deletingDs?.name }}"?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will permanently delete the data source and all of its sync history.
+            This action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel :disabled="deletingDsFlag">Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            :disabled="deletingDsFlag"
+            @click.prevent="handleDeleteDs"
+          >
+            <Loader2 v-if="deletingDsFlag" class="mr-2 size-4 animate-spin" />
+            {{ deletingDsFlag ? 'Deleting...' : 'Delete' }}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
 
     <!-- ─── FAIL 3: Sync Logs Sheet ───────────────────────────────────────── -->
     <Sheet v-model:open="logSheetOpen" @update:open="(v) => { if (!v) closeLogs() }">

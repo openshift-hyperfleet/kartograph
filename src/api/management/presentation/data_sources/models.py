@@ -6,6 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from management.application.services.data_source_service import DataSourceWithLatestRun
 from management.domain.aggregates import DataSource
 from management.domain.entities import DataSourceSyncRun
 
@@ -121,3 +122,71 @@ class SyncRunResponse(BaseModel):
             error=run.error,
             created_at=run.created_at,
         )
+
+
+class DataSourceWithSyncResponse(BaseModel):
+    """Data source response with embedded latest sync run.
+
+    Used by GET /management/data-sources (flat list) to return all data
+    sources in the tenant with their most recent sync status in a single
+    API call — enabling the sidebar navigation badge.
+    """
+
+    id: str = Field(..., description="Data Source ID (ULID format)")
+    knowledge_graph_id: str = Field(
+        ..., description="Knowledge Graph ID this DS belongs to"
+    )
+    tenant_id: str = Field(..., description="Tenant ID this DS belongs to")
+    name: str = Field(..., description="Data source name")
+    adapter_type: str = Field(..., description="Adapter type (e.g., 'github')")
+    schedule_type: str = Field(
+        ..., description="Schedule type (e.g., 'manual', 'cron')"
+    )
+    last_sync_at: datetime | None = Field(
+        None, description="When the last sync completed"
+    )
+    created_at: datetime = Field(..., description="When the DS was created")
+    updated_at: datetime = Field(..., description="When the DS was last updated")
+    latest_sync_run: SyncRunResponse | None = Field(
+        None,
+        description="Most recent sync run, or null if the data source has never synced",
+    )
+
+    @classmethod
+    def from_domain_pair(
+        cls, pair: DataSourceWithLatestRun
+    ) -> DataSourceWithSyncResponse:
+        """Convert a DataSourceWithLatestRun pair to API response.
+
+        Args:
+            pair: DataSourceWithLatestRun from the application service
+
+        Returns:
+            DataSourceWithSyncResponse with DS details and embedded sync run
+        """
+        ds = pair.data_source
+        return cls(
+            id=ds.id.value,
+            knowledge_graph_id=ds.knowledge_graph_id,
+            tenant_id=ds.tenant_id,
+            name=ds.name,
+            adapter_type=ds.adapter_type.value,
+            schedule_type=ds.schedule.schedule_type.value,
+            last_sync_at=ds.last_sync_at,
+            created_at=ds.created_at,
+            updated_at=ds.updated_at,
+            latest_sync_run=(
+                SyncRunResponse.from_domain(pair.latest_sync_run)
+                if pair.latest_sync_run is not None
+                else None
+            ),
+        )
+
+
+class DataSourceListResponse(BaseModel):
+    """Response model for the flat data source list endpoint."""
+
+    data_sources: list[DataSourceWithSyncResponse] = Field(
+        ..., description="List of data sources with their latest sync run"
+    )
+    count: int = Field(..., description="Total number of data sources returned")

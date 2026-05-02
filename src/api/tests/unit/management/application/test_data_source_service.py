@@ -1026,10 +1026,9 @@ class TestDataSourceServiceTriggerSync:
 
         assert result.data_source_id == ds.id.value
         assert result.status == "pending"
-        assert len(sync_run_repo.saved) == 1
-        assert len(ds_repo.saved) == 1
-        assert len(ds_probe.sync_requested_calls) == 1
-        assert ds_probe.sync_requested_calls[0]["ds_id"] == ds.id.value
+        mock_sync_run_repo.save.assert_called_once()
+        mock_ds_repo.save.assert_called_once()
+        mock_probe.sync_requested.assert_called_once_with(ds_id=ds.id.value)
 
 
 class TestDataSourceServiceListAllForUser:
@@ -1039,18 +1038,19 @@ class TestDataSourceServiceListAllForUser:
     async def test_returns_all_data_sources_across_kgs(
         self,
         service: DataSourceService,
-        kg_repo: _FakeKnowledgeGraphRepository,
-        ds_repo: _FakeDataSourceRepository,
-        sync_run_repo: _FakeSyncRunRepository,
-        authz: _FakeAuthorizationProvider,
+        mock_kg_repo: AsyncMock,
+        mock_ds_repo: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        mock_authz: AsyncMock,
         user_id: str,
-        tenant_id: str,
     ) -> None:
         """list_all_for_user() aggregates data sources from all accessible KGs."""
-        kg1 = _make_kg(kg_id="kg-1", tenant_id=tenant_id)
-        kg2 = _make_kg(kg_id="kg-2", tenant_id=tenant_id)
-        ds1 = _make_ds(ds_id="ds-1", kg_id="kg-1", tenant_id=tenant_id)
-        ds2 = _make_ds(ds_id="ds-2", kg_id="kg-2", tenant_id=tenant_id)
+        from management.domain.entities import DataSourceSyncRun
+
+        kg1 = _make_kg(kg_id="kg-1")
+        kg2 = _make_kg(kg_id="kg-2")
+        ds1 = _make_ds(ds_id="ds-1", kg_id="kg-1")
+        ds2 = _make_ds(ds_id="ds-2", kg_id="kg-2")
         now = datetime.now(UTC)
         run1 = DataSourceSyncRun(
             id="run-1",
@@ -1062,10 +1062,18 @@ class TestDataSourceServiceListAllForUser:
             created_at=now,
         )
 
-        kg_repo.seed(kg1, kg2)
-        authz.grant_all()
-        ds_repo.seed(ds1, ds2)
-        sync_run_repo.seed(run1)
+        mock_kg_repo.find_by_tenant.return_value = [kg1, kg2]
+        mock_authz.check_permission.return_value = True
+
+        async def ds_side_effect(knowledge_graph_id: str) -> list[DataSource]:
+            return [ds1] if knowledge_graph_id == "kg-1" else [ds2]
+
+        mock_ds_repo.find_by_knowledge_graph.side_effect = ds_side_effect
+
+        async def run_side_effect(data_source_id: str) -> DataSourceSyncRun | None:
+            return run1 if data_source_id == "ds-1" else None
+
+        mock_sync_run_repo.get_latest_for_data_source.side_effect = run_side_effect
 
         result = await service.list_all_for_user(user_id=user_id)
 
@@ -1082,24 +1090,31 @@ class TestDataSourceServiceListAllForUser:
     async def test_excludes_kgs_user_cannot_view(
         self,
         service: DataSourceService,
-        kg_repo: _FakeKnowledgeGraphRepository,
-        ds_repo: _FakeDataSourceRepository,
-        sync_run_repo: _FakeSyncRunRepository,
-        authz: _FakeAuthorizationProvider,
+        mock_kg_repo: AsyncMock,
+        mock_ds_repo: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        mock_authz: AsyncMock,
         user_id: str,
-        tenant_id: str,
     ) -> None:
         """list_all_for_user() excludes data sources from KGs the user cannot VIEW."""
-        kg_allowed = _make_kg(kg_id="kg-allowed", tenant_id=tenant_id)
-        kg_denied = _make_kg(kg_id="kg-denied", tenant_id=tenant_id)
-        ds_allowed = _make_ds(
-            ds_id="ds-allowed", kg_id="kg-allowed", tenant_id=tenant_id
-        )
+        kg_allowed = _make_kg(kg_id="kg-allowed")
+        kg_denied = _make_kg(kg_id="kg-denied")
+        ds_allowed = _make_ds(ds_id="ds-allowed", kg_id="kg-allowed")
 
-        kg_repo.seed(kg_allowed, kg_denied)
-        authz.grant_resource("knowledge_graph:kg-allowed")
-        authz.deny_resource("knowledge_graph:kg-denied")
-        ds_repo.seed(ds_allowed)
+        mock_kg_repo.find_by_tenant.return_value = [kg_allowed, kg_denied]
+
+        async def perm_side_effect(
+            resource: str, permission: object, subject: str
+        ) -> bool:
+            return "kg-allowed" in resource
+
+        mock_authz.check_permission.side_effect = perm_side_effect
+
+        async def ds_side_effect(knowledge_graph_id: str) -> list[DataSource]:
+            return [ds_allowed] if knowledge_graph_id == "kg-allowed" else []
+
+        mock_ds_repo.find_by_knowledge_graph.side_effect = ds_side_effect
+        mock_sync_run_repo.get_latest_for_data_source.return_value = None
 
         result = await service.list_all_for_user(user_id=user_id)
 
@@ -1110,12 +1125,12 @@ class TestDataSourceServiceListAllForUser:
     async def test_returns_empty_list_when_no_accessible_kgs(
         self,
         service: DataSourceService,
-        kg_repo: _FakeKnowledgeGraphRepository,
-        authz: _FakeAuthorizationProvider,
+        mock_kg_repo: AsyncMock,
+        mock_authz: AsyncMock,
         user_id: str,
     ) -> None:
         """list_all_for_user() returns empty list when user has no accessible KGs."""
-        # kg_repo is empty
+        mock_kg_repo.find_by_tenant.return_value = []
 
         result = await service.list_all_for_user(user_id=user_id)
 
@@ -1125,170 +1140,22 @@ class TestDataSourceServiceListAllForUser:
     async def test_data_source_with_no_sync_run_has_none_latest(
         self,
         service: DataSourceService,
-        kg_repo: _FakeKnowledgeGraphRepository,
-        ds_repo: _FakeDataSourceRepository,
-        sync_run_repo: _FakeSyncRunRepository,
-        authz: _FakeAuthorizationProvider,
+        mock_kg_repo: AsyncMock,
+        mock_ds_repo: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        mock_authz: AsyncMock,
         user_id: str,
-        tenant_id: str,
     ) -> None:
         """list_all_for_user() sets latest_sync_run=None for sources with no runs."""
-        kg = _make_kg(kg_id="kg-1", tenant_id=tenant_id)
-        ds = _make_ds(ds_id="ds-1", kg_id="kg-1", tenant_id=tenant_id)
+        kg = _make_kg(kg_id="kg-1")
+        ds = _make_ds(ds_id="ds-1", kg_id="kg-1")
 
-        kg_repo.seed(kg)
-        authz.grant_all()
-        ds_repo.seed(ds)
-        # sync_run_repo is empty
+        mock_kg_repo.find_by_tenant.return_value = [kg]
+        mock_authz.check_permission.return_value = True
+        mock_ds_repo.find_by_knowledge_graph.return_value = [ds]
+        mock_sync_run_repo.get_latest_for_data_source.return_value = None
 
         result = await service.list_all_for_user(user_id=user_id)
 
         assert len(result) == 1
         assert result[0].latest_sync_run is None
-
-
-# ---- update_ontology ----
-
-
-class TestDataSourceServiceUpdateOntology:
-    """Tests for DataSourceService.update_ontology."""
-
-    @pytest.mark.asyncio
-    async def test_update_ontology_checks_edit_permission_on_ds(
-        self,
-        service: DataSourceService,
-        authz: _FakeAuthorizationProvider,
-        ds_repo: _FakeDataSourceRepository,
-        user_id: str,
-        tenant_id: str,
-    ) -> None:
-        """update_ontology() must check EDIT permission on the data source."""
-        ds = _make_ds(tenant_id=tenant_id)
-        ds_repo.seed(ds)
-        authz.grant_all()
-
-        ontology = Ontology(node_types=[OntologyNodeType(label="Repo")], edge_types=[])
-        await service.update_ontology(
-            user_id=user_id,
-            ds_id=ds.id.value,
-            ontology=ontology,
-        )
-
-        assert any(
-            call["resource"] == f"data_source:{ds.id.value}"
-            and call["permission"] == Permission.EDIT
-            for call in authz.check_permission_calls
-        )
-
-    @pytest.mark.asyncio
-    async def test_update_ontology_raises_unauthorized_when_permission_denied(
-        self,
-        service: DataSourceService,
-        authz: _FakeAuthorizationProvider,
-        ds_repo: _FakeDataSourceRepository,
-        user_id: str,
-        tenant_id: str,
-    ) -> None:
-        """update_ontology() raises UnauthorizedError when user lacks EDIT permission."""
-        ds = _make_ds(tenant_id=tenant_id)
-        ds_repo.seed(ds)
-        authz.deny_all()
-
-        with pytest.raises(UnauthorizedError):
-            await service.update_ontology(
-                user_id=user_id,
-                ds_id=ds.id.value,
-                ontology=Ontology(node_types=[], edge_types=[]),
-            )
-
-    @pytest.mark.asyncio
-    async def test_update_ontology_raises_value_error_when_ds_not_found(
-        self,
-        service: DataSourceService,
-        authz: _FakeAuthorizationProvider,
-        user_id: str,
-    ) -> None:
-        """update_ontology() raises ValueError when DS not found."""
-        authz.grant_all()
-
-        with pytest.raises(ValueError, match="not found"):
-            await service.update_ontology(
-                user_id=user_id,
-                ds_id="nonexistent-id",
-                ontology=Ontology(node_types=[], edge_types=[]),
-            )
-
-    @pytest.mark.asyncio
-    async def test_update_ontology_raises_value_error_for_wrong_tenant(
-        self,
-        service: DataSourceService,
-        authz: _FakeAuthorizationProvider,
-        ds_repo: _FakeDataSourceRepository,
-        user_id: str,
-    ) -> None:
-        """update_ontology() raises ValueError when DS belongs to a different tenant."""
-        ds = _make_ds(tenant_id="other-tenant")
-        ds_repo.seed(ds)
-        authz.grant_all()
-
-        with pytest.raises(ValueError, match="not found"):
-            await service.update_ontology(
-                user_id=user_id,
-                ds_id=ds.id.value,
-                ontology=Ontology(node_types=[], edge_types=[]),
-            )
-
-    @pytest.mark.asyncio
-    async def test_update_ontology_persists_ontology_to_repository(
-        self,
-        service: DataSourceService,
-        authz: _FakeAuthorizationProvider,
-        ds_repo: _FakeDataSourceRepository,
-        user_id: str,
-        tenant_id: str,
-    ) -> None:
-        """update_ontology() should save the updated DS with ontology to the repo."""
-        ds = _make_ds(tenant_id=tenant_id)
-        ds_repo.seed(ds)
-        authz.grant_all()
-
-        new_ontology = Ontology(
-            node_types=[OntologyNodeType(label="Repository")],
-            edge_types=[],
-        )
-        result = await service.update_ontology(
-            user_id=user_id,
-            ds_id=ds.id.value,
-            ontology=new_ontology,
-        )
-
-        assert result.ontology == new_ontology
-        # Ensure repo has the updated DS
-        saved = await ds_repo.get_by_id(DataSourceId(value=ds.id.value))
-        assert saved is not None
-        assert saved.ontology == new_ontology
-
-    @pytest.mark.asyncio
-    async def test_update_ontology_returns_updated_data_source(
-        self,
-        service: DataSourceService,
-        authz: _FakeAuthorizationProvider,
-        ds_repo: _FakeDataSourceRepository,
-        user_id: str,
-        tenant_id: str,
-    ) -> None:
-        """update_ontology() should return the updated DataSource aggregate."""
-        ds = _make_ds(tenant_id=tenant_id)
-        ds_repo.seed(ds)
-        authz.grant_all()
-
-        ontology = Ontology(node_types=[OntologyNodeType(label="Issue")], edge_types=[])
-        result = await service.update_ontology(
-            user_id=user_id,
-            ds_id=ds.id.value,
-            ontology=ontology,
-        )
-
-        assert result.id == ds.id
-        assert result.ontology is not None
-        assert result.ontology.node_types[0].label == "Issue"

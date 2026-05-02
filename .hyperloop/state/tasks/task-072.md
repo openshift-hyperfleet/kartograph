@@ -3,11 +3,11 @@ id: task-072
 title: Backend API Alignment — test UI list auto-refresh after KG and data source
   creation
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-072
 pr: null
 pr_title: 'test(ui): verify UI list reloads automatically after KG and data source
   creation'

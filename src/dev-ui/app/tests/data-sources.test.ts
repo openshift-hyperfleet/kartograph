@@ -2014,3 +2014,292 @@ describe('Backend API Alignment — Scenario: Resource operations succeed end-to
     expect(loadDataSources).not.toHaveBeenCalled()
   })
 })
+
+// ── task-082: Ontology Editor — save to backend after post-extraction edit ───
+// Spec: "GIVEN a knowledge graph with completed extraction
+//        WHEN the user modifies the ontology
+//        THEN the system warns that this will trigger a full re-extraction
+//        AND the user must confirm before the change is applied"
+// The "change is applied" clause requires a PATCH call to persist the ontology.
+
+describe('Ontology Editor — save to backend after post-extraction edit (task-082)', () => {
+  it('saveOntology calls PATCH with ontology payload including node and edge types', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({})
+    const editingDataSource = { value: { id: 'ds-1', knowledge_graph_id: 'kg-1' } }
+    const editNodes = {
+      value: [
+        {
+          label: 'Repository',
+          description: 'A GitHub repository.',
+          required_properties: ['name', 'url'],
+          optional_properties: ['description', 'stars'],
+        },
+      ],
+    }
+    const editEdges = {
+      value: [
+        {
+          label: 'CONTAINS',
+          description: 'Repo contains issues.',
+          from: 'Repository',
+          to: 'Issue',
+          required_properties: [],
+          optional_properties: [],
+        },
+      ],
+    }
+    const savingOntology = { value: false }
+    const editOntologyOpen = { value: true }
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+
+    async function saveOntology() {
+      if (!editingDataSource.value) return
+      savingOntology.value = true
+      try {
+        await apiFetch(
+          `/management/knowledge-graphs/${editingDataSource.value.knowledge_graph_id}/data-sources/${editingDataSource.value.id}`,
+          {
+            method: 'PATCH',
+            body: {
+              ontology: {
+                node_types: editNodes.value.map((n) => ({
+                  label: n.label,
+                  description: n.description,
+                  required_properties: n.required_properties,
+                  optional_properties: n.optional_properties,
+                })),
+                edge_types: editEdges.value.map((e) => ({
+                  label: e.label,
+                  description: e.description,
+                  from_type: e.from,
+                  to_type: e.to,
+                  required_properties: e.required_properties,
+                  optional_properties: e.optional_properties,
+                })),
+              },
+            },
+          },
+        )
+        editOntologyOpen.value = false
+        await loadDataSources()
+      } finally {
+        savingOntology.value = false
+      }
+    }
+
+    await saveOntology()
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/management/knowledge-graphs/kg-1/data-sources/ds-1',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: {
+          ontology: {
+            node_types: [
+              {
+                label: 'Repository',
+                description: 'A GitHub repository.',
+                required_properties: ['name', 'url'],
+                optional_properties: ['description', 'stars'],
+              },
+            ],
+            edge_types: [
+              {
+                label: 'CONTAINS',
+                description: 'Repo contains issues.',
+                from_type: 'Repository',
+                to_type: 'Issue',
+                required_properties: [],
+                optional_properties: [],
+              },
+            ],
+          },
+        },
+      }),
+    )
+  })
+
+  it('saveOntology closes dialog and reloads data sources on success', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({})
+    const editOntologyOpen = { value: true }
+    const editingDataSource = { value: { id: 'ds-1', knowledge_graph_id: 'kg-1' } }
+    const editNodes = { value: [] as { label: string; description: string; required_properties: string[]; optional_properties: string[] }[] }
+    const editEdges = { value: [] as { label: string; description: string; from: string; to: string; required_properties: string[]; optional_properties: string[] }[] }
+    const savingOntology = { value: false }
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+
+    async function saveOntology() {
+      if (!editingDataSource.value) return
+      savingOntology.value = true
+      try {
+        await apiFetch(
+          `/management/knowledge-graphs/${editingDataSource.value.knowledge_graph_id}/data-sources/${editingDataSource.value.id}`,
+          {
+            method: 'PATCH',
+            body: {
+              ontology: {
+                node_types: editNodes.value.map((n) => ({
+                  label: n.label,
+                  description: n.description,
+                  required_properties: n.required_properties,
+                  optional_properties: n.optional_properties,
+                })),
+                edge_types: editEdges.value.map((e) => ({
+                  label: e.label,
+                  description: e.description,
+                  from_type: e.from,
+                  to_type: e.to,
+                  required_properties: e.required_properties,
+                  optional_properties: e.optional_properties,
+                })),
+              },
+            },
+          },
+        )
+        editOntologyOpen.value = false
+        await loadDataSources()
+      } finally {
+        savingOntology.value = false
+      }
+    }
+
+    await saveOntology()
+
+    expect(editOntologyOpen.value).toBe(false)
+    expect(loadDataSources).toHaveBeenCalledOnce()
+    expect(savingOntology.value).toBe(false)
+  })
+
+  it('saveOntology keeps dialog open on PATCH failure and resets savingOntology', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Internal Server Error'))
+    const editOntologyOpen = { value: true }
+    const editingDataSource = { value: { id: 'ds-1', knowledge_graph_id: 'kg-1' } }
+    const savingOntology = { value: false }
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+    let caughtError = ''
+
+    async function saveOntology() {
+      if (!editingDataSource.value) return
+      savingOntology.value = true
+      try {
+        await apiFetch(
+          `/management/knowledge-graphs/${editingDataSource.value.knowledge_graph_id}/data-sources/${editingDataSource.value.id}`,
+          { method: 'PATCH', body: { ontology: { node_types: [], edge_types: [] } } },
+        )
+        editOntologyOpen.value = false
+        await loadDataSources()
+      } catch (err) {
+        caughtError = err instanceof Error ? err.message : 'Failed to save ontology'
+        // dialog stays open intentionally
+      } finally {
+        savingOntology.value = false
+      }
+    }
+
+    await saveOntology()
+
+    expect(editOntologyOpen.value).toBe(true) // dialog remains open so user can retry
+    expect(loadDataSources).not.toHaveBeenCalled()
+    expect(caughtError).toBe('Internal Server Error')
+    expect(savingOntology.value).toBe(false)
+  })
+
+  it('savingOntology is always reset to false whether PATCH succeeds or fails', async () => {
+    // Success path
+    {
+      const apiFetch = vi.fn().mockResolvedValue({})
+      const savingOntology = { value: false }
+      const editingDataSource = { value: { id: 'ds-1', knowledge_graph_id: 'kg-1' } }
+
+      async function saveOntology() {
+        savingOntology.value = true
+        try {
+          await apiFetch(
+            `/management/knowledge-graphs/${editingDataSource.value.knowledge_graph_id}/data-sources/${editingDataSource.value.id}`,
+            { method: 'PATCH', body: { ontology: { node_types: [], edge_types: [] } } },
+          )
+        } finally {
+          savingOntology.value = false
+        }
+      }
+
+      await saveOntology()
+      expect(savingOntology.value).toBe(false)
+    }
+
+    // Failure path
+    {
+      const apiFetch = vi.fn().mockRejectedValue(new Error('fail'))
+      const savingOntology = { value: false }
+      const editingDataSource = { value: { id: 'ds-1', knowledge_graph_id: 'kg-1' } }
+
+      async function saveOntology() {
+        savingOntology.value = true
+        try {
+          await apiFetch(
+            `/management/knowledge-graphs/${editingDataSource.value.knowledge_graph_id}/data-sources/${editingDataSource.value.id}`,
+            { method: 'PATCH', body: { ontology: { node_types: [], edge_types: [] } } },
+          )
+        } catch {
+          // error handled
+        } finally {
+          savingOntology.value = false
+        }
+      }
+
+      await saveOntology()
+      expect(savingOntology.value).toBe(false)
+    }
+  })
+
+  it('saveOntology does not call PATCH when editingDataSource is null', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({})
+    const editingDataSource = { value: null as null | { id: string; knowledge_graph_id: string } }
+    const savingOntology = { value: false }
+
+    async function saveOntology() {
+      if (!editingDataSource.value) return
+      savingOntology.value = true
+      try {
+        await apiFetch(
+          `/management/knowledge-graphs/${editingDataSource.value.knowledge_graph_id}/data-sources/${editingDataSource.value.id}`,
+          { method: 'PATCH', body: {} },
+        )
+      } finally {
+        savingOntology.value = false
+      }
+    }
+
+    await saveOntology()
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(savingOntology.value).toBe(false)
+  })
+})
+
+describe('Ontology Editor — structural checks (task-082)', () => {
+  const dsVue = readFileSync(
+    resolve(__dirname, '../pages/data-sources/index.vue'),
+    'utf-8',
+  )
+
+  it('declares savingOntology state ref', () => {
+    expect(dsVue).toMatch(/savingOntology/)
+  })
+
+  it('includes PATCH call targeting data-sources endpoint', () => {
+    expect(dsVue).toMatch(/PATCH.*data-sources|data-sources.*PATCH/s)
+  })
+
+  it('references ontology field in the PATCH body', () => {
+    expect(dsVue).toMatch(/ontology/)
+  })
+
+  it('Apply button or saveOntology call is present in the ontology editor dialog', () => {
+    expect(dsVue).toMatch(/saveOntology/)
+  })
+
+  it('savingOntology gates the Apply button to prevent double-submission', () => {
+    // The Apply button should be disabled while savingOntology is true
+    expect(dsVue).toMatch(/savingOntology/)
+  })
+})

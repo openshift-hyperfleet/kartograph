@@ -707,6 +707,52 @@ function closeOntologyEditor() {
   editEdges.value = []
 }
 
+// Saving state for the ontology editor Apply button
+const savingOntology = ref(false)
+
+async function saveOntology() {
+  if (!editingDataSource.value) return
+  savingOntology.value = true
+  try {
+    const { apiFetch } = useApiClient()
+    await apiFetch(
+      `/management/knowledge-graphs/${editingDataSource.value.knowledge_graph_id}/data-sources/${editingDataSource.value.id}`,
+      {
+        method: 'PATCH',
+        body: {
+          ontology: {
+            node_types: editNodes.value.map((n) => ({
+              label: n.label,
+              description: n.description,
+              required_properties: n.required_properties,
+              optional_properties: n.optional_properties,
+            })),
+            edge_types: editEdges.value.map((e) => ({
+              label: e.label,
+              description: e.description,
+              from_type: e.from,
+              to_type: e.to,
+              required_properties: e.required_properties,
+              optional_properties: e.optional_properties,
+            })),
+          },
+        },
+      },
+    )
+    toast.success('Ontology saved', {
+      description: 'The ontology has been updated. A full re-extraction will begin shortly.',
+    })
+    closeOntologyEditor()
+    await loadDataSources()
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Failed to save ontology'
+    toast.error('Failed to save ontology', { description: msg })
+    // dialog stays open so user can retry
+  } finally {
+    savingOntology.value = false
+  }
+}
+
 // ── Ontology editor dialog — type editing ─────────────────────────────────
 
 function startEditNodeEditor(index: number) {
@@ -1657,7 +1703,11 @@ function closeLogs() {
         </div>
 
         <DialogFooter class="pt-4">
-          <Button variant="outline" @click="closeOntologyEditor">Close</Button>
+          <Button variant="outline" :disabled="savingOntology" @click="closeOntologyEditor">Cancel</Button>
+          <Button :disabled="savingOntology" @click="saveOntology">
+            <Loader2 v-if="savingOntology" class="mr-2 size-4 animate-spin" />
+            {{ savingOntology ? 'Saving...' : 'Apply & Save' }}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

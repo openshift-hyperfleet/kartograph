@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -45,19 +45,36 @@ async def list_knowledge_graphs(
             )
         ),
     ] = "view",
+    workspace_id: Annotated[
+        Optional[str],
+        Query(
+            description=(
+                "Optional workspace ID. When provided, results are filtered to "
+                "knowledge graphs in that workspace that the user has the requested "
+                "permission on. Used by the Mutations Console KG selector to satisfy "
+                "the 'within the current workspace' scoping clause."
+            )
+        ),
+    ] = None,
 ) -> KnowledgeGraphListResponse:
-    """List all knowledge graphs accessible to the current user in their tenant.
+    """List knowledge graphs accessible to the current user in their tenant.
 
     Returns knowledge graphs filtered by SpiceDB permission checks.
 
     - ``?permission=view`` (default): returns all KGs the user can read.
     - ``?permission=edit``: returns only KGs the user can mutate — used by the
       Mutations Console to populate the knowledge-graph selector.
+    - ``?workspace_id=<id>``: further scopes results to a specific workspace.
+      Does NOT require workspace-level VIEW permission — per-KG permission checks
+      are sufficient. Used by the Mutations Console KG selector.
+    - Without ``?workspace_id=``: returns all accessible KGs in the tenant
+      (existing behaviour, no regression).
 
     Args:
         current_user: Current authenticated user with tenant context
         service: Knowledge graph service for orchestration
         permission: Minimum permission level to filter by (view or edit)
+        workspace_id: Optional workspace to scope results to
 
     Returns:
         KnowledgeGraphListResponse with all accessible KGs
@@ -67,10 +84,17 @@ async def list_knowledge_graphs(
     """
     perm = Permission.EDIT if permission == "edit" else Permission.VIEW
     try:
-        kgs = await service.list_all(
-            user_id=current_user.user_id.value,
-            permission=perm,
-        )
+        if workspace_id:
+            kgs = await service.list_for_workspace_with_permission(
+                user_id=current_user.user_id.value,
+                workspace_id=workspace_id,
+                permission=perm,
+            )
+        else:
+            kgs = await service.list_all(
+                user_id=current_user.user_id.value,
+                permission=perm,
+            )
         kg_responses = [KnowledgeGraphResponse.from_domain(kg) for kg in kgs]
         return KnowledgeGraphListResponse(
             knowledge_graphs=kg_responses,

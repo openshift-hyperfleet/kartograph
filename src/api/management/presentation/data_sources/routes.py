@@ -17,13 +17,58 @@ from management.ports.exceptions import UnauthorizedError
 from management.ports.repositories import IDataSourceSyncRunRepository
 from management.presentation.data_sources.models import (
     CreateDataSourceRequest,
+    DataSourceListResponse,
     DataSourceResponse,
+    DataSourceWithSyncResponse,
     SyncRunLogsResponse,
     SyncRunResponse,
 )
 from shared_kernel.datasource_types import DataSourceAdapterType
 
 router = APIRouter(tags=["data-sources"])
+
+
+@router.get(
+    "/data-sources",
+    status_code=status.HTTP_200_OK,
+    summary="List all data sources across the tenant",
+    description="""
+List all data sources accessible to the current user across all their knowledge graphs.
+
+Includes the most recent sync run per data source embedded in the response, enabling
+the sidebar navigation badge to reflect live sync state without additional API calls.
+
+Only data sources belonging to knowledge graphs the user has VIEW permission on
+are returned.
+""",
+)
+async def list_all_data_sources(
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+) -> DataSourceListResponse:
+    """List all data sources in the tenant with the latest sync run status.
+
+    Args:
+        current_user: Current authenticated user with tenant context
+        service: Data source service for orchestration
+
+    Returns:
+        DataSourceListResponse with data_sources list and count
+
+    Raises:
+        HTTPException: 500 for unexpected errors
+    """
+    try:
+        pairs = await service.list_all_for_user(user_id=current_user.user_id.value)
+        responses = [
+            DataSourceWithSyncResponse.from_domain_pair(pair) for pair in pairs
+        ]
+        return DataSourceListResponse(data_sources=responses, count=len(responses))
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list data sources",
+        )
 
 
 @router.get(

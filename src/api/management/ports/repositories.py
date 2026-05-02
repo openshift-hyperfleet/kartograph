@@ -192,3 +192,19 @@ class IDataSourceSyncRunRepository(Protocol):
             List of DataSourceSyncRun entities for the data source
         """
         ...
+
+    async def get_latest_for_data_source(
+        self, data_source_id: str
+    ) -> DataSourceSyncRun | None:
+        """Return the most recent sync run for a data source.
+
+        Ordered by created_at DESC — returns the most recently created run,
+        or None if the data source has never synced.
+
+        Args:
+            data_source_id: The data source to fetch the latest run for
+
+        Returns:
+            The most recent DataSourceSyncRun entity, or None if not found
+        """
+        ...

@@ -727,3 +727,133 @@ class TestDataSourceServiceTriggerSync:
         mock_sync_run_repo.save.assert_called_once()
         mock_ds_repo.save.assert_called_once()
         mock_probe.sync_requested.assert_called_once_with(ds_id=ds.id.value)
+
+
+class TestDataSourceServiceListAllForUser:
+    """Unit tests for DataSourceService.list_all_for_user."""
+
+    @pytest.mark.asyncio
+    async def test_returns_all_data_sources_across_kgs(
+        self,
+        service: DataSourceService,
+        mock_kg_repo: AsyncMock,
+        mock_ds_repo: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        mock_authz: AsyncMock,
+        user_id: str,
+    ) -> None:
+        """list_all_for_user() aggregates data sources from all accessible KGs."""
+        from management.domain.entities import DataSourceSyncRun
+
+        kg1 = _make_kg(kg_id="kg-1")
+        kg2 = _make_kg(kg_id="kg-2")
+        ds1 = _make_ds(ds_id="ds-1", kg_id="kg-1")
+        ds2 = _make_ds(ds_id="ds-2", kg_id="kg-2")
+        now = datetime.now(UTC)
+        run1 = DataSourceSyncRun(
+            id="run-1",
+            data_source_id="ds-1",
+            status="completed",
+            started_at=now,
+            completed_at=now,
+            error=None,
+            created_at=now,
+        )
+
+        mock_kg_repo.find_by_tenant.return_value = [kg1, kg2]
+        mock_authz.check_permission.return_value = True
+
+        async def ds_side_effect(knowledge_graph_id: str) -> list[DataSource]:
+            return [ds1] if knowledge_graph_id == "kg-1" else [ds2]
+
+        mock_ds_repo.find_by_knowledge_graph.side_effect = ds_side_effect
+
+        async def run_side_effect(data_source_id: str) -> DataSourceSyncRun | None:
+            return run1 if data_source_id == "ds-1" else None
+
+        mock_sync_run_repo.get_latest_for_data_source.side_effect = run_side_effect
+
+        result = await service.list_all_for_user(user_id=user_id)
+
+        assert len(result) == 2
+
+        ds1_result = next(r for r in result if r.data_source.id.value == "ds-1")
+        assert ds1_result.latest_sync_run is not None
+        assert ds1_result.latest_sync_run.status == "completed"
+
+        ds2_result = next(r for r in result if r.data_source.id.value == "ds-2")
+        assert ds2_result.latest_sync_run is None
+
+    @pytest.mark.asyncio
+    async def test_excludes_kgs_user_cannot_view(
+        self,
+        service: DataSourceService,
+        mock_kg_repo: AsyncMock,
+        mock_ds_repo: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        mock_authz: AsyncMock,
+        user_id: str,
+    ) -> None:
+        """list_all_for_user() excludes data sources from KGs the user cannot VIEW."""
+        kg_allowed = _make_kg(kg_id="kg-allowed")
+        kg_denied = _make_kg(kg_id="kg-denied")
+        ds_allowed = _make_ds(ds_id="ds-allowed", kg_id="kg-allowed")
+
+        mock_kg_repo.find_by_tenant.return_value = [kg_allowed, kg_denied]
+
+        async def perm_side_effect(
+            resource: str, permission: object, subject: str
+        ) -> bool:
+            return "kg-allowed" in resource
+
+        mock_authz.check_permission.side_effect = perm_side_effect
+
+        async def ds_side_effect(knowledge_graph_id: str) -> list[DataSource]:
+            return [ds_allowed] if knowledge_graph_id == "kg-allowed" else []
+
+        mock_ds_repo.find_by_knowledge_graph.side_effect = ds_side_effect
+        mock_sync_run_repo.get_latest_for_data_source.return_value = None
+
+        result = await service.list_all_for_user(user_id=user_id)
+
+        assert len(result) == 1
+        assert result[0].data_source.id.value == "ds-allowed"
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_when_no_accessible_kgs(
+        self,
+        service: DataSourceService,
+        mock_kg_repo: AsyncMock,
+        mock_authz: AsyncMock,
+        user_id: str,
+    ) -> None:
+        """list_all_for_user() returns empty list when user has no accessible KGs."""
+        mock_kg_repo.find_by_tenant.return_value = []
+
+        result = await service.list_all_for_user(user_id=user_id)
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_data_source_with_no_sync_run_has_none_latest(
+        self,
+        service: DataSourceService,
+        mock_kg_repo: AsyncMock,
+        mock_ds_repo: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        mock_authz: AsyncMock,
+        user_id: str,
+    ) -> None:
+        """list_all_for_user() sets latest_sync_run=None for sources with no runs."""
+        kg = _make_kg(kg_id="kg-1")
+        ds = _make_ds(ds_id="ds-1", kg_id="kg-1")
+
+        mock_kg_repo.find_by_tenant.return_value = [kg]
+        mock_authz.check_permission.return_value = True
+        mock_ds_repo.find_by_knowledge_graph.return_value = [ds]
+        mock_sync_run_repo.get_latest_for_data_source.return_value = None
+
+        result = await service.list_all_for_user(user_id=user_id)
+
+        assert len(result) == 1
+        assert result[0].latest_sync_run is None

@@ -6,6 +6,7 @@ credential management, transaction management, and observability.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +34,19 @@ from shared_kernel.authorization.types import (
     format_subject,
 )
 from shared_kernel.datasource_types import DataSourceAdapterType
+
+
+@dataclass
+class DataSourceWithLatestRun:
+    """Pair of a DataSource aggregate and its most recent sync run (if any).
+
+    Used by list_all_for_user to return a flat list of data sources with
+    their latest sync status embedded — avoiding N+1 API calls from the
+    sidebar navigation badge.
+    """
+
+    data_source: DataSource
+    latest_sync_run: DataSourceSyncRun | None
 
 
 class DataSourceService:
@@ -262,6 +276,50 @@ class DataSourceService:
         )
 
         return data_sources
+
+    async def list_all_for_user(
+        self,
+        user_id: str,
+    ) -> list[DataSourceWithLatestRun]:
+        """Return all data sources accessible to the user across the tenant.
+
+        Discovers all knowledge graphs in the current tenant, filters to those
+        the user has VIEW permission on, then aggregates their data sources with
+        the latest sync run per source. This enables the sidebar navigation badge
+        to show a live count of active syncs with a single API call.
+
+        Args:
+            user_id: Authenticated user requesting the list.
+
+        Returns:
+            List of DataSourceWithLatestRun pairs (data source + optional latest run).
+        """
+        all_kgs = await self._kg_repo.find_by_tenant(self._scope_to_tenant)
+
+        result: list[DataSourceWithLatestRun] = []
+        for kg in all_kgs:
+            has_view = await self._check_permission(
+                user_id=user_id,
+                resource_type=ResourceType.KNOWLEDGE_GRAPH,
+                resource_id=kg.id.value,
+                permission=Permission.VIEW,
+            )
+            if not has_view:
+                continue
+
+            data_sources = await self._ds_repo.find_by_knowledge_graph(kg.id.value)
+            for ds in data_sources:
+                latest_run = await self._sync_run_repo.get_latest_for_data_source(
+                    ds.id.value
+                )
+                result.append(
+                    DataSourceWithLatestRun(
+                        data_source=ds,
+                        latest_sync_run=latest_run,
+                    )
+                )
+
+        return result
 
     async def update(
         self,

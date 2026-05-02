@@ -592,3 +592,116 @@ class TestGetSyncRunLogsRoute:
         )
 
         mock_sync_run_repo.get_by_id.assert_called_once_with(sample_sync_run.id)
+
+
+class TestListAllDataSourcesRoute:
+    """Tests for GET /management/data-sources (flat list) endpoint."""
+
+    def test_list_all_returns_200_with_data_sources(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        """GET /management/data-sources returns 200 with data_sources list."""
+        from management.application.services.data_source_service import (
+            DataSourceWithLatestRun,
+        )
+
+        mock_ds_service.list_all_for_user.return_value = [
+            DataSourceWithLatestRun(
+                data_source=sample_data_source,
+                latest_sync_run=sample_sync_run,
+            )
+        ]
+
+        response = test_client.get("/management/data-sources")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert "data_sources" in data
+        assert "count" in data
+        assert data["count"] == 1
+        assert len(data["data_sources"]) == 1
+
+    def test_list_all_includes_latest_sync_run_in_response(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        """GET /management/data-sources embeds latest_sync_run in each item."""
+        from management.application.services.data_source_service import (
+            DataSourceWithLatestRun,
+        )
+
+        mock_ds_service.list_all_for_user.return_value = [
+            DataSourceWithLatestRun(
+                data_source=sample_data_source,
+                latest_sync_run=sample_sync_run,
+            )
+        ]
+
+        response = test_client.get("/management/data-sources")
+
+        assert response.status_code == status.HTTP_200_OK
+        ds = response.json()["data_sources"][0]
+        assert ds["latest_sync_run"] is not None
+        assert ds["latest_sync_run"]["id"] == sample_sync_run.id
+        assert ds["latest_sync_run"]["status"] == sample_sync_run.status
+
+    def test_list_all_returns_null_latest_sync_run_when_none(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """GET /management/data-sources returns null latest_sync_run when no run exists."""
+        from management.application.services.data_source_service import (
+            DataSourceWithLatestRun,
+        )
+
+        mock_ds_service.list_all_for_user.return_value = [
+            DataSourceWithLatestRun(
+                data_source=sample_data_source,
+                latest_sync_run=None,
+            )
+        ]
+
+        response = test_client.get("/management/data-sources")
+
+        assert response.status_code == status.HTTP_200_OK
+        ds = response.json()["data_sources"][0]
+        assert ds["latest_sync_run"] is None
+
+    def test_list_all_returns_empty_list_when_no_data_sources(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+    ) -> None:
+        """GET /management/data-sources returns empty list when user has no data sources."""
+        mock_ds_service.list_all_for_user.return_value = []
+
+        response = test_client.get("/management/data-sources")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["data_sources"] == []
+        assert data["count"] == 0
+
+    def test_list_all_calls_service_with_current_user_id(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """GET /management/data-sources passes current user ID to service."""
+        mock_ds_service.list_all_for_user.return_value = []
+
+        test_client.get("/management/data-sources")
+
+        mock_ds_service.list_all_for_user.assert_called_once_with(
+            user_id=mock_current_user.user_id.value
+        )

@@ -4,12 +4,12 @@ title: Data Sources UI — add delete and connection-config update for existing 
   sources
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-080
 round: 0
 branch: hyperloop/task-081
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/547
 pr_title: 'feat(ui): add delete and credential-update operations to Data Sources page'
 pr_description: "## What & Why\n\nThe spec requires:\n\n> **Backend API Alignment\
   \ — Scenario: Resource operations succeed end-to-end**\n> GIVEN an authenticated\

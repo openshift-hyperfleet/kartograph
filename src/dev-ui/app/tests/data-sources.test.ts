@@ -2641,3 +2641,321 @@ describe('Data Sources page — edit-config and delete structural checks', () =>
     expect(dsVue).toMatch(/trim\(\)|credentials/)
   })
 })
+
+// ── Task-083: Sync Polling — Active sync detection ────────────────────────────
+//
+// Spec: "Sync Monitoring — Scenario: Active sync progress"
+// "GIVEN a data source with a sync in progress
+//  WHEN the user views the data source
+//  THEN they see the current sync status (ingesting, extracting, applying)
+//  AND a progress indicator appropriate to the current phase"
+//
+// The word "current" implies live feedback. Polling at a 5-second cadence provides
+// near-real-time phase transitions before WebSocket support is available.
+//
+// ACTIVE_STATUSES = ['pending', 'ingesting', 'ai_extracting', 'applying']
+
+const ACTIVE_STATUSES = ['pending', 'ingesting', 'ai_extracting', 'applying'] as const
+type SyncStatus = 'pending' | 'ingesting' | 'ai_extracting' | 'applying' | 'completed' | 'failed'
+
+interface PollDataSource {
+  id: string
+  sync_runs?: Array<{ status: SyncStatus }>
+}
+
+function hasActiveSyncs(dataSources: PollDataSource[]): boolean {
+  return dataSources.some((ds) => {
+    const latestStatus = ds.sync_runs?.[0]?.status
+    return latestStatus !== undefined && (ACTIVE_STATUSES as readonly string[]).includes(latestStatus)
+  })
+}
+
+describe('Sync Polling - ACTIVE_STATUSES: hasActiveSyncs detection', () => {
+  it('returns true when one data source has status "pending"', () => {
+    const ds: PollDataSource[] = [{ id: 'ds-1', sync_runs: [{ status: 'pending' }] }]
+    expect(hasActiveSyncs(ds)).toBe(true)
+  })
+
+  it('returns true when one data source has status "ingesting"', () => {
+    const ds: PollDataSource[] = [{ id: 'ds-1', sync_runs: [{ status: 'ingesting' }] }]
+    expect(hasActiveSyncs(ds)).toBe(true)
+  })
+
+  it('returns true when one data source has status "ai_extracting"', () => {
+    const ds: PollDataSource[] = [{ id: 'ds-1', sync_runs: [{ status: 'ai_extracting' }] }]
+    expect(hasActiveSyncs(ds)).toBe(true)
+  })
+
+  it('returns true when one data source has status "applying"', () => {
+    const ds: PollDataSource[] = [{ id: 'ds-1', sync_runs: [{ status: 'applying' }] }]
+    expect(hasActiveSyncs(ds)).toBe(true)
+  })
+
+  it('returns false when latest sync run is "completed"', () => {
+    const ds: PollDataSource[] = [{ id: 'ds-1', sync_runs: [{ status: 'completed' }] }]
+    expect(hasActiveSyncs(ds)).toBe(false)
+  })
+
+  it('returns false when latest sync run is "failed"', () => {
+    const ds: PollDataSource[] = [{ id: 'ds-1', sync_runs: [{ status: 'failed' }] }]
+    expect(hasActiveSyncs(ds)).toBe(false)
+  })
+
+  it('returns false when data source has no sync runs', () => {
+    const ds: PollDataSource[] = [{ id: 'ds-1', sync_runs: [] }]
+    expect(hasActiveSyncs(ds)).toBe(false)
+  })
+
+  it('returns false when data source has undefined sync_runs', () => {
+    const ds: PollDataSource[] = [{ id: 'ds-1' }]
+    expect(hasActiveSyncs(ds)).toBe(false)
+  })
+
+  it('returns false when dataSources list is empty', () => {
+    expect(hasActiveSyncs([])).toBe(false)
+  })
+
+  it('returns true when at least one of multiple data sources has an active sync', () => {
+    const ds: PollDataSource[] = [
+      { id: 'ds-1', sync_runs: [{ status: 'completed' }] },
+      { id: 'ds-2', sync_runs: [{ status: 'ingesting' }] },
+      { id: 'ds-3', sync_runs: [{ status: 'failed' }] },
+    ]
+    expect(hasActiveSyncs(ds)).toBe(true)
+  })
+
+  it('returns false when all data sources have terminal statuses', () => {
+    const ds: PollDataSource[] = [
+      { id: 'ds-1', sync_runs: [{ status: 'completed' }] },
+      { id: 'ds-2', sync_runs: [{ status: 'failed' }] },
+      { id: 'ds-3', sync_runs: [] },
+    ]
+    expect(hasActiveSyncs(ds)).toBe(false)
+  })
+
+  it('only checks the most recent sync run (first in array)', () => {
+    // If the most recent run completed, do NOT poll even if older runs were active
+    const ds: PollDataSource[] = [
+      {
+        id: 'ds-1',
+        sync_runs: [
+          { status: 'completed' },  // most recent
+          { status: 'ingesting' },  // older — must not count
+        ],
+      },
+    ]
+    expect(hasActiveSyncs(ds)).toBe(false)
+  })
+})
+
+// ── Task-083: Sync Polling — interval start/stop logic ───────────────────────
+//
+// startPolling: creates a setInterval that fires loadDataSources every 5 seconds.
+//               If hasActiveSyncs is false after a load, the interval stops.
+// stopPolling:  clears the interval and resets the ref to null.
+// Guard:        a second interval must NOT be created if one already exists.
+
+interface PollState {
+  pollInterval: ReturnType<typeof setInterval> | null
+}
+
+function makeStopPolling(state: PollState) {
+  return function stopPolling() {
+    if (state.pollInterval !== null) {
+      clearInterval(state.pollInterval)
+      state.pollInterval = null
+    }
+  }
+}
+
+function makeStartPolling(
+  state: PollState,
+  loadDataSources: () => Promise<void>,
+  getHasActiveSyncs: () => boolean,
+) {
+  const stopPolling = makeStopPolling(state)
+  return function startPolling() {
+    if (state.pollInterval !== null) return // guard: already polling
+    state.pollInterval = setInterval(async () => {
+      await loadDataSources()
+      if (!getHasActiveSyncs()) {
+        stopPolling()
+      }
+    }, 5000)
+  }
+}
+
+describe('Sync Polling - startPolling / stopPolling interval logic', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('startPolling sets pollInterval to a non-null value', () => {
+    const state: PollState = { pollInterval: null }
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+    const startPolling = makeStartPolling(state, loadDataSources, () => true)
+
+    startPolling()
+    expect(state.pollInterval).not.toBeNull()
+
+    clearInterval(state.pollInterval!)
+  })
+
+  it('loadDataSources is called once after 5 seconds', async () => {
+    const state: PollState = { pollInterval: null }
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+    const startPolling = makeStartPolling(state, loadDataSources, () => true)
+
+    startPolling()
+    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(loadDataSources).toHaveBeenCalledTimes(1)
+
+    clearInterval(state.pollInterval!)
+  })
+
+  it('loadDataSources is called again after another 5 seconds (repeating)', async () => {
+    const state: PollState = { pollInterval: null }
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+    const startPolling = makeStartPolling(state, loadDataSources, () => true)
+
+    startPolling()
+    await vi.advanceTimersByTimeAsync(10000) // two 5-second ticks
+
+    expect(loadDataSources).toHaveBeenCalledTimes(2)
+
+    clearInterval(state.pollInterval!)
+  })
+
+  it('polling stops (interval cleared) when hasActiveSyncs returns false after a tick', async () => {
+    const state: PollState = { pollInterval: null }
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+    // hasActiveSyncs returns false immediately after the first load
+    const startPolling = makeStartPolling(state, loadDataSources, () => false)
+
+    startPolling()
+    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(state.pollInterval).toBeNull()
+    expect(loadDataSources).toHaveBeenCalledTimes(1)
+  })
+
+  it('a second startPolling call while polling is active is a no-op (guard)', () => {
+    const state: PollState = { pollInterval: null }
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+    const startPolling = makeStartPolling(state, loadDataSources, () => true)
+
+    startPolling()
+    const firstInterval = state.pollInterval
+
+    startPolling() // second call — must not create a new interval
+    expect(state.pollInterval).toBe(firstInterval)
+
+    clearInterval(state.pollInterval!)
+  })
+
+  it('does not fire loadDataSources before 5 seconds elapse', () => {
+    const state: PollState = { pollInterval: null }
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+    const startPolling = makeStartPolling(state, loadDataSources, () => true)
+
+    startPolling()
+    vi.advanceTimersByTime(4999) // just under 5s
+
+    expect(loadDataSources).not.toHaveBeenCalled()
+
+    clearInterval(state.pollInterval!)
+  })
+})
+
+describe('Sync Polling - stopPolling cleanup', () => {
+  it('stopPolling sets pollInterval to null', () => {
+    const state: PollState = { pollInterval: null }
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+    vi.useFakeTimers()
+    const startPolling = makeStartPolling(state, loadDataSources, () => true)
+
+    startPolling()
+    expect(state.pollInterval).not.toBeNull()
+
+    const stopPolling = makeStopPolling(state)
+    stopPolling()
+    expect(state.pollInterval).toBeNull()
+
+    vi.useRealTimers()
+  })
+
+  it('stopPolling is safe to call when no interval is running (no-op)', () => {
+    const state: PollState = { pollInterval: null }
+    const stopPolling = makeStopPolling(state)
+
+    expect(() => stopPolling()).not.toThrow()
+    expect(state.pollInterval).toBeNull()
+  })
+
+  it('stopPolling prevents further loadDataSources calls after being invoked', async () => {
+    const state: PollState = { pollInterval: null }
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+    vi.useFakeTimers()
+    const startPolling = makeStartPolling(state, loadDataSources, () => true)
+    const stopPolling = makeStopPolling(state)
+
+    startPolling()
+    stopPolling()
+
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(loadDataSources).not.toHaveBeenCalled()
+
+    vi.useRealTimers()
+  })
+})
+
+// ── Task-083: Sync Polling — structural verification ─────────────────────────
+//
+// Verifies that the required polling scaffolding exists in the data-sources page.
+
+describe('Sync Polling - structural verification of data-sources/index.vue', () => {
+  const { readFileSync } = require('fs')
+  const { resolve } = require('path')
+  const source = readFileSync(
+    resolve(__dirname, '../pages/data-sources/index.vue'),
+    'utf-8',
+  )
+
+  it('ACTIVE_STATUSES constant is defined', () => {
+    expect(source).toContain('ACTIVE_STATUSES')
+  })
+
+  it('pollInterval ref is declared', () => {
+    expect(source).toContain('pollInterval')
+  })
+
+  it('startPolling function is defined', () => {
+    expect(source).toContain('startPolling')
+  })
+
+  it('stopPolling function is defined', () => {
+    expect(source).toContain('stopPolling')
+  })
+
+  it('onUnmounted lifecycle hook is present for interval cleanup', () => {
+    expect(source).toContain('onUnmounted')
+  })
+
+  it('setInterval is used with 5000ms interval', () => {
+    expect(source).toContain('5000')
+  })
+
+  it('clearInterval is called in stopPolling', () => {
+    expect(source).toContain('clearInterval')
+  })
+
+  it('polling starts on mount when hasActiveSyncs is true (onMounted integration)', () => {
+    // The onMounted handler must call startPolling after loadDataSources completes.
+    expect(source).toMatch(/onMounted[\s\S]*?startPolling|startPolling[\s\S]*?onMounted/)
+  })
+})

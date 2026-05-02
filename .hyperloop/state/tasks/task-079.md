@@ -4,7 +4,8 @@ title: "Knowledge Graphs UI — add inline edit (rename/re-describe) and delete 
 spec_ref: "specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da"
 status: not-started
 phase: null
-deps: []
+deps:
+  - task-080
 round: 0
 branch: null
 pr: null

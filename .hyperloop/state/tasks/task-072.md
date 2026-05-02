@@ -4,9 +4,9 @@ title: Backend API Alignment — test UI list auto-refresh after KG and data sou
   creation
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: merge
+phase: implement
 deps: []
-round: 0
+round: 1
 branch: hyperloop/task-072
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/536
 pr_title: 'test(ui): verify UI list reloads automatically after KG and data source

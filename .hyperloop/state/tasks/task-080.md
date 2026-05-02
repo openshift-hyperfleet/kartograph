@@ -2,11 +2,11 @@
 id: task-080
 title: UI component library — add AlertDialog (shadcn/vue)
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-080
 pr: null
 pr_title: 'feat(ui): add AlertDialog shadcn/vue component'
 pr_description: "## What & Why\n\n`task-079` (Knowledge Graphs UI — add inline edit\

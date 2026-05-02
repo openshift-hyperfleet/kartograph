@@ -147,6 +147,88 @@ class TestListKnowledgeGraphsRoute:
         result = response.json()
         assert result["knowledge_graphs"] == []
 
+    def test_list_knowledge_graphs_with_workspace_id_calls_list_for_workspace_with_permission(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        mock_current_user: CurrentUser,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        """When ?workspace_id= is provided, route calls list_for_workspace_with_permission."""
+        mock_kg_service.list_for_workspace_with_permission.return_value = [
+            sample_knowledge_graph
+        ]
+        workspace_id = "01JPQRST1234567890ABCDEFWS"
+
+        response = test_client.get(
+            f"/management/knowledge-graphs?workspace_id={workspace_id}&permission=edit"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_kg_service.list_for_workspace_with_permission.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            workspace_id=workspace_id,
+            permission=Permission.EDIT,
+        )
+        # list_all must NOT be called when workspace_id is provided
+        mock_kg_service.list_all.assert_not_called()
+
+    def test_list_knowledge_graphs_with_workspace_id_returns_filtered_kgs(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        """Response contains only the KGs returned by list_for_workspace_with_permission."""
+        mock_kg_service.list_for_workspace_with_permission.return_value = [
+            sample_knowledge_graph
+        ]
+        workspace_id = "01JPQRST1234567890ABCDEFWS"
+
+        response = test_client.get(
+            f"/management/knowledge-graphs?workspace_id={workspace_id}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert len(result["knowledge_graphs"]) == 1
+        assert result["knowledge_graphs"][0]["id"] == sample_knowledge_graph.id.value
+
+    def test_list_knowledge_graphs_without_workspace_id_calls_list_all(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """When no ?workspace_id=, route calls list_all (backward-compatible behaviour)."""
+        mock_kg_service.list_all.return_value = []
+
+        test_client.get("/management/knowledge-graphs?permission=edit")
+
+        mock_kg_service.list_all.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            permission=Permission.EDIT,
+        )
+        mock_kg_service.list_for_workspace_with_permission.assert_not_called()
+
+    def test_list_knowledge_graphs_with_workspace_id_uses_view_permission_by_default(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """When workspace_id is provided without ?permission=, defaults to VIEW."""
+        mock_kg_service.list_for_workspace_with_permission.return_value = []
+        workspace_id = "01JPQRST1234567890ABCDEFWS"
+
+        test_client.get(f"/management/knowledge-graphs?workspace_id={workspace_id}")
+
+        mock_kg_service.list_for_workspace_with_permission.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            workspace_id=workspace_id,
+            permission=Permission.VIEW,
+        )
+
 
 class TestGetKnowledgeGraphRoute:
     """Tests for GET /management/knowledge-graphs/{kg_id} endpoint."""

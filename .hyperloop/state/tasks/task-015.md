@@ -1,7 +1,7 @@
 ---
 id: task-015
 title: Implement UI — knowledge graph management, data sources, and sync monitoring
-spec_ref: specs/ui/experience.spec.md@97bf3eeef007dbfe56dbe4d198ea9283e446a31d
+spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: not-started
 phase: null
 deps:

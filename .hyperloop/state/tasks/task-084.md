@@ -3,11 +3,11 @@ id: task-084
 title: 'UI — Backend API Alignment: explicit test coverage for end-to-end integration
   scenarios'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-084
 pr: null
 pr_title: 'test(ui): add explicit tests for Backend API Alignment spec scenarios'
 pr_description: "## What & Why\n\nThe `specs/ui/experience.spec.md` was modified to\

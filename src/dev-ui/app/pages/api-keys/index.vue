@@ -37,6 +37,16 @@ import {
   DialogClose,
 } from '@/components/ui/dialog'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   Table,
   TableBody,
   TableCell,
@@ -731,31 +741,29 @@ function maskedSecret(secret: string): string {
 
     </template>
 
-    <!-- Revoke Confirmation Dialog -->
-    <Dialog v-model:open="revokeDialogOpen">
-      <DialogContent class="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle class="flex items-center gap-2">
+    <!-- Revoke Confirmation AlertDialog -->
+    <AlertDialog v-model:open="revokeDialogOpen">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle class="flex items-center gap-2">
             <AlertTriangle class="size-5 text-destructive" />
             Revoke API Key
-          </DialogTitle>
-          <DialogDescription>
+          </AlertDialogTitle>
+          <AlertDialogDescription>
             Are you sure you want to revoke
             <span class="font-semibold">{{ keyToRevoke?.name }}</span>
             (<code class="font-mono text-xs">{{ keyToRevoke?.prefix }}...</code>)?
             This action is immediate and cannot be undone. Any applications using this key will lose access.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogClose as-child>
-            <Button variant="outline" :disabled="isRevoking">Cancel</Button>
-          </DialogClose>
-          <Button variant="destructive" :disabled="isRevoking" @click="handleRevoke">
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel :disabled="isRevoking">Cancel</AlertDialogCancel>
+          <AlertDialogAction :disabled="isRevoking" @click.prevent="handleRevoke">
             <Loader2 v-if="isRevoking" class="mr-2 size-4 animate-spin" />
             {{ isRevoking ? 'Revoking...' : 'Revoke Key' }}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>

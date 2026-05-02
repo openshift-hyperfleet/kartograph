@@ -817,8 +817,12 @@ class TestDataSourceServiceListAllForUser:
         kg_repo.seed(kg1, kg2)
         ds_repo.seed(ds1, ds2)
         await sync_run_repo.save(run1)
-        await authz.write_relationship("knowledge_graph:kg-1", "viewer", f"user:{user_id}")
-        await authz.write_relationship("knowledge_graph:kg-2", "viewer", f"user:{user_id}")
+        await authz.write_relationship(
+            "knowledge_graph:kg-1", "viewer", f"user:{user_id}"
+        )
+        await authz.write_relationship(
+            "knowledge_graph:kg-2", "viewer", f"user:{user_id}"
+        )
 
         result = await service.list_all_for_user(user_id=user_id)
 
@@ -885,7 +889,9 @@ class TestDataSourceServiceListAllForUser:
 
         kg_repo.seed(kg)
         ds_repo.seed(ds)
-        await authz.write_relationship("knowledge_graph:kg-1", "viewer", f"user:{user_id}")
+        await authz.write_relationship(
+            "knowledge_graph:kg-1", "viewer", f"user:{user_id}"
+        )
 
         result = await service.list_all_for_user(user_id=user_id)
 

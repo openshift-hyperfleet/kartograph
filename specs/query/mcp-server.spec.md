@@ -82,6 +82,21 @@ The system SHALL expose a `fetch_documentation_source` MCP tool for retrieving f
 - WHEN the tool is called
 - THEN an error response is returned
 
+### Requirement: Knowledge Graphs Resource
+The system SHALL expose the caller's accessible knowledge graphs as an MCP resource.
+
+#### Scenario: List accessible knowledge graphs
+- GIVEN an authenticated MCP client
+- WHEN the client reads the `knowledge_graphs://accessible` resource
+- THEN the response contains all knowledge graphs the caller has `view` permission on within their tenant
+- AND each entry includes the knowledge graph `id`, `name`, and `description`
+- AND knowledge graphs the caller cannot access are omitted entirely
+
+#### Scenario: No accessible knowledge graphs
+- GIVEN an authenticated MCP client with no accessible knowledge graphs
+- WHEN the client reads the `knowledge_graphs://accessible` resource
+- THEN an empty list is returned
+
 ### Requirement: Agent Instructions Resource
 The system SHALL expose agent instructions as an MCP resource.
 

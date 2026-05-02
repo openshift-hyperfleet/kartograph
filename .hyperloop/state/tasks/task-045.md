@@ -2,13 +2,13 @@
 id: task-045
 title: Implement UI — query console knowledge graph scope selector
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: failed
+status: not-started
 phase: null
 deps:
 - task-016
-round: 30
-branch: hyperloop/task-045
-pr: https://github.com/openshift-hyperfleet/kartograph/pull/507
+round: 0
+branch: null
+pr: null
 pr_title: null
 pr_description: null
 ---

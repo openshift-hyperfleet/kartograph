@@ -14,6 +14,38 @@ from query.ports.file_repository_models import RemoteFileRepositoryResponse
 from query.ports.repositories import IRemoteFileRepository
 
 
+def _strip_asciidoc_metadata(content: str) -> str:
+    """Return content starting from the first AsciiDoc document title (= Title).
+
+    AsciiDoc files frequently begin with header metadata — attribute definitions
+    such as ``:doctype: article`` and ``:toc: auto`` — and single-line comments
+    (``// …``) before the actual document title.  This helper discards
+    everything before the first document-level title line so that downstream
+    consumers (MCP agents, UI) receive clean, renderable content.
+
+    Detection rule:
+        A line is treated as the document title when it starts with exactly
+        one ``=`` followed by a space (``= Title``).  Lines starting with
+        ``==`` or more are section/sub-section headings and are *not*
+        considered document titles.
+
+    Args:
+        content: Raw AsciiDoc file content fetched from the provider API.
+
+    Returns:
+        Content from the first document-level title onwards.
+        If no document title is found the original content is returned
+        unchanged so non-AsciiDoc files pass through unmodified.
+    """
+    lines = content.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        # Exactly one leading '=' followed by a space → document title
+        # ('== ' or '=== ' are section headings — skip them)
+        if line.startswith("= ") and not line.startswith("== "):
+            return "".join(lines[i:])
+    return content
+
+
 @dataclass(frozen=True, slots=True)
 class ParsedGitUrl:
     """Components of a parsed Git repository URL."""
@@ -92,6 +124,14 @@ class AbstractGitRemoteFileRepository(IRemoteFileRepository):
             )
 
         content = response.text
+
+        # Strip AsciiDoc header metadata and comments so consumers receive
+        # clean content starting from the document title (spec: Fetch from
+        # GitHub — AND AsciiDoc metadata and comments are stripped).
+        # Applied to all git providers; non-AsciiDoc files pass through
+        # unchanged because _strip_asciidoc_metadata returns the original
+        # content when no document title is found.
+        content = _strip_asciidoc_metadata(content)
 
         self._probe.file_fetched(
             url=url,

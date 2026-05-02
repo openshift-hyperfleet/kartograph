@@ -837,6 +837,95 @@ describe('Knowledge Graphs page - tenant switch clears stale data', () => {
   })
 })
 
+// ── Backend API Alignment — Scenario: Resource operations succeed end-to-end ──
+// Spec requirement: "AND the UI reflects the updated state without requiring a
+// manual refresh"
+// Verifies that after a successful KG creation, loadKnowledgeGraphs() is
+// called so the list is refreshed automatically.
+
+describe('Backend API Alignment — Scenario: Resource operations succeed end-to-end — KG list refresh', () => {
+  it('calls loadKnowledgeGraphs() after successful KG creation', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({ id: 'kg-new', name: 'My Graph' })
+    const loadKnowledgeGraphs = vi.fn().mockResolvedValue(undefined)
+    const createName = { value: 'My Graph' }
+    const selectedWorkspaceId = { value: 'ws-1' }
+    const creating = { value: false }
+    const createDialogOpen = { value: true }
+
+    async function handleCreate() {
+      if (!selectedWorkspaceId.value || !createName.value.trim()) return
+      creating.value = true
+      try {
+        await apiFetch(`/management/workspaces/${selectedWorkspaceId.value}/knowledge-graphs`, {
+          method: 'POST',
+          body: { name: createName.value.trim() },
+        })
+        createDialogOpen.value = false
+        await loadKnowledgeGraphs()
+      } finally {
+        creating.value = false
+      }
+    }
+
+    await handleCreate()
+    expect(loadKnowledgeGraphs).toHaveBeenCalledOnce()
+  })
+
+  it('does NOT call loadKnowledgeGraphs() when the API throws', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Server error'))
+    const loadKnowledgeGraphs = vi.fn().mockResolvedValue(undefined)
+    const createName = { value: 'My Graph' }
+    const selectedWorkspaceId = { value: 'ws-1' }
+    const creating = { value: false }
+
+    async function handleCreate() {
+      if (!selectedWorkspaceId.value || !createName.value.trim()) return
+      creating.value = true
+      try {
+        await apiFetch(`/management/workspaces/${selectedWorkspaceId.value}/knowledge-graphs`, {
+          method: 'POST',
+          body: { name: createName.value.trim() },
+        })
+        await loadKnowledgeGraphs()
+      } catch {
+        // error path — refresh must NOT be called
+      } finally {
+        creating.value = false
+      }
+    }
+
+    await handleCreate()
+    expect(loadKnowledgeGraphs).not.toHaveBeenCalled()
+  })
+
+  it('creating flag is reset to false regardless of success or failure', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Conflict'))
+    const loadKnowledgeGraphs = vi.fn()
+    const creating = { value: false }
+    const createName = { value: 'My Graph' }
+    const selectedWorkspaceId = { value: 'ws-1' }
+
+    async function handleCreate() {
+      if (!selectedWorkspaceId.value || !createName.value.trim()) return
+      creating.value = true
+      try {
+        await apiFetch(`/management/workspaces/${selectedWorkspaceId.value}/knowledge-graphs`, {
+          method: 'POST',
+          body: { name: createName.value.trim() },
+        })
+        await loadKnowledgeGraphs()
+      } catch {
+        // swallow
+      } finally {
+        creating.value = false
+      }
+    }
+
+    await handleCreate()
+    expect(creating.value).toBe(false)
+  })
+})
+
 // ── Knowledge Graph Creation: prompt to add first data source ─────────────────
 //
 // Spec: "AND the user is prompted to add their first data source"

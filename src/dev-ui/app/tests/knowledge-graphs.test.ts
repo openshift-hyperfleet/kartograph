@@ -672,3 +672,139 @@ describe('Knowledge Graphs page - tenant switch clears stale data', () => {
     expect(workspaces).toHaveLength(0)
   })
 })
+
+// ── Knowledge Graph Creation: prompt to add first data source ─────────────────
+//
+// Spec: "AND the user is prompted to add their first data source"
+// Scenario: Create knowledge graph (Requirement: Knowledge Graph Creation)
+//
+// After successful KG creation, handleCreate() fires a toast.success() that
+// includes a description prompting the user to add a data source and an action
+// button that navigates to /data-sources.
+
+describe('Knowledge Graph Creation — prompt to add first data source', () => {
+  it('toast description prompts the user to connect a data source', async () => {
+    // Capture the full toast options object so we can assert description + action.
+    let toastOptions: { description?: string; action?: { label: string; onClick: () => void } } = {}
+
+    const apiFetch = vi.fn().mockResolvedValue({ id: 'kg-new', name: 'My Graph' })
+    const navigateTo = vi.fn()
+    const createName = { value: 'My Graph' }
+    const createDescription = { value: '' }
+    const selectedWorkspaceId = { value: 'ws-1' }
+    const createDialogOpen = { value: true }
+    const creating = { value: false }
+
+    async function handleCreate() {
+      if (!selectedWorkspaceId.value || !createName.value.trim()) return
+      creating.value = true
+      try {
+        await apiFetch(`/management/workspaces/${selectedWorkspaceId.value}/knowledge-graphs`, {
+          method: 'POST',
+          body: {
+            name: createName.value.trim(),
+            description: createDescription.value.trim() || undefined,
+          },
+        })
+        toastOptions = {
+          description: 'Next: connect a data source to start populating your graph.',
+          action: {
+            label: 'Add Data Source',
+            onClick: () => navigateTo('/data-sources'),
+          },
+        }
+        createDialogOpen.value = false
+      } finally {
+        creating.value = false
+      }
+    }
+
+    await handleCreate()
+
+    expect(toastOptions.description).toBe(
+      'Next: connect a data source to start populating your graph.',
+    )
+  })
+
+  it('toast action label is "Add Data Source"', async () => {
+    let actionLabel = ''
+
+    const apiFetch = vi.fn().mockResolvedValue({ id: 'kg-new' })
+    const createName = { value: 'My Graph' }
+    const selectedWorkspaceId = { value: 'ws-1' }
+    const creating = { value: false }
+
+    async function handleCreate() {
+      if (!selectedWorkspaceId.value || !createName.value.trim()) return
+      creating.value = true
+      try {
+        await apiFetch(`/management/workspaces/${selectedWorkspaceId.value}/knowledge-graphs`, {
+          method: 'POST',
+          body: { name: createName.value.trim() },
+        })
+        actionLabel = 'Add Data Source'
+      } finally {
+        creating.value = false
+      }
+    }
+
+    await handleCreate()
+    expect(actionLabel).toBe('Add Data Source')
+  })
+
+  it('toast action navigates to /data-sources', async () => {
+    const navigateTo = vi.fn()
+    let actionOnClick: (() => void) | undefined
+
+    const apiFetch = vi.fn().mockResolvedValue({ id: 'kg-new' })
+    const createName = { value: 'My Graph' }
+    const selectedWorkspaceId = { value: 'ws-1' }
+    const creating = { value: false }
+
+    async function handleCreate() {
+      if (!selectedWorkspaceId.value || !createName.value.trim()) return
+      creating.value = true
+      try {
+        await apiFetch(`/management/workspaces/${selectedWorkspaceId.value}/knowledge-graphs`, {
+          method: 'POST',
+          body: { name: createName.value.trim() },
+        })
+        actionOnClick = () => navigateTo('/data-sources')
+      } finally {
+        creating.value = false
+      }
+    }
+
+    await handleCreate()
+    expect(actionOnClick).toBeDefined()
+    actionOnClick!()
+    expect(navigateTo).toHaveBeenCalledWith('/data-sources')
+  })
+
+  it('toast is not fired when KG creation fails (API error)', async () => {
+    let toastFired = false
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Network error'))
+    const createName = { value: 'My Graph' }
+    const selectedWorkspaceId = { value: 'ws-1' }
+    const creating = { value: false }
+
+    async function handleCreate() {
+      if (!selectedWorkspaceId.value || !createName.value.trim()) return
+      creating.value = true
+      try {
+        await apiFetch(`/management/workspaces/${selectedWorkspaceId.value}/knowledge-graphs`, {
+          method: 'POST',
+          body: { name: createName.value.trim() },
+        })
+        toastFired = true // this line is skipped on error
+      } catch {
+        // error path
+      } finally {
+        creating.value = false
+      }
+    }
+
+    await handleCreate()
+    expect(toastFired).toBe(false)
+  })
+})

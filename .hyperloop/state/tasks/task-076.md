@@ -2,12 +2,12 @@
 id: task-076
 title: Mutations Console — test that permission=edit is passed to KG list API
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps:
 - task-074
 round: 0
-branch: null
+branch: hyperloop/task-076
 pr: null
 pr_title: 'test(ui): verify permission=edit query param in Mutations Console KG list
   API call'

@@ -11,7 +11,7 @@ import {
   FileCode, Play, Trash2, Upload, Loader2,
   FileUp, XCircle, AlertTriangle, Building2,
   Plus, GitBranch, RefreshCw, BookOpen,
-  BookMarked,
+  BookMarked, FolderTree,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -31,13 +31,6 @@ import {
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from '@/components/ui/sheet'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 // CodeMirror
 import { useCodemirror } from '@/composables/useCodemirror'
 import { kartographTheme, jsonHighlightStyle } from '@/lib/codemirror/theme'
@@ -108,6 +101,31 @@ const submission = useMutationSubmission()
 const router = useRouter()
 const route = useRoute()
 
+// ── Workspace selection ─────────────────────────────────────────────────────
+
+interface WorkspaceItem {
+  id: string
+  name: string
+}
+
+const workspaces = ref<WorkspaceItem[]>([])
+const selectedWorkspaceId = ref('')
+const loadingWorkspaces = ref(false)
+
+async function loadWorkspaces() {
+  if (!hasTenant.value) return
+  loadingWorkspaces.value = true
+  try {
+    const { listWorkspaces } = useIamApi()
+    const result = await listWorkspaces()
+    workspaces.value = result.workspaces ?? []
+  } catch {
+    workspaces.value = []
+  } finally {
+    loadingWorkspaces.value = false
+  }
+}
+
 // ── Knowledge Graph selection ───────────────────────────────────────────────
 
 interface KnowledgeGraphItem {
@@ -120,15 +138,16 @@ const selectedKnowledgeGraphId = ref('')
 const loadingKgs = ref(false)
 
 async function loadKnowledgeGraphs() {
-  if (!hasTenant.value) return
+  if (!hasTenant.value || !selectedWorkspaceId.value) return
   loadingKgs.value = true
   try {
     const { apiFetch } = useApiClient()
-    // Request only KGs the user has 'edit' permission on — the spec requires
-    // the selector to list only graphs the user can submit mutations to.
+    // Request only KGs the user has 'edit' permission on within the selected
+    // workspace — the spec requires "within the current workspace" scoping.
+    // TODO: backend must support ?workspace_id= filter on GET /management/knowledge-graphs
     const result = await apiFetch<{ knowledge_graphs: KnowledgeGraphItem[] }>(
       '/management/knowledge-graphs',
-      { query: { permission: 'edit' } },
+      { query: { permission: 'edit', workspace_id: selectedWorkspaceId.value } },
     )
     knowledgeGraphs.value = result.knowledge_graphs ?? []
   } catch {
@@ -138,12 +157,23 @@ async function loadKnowledgeGraphs() {
   }
 }
 
-// Reload KG list whenever the tenant changes; reset selection on change
+// Reload workspace list whenever the tenant changes; clear both selections
 watch(hasTenant, (has) => {
+  selectedWorkspaceId.value = ''
   selectedKnowledgeGraphId.value = ''
-  if (has) loadKnowledgeGraphs()
-  else knowledgeGraphs.value = []
+  if (has) loadWorkspaces()
+  else {
+    workspaces.value = []
+    knowledgeGraphs.value = []
+  }
 }, { immediate: true })
+
+// Reload KG list whenever the workspace changes; reset KG selection
+watch(selectedWorkspaceId, (wsId) => {
+  selectedKnowledgeGraphId.value = ''
+  if (wsId) loadKnowledgeGraphs()
+  else knowledgeGraphs.value = []
+})
 
 // ── Worker ─────────────────────────────────────────────────────────────────
 
@@ -309,13 +339,16 @@ const preparing = ref(false)
 
 async function handleSubmit() {
   if (!canSubmitMutations({
+    selectedWorkspaceId: selectedWorkspaceId.value,
     selectedKnowledgeGraphId: selectedKnowledgeGraphId.value,
     content: editorContent.value,
     isLargeFile: isLargeFile.value,
     submitting: submitting.value,
     preparing: preparing.value,
   })) {
-    if (!selectedKnowledgeGraphId.value) {
+    if (!selectedWorkspaceId.value) {
+      toast.error('Select a workspace before applying mutations')
+    } else if (!selectedKnowledgeGraphId.value) {
       toast.error('Select a knowledge graph before applying mutations')
     }
     return
@@ -446,7 +479,7 @@ function handleCtrlEnter(e: KeyboardEvent) {
 
 onMounted(() => {
   document.addEventListener('keydown', handleCtrlEnter)
-  loadKnowledgeGraphs()
+  loadWorkspaces()
 
   const templateParam = route.query.template
   if (typeof templateParam === 'string' && templateParam.trim()) {
@@ -767,18 +800,49 @@ onBeforeUnmount(() => {
             </CardContent>
           </Card>
 
-          <!-- Knowledge graph selector -->
-          <div class="flex items-center gap-3">
-            <div class="flex items-center gap-2 flex-1 min-w-0">
-              <BookMarked class="size-4 shrink-0 text-muted-foreground" />
-              <span class="text-sm text-muted-foreground shrink-0">Target:</span>
+          <!-- Workspace selector + Knowledge graph selector -->
+          <div class="space-y-3">
+            <!-- Step 1: Workspace selector -->
+            <div class="flex items-center gap-2">
+              <FolderTree class="size-4 shrink-0 text-muted-foreground" />
+              <span class="text-sm text-muted-foreground shrink-0 w-28">Workspace:</span>
               <Select
-                v-model="selectedKnowledgeGraphId"
-                :disabled="loadingKgs || submitting"
+                v-model="selectedWorkspaceId"
+                :disabled="loadingWorkspaces || submitting"
               >
                 <SelectTrigger class="h-9 flex-1 min-w-[200px] max-w-[320px]">
                   <SelectValue
-                    :placeholder="loadingKgs ? 'Loading knowledge graphs…' : 'Select a knowledge graph'"
+                    :placeholder="loadingWorkspaces ? 'Loading workspaces…' : 'Select a workspace'"
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="ws in workspaces"
+                    :key="ws.id"
+                    :value="ws.id"
+                  >
+                    {{ ws.name }}
+                  </SelectItem>
+                  <div
+                    v-if="!loadingWorkspaces && workspaces.length === 0"
+                    class="px-2 py-4 text-center text-xs text-muted-foreground"
+                  >
+                    No workspaces found
+                  </div>
+                </SelectContent>
+              </Select>
+            </div>
+            <!-- Step 2: Knowledge graph selector (scoped to selected workspace) -->
+            <div class="flex items-center gap-2">
+              <BookMarked class="size-4 shrink-0 text-muted-foreground" />
+              <span class="text-sm text-muted-foreground shrink-0 w-28">Knowledge Graph:</span>
+              <Select
+                v-model="selectedKnowledgeGraphId"
+                :disabled="!selectedWorkspaceId || loadingKgs || submitting"
+              >
+                <SelectTrigger class="h-9 flex-1 min-w-[200px] max-w-[320px]">
+                  <SelectValue
+                    :placeholder="!selectedWorkspaceId ? 'Select a workspace first' : loadingKgs ? 'Loading knowledge graphs…' : 'Select a knowledge graph'"
                   />
                 </SelectTrigger>
                 <SelectContent>
@@ -790,10 +854,10 @@ onBeforeUnmount(() => {
                     {{ kg.name }}
                   </SelectItem>
                   <div
-                    v-if="!loadingKgs && knowledgeGraphs.length === 0"
+                    v-if="selectedWorkspaceId && !loadingKgs && knowledgeGraphs.length === 0"
                     class="px-2 py-4 text-center text-xs text-muted-foreground"
                   >
-                    No knowledge graphs found
+                    No knowledge graphs found in this workspace
                   </div>
                 </SelectContent>
               </Select>
@@ -805,8 +869,8 @@ onBeforeUnmount(() => {
             <Tooltip>
               <TooltipTrigger as-child>
                 <Button
-                  :disabled="!canSubmitMutations({ selectedKnowledgeGraphId, content: editorContent, isLargeFile: isLargeFile, submitting, preparing })"
-                  :class="ctrlHeld && canSubmitMutations({ selectedKnowledgeGraphId, content: editorContent, isLargeFile: isLargeFile, submitting, preparing }) ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''"
+                  :disabled="!canSubmitMutations({ selectedWorkspaceId, selectedKnowledgeGraphId, content: editorContent, isLargeFile: isLargeFile, submitting, preparing })"
+                  :class="ctrlHeld && canSubmitMutations({ selectedWorkspaceId, selectedKnowledgeGraphId, content: editorContent, isLargeFile: isLargeFile, submitting, preparing }) ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''"
                   @click="handleSubmit"
                 >
                   <Loader2 v-if="submitting || preparing" class="mr-2 size-4 animate-spin" />

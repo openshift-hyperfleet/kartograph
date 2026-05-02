@@ -2,11 +2,11 @@
 id: task-071
 title: Knowledge Graph Creation — test post-creation data source prompt
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-071
 pr: null
 pr_title: 'test(ui): verify KG creation prompts user to add their first data source'
 pr_description: "## What & Why\n\nThe `experience.spec.md` spec (Requirement: Knowledge\

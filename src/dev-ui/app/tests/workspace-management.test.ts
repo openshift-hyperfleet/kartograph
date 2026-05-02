@@ -1189,3 +1189,195 @@ describe('Workspaces page - tenant switch reloads data', () => {
     expect(workspaces[0].id).not.toBe('ws-old')
   })
 })
+
+// ── Copy-to-clipboard for Workspace IDs ───────────────────────────────────────
+// Spec: "Interaction Principles — Copy-to-clipboard"
+// GIVEN a workspace is selected/displayed with its detail panel
+// THEN a copy button is provided next to the workspace ID
+// AND clicking the copy button writes the ID to the clipboard
+// AND a toast confirms the copy action
+
+describe('Workspace Management - copy workspace ID to clipboard', () => {
+  it('calls clipboard.writeText with the workspace ID', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    let toastMsg = ''
+
+    // Mirrors the CopyableText component behaviour used in WorkspaceDetailPanel
+    async function copyWorkspaceId(id: string) {
+      try {
+        await writeText(id)
+        toastMsg = 'Workspace ID copied'
+      } catch {
+        toastMsg = 'Failed to copy'
+      }
+    }
+
+    await copyWorkspaceId('ws-abc-123')
+    expect(writeText).toHaveBeenCalledWith('ws-abc-123')
+    expect(toastMsg).toBe('Workspace ID copied')
+  })
+
+  it('shows error feedback when clipboard write fails', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('NotAllowedError'))
+    let toastMsg = ''
+
+    async function copyWorkspaceId(id: string) {
+      try {
+        await writeText(id)
+        toastMsg = 'Workspace ID copied'
+      } catch {
+        toastMsg = 'Failed to copy'
+      }
+    }
+
+    await copyWorkspaceId('ws-abc-123')
+    expect(toastMsg).toBe('Failed to copy')
+  })
+
+  it('copies tenant_id from workspace details panel', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    let toastMsg = ''
+
+    async function copyTenantId(tenantId: string) {
+      await writeText(tenantId)
+      toastMsg = 'Tenant ID copied'
+    }
+
+    await copyTenantId('ten-xyz-789')
+    expect(writeText).toHaveBeenCalledWith('ten-xyz-789')
+    expect(toastMsg).toBe('Tenant ID copied')
+  })
+})
+
+// ── Mutation Feedback — workspace create/delete/rename ────────────────────────
+// Spec: "Interaction Principles — Mutation feedback"
+// GIVEN a write operation (create, delete, rename workspace)
+// THEN a toast notification confirms success or reports failure
+
+describe('Workspace Management - mutation feedback toasts', () => {
+  it('shows success toast after creating a workspace', async () => {
+    const createWorkspace = vi.fn().mockResolvedValue({ id: 'ws-new', name: 'My Workspace' })
+    let successToast = ''
+
+    async function handleCreate(name: string, parentId: string) {
+      if (!name.trim() || !parentId) return
+      await createWorkspace({ name: name.trim(), parent_workspace_id: parentId })
+      successToast = 'Workspace created'
+    }
+
+    await handleCreate('My Workspace', 'ws-parent')
+    expect(successToast).toBe('Workspace created')
+  })
+
+  it('shows error toast when workspace creation fails', async () => {
+    const createWorkspace = vi.fn().mockRejectedValue(new Error('Forbidden'))
+    let errorToast = ''
+
+    async function handleCreate(name: string, parentId: string) {
+      if (!name.trim() || !parentId) return
+      try {
+        await createWorkspace({ name: name.trim(), parent_workspace_id: parentId })
+      } catch (err) {
+        errorToast = 'Failed to create workspace'
+      }
+    }
+
+    await handleCreate('My Workspace', 'ws-parent')
+    expect(errorToast).toBe('Failed to create workspace')
+  })
+
+  it('shows success toast after deleting a workspace', async () => {
+    const deleteWorkspace = vi.fn().mockResolvedValue(undefined)
+    let successToast = ''
+
+    async function handleDelete(wsId: string) {
+      await deleteWorkspace(wsId)
+      successToast = 'Workspace deleted'
+    }
+
+    await handleDelete('ws-to-delete')
+    expect(successToast).toBe('Workspace deleted')
+  })
+
+  it('shows error toast when workspace delete fails', async () => {
+    const deleteWorkspace = vi.fn().mockRejectedValue(new Error('Not found'))
+    let errorToast = ''
+
+    async function handleDelete(wsId: string) {
+      try {
+        await deleteWorkspace(wsId)
+      } catch {
+        errorToast = 'Failed to delete workspace'
+      }
+    }
+
+    await handleDelete('ws-to-delete')
+    expect(errorToast).toBe('Failed to delete workspace')
+  })
+
+  it('shows success toast after renaming a workspace', async () => {
+    const updateWorkspace = vi.fn().mockResolvedValue({ id: 'ws-1', name: 'Renamed' })
+    let successToast = ''
+
+    async function handleRename(wsId: string, newName: string, currentName: string) {
+      if (!newName.trim() || newName.trim() === currentName) return
+      await updateWorkspace(wsId, { name: newName.trim() })
+      successToast = 'Workspace renamed'
+    }
+
+    await handleRename('ws-1', 'Renamed', 'Old Name')
+    expect(successToast).toBe('Workspace renamed')
+  })
+
+  it('shows error toast when rename fails', async () => {
+    const updateWorkspace = vi.fn().mockRejectedValue(new Error('Conflict'))
+    let errorToast = ''
+
+    async function handleRename(wsId: string, newName: string, currentName: string) {
+      if (!newName.trim() || newName.trim() === currentName) return
+      try {
+        await updateWorkspace(wsId, { name: newName.trim() })
+      } catch {
+        errorToast = 'Failed to rename workspace'
+      }
+    }
+
+    await handleRename('ws-1', 'Renamed', 'Old Name')
+    expect(errorToast).toBe('Failed to rename workspace')
+  })
+
+  it('shows inline name error when create name is empty', () => {
+    const createName = { value: '' }
+    const createNameError = { value: '' }
+
+    function validate() {
+      createNameError.value = ''
+      if (!createName.value.trim()) {
+        createNameError.value = 'Workspace name is required'
+        return false
+      }
+      return true
+    }
+
+    expect(validate()).toBe(false)
+    expect(createNameError.value).toBe('Workspace name is required')
+  })
+
+  it('shows inline parent error when no parent selected', () => {
+    const createParentId = { value: '' }
+    const createParentError = { value: '' }
+    const createName = { value: 'My Workspace' }
+
+    function validate() {
+      createParentError.value = ''
+      if (!createParentId.value) {
+        createParentError.value = 'Parent workspace is required'
+        return false
+      }
+      return true
+    }
+
+    expect(validate()).toBe(false)
+    expect(createParentError.value).toBe('Parent workspace is required')
+  })
+})

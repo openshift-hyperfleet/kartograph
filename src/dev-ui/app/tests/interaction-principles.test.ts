@@ -244,7 +244,7 @@ describe('Interaction Principles - inline editing patterns', () => {
 
 // ── Scenario: Navigation sidebar structure ────────────────────────────────────
 // Spec: "the sidebar presents navigation grouped as:
-//   Explore — Query Console, Schema Browser, Graph Explorer
+//   Explore — Query Console, Schema Browser, Graph Explorer, Mutations Console
 //   Data — Knowledge Graphs, Data Sources (with sync status)
 //   Connect — API Keys, MCP Integration
 //   Settings — Workspaces, Groups, Tenants"

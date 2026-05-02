@@ -403,3 +403,24 @@ describe('Design Language — Scenario: Typography (component files, font-weight
     })
   }
 })
+
+// ── Targeted regression guard: QueryResultsPanel keyboard shortcut badges ────
+//
+// Keyboard shortcut indicator badges inside QueryResultsPanel were previously
+// marked font-bold (700). The spec permits only 400/500/600 — font-semibold (600)
+// is the correct weight for these small indicator elements. This targeted guard
+// complements the comprehensive component scan above.
+
+const queryResultsPanelPath = resolve(
+  __dirname,
+  '../components/query/QueryResultsPanel.vue',
+)
+const queryResultsPanelContent = readFileSync(queryResultsPanelPath, 'utf-8')
+
+describe('Design Language — Scenario: Typography (QueryResultsPanel targeted guard)', () => {
+  it('QueryResultsPanel.vue keyboard shortcut badges do not use font-bold (max semibold per spec)', () => {
+    const templateMatch = queryResultsPanelContent.match(/<template>([\s\S]*)<\/template>/)
+    const templateContent = templateMatch ? templateMatch[1] : queryResultsPanelContent
+    expect(templateContent).not.toContain('font-bold')
+  })
+})

@@ -14,6 +14,10 @@ from query.infrastructure.observability.remote_file_repository_probe import (
     DefaultRemoteFileRepositoryProbe,
 )
 from query.infrastructure.prompt_repository import PromptRepository
+from query.infrastructure.tenant_routing import (
+    AGEGraphExistenceChecker,
+    TenantAwareQueryGraphRepository,
+)
 from query.ports.repositories import IRemoteFileRepository
 
 from infrastructure.database.connection import ConnectionFactory
@@ -76,11 +80,17 @@ def mcp_graph_client_context(
 
 @contextmanager
 def get_mcp_query_service() -> Iterator[MCPQueryService]:
-    """Get MCPQueryService for MCP operations.
+    """Get a tenant-aware MCPQueryService for MCP tool calls.
+
+    Reads the authenticated tenant from the MCP auth ContextVar and
+    routes all queries to that tenant's AGE graph (``tenant_{tenant_id}``).
+
+    The tenant graph existence is checked before every query execution;
+    if the graph has not been provisioned the query is rejected with a
+    QueryExecutionError before any AGE round-trip (spec: Tenant graph not found).
 
     Context manager that manually resolves all dependencies to work with
-    FastMCP's docket DI system, which doesn't support nested Depends() chains.
-
+    FastMCP's DI system, which doesn't support nested Depends() chains.
     Handles graph client lifecycle (connect/disconnect) automatically.
 
     Per-tenant graph routing:
@@ -91,15 +101,28 @@ def get_mcp_query_service() -> Iterator[MCPQueryService]:
         and owned by the authenticated tenant.
 
     Yields:
-        MCPQueryService instance with active database connection targeting
-        the authenticated tenant's AGE graph.
+        MCPQueryService instance scoped to the caller's tenant graph.
     """
     auth_context = get_mcp_auth_context()
-    tenant_graph_name = f"tenant_{auth_context.tenant_id}"
+    tenant_id = auth_context.tenant_id
+    tenant_graph_name = f"tenant_{tenant_id}"
+
+    pool = get_age_connection_pool()
+    settings = get_database_settings()
+    factory = ConnectionFactory(settings, pool=pool)
+
+    # Build the existence checker using a separate connection pool reference.
+    # This lets us verify the graph before opening an AGE-registered connection.
+    existence_checker = AGEGraphExistenceChecker(connection_factory=factory)
 
     with mcp_graph_client_context(graph_name=tenant_graph_name) as client:
         probe = get_query_service_probe()
-        repository = QueryGraphRepository(client=client)
+        inner_repository = QueryGraphRepository(client=client)
+        repository = TenantAwareQueryGraphRepository(
+            tenant_id=tenant_id,
+            inner_repository=inner_repository,
+            existence_check_fn=existence_checker,
+        )
         yield MCPQueryService(repository=repository, probe=probe)
 
 

@@ -1,168 +1,83 @@
 ---
 id: task-098
-title: Test that DefaultQueryServiceProbe omits raw query text from rejected-query logs
-spec_ref: "specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2"
+title: Fix MCP query result truncation to use limit+1 fetch pattern
+spec_ref: "specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e"
 status: not-started
 phase: null
 deps: []
 round: 0
 branch: null
 pr: null
-pr_title: "test(query): verify redacted logging in DefaultQueryServiceProbe.cypher_query_rejected"
+pr_title: "fix: enforce limit+1 row fetch for precise MCP query result truncation detection"
 pr_description: |
-  ## What & Why
+  ## What This Change Does
 
-  The **Requirement: Read-Only Enforcement — Scenario: Keyword blacklist
-  (secondary)** in `specs/query/query-execution.spec.md` states:
+  Fixes a subtle semantic bug in the MCP `query_graph` result truncation detection.
+  The `truncated` flag in the response tells MCP clients (AI agents) whether they
+  received a complete result set or whether more rows exist beyond the limit.
 
-  > AND a redacted reference is logged (not the raw query text)
-  > AND the error response includes a correlation ID for log lookup
+  **Current behaviour (buggy):** `services.py` sets `truncated = len(rows) >= limit`.
+  This produces a **false positive** whenever the result set contains exactly `limit`
+  rows with no additional rows — the flag says "there may be more" when the result
+  is actually complete.
 
-  `DefaultQueryServiceProbe.cypher_query_rejected` in
-  `src/api/query/application/observability.py` correctly implements this:
-  it logs `mcp_cypher_query_rejected` with `reason` and `correlation_id`
-  but does **not** include the `query` parameter in the `structlog.warning`
-  call. A code comment even flags this explicitly:
+  **Correct behaviour (spec):** The server SHOULD fetch `limit + 1` rows from the
+  repository, set `truncated = (len(raw_rows) > limit)`, and slice the response to
+  `raw_rows[:limit]` before returning. This definitively answers whether overflow
+  exists without guessing.
 
-  ```python
-  # IMPORTANT: Do NOT log `query` — log only the correlation_id so that
-  # raw query text never appears in log output (spec: redacted reference).
-  ```
+  ## Spec Requirement Satisfied
 
-  However, **no test verifies this property**. A future refactor (e.g.,
-  adding `query` for debugging convenience) could silently violate the spec
-  without any test catching it. This PR closes that gap.
+  `specs/query/mcp-server.spec.md` — **Requirement: Graph Query Tool**, Scenario:
+  *Result truncation flag*:
 
-  ## Spec Requirements Satisfied
+  > "the server SHOULD fetch `limit + 1` rows and set `truncated` to true only if
+  > more than `limit` rows were available; AND the response returns at most `limit`
+  > rows."
 
-  - Requirement: Read-Only Enforcement / Scenario: Keyword blacklist (secondary)
-    — "AND a redacted reference is logged (not the raw query text)"
+  ## Root Cause
 
-  ## Files Affected
-
-  - `src/api/tests/unit/query/test_observability.py` *(new file)*
-    — or added to an existing observability test file if one exists
-
-  ## Test Design
-
-  The tests capture `structlog` output using `structlog.testing.capture_logs()`
-  (a context manager that intercepts log events into a list of dicts).
+  `src/api/query/application/services.py` line 79:
 
   ```python
-  import structlog
-  from query.application.observability import DefaultQueryServiceProbe
+  # BEFORE (heuristic — false positive at boundary)
+  truncated = len(rows) >= limit
 
-  class TestDefaultQueryServiceProbeCypherQueryRejected:
-      \"\"\"Verify DefaultQueryServiceProbe.cypher_query_rejected redacts the raw query.\"\"\"
-
-      def test_raw_query_not_in_log_event(self):
-          \"\"\"The raw query text MUST NOT appear in the structured log event.\"\"\"
-          probe = DefaultQueryServiceProbe()
-          secret_query = "CREATE (n:SuperSecret {password: 'hunter2'})"
-
-          with structlog.testing.capture_logs() as cap:
-              probe.cypher_query_rejected(
-                  query=secret_query,
-                  reason="Found forbidden keyword: CREATE",
-                  correlation_id="test-corr-id-001",
-              )
-
-          assert len(cap) == 1
-          log_event = cap[0]
-          # The raw query MUST NOT appear in any field of the log event
-          event_str = str(log_event)
-          assert secret_query not in event_str, (
-              "Raw query text MUST NOT be logged — it may contain sensitive data. "
-              f"Found in log event: {log_event}"
-          )
-
-      def test_correlation_id_present_in_log_event(self):
-          \"\"\"The correlation_id MUST be logged for cross-referencing with the error response.\"\"\"
-          probe = DefaultQueryServiceProbe()
-
-          with structlog.testing.capture_logs() as cap:
-              probe.cypher_query_rejected(
-                  query="CREATE (n:Test)",
-                  reason="forbidden keyword",
-                  correlation_id="corr-xyz-789",
-              )
-
-          log_event = cap[0]
-          assert log_event.get("correlation_id") == "corr-xyz-789", (
-              "correlation_id MUST be in the log event so the redacted log can be "
-              "matched to the error response sent to the client"
-          )
-
-      def test_reason_present_in_log_event(self):
-          \"\"\"The rejection reason MUST appear in the log (non-sensitive)\"\"\"
-          probe = DefaultQueryServiceProbe()
-
-          with structlog.testing.capture_logs() as cap:
-              probe.cypher_query_rejected(
-                  query="DELETE (n)",
-                  reason="Found forbidden keyword: DELETE",
-                  correlation_id="corr-abc-123",
-              )
-
-          log_event = cap[0]
-          assert "Found forbidden keyword: DELETE" in log_event.get("reason", "")
-
-      def test_log_level_is_warning(self):
-          \"\"\"Rejected queries are security violations — log level MUST be warning or higher.\"\"\"
-          probe = DefaultQueryServiceProbe()
-
-          with structlog.testing.capture_logs() as cap:
-              probe.cypher_query_rejected(
-                  query="MERGE (n)",
-                  reason="forbidden keyword",
-                  correlation_id="corr-warn-001",
-              )
-
-          log_event = cap[0]
-          level = log_event.get("log_level", "")
-          assert level in ("warning", "error", "critical"), (
-              f"Expected warning level or higher, got: {level!r}"
-          )
-
-      def test_no_raw_query_even_when_correlation_id_is_none(self):
-          \"\"\"Raw query MUST NOT appear even when correlation_id is None.\"\"\"
-          probe = DefaultQueryServiceProbe()
-          secret_query = "SET n.password = 'exposed'"
-
-          with structlog.testing.capture_logs() as cap:
-              probe.cypher_query_rejected(
-                  query=secret_query,
-                  reason="Found forbidden keyword: SET",
-                  correlation_id=None,
-              )
-
-          event_str = str(cap[0])
-          assert secret_query not in event_str
+  # AFTER (definitive — fetches one extra probe row)
+  raw_rows = await self._repository.execute_cypher(query, params, limit=limit + 1)
+  truncated = len(raw_rows) > limit
+  rows = raw_rows[:limit]
   ```
 
-  ## TDD Cycle
+  The repository layer must be updated to accept and return up to `limit + 1` rows.
 
-  1. Create `src/api/tests/unit/query/test_observability.py` with the tests
-     above (they will be GREEN immediately because the implementation is correct).
-  2. Run: `cd src/api && uv run pytest tests/unit/query/test_observability.py -v`
-  3. All tests must pass.
-  4. These tests act as a **regression guard**: if anyone modifies
-     `cypher_query_rejected` to accidentally log the query, the tests will fail.
+  ## Files / Areas Affected
+
+  - `src/api/query/application/services.py` — change truncation logic
+  - `src/api/query/infrastructure/query_graph_repository.py` — ensure `_ensure_limit()`
+    honours `limit + 1` when passed from the service layer, or accept an explicit
+    `fetch_limit` parameter distinct from the enforced result limit
+  - `src/api/tests/unit/query/test_application_services.py` — add/update tests for
+    the three boundary cases below
+  - `src/api/tests/unit/query/test_query_repository.py` — verify `limit + 1` passed
+    through correctly
 
   ## How to Verify
 
-  ```bash
-  cd src/api && uv run pytest tests/unit/query/test_observability.py -v
-  ```
+  Run `make test-unit` — all three new boundary scenarios must pass:
 
-  ## Design Notes
+  1. **Exactly limit rows returned** → `truncated = False` (was wrongly `True` before)
+  2. **Limit + 1 rows returned (more exist)** → `truncated = True`, response has
+     exactly `limit` rows
+  3. **Fewer than limit rows returned** → `truncated = False`
 
-  - `structlog.testing.capture_logs()` is available in `structlog >= 20.2.0`
-    and is the canonical way to test structlog-based logging without mocking
-    the logger instance.
-  - The probe file is `src/api/query/application/observability.py`.
-    `DefaultQueryServiceProbe` is the concrete class under test; the
-    `QueryServiceProbe` protocol is tested implicitly through the service tests.
-  - No changes to implementation files are expected (tests are GREEN against
-    the current, already-correct implementation).
+  ## Caveats / Follow-up
+
+  - The fix increases the maximum rows fetched from the DB by 1 per query; this is
+    negligible in practice but correct to note.
+  - The spec says SHOULD (not MUST), so the existing behaviour is not wrong in
+    principle, but the false-positive case causes AI agents to issue unnecessary
+    follow-up queries. Fixing it improves agent efficiency.
+  - No API contract changes — `truncated` remains a boolean field in the existing
+    response schema.
 ---

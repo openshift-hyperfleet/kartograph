@@ -4,11 +4,11 @@ title: 'fetch_documentation_source: return error response for invalid URL instea
   of propagating exception'
 spec_ref: specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-111
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/581
 pr_title: 'fix(query): return RemoteFileRepositoryResponse(success=False) for invalid
   URL in fetch_documentation_source'
 pr_description: "## What & Why\n\nThe `fetch_documentation_source` MCP tool has the\

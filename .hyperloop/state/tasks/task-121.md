@@ -1,0 +1,102 @@
+---
+id: task-121
+title: "UI: Query Console"
+spec_ref: "specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da"
+status: not-started
+phase: null
+deps: [task-118, task-119]
+round: 0
+branch: null
+pr: null
+pr_title: "feat(ui): add Cypher query console with editor, results table, and history"
+pr_description: |
+  ## What & Why
+
+  Implements the Query Console — the primary "Explore" tool for developers querying
+  the knowledge graph. Provides a Cypher editor with schema-aware assistance, one-click
+  / keyboard execution, a results table, and a history panel for re-use of past queries.
+
+  ## Spec Requirements Satisfied
+
+  From `specs/ui/experience.spec.md`:
+  - **Requirement: Query Console** — all four scenarios: query editing (highlighting,
+    autocomplete, linting), query execution (button + Ctrl/Cmd+Enter), query history
+    (browse, re-execute, insert), knowledge graph context selector
+
+  ## Editor
+
+  - **Engine:** CodeMirror 6 (or Monaco) configured for Cypher syntax
+  - **Syntax highlighting:** Cypher keyword, label, property tokens
+  - **Autocomplete:** populated from the active KG's schema labels
+    (`GET /graph/schema/labels`); falls back to keyword-only completion when no schema
+    is loaded
+  - **Linting:** basic structural checks (unclosed parentheses, missing RETURN, etc.)
+  - **Keyboard shortcut:** `Ctrl/Cmd+Enter` submits the query without leaving the editor
+    (tooltip in the editor gutter/footer to make it discoverable)
+
+  ## Execution & Results
+
+  - **Execute button** → `POST /query/execute` (see note below) with `{ cypher, knowledge_graph_id? }`
+  - Results rendered as a responsive data table: columns auto-detected from the first
+    row's keys; node/edge values expanded inline
+  - Status bar below editor: row count, execution time in ms, truncation warning if
+    results were limited
+  - Loading state: spinner overlay on the results panel; editor remains interactive
+
+  ## Knowledge Graph Scope Selector
+
+  - Dropdown in the toolbar above the editor; populated from accessible KGs
+    (`GET /management/knowledge-graphs` filtered by user access)
+  - "All knowledge graphs" is the default (no `knowledge_graph_id` sent)
+  - Selecting a specific KG passes its ID in the execute request
+
+  ## Query History
+
+  - Last 50 queries stored in `localStorage` (per-tenant key)
+  - History panel: slide-in sidebar or inline collapsible; shows query text (truncated),
+    timestamp, row count
+  - Each history item: "Re-run" button (replaces editor content and executes),
+    "Insert" button (replaces editor content without executing)
+
+  ## Backend API Integration
+
+  | Action | Endpoint |
+  |---|---|
+  | Execute Cypher | `POST /query/execute` |
+  | Fetch schema labels | `GET /graph/schema/labels` |
+  | List accessible KGs | `GET /management/knowledge-graphs` |
+
+  > **Note on query execution endpoint:** The existing backend exposes Cypher execution
+  > exclusively via the MCP server (`POST /mcp` using JSON-RPC `query_graph` tool call).
+  > This task requires a new REST endpoint `POST /query/execute` (or equivalent) in the
+  > Query context presentation layer (`src/api/query/presentation/`) to be available for
+  > browser consumption with Bearer-token auth. If that endpoint does not yet exist when
+  > this task runs, a minimal stub returning a hardcoded empty result is acceptable while
+  > the backend endpoint is added as a follow-up task targeting the query-execution spec.
+
+  ## Files / Areas Affected
+
+  - `src/ui/src/pages/explore/QueryConsole.vue`
+  - `src/ui/src/components/query/CypherEditor.vue` — CodeMirror wrapper
+  - `src/ui/src/components/query/ResultsTable.vue`
+  - `src/ui/src/components/query/QueryHistory.vue`
+  - `src/ui/src/components/query/KgScopeSelector.vue`
+  - `src/ui/src/api/query.ts` — typed API client for query execution
+
+  ## How to Verify
+
+  1. Open Query Console; type `MATCH (n) RETURN n LIMIT 5`; press Ctrl+Enter →
+     results table appears with row count and execution time
+  2. Run the same query again; open history panel → previous query visible; "Insert"
+     populates editor
+  3. Select a specific KG from the scope selector → subsequent queries are scoped
+  4. Type an invalid Cypher fragment → linting warning shown in editor gutter
+
+  ## Caveats / Follow-up
+
+  - Full Cypher-aware autocomplete (property names, node types) requires a schema
+    endpoint returning full type definitions, not just labels; this can be layered on
+    after the initial Schema Browser integration (task-122) exposes the needed data
+  - Query execution endpoint may need to be added to the backend Query context if it
+    does not already exist
+---

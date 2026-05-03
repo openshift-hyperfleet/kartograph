@@ -24,7 +24,6 @@ from query.dependencies import (
     get_mcp_query_service,
     get_prompt_repository,
 )
-from query.domain.value_objects import QueryError, QueryResultRow
 from query.ports.file_repository_models import RemoteFileRepositoryResponse
 from shared_kernel.middleware.mcp_api_key_auth import MCPApiKeyAuthMiddleware
 from shared_kernel.middleware.mcp_auth import get_mcp_auth_context
@@ -191,6 +190,39 @@ def _filter_by_knowledge_graph(
     return filtered
 
 
+def _build_error_response(result: QueryError) -> Dict[str, Any]:
+    """Build the error response dict for a failed Cypher query.
+
+    Constructs the dict returned by `query_graph` when execution fails.
+    The `correlation_id` key is included only when the QueryError carries a
+    non-None value — forbidden and timeout errors always have one; syntax and
+    unknown errors do not.
+
+    Spec requirements:
+      - Keyword blacklist scenario: "the error response includes a correlation
+        ID for log lookup".
+      - Timeout scenario: "a timeout error is returned with a correlation ID
+        for debugging".
+      - Execution/unknown errors: no correlation_id generated — omit key
+        entirely to avoid a spurious null in the client response.
+
+    Args:
+        result: The QueryError value object from MCPQueryService.
+
+    Returns:
+        Dict containing at minimum: success=False, error_type, message.
+        When correlation_id is not None, the dict also contains correlation_id.
+    """
+    response: Dict[str, Any] = {
+        "success": False,
+        "error_type": result.error_type,
+        "message": result.message,
+    }
+    if result.correlation_id is not None:
+        response["correlation_id"] = result.correlation_id
+    return response
+
+
 @mcp.tool
 async def query_graph(
     cypher: str,
@@ -264,13 +296,6 @@ async def query_graph(
 
     if isinstance(result, QueryError):
         return _build_error_response(result)
-
-    # Filter to the requested KnowledgeGraph (when provided)
-    rows = _filter_by_knowledge_graph(result.rows, knowledge_graph_id)
-
-    # Apply secure enclave: redact entities the caller is not authorized to see
-    secure_enclave = get_mcp_secure_enclave()
-    rows = await secure_enclave.apply_redaction(rows)
 
     # Filter to the requested KnowledgeGraph (when provided)
     rows = _filter_by_knowledge_graph(result.rows, knowledge_graph_id)

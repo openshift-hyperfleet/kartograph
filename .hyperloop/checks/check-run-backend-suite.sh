@@ -69,6 +69,7 @@ CHECKS=(
   check-branch-rebases-cleanly.sh
   check-no-state-file-commits.sh
   check-worker-result-not-committed.sh
+  check-all-commits-have-task-ref.sh
   check-no-foreign-task-commits.sh
   check-no-ruff-violations.sh
   check-no-mypy-violations.sh

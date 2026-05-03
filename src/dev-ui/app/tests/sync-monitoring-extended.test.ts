@@ -422,40 +422,53 @@ describe('Sync Monitoring - trigger shows progress immediately after trigger', (
   })
 
   it('polling starts after trigger when new run is active', async () => {
-    let pollingStarted = false
-    let hasActiveSyncs = false
+    const startPolling = vi.fn()
 
-    function startPolling() {
-      pollingStarted = true
-    }
+    // loadDataSources mock returns a data source with an active (ingesting) run —
+    // this drives the conditional, not a hardcoded boolean.
+    const loadDataSources = vi.fn().mockResolvedValue([
+      { id: 'ds-1', latestRunStatus: 'ingesting' },
+    ])
 
-    async function triggerSyncAndStartPolling() {
-      // Simulates what happens after loadDataSources() reveals a new active run
-      hasActiveSyncs = true
+    async function triggerSyncAndStartPolling(dsId: string) {
+      const apiFetch = vi.fn().mockResolvedValue({})
+      await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
+      const sources: Array<{ id: string; latestRunStatus: string }> = await loadDataSources()
+      // Poll only when loadDataSources reports an active run
+      const hasActiveSyncs = sources.some((s) =>
+        isActiveSyncPhase(s.latestRunStatus as SyncRun['status']),
+      )
       if (hasActiveSyncs) {
         startPolling()
       }
     }
 
-    await triggerSyncAndStartPolling()
+    await triggerSyncAndStartPolling('ds-1')
 
-    expect(pollingStarted).toBe(true)
+    expect(startPolling).toHaveBeenCalledOnce()
   })
 
-  it('polling does NOT start when trigger fails (no active run)', () => {
-    let pollingStarted = false
-    let triggerFailed = true
+  it('polling does NOT start when trigger fails (no active run)', async () => {
+    const startPolling = vi.fn()
+    const errorToasts: string[] = []
 
-    function startPolling() {
-      pollingStarted = true
+    // apiFetch rejects — simulates a failed POST /sync call
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Internal Server Error'))
+
+    async function triggerSyncAndStartPolling(dsId: string) {
+      try {
+        await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
+        // Polling is only started on the success path
+        startPolling()
+      } catch {
+        errorToasts.push('Failed to trigger sync')
+      }
     }
 
-    // On failure, the error path is taken — no polling should start
-    if (!triggerFailed) {
-      startPolling()
-    }
+    await triggerSyncAndStartPolling('ds-1')
 
-    expect(pollingStarted).toBe(false)
+    expect(startPolling).not.toHaveBeenCalled()
+    expect(errorToasts).toContain('Failed to trigger sync')
   })
 
   it('a success toast is shown after sync is triggered', async () => {

@@ -22,6 +22,8 @@ from management.domain.exceptions import (
 from management.domain.observability import DataSourceProbe
 from management.domain.value_objects import (
     DataSourceId,
+    Ontology,
+    OntologyNodeType,
     Schedule,
     ScheduleType,
 )
@@ -668,3 +670,135 @@ class TestDataSourceValidation:
                 adapter_type=DataSourceAdapterType.GITHUB,
                 connection_config={},
             )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_data_source(ontology: Ontology | None = None) -> DataSource:
+    """Create a DataSource aggregate for testing."""
+    now = datetime.now(UTC)
+    return DataSource(
+        id=DataSourceId.generate(),
+        knowledge_graph_id="kg-test",
+        tenant_id="tenant-test",
+        name="Test Source",
+        adapter_type=DataSourceAdapterType.GITHUB,
+        connection_config={"repo": "org/repo"},
+        credentials_path=None,
+        schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+        last_sync_at=None,
+        ontology=ontology,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+class TestDataSourceOntologyField:
+    """Tests for DataSource.ontology field."""
+
+    def test_ontology_defaults_to_none_on_create(self) -> None:
+        """DataSource.create() should produce a DS with ontology=None by default."""
+        ds = DataSource.create(
+            knowledge_graph_id="kg-1",
+            tenant_id="t",
+            name="Source",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={},
+        )
+        assert ds.ontology is None
+
+    def test_data_source_stores_ontology(self) -> None:
+        """DataSource with an Ontology should expose it via .ontology."""
+        ontology = Ontology(
+            node_types=[OntologyNodeType(label="Repository")],
+            edge_types=[],
+        )
+        ds = _make_data_source(ontology=ontology)
+        assert ds.ontology is not None
+        assert ds.ontology.node_types[0].label == "Repository"
+
+    def test_data_source_accepts_none_ontology(self) -> None:
+        """DataSource with ontology=None should be valid."""
+        ds = _make_data_source(ontology=None)
+        assert ds.ontology is None
+
+
+class TestDataSourceUpdateOntology:
+    """Tests for DataSource.update_ontology() method."""
+
+    def test_update_ontology_sets_ontology(self) -> None:
+        """update_ontology() should replace the stored ontology."""
+        ds = _make_data_source(ontology=None)
+        new_ontology = Ontology(
+            node_types=[OntologyNodeType(label="Issue")],
+            edge_types=[],
+        )
+        ds.update_ontology(new_ontology)
+        assert ds.ontology == new_ontology
+
+    def test_update_ontology_replaces_existing_ontology(self) -> None:
+        """update_ontology() should replace a previously stored ontology."""
+        initial_ontology = Ontology(
+            node_types=[OntologyNodeType(label="OldType")],
+            edge_types=[],
+        )
+        ds = _make_data_source(ontology=initial_ontology)
+
+        new_ontology = Ontology(
+            node_types=[OntologyNodeType(label="NewType")],
+            edge_types=[],
+        )
+        ds.update_ontology(new_ontology)
+
+        assert ds.ontology is not None
+        assert ds.ontology.node_types[0].label == "NewType"
+
+    def test_update_ontology_bumps_updated_at(self) -> None:
+        """update_ontology() should update updated_at to the current time."""
+        ds = _make_data_source(ontology=None)
+        original_updated_at = ds.updated_at
+        ds.update_ontology(Ontology(node_types=[], edge_types=[]))
+        assert ds.updated_at >= original_updated_at
+
+    def test_update_ontology_emits_data_source_updated_event(self) -> None:
+        """update_ontology() should emit a DataSourceUpdated domain event."""
+        ds = _make_data_source(ontology=None)
+        ds.update_ontology(Ontology(node_types=[], edge_types=[]))
+        events = ds.collect_events()
+        assert any(isinstance(e, DataSourceUpdated) for e in events)
+
+    def test_update_ontology_raises_on_deleted_data_source(self) -> None:
+        """update_ontology() should raise AggregateDeletedError if DS is deleted."""
+        ds = _make_data_source(ontology=None)
+        ds.mark_for_deletion(deleted_by="user-1")
+        ds.collect_events()  # clear events
+
+        with pytest.raises(AggregateDeletedError):
+            ds.update_ontology(Ontology(node_types=[], edge_types=[]))
+
+    def test_update_ontology_with_empty_ontology(self) -> None:
+        """update_ontology() accepts an empty Ontology (no node or edge types)."""
+        ds = _make_data_source(
+            ontology=Ontology(
+                node_types=[OntologyNodeType(label="Existing")],
+                edge_types=[],
+            )
+        )
+        ds.update_ontology(Ontology(node_types=[], edge_types=[]))
+        assert ds.ontology is not None
+        assert ds.ontology.node_types == []
+
+    def test_update_ontology_event_carries_correct_ids(self) -> None:
+        """DataSourceUpdated event emitted by update_ontology should carry correct IDs."""
+        ds = _make_data_source(ontology=None)
+        ds.update_ontology(Ontology(node_types=[], edge_types=[]))
+        events = ds.collect_events()
+        updated_events = [e for e in events if isinstance(e, DataSourceUpdated)]
+        assert len(updated_events) == 1
+        event = updated_events[0]
+        assert event.data_source_id == ds.id.value
+        assert event.knowledge_graph_id == ds.knowledge_graph_id
+        assert event.tenant_id == ds.tenant_id

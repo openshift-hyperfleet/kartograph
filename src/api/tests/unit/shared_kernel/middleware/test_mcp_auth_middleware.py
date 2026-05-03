@@ -597,6 +597,182 @@ class TestMCPApiKeyAuthMiddlewareBearerFallback:
         assert capture.json == {"error": "X-API-Key header is required"}
 
 
+class TestMCPApiKeyAuthMiddlewareBearerValidationError:
+    """Tests that Bearer token backend errors produce controlled 503 responses.
+
+    Spec: Requirement: MCP Authentication — Scenario: Authentication service unavailable
+    GIVEN a request when the authentication backend is unreachable
+    WHEN the MCP request is processed
+    THEN a 503 response is returned
+
+    The MCPApiKeyAuthMiddleware wraps both validate_api_key (API key path) AND
+    validate_bearer_token (Bearer path) in try/except blocks. This class verifies
+    the Bearer path's 503 behaviour, complementing
+    TestMCPApiKeyAuthMiddlewareValidationError which covers the API key path.
+    """
+
+    @pytest.mark.asyncio
+    async def test_returns_503_when_bearer_validator_raises(self) -> None:
+        """Should return 503 when validate_bearer_token raises an exception.
+
+        Spec: Authentication service unavailable — THEN a 503 response is returned.
+
+        This verifies that exceptions from the Bearer token validator (network
+        errors, DB unavailability, etc.) are caught and converted to a 503 with
+        the standard error message. The raw exception is never surfaced to the
+        MCP client.
+        """
+
+        async def _exploding_bearer_validate(token: str, tenant_id: str | None) -> None:
+            raise ConnectionError("OIDC provider is down")
+
+        probe = MagicMock()
+        middleware = MCPApiKeyAuthMiddleware(
+            app=_dummy_app,
+            validate_api_key=_make_validate_fn(return_value=None),
+            validate_bearer_token=_exploding_bearer_validate,
+            probe=probe,
+        )
+
+        scope = _make_http_scope(headers=[(b"authorization", b"Bearer some-jwt")])
+        capture = _ResponseCapture()
+        await middleware(scope, _noop_receive, capture)
+
+        assert capture.status == 503
+        assert capture.json == {
+            "error": "Authentication service temporarily unavailable"
+        }
+        probe.mcp_auth_validation_error.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_bearer_503_probe_receives_error_message(self) -> None:
+        """The probe must receive the exception message for observability.
+
+        When validate_bearer_token raises, the probe's mcp_auth_validation_error
+        is called with the exception's str representation so operators can see
+        what caused the failure in structured logs.
+        """
+
+        async def _exploding_bearer_validate(token: str, tenant_id: str | None) -> None:
+            raise TimeoutError("Connection to OIDC timed out after 5 seconds")
+
+        probe = MagicMock()
+        middleware = MCPApiKeyAuthMiddleware(
+            app=_dummy_app,
+            validate_api_key=_make_validate_fn(return_value=None),
+            validate_bearer_token=_exploding_bearer_validate,
+            probe=probe,
+        )
+
+        scope = _make_http_scope(headers=[(b"authorization", b"Bearer some-jwt")])
+        capture = _ResponseCapture()
+        await middleware(scope, _noop_receive, capture)
+
+        assert capture.status == 503
+        # The error kwarg must contain the exception's message
+        probe.mcp_auth_validation_error.assert_called_once()
+        call_kwargs = probe.mcp_auth_validation_error.call_args.kwargs
+        assert "OIDC timed out" in call_kwargs.get("error", "")
+
+
+class TestMCPApiKeyAuthMiddlewareTenantIDPassthrough:
+    """Tests that the X-Tenant-ID header value is forwarded to the Bearer validator.
+
+    Spec: Requirement: MCP Authentication — Scenario: Bearer token authentication
+    GIVEN a valid Authorization: Bearer header (and no API key)
+    WHEN the MCP request is processed
+    THEN the JWT is validated
+    AND the tenant is resolved from the X-Tenant-ID header
+
+    The middleware must pass the raw X-Tenant-ID header value to validate_bearer_token
+    as its second argument. This is distinct from the tenant_id that emerges from
+    the result object — here we verify the *input* side of the validator call.
+    """
+
+    @pytest.mark.asyncio
+    async def test_x_tenant_id_header_is_passed_to_bearer_validator(self) -> None:
+        """X-Tenant-ID header value MUST be forwarded as tenant_id to the validator.
+
+        Spec: AND the tenant is resolved from the X-Tenant-ID header.
+
+        The validator receives the raw header string so it can embed the tenant
+        claim in its JWT validation logic or lookup. Passing the wrong value (or
+        None when the header is present) would cause tenant resolution to fail.
+        """
+        received_tenant_id: list[str | None] = []
+
+        @dataclass
+        class FakeBearerResult:
+            user_id: str
+            tenant_id: str
+
+        async def validator_capturing_tenant(
+            token: str, tenant_id: str | None
+        ) -> FakeBearerResult | None:
+            received_tenant_id.append(tenant_id)
+            return FakeBearerResult(user_id="user-1", tenant_id=tenant_id or "")
+
+        probe = MagicMock()
+        middleware = MCPApiKeyAuthMiddleware(
+            app=_dummy_app,
+            validate_api_key=_make_validate_fn(return_value=None),
+            validate_bearer_token=validator_capturing_tenant,
+            probe=probe,
+        )
+
+        scope = _make_http_scope(
+            headers=[
+                (b"authorization", b"Bearer valid-jwt"),
+                (b"x-tenant-id", b"my-specific-tenant"),
+            ]
+        )
+        capture = _ResponseCapture()
+        await middleware(scope, _noop_receive, capture)
+
+        assert capture.status == 200
+        # The validator must have been called with the exact X-Tenant-ID value
+        assert len(received_tenant_id) == 1
+        assert received_tenant_id[0] == "my-specific-tenant"
+
+    @pytest.mark.asyncio
+    async def test_missing_x_tenant_id_passes_none_to_validator(self) -> None:
+        """When X-Tenant-ID is absent, the validator receives None.
+
+        Some deployments may not require the tenant ID header (e.g., when the
+        JWT itself encodes tenant information). The middleware passes None in
+        this case rather than an empty string or raising.
+        """
+        received_tenant_id: list[str | None] = []
+
+        @dataclass
+        class FakeBearerResult:
+            user_id: str
+            tenant_id: str
+
+        async def validator_capturing_tenant(
+            token: str, tenant_id: str | None
+        ) -> FakeBearerResult | None:
+            received_tenant_id.append(tenant_id)
+            return FakeBearerResult(user_id="user-2", tenant_id=tenant_id or "unknown")
+
+        probe = MagicMock()
+        middleware = MCPApiKeyAuthMiddleware(
+            app=_dummy_app,
+            validate_api_key=_make_validate_fn(return_value=None),
+            validate_bearer_token=validator_capturing_tenant,
+            probe=probe,
+        )
+
+        # No X-Tenant-ID header — only the Authorization header
+        scope = _make_http_scope(headers=[(b"authorization", b"Bearer valid-jwt")])
+        capture = _ResponseCapture()
+        await middleware(scope, _noop_receive, capture)
+
+        assert capture.status == 200
+        assert len(received_tenant_id) == 1
+        assert received_tenant_id[0] is None
+
+
 class TestMCPApiKeyAuthMiddlewareNonHTTP:
     """Tests that non-HTTP scopes pass through without auth."""
 

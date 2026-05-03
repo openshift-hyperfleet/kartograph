@@ -61,6 +61,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { UserIdDisplay } from '@/components/ui/user-id'
+import { useCopyToClipboard } from '~/composables/useCopyToClipboard'
 
 const { createApiKey, listApiKeys, revokeApiKey } = useIamApi()
 const { currentTenantId } = useApiClient()
@@ -80,7 +81,7 @@ const isCreating = ref(false)
 const createExpiryError = ref('')
 
 const newlyCreatedKey = ref<APIKeyCreatedResponse | null>(null)
-const secretCopied = ref(false)
+const { copyToClipboard, copied: secretCopied } = useCopyToClipboard()
 const secretVisible = ref(true)
 
 const revokeDialogOpen = ref(false)
@@ -167,22 +168,12 @@ async function handleCreate() {
 }
 
 // ── Copy to clipboard ──────────────────────────────────────────────────────
-
-async function copyToClipboard(text: string, label?: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    toast.success(label ? `${label} copied to clipboard` : 'Copied to clipboard')
-    return true
-  } catch {
-    toast.error('Failed to copy to clipboard')
-    return false
-  }
-}
+// Uses the centralised useCopyToClipboard composable (toast + copied flag).
 
 async function copySecret() {
   if (!newlyCreatedKey.value) return
-  const ok = await copyToClipboard(newlyCreatedKey.value.secret, 'API key secret')
-  if (ok) secretCopied.value = true
+  await copyToClipboard(newlyCreatedKey.value.secret, 'API key secret')
+  // `secretCopied` reactive flag is managed by the composable
 }
 
 async function copyKeyPrefix(prefix: string) {

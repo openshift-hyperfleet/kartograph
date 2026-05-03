@@ -3,11 +3,11 @@ id: task-108
 title: 'Query console: knowledge graph context selector to scope queries'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-108
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/573
 pr_title: 'feat(ui): add knowledge graph context selector to query console'
 pr_description: "## What & Why\n\nThe **Query Console** requirement in `specs/ui/experience.spec.md`\
   \ includes a\nscoping scenario that controls which knowledge graph a query targets:\n\

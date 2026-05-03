@@ -4,11 +4,11 @@ title: 'Backend API alignment audit: verify and fix all CRUD operations with par
   scoping'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-107
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/572
 pr_title: 'fix(ui): backend API alignment — correct parent-context scoping for all
   CRUD operations'
 pr_description: "## What & Why\n\nThe **Backend API Alignment** requirement in `specs/ui/experience.spec.md`\

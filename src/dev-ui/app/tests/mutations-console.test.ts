@@ -1174,3 +1174,147 @@ describe('Design Language - Typography: no font-bold in page files', () => {
     expect(violations).toHaveLength(0)
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────────
+// Scenario: Deep-link — template parameter size warning (Spec caveat)
+// "Add a soft warning in the UI if the template parameter exceeds 1KB,
+//  suggesting file upload instead."
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('Mutations Console - deep-link: 1 KB template parameter size warning', () => {
+  it('mutations.vue checks whether templateParam.length exceeds 1024 bytes', () => {
+    expect(mutationsVue).toContain('templateParam.length > 1024')
+  })
+
+  it('warning message mentions browser URL parameter truncation', () => {
+    expect(mutationsVue).toContain('truncated by some browsers')
+  })
+
+  it('warning message suggests file upload as alternative', () => {
+    expect(mutationsVue).toContain('file upload')
+  })
+
+  it('template insertion still proceeds after the size warning (warning is non-blocking)', () => {
+    // Both the warning branch and insertTemplate call must be present in the same
+    // onMounted handler — the warning is informational, insertion is not prevented.
+    expect(mutationsVue).toContain('templateParam.length > 1024')
+    expect(mutationsVue).toContain('insertTemplate(templateParam.trim())')
+  })
+
+  it('the 1 KB threshold corresponds to 1024 characters', () => {
+    // Verify the threshold value used in the check
+    const thresholdMatch = mutationsVue.match(/templateParam\.length > (\d+)/)
+    expect(thresholdMatch).not.toBeNull()
+    expect(Number(thresholdMatch![1])).toBe(1024)
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+// Scenario: LargeFileSummary component — extracted from inline mutations.vue
+// The large-file summary panel is now a dedicated component.
+// ────────────────────────────────────────────────────────────────────────────
+
+import { readFileSync as readFile } from 'fs'
+
+const largeFileSummaryPath = resolve(__dirname, '../components/graph/LargeFileSummary.vue')
+const largeFileSummaryVue = readFile(largeFileSummaryPath, 'utf-8')
+
+describe('Mutations Console - LargeFileSummary component: structure', () => {
+  it('LargeFileSummary.vue file exists as a dedicated component', () => {
+    expect(largeFileSummaryVue).toBeTruthy()
+  })
+
+  it('LargeFileSummary accepts a workerResult prop', () => {
+    expect(largeFileSummaryVue).toContain('workerResult')
+  })
+
+  it('LargeFileSummary accepts a parsing prop', () => {
+    expect(largeFileSummaryVue).toContain('parsing')
+  })
+
+  it('LargeFileSummary accepts a parseTimeMs prop', () => {
+    expect(largeFileSummaryVue).toContain('parseTimeMs')
+  })
+
+  it('LargeFileSummary accepts a fileSizeMb prop', () => {
+    expect(largeFileSummaryVue).toContain('fileSizeMb')
+  })
+
+  it('LargeFileSummary emits a "clear" event', () => {
+    expect(largeFileSummaryVue).toContain("'clear'")
+  })
+
+  it('LargeFileSummary emits a "browse-warnings" event', () => {
+    expect(largeFileSummaryVue).toContain("'browse-warnings'")
+  })
+
+  it('LargeFileSummary displays "Large File Mode" heading', () => {
+    expect(largeFileSummaryVue).toContain('Large File Mode')
+  })
+
+  it('LargeFileSummary shows total operations count from workerResult', () => {
+    expect(largeFileSummaryVue).toContain('totalOps')
+  })
+
+  it('LargeFileSummary shows DEFINE, CREATE, UPDATE, DELETE breakdown badges', () => {
+    expect(largeFileSummaryVue).toContain('DEFINE')
+    expect(largeFileSummaryVue).toContain('CREATE')
+    expect(largeFileSummaryVue).toContain('UPDATE')
+    expect(largeFileSummaryVue).toContain('DELETE')
+  })
+
+  it('LargeFileSummary shows parsing spinner while analysis is in progress', () => {
+    expect(largeFileSummaryVue).toContain('Analyzing operations')
+  })
+
+  it('LargeFileSummary shows parse errors (up to 10) from workerResult', () => {
+    expect(largeFileSummaryVue).toContain('parseErrors')
+  })
+
+  it('LargeFileSummary shows analyze duration from parseTimeMs', () => {
+    expect(largeFileSummaryVue).toContain('parseTimeMs')
+    expect(largeFileSummaryVue).toContain('Analyzed in')
+  })
+
+  it('LargeFileSummary has a Clear button that emits the clear event', () => {
+    expect(largeFileSummaryVue).toContain("emit('clear')")
+  })
+
+  it('LargeFileSummary Browse Warnings button emits the browse-warnings event', () => {
+    expect(largeFileSummaryVue).toContain("emit('browse-warnings')")
+  })
+})
+
+describe('Mutations Console - LargeFileSummary integration in mutations.vue', () => {
+  it('mutations.vue imports LargeFileSummary component', () => {
+    expect(mutationsVue).toContain("import LargeFileSummary from '@/components/graph/LargeFileSummary.vue'")
+  })
+
+  it('mutations.vue uses LargeFileSummary in the large-file mode slot', () => {
+    expect(mutationsVue).toContain('<LargeFileSummary')
+  })
+
+  it('mutations.vue passes workerResult to LargeFileSummary', () => {
+    expect(mutationsVue).toContain(':worker-result="workerResult"')
+  })
+
+  it('mutations.vue passes parsing state to LargeFileSummary', () => {
+    expect(mutationsVue).toContain(':parsing="parsing"')
+  })
+
+  it('mutations.vue passes parseTimeMs to LargeFileSummary', () => {
+    expect(mutationsVue).toContain(':parse-time-ms="parseTimeMs"')
+  })
+
+  it('mutations.vue passes file size in MB to LargeFileSummary', () => {
+    expect(mutationsVue).toContain(':file-size-mb="editorContent.length / 1_000_000"')
+  })
+
+  it('mutations.vue wires @clear event from LargeFileSummary to clearEditor()', () => {
+    expect(mutationsVue).toContain('@clear="clearEditor"')
+  })
+
+  it('mutations.vue wires @browse-warnings event from LargeFileSummary to open warning browser', () => {
+    expect(mutationsVue).toContain('@browse-warnings="showWarningBrowser = true"')
+  })
+})

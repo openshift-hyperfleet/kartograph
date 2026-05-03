@@ -41,6 +41,7 @@ import { mutationLinter } from '@/lib/codemirror/mutation-jsonl/linter'
 import { useModifierKeys } from '@/composables/useModifierKeys'
 
 // Local components
+import LargeFileSummary from '@/components/graph/LargeFileSummary.vue'
 import MutationPreview from '@/components/graph/MutationPreview.vue'
 import MutationTemplates from '@/components/graph/MutationTemplates.vue'
 import WarningBrowser from '@/components/graph/WarningBrowser.vue'
@@ -484,6 +485,14 @@ onMounted(() => {
 
   const templateParam = route.query.template
   if (typeof templateParam === 'string' && templateParam.trim()) {
+    // Spec caveat: URL parameters over 1 KB may be truncated by some browsers.
+    // Warn the user and suggest file upload for large template content.
+    if (templateParam.length > 1024) {
+      toast.warning('Template content is large', {
+        description:
+          'URL parameters over 1 KB may be truncated by some browsers. Consider using file upload for large mutations.',
+      })
+    }
     nextTick(() => insertTemplate(templateParam.trim()))
   }
 })
@@ -642,85 +651,16 @@ onBeforeUnmount(() => {
       <div class="grid gap-6" :class="isDesktop ? 'lg:grid-cols-[1fr_400px]' : ''">
         <!-- Left: Editor area -->
         <div class="space-y-4">
-          <!-- Large file mode: summary instead of editor -->
-          <Card v-if="largeFileMode">
-            <CardHeader class="pb-3">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                  <CardTitle class="text-base">Large File Mode</CardTitle>
-                  <Badge variant="secondary">
-                    {{ (editorContent.length / 1_000_000).toFixed(1) }} MB
-                  </Badge>
-                </div>
-                <Button variant="ghost" size="sm" @click="clearEditor">
-                  <Trash2 class="mr-2 size-4" />
-                  Clear
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent class="space-y-3">
-              <p class="text-sm text-muted-foreground">
-                File too large for interactive editing. Review the summary below and submit directly.
-              </p>
-
-              <!-- Parsing indicator -->
-              <div v-if="parsing" class="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 class="size-4 animate-spin" />
-                Analyzing operations...
-              </div>
-
-              <!-- Breakdown badges -->
-              <div v-else-if="workerResult" class="space-y-2">
-                <div class="flex flex-wrap gap-2">
-                  <Badge variant="secondary">
-                    {{ workerResult.totalOps.toLocaleString() }} operations
-                  </Badge>
-                  <Badge v-if="workerResult.breakdown.DEFINE > 0" variant="outline" class="gap-1">
-                    DEFINE <span class="font-mono">{{ workerResult.breakdown.DEFINE.toLocaleString() }}</span>
-                  </Badge>
-                  <Badge v-if="workerResult.breakdown.CREATE > 0" class="gap-1">
-                    CREATE <span class="font-mono">{{ workerResult.breakdown.CREATE.toLocaleString() }}</span>
-                  </Badge>
-                  <Badge v-if="workerResult.breakdown.UPDATE > 0" variant="secondary" class="gap-1">
-                    UPDATE <span class="font-mono">{{ workerResult.breakdown.UPDATE.toLocaleString() }}</span>
-                  </Badge>
-                  <Badge v-if="workerResult.breakdown.DELETE > 0" variant="destructive" class="gap-1">
-                    DELETE <span class="font-mono">{{ workerResult.breakdown.DELETE.toLocaleString() }}</span>
-                  </Badge>
-                </div>
-
-                <div v-if="workerResult.warningCount > 0" class="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    class="gap-2 border-yellow-500/30 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/10"
-                    @click="showWarningBrowser = true"
-                  >
-                    <AlertTriangle class="size-3.5" />
-                    Browse {{ workerResult.warningCount.toLocaleString() }} Warning{{ workerResult.warningCount === 1 ? '' : 's' }}
-                  </Button>
-                </div>
-
-                <div v-if="workerResult.parseErrors.length > 0" class="space-y-1">
-                  <div
-                    v-for="(error, idx) in workerResult.parseErrors.slice(0, 10)"
-                    :key="idx"
-                    class="flex items-start gap-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs"
-                  >
-                    <AlertTriangle class="mt-0.5 size-3 shrink-0 text-destructive" />
-                    <span class="font-mono">{{ error }}</span>
-                  </div>
-                  <p v-if="workerResult.parseErrors.length > 10" class="text-xs text-muted-foreground">
-                    ...and {{ workerResult.parseErrors.length - 10 }} more errors
-                  </p>
-                </div>
-
-                <p class="text-xs text-muted-foreground">
-                  Analyzed in {{ parseTimeMs.toFixed(0) }}ms
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+          <!-- Large file mode: summary panel (dedicated component) -->
+          <LargeFileSummary
+            v-if="largeFileMode"
+            :worker-result="workerResult"
+            :parsing="parsing"
+            :parse-time-ms="parseTimeMs"
+            :file-size-mb="editorContent.length / 1_000_000"
+            @clear="clearEditor"
+            @browse-warnings="showWarningBrowser = true"
+          />
 
           <!-- Normal editor card -->
           <Card

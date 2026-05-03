@@ -3,12 +3,12 @@ id: task-103
 title: 'New-user onboarding: empty-state landing and workspace guidance for first-time
   users'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps:
 - task-102
 round: 0
-branch: null
+branch: hyperloop/task-103
 pr: null
 pr_title: 'feat(ui): add new-user empty-state landing and workspace guidance flow'
 pr_description: "## What & Why\n\nTwo spec requirements address how the UI handles\

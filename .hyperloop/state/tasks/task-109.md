@@ -2,11 +2,11 @@
 id: task-109
 title: Per-Tenant Graph Routing — integration tests for tenant-scoped AGE graph queries
 spec_ref: specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-109
 pr: null
 pr_title: 'test(query): add integration tests for per-tenant AGE graph routing'
 pr_description: "## What & Why\n\nThe **Per-Tenant Graph Routing** requirement added\

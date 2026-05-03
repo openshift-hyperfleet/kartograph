@@ -351,7 +351,7 @@ async def get_accessible_knowledge_graphs() -> list[dict]:
 
     Examples:
         Read the resource to discover available knowledge graphs before querying:
-        - Resource URI: ``knowledge_graphs://accessible``
+        - Resource URI: ``knowledge-graphs://accessible``
         - Response: ``[{"id": "kg-01J...", "name": "My Graph", "description": "..."}]``
 
         Use the returned ``id`` values with the ``query_graph`` tool's
@@ -364,10 +364,16 @@ async def get_accessible_knowledge_graphs() -> list[dict]:
         tenant_id=auth_context.tenant_id,
     )
 
-    result = await get_accessible_knowledge_graphs_for_mcp(
-        user_id=auth_context.user_id,
-        tenant_id=auth_context.tenant_id,
-    )
+    kgs = await get_accessible_knowledge_graphs_for_mcp()
+
+    result = [
+        {
+            "id": kg.id,
+            "name": kg.name,
+            "description": kg.description,
+        }
+        for kg in kgs
+    ]
 
     _kg_resource_probe.knowledge_graphs_resource_returned(
         user_id=auth_context.user_id,

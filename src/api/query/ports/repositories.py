@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from query.domain.value_objects import QueryResultRow
+from query.domain.value_objects import AccessibleKnowledgeGraph, QueryResultRow
 from query.ports.file_repository_models import RemoteFileRepositoryResponse
 
 
@@ -60,3 +60,28 @@ class IRemoteFileRepository(Protocol):
     """
 
     def get_file(self, url: str) -> RemoteFileRepositoryResponse: ...
+
+
+class IAccessibleKnowledgeGraphRepository(Protocol):
+    """Repository interface for listing accessible knowledge graphs.
+
+    Fetches knowledge graph metadata for a given set of IDs within a tenant.
+    Used by MCPKnowledgeGraphsService to satisfy the
+    ``knowledge_graphs://accessible`` MCP resource.
+    """
+
+    async def find_by_ids_and_tenant(
+        self,
+        ids: list[str],
+        tenant_id: str,
+    ) -> list[AccessibleKnowledgeGraph]:
+        """Fetch knowledge graphs by IDs, filtered to the given tenant.
+
+        Args:
+            ids: List of knowledge graph IDs to look up.
+            tenant_id: Tenant ID to filter results (data isolation).
+
+        Returns:
+            Knowledge graphs matching both criteria (order not guaranteed).
+        """
+        ...

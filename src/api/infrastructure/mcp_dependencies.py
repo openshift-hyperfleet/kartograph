@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from iam.domain.aggregates.api_key import APIKey
     from query.application.mcp_secure_enclave import MCPQuerySecureEnclave
     from query.ports.schema import ISchemaService
@@ -205,6 +207,92 @@ class _NoOpAuthz:
         subject_id: str | None = None,
     ) -> list:
         return []
+
+
+class _ManagementKnowledgeGraphRepository:
+    """Infrastructure implementation of IAccessibleKnowledgeGraphRepository.
+
+    Queries the management ``knowledge_graphs`` table to fetch metadata
+    for a list of KG IDs within a specific tenant.
+
+    Lives here (in the cross-context composition layer) so that the query
+    bounded context domain, ports, and application layers remain free of
+    management-context dependencies.
+    """
+
+    def __init__(self, session: "AsyncSession") -> None:
+        self._session = session
+
+    async def find_by_ids_and_tenant(
+        self,
+        ids: list[str],
+        tenant_id: str,
+    ) -> list:
+        """Fetch knowledge graphs matching the IDs and tenant_id."""
+        from sqlalchemy import and_, select
+
+        from management.infrastructure.models import KnowledgeGraphModel
+        from query.domain.value_objects import AccessibleKnowledgeGraph
+
+        if not ids:
+            return []
+
+        stmt = select(KnowledgeGraphModel).where(
+            and_(
+                KnowledgeGraphModel.id.in_(ids),
+                KnowledgeGraphModel.tenant_id == tenant_id,
+            )
+        )
+        result = await self._session.execute(stmt)
+        kgs = result.scalars().all()
+
+        return [
+            AccessibleKnowledgeGraph(
+                id=str(kg.id),
+                tenant_id=str(kg.tenant_id),
+                name=kg.name,
+                description=kg.description,
+            )
+            for kg in kgs
+        ]
+
+
+async def get_accessible_knowledge_graphs_for_mcp() -> list:
+    """Get knowledge graphs accessible to the authenticated MCP caller.
+
+    Reads the MCPAuthContext set by the auth middleware, then uses
+    SpiceDB + management DB to build the list of accessible KGs.
+
+    Called inside MCP resource handlers where MCPAuthContext is guaranteed
+    to be set by the auth middleware.
+
+    Returns:
+        List of AccessibleKnowledgeGraph value objects.
+        Empty list if no KGs are accessible or on auth error.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from infrastructure.authorization_dependencies import get_spicedb_client
+    from query.application.kg_service import MCPKnowledgeGraphsService
+    from shared_kernel.middleware.mcp_auth import get_mcp_auth_context
+
+    auth_context = get_mcp_auth_context()
+    authz = get_spicedb_client()
+
+    engine = _get_mcp_auth_engine()
+    sessionmaker = async_sessionmaker(
+        engine, expire_on_commit=False, class_=AsyncSession
+    )
+
+    async with sessionmaker() as session:
+        kg_repo = _ManagementKnowledgeGraphRepository(session)
+        service = MCPKnowledgeGraphsService(
+            authz=authz,
+            kg_repository=kg_repo,
+            user_id=auth_context.user_id,
+            tenant_id=auth_context.tenant_id,
+        )
+        return await service.get_accessible()
 
 
 async def validate_mcp_bearer_token(

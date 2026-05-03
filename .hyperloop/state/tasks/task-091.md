@@ -4,11 +4,11 @@ title: 'UI: Backend API alignment — verify all CRUD operations use correct rou
   and parent context'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-091
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/557
 pr_title: 'fix(ui): ensure all resource CRUD operations call correct API routes with
   required parent context'
 pr_description: "## What & Why\n\nThe **Backend API Alignment** requirement was added\

@@ -1830,7 +1830,6 @@ class TestDeleteTenant:
         API keys are being deleted for a given tenant deletion.
         """
         from datetime import UTC, datetime, timedelta
-        from unittest.mock import MagicMock
 
         tenant_id = TenantId.generate()
         admin_id = UserId.from_string("admin-456")
@@ -1853,10 +1852,8 @@ class TestDeleteTenant:
             expires_at=datetime.now(UTC) + timedelta(days=30),
         )
 
-        # Use a mock probe to capture probe events
-        mock_probe = MagicMock()
-        mock_probe.tenant_cascade_deletion_started = MagicMock()
-        mock_probe.tenant_deleted = MagicMock()
+        # Use a recording probe to capture domain events (DOO pattern — no MagicMock)
+        mock_probe = _RecordingTenantServiceProbe()
 
         service_with_probe = TenantService(
             tenant_repository=mock_tenant_repo,
@@ -1880,12 +1877,13 @@ class TestDeleteTenant:
         await service_with_probe.delete_tenant(tenant_id, requesting_user_id=admin_id)
 
         # Verify the probe was called with the correct API key count
-        mock_probe.tenant_cascade_deletion_started.assert_called_once_with(
-            tenant_id=tenant_id.value,
-            workspaces_count=0,
-            groups_count=0,
-            api_keys_count=2,
-        )
+        assert len(mock_probe.tenant_cascade_deletion_started_calls) == 1
+        assert mock_probe.tenant_cascade_deletion_started_calls[0] == {
+            "tenant_id": tenant_id.value,
+            "workspaces_count": 0,
+            "groups_count": 0,
+            "api_keys_count": 2,
+        }
 
     @pytest.mark.asyncio
     async def test_api_keys_deleted_before_tenant_on_cascade(

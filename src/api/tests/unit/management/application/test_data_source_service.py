@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any, Callable
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -26,6 +26,312 @@ from management.domain.value_objects import (
 from management.ports.exceptions import UnauthorizedError
 from shared_kernel.authorization.types import Permission
 from shared_kernel.datasource_types import DataSourceAdapterType
+
+# ---------------------------------------------------------------------------
+# In-memory fakes
+# ---------------------------------------------------------------------------
+
+
+class _FakeDataSourceRepository:
+    """In-memory fake for IDataSourceRepository."""
+
+    def __init__(self) -> None:
+        self._store: dict[str, DataSource] = {}
+        self.saved: list[DataSource] = []
+
+    def seed(self, *sources: DataSource) -> None:
+        for ds in sources:
+            self._store[ds.id.value] = ds
+
+    async def get_by_id(self, data_source_id: DataSourceId | str) -> DataSource | None:
+        key = (
+            data_source_id if isinstance(data_source_id, str) else data_source_id.value
+        )
+        return self._store.get(key)
+
+    async def find_by_knowledge_graph(
+        self, knowledge_graph_id: str
+    ) -> list[DataSource]:
+        return [
+            ds
+            for ds in self._store.values()
+            if ds.knowledge_graph_id == knowledge_graph_id
+        ]
+
+    async def save(self, data_source: DataSource) -> None:
+        self._store[data_source.id.value] = data_source
+        self.saved.append(data_source)
+
+    async def delete(self, data_source: DataSource) -> bool:
+        return self._store.pop(data_source.id.value, None) is not None
+
+    async def find_all(self) -> list[DataSource]:
+        return list(self._store.values())
+
+
+class _FakeKnowledgeGraphRepository:
+    """In-memory fake for IKnowledgeGraphRepository."""
+
+    def __init__(self) -> None:
+        self._store: dict[str, KnowledgeGraph] = {}
+
+    def seed(self, *kgs: KnowledgeGraph) -> None:
+        for kg in kgs:
+            self._store[kg.id.value] = kg
+
+    async def get_by_id(
+        self, knowledge_graph_id: KnowledgeGraphId | str
+    ) -> KnowledgeGraph | None:
+        key = (
+            knowledge_graph_id
+            if isinstance(knowledge_graph_id, str)
+            else knowledge_graph_id.value
+        )
+        return self._store.get(key)
+
+    async def find_by_tenant(self, tenant_id: str) -> list[KnowledgeGraph]:
+        return [kg for kg in self._store.values() if kg.tenant_id == tenant_id]
+
+    async def save(self, knowledge_graph: KnowledgeGraph) -> None:
+        self._store[knowledge_graph.id.value] = knowledge_graph
+
+    async def delete(self, knowledge_graph: KnowledgeGraph) -> bool:
+        return self._store.pop(knowledge_graph.id.value, None) is not None
+
+
+class _FakeSecretStore:
+    """In-memory fake for ISecretStoreRepository."""
+
+    def __init__(self) -> None:
+        self.store_calls: list[dict[str, Any]] = []
+        self.delete_calls: list[dict[str, Any]] = []
+        self._secrets: dict[tuple[str, str], dict[str, str]] = {}
+
+    async def store(
+        self, path: str, tenant_id: str, credentials: dict[str, str]
+    ) -> None:
+        call = {"path": path, "tenant_id": tenant_id, "credentials": credentials}
+        self.store_calls.append(call)
+        self._secrets[(path, tenant_id)] = credentials
+
+    async def retrieve(self, path: str, tenant_id: str) -> dict[str, str]:
+        return self._secrets.get((path, tenant_id), {})
+
+    async def delete(self, path: str, tenant_id: str) -> bool:
+        call = {"path": path, "tenant_id": tenant_id}
+        self.delete_calls.append(call)
+        return self._secrets.pop((path, tenant_id), None) is not None
+
+
+class _FakeSyncRunRepository:
+    """In-memory fake for IDataSourceSyncRunRepository."""
+
+    def __init__(self) -> None:
+        self._runs: dict[str, DataSourceSyncRun] = {}
+        self.saved: list[DataSourceSyncRun] = []
+
+    def seed(self, *runs: DataSourceSyncRun) -> None:
+        for run in runs:
+            self._runs[run.id] = run
+
+    async def save(self, sync_run: DataSourceSyncRun) -> None:
+        self._runs[sync_run.id] = sync_run
+        self.saved.append(sync_run)
+
+    async def get_by_id(self, sync_run_id: str) -> DataSourceSyncRun | None:
+        return self._runs.get(sync_run_id)
+
+    async def find_by_data_source(self, data_source_id: str) -> list[DataSourceSyncRun]:
+        return [r for r in self._runs.values() if r.data_source_id == data_source_id]
+
+    async def get_latest_for_data_source(
+        self, data_source_id: str
+    ) -> DataSourceSyncRun | None:
+        runs = [r for r in self._runs.values() if r.data_source_id == data_source_id]
+        if not runs:
+            return None
+        return max(runs, key=lambda r: r.created_at)
+
+
+class _FakeAuthorizationProvider:
+    """Configurable fake for AuthorizationProvider.
+
+    Supports:
+    - grant_all() / deny_all() — set default for all check_permission calls
+    - grant_resource(resource) — grant a specific resource
+    - set_check_fn(fn) — use a custom async function for check_permission
+    - check_permission_calls — recorded list of calls for assertions
+    """
+
+    def __init__(self, default_grant: bool = False) -> None:
+        self._default_grant = default_grant
+        self._resource_grants: dict[str, bool] = {}
+        self._check_fn: Callable | None = None
+        self.check_permission_calls: list[dict[str, Any]] = []
+
+    def grant_all(self) -> None:
+        self._default_grant = True
+
+    def deny_all(self) -> None:
+        self._default_grant = False
+
+    def grant_resource(self, resource: str) -> None:
+        self._resource_grants[resource] = True
+
+    def deny_resource(self, resource: str) -> None:
+        self._resource_grants[resource] = False
+
+    def set_check_fn(self, fn: Callable) -> None:
+        """Set a custom async function for check_permission(resource, permission, subject)."""
+        self._check_fn = fn
+
+    def assert_check_called_once(
+        self, resource: str, permission: str, subject: str
+    ) -> None:
+        assert len(self.check_permission_calls) == 1, (
+            f"Expected check_permission called once, got {len(self.check_permission_calls)}"
+        )
+        call = self.check_permission_calls[0]
+        assert call["resource"] == resource, (
+            f"resource mismatch: {call['resource']!r} != {resource!r}"
+        )
+        assert call["permission"] == permission, (
+            f"permission mismatch: {call['permission']!r} != {permission!r}"
+        )
+        assert call["subject"] == subject, (
+            f"subject mismatch: {call['subject']!r} != {subject!r}"
+        )
+
+    async def check_permission(
+        self, resource: str, permission: str, subject: str
+    ) -> bool:
+        self.check_permission_calls.append(
+            {"resource": resource, "permission": permission, "subject": subject}
+        )
+        if self._check_fn is not None:
+            return await self._check_fn(
+                resource=resource, permission=permission, subject=subject
+            )
+        if resource in self._resource_grants:
+            return self._resource_grants[resource]
+        return self._default_grant
+
+    async def bulk_check_permission(self, requests: list) -> set[str]:
+        return set()
+
+    async def write_relationship(
+        self, resource: str, relation: str, subject: str
+    ) -> None:
+        pass
+
+    async def write_relationships(self, relationships: list) -> None:
+        pass
+
+    async def delete_relationship(
+        self, resource: str, relation: str, subject: str
+    ) -> None:
+        pass
+
+    async def delete_relationships(self, relationships: list) -> None:
+        pass
+
+    async def delete_relationships_by_filter(
+        self,
+        resource_type: str,
+        resource_id: str | None = None,
+        relation: str | None = None,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+    ) -> None:
+        pass
+
+    async def lookup_resources(
+        self, resource_type: str, permission: str, subject: str
+    ) -> list[str]:
+        return []
+
+    async def lookup_subjects(
+        self,
+        resource: str,
+        relation: str,
+        subject_type: str,
+        optional_subject_relation: str | None = None,
+    ) -> list:
+        return []
+
+    async def read_relationships(
+        self,
+        resource_type: str,
+        resource_id: str | None = None,
+        relation: str | None = None,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+    ) -> list:
+        return []
+
+
+class _RecordingDataSourceServiceProbe:
+    """Recording fake for DataSourceServiceProbe.
+
+    Records all probe calls with kwargs for assertion.
+    """
+
+    def __init__(self) -> None:
+        self.data_source_created_calls: list[dict[str, Any]] = []
+        self.data_source_creation_failed_calls: list[dict[str, Any]] = []
+        self.data_source_retrieved_calls: list[dict[str, Any]] = []
+        self.data_source_updated_calls: list[dict[str, Any]] = []
+        self.data_source_deleted_calls: list[dict[str, Any]] = []
+        self.data_source_deletion_failed_calls: list[dict[str, Any]] = []
+        self.data_sources_listed_calls: list[dict[str, Any]] = []
+        self.sync_requested_calls: list[dict[str, Any]] = []
+        self.permission_denied_calls: list[dict[str, Any]] = []
+
+    def data_source_created(
+        self, ds_id: str, kg_id: str, tenant_id: str, name: str
+    ) -> None:
+        self.data_source_created_calls.append(
+            {"ds_id": ds_id, "kg_id": kg_id, "tenant_id": tenant_id, "name": name}
+        )
+
+    def data_source_creation_failed(self, kg_id: str, name: str, error: str) -> None:
+        self.data_source_creation_failed_calls.append(
+            {"kg_id": kg_id, "name": name, "error": error}
+        )
+
+    def data_source_retrieved(self, ds_id: str) -> None:
+        self.data_source_retrieved_calls.append({"ds_id": ds_id})
+
+    def data_source_updated(self, ds_id: str, name: str) -> None:
+        self.data_source_updated_calls.append({"ds_id": ds_id, "name": name})
+
+    def data_source_deleted(self, ds_id: str) -> None:
+        self.data_source_deleted_calls.append({"ds_id": ds_id})
+
+    def data_source_deletion_failed(self, ds_id: str, error: str) -> None:
+        self.data_source_deletion_failed_calls.append({"ds_id": ds_id, "error": error})
+
+    def data_sources_listed(self, kg_id: str, count: int) -> None:
+        self.data_sources_listed_calls.append({"kg_id": kg_id, "count": count})
+
+    def sync_requested(self, ds_id: str) -> None:
+        self.sync_requested_calls.append({"ds_id": ds_id})
+
+    def permission_denied(
+        self, user_id: str, resource_id: str, permission: str
+    ) -> None:
+        self.permission_denied_calls.append(
+            {"user_id": user_id, "resource_id": resource_id, "permission": permission}
+        )
+
+    def with_context(self, context: Any) -> "_RecordingDataSourceServiceProbe":
+        return self
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
 
 # ---------------------------------------------------------------------------
 # In-memory fakes
@@ -510,8 +816,8 @@ class TestDataSourceServiceCreate:
         self, service, authz, kg_repo, user_id, kg_id
     ):
         """create() raises ValueError when KG not found."""
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = None
+        authz.grant_all()
+        # kg_repo is empty — get_by_id returns None
 
         with pytest.raises(ValueError, match="not found"):
             await service.create(
@@ -527,10 +833,8 @@ class TestDataSourceServiceCreate:
         self, service, authz, kg_repo, user_id, kg_id
     ):
         """create() raises ValueError when KG belongs to different tenant."""
-        mock_authz.check_permission.return_value = True
-        mock_kg_repo.get_by_id.return_value = _make_kg(
-            kg_id=kg_id, tenant_id="other-tenant"
-        )
+        authz.grant_all()
+        kg_repo.seed(_make_kg(kg_id=kg_id, tenant_id="other-tenant"))
 
         with pytest.raises(ValueError, match="different tenant"):
             await service.create(
@@ -1026,9 +1330,10 @@ class TestDataSourceServiceTriggerSync:
 
         assert result.data_source_id == ds.id.value
         assert result.status == "pending"
-        mock_sync_run_repo.save.assert_called_once()
-        mock_ds_repo.save.assert_called_once()
-        mock_probe.sync_requested.assert_called_once_with(ds_id=ds.id.value)
+        assert len(sync_run_repo.saved) == 1
+        assert len(ds_repo.saved) == 1
+        assert len(ds_probe.sync_requested_calls) == 1
+        assert ds_probe.sync_requested_calls[0]["ds_id"] == ds.id.value
 
 
 class TestDataSourceServiceListAllForUser:
@@ -1038,19 +1343,18 @@ class TestDataSourceServiceListAllForUser:
     async def test_returns_all_data_sources_across_kgs(
         self,
         service: DataSourceService,
-        mock_kg_repo: AsyncMock,
-        mock_ds_repo: AsyncMock,
-        mock_sync_run_repo: AsyncMock,
-        mock_authz: AsyncMock,
+        kg_repo: _FakeKnowledgeGraphRepository,
+        ds_repo: _FakeDataSourceRepository,
+        sync_run_repo: _FakeSyncRunRepository,
+        authz: _FakeAuthorizationProvider,
         user_id: str,
+        tenant_id: str,
     ) -> None:
         """list_all_for_user() aggregates data sources from all accessible KGs."""
-        from management.domain.entities import DataSourceSyncRun
-
-        kg1 = _make_kg(kg_id="kg-1")
-        kg2 = _make_kg(kg_id="kg-2")
-        ds1 = _make_ds(ds_id="ds-1", kg_id="kg-1")
-        ds2 = _make_ds(ds_id="ds-2", kg_id="kg-2")
+        kg1 = _make_kg(kg_id="kg-1", tenant_id=tenant_id)
+        kg2 = _make_kg(kg_id="kg-2", tenant_id=tenant_id)
+        ds1 = _make_ds(ds_id="ds-1", kg_id="kg-1", tenant_id=tenant_id)
+        ds2 = _make_ds(ds_id="ds-2", kg_id="kg-2", tenant_id=tenant_id)
         now = datetime.now(UTC)
         run1 = DataSourceSyncRun(
             id="run-1",
@@ -1062,18 +1366,10 @@ class TestDataSourceServiceListAllForUser:
             created_at=now,
         )
 
-        mock_kg_repo.find_by_tenant.return_value = [kg1, kg2]
-        mock_authz.check_permission.return_value = True
-
-        async def ds_side_effect(knowledge_graph_id: str) -> list[DataSource]:
-            return [ds1] if knowledge_graph_id == "kg-1" else [ds2]
-
-        mock_ds_repo.find_by_knowledge_graph.side_effect = ds_side_effect
-
-        async def run_side_effect(data_source_id: str) -> DataSourceSyncRun | None:
-            return run1 if data_source_id == "ds-1" else None
-
-        mock_sync_run_repo.get_latest_for_data_source.side_effect = run_side_effect
+        kg_repo.seed(kg1, kg2)
+        authz.grant_all()
+        ds_repo.seed(ds1, ds2)
+        sync_run_repo.seed(run1)
 
         result = await service.list_all_for_user(user_id=user_id)
 
@@ -1090,31 +1386,24 @@ class TestDataSourceServiceListAllForUser:
     async def test_excludes_kgs_user_cannot_view(
         self,
         service: DataSourceService,
-        mock_kg_repo: AsyncMock,
-        mock_ds_repo: AsyncMock,
-        mock_sync_run_repo: AsyncMock,
-        mock_authz: AsyncMock,
+        kg_repo: _FakeKnowledgeGraphRepository,
+        ds_repo: _FakeDataSourceRepository,
+        sync_run_repo: _FakeSyncRunRepository,
+        authz: _FakeAuthorizationProvider,
         user_id: str,
+        tenant_id: str,
     ) -> None:
         """list_all_for_user() excludes data sources from KGs the user cannot VIEW."""
-        kg_allowed = _make_kg(kg_id="kg-allowed")
-        kg_denied = _make_kg(kg_id="kg-denied")
-        ds_allowed = _make_ds(ds_id="ds-allowed", kg_id="kg-allowed")
+        kg_allowed = _make_kg(kg_id="kg-allowed", tenant_id=tenant_id)
+        kg_denied = _make_kg(kg_id="kg-denied", tenant_id=tenant_id)
+        ds_allowed = _make_ds(
+            ds_id="ds-allowed", kg_id="kg-allowed", tenant_id=tenant_id
+        )
 
-        mock_kg_repo.find_by_tenant.return_value = [kg_allowed, kg_denied]
-
-        async def perm_side_effect(
-            resource: str, permission: object, subject: str
-        ) -> bool:
-            return "kg-allowed" in resource
-
-        mock_authz.check_permission.side_effect = perm_side_effect
-
-        async def ds_side_effect(knowledge_graph_id: str) -> list[DataSource]:
-            return [ds_allowed] if knowledge_graph_id == "kg-allowed" else []
-
-        mock_ds_repo.find_by_knowledge_graph.side_effect = ds_side_effect
-        mock_sync_run_repo.get_latest_for_data_source.return_value = None
+        kg_repo.seed(kg_allowed, kg_denied)
+        authz.grant_resource("knowledge_graph:kg-allowed")
+        authz.deny_resource("knowledge_graph:kg-denied")
+        ds_repo.seed(ds_allowed)
 
         result = await service.list_all_for_user(user_id=user_id)
 
@@ -1125,12 +1414,12 @@ class TestDataSourceServiceListAllForUser:
     async def test_returns_empty_list_when_no_accessible_kgs(
         self,
         service: DataSourceService,
-        mock_kg_repo: AsyncMock,
-        mock_authz: AsyncMock,
+        kg_repo: _FakeKnowledgeGraphRepository,
+        authz: _FakeAuthorizationProvider,
         user_id: str,
     ) -> None:
         """list_all_for_user() returns empty list when user has no accessible KGs."""
-        mock_kg_repo.find_by_tenant.return_value = []
+        # kg_repo is empty
 
         result = await service.list_all_for_user(user_id=user_id)
 
@@ -1140,20 +1429,21 @@ class TestDataSourceServiceListAllForUser:
     async def test_data_source_with_no_sync_run_has_none_latest(
         self,
         service: DataSourceService,
-        mock_kg_repo: AsyncMock,
-        mock_ds_repo: AsyncMock,
-        mock_sync_run_repo: AsyncMock,
-        mock_authz: AsyncMock,
+        kg_repo: _FakeKnowledgeGraphRepository,
+        ds_repo: _FakeDataSourceRepository,
+        sync_run_repo: _FakeSyncRunRepository,
+        authz: _FakeAuthorizationProvider,
         user_id: str,
+        tenant_id: str,
     ) -> None:
         """list_all_for_user() sets latest_sync_run=None for sources with no runs."""
-        kg = _make_kg(kg_id="kg-1")
-        ds = _make_ds(ds_id="ds-1", kg_id="kg-1")
+        kg = _make_kg(kg_id="kg-1", tenant_id=tenant_id)
+        ds = _make_ds(ds_id="ds-1", kg_id="kg-1", tenant_id=tenant_id)
 
-        mock_kg_repo.find_by_tenant.return_value = [kg]
-        mock_authz.check_permission.return_value = True
-        mock_ds_repo.find_by_knowledge_graph.return_value = [ds]
-        mock_sync_run_repo.get_latest_for_data_source.return_value = None
+        kg_repo.seed(kg)
+        authz.grant_all()
+        ds_repo.seed(ds)
+        # sync_run_repo is empty
 
         result = await service.list_all_for_user(user_id=user_id)
 

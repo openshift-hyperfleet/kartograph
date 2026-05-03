@@ -207,3 +207,58 @@ class DefaultSchemaResourceProbe:
             label=label,
             **self._get_context_kwargs(),
         )
+
+
+class KnowledgeGraphResourceProbe(Protocol):
+    """Domain probe for knowledge_graphs://accessible MCP resource access."""
+
+    def knowledge_graphs_resource_accessed(
+        self,
+        user_id: str,
+        tenant_id: str,
+    ) -> None:
+        """Record that the accessible knowledge graphs resource was read."""
+        ...
+
+    def knowledge_graphs_resource_returned(
+        self,
+        user_id: str,
+        tenant_id: str,
+        count: int,
+    ) -> None:
+        """Record the number of accessible knowledge graphs returned."""
+        ...
+
+
+class DefaultKnowledgeGraphResourceProbe:
+    """Default implementation using structlog."""
+
+    def __init__(
+        self,
+        logger: structlog.stdlib.BoundLogger | None = None,
+    ) -> None:
+        self._logger = logger or structlog.get_logger()
+
+    def knowledge_graphs_resource_accessed(
+        self,
+        user_id: str,
+        tenant_id: str,
+    ) -> None:
+        self._logger.info(
+            "mcp_knowledge_graphs_resource_accessed",
+            user_id=user_id,
+            tenant_id=tenant_id,
+        )
+
+    def knowledge_graphs_resource_returned(
+        self,
+        user_id: str,
+        tenant_id: str,
+        count: int,
+    ) -> None:
+        self._logger.info(
+            "mcp_knowledge_graphs_resource_returned",
+            user_id=user_id,
+            tenant_id=tenant_id,
+            count=count,
+        )

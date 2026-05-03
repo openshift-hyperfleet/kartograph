@@ -1,103 +1,116 @@
 ---
 id: task-134
-title: "MCP auth service unavailable → 503 — unit and integration tests"
-spec_ref: "specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e"
+title: "Per-Tenant Graph Routing — HTTP integration test for unprovisioned tenant graph"
+spec_ref: "specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2"
 status: not-started
 phase: null
 deps: []
 round: 0
 branch: null
 pr: null
-pr_title: "test(query): add tests for MCP 503 response when auth backend is unavailable"
+pr_title: "test(query): add HTTP integration test for unprovisioned-tenant-graph execution error"
 pr_description: |
   ## What and Why
 
-  The MCP Server spec requires the system to return HTTP 503 when the
-  authentication backend (SpiceDB / the API key validation service) is
-  unreachable:
+  The Per-Tenant Graph Routing requirement specifies two scenarios. One of them is:
 
-  > **Scenario: Authentication service unavailable**
-  > GIVEN a request when the authentication backend is unreachable
-  > WHEN the MCP request is processed
-  > THEN a 503 response is returned
+  > **Scenario: Tenant graph not found**
+  > - GIVEN a tenant whose AGE graph has not been provisioned
+  > - WHEN a query is submitted
+  > - THEN the request is rejected with an execution error before reaching the database
 
-  This behaviour is implemented in `MCPApiKeyAuthMiddleware` and the bearer
-  token validation path, but there is no test that drives a request into the
-  MCP transport while simulating a downed auth backend and asserts the 503
-  status code comes back.
+  ### Current coverage
 
-  Without this test, a refactor or dependency upgrade that silently swallows
-  backend errors and returns 401/500 instead of 503 would not be caught.
+  Unit tests in `test_tenant_routing.py` and `TestTenantGraphRouting` in
+  `test_query_repository.py` verify this scenario in isolation: when
+  `graph_exists()` returns False the repository raises `QueryExecutionError`
+  without opening a transaction.
+
+  `test_query_mcp_http.py` provides the only HTTP-transport-level integration
+  test for the `query_graph` MCP tool. However, all of its tests depend on the
+  `provisioned_tenant_graph` fixture — and the fixture comment explicitly
+  acknowledges that **without a provisioned graph, the response would be
+  `error_type: "execution_error"` (graph not found) rather than `"forbidden"`**.
+  No test exercises this path.
+
+  Without an HTTP-level test for the unprovisioned scenario:
+  - A regression in the graph-existence check (e.g., swallowing the
+    `QueryExecutionError` and forwarding the query to the database anyway) would
+    not be caught at the HTTP boundary.
+  - The `error_type: "execution_error"` response contract is untested end-to-end.
 
   ## Spec Requirements Satisfied
 
-  `specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e`
+  `specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2`:
 
-  - **Requirement: MCP Authentication — Scenario: Authentication service
-    unavailable**: "GIVEN a request when the authentication backend is
-    unreachable WHEN the MCP request is processed THEN a 503 response is
-    returned"
+  - **Requirement: Per-Tenant Graph Routing — Scenario: Tenant graph not found**:
+    "GIVEN a tenant whose AGE graph has not been provisioned
+    WHEN a query is submitted
+    THEN the request is rejected with an execution error before reaching the database"
 
   ## What This Change Does
 
-  Adds tests that verify `MCPApiKeyAuthMiddleware` (and the bearer-token
-  path) returns HTTP 503 — not 401, 500, or a raw exception — when
-  `validate_api_key` / `validate_bearer_token` raise a connectivity error.
+  Adds a new test class `TestMCPTenantGraphNotFoundHTTPResponse` to
+  `src/api/tests/integration/test_query_mcp_http.py` containing:
 
-  ### New unit tests (`tests/unit/query/test_mcp_auth_unavailable.py`)
+  **`test_query_without_provisioned_graph_returns_execution_error`**
 
-  **`test_api_key_validation_backend_error_returns_503`**
+  1. Create an API key using `tenant_auth_headers` (default tenant exists, but
+     do NOT provision its AGE graph — intentionally skip the
+     `provisioned_tenant_graph` fixture).
+  2. Send a `query_graph` call via the MCP HTTP transport with a valid read-only
+     query: `MATCH (n) RETURN n LIMIT 10`.
+  3. Assert `result["success"] is False`.
+  4. Assert `result["error_type"] == "execution_error"`.
+  5. Assert `"message"` in result describes the missing graph (e.g., contains
+     "does not exist" or "not provisioned").
 
-  - Construct `MCPApiKeyAuthMiddleware` with a `validate_api_key` callable
-    that raises a generic connection error (e.g., `httpx.ConnectError` or a
-    plain `Exception("backend unavailable")`).
-  - Send a fake ASGI request with a valid-looking `X-API-Key` header.
-  - Assert the ASGI response has `status = 503`.
+  **`test_query_without_provisioned_graph_error_occurs_before_database`**
 
-  **`test_bearer_token_backend_error_returns_503`**
-
-  - Construct the middleware with a `validate_bearer_token` callable that
-    raises a connection error.
-  - Send a request with `Authorization: Bearer <token>` and no `X-API-Key`.
-  - Assert response status is 503.
-
-  **`test_transient_backend_error_does_not_expose_internal_details`**
-
-  - When the backend raises, the 503 response body must not include raw
-    Python exception text or internal stack-trace information.
-
-  ### Integration test (`tests/integration/test_mcp_auth_503.py`, optional)
-
-  If the fake OIDC provider supports forced failures, add a smoke test that
-  hits the real MCP HTTP endpoint with auth headers while the OIDC/SpiceDB
-  connection is broken (or via a stub that raises). This is a stretch goal —
-  the unit tests are sufficient to satisfy the spec.
+  1. Same setup as above (no provisioned graph).
+  2. Submit a query that would be caught by the keyword blacklist if the graph
+     existed (e.g., `CREATE (n:Test) RETURN n`).
+  3. Assert `result["error_type"] == "execution_error"` — **not** `"forbidden"`.
+     (The graph-existence check runs first; the forbidden check never executes.)
+  4. This confirms the spec requirement: "before reaching the database."
 
   ## Files / Areas Affected
 
-  - `src/api/tests/unit/query/test_mcp_auth_unavailable.py` — new test file
-  - `src/api/shared_kernel/middleware/mcp_api_key_auth.py` — may need minor
-    fix if 503 is not currently returned on backend errors (only if tests
-    fail; do NOT change if tests pass)
-  - `src/api/shared_kernel/middleware/mcp_auth.py` — same caveat
+  - `src/api/tests/integration/test_query_mcp_http.py` — two new test methods in
+    a new `TestMCPTenantGraphNotFoundHTTPResponse` class
 
   ## How to Verify
 
   ```bash
-  cd src/api && uv run pytest tests/unit/query/test_mcp_auth_unavailable.py -v
+  make instance-up
+  source .instances/$(basename $(pwd))/.env.instance
+  cd src/api && uv run pytest tests/integration/test_query_mcp_http.py \
+      -v -m integration -k "graph_not_found"
   ```
 
-  All tests must pass. If `MCPApiKeyAuthMiddleware` already returns 503, the
-  tests are green with no production code changes needed — that is the
-  expected outcome (tests first, then verify the implementation matches).
+  All tests in the file (existing forbidden + new graph-not-found) must pass.
+
+  ## Implementation Notes for the Agent
+
+  - The key difference from existing tests: do NOT include `provisioned_tenant_graph`
+    in the test method's fixture parameters. Use only `api_key_secret` and the
+    `async_client` (which guarantees the app lifespan has run and the default
+    tenant exists in the DB, but does NOT provision an AGE graph).
+  - Confirm the error message by reading
+    `QueryGraphRepository._validate_graph_exists()` — the message format is
+    `f"Tenant graph '{graph_name}' does not exist."`.
+  - Write the tests FIRST (TDD). The production code should need no changes —
+    the graph-existence guard is already implemented.
+  - Follow the same fixture pattern (`_make_asgi_httpx_factory`, `fastmcp.Client`,
+    `StreamableHttpTransport`) as the existing tests in the file.
 
   ## Caveats
 
-  - Write tests FIRST (TDD). If the middleware already handles backend errors
-    correctly, tests pass immediately with no code changes.
-  - The middleware wraps a Starlette `ASGIApp`; use `httpx.AsyncClient` with
-    `transport=httpx.ASGITransport(app=middleware)` for black-box testing
-    without starting a real server.
-  - Do not alter the existing `test_mcp_auth_wiring.py` tests — they test
-    different contracts (correct credentials → correct identity extraction).
+  - These are `@pytest.mark.integration` and `@pytest.mark.keycloak` tests (they
+    use `tenant_auth_headers` from the fake OIDC provider).
+  - If the default tenant already has an AGE graph from a previous test run (dirty
+    state), the test may spuriously pass. Guard by running each test in a fresh
+    instance or by dropping the graph in a fixture teardown.
+  - Do NOT provision the tenant graph in these tests — that is precisely the
+    condition under test.
 ---

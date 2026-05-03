@@ -18,6 +18,11 @@
 #   PR commits that leaked onto the branch via rebase contamination. They
 #   originate from a different branch's merged PR and will never carry a
 #   Task-Ref trailer.
+# - Non-first-parent commits — commits that arrived via `git merge` into the
+#   task branch (i.e. reachable only through a merge's second parent). These
+#   are upstream commits the implementer did not author; only the first-parent
+#   chain contains commits the implementer directly committed. Using
+#   --first-parent in git rev-list excludes the entire non-first-parent subtree.
 #
 # Usage:
 #   bash .hyperloop/checks/check-all-commits-have-task-ref.sh [base_branch]
@@ -84,7 +89,7 @@ while IFS= read -r sha; do
     short_msg=$(git log -1 --format='%h %s' "$sha" 2>/dev/null || true)
     MISSING_TRAILER="${MISSING_TRAILER}  MISSING: ${short_msg}\n"
   fi
-done < <(git rev-list "${MERGE_BASE}..HEAD" 2>/dev/null || true)
+done < <(git rev-list --first-parent "${MERGE_BASE}..HEAD" 2>/dev/null || true)
 
 echo ""
 echo "Examined $COMMIT_COUNT commit(s) (skipped $MERGE_SKIPPED merge, $PR_MERGE_SKIPPED upstream PR)."

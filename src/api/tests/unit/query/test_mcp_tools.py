@@ -9,6 +9,7 @@ Spec references:
 - Scenario: Secure enclave redaction
 - Scenario: Internal property filtering
 - Scenario: Private repository with token (x-github-pat / x-gitlab-pat headers)
+- Scenario: Invalid URL format
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from query.ports.exceptions import RemoteFileFetchFailed
 from query.ports.file_repository_models import RemoteFileRepositoryResponse
 from query.presentation.mcp import (
     _filter_by_knowledge_graph,
@@ -469,4 +471,138 @@ class TestFetchDocumentationSourceHeaders:
             url=self._GITHUB_URL,
             github_token=None,
             gitlab_token=None,
+        )
+
+
+class TestFetchDocumentationSourceErrorHandling:
+    """Tests for fetch_documentation_source error response for invalid URLs.
+
+    Spec: Requirement: Documentation Fetch Tool — Scenario: Invalid URL format
+    GIVEN a URL that does not match GitHub or GitLab blob patterns
+    WHEN the tool is called
+    THEN an error response is returned
+
+    The tool MUST return RemoteFileRepositoryResponse(success=False, error=...)
+    rather than propagating exceptions. MCP clients pattern-match on
+    response.success and expect a typed response, not a JSON-RPC fault.
+
+    Spec reference: specs/query/mcp-server.spec.md
+    """
+
+    _INVALID_URL = "https://example.com/not-a-git-url"
+    _GITHUB_NO_BLOB = "https://github.com/owner/repo"
+
+    def test_invalid_url_returns_error_response(self) -> None:
+        """Calling fetch_documentation_source.fn with an unsupported URL MUST
+        return RemoteFileRepositoryResponse(success=False).
+
+        Spec: Invalid URL format — THEN an error response is returned.
+
+        The tool's return type is RemoteFileRepositoryResponse. A JSON-RPC
+        fault (propagated exception) is the wrong shape for MCP clients that
+        pattern-match on response.success.
+        """
+        with patch(
+            "query.presentation.mcp.get_http_headers",
+            return_value={},
+        ):
+            result = fetch_documentation_source.fn(self._INVALID_URL)
+
+        assert isinstance(result, RemoteFileRepositoryResponse), (
+            "fetch_documentation_source must always return RemoteFileRepositoryResponse, "
+            "even for invalid URLs. Propagating exceptions breaks MCP client contracts."
+        )
+        assert result.success is False, (
+            "Invalid URL must result in success=False, not True."
+        )
+
+    def test_invalid_url_error_field_is_not_none(self) -> None:
+        """The error field in the response MUST contain a non-empty message.
+
+        An error response with success=False but error=None provides no
+        actionable information to the MCP client.
+        """
+        with patch(
+            "query.presentation.mcp.get_http_headers",
+            return_value={},
+        ):
+            result = fetch_documentation_source.fn(self._INVALID_URL)
+
+        assert result.error is not None, (
+            "error field must be populated when success=False"
+        )
+        assert len(result.error) > 0, "error field must contain a non-empty message"
+
+    def test_invalid_url_does_not_raise(self) -> None:
+        """fetch_documentation_source.fn MUST NOT raise for an invalid URL.
+
+        Spec: Invalid URL format — THEN an error response is returned.
+
+        The tool must return rather than raise so that FastMCP can serialize
+        the response. Unhandled exceptions propagate as JSON-RPC errors (a
+        different shape from RemoteFileRepositoryResponse).
+        """
+        with patch(
+            "query.presentation.mcp.get_http_headers",
+            return_value={},
+        ):
+            try:
+                result = fetch_documentation_source.fn(self._INVALID_URL)
+            except Exception as exc:
+                raise AssertionError(
+                    f"fetch_documentation_source must not raise for invalid URLs. "
+                    f"Got {type(exc).__name__}: {exc}"
+                ) from exc
+
+        assert result is not None
+
+    def test_github_url_missing_blob_segment_returns_error_response(self) -> None:
+        """GitHub URL without /blob/ segment must produce an error response.
+
+        A bare repository URL (e.g., https://github.com/owner/repo) is not
+        a valid blob URL. The tool must return success=False rather than raise.
+
+        Spec: Invalid URL format — THEN an error response is returned.
+        """
+        with patch(
+            "query.presentation.mcp.get_http_headers",
+            return_value={},
+        ):
+            result = fetch_documentation_source.fn(self._GITHUB_NO_BLOB)
+
+        assert isinstance(result, RemoteFileRepositoryResponse)
+        assert result.success is False
+
+    def test_remote_fetch_failure_returns_error_response(self) -> None:
+        """RemoteFileFetchFailed from repository.get_file() MUST be caught and
+        returned as RemoteFileRepositoryResponse(success=False).
+
+        Spec: Invalid URL format — THEN an error response is returned.
+
+        This covers HTTP failures (404, 403, network errors) from get_file().
+        The tool must not propagate RemoteFileFetchFailed to FastMCP as a
+        JSON-RPC fault.
+        """
+        mock_repo = MagicMock()
+        mock_repo.get_file.side_effect = RemoteFileFetchFailed("HTTP 404: Not Found")
+
+        with (
+            patch(
+                "query.presentation.mcp.get_http_headers",
+                return_value={},
+            ),
+            patch(
+                "query.presentation.mcp.get_git_repository",
+                return_value=mock_repo,
+            ),
+        ):
+            result = fetch_documentation_source.fn(
+                "https://github.com/owner/repo/blob/main/private.adoc"
+            )
+
+        assert isinstance(result, RemoteFileRepositoryResponse)
+        assert result.success is False
+        assert result.error is not None
+        assert "404" in result.error, (
+            "Error message should reference the HTTP status code for diagnostics."
         )

@@ -69,14 +69,23 @@ class MCPQueryService:
         start_time = time.perf_counter()
 
         try:
+            # Fetch one extra row to detect truncation without a false positive.
+            # Spec: "the server SHOULD fetch `limit + 1` rows and set `truncated`
+            # to true only if more than `limit` rows were available".
             rows = self._repository.execute_cypher(
                 query=query,
                 timeout_seconds=timeout,
-                max_rows=limit,
+                max_rows=limit + 1,
             )
 
             elapsed_ms = (time.perf_counter() - start_time) * 1000
-            truncated = len(rows) >= limit
+
+            # True only when a (limit+1)-th row actually exists
+            truncated = len(rows) > limit
+            if truncated:
+                # Return at most `limit` rows (spec: "the response returns
+                # at most `limit` rows")
+                rows = rows[:limit]
 
             self._probe.cypher_query_executed(
                 query=query,

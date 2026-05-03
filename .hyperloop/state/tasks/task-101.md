@@ -2,12 +2,12 @@
 id: task-101
 title: Implement post-KG-creation data source prompt in UI
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps:
 - task-040
 round: 0
-branch: null
+branch: hyperloop/task-101
 pr: null
 pr_title: 'feat(ui): prompt user to add first data source after knowledge graph creation'
 pr_description: "## What & Why\n\nThe **Knowledge Graph Creation** requirement in\

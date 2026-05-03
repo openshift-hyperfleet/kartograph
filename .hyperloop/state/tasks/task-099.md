@@ -3,11 +3,11 @@ id: task-099
 title: Fix MCP query result truncation to use limit+1 detection
 spec_ref: specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-099
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/565
 pr_title: 'fix: implement limit+1 truncation detection for MCP query results'
 pr_description: "## What and Why\n\nThe `query_graph` MCP tool includes a `truncated`\
   \ flag in its response, signalling\nto the caller whether more rows exist beyond\

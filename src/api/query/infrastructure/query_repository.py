@@ -102,6 +102,10 @@ class QueryGraphRepository(IQueryGraphRepository):
             QueryTimeoutError: If the database cancels the statement.
             QueryExecutionError: On other query failures.
         """
+        # Safeguard 0: Validate tenant graph existence (per-tenant routing spec).
+        # Must run before the Cypher query reaches the database.
+        self._validate_graph_exists()
+
         # Safeguard 1: Reject mutation keywords (secondary read-only defense)
         self._validate_read_only(query)
 
@@ -142,6 +146,27 @@ class QueryGraphRepository(IQueryGraphRepository):
 
         # Convert results to dictionaries
         return [self._row_to_dict(row) for row in result.rows]
+
+    def _validate_graph_exists(self) -> None:
+        """Validate that the tenant AGE graph has been provisioned.
+
+        This is the pre-flight guard for per-tenant graph routing (spec:
+        Per-Tenant Graph Routing — Tenant graph not found scenario).
+
+        The check queries ``ag_catalog.ag_graph`` to confirm the graph named
+        ``self._client.graph_name`` (expected to be ``tenant_{tenant_id}``)
+        exists before any Cypher query is submitted to the database.
+
+        Raises:
+            QueryExecutionError: If the graph does not exist, with a message
+                identifying the missing graph name.
+        """
+        graph_name = self._client.graph_name
+        if not self._client.graph_exists(graph_name):
+            raise QueryExecutionError(
+                f"Tenant graph '{graph_name}' does not exist. "
+                "The graph may not have been provisioned yet.",
+            )
 
     def _validate_read_only(self, query: str) -> None:
         """Validate that query contains no mutation keywords.

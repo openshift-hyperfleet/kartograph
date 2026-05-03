@@ -123,6 +123,23 @@ class GraphQueryExecutorProtocol(Protocol):
         """
         ...
 
+    def graph_exists(self, graph_name: str) -> bool:
+        """Check whether an AGE graph with the given name exists.
+
+        Used by the Querying context to validate that the tenant's AGE graph
+        has been provisioned before executing any Cypher query against it.
+
+        Args:
+            graph_name: The name of the graph to check (e.g., ``"tenant_xyz"``).
+
+        Returns:
+            True if the graph exists in ag_catalog.ag_graph, False otherwise.
+
+        Raises:
+            DatabaseConnectionError: If not connected to the database.
+        """
+        ...
+
     @contextmanager
     def transaction(self) -> Iterator[GraphTransactionProtocol]:
         """Create a transaction context for atomic operations.

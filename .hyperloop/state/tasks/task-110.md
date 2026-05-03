@@ -3,7 +3,7 @@ id: task-110
 title: MCP Knowledge Graphs Resource — integration tests for knowledge-graphs://accessible
 spec_ref: specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e
 status: in_progress
-phase: mark-ready
+phase: merge
 deps: []
 round: 0
 branch: hyperloop/task-110

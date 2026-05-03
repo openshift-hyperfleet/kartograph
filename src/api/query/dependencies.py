@@ -27,6 +27,7 @@ from query.application.observability import (
 )
 from query.application.services import MCPQueryService
 from query.infrastructure.query_repository import QueryGraphRepository
+from shared_kernel.middleware.mcp_auth import get_mcp_auth_context
 
 if TYPE_CHECKING:
     from graph.infrastructure.age_client import AgeGraphClient
@@ -42,11 +43,19 @@ def get_query_service_probe() -> QueryServiceProbe:
 
 
 @contextmanager
-def mcp_graph_client_context() -> Generator["AgeGraphClient", None, None]:
+def mcp_graph_client_context(
+    graph_name: Optional[str] = None,
+) -> Generator["AgeGraphClient", None, None]:
     """Context manager for MCP graph client lifecycle.
 
     Creates a connected graph client and ensures proper cleanup.
     Uses the shared connection pool for efficiency.
+
+    Args:
+        graph_name: Optional graph name override. When provided (e.g.,
+            ``"tenant_{tenant_id}"``), the client targets that specific
+            AGE graph instead of the default from settings. Pass this
+            for per-tenant graph isolation (spec: Per-Tenant Graph Routing).
 
     Yields:
         Connected AgeGraphClient instance
@@ -57,7 +66,7 @@ def mcp_graph_client_context() -> Generator["AgeGraphClient", None, None]:
     pool = get_age_connection_pool()
     settings = get_database_settings()
     factory = ConnectionFactory(settings, pool=pool)
-    client = AgeGraphClient(settings, connection_factory=factory)
+    client = AgeGraphClient(settings, connection_factory=factory, graph_name=graph_name)
     client.connect()
     try:
         yield client
@@ -74,10 +83,21 @@ def get_mcp_query_service() -> Iterator[MCPQueryService]:
 
     Handles graph client lifecycle (connect/disconnect) automatically.
 
+    Per-tenant graph routing:
+        Reads the authenticated MCP caller's tenant_id from the request
+        context and routes all queries to the corresponding AGE graph
+        (``tenant_{tenant_id}``). This guarantees tenant isolation at the
+        database level — all queries run against a graph that is dedicated to
+        and owned by the authenticated tenant.
+
     Yields:
-        MCPQueryService instance with active database connection
+        MCPQueryService instance with active database connection targeting
+        the authenticated tenant's AGE graph.
     """
-    with mcp_graph_client_context() as client:
+    auth_context = get_mcp_auth_context()
+    tenant_graph_name = f"tenant_{auth_context.tenant_id}"
+
+    with mcp_graph_client_context(graph_name=tenant_graph_name) as client:
         probe = get_query_service_probe()
         repository = QueryGraphRepository(client=client)
         yield MCPQueryService(repository=repository, probe=probe)

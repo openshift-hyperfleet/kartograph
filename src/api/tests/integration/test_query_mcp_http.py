@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 
 import httpx
 import pytest
@@ -144,7 +144,7 @@ async def provisioned_tenant_graph(
 
 def _make_asgi_httpx_factory(
     asgi_app,
-) -> httpx.AsyncClient:
+) -> Callable[..., httpx.AsyncClient]:
     """Return an ``McpHttpClientFactory`` that wraps the ASGI app.
 
     FastMCP's ``StreamableHttpTransport`` accepts an optional
@@ -173,7 +173,7 @@ def _make_asgi_httpx_factory(
             auth=auth,
         )
 
-    return factory  # type: ignore[return-value]
+    return factory
 
 
 # ---------------------------------------------------------------------------

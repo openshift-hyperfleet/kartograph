@@ -10,12 +10,33 @@ Scenarios:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
 from query.ports.knowledge_graphs import AccessibleKnowledgeGraph
+
+
+# ---------------------------------------------------------------------------
+# Lightweight fakes for KG domain aggregates
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _FakeKGId:
+    """Fake value object mirroring KnowledgeGraphId.value."""
+
+    value: str
+
+
+@dataclass
+class _FakeKG:
+    """Fake domain aggregate mirroring KnowledgeGraph (id, name, description)."""
+
+    id: _FakeKGId
+    name: str
+    description: str
 
 
 # ---------------------------------------------------------------------------
@@ -356,15 +377,16 @@ class TestGetAccessibleKnowledgeGraphsMappingLogic:
     async def test_maps_kg_aggregates_to_summaries(self) -> None:
         """Should map KG aggregates to id/name/description dicts."""
         # Simulate what get_accessible_knowledge_graphs_for_mcp does internally
-        fake_kg_1 = MagicMock()
-        fake_kg_1.id.value = "kg-prod-001"
-        fake_kg_1.name = "Production"
-        fake_kg_1.description = "Production graph"
-
-        fake_kg_2 = MagicMock()
-        fake_kg_2.id.value = "kg-staging-002"
-        fake_kg_2.name = "Staging"
-        fake_kg_2.description = "Staging graph"
+        fake_kg_1 = _FakeKG(
+            id=_FakeKGId("kg-prod-001"),
+            name="Production",
+            description="Production graph",
+        )
+        fake_kg_2 = _FakeKG(
+            id=_FakeKGId("kg-staging-002"),
+            name="Staging",
+            description="Staging graph",
+        )
 
         # This is the mapping logic from get_accessible_knowledge_graphs_for_mcp
         kgs = [fake_kg_1, fake_kg_2]

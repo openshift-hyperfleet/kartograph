@@ -2,11 +2,11 @@
 id: task-118
 title: 'UI Foundation: Design System, Project Setup & Shared Utilities'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-118
 pr: null
 pr_title: 'feat(ui): initialize Vue.js project with design system and shared utilities'
 pr_description: "## What & Why\n\nThis PR scaffolds the entire Kartograph frontend\

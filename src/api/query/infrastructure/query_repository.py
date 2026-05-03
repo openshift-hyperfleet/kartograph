@@ -102,6 +102,10 @@ class QueryGraphRepository(IQueryGraphRepository):
             QueryTimeoutError: If the database cancels the statement.
             QueryExecutionError: On other query failures.
         """
+        # Safeguard 0: Validate tenant graph existence (per-tenant routing spec).
+        # Must run before the Cypher query reaches the database.
+        self._validate_graph_exists()
+
         # Safeguard 1: Reject mutation keywords (secondary read-only defense)
         self._validate_read_only(query)
 

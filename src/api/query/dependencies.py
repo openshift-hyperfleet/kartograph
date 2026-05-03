@@ -101,19 +101,11 @@ def get_mcp_query_service() -> Iterator[MCPQueryService]:
         and owned by the authenticated tenant.
 
     Yields:
-        MCPQueryService instance scoped to the caller's tenant graph.
+        MCPQueryService instance with active database connection targeting
+        the authenticated tenant's AGE graph.
     """
     auth_context = get_mcp_auth_context()
-    tenant_id = auth_context.tenant_id
-    tenant_graph_name = f"tenant_{tenant_id}"
-
-    pool = get_age_connection_pool()
-    settings = get_database_settings()
-    factory = ConnectionFactory(settings, pool=pool)
-
-    # Build the existence checker using a separate connection pool reference.
-    # This lets us verify the graph before opening an AGE-registered connection.
-    existence_checker = AGEGraphExistenceChecker(connection_factory=factory)
+    tenant_graph_name = f"tenant_{auth_context.tenant_id}"
 
     with mcp_graph_client_context(graph_name=tenant_graph_name) as client:
         probe = get_query_service_probe()

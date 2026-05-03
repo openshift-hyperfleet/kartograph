@@ -63,6 +63,7 @@ CHECKS=(
   check-process-overlay-content-intact.sh
   check-new-checks-pass-on-head.sh
   check-branch-has-commits.sh
+  check-implementation-commits-exist.sh
   check-alpha-local-vs-remote.sh
   check-branch-rebased-on-alpha.sh
   check-branch-rebases-cleanly.sh

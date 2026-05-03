@@ -4,7 +4,7 @@ title: MCP query_graph tool — tests for parameter bounds enforcement (timeout 
   60 s, rows max 10 000)
 spec_ref: specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 1
 branch: hyperloop/task-115

@@ -3,11 +3,11 @@ id: task-091
 title: 'UI: Backend API alignment — verify all CRUD operations use correct routes
   and parent context'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-091
 pr: null
 pr_title: 'fix(ui): ensure all resource CRUD operations call correct API routes with
   required parent context'

@@ -25,7 +25,7 @@ export interface AdapterDefinition {
 }
 
 /**
- * The canonical list of supported (and coming-soon) adapters.
+ * The canonical list of supported (and unavailable/future) adapters.
  *
  * Regression guard: adding a new adapter without updating the tests in
  * `data-source-connection-wizard.test.ts` will surface the change immediately.
@@ -55,7 +55,7 @@ export const ADAPTERS: AdapterDefinition[] = [
 
 /**
  * Returns true if the given adapter ID maps to an available adapter.
- * Unavailable (coming-soon) adapters must not be selectable via the wizard UI.
+ * Unavailable adapters must not be selectable via the wizard UI.
  *
  * @param adapterId - The adapter ID to check (e.g. `'github'`, `'gitlab'`).
  */

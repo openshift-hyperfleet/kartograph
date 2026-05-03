@@ -2,8 +2,8 @@
 id: task-118
 title: 'UI Foundation: Design System, Project Setup & Shared Utilities'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: in_progress
-phase: merge
+status: complete
+phase: null
 deps: []
 round: 0
 branch: hyperloop/task-118

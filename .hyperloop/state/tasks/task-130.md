@@ -3,11 +3,11 @@ id: task-130
 title: 'Management: DataSource ontology storage (domain → API)'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-130
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/589
 pr_title: 'feat(management): add ontology field to DataSource aggregate and API'
 pr_description: "## Summary\n\nThe UI's Ontology Design flow (data-sources page) is\
   \ fully implemented in the\nfrontend but has no backend support. When a user:\n\

@@ -319,10 +319,20 @@ watch(connRepoUrl, (url) => {
 
 // ── Wizard navigation ──────────────────────────────────────────────────────
 
-function openWizard() {
+/**
+ * Open the data source creation wizard, optionally pre-selecting a knowledge graph.
+ *
+ * @param preselectedKgId - When provided (e.g. from the ?kg_id= query param on
+ *   the /data-sources route), the wizard opens with that KG already selected so
+ *   the user can skip the KG selection step. This supports the post-KG-creation
+ *   flow where the user is prompted to "Add Data Source" immediately after
+ *   creating a new knowledge graph (task-101 / experience.spec.md).
+ */
+function openWizard(preselectedKgId?: string) {
   wizardStep.value = 1
   selectedAdapterId.value = ''
-  selectedKnowledgeGraphId.value = ''
+  // Pre-select the knowledge graph if one was provided (e.g. from ?kg_id= query param).
+  selectedKnowledgeGraphId.value = preselectedKgId ?? ''
   approvingOntology.value = false
   connName.value = ''
   connRepoUrl.value = ''
@@ -695,6 +705,16 @@ onMounted(async () => {
       await nextTick()
       requestOntologyEdit(target)
     }
+  }
+
+  // Task-101: Post-KG-creation flow — auto-open wizard with new KG pre-selected.
+  // When the user clicks "Add Data Source" from the post-KG-creation toast on
+  // /knowledge-graphs, they are sent to /data-sources?kg_id=<new-kg-id>. Reading
+  // this param here ensures the wizard opens immediately with the right KG chosen.
+  const preselectedKgId = route.query.kg_id as string | undefined
+  if (preselectedKgId) {
+    await nextTick()
+    openWizard(preselectedKgId)
   }
 })
 

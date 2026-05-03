@@ -4,12 +4,12 @@ title: Ontology design wizard — tests for intent/proposal/approval + implement
   warning
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-115
 round: 0
 branch: hyperloop/task-116
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/588
 pr_title: 'feat(ui): add ontology design wizard tests and implement re-extraction
   warning'
 pr_description: "## What & Why\n\nThe data source wizard in `src/dev-ui/app/pages/data-sources/index.vue`\

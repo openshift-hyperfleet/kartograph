@@ -7,6 +7,7 @@ from fastmcp.dependencies import Depends
 from fastmcp.server.dependencies import get_http_headers
 
 from infrastructure.mcp_dependencies import (
+    get_accessible_knowledge_graphs_for_mcp,
     get_mcp_secure_enclave,
     validate_mcp_api_key,
     validate_mcp_bearer_token,
@@ -410,6 +411,61 @@ async def get_accessible_knowledge_graphs() -> list[dict]:
         }
         for kg in kgs
     ]
+
+    _kg_resource_probe.knowledge_graphs_resource_returned(
+        user_id=auth_context.user_id,
+        tenant_id=auth_context.tenant_id,
+        count=len(result),
+    )
+
+    return result
+
+
+@mcp.resource(
+    # NOTE: The spec uses 'knowledge_graphs://accessible' but URL schemes cannot
+    # contain underscores (RFC 3986). We use 'knowledge-graphs://accessible'
+    # (hyphen) which is the equivalent valid URI that FastMCP's pydantic
+    # AnyUrl validator accepts. MCP clients discover this URI via resources/list.
+    uri="knowledge-graphs://accessible",
+    name="AccessibleKnowledgeGraphs",
+    description="All knowledge graphs the authenticated caller has view permission on within their tenant",
+    mime_type="application/json",
+    annotations={"readOnlyHint": True, "idempotentHint": False},
+)
+async def get_accessible_knowledge_graphs() -> list[dict]:
+    """Get all knowledge graphs accessible to the authenticated caller.
+
+    Queries the management context for all knowledge graphs in the caller's
+    tenant, filtered to only those the caller has VIEW permission on via
+    SpiceDB authorization.
+
+    Returns:
+        List of knowledge graph summaries. Each entry contains:
+        - id: The knowledge graph's unique identifier
+        - name: The human-readable name
+        - description: A description of the knowledge graph's content
+
+        Returns an empty list when the caller has no accessible knowledge graphs.
+
+    Examples:
+        Read the resource to discover available knowledge graphs before querying:
+        - Resource URI: ``knowledge_graphs://accessible``
+        - Response: ``[{"id": "kg-01J...", "name": "My Graph", "description": "..."}]``
+
+        Use the returned ``id`` values with the ``query_graph`` tool's
+        ``knowledge_graph_id`` parameter to scope queries to a specific graph.
+    """
+    auth_context = get_mcp_auth_context()
+
+    _kg_resource_probe.knowledge_graphs_resource_accessed(
+        user_id=auth_context.user_id,
+        tenant_id=auth_context.tenant_id,
+    )
+
+    result = await get_accessible_knowledge_graphs_for_mcp(
+        user_id=auth_context.user_id,
+        tenant_id=auth_context.tenant_id,
+    )
 
     _kg_resource_probe.knowledge_graphs_resource_returned(
         user_id=auth_context.user_id,

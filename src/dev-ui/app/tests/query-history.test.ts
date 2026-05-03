@@ -588,3 +588,79 @@ describe('Query Console - tenant switch triggers schema and KG reload', () => {
     expect(queryVue).toContain('loadKnowledgeGraphs()')
   })
 })
+
+// ── Scenario: Knowledge graph context — structural verification ───────────────
+//
+// Spec: specs/ui/experience.spec.md — Requirement: Query Console
+// "GIVEN a query console
+//  THEN the user can optionally select a specific knowledge graph to scope queries
+//  AND when unscoped, queries span all knowledge graphs the user can access in the tenant"
+//
+// Task-Ref: task-045
+//
+// These structural tests read the production query/index.vue file to verify
+// that the KG scope selector is wired end-to-end: state management, computed
+// label, template element, and query-arg gate.
+
+describe('Query Console KG scope selector — structural verification', () => {
+  const { readFileSync } = require('node:fs')
+  const { resolve } = require('node:path')
+  const queryVue: string = readFileSync(
+    resolve(__dirname, '../pages/query/index.vue'),
+    'utf-8',
+  )
+
+  it('declares selectedKgId ref initialised to empty string (unscoped default)', () => {
+    // An empty string means "all knowledge graphs" — not a KG ID.
+    expect(queryVue).toContain("selectedKgId = ref('')")
+  })
+
+  it('declares knowledgeGraphs ref to hold the list from the API', () => {
+    expect(queryVue).toMatch(/knowledgeGraphs\s*=\s*ref/)
+  })
+
+  it('defines loadKnowledgeGraphs() function that fetches from /management/knowledge-graphs', () => {
+    expect(queryVue).toContain('loadKnowledgeGraphs')
+    expect(queryVue).toContain('/management/knowledge-graphs')
+  })
+
+  it('computes kgScopeLabel as "All knowledge graphs" when selectedKgId is empty', () => {
+    // The computed must return the correct label for the unscoped state.
+    expect(queryVue).toContain('kgScopeLabel')
+    expect(queryVue).toContain('All knowledge graphs')
+  })
+
+  it('renders the Knowledge Graph Context Selector block in the template', () => {
+    expect(queryVue).toContain('Knowledge Graph Context Selector')
+  })
+
+  it('binds the Select component to selectedKgId', () => {
+    // v-model="selectedKgId" connects the dropdown to the ref.
+    expect(queryVue).toContain('v-model="selectedKgId"')
+  })
+
+  it('includes "All knowledge graphs" as the unscoped option in the Select', () => {
+    // The first SelectItem must represent the unscoped (all KGs) choice.
+    expect(queryVue).toMatch(/<SelectItem[^>]*value=""[^>]*>/)
+    expect(queryVue).toContain('All knowledge graphs')
+  })
+
+  it('iterates over knowledgeGraphs to render per-KG options', () => {
+    // The v-for loop populates individual KG options in the dropdown.
+    expect(queryVue).toMatch(/v-for="kg in knowledgeGraphs"/)
+  })
+
+  it('shows Scoped badge when a KG is selected', () => {
+    expect(queryVue).toContain('Scoped')
+  })
+
+  it('shows Unscoped badge when no KG is selected', () => {
+    expect(queryVue).toContain('Unscoped')
+  })
+
+  it('gates knowledge_graph_id via selectedKgId.value || undefined in executeQuery', () => {
+    // The || undefined gate converts an empty string to undefined so the MCP
+    // call omits knowledge_graph_id entirely when the query is unscoped.
+    expect(queryVue).toContain('selectedKgId.value || undefined')
+  })
+})

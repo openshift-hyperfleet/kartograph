@@ -3,13 +3,13 @@ id: task-123
 title: 'UI: Graph Explorer'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-118
 - task-119
 round: 0
 branch: hyperloop/task-123
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/595
 pr_title: 'feat(ui): add interactive graph explorer with node search and neighbor
   traversal'
 pr_description: "## What & Why\n\nImplements the Graph Explorer — an interactive node\

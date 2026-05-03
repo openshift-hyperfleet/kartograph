@@ -3,13 +3,13 @@ id: task-120
 title: 'UI: Knowledge Graph & Data Source Management'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-118
 - task-119
 round: 0
 branch: hyperloop/task-120
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/592
 pr_title: 'feat(ui): add knowledge graph creation and data source connection flows'
 pr_description: "## What & Why\n\nImplements the two core setup flows: creating a\
   \ knowledge graph and connecting a\ndata source to it. Together these take a user\

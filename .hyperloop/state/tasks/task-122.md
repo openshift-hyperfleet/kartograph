@@ -3,13 +3,13 @@ id: task-122
 title: 'UI: Schema Browser'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-118
 - task-119
 round: 0
 branch: hyperloop/task-122
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/594
 pr_title: 'feat(ui): add schema browser with type listing, detail expansion, and cross-navigation'
 pr_description: "## What & Why\n\nImplements the Schema Browser — the \"Explore\"\
   \ tool for understanding the graph\nontology. Users can see all node and edge types\

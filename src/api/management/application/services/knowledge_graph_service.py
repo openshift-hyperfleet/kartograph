@@ -14,7 +14,7 @@ from management.application.observability import (
     KnowledgeGraphServiceProbe,
 )
 from management.domain.aggregates import KnowledgeGraph
-from management.domain.value_objects import KnowledgeGraphId
+from management.domain.value_objects import KnowledgeGraphId, OntologyConfig
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
     KnowledgeGraphNotFoundError,
@@ -491,3 +491,84 @@ class KnowledgeGraphService:
         self._probe.knowledge_graph_deleted(kg_id=kg_id)
 
         return True
+
+    async def get_ontology(
+        self,
+        user_id: str,
+        kg_id: str,
+    ) -> OntologyConfig | None:
+        """Retrieve the ontology for a knowledge graph.
+
+        Returns None when no ontology has been saved yet (caller should
+        convert to 404). Returns None also when the KG does not exist or
+        the caller lacks VIEW permission (existence leakage prevention).
+
+        Args:
+            user_id: The user requesting access
+            kg_id: The knowledge graph ID
+
+        Returns:
+            The OntologyConfig if one has been saved, otherwise None
+        """
+        kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
+        if kg is None or kg.tenant_id != self._scope_to_tenant:
+            return None
+
+        has_view = await self._check_permission(
+            user_id=user_id,
+            resource_type=ResourceType.KNOWLEDGE_GRAPH,
+            resource_id=kg_id,
+            permission=Permission.VIEW,
+        )
+        if not has_view:
+            return None
+
+        return await self._kg_repo.get_ontology(kg_id)
+
+    async def save_ontology(
+        self,
+        user_id: str,
+        kg_id: str,
+        config: OntologyConfig,
+    ) -> OntologyConfig:
+        """Persist an ontology configuration for a knowledge graph.
+
+        Requires EDIT permission on the knowledge graph. Performs a full
+        replace (not a merge) of the stored ontology.
+
+        Args:
+            user_id: The user performing the operation
+            kg_id: The knowledge graph ID
+            config: The OntologyConfig to persist
+
+        Returns:
+            The stored OntologyConfig (same as input)
+
+        Raises:
+            UnauthorizedError: If user lacks EDIT permission
+            KnowledgeGraphNotFoundError: If KG does not exist in this tenant
+        """
+        has_edit = await self._check_permission(
+            user_id=user_id,
+            resource_type=ResourceType.KNOWLEDGE_GRAPH,
+            resource_id=kg_id,
+            permission=Permission.EDIT,
+        )
+        if not has_edit:
+            self._probe.permission_denied(
+                user_id=user_id,
+                resource_id=kg_id,
+                permission=Permission.EDIT,
+            )
+            raise UnauthorizedError(
+                f"User {user_id} lacks edit permission on knowledge graph {kg_id}"
+            )
+
+        kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
+        if kg is None or kg.tenant_id != self._scope_to_tenant:
+            raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
+
+        async with self._session.begin():
+            await self._kg_repo.save_ontology(kg_id, config)
+
+        return config

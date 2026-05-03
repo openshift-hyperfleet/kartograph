@@ -15,7 +15,11 @@ from specs/nfr/testing.spec.md.
 from __future__ import annotations
 
 from management.domain.aggregates import DataSource, KnowledgeGraph
-from management.domain.value_objects import DataSourceId, KnowledgeGraphId
+from management.domain.value_objects import (
+    DataSourceId,
+    KnowledgeGraphId,
+    OntologyConfig,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -33,6 +37,7 @@ class InMemoryKnowledgeGraphRepository:
 
     def __init__(self) -> None:
         self._store: dict[str, KnowledgeGraph] = {}
+        self._ontology_store: dict[str, OntologyConfig] = {}
         self.saved: list[KnowledgeGraph] = []
         self.deleted: list[KnowledgeGraph] = []
 
@@ -57,8 +62,17 @@ class InMemoryKnowledgeGraphRepository:
         self.deleted.append(knowledge_graph)
         if knowledge_graph.id.value in self._store:
             del self._store[knowledge_graph.id.value]
+            self._ontology_store.pop(knowledge_graph.id.value, None)
             return True
         return False
+
+    async def save_ontology(self, kg_id: str, config: OntologyConfig) -> None:
+        """Store an ontology config for the given KG ID (full replace)."""
+        self._ontology_store[kg_id] = config
+
+    async def get_ontology(self, kg_id: str) -> OntologyConfig | None:
+        """Retrieve the ontology config for the given KG ID, or None."""
+        return self._ontology_store.get(kg_id)
 
 
 class InMemoryDataSourceRepository:

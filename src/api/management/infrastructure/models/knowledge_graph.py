@@ -6,6 +6,7 @@ containers for interconnected data within a workspace.
 
 import sqlalchemy as sa
 from sqlalchemy import Index, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.database.models import Base, TimestampMixin
@@ -29,6 +30,7 @@ class KnowledgeGraphModel(Base, TimestampMixin):
     workspace_id: Mapped[str] = mapped_column(String(26), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    ontology: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "name", name="uq_knowledge_graphs_tenant_name"),

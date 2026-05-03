@@ -11,7 +11,11 @@ from typing import Protocol, runtime_checkable
 
 from management.domain.aggregates import DataSource, KnowledgeGraph
 from management.domain.entities import DataSourceSyncRun
-from management.domain.value_objects import DataSourceId, KnowledgeGraphId
+from management.domain.value_objects import (
+    DataSourceId,
+    KnowledgeGraphId,
+    OntologyConfig,
+)
 
 
 @runtime_checkable
@@ -75,6 +79,30 @@ class IKnowledgeGraphRepository(Protocol):
 
         Returns:
             True if deleted, False if not found
+        """
+        ...
+
+    async def save_ontology(self, kg_id: str, config: OntologyConfig) -> None:
+        """Persist an OntologyConfig for the given KnowledgeGraph ID.
+
+        Performs a targeted update of the ``ontology`` JSONB column only.
+        Does not trigger outbox events — ontology changes are UI-state
+        operations, not domain events.
+
+        Args:
+            kg_id: ULID string of the target KnowledgeGraph
+            config: The OntologyConfig to persist (full replace, not merge)
+        """
+        ...
+
+    async def get_ontology(self, kg_id: str) -> OntologyConfig | None:
+        """Retrieve the OntologyConfig for the given KnowledgeGraph ID.
+
+        Args:
+            kg_id: ULID string of the target KnowledgeGraph
+
+        Returns:
+            The persisted OntologyConfig, or None if no ontology has been saved
         """
         ...
 

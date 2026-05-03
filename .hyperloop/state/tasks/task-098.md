@@ -3,11 +3,11 @@ id: task-098
 title: Test that DefaultQueryServiceProbe omits raw query text from rejected-query
   logs
 spec_ref: specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-098
 pr: null
 pr_title: 'test(query): verify redacted logging in DefaultQueryServiceProbe.cypher_query_rejected'
 pr_description: "## What & Why\n\nThe **Requirement: Read-Only Enforcement — Scenario:\

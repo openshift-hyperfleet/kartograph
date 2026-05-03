@@ -13,10 +13,10 @@ pr_description: |
   ## What and Why
 
   The MCP server spec's Secure Enclave Redaction scenario is a security-critical
-  requirement: unauthorized callers must not receive entity properties, only the
-  structural identifiers needed to preserve graph topology. This requirement is
-  the "secure enclave" pattern that makes Kartograph's multi-tenant graph safe
-  for cross-KG querying.
+  requirement: unauthorized callers must not receive entity properties — only the
+  structural identifiers needed to preserve graph topology. This is the "secure
+  enclave" pattern that makes Kartograph's multi-tenant graph safe for cross-KG
+  querying.
 
   ### Existing coverage
 
@@ -26,28 +26,28 @@ pr_description: |
     TestGraphTopologyPreservation, TestPermissionCaching, TestAuthorizationFailSafe)
     — `MCPQuerySecureEnclave.apply_redaction()` is exhaustively unit-tested with
     a fake `AuthorizationProvider`.
-  - `test_mcp_query_tool_wiring.py` / `test_mcp_query_tool.py`
-    — verify that `query_graph` calls `secure_enclave.apply_redaction()` in the
-    correct order (after KG filter, before internal property filter).
+  - `test_mcp_query_tool_wiring.py` / `test_mcp_query_tool.py` — verify that
+    `query_graph` calls `secure_enclave.apply_redaction()` in the correct order
+    (after KG filter, before internal property filter).
 
   ### The gap
 
   There is no **integration test** that exercises the full chain through a live
   SpiceDB instance:
 
-  1. Create a KnowledgeGraph in SpiceDB and grant VIEW permission to User A
+  1. Create a KnowledgeGraph in SpiceDB and grant `view` permission to User A
      but **not** to User B.
   2. Insert nodes/edges stamped with that KG's `knowledge_graph_id`.
-  3. Authenticate as User B (no VIEW permission) and call `query_graph` via the
-     MCP HTTP transport.
-  4. Assert that node results are `{"id": "..."}` only (properties stripped).
-  5. Assert that edge results are `{"id": "...", "start_id": "...", "end_id": "..."}` only.
-  6. Assert that the rows still appear (topology preserved — entities are not
-     removed, just redacted).
+  3. Authenticate as User B (no `view` permission) and call `query_graph` via
+     the MCP HTTP transport.
+  4. Assert node results contain only `{"id": "..."}` — properties stripped.
+  5. Assert edge results contain only `{"id": "...", "start_id": "...", "end_id": "..."}`.
+  6. Assert the rows still appear (topology preserved — entities not removed,
+     just redacted).
 
-  Without this test, a regression in the SpiceDB permission check (e.g., a
-  schema change that silently grants VIEW to everyone, or a broken `check_permission`
-  call that defaults to `True`) would not be caught by any automated test.
+  Without this test, a regression in the SpiceDB permission check (e.g., a schema
+  change that silently grants `view` to everyone, or a `check_permission` call that
+  defaults to `True`) would not be caught by any automated test.
 
   ## Spec Requirements Satisfied
 
@@ -63,8 +63,9 @@ pr_description: |
 
   ## What This Change Does
 
-  Adds a new integration test file (or a new class inside an existing integration
-  test file) with the following test methods:
+  Adds a new integration test file
+  `src/api/tests/integration/test_secure_enclave_mcp.py` with the following
+  test class:
 
   ### `TestSecureEnclaveRedactionIntegration`
 
@@ -74,38 +75,37 @@ pr_description: |
      `knowledge_graph_id = "kg-restricted"`.
   2. Register `knowledge_graph:kg-restricted` in SpiceDB granting `view` to
      `user:alice` but **not** to `user:bob`.
-  3. Authenticate as `user:bob` (API key or Bearer token tied to bob's identity).
-  4. Call `query_graph` with `MATCH (n:Person) RETURN n LIMIT 10` via the
-     MCP HTTP transport.
-  5. Assert the response `success == True`.
-  6. For each row in `rows`:
-     - The `node` dict contains only the `"id"` key (no `"label"`, no `"properties"`).
+  3. Authenticate as `user:bob` (API key tied to bob's identity).
+  4. Call `query_graph` with `MATCH (n:Person) RETURN n LIMIT 10` via the MCP
+     HTTP transport.
+  5. Assert `response["success"] is True`.
+  6. For each row in `rows`: the `node` dict contains only the `"id"` key
+     (no `"label"`, no `"properties"`).
 
   **`test_unauthorized_edges_redacted_to_structural_fields_only`**
 
   1. Insert two nodes and a `KNOWS` edge stamped with `knowledge_graph_id = "kg-restricted"`.
-  2. Deny VIEW to bob for `kg-restricted`.
+  2. Deny `view` to bob for `kg-restricted`.
   3. Call `query_graph` with `MATCH (a)-[r:KNOWS]->(b) RETURN r LIMIT 10`.
   4. For each row: `edge` dict contains only `"id"`, `"start_id"`, `"end_id"`.
 
   **`test_graph_topology_preserved_for_unauthorized_caller`**
 
-  1. Insert 3 nodes in `kg-restricted`; deny VIEW to bob.
+  1. Insert 3 nodes in `kg-restricted`; deny `view` to bob.
   2. Call `query_graph` with `MATCH (n) RETURN n`.
-  3. Assert `len(rows) == 3` — all three rows are present, just redacted.
+  3. Assert `len(rows) == 3` — all three rows present, just redacted.
 
   **`test_authorized_caller_receives_full_properties`** (positive control)
 
   1. Same graph state.
-  2. Authenticate as `user:alice` (who has VIEW on `kg-restricted`).
-  3. Call `query_graph` and assert nodes include `label` and `properties`.
+  2. Authenticate as `user:alice` (who has `view` on `kg-restricted`).
+  3. Call `query_graph` and assert nodes include `"label"` and `"properties"`.
 
   ## Files / Areas Affected
 
   - `src/api/tests/integration/test_secure_enclave_mcp.py` — new test file
-    (or extend `test_query_mcp_http.py` with a new class)
-  - Fixture helpers in `src/api/tests/integration/conftest.py` may need
-    extension to support per-test SpiceDB relationship setup/teardown.
+  - `src/api/tests/integration/conftest.py` — may need extension for per-test
+    SpiceDB relationship setup/teardown helpers
 
   ## How to Verify
 
@@ -120,22 +120,21 @@ pr_description: |
 
   ## Implementation Notes for the Agent
 
-  - The integration test instance includes a real SpiceDB (see `make instance-up`
-    output). Use the `IAuthorizationProvider` (via `get_authz_client()` or the
-    test conftest helpers) to write SpiceDB relationships at test setup time.
-  - Use `teardown` (or pytest fixture with `yield`) to delete the test
-    relationships after each test to avoid cross-test pollution.
-  - For authentication, use the fake OIDC provider's pre-configured test users
-    (`alice` / `password` and `bob` / `password`) or create API keys tied to
-    specific user IDs. Check `tests/fakes/oidc_provider.py` for how the fake
-    OIDC issues JWTs with `sub` claims.
-  - The `MCPApiKeyAuthMiddleware` resolves user identity from the API key's
-    `created_by_user_id`. Create separate API keys for alice and bob to simplify
-    the setup.
+  - The integration test instance includes real SpiceDB (`make instance-up`).
+    Use `IAuthorizationProvider` (via `get_authz_client()` or test conftest
+    helpers) to write SpiceDB relationships at test setup time.
+  - Use `yield`-based pytest fixtures to delete test relationships after each
+    test to avoid cross-test pollution.
+  - Use the fake OIDC provider's pre-configured test users (`alice` / `password`
+    and `bob` / `password`) or create API keys tied to specific user IDs.
+    The `MCPApiKeyAuthMiddleware` resolves user identity from the API key's
+    `created_by_user_id` — create separate API keys for alice and bob.
   - Insert AGE nodes using `GraphMutationService` or directly via the AGE
     client (`tx.execute_cypher`). Each node must have `knowledge_graph_id`
-    stamped in its properties (this is what `MCPQuerySecureEnclave` uses to
-    look up permissions).
+    in its properties (this is what `MCPQuerySecureEnclave` uses to look up
+    SpiceDB permissions).
+  - Confirm the SpiceDB schema includes `knowledge_graph` resource type with
+    a `view` permission before writing the tests.
   - Write tests FIRST (TDD). The production code should need no changes — the
     secure enclave is already implemented.
 
@@ -143,10 +142,9 @@ pr_description: |
 
   - Requires a running SpiceDB instance (`make instance-up`). These tests are
     `@pytest.mark.integration` and will not run in the pre-push unit test suite.
-  - SpiceDB schema must include the `knowledge_graph` resource type with a
-    `view` permission. Confirm this is already in the deployed schema before
-    writing the tests.
-  - If the fake OIDC provider's JWT `sub` claim format differs from what
-    SpiceDB expects for the `user:` subject prefix, adapt the subject format
-    in the `write_relationship` call accordingly.
+  - If the fake OIDC JWT `sub` claim format differs from what SpiceDB expects
+    for the `user:` subject prefix, adapt the subject format in `write_relationship`
+    calls accordingly.
+  - SpiceDB relationship cleanup MUST happen in fixture teardown — leave a dirty
+    SpiceDB state and other tests may spuriously pass or fail.
 ---

@@ -13,9 +13,8 @@ pr_description: |
   ## What and Why
 
   The MCP server spec requires that a query exceeding the timeout is terminated
-  and returned with `error_type: "timeout"`. The spec also requires (via
-  `query-execution.spec.md`) that the timeout error includes a `correlation_id`
-  for debugging cross-reference.
+  and returned with `error_type: "timeout"`. The query-execution spec further
+  requires a `correlation_id` in the timeout error for debugging.
 
   ### Existing coverage
 
@@ -27,7 +26,7 @@ pr_description: |
     — `QueryTimeoutError` carries a `correlation_id`.
   - `test_application_services.py::test_execute_cypher_query_timeout_error`
     — `MCPQueryService` converts `QueryTimeoutError` → `QueryError(error_type="timeout")`.
-  - `test_mcp_query_tool.py::TestBuildErrorResponse*`
+  - `test_mcp_query_tool.py::TestBuildErrorResponseTimeoutErrors`
     — `_build_error_response` serialises `correlation_id` when present.
   - `test_query_mcp.py::test_timeout_enforcement`
     — end-to-end integration against a real AGE database (uses `pg_sleep`).
@@ -35,16 +34,14 @@ pr_description: |
   ### The gap
 
   There is no **HTTP-level integration test** that exercises the full MCP
-  JSON-over-HTTP transport layer for the timeout path. This is the same
-  gap that `test_query_mcp_http.py` was created to fill for the forbidden
-  query path — a regression in `mcp.py`'s `_build_error_response` (e.g.,
-  dropping `correlation_id` from the timeout branch) or a FastMCP
-  serialisation change would be invisible to the existing tests.
+  JSON-over-HTTP transport layer for the timeout path. This is the same gap
+  `test_query_mcp_http.py` was created to fill for the forbidden query path — a
+  regression in `mcp.py`'s `_build_error_response` (e.g., dropping `correlation_id`
+  from the timeout branch) or a FastMCP serialisation change would be invisible to
+  the existing tests.
 
-  `test_query_mcp_http.py` explicitly notes this rationale (see its module
-  docstring) and adds `test_forbidden_query_response_includes_correlation_id`
-  and `test_forbidden_query_error_type_is_forbidden`. The timeout scenario
-  deserves the same treatment.
+  `test_query_mcp_http.py` already covers the forbidden path at HTTP level. The
+  timeout scenario deserves the same treatment.
 
   ## Spec Requirements Satisfied
 
@@ -59,7 +56,6 @@ pr_description: |
 
   - **Requirement: Timeout Enforcement — Scenario: Query exceeds timeout**:
     "THEN a timeout error is returned with a correlation ID for debugging"
-
   - **Requirement: Error Categorization — Scenario: Timeout error**:
     "GIVEN a query that exceeds the timeout
     THEN the error type is 'timeout'"
@@ -67,35 +63,33 @@ pr_description: |
   ## What This Change Does
 
   Adds two new tests to `src/api/tests/integration/test_query_mcp_http.py`
-  (extending the existing class/fixture pattern in that file):
+  (extending the existing class and fixture pattern in that file):
 
-  ### `test_timeout_query_error_type_is_timeout`
+  ### `TestMCPTimeoutQueryHTTPResponse`
 
-  1. Send a Cypher query via the MCP HTTP transport that is guaranteed to
-     exceed the timeout. The simplest approach is to use `CALL pg_sleep(n)`
-     within AGE and set the `timeout_seconds` parameter to 1 (minimum):
-     ```
-     MATCH (n) WHERE 1 = pg_sleep(5) RETURN n
-     ```
-     (or the equivalent mechanism for AGE to call `pg_sleep`).
-     Alternatively, patch the database-level timeout to a very low value
-     (e.g., 10 ms) and run any query that requires table access.
-  2. Inspect the MCP tool result JSON.
-  3. Assert `result["error_type"] == "timeout"`.
+  **`test_timeout_query_error_type_is_timeout`**
 
-  ### `test_timeout_query_response_includes_correlation_id`
+  1. Provision a tenant AGE graph (using the `provisioned_tenant_graph` fixture).
+  2. Create an API key for authentication.
+  3. Send a `query_graph` call via the MCP HTTP transport with `timeout_seconds=1`
+     and a query that reliably takes longer than 1 second (e.g., a Cartesian product
+     with enough pre-loaded nodes: `MATCH (a), (b), (c) RETURN a, b, c`).
+  4. Assert `result["success"] is False`.
+  5. Assert `result["error_type"] == "timeout"`.
 
-  1. Trigger the same timeout scenario.
-  2. Assert `"correlation_id" in result` and that the value is a non-empty
-     UUID string (matches `[0-9a-f-]{36}`).
+  **`test_timeout_query_response_includes_correlation_id`**
 
-  Both tests follow the fixture pattern established in
-  `test_query_mcp_http.py` (ASGI lifespan, `fastmcp.Client` over
-  `StreamableHttpTransport`, `AGEGraphProvisioner` for test graph setup).
+  1. Same setup as above.
+  2. Assert `"correlation_id" in result` and the value is a non-empty string.
+
+  Both tests follow the fixture pattern established in `test_query_mcp_http.py`
+  (ASGI lifespan, `fastmcp.Client` over `StreamableHttpTransport`,
+  `AGEGraphProvisioner` for test graph setup).
 
   ## Files / Areas Affected
 
-  - `src/api/tests/integration/test_query_mcp_http.py` — two new test methods added
+  - `src/api/tests/integration/test_query_mcp_http.py` — two new test methods
+    in a new `TestMCPTimeoutQueryHTTPResponse` class
 
   ## How to Verify
 
@@ -109,30 +103,24 @@ pr_description: |
 
   ## Implementation Notes for the Agent
 
-  - The `timeout_seconds` parameter accepted by the `query_graph` tool is
-    clamped to `min(requested, 60)`. Pass `timeout_seconds=1` to force the
-    shortest allowed timeout.
-  - Apache AGE does not expose `pg_sleep` natively in Cypher. Use a
-    PostgreSQL-level approach: set `SET LOCAL statement_timeout = 1` via
-    SQL before executing the Cypher query, or use the fact that the
-    repository already sets `SET LOCAL statement_timeout = {timeout_seconds * 1000}`.
-    With `timeout_seconds=1` (1000 ms) this gives a 1-second window.
-  - For a query that reliably times out in 1 second, consider a Cartesian
-    product query against a reasonably-sized graph: `MATCH (a), (b), (c) RETURN a, b, c`.
-    Pre-load enough nodes (≥ 100) so the cross-product exceeds 1 second.
-  - Alternatively, bypass AGE entirely and patch the repository's
-    `_client.transaction()` to simulate a timeout exception — but a real
-    integration test is preferable per the project's integration test philosophy.
-  - Write tests FIRST (TDD), then adjust the test graph population if the
-    query does not reliably time out.
+  - Pass `timeout_seconds=1` to force the shortest timeout that the
+    `_clamp_query_params` helper will accept.
+  - A Cartesian product query (`MATCH (a), (b), (c) RETURN a, b, c`) is a reliable
+    way to cause a timeout when the graph has ≥ 50–100 nodes. Pre-load enough nodes
+    in the test fixture to ensure the query consistently exceeds 1 second.
+  - Alternatively, use `SET LOCAL statement_timeout = 1` at the SQL level via a
+    fixture that patches the timeout — but a real execution is preferred.
+  - Write the tests FIRST (TDD). If they fail because the query completes within
+    1 second, increase the node count in the fixture until the timeout is reliable.
+  - Do not modify `test_query_mcp.py::test_timeout_enforcement` — keep the new
+    HTTP-level tests in `test_query_mcp_http.py` for consistency.
 
   ## Caveats
 
   - Timeout tests are inherently sensitive to test environment speed.
-    Use a timeout of 10 ms (not 1 s) if the environment is fast enough
-    to run any non-trivial query within 1 s. Adjust the pre-populated node
-    count to ensure the query reliably exceeds the timeout.
-  - Do not modify `test_query_mcp.py`'s `test_timeout_enforcement` — keep
-    the new HTTP-level tests in `test_query_mcp_http.py` for consistency
-    with the existing separation of concerns.
+    Use a small explicit `statement_timeout` SQL override if the Cartesian
+    product approach is flaky on fast machines.
+  - Do not decrease `timeout_seconds` below 1 — the tool clamps it at 1 s
+    minimum (the `_clamp_query_params` lower bound is caller-controlled and
+    currently unclamped, but the test should not rely on sub-second values).
 ---

@@ -3,11 +3,11 @@ id: task-089
 title: Route MCP queries to per-tenant AGE graph
 spec_ref: specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-089
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/553
 pr_title: 'feat(query): route MCP queries to tenant-specific AGE graph'
 pr_description: "## What and Why\n\nThe query-execution spec (Requirement: Per-Tenant\
   \ Graph Routing) mandates that\nevery Cypher query executes against the AGE graph\

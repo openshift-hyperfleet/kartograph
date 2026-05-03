@@ -145,3 +145,24 @@ class SchemaErrorResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     error: str
+
+
+class AccessibleKnowledgeGraph(BaseModel):
+    """A knowledge graph the caller has view permission on.
+
+    Returned by the knowledge_graphs://accessible MCP resource.
+    Contains the subset of metadata useful for agent context.
+
+    Attributes:
+        id: Unique knowledge graph identifier (ULID).
+        tenant_id: The tenant this knowledge graph belongs to.
+        name: Human-readable name of the knowledge graph.
+        description: Free-text description of the knowledge graph.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    tenant_id: str
+    name: str
+    description: str

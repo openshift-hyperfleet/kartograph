@@ -1,21 +1,26 @@
 """Unit tests for MCP tool functions in the Querying presentation layer.
 
 Tests the knowledge_graph_id filter and secure enclave integration
-within the query_graph MCP tool.
+within the query_graph MCP tool, and header-based token extraction
+for the fetch_documentation_source tool.
 
 Spec references:
 - Scenario: Optional KnowledgeGraph filter
 - Scenario: Secure enclave redaction
 - Scenario: Internal property filtering
+- Scenario: Private repository with token (x-github-pat / x-gitlab-pat headers)
 """
 
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import MagicMock, patch
 
+from query.ports.file_repository_models import RemoteFileRepositoryResponse
 from query.presentation.mcp import (
     _filter_by_knowledge_graph,
     _filter_internal_properties,
+    fetch_documentation_source,
 )
 
 
@@ -251,3 +256,217 @@ class TestFilterInternalProperties:
         data = {"name": "Alice", "role": "Engineer"}
         result = _filter_internal_properties(data)
         assert result == {"name": "Alice", "role": "Engineer"}
+
+
+class TestFetchDocumentationSourceHeaders:
+    """Tests for fetch_documentation_source PAT header extraction.
+
+    Spec: Scenario: Private repository with token
+    - GIVEN a private repository URL and an access token via x-github-pat
+      or x-gitlab-pat header
+    - WHEN the tool is called
+    - THEN the token is used for authentication against the provider API
+
+    These tests verify that the tool correctly extracts the PAT tokens from
+    the MCP HTTP request headers and forwards them to get_git_repository().
+
+    FastMCP wraps registered tool functions in a FunctionTool descriptor;
+    the underlying callable is accessed via the ``.fn`` attribute.
+    """
+
+    _GITHUB_URL = "https://github.com/owner/repo/blob/main/docs/file.adoc"
+    _GITLAB_URL = "https://gitlab.com/owner/repo/-/blob/main/docs/file.adoc"
+
+    def _make_response(
+        self, content: str = "= Title\nBody text."
+    ) -> RemoteFileRepositoryResponse:
+        """Build a successful RemoteFileRepositoryResponse for use in mocks."""
+        return RemoteFileRepositoryResponse(
+            success=True,
+            content=content,
+            source_url=self._GITHUB_URL,
+            raw_url="https://raw.githubusercontent.com/owner/repo/main/docs/file.adoc",
+        )
+
+    def test_github_pat_header_is_passed_as_github_token(self) -> None:
+        """x-github-pat header value MUST be forwarded as github_token.
+
+        Spec: Private repository with token — the tool reads x-github-pat from
+        the MCP HTTP request headers and passes it to the repository factory so
+        that private GitHub repositories can be accessed.
+        """
+        mock_repo = MagicMock()
+        mock_repo.get_file.return_value = self._make_response()
+
+        with (
+            patch(
+                "query.presentation.mcp.get_http_headers",
+                return_value={"x-github-pat": "ghp_test_token_abc123"},
+            ),
+            patch(
+                "query.presentation.mcp.get_git_repository",
+                return_value=mock_repo,
+            ) as mock_factory,
+        ):
+            fetch_documentation_source.fn(self._GITHUB_URL)
+
+        mock_factory.assert_called_once_with(
+            url=self._GITHUB_URL,
+            github_token="ghp_test_token_abc123",
+            gitlab_token=None,
+        )
+
+    def test_gitlab_pat_header_is_passed_as_gitlab_token(self) -> None:
+        """x-gitlab-pat header value MUST be forwarded as gitlab_token.
+
+        Spec: Private repository with token — the tool reads x-gitlab-pat from
+        the MCP HTTP request headers and passes it to the repository factory so
+        that private GitLab repositories can be accessed.
+        """
+        mock_repo = MagicMock()
+        mock_repo.get_file.return_value = RemoteFileRepositoryResponse(
+            success=True,
+            content="= Doc\nContent.",
+            source_url=self._GITLAB_URL,
+        )
+
+        with (
+            patch(
+                "query.presentation.mcp.get_http_headers",
+                return_value={"x-gitlab-pat": "glpat_private_token_xyz"},
+            ),
+            patch(
+                "query.presentation.mcp.get_git_repository",
+                return_value=mock_repo,
+            ) as mock_factory,
+        ):
+            fetch_documentation_source.fn(self._GITLAB_URL)
+
+        mock_factory.assert_called_once_with(
+            url=self._GITLAB_URL,
+            github_token=None,
+            gitlab_token="glpat_private_token_xyz",
+        )
+
+    def test_both_pat_headers_forwarded_simultaneously(self) -> None:
+        """Both x-github-pat and x-gitlab-pat can be present at the same time.
+
+        An MCP client may supply both tokens so the caller doesn't need to know
+        in advance which provider hosts the requested URL.  Both MUST be
+        forwarded independently to the factory.
+        """
+        mock_repo = MagicMock()
+        mock_repo.get_file.return_value = self._make_response()
+
+        with (
+            patch(
+                "query.presentation.mcp.get_http_headers",
+                return_value={
+                    "x-github-pat": "ghp_github_token",
+                    "x-gitlab-pat": "glpat_gitlab_token",
+                },
+            ),
+            patch(
+                "query.presentation.mcp.get_git_repository",
+                return_value=mock_repo,
+            ) as mock_factory,
+        ):
+            fetch_documentation_source.fn(self._GITHUB_URL)
+
+        mock_factory.assert_called_once_with(
+            url=self._GITHUB_URL,
+            github_token="ghp_github_token",
+            gitlab_token="glpat_gitlab_token",
+        )
+
+    def test_no_tokens_when_headers_absent(self) -> None:
+        """When neither PAT header is present, both tokens must be None.
+
+        Public repositories do not require authentication.  When the headers
+        are absent, the factory must receive None for both token arguments so
+        the repository makes unauthenticated requests.
+        """
+        mock_repo = MagicMock()
+        mock_repo.get_file.return_value = self._make_response()
+
+        with (
+            patch(
+                "query.presentation.mcp.get_http_headers",
+                return_value={},  # no PAT headers
+            ),
+            patch(
+                "query.presentation.mcp.get_git_repository",
+                return_value=mock_repo,
+            ) as mock_factory,
+        ):
+            fetch_documentation_source.fn(self._GITHUB_URL)
+
+        mock_factory.assert_called_once_with(
+            url=self._GITHUB_URL,
+            github_token=None,
+            gitlab_token=None,
+        )
+
+    def test_get_file_called_with_url(self) -> None:
+        """The tool must call repository.get_file() with the original URL."""
+        mock_repo = MagicMock()
+        mock_repo.get_file.return_value = self._make_response()
+
+        with (
+            patch("query.presentation.mcp.get_http_headers", return_value={}),
+            patch("query.presentation.mcp.get_git_repository", return_value=mock_repo),
+        ):
+            fetch_documentation_source.fn(self._GITHUB_URL)
+
+        mock_repo.get_file.assert_called_once_with(url=self._GITHUB_URL)
+
+    def test_returns_repository_response_directly(self) -> None:
+        """The tool must return the RemoteFileRepositoryResponse from get_file()."""
+        expected_response = RemoteFileRepositoryResponse(
+            success=True,
+            content="= My Doc\nFull content here.",
+            source_url=self._GITHUB_URL,
+            raw_url="https://raw.githubusercontent.com/owner/repo/main/docs/file.adoc",
+        )
+        mock_repo = MagicMock()
+        mock_repo.get_file.return_value = expected_response
+
+        with (
+            patch("query.presentation.mcp.get_http_headers", return_value={}),
+            patch("query.presentation.mcp.get_git_repository", return_value=mock_repo),
+        ):
+            result = fetch_documentation_source.fn(self._GITHUB_URL)
+
+        assert result is expected_response
+
+    def test_other_headers_are_not_forwarded_as_tokens(self) -> None:
+        """Unrelated HTTP headers must not be treated as PAT tokens.
+
+        The tool only reads x-github-pat and x-gitlab-pat.  Other headers
+        (authorization, content-type, etc.) must be ignored for token
+        extraction — they are never forwarded to the git repository factory.
+        """
+        mock_repo = MagicMock()
+        mock_repo.get_file.return_value = self._make_response()
+
+        with (
+            patch(
+                "query.presentation.mcp.get_http_headers",
+                return_value={
+                    "authorization": "Bearer some-mcp-token",
+                    "content-type": "application/json",
+                    "x-request-id": "req-abc-123",
+                },
+            ),
+            patch(
+                "query.presentation.mcp.get_git_repository",
+                return_value=mock_repo,
+            ) as mock_factory,
+        ):
+            fetch_documentation_source.fn(self._GITHUB_URL)
+
+        mock_factory.assert_called_once_with(
+            url=self._GITHUB_URL,
+            github_token=None,
+            gitlab_token=None,
+        )

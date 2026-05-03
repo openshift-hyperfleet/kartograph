@@ -287,24 +287,32 @@ class TestExecuteCypherQuery:
         service: MCPQueryService,
         fake_repository: FakeQueryGraphRepository,
     ) -> None:
-        """Should use default max_rows when not specified."""
+        """Service requests limit + 1 rows from the repository (fetch-one-more strategy).
+
+        Spec: Result Truncation Flag — the server SHOULD fetch `limit + 1` rows.
+        When the default limit is 1000, the repository receives max_rows=1001.
+        """
         fake_repository.return_value = []
 
         service.execute_cypher_query("MATCH (n) RETURN n")
 
-        assert fake_repository.last_call["max_rows"] == 1000
+        assert fake_repository.last_call["max_rows"] == 1001
 
     def test_uses_custom_max_rows(
         self,
         service: MCPQueryService,
         fake_repository: FakeQueryGraphRepository,
     ) -> None:
-        """Should use custom max_rows when specified."""
+        """Service requests limit + 1 rows from the repository for custom limits.
+
+        Spec: Result Truncation Flag — the server SHOULD fetch `limit + 1` rows.
+        When the caller specifies limit=500, the repository receives max_rows=501.
+        """
         fake_repository.return_value = []
 
         service.execute_cypher_query("MATCH (n) RETURN n", max_rows=500)
 
-        assert fake_repository.last_call["max_rows"] == 500
+        assert fake_repository.last_call["max_rows"] == 501
 
     def test_records_query_received_observation(
         self,
@@ -341,13 +349,60 @@ class TestExecuteCypherQuery:
         service: MCPQueryService,
         fake_repository: FakeQueryGraphRepository,
     ) -> None:
-        """Should mark as truncated when row count equals limit."""
-        fake_repository.return_value = [{"n": i} for i in range(1000)]
+        """Should mark as truncated when repository returns limit + 1 rows.
+
+        Spec: Result Truncation Flag — the server SHOULD fetch `limit + 1`
+        rows and set `truncated` to true only if more than `limit` rows were
+        available.  The service asks for 1001 rows (limit + 1); when the DB
+        returns 1001, more data exists, so truncated = True.
+        """
+        # Service will request max_rows = limit + 1 = 1001; fake returns 1001
+        fake_repository.return_value = [{"n": i} for i in range(1001)]
 
         result = service.execute_cypher_query("MATCH (n) RETURN n")
 
         assert isinstance(result, CypherQueryResult)
         assert result.truncated is True
+
+    def test_not_truncated_when_exactly_at_limit(
+        self,
+        service: MCPQueryService,
+        fake_repository: FakeQueryGraphRepository,
+    ) -> None:
+        """Should NOT mark as truncated when the DB returns exactly `limit` rows.
+
+        Spec: Result Truncation Flag — truncated should be True *only* when
+        more rows are available.  When exactly 1000 rows exist (the service
+        fetches 1001 but only 1000 are returned), there are no additional rows,
+        so truncated = False.  This is the false-positive case the spec guards against.
+        """
+        # Service requests 1001 rows; DB has exactly 1000 → no more data
+        fake_repository.return_value = [{"n": i} for i in range(1000)]
+
+        result = service.execute_cypher_query("MATCH (n) RETURN n")
+
+        assert isinstance(result, CypherQueryResult)
+        assert result.truncated is False
+
+    def test_truncated_result_trimmed_to_limit(
+        self,
+        service: MCPQueryService,
+        fake_repository: FakeQueryGraphRepository,
+    ) -> None:
+        """Should trim rows to `limit` when truncated.
+
+        Spec: AND the response returns at most `limit` rows.
+        When the DB returns 1001 rows (confirming truncation), the result
+        must contain exactly 1000 rows — not 1001.
+        """
+        # Service requests 1001 rows; DB returns 1001 (there are more)
+        fake_repository.return_value = [{"n": i} for i in range(1001)]
+
+        result = service.execute_cypher_query("MATCH (n) RETURN n")
+
+        assert isinstance(result, CypherQueryResult)
+        assert result.truncated is True
+        assert len(result.rows) == 1000
 
     def test_not_truncated_when_below_limit(
         self,
@@ -361,6 +416,23 @@ class TestExecuteCypherQuery:
 
         assert isinstance(result, CypherQueryResult)
         assert result.truncated is False
+
+    def test_requests_limit_plus_one_from_repository(
+        self,
+        service: MCPQueryService,
+        fake_repository: FakeQueryGraphRepository,
+    ) -> None:
+        """Service MUST request limit + 1 rows from the repository.
+
+        Spec: Result Truncation Flag — the server SHOULD fetch `limit + 1`
+        rows to determine whether more data exists without over-fetching.
+        """
+        fake_repository.return_value = []
+
+        service.execute_cypher_query("MATCH (n) RETURN n", max_rows=500)
+
+        # Repository must have been asked for 501 rows, not 500
+        assert fake_repository.last_call["max_rows"] == 501
 
     def test_tracks_execution_time(
         self,

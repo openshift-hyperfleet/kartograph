@@ -24,6 +24,8 @@ def mock_client():
     """Create mock graph client."""
     client = create_autospec(GraphClientProtocol, instance=True)
     client.graph_name = "test_graph"
+    # Default: graph exists (so existing tests that don't test routing still pass)
+    client.graph_exists.return_value = True
     return client
 
 
@@ -503,3 +505,110 @@ class TestEdgeToDict:
         result = repository._edge_to_dict(edge)
 
         assert result["properties"] == {}
+
+
+class TestTenantGraphRouting:
+    """Tests for per-tenant graph routing (spec: Per-Tenant Graph Routing).
+
+    The system SHALL route all queries to the caller's tenant-specific AGE graph.
+    - Query executes against `tenant_{tenant_id}` graph.
+    - If that graph has not been provisioned, reject with execution error BEFORE
+      the Cypher query reaches the database.
+    """
+
+    def test_rejects_query_if_tenant_graph_not_found(self, mock_client):
+        """Should raise QueryExecutionError when the tenant graph does not exist.
+
+        Spec: Tenant graph not found → rejected with execution error before
+        reaching the database (i.e., before the Cypher query is executed).
+        """
+        mock_client.graph_name = "tenant_missing-tenant"
+        mock_client.graph_exists.return_value = False
+        repository = QueryGraphRepository(client=mock_client)
+
+        with pytest.raises(QueryExecutionError) as exc_info:
+            repository.execute_cypher("MATCH (n) RETURN n")
+
+        # Must NOT open a transaction — rejection happens before DB Cypher execution
+        mock_client.transaction.assert_not_called()
+
+        # Error message should identify the missing graph
+        error_msg = str(exc_info.value)
+        assert any(
+            keyword in error_msg.lower()
+            for keyword in ["not found", "does not exist", "tenant"]
+        ), f"Error message should indicate graph not found, got: {error_msg!r}"
+
+    def test_proceeds_when_tenant_graph_exists(self, mock_client, mock_transaction):
+        """Should proceed with query execution when tenant graph exists.
+
+        Spec: Query routed to tenant graph → executes against tenant_{tenant_id}.
+        """
+        mock_client.graph_name = "tenant_existing-tenant"
+        mock_client.graph_exists.return_value = True
+        mock_client.transaction.return_value.__enter__ = MagicMock(
+            return_value=mock_transaction
+        )
+        mock_client.transaction.return_value.__exit__ = MagicMock(return_value=False)
+        mock_transaction.execute_cypher.return_value = CypherResult(
+            rows=(), row_count=0
+        )
+        repository = QueryGraphRepository(client=mock_client)
+
+        result = repository.execute_cypher("MATCH (n) RETURN n")
+
+        # Transaction must be opened (graph exists → proceed to Cypher)
+        mock_client.transaction.assert_called_once()
+        assert result == []
+
+    def test_checks_client_graph_name_for_existence(
+        self, mock_client, mock_transaction
+    ):
+        """Should check existence of the exact graph name configured on the client.
+
+        Spec: Query routed to tenant graph → `tenant_{tenant_id}`.
+        The existence check MUST use the client's graph_name (not a hard-coded name).
+        """
+        graph_name = "tenant_abc-def-123"
+        mock_client.graph_name = graph_name
+        mock_client.graph_exists.return_value = True
+        mock_client.transaction.return_value.__enter__ = MagicMock(
+            return_value=mock_transaction
+        )
+        mock_client.transaction.return_value.__exit__ = MagicMock(return_value=False)
+        mock_transaction.execute_cypher.return_value = CypherResult(
+            rows=(), row_count=0
+        )
+        repository = QueryGraphRepository(client=mock_client)
+
+        repository.execute_cypher("MATCH (n) RETURN n")
+
+        # The repository MUST call graph_exists with the client's graph name
+        mock_client.graph_exists.assert_called_once_with(graph_name)
+
+    def test_graph_not_found_error_is_execution_error_type(self, mock_client):
+        """Graph-not-found rejection MUST be categorised as QueryExecutionError.
+
+        Spec: Error Categorization → execution_error type for graph not found.
+        """
+        mock_client.graph_name = "tenant_ghost"
+        mock_client.graph_exists.return_value = False
+        repository = QueryGraphRepository(client=mock_client)
+
+        with pytest.raises(QueryExecutionError):
+            repository.execute_cypher("MATCH (n) RETURN n")
+
+    def test_graph_check_precedes_keyword_blacklist(self, mock_client):
+        """Graph existence check must happen before or alongside keyword blacklist.
+
+        Both checks protect the database; ordering is flexible but the graph
+        check must NOT be skipped when the query is otherwise valid.
+        Note: forbidden queries may be rejected by the blacklist first (OK).
+        """
+        mock_client.graph_name = "tenant_nonexistent"
+        mock_client.graph_exists.return_value = False
+        repository = QueryGraphRepository(client=mock_client)
+
+        # A valid read-only query against a non-existent graph must raise
+        with pytest.raises(QueryExecutionError):
+            repository.execute_cypher("MATCH (n) RETURN n")

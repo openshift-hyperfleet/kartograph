@@ -4,11 +4,11 @@ title: 'Interaction principle completeness: copy-to-clipboard toast, focus rings
   shortcut discovery'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-106
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/571
 pr_title: 'feat(ui): implement copy-to-clipboard toast, focus ring design, and shortcut
   tooltips'
 pr_description: "## What & Why\n\nThree **Interaction Principles** in `specs/ui/experience.spec.md`\

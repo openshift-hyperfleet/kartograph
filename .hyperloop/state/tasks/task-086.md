@@ -1,168 +1,166 @@
 ---
 id: task-086
-title: Route MCP queries to tenant-scoped AGE graph
-spec_ref: "specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2"
+title: Fix result truncation detection — fetch limit+1 rows
+spec_ref: "specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e"
 status: not-started
 phase: null
 deps: []
 round: 0
 branch: null
 pr: null
-pr_title: "feat(query): route MCP queries to per-tenant AGE graph"
+pr_title: "fix(query): use limit+1 fetch strategy for accurate truncation detection"
 pr_description: |
   ## What & Why
 
-  `query-execution.spec.md` was updated with a new requirement:
+  The `mcp-server.spec.md` **Scenario: Result truncation flag** requires:
 
-  > **Requirement: Per-Tenant Graph Routing**
-  > The system SHALL route all queries to the caller's tenant-specific AGE graph.
+  > THEN the server SHOULD fetch `limit + 1` rows and set `truncated` to true
+  > only if more than `limit` rows were available
+  > AND the response returns at most `limit` rows
 
-  with two scenarios:
-
-  **Scenario: Query routed to tenant graph**
-  > GIVEN an authenticated query request
-  > WHEN the query is executed
-  > THEN it executes against the AGE graph named `tenant_{tenant_id}` for the resolved tenant
-  > AND queries never cross tenant boundaries regardless of query content
-
-  **Scenario: Tenant graph not found**
-  > GIVEN a tenant whose AGE graph has not been provisioned
-  > WHEN a query is submitted
-  > THEN the request is rejected with an execution error before reaching the database
-
-  Currently `get_mcp_query_service()` in `src/api/query/dependencies.py` creates an
-  `AgeGraphClient` without a `graph_name` override, so all MCP queries execute against
-  the default graph name from settings — a single shared graph for all tenants. This
-  violates tenant isolation.
-
-  `AgeGraphClient` already accepts a `graph_name` constructor parameter (defaulting to
-  `settings.graph_name`) and `auto_create=False` prevents accidental graph provisioning.
-  `get_mcp_auth_context()` already exposes `tenant_id`. The wiring is simply missing.
-
-  ## What This PR Does
-
-  ### 1. Tenant-scoped client in `query/dependencies.py`
-
-  Modify `mcp_graph_client_context()` to read the MCP auth context and pass the
-  tenant-specific graph name to `AgeGraphClient`:
+  The current implementation fetches exactly `limit` rows and sets:
 
   ```python
-  @contextmanager
-  def mcp_graph_client_context() -> Generator["AgeGraphClient", None, None]:
-      from graph.infrastructure.age_client import AgeGraphClient
-      from shared_kernel.middleware.mcp_auth import get_mcp_auth_context
-
-      auth_context = get_mcp_auth_context()
-      graph_name = f"tenant_{auth_context.tenant_id}"
-
-      pool = get_age_connection_pool()
-      settings = get_database_settings()
-      factory = ConnectionFactory(settings, pool=pool)
-      client = AgeGraphClient(settings, connection_factory=factory, graph_name=graph_name)
-      client.connect()
-      try:
-          yield client
-      finally:
-          client.disconnect()
+  truncated = len(rows) >= limit
   ```
 
-  ### 2. Graph existence check in `QueryGraphRepository`
+  This produces **false positives**: when the database contains exactly `limit`
+  rows, the query returns `limit` rows, `truncated` is set to `True` — but there
+  are no further rows available. The client is told "there is more data" when
+  there is not.
 
-  Add a `_verify_graph_exists(tx)` helper that runs before any Cypher query:
+  The spec-compliant approach:
+  1. Fetch `limit + 1` rows from the database.
+  2. If more than `limit` rows are returned, `truncated = True`; trim the result
+     to `limit` rows before returning.
+  3. If `limit` or fewer rows are returned, `truncated = False`.
+
+  This makes `truncated` a reliable signal to consumers (and MCP agents) that
+  a second query with a higher limit or pagination is needed.
+
+  ## Root Cause
+
+  Two locations contribute to the bug:
+
+  ### 1. `query/infrastructure/query_repository.py` — `_ensure_limit()`
 
   ```python
-  def _verify_graph_exists(self, tx) -> None:
-      """Check that the tenant's AGE graph is provisioned.
+  # Current (incorrect)
+  return f"{query}\nLIMIT {max_rows}"
 
-      Raises:
-          QueryExecutionError: If the graph does not exist in ag_catalog.ag_graph.
-      """
-      result = tx.execute_sql(
-          "SELECT 1 FROM ag_catalog.ag_graph WHERE name = %s",
-          (self._client.graph_name,),
-      )
-      if not result:
-          raise QueryExecutionError(
-              f"Tenant graph '{self._client.graph_name}' has not been provisioned.",
-          )
+  # Fixed
+  return f"{query}\nLIMIT {max_rows + 1}"
   ```
 
-  Call `_verify_graph_exists(tx)` as the first step inside the transaction block in
-  `execute_cypher()`, before the Cypher query is issued. This satisfies the spec's
-  "rejected with an execution error **before reaching the database**" intent — the check
-  queries the catalog (metadata), not the tenant graph itself, so the Cypher query
-  never fires against the missing graph.
+  The repository appends `LIMIT max_rows` when no LIMIT clause is present, and
+  caps explicit LIMITs at `MAX_LIMIT`. Both cases must fetch one extra row so the
+  service layer can detect over-limit results.
 
-  Note: If `tx.execute_sql` doesn't return rows natively, use the raw psycopg2
-  cursor pattern consistent with how `_ensure_graph_exists()` works in `AgeGraphClient`.
-  Inspect the `GraphTransactionProtocol` to find the right API surface; adapt as needed
-  and keep the unit test mockable.
+  **Explicit LIMIT cap also needs updating:**
 
-  ### 3. Unit tests
+  ```python
+  # When an explicit LIMIT > MAX_LIMIT is found, cap to MAX_LIMIT + 1
+  # so the service can still detect truncation correctly
+  ```
 
-  Add a new test class (or extend `TestExecuteCypher`) in
-  `src/api/tests/unit/query/test_query_repository.py`:
+  Wait — actually the cap case is simpler: when an explicit LIMIT is provided by
+  the caller (e.g., `LIMIT 500`), the DB returns at most 500 rows and we never
+  add +1 for that path. The +1 is only needed in the no-LIMIT and
+  use-default-limit cases. See below for the precise logic.
 
-  - **`test_execute_cypher_uses_client_graph_name`** — create `QueryGraphRepository`
-    with a mock client whose `graph_name` is `"tenant_abc123"`; assert the graph name
-    stored on the client is used, not a hardcoded default.
-  - **`test_tenant_isolation_different_tenant_ids_produce_different_graph_names`** —
-    two repositories built with clients named `"tenant_aaa"` and `"tenant_bbb"` must
-    have distinct `_client.graph_name` values.
-  - **`test_raises_execution_error_when_tenant_graph_not_found`** — mock the
-    graph-existence SQL check to return an empty result; assert `QueryExecutionError`
-    is raised before `execute_cypher` is called on the transaction.
-  - **`test_execution_error_before_cypher_when_graph_missing`** — same setup; confirm
-    that `mock_transaction.execute_cypher` is **never** called.
+  ### Revised `_ensure_limit()` semantics
 
-  Also add a test in `src/api/tests/unit/query/test_dependencies.py` (or a new
-  `test_mcp_graph_routing.py`):
+  The spec says: "fetch `limit + 1` rows". `limit` here is `max_rows` (the
+  effective limit the service requested). Three cases:
 
-  - **`test_mcp_graph_client_uses_tenant_graph_name`** — mock `get_mcp_auth_context()`
-    to return a context with `tenant_id="t1"`, then assert that `AgeGraphClient` is
-    constructed with `graph_name="tenant_t1"`.
+  | Case | Current query | New query |
+  |------|--------------|-----------|
+  | No LIMIT in query | append `LIMIT max_rows` | append `LIMIT max_rows + 1` |
+  | LIMIT ≤ MAX_LIMIT | keep as-is | keep as-is (caller's explicit limit, no +1) |
+  | LIMIT > MAX_LIMIT | replace with `LIMIT MAX_LIMIT` | replace with `LIMIT MAX_LIMIT + 1` |
+
+  For **explicit LIMITs** the caller controls the limit, so the `+1` does not
+  apply (the service does not know what the caller's "intended" limit was). Only
+  when the service imposes a limit (no-LIMIT case or over-MAX_LIMIT cap) should
+  it fetch +1.
+
+  The simplest safe approach: always add +1 to the appended/capped LIMIT, and
+  let the service trim the result. This means:
+
+  - No LIMIT → `LIMIT max_rows + 1`
+  - LIMIT > MAX_LIMIT → `LIMIT MAX_LIMIT + 1`
+  - Explicit LIMIT ≤ MAX_LIMIT → unchanged (the caller owns this limit)
+
+  ### 2. `query/application/services.py` — `execute_cypher_query()`
+
+  ```python
+  # Current (incorrect)
+  rows = self._repository.execute_cypher(query=query, ...)
+  truncated = len(rows) >= limit
+
+  # Fixed
+  raw_rows = self._repository.execute_cypher(query=query, ...)
+  truncated = len(raw_rows) > limit
+  rows = raw_rows[:limit]   # trim the extra row if present
+  ```
+
+  The service trims the result to `limit` rows and sets `truncated` accurately.
 
   ## Files Affected
 
-  - `src/api/query/dependencies.py` — read `auth_context.tenant_id` in
-    `mcp_graph_client_context()` and pass `graph_name` to `AgeGraphClient`
-  - `src/api/query/infrastructure/query_repository.py` — add graph-existence check
-    inside `execute_cypher()` before query dispatch
-  - `src/api/tests/unit/query/test_query_repository.py` — new test cases for
-    tenant routing and missing-graph rejection
-  - `src/api/tests/unit/query/test_dependencies.py` — new test for graph name wiring
+  - `src/api/query/infrastructure/query_repository.py`
+    - `_ensure_limit()`: append `LIMIT max_rows + 1` (no-LIMIT case)
+    - `_ensure_limit()`: cap over-limit queries to `MAX_LIMIT + 1`
+  - `src/api/query/application/services.py`
+    - `execute_cypher_query()`: trim `rows = raw_rows[:limit]`, set
+      `truncated = len(raw_rows) > limit`
+  - `src/api/tests/unit/query/test_query_repository.py`
+    - Update `TestEnsureLimit.test_adds_limit_when_missing` to expect
+      `LIMIT max_rows + 1`
+    - Update `TestEnsureLimit.test_caps_limit_above_absolute_maximum` to expect
+      `LIMIT MAX_LIMIT + 1` (i.e., `LIMIT 10001`)
+    - Update `TestEnsureLimit.test_respects_limit_at_absolute_maximum` — stays
+      unchanged (explicit LIMIT at MAX_LIMIT is not modified)
+    - Add new test: `test_respects_explicit_limit_below_maximum_unchanged`
+  - `src/api/tests/integration/test_query_mcp.py`
+    - Fix `test_execute_cypher_query_marks_truncation`: current setup has 3 data
+      points with `max_rows=3` — this should now return `truncated=False`
+      (exactly 3 rows available, limit is 3 so 4 are fetched, only 3 returned).
+      Change to `max_rows=2` to correctly demonstrate truncation with 3 data points.
 
   ## How to Verify
 
-  1. Unit tests pass: `make test-unit`
-  2. With a running instance: authenticate as a tenant whose AGE graph exists, execute
-     a `query_graph` call, confirm results come back. Then attempt a call with a
-     fabricated tenant whose graph does not exist and confirm a `QueryExecutionError`
-     is returned (not a raw psycopg2 error).
-  3. Confirm that two tenants cannot read each other's data even if both graphs exist
-     (tenant isolation is structural — each query is wired to its own graph name).
+  1. Unit tests: `make test-unit` — all pass.
+  2. Integration test: with 3 nodes in the test graph:
+     - `max_rows=2` → `row_count=2`, `truncated=True` (3 exist, fetched 3 via
+       LIMIT 3, trimmed to 2)
+     - `max_rows=3` → `row_count=3`, `truncated=False` (3 exist, fetched 4 via
+       LIMIT 4, got 3)
+     - `max_rows=4` → `row_count=3`, `truncated=False` (3 exist, fetched 5 via
+       LIMIT 5, got 3)
+  3. MCP tool: `query_graph("MATCH (n) RETURN n", max_rows=2)` on a graph with
+     3 nodes returns `{"truncated": true, "row_count": 2}`.
 
-  ## Design Decisions
+  ## TDD Cycle
 
-  - **Where to read the tenant ID** — `mcp_graph_client_context()` is the correct
-    call site because it owns the `AgeGraphClient` lifecycle. Reading it there ensures
-    the graph name is fixed for the entire request; the repository never needs to be
-    aware of the auth context.
-  - **Graph existence check location** — inside the transaction in
-    `QueryGraphRepository.execute_cypher()`. This keeps the repository self-contained
-    and mockable, and runs the check in the same transaction context as the query.
-  - **No `auto_create` for query path** — the query path must never provision graphs
-    (that is the responsibility of the provisioning/admin path). `auto_create` stays
-    `False` (the default).
-  - **Error type** — `QueryExecutionError` is the correct type per the spec's
-    "execution error" language. It maps to `"execution_error"` in the `MCPQueryService`
-    error categorization.
+  1. Write failing unit tests for `_ensure_limit()` reflecting the +1 append/cap
+     behavior — RED.
+  2. Update `_ensure_limit()` — GREEN.
+  3. Write failing integration test showing `truncated=False` when row count ==
+     max_rows — RED.
+  4. Update `execute_cypher_query()` — GREEN.
+  5. Confirm `make test-unit` and `make test-integration` both pass.
+  6. Atomic commit.
 
   ## Caveats
 
-  The `GraphTransactionProtocol` may not expose a raw SQL execution method that
-  returns rows. If that is the case, either extend the protocol or execute the
-  existence check using the client's raw connection before starting the transaction.
-  The key invariant is: the Cypher query must never be dispatched if the graph is
-  absent.
+  - The explicit-LIMIT case (caller includes `LIMIT 50` and 50 ≤ MAX_LIMIT)
+    is NOT affected. The service does not know the "natural" row count in that
+    case and cannot add +1 without risking different semantics. Spec language
+    ("the server SHOULD fetch limit+1") applies to the server-imposed limits,
+    not caller-explicit limits.
+  - The KG filter in `mcp.py` runs *after* the service trims to `limit` rows.
+    `truncated` is set before KG filtering, so filtering may reduce `row_count`
+    below `limit` while `truncated` remains `True`. This is a pre-existing design
+    decision (spec does not address post-filter truncation) and is out of scope.
 ---

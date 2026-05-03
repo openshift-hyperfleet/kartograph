@@ -2,13 +2,13 @@
 id: task-121
 title: 'UI: Query Console'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps:
 - task-118
 - task-119
 round: 0
-branch: null
+branch: hyperloop/task-121
 pr: null
 pr_title: 'feat(ui): add Cypher query console with editor, results table, and history'
 pr_description: "## What & Why\n\nImplements the Query Console — the primary \"Explore\"\

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import kartographLogo from '~/assets/kartograph-logo.png'
 import {
@@ -29,8 +29,10 @@ import {
   Plug,
   Settings2,
   BookOpen,
+  Search,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -57,8 +59,42 @@ import { useSidebar } from '@/composables/useSidebar'
 import { useColorMode } from '@/composables/useColorMode'
 
 const route = useRoute()
+const router = useRouter()
 const { isCollapsed, isMobileOpen, toggleCollapsed, closeMobile } = useSidebar()
 const { isDark, toggle: toggleColorMode } = useColorMode()
+
+// ── Global search (keyboard shortcut "/") ─────────────────────────────────
+// Pressing "/" anywhere outside a form field focuses this search input.
+// Pressing Enter with a query navigates to the Query Console with the text
+// pre-filled. This enables power-users to jump directly to a query without
+// touching the mouse.
+
+const globalSearchQuery = ref('')
+
+function handleGlobalKeydown(event: KeyboardEvent) {
+  if (event.key !== '/') return
+  // Suppress when the user is already typing inside a form field.
+  const tag = (event.target as HTMLElement)?.tagName?.toLowerCase() ?? ''
+  if (['input', 'textarea', 'select'].includes(tag)) return
+  event.preventDefault()
+  const el = document.querySelector<HTMLInputElement>('[data-testid="global-search-input"]')
+  el?.focus()
+}
+
+function handleSearchSubmit() {
+  const q = globalSearchQuery.value.trim()
+  if (!q) return
+  globalSearchQuery.value = ''
+  router.push({ path: '/query', query: { query: q } })
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', handleGlobalKeydown)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleGlobalKeydown)
+})
 
 // ── Auth & Tenant state ────────────────────────────────────────────────────
 const { user, isAuthenticated, logout } = useAuth()
@@ -823,6 +859,25 @@ watch(() => route.path, () => { closeMobile() })
               <span v-else class="text-foreground font-medium">{{ crumb.label }}</span>
             </template>
           </nav>
+
+          <!-- Global search (keyboard shortcut "/") -->
+          <!-- Power-users can press "/" from anywhere outside a form field to
+               jump here. Submitting with Enter navigates to the Query Console
+               with the typed text pre-filled as the initial Cypher query. -->
+          <form
+            class="hidden md:flex items-center relative mx-2"
+            @submit.prevent="handleSearchSubmit"
+          >
+            <Search class="absolute left-2.5 size-3.5 text-muted-foreground pointer-events-none" aria-hidden="true" />
+            <Input
+              v-model="globalSearchQuery"
+              data-testid="global-search-input"
+              type="search"
+              placeholder="Search  /"
+              class="h-8 w-48 pl-8 pr-2 text-sm bg-muted/50 border-transparent focus:border-border focus:bg-background transition-all"
+              aria-label="Global search — press / to focus"
+            />
+          </form>
 
           <div class="flex-1" />
 

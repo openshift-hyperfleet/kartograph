@@ -95,7 +95,7 @@ while IFS= read -r port_file; do
     # Search for the protocol name in non-test, non-.venv production files,
     # excluding the port definition file itself.
     used_in_prod=$(
-      grep -rl --include="*.py" --exclude-dir=.venv --exclude-dir=__pycache__ \
+      grep -rl --include="*.py" \
         "$proto_name" "$API_DIR" \
         2>/dev/null \
       | grep -v "tests/" \

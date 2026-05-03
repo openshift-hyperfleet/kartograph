@@ -77,6 +77,7 @@ CHECKS=(
   check-empty-test-stubs.sh
   check-domain-aggregate-mocks.sh
   check-no-repo-port-mocks.sh
+  check-no-dead-ports.sh
   check-no-direct-logger-usage.sh
   check-no-coming-soon-stubs.sh
   check-weak-test-assertions.sh

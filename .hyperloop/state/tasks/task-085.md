@@ -3,11 +3,11 @@ id: task-085
 title: Add knowledge_graphs://accessible MCP resource
 spec_ref: specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-085
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/550
 pr_title: 'feat(query): expose knowledge_graphs://accessible MCP resource'
 pr_description: "## What & Why\n\nThe `mcp-server.spec.md` spec was updated to add\
   \ a new **Requirement:\nKnowledge Graphs Resource**. The spec requires:\n\n> The\

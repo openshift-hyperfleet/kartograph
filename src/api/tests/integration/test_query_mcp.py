@@ -7,9 +7,12 @@ Run with: pytest -m integration tests/integration/test_query_mcp.py
 Requires: Running PostgreSQL with AGE extension (docker compose up -d postgres)
 """
 
+import uuid
+
 import pytest
 
 from graph.infrastructure.age_client import AgeGraphClient
+from infrastructure.database.connection import ConnectionFactory
 from query.application.services import MCPQueryService
 from query.domain.value_objects import (
     CypherQueryResult,
@@ -310,3 +313,162 @@ class TestApacheAGEConstraints:
         assert "manager" in results[0]
         assert results[0]["employee"]["properties"]["name"] == "Alice"
         assert results[0]["manager"]["properties"]["name"] == "Bob"
+
+
+class TestCrossTenantIsolation:
+    """Integration tests for per-tenant graph routing isolation.
+
+    Spec: specs/query/query-execution.spec.md
+    Requirement: Per-Tenant Graph Routing
+
+    Verifies that:
+    - Queries are scoped to the tenant's AGE graph (tenant_<id> prefix)
+    - Data from one tenant's graph is never visible to another tenant's query
+    - Queries against un-provisioned graphs are rejected before reaching the DB
+    """
+
+    def _make_tenant_client(
+        self,
+        settings,
+        pool,
+        graph_name: str,
+    ) -> AgeGraphClient:
+        """Create and connect an AgeGraphClient for the given tenant graph.
+
+        Note: age.setUpAge (called during connect) auto-creates the graph if
+        it does not already exist. This is acceptable for test setup; the
+        graph-not-found scenario is exercised by dropping the graph *after*
+        connecting.
+        """
+        factory = ConnectionFactory(settings, pool=pool)
+        client = AgeGraphClient(
+            settings,
+            connection_factory=factory,
+            graph_name=graph_name,
+            auto_create=False,
+        )
+        client.connect()
+        return client
+
+    def _drop_graph_via_raw_conn(self, pool, graph_name: str) -> None:
+        """Drop an AGE graph using a raw psycopg2 connection from the pool.
+
+        Uses ag_catalog.drop_graph with cascade=true so any residual data
+        is removed. Silently skips if the graph does not exist.
+        """
+        conn = pool.get_connection()
+        try:
+            with conn.cursor() as cursor:
+                # Check existence first to avoid an error on non-existent graphs
+                cursor.execute(
+                    "SELECT 1 FROM ag_catalog.ag_graph WHERE name = %s",
+                    (graph_name,),
+                )
+                if cursor.fetchone() is not None:
+                    cursor.execute(
+                        "SELECT ag_catalog.drop_graph(%s, true)", (graph_name,)
+                    )
+            conn.commit()
+        finally:
+            pool.return_connection(conn)
+
+    def test_tenant_a_cannot_see_tenant_b_data(
+        self,
+        integration_db_settings,
+        integration_connection_pool,
+    ):
+        """GIVEN two tenant graphs each containing distinct data
+        WHEN querying via QueryGraphRepository scoped to tenant_a
+        THEN only tenant_a's node is returned — no cross-tenant leakage.
+
+        Spec: Per-Tenant Graph Routing — "queries never cross tenant
+        boundaries regardless of query content".
+        """
+        graph_a = "tenant_test_a"
+        graph_b = "tenant_test_b"
+
+        client_a = self._make_tenant_client(
+            integration_db_settings, integration_connection_pool, graph_a
+        )
+        client_b = self._make_tenant_client(
+            integration_db_settings, integration_connection_pool, graph_b
+        )
+
+        try:
+            # Clean any leftover data from prior runs
+            for client in [client_a, client_b]:
+                try:
+                    client.execute_cypher("MATCH (n) DETACH DELETE n")
+                except Exception:
+                    pass
+
+            # Write a distinct marker node to each tenant graph
+            client_a.execute_cypher(
+                "CREATE (n:TenantMarker {tenant: 'A', unique_id: 'only-in-a'})"
+            )
+            client_b.execute_cypher(
+                "CREATE (n:TenantMarker {tenant: 'B', unique_id: 'only-in-b'})"
+            )
+
+            # Query exclusively through the tenant_a-scoped repository
+            repo_a = QueryGraphRepository(client=client_a)
+            results = repo_a.execute_cypher(
+                "MATCH (n:TenantMarker) RETURN {tenant: n.tenant, unique_id: n.unique_id}"
+            )
+
+            # Must see exactly one row — only tenant A's node
+            assert len(results) == 1, (
+                f"Expected 1 row from tenant_a graph, got {len(results)}. "
+                "Cross-tenant data leakage detected."
+            )
+            assert results[0]["tenant"] == "A"
+            assert results[0]["unique_id"] == "only-in-a"
+
+        finally:
+            # Clean data from both graphs regardless of test outcome
+            for client in [client_a, client_b]:
+                try:
+                    client.execute_cypher("MATCH (n) DETACH DELETE n")
+                except Exception:
+                    pass
+                client.disconnect()
+
+    def test_tenant_graph_not_found_raises_before_db(
+        self,
+        integration_db_settings,
+        integration_connection_pool,
+    ):
+        """GIVEN a graph that was removed after the client connected
+        WHEN execute_cypher is called on the repository
+        THEN QueryExecutionError is raised before any Cypher reaches the DB.
+
+        Spec: Per-Tenant Graph Routing — "the request is rejected with an
+        execution error before reaching the database".
+
+        Implementation note: age.setUpAge creates the graph on connect(), so
+        we exercise the "not found" path by dropping the graph *after* the
+        client is established. This mirrors a real race condition where a
+        tenant's graph is deprovisioned between connection setup and query
+        execution.
+        """
+        # Use a unique name to avoid interference from other parallel test runs
+        vanished_graph = f"tenant_vanished_{uuid.uuid4().hex[:8]}"
+
+        client = self._make_tenant_client(
+            integration_db_settings, integration_connection_pool, vanished_graph
+        )
+
+        try:
+            # Drop the graph so it no longer exists in ag_catalog
+            self._drop_graph_via_raw_conn(integration_connection_pool, vanished_graph)
+
+            # The repository must detect the missing graph and reject before
+            # opening any Cypher transaction
+            repo = QueryGraphRepository(client=client)
+            with pytest.raises(QueryExecutionError):
+                repo.execute_cypher("MATCH (n) RETURN n")
+
+        finally:
+            # Best-effort cleanup — graph may already be gone
+            self._drop_graph_via_raw_conn(integration_connection_pool, vanished_graph)
+            client.disconnect()

@@ -3,11 +3,11 @@ id: task-114
 title: Query execution — integration test for primary database-level read-only enforcement
 spec_ref: specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-114
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/584
 pr_title: 'test(query): add integration test for primary database-level read-only
   enforcement'
 pr_description: "## What & Why\n\n`specs/query/query-execution.spec.md` — **Requirement:\

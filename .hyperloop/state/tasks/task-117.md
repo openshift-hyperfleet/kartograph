@@ -3,11 +3,11 @@ id: task-117
 title: Data source connection wizard — behavioral tests for adapter selection and
   connection config
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-117
 pr: null
 pr_title: 'test(ui): add behavioral tests for data source connection wizard (steps
   1-2)'

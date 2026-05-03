@@ -1,6 +1,6 @@
 ---
 id: task-099
-title: Fix MCP query result truncation to use limit+1 detection
+title: Fix truncation detection to use fetch-limit+1 and repair integration test
 spec_ref: "specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e"
 status: not-started
 phase: null
@@ -8,71 +8,102 @@ deps: []
 round: 0
 branch: null
 pr: null
-pr_title: "fix: implement limit+1 truncation detection for MCP query results"
+pr_title: "fix(query): implement fetch-limit+1 truncation detection and correct integration test"
 pr_description: |
-  ## What and Why
+  ## What & Why
 
-  The `query_graph` MCP tool includes a `truncated` flag in its response, signalling
-  to the caller whether more rows exist beyond the returned set. The spec (Result
-  truncation flag scenario) states:
+  The **Result Truncation Flag** scenario in `specs/query/mcp-server.spec.md` requires:
 
-  > the server SHOULD fetch `limit + 1` rows and set `truncated` to true **only if
-  > more than `limit` rows were available**, AND the response returns at most `limit` rows.
+  > "the server SHOULD fetch `limit + 1` rows and set `truncated` to true only if
+  > more than `limit` rows were available; AND the response returns at most `limit` rows."
 
-  The current implementation has a correctness bug: `QueryGraphRepository._ensure_limit`
-  appends `LIMIT max_rows` to the query, and `MCPQueryService` sets
-  `truncated = len(rows) >= limit`. When the database contains **exactly** `max_rows`
-  rows the service returns all of them and incorrectly sets `truncated = True` — a
-  false positive that misleads AI agents into thinking more data exists when it does not.
+  Two bugs exist:
 
-  ## Spec Requirements Satisfied
+  ### Bug 1 — Service layer: false-positive truncation
+  `src/api/query/application/services.py` line 79:
+  ```python
+  truncated = len(rows) >= limit   # WRONG: true when exactly limit rows exist
+  ```
+  Correct approach: request `limit + 1` rows, set `truncated = len(raw) > limit`,
+  slice to `raw[:limit]` before returning.
 
-  - **mcp-server.spec.md** → Requirement: Graph Query Tool → Scenario: Result truncation flag
+  ### Bug 2 — Integration test: asserts wrong behavior
+  `src/api/tests/integration/test_query_mcp.py` line 205,
+  `TestMCPQueryService.test_execute_cypher_query_marks_truncation`:
+  ```python
+  assert result.row_count == 3
+  assert result.truncated is True   # WRONG: 3 rows at limit=3 → truncated MUST be False
+  ```
+  When Bug 1 is fixed, this assertion will break because exactly-at-limit results are
+  no longer considered truncated. This integration test must be updated to reflect the
+  spec-correct behavior.
 
-  ## Design Decisions
+  > **Note:** Tasks task-086, task-089, task-097, task-098 also describe the service
+  > fix but do not mention this integration test. This task is the definitive
+  > implementation spec and explicitly includes the integration test repair.
 
-  The fix applies the canonical "fetch N+1" approach at the repository layer:
+  ## Spec Requirement Satisfied
 
-  1. **`QueryGraphRepository._ensure_limit`** — when no `LIMIT` clause is present,
-     append `LIMIT max_rows + 1` instead of `LIMIT max_rows`; when an explicit
-     `LIMIT` exceeds `MAX_LIMIT`, cap to `MAX_LIMIT + 1` so over-limit queries also
-     benefit from accurate truncation detection.
-
-  2. **`MCPQueryService.execute_cypher_query`** — change the truncation check from
-     `len(rows) >= limit` to `len(rows) > limit`, then slice `rows[:limit]` before
-     building the `CypherQueryResult`. This ensures the response always contains at
-     most `limit` rows and `truncated` is True only when more than `limit` rows
-     were returned by the DB.
+  `specs/query/mcp-server.spec.md` — **Requirement: Graph Query Tool**,
+  Scenario: *Result truncation flag*
 
   ## Files Affected
 
-  - `src/api/query/infrastructure/query_repository.py` — `_ensure_limit` method
-  - `src/api/query/application/services.py` — truncation check and slice
-  - `src/api/tests/unit/query/test_query_repository.py` — `TestEnsureLimit` tests
-    that assert specific `LIMIT N` values (must be updated to `N+1` for the
-    no-limit and cap cases)
-  - `src/api/tests/unit/query/test_application_services.py` — `test_tracks_truncation_when_at_limit`
-    currently passes 1000 rows and expects `truncated=True`; under the fix 1000 rows
-    returned when the limit is 1000 means `truncated=False` — test must be updated
-    and a new test added that returns 1001 rows to verify `truncated=True` with slicing
+  ### Implementation
+  - `src/api/query/application/services.py`
+    - `execute_cypher_query`: request `limit + 1` from repository, set
+      `truncated = len(raw_rows) > limit`, return `raw_rows[:limit]`
+
+  ### Unit Tests (update/add)
+  - `src/api/tests/unit/query/test_application_services.py`
+    - Update `test_tracks_truncation_when_at_limit` — supply `limit + 1` rows to
+      repository fake; assert `truncated=True` AND `len(result.rows) == limit`
+    - Add `test_not_truncated_when_exactly_at_limit` — supply exactly `limit` rows;
+      assert `truncated=False`
+    - Add `test_truncated_result_trimmed_to_limit` — supply `limit + 1` rows; assert
+      `len(result.rows) == limit` (not `limit + 1`)
+
+  ### Integration Test (repair)
+  - `src/api/tests/integration/test_query_mcp.py`
+    - Rename `test_execute_cypher_query_marks_truncation` →
+      `test_execute_cypher_query_not_truncated_when_exactly_at_limit`
+    - Assert `result.truncated is False` (was incorrectly `True`)
+    - Add `test_execute_cypher_query_truncated_when_more_exist`:
+      create 4 nodes in the test graph, query with `max_rows=3`, assert `truncated=True`
+      and `result.row_count == 3`
+
+  ## TDD Cycle
+
+  1. Update `test_not_truncated_when_exactly_at_limit` → RED (new test, fails)
+  2. Repair integration test (change assertion) → will be RED after service fix
+  3. Fix `execute_cypher_query` in `services.py` → GREEN for unit tests
+  4. Run integration tests to confirm repair: `make test-integration`
+  5. Commit atomically
 
   ## How to Verify
 
-  1. Run unit tests: `cd src/api && uv run pytest tests/unit/query/ -v`
-  2. Confirm `test_tracks_truncation_when_at_limit` is updated to reflect the new
-     semantics (1001 rows returned → truncated, 1000 rows returned → not truncated)
-  3. Confirm `TestEnsureLimit` tests expect `LIMIT 1001` when `max_rows=1000` and
-     no LIMIT clause is present
-  4. Integration smoke: call `query_graph` against a table with exactly N rows where N
-     equals `max_rows`; the response should have `truncated: false`
+  ```bash
+  cd src/api
+
+  # Unit tests — all three boundary cases
+  uv run pytest tests/unit/query/test_application_services.py -k "truncat" -v
+
+  # Integration tests — confirm repair
+  uv run pytest tests/integration/test_query_mcp.py::TestMCPQueryService -v
+
+  # Full unit suite — no regressions
+  uv run pytest tests/unit -v
+  ```
+
+  Expected:
+  - `test_not_truncated_when_exactly_at_limit`: `truncated=False` ✓
+  - `test_execute_cypher_query_not_truncated_when_exactly_at_limit`: `truncated=False` ✓
+  - `test_execute_cypher_query_truncated_when_more_exist`: `truncated=True`, 3 rows ✓
 
   ## Caveats
 
-  - Queries with an **explicit** `LIMIT` clause at or below `MAX_LIMIT` are left
-    unchanged — the user chose their own limit, so no `+1` is appended.  The
-    `truncated` flag for these queries will still use `len(rows) > effective_limit`
-    which is always False since the DB cannot return more rows than the stated `LIMIT`.
-  - The `SHOULD` wording in the spec makes this a recommendation, not a hard
-    requirement, but the false-positive behaviour actively misleads MCP clients and
-    is therefore worth correcting.
+  The spec uses SHOULD (not SHALL), so this is a best-practice improvement.
+  The fix closes the false-positive that causes AI agents to issue unnecessary
+  follow-up queries. It increases rows fetched from the DB by 1 per query —
+  negligible in practice. No API contract changes.
 ---

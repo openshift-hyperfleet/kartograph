@@ -452,6 +452,88 @@ class TestRowToDict:
         assert result["person_a"]["label"] == "Person"
         assert result["person_a"]["properties"]["name"] == "Alice"
 
+    def test_converts_map_with_edges(self, repository):
+        """Map result containing edge values — edges converted to EdgeDicts.
+
+        Spec: Scenario: Map return (multiple values) — map keys are preserved
+        with nested nodes/edges converted to dictionaries.
+        """
+        edge = AgeEdge(id=10, label="KNOWS", properties={"since": 2020})
+        edge.start_id = 1
+        edge.end_id = 2
+        row = ({"relationship": edge},)
+
+        result = repository._row_to_dict(row)
+
+        assert "relationship" in result
+        assert result["relationship"]["id"] == "10"
+        assert result["relationship"]["label"] == "KNOWS"
+        assert result["relationship"]["start_id"] == "1"
+        assert result["relationship"]["end_id"] == "2"
+
+    def test_converts_map_with_mixed_vertex_and_scalar(self, repository):
+        """Map with a vertex and a scalar — vertex converted, scalar preserved.
+
+        Spec: Scenario: Map return (multiple values) — nested nodes/edges
+        converted to dictionaries; scalar values pass through as-is.
+        """
+        vertex = AgeVertex(id=1, label="Person", properties={"name": "Alice"})
+        row = ({"person": vertex, "count": 42},)
+
+        result = repository._row_to_dict(row)
+
+        assert result["person"]["label"] == "Person"
+        assert result["person"]["properties"]["name"] == "Alice"
+        assert result["count"] == 42
+
+    def test_converts_map_with_only_scalars(self, repository):
+        """Map with only scalar values — preserved as-is.
+
+        Spec: Scenario: Map return (multiple values) — map keys preserved,
+        scalars pass through unchanged (no entity conversion needed).
+        """
+        row = ({"name": "Alice", "age": 30},)
+
+        result = repository._row_to_dict(row)
+
+        assert result == {"name": "Alice", "age": 30}
+
+    def test_converts_string_scalar(self, repository):
+        """String scalars are wrapped as {"value": <str>}.
+
+        Spec: Scenario: Scalar return — scalar value wrapped as {"value": scalar}.
+        Extends test_converts_scalar_value (integer) to cover string type.
+        """
+        row = ("hello",)
+
+        result = repository._row_to_dict(row)
+
+        assert result == {"value": "hello"}
+
+    def test_converts_none_scalar(self, repository):
+        """None returned from the database is wrapped as {"value": None}.
+
+        Spec: Scenario: Scalar return — scalar value wrapped as {"value": scalar}.
+        Covers None (e.g., when a node property is absent from the projection).
+        """
+        row = (None,)
+
+        result = repository._row_to_dict(row)
+
+        assert result == {"value": None}
+
+    def test_converts_float_scalar(self, repository):
+        """Float scalars (e.g., similarity scores) are wrapped as {"value": float}.
+
+        Spec: Scenario: Scalar return — scalar value wrapped as {"value": scalar}.
+        Extends test_converts_scalar_value (integer) to cover floating-point type.
+        """
+        row = (0.95,)
+
+        result = repository._row_to_dict(row)
+
+        assert result == {"value": 0.95}
+
 
 class TestVertexToDict:
     """Tests for _vertex_to_dict conversion."""

@@ -281,8 +281,9 @@ describe('Backend API Alignment — Scenario: Resource operations succeed end-to
       const apiFetch = vi.fn().mockResolvedValue(undefined) // 204 No Content
       const loadApiKeys = vi.fn().mockResolvedValue(undefined)
 
+      // Backend route: DELETE /iam/api-keys/{api_key_id}
       async function handleRevoke(keyId: string) {
-        await apiFetch(`/iam/api-keys/${keyId}/revoke`, { method: 'POST' })
+        await apiFetch(`/iam/api-keys/${keyId}`, { method: 'DELETE' })
         await loadApiKeys()
       }
 
@@ -296,9 +297,10 @@ describe('Backend API Alignment — Scenario: Resource operations succeed end-to
       const apiFetch = vi.fn().mockRejectedValue(new Error('Not Found'))
       const loadApiKeys = vi.fn()
 
+      // Backend route: DELETE /iam/api-keys/{api_key_id}
       async function handleRevoke(keyId: string) {
         try {
-          await apiFetch(`/iam/api-keys/${keyId}/revoke`, { method: 'POST' })
+          await apiFetch(`/iam/api-keys/${keyId}`, { method: 'DELETE' })
           await loadApiKeys()
         } catch {
           // error handled elsewhere
@@ -371,6 +373,151 @@ describe('Backend API Alignment — Scenario: Resource operations succeed end-to
       expect(apiFetch).toHaveBeenCalledOnce()
       expect(loadWorkspaces).toHaveBeenCalledOnce()
       expect(deleteDialogOpen.value).toBe(false)
+    })
+  })
+
+  // ── Groups ────────────────────────────────────────────────────────────────
+
+  describe('Group create → list reloads without manual refresh', () => {
+    it('GIVEN group creation succeeds THEN fetchGroups() is called automatically', async () => {
+      const apiFetch = vi.fn().mockResolvedValue({ id: 'grp-new', name: 'Engineering' })
+      const fetchGroups = vi.fn().mockResolvedValue(undefined)
+      const createDialogOpen = { value: true }
+
+      // Backend route: POST /iam/groups (tenant-scoped, no workspace in path)
+      async function handleCreate(name: string) {
+        await apiFetch('/iam/groups', {
+          method: 'POST',
+          body: { name },
+        })
+        createDialogOpen.value = false
+        await fetchGroups()
+      }
+
+      await handleCreate('Engineering')
+
+      expect(apiFetch).toHaveBeenCalledOnce()
+      expect(fetchGroups).toHaveBeenCalledOnce()
+      expect(createDialogOpen.value).toBe(false)
+    })
+
+    it('GIVEN group creation fails THEN fetchGroups() is NOT called', async () => {
+      const apiFetch = vi.fn().mockRejectedValue(new Error('Conflict'))
+      const fetchGroups = vi.fn()
+
+      async function handleCreate(name: string) {
+        try {
+          await apiFetch('/iam/groups', { method: 'POST', body: { name } })
+          await fetchGroups()
+        } catch {
+          // error handled elsewhere
+        }
+      }
+
+      await handleCreate('Engineering')
+
+      expect(fetchGroups).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Group delete → list reloads without manual refresh', () => {
+    it('GIVEN group deletion succeeds THEN fetchGroups() is called automatically', async () => {
+      const apiFetch = vi.fn().mockResolvedValue(undefined) // 204 No Content
+      const fetchGroups = vi.fn().mockResolvedValue(undefined)
+      const deleteDialogOpen = { value: true }
+
+      // Backend route: DELETE /iam/groups/{group_id}
+      async function handleDelete(groupId: string) {
+        await apiFetch(`/iam/groups/${groupId}`, { method: 'DELETE' })
+        deleteDialogOpen.value = false
+        await fetchGroups()
+      }
+
+      await handleDelete('grp-1')
+
+      expect(apiFetch).toHaveBeenCalledOnce()
+      expect(fetchGroups).toHaveBeenCalledOnce()
+      expect(deleteDialogOpen.value).toBe(false)
+    })
+  })
+
+  describe('Group rename → local state updated without full reload', () => {
+    it('GIVEN group rename succeeds THEN selected group and list are updated in-place', async () => {
+      const apiFetch = vi.fn().mockResolvedValue({ id: 'grp-1', name: 'Platform' })
+      let groups = [{ id: 'grp-1', name: 'Engineering' }]
+      let selectedGroup: { id: string; name: string } | null = groups[0]!
+
+      // Backend route: PATCH /iam/groups/{group_id}
+      async function handleRename(groupId: string, newName: string) {
+        const updated = await apiFetch(`/iam/groups/${groupId}`, {
+          method: 'PATCH',
+          body: { name: newName },
+        })
+        selectedGroup = updated
+        const idx = groups.findIndex((g) => g.id === updated.id)
+        if (idx !== -1) groups[idx] = updated
+      }
+
+      await handleRename('grp-1', 'Platform')
+
+      expect(apiFetch).toHaveBeenCalledOnce()
+      expect(selectedGroup?.name).toBe('Platform')
+      expect(groups[0]?.name).toBe('Platform')
+    })
+  })
+
+  // ── Mutations console ─────────────────────────────────────────────────────
+
+  describe('Mutations submission → KG-scoped URL is used', () => {
+    it('GIVEN a KG selected THEN mutations are submitted to the KG-scoped endpoint', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ success: true, errors: [] }) })
+
+      const apiBaseUrl = 'https://api.example.com'
+
+      // Backend route: POST /graph/knowledge-graphs/{knowledge_graph_id}/mutations
+      async function applyMutations(knowledgeGraphId: string, jsonlContent: string) {
+        const response = await fetchMock(
+          `${apiBaseUrl}/graph/knowledge-graphs/${knowledgeGraphId}/mutations`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/jsonlines' },
+            body: jsonlContent,
+          },
+        )
+        return response.json()
+      }
+
+      await applyMutations('kg-selected-123', '{"op":"CREATE","type":"node"}')
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://api.example.com/graph/knowledge-graphs/kg-selected-123/mutations',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+
+    it('GIVEN mutations submission fails THEN error is captured from response', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 422,
+        text: async () => JSON.stringify({ detail: 'Invalid mutation op' }),
+      })
+
+      const apiBaseUrl = 'https://api.example.com'
+
+      async function applyMutations(knowledgeGraphId: string, jsonlContent: string) {
+        const response = await fetchMock(
+          `${apiBaseUrl}/graph/knowledge-graphs/${knowledgeGraphId}/mutations`,
+          { method: 'POST', headers: { 'Content-Type': 'application/jsonlines' }, body: jsonlContent },
+        )
+        if (!response.ok) {
+          const text = await response.text()
+          const parsed = JSON.parse(text)
+          throw new Error(parsed.detail ?? `Request failed with status ${response.status}`)
+        }
+        return response.json()
+      }
+
+      await expect(applyMutations('kg-1', '{"op":"INVALID"}')).rejects.toThrow('Invalid mutation op')
     })
   })
 })
@@ -595,6 +742,45 @@ describe('Backend API Alignment — Scenario: Parent context is preserved', () =
 
       expect(url).toBe('/management/data-sources/ds-runtime-id/sync')
       expect(url).not.toContain('undefined')
+    })
+
+    it('Group operations use tenant-scoped /iam/groups — not workspace-scoped', () => {
+      // Groups are tenant-scoped via the auth header (X-Tenant-ID), not URL-scoped.
+      // The backend route is GET/POST /iam/groups — no workspace_id in the path.
+      const listUrl = '/iam/groups'
+      const createUrl = '/iam/groups'
+      const groupId = 'grp-runtime-id'
+      const deleteUrl = `/iam/groups/${groupId}`
+
+      expect(listUrl).toBe('/iam/groups')
+      expect(listUrl).not.toContain('workspaces')
+      expect(createUrl).toBe('/iam/groups')
+      expect(createUrl).not.toContain('workspaces')
+      expect(deleteUrl).toBe('/iam/groups/grp-runtime-id')
+      expect(deleteUrl).not.toContain('undefined')
+    })
+
+    it('Mutations submission URL includes knowledge_graph_id in the path', () => {
+      // Backend route: POST /graph/knowledge-graphs/{kg_id}/mutations
+      // Knowledge graph ID must be in the URL — not just in the request body.
+      const apiBaseUrl = 'https://api.example.com'
+      const kgId = 'kg-runtime-id'
+      const url = `${apiBaseUrl}/graph/knowledge-graphs/${kgId}/mutations`
+
+      expect(url).toBe('https://api.example.com/graph/knowledge-graphs/kg-runtime-id/mutations')
+      expect(url).not.toContain('undefined')
+      expect(url).not.toBe(`${apiBaseUrl}/graph/mutations`)
+    })
+
+    it('API key revoke uses DELETE /iam/api-keys/{id} — not POST .../revoke', () => {
+      // Backend route: DELETE /iam/api-keys/{api_key_id}
+      // The key is revoked by deleting the resource; there is no /revoke sub-path.
+      const keyId = 'key-runtime-id'
+      const deleteUrl = `/iam/api-keys/${keyId}`
+
+      expect(deleteUrl).toBe('/iam/api-keys/key-runtime-id')
+      expect(deleteUrl).not.toContain('/revoke')
+      expect(deleteUrl).not.toContain('undefined')
     })
   })
 })

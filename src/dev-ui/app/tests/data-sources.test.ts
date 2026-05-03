@@ -2056,8 +2056,9 @@ describe('Ontology Editor — save to backend after post-extraction edit (task-0
       if (!editingDataSource.value) return
       savingOntology.value = true
       try {
+        // PATCH /management/data-sources/{ds_id} — flat endpoint (task-107 fix)
         await apiFetch(
-          `/management/knowledge-graphs/${editingDataSource.value.knowledge_graph_id}/data-sources/${editingDataSource.value.id}`,
+          `/management/data-sources/${editingDataSource.value.id}`,
           {
             method: 'PATCH',
             body: {
@@ -2090,7 +2091,7 @@ describe('Ontology Editor — save to backend after post-extraction edit (task-0
     await saveOntology()
 
     expect(apiFetch).toHaveBeenCalledWith(
-      '/management/knowledge-graphs/kg-1/data-sources/ds-1',
+      '/management/data-sources/ds-1',
       expect.objectContaining({
         method: 'PATCH',
         body: {
@@ -2133,7 +2134,7 @@ describe('Ontology Editor — save to backend after post-extraction edit (task-0
       savingOntology.value = true
       try {
         await apiFetch(
-          `/management/knowledge-graphs/${editingDataSource.value.knowledge_graph_id}/data-sources/${editingDataSource.value.id}`,
+          `/management/data-sources/${editingDataSource.value.id}`,
           {
             method: 'PATCH',
             body: {
@@ -2183,7 +2184,7 @@ describe('Ontology Editor — save to backend after post-extraction edit (task-0
       savingOntology.value = true
       try {
         await apiFetch(
-          `/management/knowledge-graphs/${editingDataSource.value.knowledge_graph_id}/data-sources/${editingDataSource.value.id}`,
+          `/management/data-sources/${editingDataSource.value.id}`,
           { method: 'PATCH', body: { ontology: { node_types: [], edge_types: [] } } },
         )
         editOntologyOpen.value = false
@@ -2215,7 +2216,7 @@ describe('Ontology Editor — save to backend after post-extraction edit (task-0
         savingOntology.value = true
         try {
           await apiFetch(
-            `/management/knowledge-graphs/${editingDataSource.value.knowledge_graph_id}/data-sources/${editingDataSource.value.id}`,
+            `/management/data-sources/${editingDataSource.value.id}`,
             { method: 'PATCH', body: { ontology: { node_types: [], edge_types: [] } } },
           )
         } finally {
@@ -2237,7 +2238,7 @@ describe('Ontology Editor — save to backend after post-extraction edit (task-0
         savingOntology.value = true
         try {
           await apiFetch(
-            `/management/knowledge-graphs/${editingDataSource.value.knowledge_graph_id}/data-sources/${editingDataSource.value.id}`,
+            `/management/data-sources/${editingDataSource.value.id}`,
             { method: 'PATCH', body: { ontology: { node_types: [], edge_types: [] } } },
           )
         } catch {
@@ -2262,7 +2263,7 @@ describe('Ontology Editor — save to backend after post-extraction edit (task-0
       savingOntology.value = true
       try {
         await apiFetch(
-          `/management/knowledge-graphs/${editingDataSource.value.knowledge_graph_id}/data-sources/${editingDataSource.value.id}`,
+          `/management/data-sources/${editingDataSource.value.id}`,
           { method: 'PATCH', body: {} },
         )
       } finally {
@@ -2356,8 +2357,9 @@ describe('Data Sources — Edit Config (update name / credentials)', () => {
         if (editConfigToken.value.trim()) {
           body.credentials = { access_token: editConfigToken.value.trim() }
         }
+        // PATCH /management/data-sources/{ds_id} — flat endpoint (task-107 fix)
         await apiFetch(
-          `/management/knowledge-graphs/${editConfigDs.value!.knowledge_graph_id}/data-sources/${editConfigDs.value!.id}`,
+          `/management/data-sources/${editConfigDs.value!.id}`,
           { method: 'PATCH', body },
         )
         editConfigOpen.value = false
@@ -2370,7 +2372,7 @@ describe('Data Sources — Edit Config (update name / credentials)', () => {
     await handleEditConfig()
 
     expect(apiFetch).toHaveBeenCalledWith(
-      '/management/knowledge-graphs/kg-1/data-sources/ds-1',
+      '/management/data-sources/ds-1',
       expect.objectContaining({
         method: 'PATCH',
         body: { name: 'Updated Repo', credentials: { access_token: 'ghp_newtoken123' } },
@@ -2396,8 +2398,9 @@ describe('Data Sources — Edit Config (update name / credentials)', () => {
         if (editConfigToken.value.trim()) {
           body.credentials = { access_token: editConfigToken.value.trim() }
         }
+        // PATCH /management/data-sources/{ds_id} — flat endpoint (task-107 fix)
         await apiFetch(
-          `/management/knowledge-graphs/${editConfigDs.value!.knowledge_graph_id}/data-sources/${editConfigDs.value!.id}`,
+          `/management/data-sources/${editConfigDs.value!.id}`,
           { method: 'PATCH', body },
         )
         editConfigOpen.value = false
@@ -2426,7 +2429,7 @@ describe('Data Sources — Edit Config (update name / credentials)', () => {
         return
       }
       apiCalled = true
-      await apiFetch('/management/knowledge-graphs/kg-1/data-sources/ds-1', {
+      await apiFetch('/management/data-sources/ds-1', {
         method: 'PATCH', body: {},
       })
     }
@@ -2451,8 +2454,9 @@ describe('Data Sources — Edit Config (update name / credentials)', () => {
       saving.value = true
       try {
         const body: Record<string, unknown> = { name: editConfigName.value.trim() }
+        // PATCH /management/data-sources/{ds_id} — flat endpoint (task-107 fix)
         await apiFetch(
-          `/management/knowledge-graphs/${editConfigDs.value!.knowledge_graph_id}/data-sources/${editConfigDs.value!.id}`,
+          `/management/data-sources/${editConfigDs.value!.id}`,
           { method: 'PATCH', body },
         )
         editConfigOpen.value = false
@@ -2495,7 +2499,7 @@ describe('Data Sources — Delete with confirmation', () => {
     expect(deletingDs.value?.name).toBe('My Repo')
   })
 
-  it('calls DELETE on the correct nested path and refreshes the list', async () => {
+  it('calls DELETE on the flat /management/data-sources/{id} path and refreshes the list', async () => {
     const apiFetch = vi.fn().mockResolvedValue(undefined) // 204
     const deletingDs = { value: { id: 'ds-1', name: 'My Repo', knowledge_graph_id: 'kg-1' } }
     const deleting = { value: false }
@@ -2506,8 +2510,9 @@ describe('Data Sources — Delete with confirmation', () => {
       if (!deletingDs.value) return
       deleting.value = true
       try {
+        // DELETE /management/data-sources/{ds_id} — flat endpoint (task-107 fix)
         await apiFetch(
-          `/management/knowledge-graphs/${deletingDs.value.knowledge_graph_id}/data-sources/${deletingDs.value.id}`,
+          `/management/data-sources/${deletingDs.value.id}`,
           { method: 'DELETE' },
         )
         deleteDialogOpen.value = false
@@ -2520,7 +2525,7 @@ describe('Data Sources — Delete with confirmation', () => {
     await handleDeleteDs()
 
     expect(apiFetch).toHaveBeenCalledWith(
-      '/management/knowledge-graphs/kg-1/data-sources/ds-1',
+      '/management/data-sources/ds-1',
       { method: 'DELETE' },
     )
     expect(loadDataSources).toHaveBeenCalledOnce()
@@ -2553,7 +2558,7 @@ describe('Data Sources — Delete with confirmation', () => {
       deleting.value = true
       try {
         await apiFetch(
-          `/management/knowledge-graphs/${deletingDs.value!.knowledge_graph_id}/data-sources/${deletingDs.value!.id}`,
+          `/management/data-sources/${deletingDs.value!.id}`,
           { method: 'DELETE' },
         )
         deleteDialogOpen.value = false
@@ -2579,7 +2584,7 @@ describe('Data Sources — Delete with confirmation', () => {
     async function handleDeleteDs() {
       try {
         await apiFetch(
-          `/management/knowledge-graphs/${deletingDs.value!.knowledge_graph_id}/data-sources/${deletingDs.value!.id}`,
+          `/management/data-sources/${deletingDs.value!.id}`,
           { method: 'DELETE' },
         )
         await loadDataSources()

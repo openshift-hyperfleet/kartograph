@@ -34,6 +34,30 @@ class CreateDataSourceRequest(BaseModel):
     )
 
 
+class UpdateDataSourceRequest(BaseModel):
+    """Request model for updating a data source.
+
+    All fields are optional — only the fields provided are updated.
+    At least one field should be provided, though the server will accept
+    an empty body (resulting in a no-op).
+    """
+
+    name: str | None = Field(
+        default=None,
+        description="New name for the data source",
+        min_length=1,
+        max_length=100,
+    )
+    connection_config: dict | None = Field(
+        default=None,
+        description="Updated connection configuration key-value pairs",
+    )
+    credentials: dict | None = Field(
+        default=None,
+        description="New credentials to encrypt and store (replaces existing)",
+    )
+
+
 class DataSourceResponse(BaseModel):
     """Response model for a data source."""
 

@@ -22,6 +22,7 @@ from management.presentation.data_sources.models import (
     DataSourceWithSyncResponse,
     SyncRunLogsResponse,
     SyncRunResponse,
+    UpdateDataSourceRequest,
 )
 from shared_kernel.datasource_types import DataSourceAdapterType
 
@@ -282,6 +283,143 @@ async def list_sync_runs(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to list sync runs",
+        )
+
+
+@router.patch(
+    "/data-sources/{ds_id}",
+    response_model=DataSourceResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update a data source",
+    description="""
+Update the name and/or credentials of a data source.
+
+Requires `edit` permission on the data source. Only the fields provided
+are updated — omit a field to leave it unchanged.
+""",
+    response_description="Updated data source details",
+    responses={
+        200: {"description": "Data source updated successfully"},
+        401: {"description": "Authentication required"},
+        403: {"description": "Insufficient permissions on the data source"},
+        404: {"description": "Data source not found"},
+        500: {"description": "Internal server error"},
+    },
+)
+async def update_data_source(
+    ds_id: str,
+    request: UpdateDataSourceRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+) -> DataSourceResponse:
+    """Update a data source's configuration.
+
+    Args:
+        ds_id: Data Source ID to update
+        request: Fields to update (all optional)
+        current_user: Current authenticated user with tenant context
+        service: Data source service for orchestration
+
+    Returns:
+        DataSourceResponse with updated DS details
+
+    Raises:
+        HTTPException: 403 if user lacks EDIT permission on the DS
+        HTTPException: 404 if DS not found
+        HTTPException: 500 for unexpected errors
+    """
+    try:
+        ds = await service.update(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+            name=request.name,
+            connection_config=request.connection_config,
+            raw_credentials=request.credentials,
+        )
+        return DataSourceResponse.from_domain(ds)
+
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update data source",
+        )
+
+
+@router.delete(
+    "/data-sources/{ds_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    summary="Delete a data source",
+    description="""
+Delete a data source and its associated credentials.
+
+Requires `manage` permission on the data source. The deletion is
+irreversible — all sync run history and stored credentials are removed.
+""",
+    response_description="No content returned on successful deletion",
+    responses={
+        204: {"description": "Data source deleted successfully"},
+        401: {"description": "Authentication required"},
+        403: {"description": "Insufficient permissions on the data source"},
+        404: {"description": "Data source not found"},
+        500: {"description": "Internal server error"},
+    },
+)
+async def delete_data_source(
+    ds_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+) -> None:
+    """Delete a data source.
+
+    Args:
+        ds_id: Data Source ID to delete
+        current_user: Current authenticated user with tenant context
+        service: Data source service for orchestration
+
+    Returns:
+        None (204 No Content)
+
+    Raises:
+        HTTPException: 403 if user lacks MANAGE permission on the DS
+        HTTPException: 404 if DS not found
+        HTTPException: 500 for unexpected errors
+    """
+    try:
+        deleted = await service.delete(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+        )
+
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Data source {ds_id} not found",
+            )
+
+        return None
+
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete data source",
         )
 
 

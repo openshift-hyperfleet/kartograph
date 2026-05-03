@@ -1,7 +1,7 @@
 ---
 id: task-010
 title: Enforce database-level read-only session for graph queries
-spec_ref: specs/query/query-execution.spec.md@85d49a379a52479b33f9b39994d76795066899a6
+spec_ref: specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2
 status: complete
 phase: null
 deps: []

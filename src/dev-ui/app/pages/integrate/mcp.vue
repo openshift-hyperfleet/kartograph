@@ -41,12 +41,14 @@ import {
 } from '@/components/ui/tooltip'
 
 import type { APIKeyResponse, APIKeyCreatedResponse } from '~/types'
+import { useCopyToClipboard } from '~/composables/useCopyToClipboard'
 
 const { createApiKey, listApiKeys } = useIamApi()
 const { extractErrorMessage } = useErrorHandler()
 const { hasTenant, currentTenantName, tenantVersion } = useTenant()
 const transientSecret = useTransientSecret()
 const config = useRuntimeConfig()
+const { copyToClipboard } = useCopyToClipboard()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -236,17 +238,7 @@ async function handleCreateKey() {
 }
 
 // ── Clipboard ──────────────────────────────────────────────────────────────
-
-async function copyToClipboard(text: string, label?: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    toast.success(label ? `${label} copied` : 'Copied to clipboard')
-    return true
-  } catch {
-    toast.error('Failed to copy to clipboard')
-    return false
-  }
-}
+// Uses the centralised useCopyToClipboard composable (toast + copied flag).
 
 async function copyConfig(tab: string, text: string) {
   const ok = await copyToClipboard(text, `${tab} config`)

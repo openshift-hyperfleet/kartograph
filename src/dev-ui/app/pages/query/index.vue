@@ -92,6 +92,14 @@ const kgScopeLabel = computed(() => {
   return knowledgeGraphs.value.find((kg) => kg.id === selectedKgId.value)?.name ?? 'Unknown graph'
 })
 
+// Future integration point (task-108 / out-of-scope):
+// When a KG is selected here, the Schema Browser (graph/schema) could be told
+// to show only the ontology for that specific knowledge graph.  Both the query
+// console and the schema browser can reuse the same `selectedKgId` reactive
+// state if they are ever placed in a shared composable (e.g. useQueryScope)
+// so that selecting a KG in one view automatically scopes the other.
+// Do NOT implement until that cross-panel coordination story is fully spec'd.
+
 // History
 const HISTORY_KEY = 'kartograph:query-history'
 const MAX_HISTORY = 20

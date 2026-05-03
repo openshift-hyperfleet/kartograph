@@ -3,11 +3,11 @@ id: task-095
 title: Query execution — MCPQueryService error categorization unit tests
 spec_ref: specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-095
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/561
 pr_title: 'test(query): add MCPQueryService unit tests for all Error Categorization
   scenarios'
 pr_description: "## What & Why\n\nThe **Requirement: Error Categorization** in `specs/query/query-execution.spec.md`\n\

@@ -333,312 +333,6 @@ class _RecordingDataSourceServiceProbe:
 # ---------------------------------------------------------------------------
 
 
-# ---------------------------------------------------------------------------
-# In-memory fakes
-# ---------------------------------------------------------------------------
-
-
-class _FakeDataSourceRepository:
-    """In-memory fake for IDataSourceRepository."""
-
-    def __init__(self) -> None:
-        self._store: dict[str, DataSource] = {}
-        self.saved: list[DataSource] = []
-
-    def seed(self, *sources: DataSource) -> None:
-        for ds in sources:
-            self._store[ds.id.value] = ds
-
-    async def get_by_id(self, data_source_id: DataSourceId | str) -> DataSource | None:
-        key = (
-            data_source_id if isinstance(data_source_id, str) else data_source_id.value
-        )
-        return self._store.get(key)
-
-    async def find_by_knowledge_graph(
-        self, knowledge_graph_id: str
-    ) -> list[DataSource]:
-        return [
-            ds
-            for ds in self._store.values()
-            if ds.knowledge_graph_id == knowledge_graph_id
-        ]
-
-    async def save(self, data_source: DataSource) -> None:
-        self._store[data_source.id.value] = data_source
-        self.saved.append(data_source)
-
-    async def delete(self, data_source: DataSource) -> bool:
-        return self._store.pop(data_source.id.value, None) is not None
-
-    async def find_all(self) -> list[DataSource]:
-        return list(self._store.values())
-
-
-class _FakeKnowledgeGraphRepository:
-    """In-memory fake for IKnowledgeGraphRepository."""
-
-    def __init__(self) -> None:
-        self._store: dict[str, KnowledgeGraph] = {}
-
-    def seed(self, *kgs: KnowledgeGraph) -> None:
-        for kg in kgs:
-            self._store[kg.id.value] = kg
-
-    async def get_by_id(
-        self, knowledge_graph_id: KnowledgeGraphId | str
-    ) -> KnowledgeGraph | None:
-        key = (
-            knowledge_graph_id
-            if isinstance(knowledge_graph_id, str)
-            else knowledge_graph_id.value
-        )
-        return self._store.get(key)
-
-    async def find_by_tenant(self, tenant_id: str) -> list[KnowledgeGraph]:
-        return [kg for kg in self._store.values() if kg.tenant_id == tenant_id]
-
-    async def save(self, knowledge_graph: KnowledgeGraph) -> None:
-        self._store[knowledge_graph.id.value] = knowledge_graph
-
-    async def delete(self, knowledge_graph: KnowledgeGraph) -> bool:
-        return self._store.pop(knowledge_graph.id.value, None) is not None
-
-
-class _FakeSecretStore:
-    """In-memory fake for ISecretStoreRepository."""
-
-    def __init__(self) -> None:
-        self.store_calls: list[dict[str, Any]] = []
-        self.delete_calls: list[dict[str, Any]] = []
-        self._secrets: dict[tuple[str, str], dict[str, str]] = {}
-
-    async def store(
-        self, path: str, tenant_id: str, credentials: dict[str, str]
-    ) -> None:
-        call = {"path": path, "tenant_id": tenant_id, "credentials": credentials}
-        self.store_calls.append(call)
-        self._secrets[(path, tenant_id)] = credentials
-
-    async def retrieve(self, path: str, tenant_id: str) -> dict[str, str]:
-        return self._secrets.get((path, tenant_id), {})
-
-    async def delete(self, path: str, tenant_id: str) -> bool:
-        call = {"path": path, "tenant_id": tenant_id}
-        self.delete_calls.append(call)
-        return self._secrets.pop((path, tenant_id), None) is not None
-
-
-class _FakeSyncRunRepository:
-    """In-memory fake for IDataSourceSyncRunRepository."""
-
-    def __init__(self) -> None:
-        self._runs: dict[str, DataSourceSyncRun] = {}
-        self.saved: list[DataSourceSyncRun] = []
-
-    def seed(self, *runs: DataSourceSyncRun) -> None:
-        for run in runs:
-            self._runs[run.id] = run
-
-    async def save(self, sync_run: DataSourceSyncRun) -> None:
-        self._runs[sync_run.id] = sync_run
-        self.saved.append(sync_run)
-
-    async def get_by_id(self, sync_run_id: str) -> DataSourceSyncRun | None:
-        return self._runs.get(sync_run_id)
-
-    async def find_by_data_source(self, data_source_id: str) -> list[DataSourceSyncRun]:
-        return [r for r in self._runs.values() if r.data_source_id == data_source_id]
-
-    async def get_latest_for_data_source(
-        self, data_source_id: str
-    ) -> DataSourceSyncRun | None:
-        runs = [r for r in self._runs.values() if r.data_source_id == data_source_id]
-        if not runs:
-            return None
-        return max(runs, key=lambda r: r.created_at)
-
-
-class _FakeAuthorizationProvider:
-    """Configurable fake for AuthorizationProvider.
-
-    Supports:
-    - grant_all() / deny_all() — set default for all check_permission calls
-    - grant_resource(resource) — grant a specific resource
-    - set_check_fn(fn) — use a custom async function for check_permission
-    - check_permission_calls — recorded list of calls for assertions
-    """
-
-    def __init__(self, default_grant: bool = False) -> None:
-        self._default_grant = default_grant
-        self._resource_grants: dict[str, bool] = {}
-        self._check_fn: Callable | None = None
-        self.check_permission_calls: list[dict[str, Any]] = []
-
-    def grant_all(self) -> None:
-        self._default_grant = True
-
-    def deny_all(self) -> None:
-        self._default_grant = False
-
-    def grant_resource(self, resource: str) -> None:
-        self._resource_grants[resource] = True
-
-    def deny_resource(self, resource: str) -> None:
-        self._resource_grants[resource] = False
-
-    def set_check_fn(self, fn: Callable) -> None:
-        """Set a custom async function for check_permission(resource, permission, subject)."""
-        self._check_fn = fn
-
-    def assert_check_called_once(
-        self, resource: str, permission: str, subject: str
-    ) -> None:
-        assert len(self.check_permission_calls) == 1, (
-            f"Expected check_permission called once, got {len(self.check_permission_calls)}"
-        )
-        call = self.check_permission_calls[0]
-        assert call["resource"] == resource, (
-            f"resource mismatch: {call['resource']!r} != {resource!r}"
-        )
-        assert call["permission"] == permission, (
-            f"permission mismatch: {call['permission']!r} != {permission!r}"
-        )
-        assert call["subject"] == subject, (
-            f"subject mismatch: {call['subject']!r} != {subject!r}"
-        )
-
-    async def check_permission(
-        self, resource: str, permission: str, subject: str
-    ) -> bool:
-        self.check_permission_calls.append(
-            {"resource": resource, "permission": permission, "subject": subject}
-        )
-        if self._check_fn is not None:
-            return await self._check_fn(
-                resource=resource, permission=permission, subject=subject
-            )
-        if resource in self._resource_grants:
-            return self._resource_grants[resource]
-        return self._default_grant
-
-    async def bulk_check_permission(self, requests: list) -> set[str]:
-        return set()
-
-    async def write_relationship(
-        self, resource: str, relation: str, subject: str
-    ) -> None:
-        pass
-
-    async def write_relationships(self, relationships: list) -> None:
-        pass
-
-    async def delete_relationship(
-        self, resource: str, relation: str, subject: str
-    ) -> None:
-        pass
-
-    async def delete_relationships(self, relationships: list) -> None:
-        pass
-
-    async def delete_relationships_by_filter(
-        self,
-        resource_type: str,
-        resource_id: str | None = None,
-        relation: str | None = None,
-        subject_type: str | None = None,
-        subject_id: str | None = None,
-    ) -> None:
-        pass
-
-    async def lookup_resources(
-        self, resource_type: str, permission: str, subject: str
-    ) -> list[str]:
-        return []
-
-    async def lookup_subjects(
-        self,
-        resource: str,
-        relation: str,
-        subject_type: str,
-        optional_subject_relation: str | None = None,
-    ) -> list:
-        return []
-
-    async def read_relationships(
-        self,
-        resource_type: str,
-        resource_id: str | None = None,
-        relation: str | None = None,
-        subject_type: str | None = None,
-        subject_id: str | None = None,
-    ) -> list:
-        return []
-
-
-class _RecordingDataSourceServiceProbe:
-    """Recording fake for DataSourceServiceProbe.
-
-    Records all probe calls with kwargs for assertion.
-    """
-
-    def __init__(self) -> None:
-        self.data_source_created_calls: list[dict[str, Any]] = []
-        self.data_source_creation_failed_calls: list[dict[str, Any]] = []
-        self.data_source_retrieved_calls: list[dict[str, Any]] = []
-        self.data_source_updated_calls: list[dict[str, Any]] = []
-        self.data_source_deleted_calls: list[dict[str, Any]] = []
-        self.data_source_deletion_failed_calls: list[dict[str, Any]] = []
-        self.data_sources_listed_calls: list[dict[str, Any]] = []
-        self.sync_requested_calls: list[dict[str, Any]] = []
-        self.permission_denied_calls: list[dict[str, Any]] = []
-
-    def data_source_created(
-        self, ds_id: str, kg_id: str, tenant_id: str, name: str
-    ) -> None:
-        self.data_source_created_calls.append(
-            {"ds_id": ds_id, "kg_id": kg_id, "tenant_id": tenant_id, "name": name}
-        )
-
-    def data_source_creation_failed(self, kg_id: str, name: str, error: str) -> None:
-        self.data_source_creation_failed_calls.append(
-            {"kg_id": kg_id, "name": name, "error": error}
-        )
-
-    def data_source_retrieved(self, ds_id: str) -> None:
-        self.data_source_retrieved_calls.append({"ds_id": ds_id})
-
-    def data_source_updated(self, ds_id: str, name: str) -> None:
-        self.data_source_updated_calls.append({"ds_id": ds_id, "name": name})
-
-    def data_source_deleted(self, ds_id: str) -> None:
-        self.data_source_deleted_calls.append({"ds_id": ds_id})
-
-    def data_source_deletion_failed(self, ds_id: str, error: str) -> None:
-        self.data_source_deletion_failed_calls.append({"ds_id": ds_id, "error": error})
-
-    def data_sources_listed(self, kg_id: str, count: int) -> None:
-        self.data_sources_listed_calls.append({"kg_id": kg_id, "count": count})
-
-    def sync_requested(self, ds_id: str) -> None:
-        self.sync_requested_calls.append({"ds_id": ds_id})
-
-    def permission_denied(
-        self, user_id: str, resource_id: str, permission: str
-    ) -> None:
-        self.permission_denied_calls.append(
-            {"user_id": user_id, "resource_id": resource_id, "permission": permission}
-        )
-
-    def with_context(self, context: Any) -> "_RecordingDataSourceServiceProbe":
-        return self
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 def mock_session():
     """Create a mock AsyncSession with async commit."""
@@ -1449,3 +1143,150 @@ class TestDataSourceServiceListAllForUser:
 
         assert len(result) == 1
         assert result[0].latest_sync_run is None
+
+
+# ---- update_ontology ----
+
+
+class TestDataSourceServiceUpdateOntology:
+    """Tests for DataSourceService.update_ontology."""
+
+    @pytest.mark.asyncio
+    async def test_update_ontology_checks_edit_permission_on_ds(
+        self,
+        service: DataSourceService,
+        authz: _FakeAuthorizationProvider,
+        ds_repo: _FakeDataSourceRepository,
+        user_id: str,
+        tenant_id: str,
+    ) -> None:
+        """update_ontology() must check EDIT permission on the data source."""
+        ds = _make_ds(tenant_id=tenant_id)
+        ds_repo.seed(ds)
+        authz.grant_all()
+
+        ontology = Ontology(node_types=[OntologyNodeType(label="Repo")], edge_types=[])
+        await service.update_ontology(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            ontology=ontology,
+        )
+
+        assert any(
+            call["resource"] == f"data_source:{ds.id.value}"
+            and call["permission"] == Permission.EDIT
+            for call in authz.check_permission_calls
+        )
+
+    @pytest.mark.asyncio
+    async def test_update_ontology_raises_unauthorized_when_permission_denied(
+        self,
+        service: DataSourceService,
+        authz: _FakeAuthorizationProvider,
+        ds_repo: _FakeDataSourceRepository,
+        user_id: str,
+        tenant_id: str,
+    ) -> None:
+        """update_ontology() raises UnauthorizedError when user lacks EDIT permission."""
+        ds = _make_ds(tenant_id=tenant_id)
+        ds_repo.seed(ds)
+        authz.deny_all()
+
+        with pytest.raises(UnauthorizedError):
+            await service.update_ontology(
+                user_id=user_id,
+                ds_id=ds.id.value,
+                ontology=Ontology(node_types=[], edge_types=[]),
+            )
+
+    @pytest.mark.asyncio
+    async def test_update_ontology_raises_value_error_when_ds_not_found(
+        self,
+        service: DataSourceService,
+        authz: _FakeAuthorizationProvider,
+        user_id: str,
+    ) -> None:
+        """update_ontology() raises ValueError when DS not found."""
+        authz.grant_all()
+
+        with pytest.raises(ValueError, match="not found"):
+            await service.update_ontology(
+                user_id=user_id,
+                ds_id="nonexistent-id",
+                ontology=Ontology(node_types=[], edge_types=[]),
+            )
+
+    @pytest.mark.asyncio
+    async def test_update_ontology_raises_value_error_for_wrong_tenant(
+        self,
+        service: DataSourceService,
+        authz: _FakeAuthorizationProvider,
+        ds_repo: _FakeDataSourceRepository,
+        user_id: str,
+    ) -> None:
+        """update_ontology() raises ValueError when DS belongs to a different tenant."""
+        ds = _make_ds(tenant_id="other-tenant")
+        ds_repo.seed(ds)
+        authz.grant_all()
+
+        with pytest.raises(ValueError, match="not found"):
+            await service.update_ontology(
+                user_id=user_id,
+                ds_id=ds.id.value,
+                ontology=Ontology(node_types=[], edge_types=[]),
+            )
+
+    @pytest.mark.asyncio
+    async def test_update_ontology_persists_ontology_to_repository(
+        self,
+        service: DataSourceService,
+        authz: _FakeAuthorizationProvider,
+        ds_repo: _FakeDataSourceRepository,
+        user_id: str,
+        tenant_id: str,
+    ) -> None:
+        """update_ontology() should save the updated DS with ontology to the repo."""
+        ds = _make_ds(tenant_id=tenant_id)
+        ds_repo.seed(ds)
+        authz.grant_all()
+
+        new_ontology = Ontology(
+            node_types=[OntologyNodeType(label="Repository")],
+            edge_types=[],
+        )
+        result = await service.update_ontology(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            ontology=new_ontology,
+        )
+
+        assert result.ontology == new_ontology
+        # Ensure repo has the updated DS
+        saved = await ds_repo.get_by_id(DataSourceId(value=ds.id.value))
+        assert saved is not None
+        assert saved.ontology == new_ontology
+
+    @pytest.mark.asyncio
+    async def test_update_ontology_returns_updated_data_source(
+        self,
+        service: DataSourceService,
+        authz: _FakeAuthorizationProvider,
+        ds_repo: _FakeDataSourceRepository,
+        user_id: str,
+        tenant_id: str,
+    ) -> None:
+        """update_ontology() should return the updated DataSource aggregate."""
+        ds = _make_ds(tenant_id=tenant_id)
+        ds_repo.seed(ds)
+        authz.grant_all()
+
+        ontology = Ontology(node_types=[OntologyNodeType(label="Issue")], edge_types=[])
+        result = await service.update_ontology(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            ontology=ontology,
+        )
+
+        assert result.id == ds.id
+        assert result.ontology is not None
+        assert result.ontology.node_types[0].label == "Issue"

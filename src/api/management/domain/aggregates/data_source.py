@@ -261,6 +261,48 @@ class DataSource:
             name=self.name,
         )
 
+    def update_ontology(
+        self,
+        ontology: Ontology,
+        *,
+        updated_by: str | None = None,
+    ) -> None:
+        """Update the data source's approved ontology.
+
+        Replaces the stored ontology with the provided one and emits
+        DataSourceUpdated. An empty Ontology (no node or edge types) is valid.
+
+        Args:
+            ontology: The new approved ontology
+            updated_by: The user performing the update (optional)
+
+        Raises:
+            AggregateDeletedError: If the data source has been marked for deletion
+        """
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot update ontology on a deleted data source"
+            )
+        self.ontology = ontology
+        self.updated_at = datetime.now(UTC)
+
+        self._pending_events.append(
+            DataSourceUpdated(
+                data_source_id=self.id.value,
+                knowledge_graph_id=self.knowledge_graph_id,
+                tenant_id=self.tenant_id,
+                name=self.name,
+                occurred_at=self.updated_at,
+                updated_by=updated_by,
+            )
+        )
+        self._probe.updated(
+            data_source_id=self.id.value,
+            knowledge_graph_id=self.knowledge_graph_id,
+            tenant_id=self.tenant_id,
+            name=self.name,
+        )
+
     def request_sync(
         self,
         sync_run_id: str,

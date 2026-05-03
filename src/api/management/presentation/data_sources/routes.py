@@ -153,6 +153,9 @@ async def create_data_source(
         )
 
     try:
+        ontology = (
+            request.ontology.to_domain() if request.ontology is not None else None
+        )
         ds = await service.create(
             user_id=current_user.user_id.value,
             kg_id=kg_id,
@@ -160,6 +163,7 @@ async def create_data_source(
             adapter_type=adapter_type,
             connection_config=request.connection_config,
             raw_credentials=request.credentials,
+            ontology=ontology,
         )
         return DataSourceResponse.from_domain(ds)
 
@@ -336,6 +340,14 @@ async def update_data_source(
             connection_config=request.connection_config,
             raw_credentials=request.credentials,
         )
+
+        if request.ontology is not None:
+            ds = await service.update_ontology(
+                user_id=current_user.user_id.value,
+                ds_id=ds_id,
+                ontology=request.ontology.to_domain(),
+            )
+
         return DataSourceResponse.from_domain(ds)
 
     except UnauthorizedError:

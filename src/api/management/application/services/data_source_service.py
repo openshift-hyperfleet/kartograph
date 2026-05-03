@@ -18,7 +18,7 @@ from management.application.observability import (
 )
 from management.domain.aggregates import DataSource
 from management.domain.entities import DataSourceSyncRun
-from management.domain.value_objects import DataSourceId, KnowledgeGraphId
+from management.domain.value_objects import DataSourceId, KnowledgeGraphId, Ontology
 from management.ports.exceptions import UnauthorizedError
 from management.ports.repositories import (
     IDataSourceRepository,
@@ -180,7 +180,11 @@ class DataSourceService:
             await self._secret_store.store(
                 path=cred_path,
                 tenant_id=self._scope_to_tenant,
-                credentials=raw_credentials,
+                name=name,
+                adapter_type=adapter_type,
+                connection_config=connection_config,
+                ontology=ontology,
+                created_by=user_id,
             )
             ds.credentials_path = cred_path
 
@@ -447,9 +451,9 @@ class DataSourceService:
         if ds.tenant_id != self._scope_to_tenant:
             raise ValueError(f"Data source {ds_id} not found")
 
-        ds.update_ontology(ontology=ontology, updated_by=user_id)
-        await self._ds_repo.save(ds)
-        await self._session.commit()
+        async with self._session.begin():
+            ds.update_ontology(ontology=ontology, updated_by=user_id)
+            await self._ds_repo.save(ds)
 
         self._probe.data_source_updated(ds_id=ds_id, name=ds.name)
 

@@ -587,3 +587,155 @@ class TestDeleteRollback:
         assert retrieved is not None, (
             "DataSource must not be deleted when the transaction rolls back"
         )
+
+
+class TestDataSourceOntologyPersistence:
+    """Integration tests for ontology persistence in DataSourceRepository."""
+
+    @pytest.mark.asyncio
+    async def test_saves_and_retrieves_data_source_with_ontology(
+        self,
+        data_source_repository: DataSourceRepository,
+        knowledge_graph_repository: KnowledgeGraphRepository,
+        async_session,
+        test_tenant: str,
+        test_workspace: str,
+        clean_management_data,
+    ) -> None:
+        """save() + get_by_id() should round-trip the ontology field."""
+        kg = KnowledgeGraph.create(
+            tenant_id=test_tenant,
+            workspace_id=test_workspace,
+            name="Ontology Test KG",
+            description="KG for ontology tests",
+        )
+        async with async_session.begin():
+            await knowledge_graph_repository.save(kg)
+
+        ontology = Ontology(
+            node_types=[
+                OntologyNodeType(
+                    label="Repository",
+                    description="A code repository",
+                    required_properties=["url"],
+                    optional_properties=["description"],
+                )
+            ],
+            edge_types=[
+                OntologyEdgeType(
+                    label="HAS_PR",
+                    from_type="Repository",
+                    to_type="PullRequest",
+                )
+            ],
+        )
+
+        ds = DataSource.create(
+            knowledge_graph_id=kg.id.value,
+            tenant_id=test_tenant,
+            name="DS with Ontology",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"repo": "org/repo"},
+            ontology=ontology,
+        )
+
+        async with async_session.begin():
+            await data_source_repository.save(ds)
+
+        retrieved = await data_source_repository.get_by_id(ds.id)
+
+        assert retrieved is not None
+        assert retrieved.ontology is not None
+        assert len(retrieved.ontology.node_types) == 1
+        assert retrieved.ontology.node_types[0].label == "Repository"
+        assert retrieved.ontology.node_types[0].description == "A code repository"
+        assert retrieved.ontology.node_types[0].required_properties == ["url"]
+        assert retrieved.ontology.node_types[0].optional_properties == ["description"]
+        assert len(retrieved.ontology.edge_types) == 1
+        assert retrieved.ontology.edge_types[0].label == "HAS_PR"
+        assert retrieved.ontology.edge_types[0].from_type == "Repository"
+        assert retrieved.ontology.edge_types[0].to_type == "PullRequest"
+
+    @pytest.mark.asyncio
+    async def test_saves_and_retrieves_data_source_with_null_ontology(
+        self,
+        data_source_repository: DataSourceRepository,
+        knowledge_graph_repository: KnowledgeGraphRepository,
+        async_session,
+        test_tenant: str,
+        test_workspace: str,
+        clean_management_data,
+    ) -> None:
+        """DataSource with no ontology should round-trip as None."""
+        kg = KnowledgeGraph.create(
+            tenant_id=test_tenant,
+            workspace_id=test_workspace,
+            name="Null Ontology KG",
+            description="KG for null ontology test",
+        )
+        async with async_session.begin():
+            await knowledge_graph_repository.save(kg)
+
+        ds = DataSource.create(
+            knowledge_graph_id=kg.id.value,
+            tenant_id=test_tenant,
+            name="DS without Ontology",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"repo": "org/repo"},
+        )
+
+        async with async_session.begin():
+            await data_source_repository.save(ds)
+
+        retrieved = await data_source_repository.get_by_id(ds.id)
+
+        assert retrieved is not None
+        assert retrieved.ontology is None
+
+    @pytest.mark.asyncio
+    async def test_update_ontology_persists_change(
+        self,
+        data_source_repository: DataSourceRepository,
+        knowledge_graph_repository: KnowledgeGraphRepository,
+        async_session,
+        test_tenant: str,
+        test_workspace: str,
+        clean_management_data,
+    ) -> None:
+        """update_ontology() followed by save() should persist the new ontology."""
+        kg = KnowledgeGraph.create(
+            tenant_id=test_tenant,
+            workspace_id=test_workspace,
+            name="Update Ontology KG",
+            description="KG for ontology update test",
+        )
+        async with async_session.begin():
+            await knowledge_graph_repository.save(kg)
+
+        ds = DataSource.create(
+            knowledge_graph_id=kg.id.value,
+            tenant_id=test_tenant,
+            name="DS for Update",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"repo": "org/repo"},
+        )
+
+        async with async_session.begin():
+            await data_source_repository.save(ds)
+
+        # Update with a new ontology
+        new_ontology = Ontology(
+            node_types=[OntologyNodeType(label="Issue", required_properties=["title"])],
+            edge_types=[],
+        )
+        ds.update_ontology(new_ontology)
+        async with async_session.begin():
+            await data_source_repository.save(ds)
+
+        retrieved = await data_source_repository.get_by_id(ds.id)
+
+        assert retrieved is not None
+        assert retrieved.ontology is not None
+        assert retrieved.ontology.node_types[0].label == "Issue"
+        assert retrieved.ontology.node_types[0].required_properties == ["title"]
+        assert retrieved.ontology.edge_types == []

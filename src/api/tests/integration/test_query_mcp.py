@@ -85,6 +85,40 @@ def service_with_data(repository_with_data: QueryGraphRepository) -> MCPQuerySer
     return MCPQueryService(repository=repository_with_data)
 
 
+@pytest.fixture
+def repository_with_four_persons(clean_graph: AgeGraphClient) -> QueryGraphRepository:
+    """Create repository with four Person nodes for truncation testing.
+
+    Four persons ensure that querying with max_rows=3 will produce a genuinely
+    truncated result set (service fetches 4, gets 4 back, 4 > 3 → truncated=True).
+    """
+    repo = QueryGraphRepository(client=clean_graph)
+    for name, role, source in [
+        ("Alice", "Engineer", "source-1"),
+        ("Bob", "Manager", "source-1"),
+        ("Charlie", "Designer", "source-2"),
+        ("Diana", "Analyst", "source-2"),
+    ]:
+        clean_graph.execute_cypher(
+            f"""
+            CREATE (p:Person {{
+                name: '{name}',
+                role: '{role}',
+                data_source_id: '{source}'
+            }})
+            """
+        )
+    return repo
+
+
+@pytest.fixture
+def service_with_four_persons(
+    repository_with_four_persons: QueryGraphRepository,
+) -> MCPQueryService:
+    """Create service backed by four Person nodes."""
+    return MCPQueryService(repository=repository_with_four_persons)
+
+
 class TestQueryGraphRepository:
     """Tests for QueryGraphRepository against real database."""
 
@@ -194,17 +228,40 @@ class TestMCPQueryService:
         assert isinstance(result, CypherQueryResult)
         assert result.row_count <= 2
 
-    def test_execute_cypher_query_marks_truncation(self, service_with_data):
-        """Should mark results as truncated when the result set hits the limit.
+    def test_execute_cypher_query_not_truncated_when_exactly_at_limit(
+        self, service_with_data
+    ):
+        """Should NOT mark results as truncated when exactly at limit.
 
-        The service fetches max_rows+1 to detect truncation. With 3 Person nodes
-        and max_rows=2, it fetches 3, gets 3 back (3 > 2), trims to 2, truncated=True.
+        Spec: Result truncation flag — the server fetches `limit + 1` rows and
+        sets `truncated` to true only if more than `limit` rows were available.
+        With 3 persons and max_rows=3, the service fetches 4 rows, gets 3 back,
+        and `3 > 3` is False — so truncated must be False.
         """
         result = service_with_data.execute_cypher_query(
-            "MATCH (p:Person) RETURN p", max_rows=2
+            "MATCH (p:Person) RETURN p", max_rows=3
         )
 
-        assert result.row_count == 2
+        # Exactly 3 results at a limit of 3 — should NOT be truncated
+        assert result.row_count == 3
+        assert result.truncated is False
+
+    def test_execute_cypher_query_truncated_when_more_exist(
+        self, service_with_four_persons
+    ):
+        """Should mark results as truncated when more rows exist than the limit.
+
+        Spec: Result truncation flag — when the result set exceeds the limit,
+        `truncated` must be True and only `limit` rows are returned.
+        With 4 persons and max_rows=3, the service fetches 4 rows, gets 4 back,
+        `4 > 3` is True → truncated=True, row_count=3.
+        """
+        result = service_with_four_persons.execute_cypher_query(
+            "MATCH (p:Person) RETURN p", max_rows=3
+        )
+
+        assert isinstance(result, CypherQueryResult)
+        assert result.row_count == 3
         assert result.truncated is True
 
     def test_execute_cypher_query_forbidden_error(self, service):

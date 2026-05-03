@@ -4,11 +4,11 @@ title: 'Management — OntologyConfig persistence: KnowledgeGraph aggregate, JSO
   and GET/PUT endpoints'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-131
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/591
 pr_title: 'feat(management): add OntologyConfig persistence to KnowledgeGraph aggregate
   with GET/PUT API'
 pr_description: "## What and Why\n\nThe **Requirement: Ontology Design** in `specs/ui/experience.spec.md`\

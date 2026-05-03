@@ -3,8 +3,8 @@ id: task-116
 title: Ontology design wizard — tests for intent/proposal/approval + implement re-extraction
   warning
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: in_progress
-phase: merge
+status: complete
+phase: null
 deps:
 - task-115
 round: 0

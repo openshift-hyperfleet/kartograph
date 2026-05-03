@@ -42,6 +42,7 @@ class DataSourceModel(Base, TimestampMixin):
     last_sync_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    ontology_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("knowledge_graph_id", "name", name="uq_data_sources_kg_name"),

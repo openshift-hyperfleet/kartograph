@@ -3,11 +3,11 @@ id: task-131
 title: 'Management — OntologyConfig persistence: KnowledgeGraph aggregate, JSONB column,
   and GET/PUT endpoints'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-131
 pr: null
 pr_title: 'feat(management): add OntologyConfig persistence to KnowledgeGraph aggregate
   with GET/PUT API'

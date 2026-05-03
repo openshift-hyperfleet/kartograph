@@ -3,7 +3,7 @@ id: task-130
 title: 'Management: DataSource ontology storage (domain → API)'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: spec-review
+phase: mark-ready
 deps: []
 round: 0
 branch: hyperloop/task-130

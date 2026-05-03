@@ -2,11 +2,11 @@
 id: task-092
 title: MCP server — Agent Instructions Resource spec alignment
 spec_ref: specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-092
 pr: null
 pr_title: 'feat(query): verify instructions://agent MCP resource against spec'
 pr_description: "## What & Why\n\nThe **Requirement: Agent Instructions Resource**\

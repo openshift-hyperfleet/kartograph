@@ -1,123 +1,155 @@
 ---
 id: task-130
-title: "Management: DataSource ontology storage (domain → API)"
-spec_ref: "specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da"
+title: "MCP Authentication — HTTP integration tests for Bearer token auth and auth-service-unavailable 503"
+spec_ref: "specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e"
 status: not-started
 phase: null
 deps: []
 round: 0
 branch: null
 pr: null
-pr_title: "feat(management): add ontology field to DataSource aggregate and API"
+pr_title: "test(query): add HTTP integration tests for MCP Bearer token auth and auth-service-unavailable 503"
 pr_description: |
-  ## Summary
+  ## What & Why
 
-  The UI's Ontology Design flow (data-sources page) is fully implemented in the
-  frontend but has no backend support. When a user:
-  - Approves a proposed ontology after the agent-scan step, or
-  - Edits an existing ontology via the ontology editor dialog
+  `specs/query/mcp-server.spec.md` defines four scenarios under the **MCP Authentication**
+  requirement. Two are not yet covered by HTTP-level integration tests:
 
-  …the backend silently discards the `ontology` payload because `DataSource`
-  has no ontology field in the domain, repository, or API layer. The UI even
-  comments this explicitly: *"Pre-populate with the GitHub proposal as a
-  stand-in for the stored ontology. In a real implementation this would load
-  from the server."*
+  > **Scenario: Bearer token authentication**
+  > - GIVEN a valid `Authorization: Bearer` header (and no API key)
+  > - WHEN the MCP request is processed
+  > - THEN the JWT is validated
+  > - AND the tenant is resolved from the `X-Tenant-ID` header
 
-  This PR adds end-to-end ontology storage to the Management bounded context.
+  > **Scenario: Authentication service unavailable**
+  > - GIVEN a request when the authentication backend is unreachable
+  > - WHEN the MCP request is processed
+  > - THEN a 503 response is returned
 
-  ## What this change does
+  ### Current coverage
 
-  ### Domain (Management)
-  - Add `OntologyNodeType` and `OntologyEdgeType` value objects (label,
-    description, required_properties, optional_properties; edge type adds
-    from_type and to_type).
-  - Add `Ontology` value object that aggregates a list of node types and edge
-    types. An empty `Ontology` (no types defined) is valid.
-  - Add `ontology: Ontology | None` field to the `DataSource` aggregate
-    (None = no ontology approved yet).
-  - Add `update_ontology(ontology: Ontology)` method on `DataSource` that
-    replaces the stored ontology and emits `DataSourceUpdated`.
+  `src/api/tests/integration/query/test_api_key_auth.py` (or equivalent) covers the
+  **API key** and **no-credentials** scenarios at the HTTP level. However:
 
-  ### Infrastructure (Management)
-  - Update `DataSourceRepository` to persist and load the `ontology` field.
-    Store as JSONB in the existing `data_sources` table (new nullable column
-    `ontology_json`).
-  - Add a database migration for the new column.
+  - **Bearer token** — there is no integration test that POSTs to the MCP endpoint
+    with an `Authorization: Bearer <jwt>` header, verifies JWT signature validation,
+    and confirms the tenant is resolved from the `X-Tenant-ID` header. The middleware
+    code path exists in `shared_kernel/middleware/mcp_api_key_auth.py`, but the
+    full round-trip from HTTP request through JWT validation to tenant resolution is
+    untested.
 
-  ### Application (Management)
-  - Add `update_ontology(user_id, ds_id, ontology)` to `DataSourceService`.
-    Authorises via `edit` permission on the data source.
+  - **Auth-service unavailable** — the middleware returns 503 when the IAM/SpiceDB
+    backend is unreachable, but no test simulates a backend connection failure and
+    asserts that the response status is exactly 503 (not 500 or a propagated exception).
 
-  ### Presentation (Management)
-  - Add `OntologyNodeTypeModel`, `OntologyEdgeTypeModel`, and `OntologyModel`
-    Pydantic models.
-  - Add `ontology: OntologyModel | None` to `CreateDataSourceRequest` (so
-    the initial approval step can include the proposed ontology).
-  - Add `ontology: OntologyModel | None` to `UpdateDataSourceRequest`.
-  - Add `ontology: OntologyModel | None` to `DataSourceResponse`.
-  - Wire the `PATCH /data-sources/{ds_id}` handler to call
-    `service.update_ontology(...)` when the `ontology` field is present.
-  - Wire the `POST /data-sources` handler to attach the ontology to the new
-    data source when `ontology` is provided at creation time.
+  If someone accidentally broke JWT validation or removed the 503 guard clause,
+  no existing test would catch it.
 
-  ## Spec requirements satisfied
+  ## Spec Requirements Satisfied
 
-  From `specs/ui/experience.spec.md` — **Requirement: Ontology Design**:
+  `specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e`:
 
-  - **Scenario: Ontology review and approval** — `POST /data-sources` now
-    accepts the proposed ontology so it is stored when the user approves.
-  - **Scenario: Individual type editing** — `PATCH /data-sources/{id}` now
-    accepts `{ontology: {...}}` and persists the updated types, making the
-    existing UI `saveOntology()` call functional.
-  - **Scenario: Ontology change after initial extraction** — `DataSourceResponse`
-    now returns the stored ontology, allowing the UI to populate the editor
-    from the server rather than from hardcoded fixture data.
+  - **MCP Authentication — Scenario: Bearer token authentication**: JWT is validated;
+    tenant is resolved from the `X-Tenant-ID` header; request proceeds on success.
+  - **MCP Authentication — Scenario: Authentication service unavailable**: HTTP 503
+    is returned when the authentication backend is unreachable.
 
-  Note: **Scenario: Agent-proposed ontology** and **Scenario: Intent
-  description** (the AI-driven scan + proposal backend) remain out of scope;
-  they depend on Extraction context work blocked by AIHCM-174.
+  ## What This Change Does
 
-  ## Key design decisions
+  Add a new integration test file
+  `src/api/tests/integration/query/test_mcp_auth_http.py` that exercises
+  `MCPApiKeyAuthMiddleware` via the full HTTP stack.
 
-  - **JSONB column**: Ontology is schema-flexible (arbitrary property names)
-    and read back as a whole; JSONB is the right fit over normalised tables.
-  - **Nullable at domain level**: An empty/null ontology is valid — most data
-    sources will start without one and gain it after the agent-proposal step.
-  - **No new endpoint**: Ontology updates flow through the existing PATCH
-    endpoint to keep the API surface minimal; the new field is purely additive.
-  - **No extraction trigger here**: Triggering re-extraction when ontology
-    changes is Extraction-context responsibility and is deferred to AIHCM-174.
+  ### Bearer token tests
 
-  ## Files / areas affected
+  Use the project's fake OIDC provider (`src/api/tests/fakes/oidc_provider.py`) to
+  issue real RS256-signed JWTs and submit them to the MCP endpoint. This exercises
+  the same code path that production JWTs from Keycloak would follow.
 
-  - `management/domain/value_objects.py` — new value objects
-  - `management/domain/aggregates/data_source.py` — new field + method
-  - `management/infrastructure/repositories/data_source_repository.py`
-  - `migrations/versions/<new_migration>.py`
-  - `management/application/services/data_source_service.py`
-  - `management/presentation/data_sources/models.py`
-  - `management/presentation/data_sources/routes.py`
-  - `tests/unit/management/**` — new TDD unit tests for each layer
-  - `tests/integration/management/**` — integration test covering the full
-    create-with-ontology and patch-ontology round-trips
+  **`TestMCPBearerTokenAuthentication`**
 
-  ## How to verify
+  - `test_valid_bearer_token_with_tenant_id_is_accepted`
+    - Obtain a JWT from the fake OIDC provider for pre-configured user `alice`.
+    - POST to the MCP endpoint with `Authorization: Bearer <jwt>` and a valid
+      `X-Tenant-ID` header.
+    - Assert the response is not 401/403 (request passes authentication and
+      reaches the MCP handler).
 
-  1. `make test-unit` passes with new domain and service tests.
-  2. `make test-integration` passes — specifically:
-     - `POST /data-sources` with `ontology` stores and returns it.
-     - `GET /data-sources/{id}` returns the stored ontology.
-     - `PATCH /data-sources/{id}` with `{ontology: {...}}` updates and
-       returns the new ontology.
-  3. Open the dev UI, add a GitHub data source, complete the ontology-proposal
-     step, approve — then view the data source and click "Edit ontology". The
-     editor should populate from the server, not from fixture data.
+  - `test_bearer_token_with_invalid_signature_returns_401`
+    - Construct a JWT by base64-editing the signature to produce an invalid token.
+    - POST with `Authorization: Bearer <tampered_jwt>` and a valid `X-Tenant-ID`.
+    - Assert HTTP 401.
 
-  ## Caveats / follow-up
+  - `test_bearer_token_without_tenant_id_header_returns_401`
+    - Obtain a valid JWT from the fake OIDC provider.
+    - POST with `Authorization: Bearer <jwt>` but **omit** `X-Tenant-ID`.
+    - Assert HTTP 401 (cannot resolve tenant without the header; spec requires tenant
+      to be resolved from `X-Tenant-ID`).
 
-  - Re-extraction trigger on ontology change deferred to AIHCM-174 (Extraction
-    context spike).
-  - The simulated agent scan in the frontend (GITHUB_PROPOSAL_NODES/EDGES)
-    will be replaced by a real backend scan endpoint in a future task, also
-    gated on AIHCM-174.
+  - `test_expired_bearer_token_returns_401`
+    - Issue a JWT with `exp` set to a timestamp in the past.
+    - POST with `Authorization: Bearer <expired_jwt>` and a valid `X-Tenant-ID`.
+    - Assert HTTP 401.
+
+  ### Auth-service-unavailable tests
+
+  Patch the authentication callable inside `MCPApiKeyAuthMiddleware` to raise a
+  connection error, simulating the IAM backend being unreachable.
+
+  **`TestMCPAuthServiceUnavailable`**
+
+  - `test_auth_backend_connection_error_returns_503`
+    - Patch `validate_mcp_bearer_token` (or `validate_mcp_api_key`) to raise
+      `ConnectionError`.
+    - POST any request to the MCP endpoint.
+    - Assert HTTP 503 (not 500; the spec is explicit that this condition returns 503).
+
+  - `test_auth_backend_timeout_returns_503`
+    - Patch the auth validation callable to raise `TimeoutError` (or `asyncio.TimeoutError`).
+    - POST any request to the MCP endpoint.
+    - Assert HTTP 503.
+
+  ## Files / Areas Affected
+
+  - `src/api/tests/integration/query/test_mcp_auth_http.py` (new) — all tests above
+  - `src/api/shared_kernel/middleware/mcp_api_key_auth.py` — read to identify the
+    exact exception types and callable names to patch; no production code changes
+    are expected if the 503 path already exists
+  - `src/api/tests/fakes/oidc_provider.py` — referenced for JWT issuance; no changes
+
+  ## How to Verify
+
+  These are integration tests that require a running dev instance. Use the isolated
+  instance manager so they don't interfere with other work:
+
+  ```bash
+  make instance-up
+  source .instances/$(basename $(pwd))/.env.instance
+  cd src/api && uv run pytest tests/integration/query/test_mcp_auth_http.py -v -m integration
+  ```
+
+  Regression validation:
+
+  1. Temporarily comment out the JWT signature verification in `MCPApiKeyAuthMiddleware`
+     and confirm `test_bearer_token_with_invalid_signature_returns_401` fails — proves
+     the test is not a false positive.
+  2. Temporarily change the 503 status code in the middleware's exception handler to 500
+     and confirm `test_auth_backend_connection_error_returns_503` fails.
+  3. Remove the `X-Tenant-ID` check from the Bearer token path and confirm
+     `test_bearer_token_without_tenant_id_header_returns_401` fails.
+
+  ## Caveats
+
+  - The fake OIDC provider issues real RS256-signed JWTs and serves JWKS, so the
+    middleware's JWT validation code path (signature check, expiry, claims) is
+    exercised end-to-end — no mocking of cryptographic verification.
+  - The `X-Tenant-ID` value used in tests must correspond to a tenant that exists
+    in the test database; align with fixtures used by the existing integration test
+    suite (e.g., `test_api_key_auth.py`).
+  - Read `mcp_api_key_auth.py` to confirm which exception types trigger the 503
+    response before writing the patches. If the middleware catches a custom exception
+    (e.g., `AuthServiceUnavailableError`), patch the callable to raise that type
+    rather than the stdlib `ConnectionError`.
+  - These tests complement task-115 (parameter bounds) and task-116 (query_graph
+    wiring). They do not overlap with either of those tasks.
 ---

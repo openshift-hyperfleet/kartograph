@@ -1214,10 +1214,8 @@ describe('Mutations Console - deep-link: 1 KB template parameter size warning', 
 // The large-file summary panel is now a dedicated component.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { readFileSync as readFile } from 'fs'
-
 const largeFileSummaryPath = resolve(__dirname, '../components/graph/LargeFileSummary.vue')
-const largeFileSummaryVue = readFile(largeFileSummaryPath, 'utf-8')
+const largeFileSummaryVue = readFileSync(largeFileSummaryPath, 'utf-8')
 
 describe('Mutations Console - LargeFileSummary component: structure', () => {
   it('LargeFileSummary.vue file exists as a dedicated component', () => {

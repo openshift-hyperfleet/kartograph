@@ -154,6 +154,38 @@ class AgeGraphClient(GraphClientProtocol):
                 self._connection.commit()
                 self._probe.graph_created(self._graph_name)
 
+    def graph_exists(self, graph_name: str) -> bool:
+        """Check whether an AGE graph with the given name exists.
+
+        Queries the Apache AGE catalog (``ag_catalog.ag_graph``) to determine
+        whether the named graph has been provisioned. This is a lightweight
+        read-only SQL query that does NOT require the AGE extension to be
+        set up for the specific graph_name.
+
+        Used by the Querying context to validate tenant graph existence
+        before executing Cypher queries.
+
+        Args:
+            graph_name: The name of the graph to check (e.g., ``"tenant_xyz"``).
+
+        Returns:
+            True if the graph exists in ag_catalog.ag_graph, False otherwise.
+
+        Raises:
+            DatabaseConnectionError: If not connected to the database.
+        """
+        if not self.is_connected():
+            from infrastructure.database.exceptions import DatabaseConnectionError
+
+            raise DatabaseConnectionError("Not connected to database")
+
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT 1 FROM ag_catalog.ag_graph WHERE name = %s",
+                (graph_name,),
+            )
+            return cursor.fetchone() is not None
+
     def disconnect(self) -> None:
         """Close the database connection and return it to the pool."""
         if (

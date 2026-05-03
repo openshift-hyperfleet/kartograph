@@ -224,6 +224,34 @@ def _build_error_response(result: QueryError) -> Dict[str, Any]:
     return response
 
 
+def _clamp_query_params(
+    timeout_seconds: int,
+    max_rows: int,
+    max_timeout: int = 60,
+    max_limit: int = 10_000,
+) -> tuple[int, int]:
+    """Clamp query parameters to their spec-defined maximums.
+
+    Extracts the bounds enforcement from ``query_graph`` into a pure, testable
+    helper so the clamping logic can be verified independently of the FastMCP
+    tool wrapper.
+
+    Spec: mcp-server.spec.md
+      - Scenario: Query timeout — "max 60 seconds"
+      - Scenario: Result limiting — "max 10000"
+
+    Args:
+        timeout_seconds: Requested query timeout. Clamped to ``max_timeout``.
+        max_rows: Requested row limit. Clamped to ``max_limit``.
+        max_timeout: Upper bound for timeout_seconds (default 60 s per spec).
+        max_limit: Upper bound for max_rows (default 10 000 per spec).
+
+    Returns:
+        A tuple of ``(clamped_timeout_seconds, clamped_max_rows)``.
+    """
+    return min(timeout_seconds, max_timeout), min(max_rows, max_limit)
+
+
 @mcp.tool
 async def query_graph(
     cypher: str,

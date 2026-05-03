@@ -3,12 +3,12 @@ id: task-116
 title: Ontology design wizard — tests for intent/proposal/approval + implement re-extraction
   warning
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps:
 - task-115
 round: 0
-branch: null
+branch: hyperloop/task-116
 pr: null
 pr_title: 'feat(ui): add ontology design wizard tests and implement re-extraction
   warning'

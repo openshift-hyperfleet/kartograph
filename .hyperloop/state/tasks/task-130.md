@@ -2,11 +2,11 @@
 id: task-130
 title: 'Management: DataSource ontology storage (domain → API)'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-130
 pr: null
 pr_title: 'feat(management): add ontology field to DataSource aggregate and API'
 pr_description: "## Summary\n\nThe UI's Ontology Design flow (data-sources page) is\

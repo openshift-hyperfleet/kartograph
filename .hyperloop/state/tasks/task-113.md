@@ -4,11 +4,11 @@ title: 'UI tests: query console knowledge graph scope selector passes knowledge_
   to API'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-113
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/580
 pr_title: 'test(ui): verify query console KG scope selector passes knowledge_graph_id
   to queryGraph API'
 pr_description: "## What & Why\n\nThe `specs/ui/experience.spec.md` **Query Console**\

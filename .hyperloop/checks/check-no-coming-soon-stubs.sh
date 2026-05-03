@@ -46,6 +46,10 @@ for pattern in "${STUB_PATTERNS[@]}"; do
     --exclude-dir=.venv \
     "$pattern" "$SOURCE_DIR" 2>/dev/null || true)
 
+  # Exclude JSDoc/block-comment lines (content starts with optional whitespace then *)
+  # e.g. "  * The canonical list of supported (and coming-soon) adapters."
+  hits=$(echo "$hits" | grep -v ':[0-9]*:[[:space:]]*\*' || true)
+
   if [[ -n "$hits" ]]; then
     echo ""
     echo "--- Stub marker detected (pattern: '$pattern') ---"

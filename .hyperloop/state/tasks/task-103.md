@@ -4,12 +4,12 @@ title: 'New-user onboarding: empty-state landing and workspace guidance for firs
   users'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-102
 round: 0
 branch: hyperloop/task-103
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/575
 pr_title: 'feat(ui): add new-user empty-state landing and workspace guidance flow'
 pr_description: "## What & Why\n\nTwo spec requirements address how the UI handles\
   \ first-time and returning users:\n\n**Navigation Structure — New user landing:**\n\

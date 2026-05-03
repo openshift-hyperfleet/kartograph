@@ -3,11 +3,11 @@ id: task-106
 title: 'Interaction principle completeness: copy-to-clipboard toast, focus rings,
   shortcut discovery'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-106
 pr: null
 pr_title: 'feat(ui): implement copy-to-clipboard toast, focus ring design, and shortcut
   tooltips'

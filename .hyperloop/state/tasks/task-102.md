@@ -3,11 +3,11 @@ id: task-102
 title: Reorganize sidebar navigation into Explore/Data/Connect/Settings sections with
   tenant selector
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-102
 pr: null
 pr_title: 'feat(ui): reorganize sidebar into Explore/Data/Connect/Settings navigation
   sections'

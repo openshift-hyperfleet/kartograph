@@ -3,11 +3,11 @@ id: task-107
 title: 'Backend API alignment audit: verify and fix all CRUD operations with parent-context
   scoping'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-107
 pr: null
 pr_title: 'fix(ui): backend API alignment — correct parent-context scoping for all
   CRUD operations'

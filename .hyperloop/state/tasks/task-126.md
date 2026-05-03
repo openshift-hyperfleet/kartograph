@@ -3,13 +3,13 @@ id: task-126
 title: 'UI: API Key Management & MCP Integration'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-118
 - task-119
 round: 0
 branch: hyperloop/task-126
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/597
 pr_title: 'feat(ui): add API key management and MCP integration pages'
 pr_description: "## What & Why\n\nImplements two tightly related pages in the \"Connect\"\
   \ navigation group: API Key\nManagement (full lifecycle: create, list, revoke) and\

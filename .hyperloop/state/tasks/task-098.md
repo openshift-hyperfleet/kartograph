@@ -4,11 +4,11 @@ title: Test that DefaultQueryServiceProbe omits raw query text from rejected-que
   logs
 spec_ref: specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-098
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/564
 pr_title: 'test(query): verify redacted logging in DefaultQueryServiceProbe.cypher_query_rejected'
 pr_description: "## What & Why\n\nThe **Requirement: Read-Only Enforcement — Scenario:\
   \ Keyword blacklist\n(secondary)** in `specs/query/query-execution.spec.md` states:\n\

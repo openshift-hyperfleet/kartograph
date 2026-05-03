@@ -23,6 +23,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp.resources.resource import FunctionResource
 
 
 # ---------------------------------------------------------------------------
@@ -99,8 +100,13 @@ class TestReadInstructions:
         fake_repo.get_agent_instructions.return_value = expected_content
 
         with patch.object(mcp_module, "_prompt_repository", fake_repo):
-            # Access via FunctionResource.fn — the raw underlying callable
-            result = mcp_module.get_agent_instructions.fn()
+            # Access via FunctionResource.fn — the raw underlying callable.
+            # We assert the type first so mypy knows .fn is available.
+            resource = mcp_module.get_agent_instructions
+            assert isinstance(resource, FunctionResource), (
+                "get_agent_instructions must be a FunctionResource"
+            )
+            result = resource.fn()
 
         assert result == expected_content, (
             f"Resource function should return exactly what "
@@ -122,8 +128,13 @@ class TestReadInstructions:
         fake_repo.get_agent_instructions.return_value = "# Instructions"
 
         with patch.object(mcp_module, "_prompt_repository", fake_repo):
-            mcp_module.get_agent_instructions.fn()
-            mcp_module.get_agent_instructions.fn()
+            # Assert type for mypy before accessing .fn
+            resource = mcp_module.get_agent_instructions
+            assert isinstance(resource, FunctionResource), (
+                "get_agent_instructions must be a FunctionResource"
+            )
+            resource.fn()
+            resource.fn()
 
         # Each call to the resource function triggers one repo call
         assert fake_repo.get_agent_instructions.call_count == 2

@@ -18,7 +18,14 @@ from iam.domain.value_objects import TenantId, UserId
 from management.application.services.data_source_service import DataSourceService
 from management.domain.aggregates import DataSource
 from management.domain.entities import DataSourceSyncRun
-from management.domain.value_objects import DataSourceId, Schedule, ScheduleType
+from management.domain.value_objects import (
+    DataSourceId,
+    Ontology,
+    OntologyEdgeType,
+    OntologyNodeType,
+    Schedule,
+    ScheduleType,
+)
 from management.ports.exceptions import UnauthorizedError
 from management.ports.repositories import IDataSourceSyncRunRepository
 from shared_kernel.datasource_types import DataSourceAdapterType
@@ -215,6 +222,7 @@ class TestCreateDataSourceRoute:
             adapter_type=DataSourceAdapterType("github"),
             connection_config={"repo": "org/repo"},
             raw_credentials=None,
+            ontology=None,
         )
 
     def test_create_data_source_with_credentials(
@@ -245,6 +253,7 @@ class TestCreateDataSourceRoute:
             adapter_type=DataSourceAdapterType("github"),
             connection_config={"repo": "org/repo"},
             raw_credentials={"token": "ghp_secret"},  # gitleaks:allow
+            ontology=None,
         )
 
     def test_create_data_source_returns_403_when_unauthorized(
@@ -896,3 +905,157 @@ class TestDeleteDataSourceRoute:
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestOntologyInDataSourceRoutes:
+    """Tests for ontology field in data source create/update/response."""
+
+    def _make_ds_with_ontology(
+        self,
+        mock_current_user: "CurrentUser",
+        ontology: "Ontology | None",
+    ) -> DataSource:
+        """Create a sample DataSource with an optional ontology."""
+        from datetime import UTC, datetime
+
+        now = datetime.now(UTC)
+        return DataSource(
+            id=DataSourceId(value="01JPQRST1234567890ABCDEFDS"),
+            knowledge_graph_id="01JPQRST1234567890ABCDEFKG",
+            tenant_id=mock_current_user.tenant_id.value,
+            name="My Data Source",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"repo": "org/repo"},
+            credentials_path=None,
+            schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+            last_sync_at=None,
+            ontology=ontology,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def test_response_includes_ontology_when_present(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_current_user: "CurrentUser",
+    ) -> None:
+        """DataSourceResponse should include the ontology when set."""
+        ontology = Ontology(
+            node_types=[
+                OntologyNodeType(
+                    label="Repository",
+                    description="A code repo",
+                    required_properties=["url"],
+                    optional_properties=["description"],
+                )
+            ],
+            edge_types=[
+                OntologyEdgeType(
+                    label="HAS_PR",
+                    from_type="Repository",
+                    to_type="PullRequest",
+                )
+            ],
+        )
+        ds = self._make_ds_with_ontology(mock_current_user, ontology=ontology)
+        kg_id = ds.knowledge_graph_id
+        mock_ds_service.list_for_knowledge_graph.return_value = [ds]
+
+        response = test_client.get(f"/management/knowledge-graphs/{kg_id}/data-sources")
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert len(result) == 1
+        assert result[0]["ontology"] is not None
+        assert result[0]["ontology"]["node_types"][0]["label"] == "Repository"
+        assert result[0]["ontology"]["edge_types"][0]["label"] == "HAS_PR"
+
+    def test_response_includes_null_ontology_when_not_set(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_current_user: "CurrentUser",
+    ) -> None:
+        """DataSourceResponse should include ontology=null when not set."""
+        ds = self._make_ds_with_ontology(mock_current_user, ontology=None)
+        kg_id = ds.knowledge_graph_id
+        mock_ds_service.list_for_knowledge_graph.return_value = [ds]
+
+        response = test_client.get(f"/management/knowledge-graphs/{kg_id}/data-sources")
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result[0]["ontology"] is None
+
+    def test_create_with_ontology_passes_ontology_to_service(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_current_user: "CurrentUser",
+    ) -> None:
+        """POST /data-sources with ontology should call service.create() with ontology."""
+        ds = self._make_ds_with_ontology(mock_current_user, ontology=None)
+        mock_ds_service.create.return_value = ds
+
+        kg_id = "01JPQRST1234567890ABCDEFKG"
+        response = test_client.post(
+            f"/management/knowledge-graphs/{kg_id}/data-sources",
+            json={
+                "name": "My Data Source",
+                "adapter_type": "github",
+                "connection_config": {"repo": "org/repo"},
+                "ontology": {
+                    "node_types": [
+                        {
+                            "label": "Repository",
+                            "description": None,
+                            "required_properties": [],
+                            "optional_properties": [],
+                        }
+                    ],
+                    "edge_types": [],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        # Verify the service was called with an ontology kwarg
+        call_kwargs = mock_ds_service.create.call_args.kwargs
+        assert "ontology" in call_kwargs
+        assert call_kwargs["ontology"] is not None
+
+    def test_update_with_ontology_calls_update_ontology_on_service(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_current_user: "CurrentUser",
+    ) -> None:
+        """PATCH /data-sources/{id} with ontology calls service.update_ontology()."""
+        ds = self._make_ds_with_ontology(mock_current_user, ontology=None)
+        mock_ds_service.update.return_value = ds
+        mock_ds_service.update_ontology.return_value = ds
+
+        ds_id = ds.id.value
+        response = test_client.patch(
+            f"/management/data-sources/{ds_id}",
+            json={
+                "ontology": {
+                    "node_types": [
+                        {
+                            "label": "Issue",
+                            "description": "A GitHub issue",
+                            "required_properties": ["title"],
+                            "optional_properties": [],
+                        }
+                    ],
+                    "edge_types": [],
+                }
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_ds_service.update_ontology.assert_called_once()
+        call_kwargs = mock_ds_service.update_ontology.call_args.kwargs
+        assert call_kwargs["ds_id"] == ds_id
+        assert call_kwargs["user_id"] == mock_current_user.user_id.value

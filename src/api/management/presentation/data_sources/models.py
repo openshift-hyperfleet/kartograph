@@ -9,6 +9,113 @@ from pydantic import BaseModel, Field
 from management.application.services.data_source_service import DataSourceWithLatestRun
 from management.domain.aggregates import DataSource
 from management.domain.entities import DataSourceSyncRun
+from management.domain.value_objects import Ontology, OntologyEdgeType, OntologyNodeType
+
+
+class OntologyNodeTypeModel(BaseModel):
+    """Pydantic model for an ontology node type."""
+
+    label: str = Field(..., description="Node type label (e.g. 'Repository')")
+    description: str | None = Field(None, description="Optional description")
+    required_properties: list[str] = Field(
+        default_factory=list,
+        description="Property names that must be present on nodes of this type",
+    )
+    optional_properties: list[str] = Field(
+        default_factory=list,
+        description="Property names that may be present on nodes of this type",
+    )
+
+    @classmethod
+    def from_domain(cls, node_type: OntologyNodeType) -> OntologyNodeTypeModel:
+        """Convert domain OntologyNodeType to API model."""
+        return cls(
+            label=node_type.label,
+            description=node_type.description,
+            required_properties=list(node_type.required_properties),
+            optional_properties=list(node_type.optional_properties),
+        )
+
+    def to_domain(self) -> OntologyNodeType:
+        """Convert API model to domain OntologyNodeType."""
+        return OntologyNodeType(
+            label=self.label,
+            description=self.description,
+            required_properties=list(self.required_properties),
+            optional_properties=list(self.optional_properties),
+        )
+
+
+class OntologyEdgeTypeModel(BaseModel):
+    """Pydantic model for an ontology edge type."""
+
+    label: str = Field(..., description="Edge type label (e.g. 'HAS_PR')")
+    from_type: str = Field(..., description="Source node type label")
+    to_type: str = Field(..., description="Target node type label")
+    description: str | None = Field(None, description="Optional description")
+    required_properties: list[str] = Field(
+        default_factory=list,
+        description="Property names that must be present on edges of this type",
+    )
+    optional_properties: list[str] = Field(
+        default_factory=list,
+        description="Property names that may be present on edges of this type",
+    )
+
+    @classmethod
+    def from_domain(cls, edge_type: OntologyEdgeType) -> OntologyEdgeTypeModel:
+        """Convert domain OntologyEdgeType to API model."""
+        return cls(
+            label=edge_type.label,
+            from_type=edge_type.from_type,
+            to_type=edge_type.to_type,
+            description=edge_type.description,
+            required_properties=list(edge_type.required_properties),
+            optional_properties=list(edge_type.optional_properties),
+        )
+
+    def to_domain(self) -> OntologyEdgeType:
+        """Convert API model to domain OntologyEdgeType."""
+        return OntologyEdgeType(
+            label=self.label,
+            from_type=self.from_type,
+            to_type=self.to_type,
+            description=self.description,
+            required_properties=list(self.required_properties),
+            optional_properties=list(self.optional_properties),
+        )
+
+
+class OntologyModel(BaseModel):
+    """Pydantic model for an ontology."""
+
+    node_types: list[OntologyNodeTypeModel] = Field(
+        default_factory=list,
+        description="Node type definitions",
+    )
+    edge_types: list[OntologyEdgeTypeModel] = Field(
+        default_factory=list,
+        description="Edge type definitions",
+    )
+
+    @classmethod
+    def from_domain(cls, ontology: Ontology) -> OntologyModel:
+        """Convert domain Ontology to API model."""
+        return cls(
+            node_types=[
+                OntologyNodeTypeModel.from_domain(nt) for nt in ontology.node_types
+            ],
+            edge_types=[
+                OntologyEdgeTypeModel.from_domain(et) for et in ontology.edge_types
+            ],
+        )
+
+    def to_domain(self) -> Ontology:
+        """Convert API model to domain Ontology."""
+        return Ontology(
+            node_types=[nt.to_domain() for nt in self.node_types],
+            edge_types=[et.to_domain() for et in self.edge_types],
+        )
 
 
 class CreateDataSourceRequest(BaseModel):
@@ -31,6 +138,10 @@ class CreateDataSourceRequest(BaseModel):
     credentials: dict | None = Field(
         default=None,
         description="Optional credentials to encrypt and store securely",
+    )
+    ontology: OntologyModel | None = Field(
+        default=None,
+        description="Optional initial approved ontology for this data source",
     )
 
 
@@ -56,6 +167,10 @@ class UpdateDataSourceRequest(BaseModel):
         default=None,
         description="New credentials to encrypt and store (replaces existing)",
     )
+    ontology: OntologyModel | None = Field(
+        default=None,
+        description="Updated approved ontology (replaces existing)",
+    )
 
 
 class DataSourceResponse(BaseModel):
@@ -76,6 +191,10 @@ class DataSourceResponse(BaseModel):
     )
     created_at: datetime = Field(..., description="When the DS was created")
     updated_at: datetime = Field(..., description="When the DS was last updated")
+    ontology: OntologyModel | None = Field(
+        None,
+        description="Approved ontology for this data source, or null if not yet set",
+    )
 
     @classmethod
     def from_domain(cls, ds: DataSource) -> DataSourceResponse:
@@ -97,6 +216,11 @@ class DataSourceResponse(BaseModel):
             last_sync_at=ds.last_sync_at,
             created_at=ds.created_at,
             updated_at=ds.updated_at,
+            ontology=(
+                OntologyModel.from_domain(ds.ontology)
+                if ds.ontology is not None
+                else None
+            ),
         )
 
 
@@ -171,6 +295,10 @@ class DataSourceWithSyncResponse(BaseModel):
     )
     created_at: datetime = Field(..., description="When the DS was created")
     updated_at: datetime = Field(..., description="When the DS was last updated")
+    ontology: OntologyModel | None = Field(
+        None,
+        description="Approved ontology for this data source, or null if not yet set",
+    )
     latest_sync_run: SyncRunResponse | None = Field(
         None,
         description="Most recent sync run, or null if the data source has never synced",
@@ -199,6 +327,11 @@ class DataSourceWithSyncResponse(BaseModel):
             last_sync_at=ds.last_sync_at,
             created_at=ds.created_at,
             updated_at=ds.updated_at,
+            ontology=(
+                OntologyModel.from_domain(ds.ontology)
+                if ds.ontology is not None
+                else None
+            ),
             latest_sync_run=(
                 SyncRunResponse.from_domain(pair.latest_sync_run)
                 if pair.latest_sync_run is not None

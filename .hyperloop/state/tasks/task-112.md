@@ -3,11 +3,11 @@ id: task-112
 title: 'MCP HTTP-level integration test: correlation_id in forbidden query response
   body'
 spec_ref: specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-112
 pr: null
 pr_title: 'test(query): add MCP HTTP integration test for correlation_id in forbidden
   query response'

@@ -3,11 +3,11 @@ id: task-113
 title: 'UI tests: query console knowledge graph scope selector passes knowledge_graph_id
   to API'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-113
 pr: null
 pr_title: 'test(ui): verify query console KG scope selector passes knowledge_graph_id
   to queryGraph API'

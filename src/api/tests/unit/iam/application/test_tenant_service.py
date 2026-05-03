@@ -30,6 +30,92 @@ from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import RelationshipTuple
 
 
+# ---------------------------------------------------------------------------
+# Recording probe for TenantService observability (DOO pattern)
+# ---------------------------------------------------------------------------
+
+
+class _RecordingTenantServiceProbe:
+    """In-memory recording implementation of TenantServiceProbe for testing.
+
+    Captures call arguments so tests can assert on domain events without
+    using MagicMock, which silently accepts any method call.
+    """
+
+    def __init__(self) -> None:
+        self.tenant_created_calls: list[dict] = []
+        self.tenant_retrieved_calls: list[dict] = []
+        self.tenants_listed_calls: list[dict] = []
+        self.tenant_deleted_calls: list[dict] = []
+        self.tenant_not_found_calls: list[dict] = []
+        self.duplicate_tenant_name_calls: list[dict] = []
+        self.tenant_member_added_calls: list[dict] = []
+        self.tenant_member_removed_calls: list[dict] = []
+        self.tenant_members_listed_calls: list[dict] = []
+        self.tenant_cascade_deletion_started_calls: list[dict] = []
+
+    def tenant_created(self, tenant_id: str, name: str) -> None:
+        self.tenant_created_calls.append({"tenant_id": tenant_id, "name": name})
+
+    def tenant_retrieved(self, tenant_id: str) -> None:
+        self.tenant_retrieved_calls.append({"tenant_id": tenant_id})
+
+    def tenants_listed(self, count: int) -> None:
+        self.tenants_listed_calls.append({"count": count})
+
+    def tenant_deleted(self, tenant_id: str) -> None:
+        self.tenant_deleted_calls.append({"tenant_id": tenant_id})
+
+    def tenant_not_found(self, tenant_id: str) -> None:
+        self.tenant_not_found_calls.append({"tenant_id": tenant_id})
+
+    def duplicate_tenant_name(self, name: str) -> None:
+        self.duplicate_tenant_name_calls.append({"name": name})
+
+    def tenant_member_added(
+        self, tenant_id: str, user_id: str, role: str, added_by: str | None
+    ) -> None:
+        self.tenant_member_added_calls.append(
+            {
+                "tenant_id": tenant_id,
+                "user_id": user_id,
+                "role": role,
+                "added_by": added_by,
+            }
+        )
+
+    def tenant_member_removed(
+        self, tenant_id: str, user_id: str, removed_by: str
+    ) -> None:
+        self.tenant_member_removed_calls.append(
+            {"tenant_id": tenant_id, "user_id": user_id, "removed_by": removed_by}
+        )
+
+    def tenant_members_listed(self, tenant_id: str, member_count: int) -> None:
+        self.tenant_members_listed_calls.append(
+            {"tenant_id": tenant_id, "member_count": member_count}
+        )
+
+    def tenant_cascade_deletion_started(
+        self,
+        tenant_id: str,
+        workspaces_count: int,
+        groups_count: int,
+        api_keys_count: int,
+    ) -> None:
+        self.tenant_cascade_deletion_started_calls.append(
+            {
+                "tenant_id": tenant_id,
+                "workspaces_count": workspaces_count,
+                "groups_count": groups_count,
+                "api_keys_count": api_keys_count,
+            }
+        )
+
+    def with_context(self, context: object) -> "_RecordingTenantServiceProbe":
+        return self
+
+
 @pytest.fixture
 def mock_tenant_repo():
     """Mock TenantRepository."""
@@ -1744,7 +1830,6 @@ class TestDeleteTenant:
         API keys are being deleted for a given tenant deletion.
         """
         from datetime import UTC, datetime, timedelta
-        from unittest.mock import MagicMock
 
         tenant_id = TenantId.generate()
         admin_id = UserId.from_string("admin-456")
@@ -1767,10 +1852,8 @@ class TestDeleteTenant:
             expires_at=datetime.now(UTC) + timedelta(days=30),
         )
 
-        # Use a mock probe to capture probe events
-        mock_probe = MagicMock()
-        mock_probe.tenant_cascade_deletion_started = MagicMock()
-        mock_probe.tenant_deleted = MagicMock()
+        # Use a recording probe to capture domain events (DOO pattern — no MagicMock)
+        mock_probe = _RecordingTenantServiceProbe()
 
         service_with_probe = TenantService(
             tenant_repository=mock_tenant_repo,
@@ -1794,12 +1877,13 @@ class TestDeleteTenant:
         await service_with_probe.delete_tenant(tenant_id, requesting_user_id=admin_id)
 
         # Verify the probe was called with the correct API key count
-        mock_probe.tenant_cascade_deletion_started.assert_called_once_with(
-            tenant_id=tenant_id.value,
-            workspaces_count=0,
-            groups_count=0,
-            api_keys_count=2,
-        )
+        assert len(mock_probe.tenant_cascade_deletion_started_calls) == 1
+        assert mock_probe.tenant_cascade_deletion_started_calls[0] == {
+            "tenant_id": tenant_id.value,
+            "workspaces_count": 0,
+            "groups_count": 0,
+            "api_keys_count": 2,
+        }
 
     @pytest.mark.asyncio
     async def test_api_keys_deleted_before_tenant_on_cascade(

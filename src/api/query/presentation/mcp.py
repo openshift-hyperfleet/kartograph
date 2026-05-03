@@ -24,6 +24,7 @@ from query.dependencies import (
     get_mcp_query_service,
     get_prompt_repository,
 )
+from query.ports.exceptions import InvalidRemoteFileURL, RemoteFileFetchFailed
 from query.ports.file_repository_models import RemoteFileRepositoryResponse
 from shared_kernel.middleware.mcp_api_key_auth import MCPApiKeyAuthMiddleware
 from shared_kernel.middleware.mcp_auth import get_mcp_auth_context
@@ -322,11 +323,13 @@ def fetch_documentation_source(
         documentationmodule_view_uri: The view_uri from a DocumentationModule
             instance. Must be a GitHub blob URL like:
             https://github.com/openshift/openshift-docs/blob/main/modules/file.adoc
+            If the URL does not match GitHub or GitLab blob patterns, a
+            ``RemoteFileRepositoryResponse(success=False, error=...)`` is returned.
 
     Returns:
         class RemoteFileRepositoryResponse(BaseModel):
             success: bool
-            error: str | None = None
+            error: str | None = None  # populated when success=False
             content: str | None = None
             source_url: str | None = None
             raw_url: str | None = None
@@ -343,13 +346,23 @@ def fetch_documentation_source(
     github_token = headers.get("x-github-pat", None)
     gitlab_token = headers.get("x-gitlab-pat", None)
 
-    repository = get_git_repository(
-        url=documentationmodule_view_uri,
-        github_token=github_token,
-        gitlab_token=gitlab_token,
-    )
-
-    return repository.get_file(url=documentationmodule_view_uri)
+    try:
+        repository = get_git_repository(
+            url=documentationmodule_view_uri,
+            github_token=github_token,
+            gitlab_token=gitlab_token,
+        )
+        return repository.get_file(url=documentationmodule_view_uri)
+    except InvalidRemoteFileURL:
+        return RemoteFileRepositoryResponse(
+            success=False,
+            error="Invalid URL format: must be a GitHub or GitLab blob URL",
+        )
+    except RemoteFileFetchFailed as e:
+        return RemoteFileRepositoryResponse(
+            success=False,
+            error=str(e) or "Failed to fetch file from remote repository",
+        )
 
 
 @mcp.resource(

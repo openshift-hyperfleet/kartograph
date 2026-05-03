@@ -824,17 +824,17 @@ class TestGitRepositoryFactory:
         assert isinstance(repo, GithubRepository)
 
     def test_raises_for_unsupported_provider(self):
-        """Should raise ValueError for unsupported providers."""
+        """Should raise InvalidRemoteFileURL for unsupported providers."""
         url = "https://bitbucket.org/owner/repo/src/main/file.txt"
 
-        with pytest.raises(ValueError, match="Unsupported git provider"):
+        with pytest.raises(InvalidRemoteFileURL, match="Unsupported git provider"):
             GitRepositoryFactory.create_from_url(url=url)
 
     def test_prevents_ssrf_with_github_in_path(self):
         """Should reject URLs with github.com in path (SSRF prevention)."""
         url = "https://evil.com/github.com/malicious"
 
-        with pytest.raises(ValueError, match="Unsupported git provider"):
+        with pytest.raises(InvalidRemoteFileURL, match="Unsupported git provider"):
             GitRepositoryFactory.create_from_url(url=url)
 
     def test_accepts_any_hostname_with_valid_pattern(self, mock_probe):
@@ -852,7 +852,7 @@ class TestGitRepositoryFactory:
         """Should reject URLs with github.com in query string (SSRF prevention)."""
         url = "https://evil.com/path?redirect=github.com"
 
-        with pytest.raises(ValueError, match="Unsupported git provider"):
+        with pytest.raises(InvalidRemoteFileURL, match="Unsupported git provider"):
             GitRepositoryFactory.create_from_url(url=url)
 
     def test_case_insensitive_hostname_matching(self):
@@ -863,15 +863,15 @@ class TestGitRepositoryFactory:
         assert isinstance(repo, GithubRepository)
 
     def test_rejects_invalid_url_format(self):
-        """Should raise ValueError for malformed URLs."""
+        """Should raise InvalidRemoteFileURL for malformed URLs."""
         url = "not-a-url"
 
-        with pytest.raises(ValueError, match="Missing hostname"):
+        with pytest.raises(InvalidRemoteFileURL, match="Missing hostname"):
             GitRepositoryFactory.create_from_url(url=url)
 
     def test_rejects_url_without_hostname(self):
-        """Should raise ValueError for URLs without hostname."""
+        """Should raise InvalidRemoteFileURL for URLs without hostname."""
         url = "file:///local/path/file.txt"
 
-        with pytest.raises(ValueError, match="Missing hostname"):
+        with pytest.raises(InvalidRemoteFileURL, match="Missing hostname"):
             GitRepositoryFactory.create_from_url(url=url)

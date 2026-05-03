@@ -4,11 +4,11 @@ title: Data source connection wizard — behavioral tests for adapter selection 
   connection config
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-117
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/586
 pr_title: 'test(ui): add behavioral tests for data source connection wizard (steps
   1-2)'
 pr_description: "## What & Why\n\nThe data source connection wizard is fully implemented\

@@ -3,11 +3,11 @@ id: task-088
 title: Expose correlation_id in query_graph MCP error responses
 spec_ref: specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-088
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/555
 pr_title: 'fix(query): expose correlation_id in query_graph MCP forbidden and timeout
   error responses'
 pr_description: "## What & Why\n\nTwo scenarios in `query-execution.spec.md` require\

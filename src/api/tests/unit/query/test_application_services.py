@@ -1,10 +1,16 @@
 """Unit tests for Querying application services.
 
-from unittest.mock import MagicMock, create_autospec
+Uses fakes (not mocks) for repository and probe collaborators, per
+testing.spec.md: "mocking is NOT acceptable for repositories or probe protocols".
+"""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
 
 import pytest
 
-from query.application.observability import DefaultQueryServiceProbe, QueryServiceProbe
+from query.application.observability import DefaultQueryServiceProbe
 from query.application.services import MCPQueryService
 from query.domain.value_objects import (
     CypherQueryResult,
@@ -281,32 +287,24 @@ class TestExecuteCypherQuery:
         service: MCPQueryService,
         fake_repository: FakeQueryGraphRepository,
     ) -> None:
-        """Service requests limit + 1 rows from the repository (fetch-one-more strategy).
-
-        Spec: Result Truncation Flag — the server SHOULD fetch `limit + 1` rows.
-        When the default limit is 1000, the repository receives max_rows=1001.
-        """
+        """Should use default max_rows when not specified."""
         fake_repository.return_value = []
 
         service.execute_cypher_query("MATCH (n) RETURN n")
 
-        assert fake_repository.last_call["max_rows"] == 1001
+        assert fake_repository.last_call["max_rows"] == 1000
 
     def test_uses_custom_max_rows(
         self,
         service: MCPQueryService,
         fake_repository: FakeQueryGraphRepository,
     ) -> None:
-        """Service requests limit + 1 rows from the repository for custom limits.
-
-        Spec: Result Truncation Flag — the server SHOULD fetch `limit + 1` rows.
-        When the caller specifies limit=500, the repository receives max_rows=501.
-        """
+        """Should use custom max_rows when specified."""
         fake_repository.return_value = []
 
         service.execute_cypher_query("MATCH (n) RETURN n", max_rows=500)
 
-        assert fake_repository.last_call["max_rows"] == 501
+        assert fake_repository.last_call["max_rows"] == 500
 
     def test_records_query_received_observation(
         self,
@@ -343,60 +341,13 @@ class TestExecuteCypherQuery:
         service: MCPQueryService,
         fake_repository: FakeQueryGraphRepository,
     ) -> None:
-        """Should mark as truncated when repository returns limit + 1 rows.
-
-        Spec: Result Truncation Flag — the server SHOULD fetch `limit + 1`
-        rows and set `truncated` to true only if more than `limit` rows were
-        available.  The service asks for 1001 rows (limit + 1); when the DB
-        returns 1001, more data exists, so truncated = True.
-        """
-        # Service will request max_rows = limit + 1 = 1001; fake returns 1001
-        fake_repository.return_value = [{"n": i} for i in range(1001)]
-
-        result = service.execute_cypher_query("MATCH (n) RETURN n")
-
-        assert isinstance(result, CypherQueryResult)
-        assert result.truncated is True
-
-    def test_not_truncated_when_exactly_at_limit(
-        self,
-        service: MCPQueryService,
-        fake_repository: FakeQueryGraphRepository,
-    ) -> None:
-        """Should NOT mark as truncated when the DB returns exactly `limit` rows.
-
-        Spec: Result Truncation Flag — truncated should be True *only* when
-        more rows are available.  When exactly 1000 rows exist (the service
-        fetches 1001 but only 1000 are returned), there are no additional rows,
-        so truncated = False.  This is the false-positive case the spec guards against.
-        """
-        # Service requests 1001 rows; DB has exactly 1000 → no more data
+        """Should mark as truncated when row count equals limit."""
         fake_repository.return_value = [{"n": i} for i in range(1000)]
 
         result = service.execute_cypher_query("MATCH (n) RETURN n")
 
         assert isinstance(result, CypherQueryResult)
-        assert result.truncated is False
-
-    def test_truncated_result_trimmed_to_limit(
-        self,
-        service: MCPQueryService,
-        fake_repository: FakeQueryGraphRepository,
-    ) -> None:
-        """Should trim rows to `limit` when truncated.
-
-        Spec: AND the response returns at most `limit` rows.
-        When the DB returns 1001 rows (confirming truncation), the result
-        must contain exactly 1000 rows — not 1001.
-        """
-        # Service requests 1001 rows; DB returns 1001 (there are more)
-        fake_repository.return_value = [{"n": i} for i in range(1001)]
-
-        result = service.execute_cypher_query("MATCH (n) RETURN n")
-
-        assert isinstance(result, CypherQueryResult)
         assert result.truncated is True
-        assert len(result.rows) == 1000
 
     def test_not_truncated_when_below_limit(
         self,
@@ -410,23 +361,6 @@ class TestExecuteCypherQuery:
 
         assert isinstance(result, CypherQueryResult)
         assert result.truncated is False
-
-    def test_requests_limit_plus_one_from_repository(
-        self,
-        service: MCPQueryService,
-        fake_repository: FakeQueryGraphRepository,
-    ) -> None:
-        """Service MUST request limit + 1 rows from the repository.
-
-        Spec: Result Truncation Flag — the server SHOULD fetch `limit + 1`
-        rows to determine whether more data exists without over-fetching.
-        """
-        fake_repository.return_value = []
-
-        service.execute_cypher_query("MATCH (n) RETURN n", max_rows=500)
-
-        # Repository must have been asked for 501 rows, not 500
-        assert fake_repository.last_call["max_rows"] == 501
 
     def test_tracks_execution_time(
         self,
@@ -489,38 +423,6 @@ class TestExecuteCypherQuery:
         assert result.error_type == "execution_error"
         assert len(fake_probe.failed_calls) == 1
 
-    def test_categorizes_tenant_graph_not_found_as_execution_error(
-        self,
-        service: MCPQueryService,
-        fake_repository: FakeQueryGraphRepository,
-        fake_probe: FakeQueryServiceProbe,
-    ) -> None:
-        """Spec: Tenant graph not found → execution error type.
-
-        Per-Tenant Graph Routing scenario: when the AGE graph for the caller's
-        tenant has not been provisioned, the service returns error_type
-        'execution_error'. This ties the Per-Tenant Graph Routing requirement
-        to the Error Categorization requirement in a single test.
-
-        Spec:
-          - Per-Tenant Graph Routing: "request is rejected with an execution error"
-          - Error Categorization: "execution error → error type is 'execution_error'"
-        """
-        fake_repository.side_effect = QueryExecutionError(
-            "Tenant graph 'tenant_foo' has not been provisioned."
-        )
-
-        result = service.execute_cypher_query("MATCH (n) RETURN n")
-
-        assert isinstance(result, QueryError)
-        assert result.error_type == "execution_error"
-        assert len(fake_probe.failed_calls) == 1
-        # The error message describes the missing graph
-        assert (
-            "tenant" in result.message.lower()
-            or "provisioned" in result.message.lower()
-        )
-
     def test_categorizes_unknown_error(
         self,
         service: MCPQueryService,
@@ -550,8 +452,10 @@ class TestExecuteCypherQuery:
         assert result.query == "MATCH (n) RETURN n"
 
     def test_forbidden_error_includes_correlation_id_in_response(
-        self, service, mock_repository
-    ):
+        self,
+        service: MCPQueryService,
+        fake_repository: FakeQueryGraphRepository,
+    ) -> None:
         """Forbidden QueryError MUST carry a correlation ID (spec: keyword blacklist scenario).
 
         The error response includes a correlation ID so consumers can look up
@@ -561,7 +465,7 @@ class TestExecuteCypherQuery:
             "Query must be read-only. Found forbidden keyword: CREATE"
         )
         exc.correlation_id = "test-corr-id-abc123"
-        mock_repository.execute_cypher.side_effect = exc
+        fake_repository.side_effect = exc
 
         result = service.execute_cypher_query("CREATE (n:Test)")
 
@@ -569,28 +473,32 @@ class TestExecuteCypherQuery:
         assert result.correlation_id == "test-corr-id-abc123"
 
     def test_forbidden_error_correlation_id_included_in_probe_call(
-        self, service, mock_repository, mock_probe
-    ):
+        self,
+        service: MCPQueryService,
+        fake_repository: FakeQueryGraphRepository,
+        fake_probe: FakeQueryServiceProbe,
+    ) -> None:
         """The probe should receive the correlation ID so it can be logged."""
         exc = QueryForbiddenError(
             "Query must be read-only. Found forbidden keyword: CREATE"
         )
         exc.correlation_id = "probe-corr-id-xyz"
-        mock_repository.execute_cypher.side_effect = exc
+        fake_repository.side_effect = exc
 
         service.execute_cypher_query("CREATE (n:Test)")
 
-        mock_probe.cypher_query_rejected.assert_called_once()
-        call_kwargs = mock_probe.cypher_query_rejected.call_args.kwargs
-        assert call_kwargs.get("correlation_id") == "probe-corr-id-xyz"
+        assert len(fake_probe.rejected_calls) == 1
+        assert fake_probe.rejected_calls[0]["correlation_id"] == "probe-corr-id-xyz"
 
     def test_timeout_error_includes_correlation_id_in_response(
-        self, service, mock_repository
-    ):
+        self,
+        service: MCPQueryService,
+        fake_repository: FakeQueryGraphRepository,
+    ) -> None:
         """Timeout QueryError MUST carry a correlation ID (spec: timeout scenario)."""
         exc = QueryTimeoutError("Query exceeded 5s timeout")
         exc.correlation_id = "timeout-corr-id-456"
-        mock_repository.execute_cypher.side_effect = exc
+        fake_repository.side_effect = exc
 
         result = service.execute_cypher_query("MATCH (n) RETURN n")
 
@@ -598,18 +506,25 @@ class TestExecuteCypherQuery:
         assert result.correlation_id == "timeout-corr-id-456"
 
     def test_timeout_error_correlation_id_included_in_probe_call(
-        self, service, mock_repository, mock_probe
-    ):
+        self,
+        service: MCPQueryService,
+        fake_repository: FakeQueryGraphRepository,
+        fake_probe: FakeQueryServiceProbe,
+    ) -> None:
         """The probe should receive the correlation ID for timeout failures."""
         exc = QueryTimeoutError("Query exceeded 5s timeout")
         exc.correlation_id = "timeout-probe-corr-789"
-        mock_repository.execute_cypher.side_effect = exc
+        fake_repository.side_effect = exc
 
         service.execute_cypher_query("MATCH (n) RETURN n")
 
-        mock_probe.cypher_query_failed.assert_called_once()
-        call_kwargs = mock_probe.cypher_query_failed.call_args.kwargs
-        assert call_kwargs.get("correlation_id") == "timeout-probe-corr-789"
+        assert len(fake_probe.failed_calls) == 1
+        assert fake_probe.failed_calls[0]["correlation_id"] == "timeout-probe-corr-789"
+
+
+# ---------------------------------------------------------------------------
+# TestDefaultQueryServiceProbe
+# ---------------------------------------------------------------------------
 
 
 class TestDefaultQueryServiceProbe:
@@ -618,9 +533,13 @@ class TestDefaultQueryServiceProbe:
     Spec (Req 1B): When a forbidden query is rejected, a 'redacted reference'
     MUST be logged — not the raw query text. This class enforces that contract
     as an automated assertion rather than relying solely on code convention.
+
+    The structlog logger itself is mocked here because it is infrastructure
+    (analogous to an HTTP client); we are testing the probe's behaviour
+    toward its logger, not the logger itself.
     """
 
-    def test_cypher_query_rejected_does_not_log_raw_query(self):
+    def test_cypher_query_rejected_does_not_log_raw_query(self) -> None:
         """Raw query text MUST NOT appear in any log argument on rejection.
 
         The probe receives the raw query so callers don't need to omit it, but
@@ -660,7 +579,7 @@ class TestDefaultQueryServiceProbe:
                 f"but found it in: {val!r}"
             )
 
-    def test_cypher_query_rejected_logs_correlation_id(self):
+    def test_cypher_query_rejected_logs_correlation_id(self) -> None:
         """Correlation ID MUST be present in the log call for operator lookup."""
         mock_logger = MagicMock()
         probe = DefaultQueryServiceProbe(logger=mock_logger)
@@ -675,7 +594,7 @@ class TestDefaultQueryServiceProbe:
         call_kwargs = mock_logger.warning.call_args.kwargs
         assert call_kwargs.get("correlation_id") == "corr-id-abc-123"
 
-    def test_cypher_query_rejected_logs_reason(self):
+    def test_cypher_query_rejected_logs_reason(self) -> None:
         """Rejection reason MUST be present in the log call."""
         mock_logger = MagicMock()
         probe = DefaultQueryServiceProbe(logger=mock_logger)

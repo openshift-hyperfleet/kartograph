@@ -58,19 +58,19 @@ class TestGetMCPQueryService:
 
     @patch("query.dependencies.AGEGraphExistenceChecker")
     @patch("query.dependencies.mcp_graph_client_context")
-    @patch("query.dependencies.get_mcp_auth_context")
+    @patch("query.dependencies.get_age_connection_pool")
+    @patch("query.dependencies.get_database_settings")
     def test_returns_mcp_query_service(
-        self, mock_get_auth_context, mock_client_context
+        self,
+        mock_get_settings,
+        mock_get_pool,
+        mock_client_context,
+        mock_existence_checker_cls,
     ):
-        """Should yield MCPQueryService instance with active connection."""
+        """Should yield MCPQueryService instance with active connection,
+        scoped to the caller's tenant graph via TenantAwareQueryGraphRepository."""
         from graph.infrastructure.age_client import AgeGraphClient
-        from shared_kernel.middleware.mcp_auth import MCPAuthContext
 
-        mock_get_auth_context.return_value = MCPAuthContext(
-            user_id="user-1",
-            tenant_id="tenant-xyz",
-            api_key_id="key-1",
-        )
         mock_client = MagicMock(spec=AgeGraphClient)
         mock_client_context.return_value.__enter__ = MagicMock(return_value=mock_client)
         mock_client_context.return_value.__exit__ = MagicMock(return_value=False)
@@ -78,73 +78,85 @@ class TestGetMCPQueryService:
         mock_get_settings.return_value = MagicMock()
         mock_existence_checker_cls.return_value = MagicMock()
 
-        with get_mcp_query_service() as service:
-            assert isinstance(service, MCPQueryService)
-            assert service._repository is not None
+        # The service requires the MCP auth context to be set
+        auth_ctx = _make_auth_context(tenant_id="test-tenant")
+        token = _mcp_auth_context_var.set(auth_ctx)
+        try:
+            with get_mcp_query_service() as service:
+                assert isinstance(service, MCPQueryService)
+                assert service._repository is not None
+        finally:
+            _mcp_auth_context_var.reset(token)
 
-
-class TestTenantGraphRouting:
-    """Tests for per-tenant graph routing in dependency injection.
-
-    Spec: Per-Tenant Graph Routing — the service factory MUST create a graph client
-    targeting the authenticated tenant's AGE graph (tenant_{tenant_id}).
-    """
-
+    @patch("query.dependencies.AGEGraphExistenceChecker")
     @patch("query.dependencies.mcp_graph_client_context")
-    @patch("query.dependencies.get_mcp_auth_context")
-    def test_creates_client_with_tenant_graph_name(
-        self, mock_get_auth_context, mock_client_context
+    @patch("query.dependencies.get_age_connection_pool")
+    @patch("query.dependencies.get_database_settings")
+    def test_service_uses_tenant_graph(
+        self,
+        mock_get_settings,
+        mock_get_pool,
+        mock_client_context,
+        mock_existence_checker_cls,
     ):
-        """Should create MCPQueryService targeting tenant_{tenant_id} AGE graph.
+        """Should connect to tenant_{tenant_id} graph, not the default graph.
 
         Spec: Query routed to tenant graph → `tenant_{tenant_id}`.
-        The dependency factory MUST pass `graph_name=f"tenant_{tenant_id}"` to
-        the graph client context so the client is bound to the correct graph.
+        AND queries never cross tenant boundaries regardless of query content.
         """
         from graph.infrastructure.age_client import AgeGraphClient
-        from shared_kernel.middleware.mcp_auth import MCPAuthContext
 
-        tenant_id = "abc-def-123-xyz"
-        mock_get_auth_context.return_value = MCPAuthContext(
-            user_id="user-1",
-            tenant_id=tenant_id,
-            api_key_id="key-1",
-        )
+        tenant_id = "my-tenant-xyz"
         mock_client = MagicMock(spec=AgeGraphClient)
         mock_client_context.return_value.__enter__ = MagicMock(return_value=mock_client)
         mock_client_context.return_value.__exit__ = MagicMock(return_value=False)
+        mock_get_pool.return_value = MagicMock()
+        mock_get_settings.return_value = MagicMock()
+        mock_existence_checker_cls.return_value = MagicMock()
 
-        with get_mcp_query_service():
-            pass
+        auth_ctx = _make_auth_context(tenant_id=tenant_id)
+        token = _mcp_auth_context_var.set(auth_ctx)
+        try:
+            with get_mcp_query_service():
+                pass
+        finally:
+            _mcp_auth_context_var.reset(token)
 
-        # The client context MUST be called with the tenant-specific graph name
+        # The client context should have been called with the tenant's graph name
         mock_client_context.assert_called_once_with(graph_name=f"tenant_{tenant_id}")
 
+    @patch("query.dependencies.AGEGraphExistenceChecker")
     @patch("query.dependencies.mcp_graph_client_context")
-    @patch("query.dependencies.get_mcp_auth_context")
-    def test_tenant_routing_uses_auth_context_tenant_id(
-        self, mock_get_auth_context, mock_client_context
+    @patch("query.dependencies.get_age_connection_pool")
+    @patch("query.dependencies.get_database_settings")
+    def test_different_tenants_use_different_graphs(
+        self,
+        mock_get_settings,
+        mock_get_pool,
+        mock_client_context,
+        mock_existence_checker_cls,
     ):
-        """Graph name must be derived from the auth context tenant_id, not hard-coded.
+        """Each tenant must get a completely separate AGE graph.
 
         Spec: AND queries never cross tenant boundaries regardless of query content.
-        Each tenant gets their own isolated graph.
         """
         from graph.infrastructure.age_client import AgeGraphClient
-        from shared_kernel.middleware.mcp_auth import MCPAuthContext
 
-        # Test with a different tenant_id to prove it's dynamic
-        tenant_id = "completely-different-tenant-777"
-        mock_get_auth_context.return_value = MCPAuthContext(
-            user_id="user-2",
-            tenant_id=tenant_id,
-            api_key_id="key-2",
-        )
         mock_client = MagicMock(spec=AgeGraphClient)
         mock_client_context.return_value.__enter__ = MagicMock(return_value=mock_client)
         mock_client_context.return_value.__exit__ = MagicMock(return_value=False)
+        mock_get_pool.return_value = MagicMock()
+        mock_get_settings.return_value = MagicMock()
+        mock_existence_checker_cls.return_value = MagicMock()
 
-        with get_mcp_query_service():
-            pass
+        # Test with a completely different tenant to prove routing is dynamic
+        tenant_id = "completely-different-tenant-777"
+        auth_ctx = _make_auth_context(tenant_id=tenant_id)
+        token = _mcp_auth_context_var.set(auth_ctx)
+        try:
+            with get_mcp_query_service():
+                pass
+        finally:
+            _mcp_auth_context_var.reset(token)
 
         mock_client_context.assert_called_once_with(graph_name=f"tenant_{tenant_id}")

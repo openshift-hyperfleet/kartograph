@@ -15,6 +15,7 @@ from fastapi import HTTPException
 from iam.application.observability.authentication_probe import AuthenticationProbe
 from iam.dependencies.authentication import JWTValidator
 from iam.dependencies.user import _authenticate, _AuthResult
+from iam.domain.aggregates.api_key import APIKey
 from iam.domain.value_objects import TenantId, UserId
 from shared_kernel.auth import InvalidTokenError
 from shared_kernel.auth.jwt_validator import TokenClaims
@@ -96,7 +97,7 @@ class TestAuthenticate:
     ) -> None:
         """Should return _AuthResult with user identity from API key."""
         tenant_id = TenantId.generate()
-        mock_api_key = MagicMock()
+        mock_api_key = MagicMock(spec=APIKey)
         mock_api_key.id = MagicMock(value="api-key-id-123")
         mock_api_key.created_by_user_id = UserId(value="user-456")
         mock_api_key.tenant_id = tenant_id
@@ -293,7 +294,7 @@ class TestAuthenticate:
         mock_auth_probe: MagicMock,
     ) -> None:
         """Should fire authentication probe on successful API key authentication."""
-        mock_api_key = MagicMock()
+        mock_api_key = MagicMock(spec=APIKey)
         mock_api_key.id = MagicMock(value="api-key-id-123")
         mock_api_key.created_by_user_id = UserId(value="user-456")
         mock_api_key.tenant_id = TenantId.generate()

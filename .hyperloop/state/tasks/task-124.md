@@ -2,13 +2,13 @@
 id: task-124
 title: 'UI: Mutations Console — Editor, Templates & Live Preview'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps:
 - task-118
 - task-119
 round: 0
-branch: null
+branch: hyperloop/task-124
 pr: null
 pr_title: 'feat(ui): add mutations console with JSONL editor, live preview, and templates'
 pr_description: "## What & Why\n\nImplements the editing and preview half of the Mutations\

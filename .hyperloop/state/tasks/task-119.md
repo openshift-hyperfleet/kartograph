@@ -3,12 +3,12 @@ id: task-119
 title: 'UI Shell: Navigation, Routing & Tenant Context'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-118
 round: 0
 branch: hyperloop/task-119
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/590
 pr_title: 'feat(ui): add app shell with sidebar navigation, routing, and tenant selector'
 pr_description: "## What & Why\n\nImplements the persistent application shell: the\
   \ sidebar navigation (grouped by\nuser goal), Vue Router configuration, tenant selector,\

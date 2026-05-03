@@ -803,8 +803,9 @@ async function saveOntology() {
   savingOntology.value = true
   try {
     const { apiFetch } = useApiClient()
+    // PATCH /management/data-sources/{ds_id} (flat endpoint per API conventions)
     await apiFetch(
-      `/management/knowledge-graphs/${editingDataSource.value.knowledge_graph_id}/data-sources/${editingDataSource.value.id}`,
+      `/management/data-sources/${editingDataSource.value.id}`,
       {
         method: 'PATCH',
         body: {
@@ -1022,8 +1023,8 @@ async function handleEditConfig() {
     if (editConfigToken.value.trim()) {
       body.credentials = { access_token: editConfigToken.value.trim() }
     }
-    // PATCH /management/knowledge-graphs/{kg_id}/data-sources/{ds_id}
-    await apiFetch(`/management/knowledge-graphs/${editConfigDs.value!.knowledge_graph_id}/data-sources/${editConfigDs.value!.id}`, { method: 'PATCH', body })
+    // PATCH /management/data-sources/{ds_id} (flat endpoint per API conventions)
+    await apiFetch(`/management/data-sources/${editConfigDs.value!.id}`, { method: 'PATCH', body })
     toast.success('Data source updated')
     editConfigOpen.value = false
     await loadDataSources()
@@ -1052,8 +1053,8 @@ async function handleDeleteDs() {
   deletingDsFlag.value = true
   try {
     const { apiFetch } = useApiClient()
-    // DELETE /management/knowledge-graphs/{kg_id}/data-sources/{ds_id}
-    await apiFetch(`/management/knowledge-graphs/${deletingDs.value.knowledge_graph_id}/data-sources/${deletingDs.value.id}`, { method: 'DELETE' })
+    // DELETE /management/data-sources/{ds_id} (flat endpoint per API conventions)
+    await apiFetch(`/management/data-sources/${deletingDs.value.id}`, { method: 'DELETE' })
     const name = deletingDs.value.name
     toast.success(`Data source "${name}" deleted`)
     deleteDsOpen.value = false

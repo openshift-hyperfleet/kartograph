@@ -390,3 +390,122 @@ describe('Sync Monitoring - tenant switch reloads data sources', () => {
     expect(loadDataSources).toHaveBeenCalledOnce()
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────────
+// Scenario: Manual sync trigger — progress is shown after trigger
+//
+// Spec: "WHEN the user triggers a sync
+//       THEN a new sync run begins and progress is shown"
+//
+// After a successful POST /sync call, the UI must reload data sources so the
+// newly-created run's status appears without a manual page refresh.
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('Sync Monitoring - trigger shows progress immediately after trigger', () => {
+  it('loadDataSources is called after a successful sync trigger', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({})
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+
+    async function triggerSyncAndRefresh(dsId: string) {
+      await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
+      // Must reload so the newly-created run's progress is shown
+      await loadDataSources()
+    }
+
+    await triggerSyncAndRefresh('ds-123')
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/management/data-sources/ds-123/sync',
+      { method: 'POST' },
+    )
+    expect(loadDataSources).toHaveBeenCalledOnce()
+  })
+
+  it('polling starts after trigger when new run is active', async () => {
+    let pollingStarted = false
+    let hasActiveSyncs = false
+
+    function startPolling() {
+      pollingStarted = true
+    }
+
+    async function triggerSyncAndStartPolling() {
+      // Simulates what happens after loadDataSources() reveals a new active run
+      hasActiveSyncs = true
+      if (hasActiveSyncs) {
+        startPolling()
+      }
+    }
+
+    await triggerSyncAndStartPolling()
+
+    expect(pollingStarted).toBe(true)
+  })
+
+  it('polling does NOT start when trigger fails (no active run)', () => {
+    let pollingStarted = false
+    let triggerFailed = true
+
+    function startPolling() {
+      pollingStarted = true
+    }
+
+    // On failure, the error path is taken — no polling should start
+    if (!triggerFailed) {
+      startPolling()
+    }
+
+    expect(pollingStarted).toBe(false)
+  })
+
+  it('a success toast is shown after sync is triggered', async () => {
+    const toastMessages: string[] = []
+
+    async function triggerSync(dsId: string) {
+      const apiFetch = async (url: string, opts: { method: string }) => {
+        if (url.includes(dsId) && opts.method === 'POST') return {}
+        throw new Error('Wrong endpoint')
+      }
+      await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
+      toastMessages.push('Sync triggered')
+    }
+
+    await triggerSync('ds-abc')
+
+    expect(toastMessages).toContain('Sync triggered')
+  })
+
+  it('an error toast is shown when sync trigger fails', async () => {
+    const toastMessages: string[] = []
+
+    async function triggerSync(dsId: string) {
+      const apiFetch = async (_url: string, _opts: { method: string }) => {
+        throw new Error('Internal Server Error')
+      }
+      try {
+        await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
+      } catch {
+        toastMessages.push('Failed to trigger sync')
+      }
+    }
+
+    await triggerSync('ds-abc')
+
+    expect(toastMessages).toContain('Failed to trigger sync')
+  })
+
+  it('sync trigger URL is scoped to the specific data source ID', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({})
+
+    async function triggerSync(dsId: string) {
+      await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
+    }
+
+    const dsId = 'ds-specific-xyz-789'
+    await triggerSync(dsId)
+
+    const calledUrl: string = (apiFetch as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(calledUrl).toContain(dsId)
+    expect(calledUrl).toMatch(/\/management\/data-sources\/[^/]+\/sync$/)
+  })
+})

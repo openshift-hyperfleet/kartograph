@@ -18,7 +18,7 @@ from management.application.observability import (
 )
 from management.domain.aggregates import DataSource
 from management.domain.entities import DataSourceSyncRun
-from management.domain.value_objects import DataSourceId, KnowledgeGraphId
+from management.domain.value_objects import DataSourceId, KnowledgeGraphId, Ontology
 from management.ports.exceptions import UnauthorizedError
 from management.ports.repositories import (
     IDataSourceRepository,
@@ -122,6 +122,7 @@ class DataSourceService:
         adapter_type: DataSourceAdapterType,
         connection_config: dict[str, str],
         raw_credentials: dict[str, str] | None = None,
+        ontology: Ontology | None = None,
     ) -> DataSource:
         """Create a new data source in a knowledge graph.
 
@@ -171,6 +172,7 @@ class DataSourceService:
                 name=name,
                 adapter_type=adapter_type,
                 connection_config=connection_config,
+                ontology=ontology,
                 created_by=user_id,
             )
 
@@ -395,6 +397,61 @@ class DataSourceService:
             self._probe.data_source_updated(ds_id=ds_id, name=name)
         else:
             self._probe.data_source_updated(ds_id=ds_id, name=ds.name)
+
+        return ds
+
+    async def update_ontology(
+        self,
+        user_id: str,
+        ds_id: str,
+        ontology: Ontology,
+    ) -> DataSource:
+        """Update the approved ontology for a data source.
+
+        Requires EDIT permission on the data source. Replaces the stored
+        ontology with the provided one and persists the change.
+
+        Args:
+            user_id: The user performing the update
+            ds_id: The data source ID
+            ontology: The new approved ontology (may be empty)
+
+        Returns:
+            The updated DataSource aggregate
+
+        Raises:
+            UnauthorizedError: If user lacks EDIT permission on the DS
+            ValueError: If DS not found or belongs to a different tenant
+        """
+        has_edit = await self._check_permission(
+            user_id=user_id,
+            resource_type=ResourceType.DATA_SOURCE,
+            resource_id=ds_id,
+            permission=Permission.EDIT,
+        )
+
+        if not has_edit:
+            self._probe.permission_denied(
+                user_id=user_id,
+                resource_id=ds_id,
+                permission=Permission.EDIT,
+            )
+            raise UnauthorizedError(
+                f"User {user_id} lacks edit permission on data source {ds_id}"
+            )
+
+        ds = await self._ds_repo.get_by_id(DataSourceId(value=ds_id))
+        if ds is None:
+            raise ValueError(f"Data source {ds_id} not found")
+
+        if ds.tenant_id != self._scope_to_tenant:
+            raise ValueError(f"Data source {ds_id} not found")
+
+        async with self._session.begin():
+            ds.update_ontology(ontology=ontology, updated_by=user_id)
+            await self._ds_repo.save(ds)
+
+        self._probe.data_source_updated(ds_id=ds_id, name=ds.name)
 
         return ds
 

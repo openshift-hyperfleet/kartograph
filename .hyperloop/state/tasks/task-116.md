@@ -1,176 +1,179 @@
 ---
 id: task-116
-title: "Ontology design wizard — tests for intent/proposal/approval + implement re-extraction warning"
-spec_ref: "specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da"
+title: "query_graph MCP tool — unit tests for success-path response format and secure-enclave wiring"
+spec_ref: "specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e"
 status: not-started
 phase: null
-deps: [task-115]
+deps: []
 round: 0
 branch: null
 pr: null
-pr_title: "feat(ui): add ontology design wizard tests and implement re-extraction warning"
+pr_title: "test(query): add unit tests for query_graph tool success path and secure enclave wiring"
 pr_description: |
   ## What & Why
 
-  The data source wizard in `src/dev-ui/app/pages/data-sources/index.vue` includes
-  a full 4-step ontology design flow. Steps 3 and 4 cover:
+  `specs/query/mcp-server.spec.md` defines three scenarios under the
+  **Graph Query Tool** requirement that are only partially covered at the
+  tool layer today:
 
-  - **Step 3 — Intent description**: the user types free text about what problems
-    they want to solve with the data source.
-  - **Step 4 — Proposed ontology**: the system presents a set of proposed node
-    and edge types for the user to review, edit, and approve.
+  > **Scenario: Successful query**
+  > GIVEN an authenticated MCP client
+  > WHEN the client calls `query_graph` with a valid Cypher query
+  > THEN the query executes against the caller's tenant graph
+  > AND the results are returned with rows, row count, truncation flag,
+  > and execution time
 
-  `ontology-add-types.test.ts` (task-063) covers the **individual type editing**
-  logic (adding, validating, and saving new types). The remaining spec scenarios
-  have no tests and one scenario has no implementation at all.
+  > **Scenario: Secure enclave redaction**
+  > GIVEN query results containing entities the caller is not authorized to view
+  > WHEN the results are returned
+  > THEN unauthorized nodes are redacted to ID-only (all other properties stripped)
+  > AND unauthorized edges are redacted to their ID, start_id, and end_id only
+  > AND the graph topology is preserved
 
-  ### Spec gaps addressed
+  > **Scenario: Internal property filtering**
+  > GIVEN query results containing internal properties (e.g., `all_content_lower`)
+  > WHEN the results are returned to the client
+  > THEN internal properties are stripped from the response
 
-  `specs/ui/experience.spec.md` — **Requirement: Ontology Design**:
+  ### What is tested today
 
-  | Scenario | Status |
-  |---|---|
-  | Intent description | Implemented (Step 3), **no test** |
-  | Agent-proposed ontology | Partially implemented (hardcoded GitHub proposal), **no test** |
-  | Ontology review and approval | Implemented (`approvingOntology` state), **no test** |
-  | Individual type editing | Covered by `ontology-add-types.test.ts` |
-  | Ontology change after initial extraction | **Not implemented, no test** |
+  Each _component_ in the `query_graph` execution chain has thorough tests:
+  - `MCPQueryService.execute_cypher_query()` → `test_mcp_query_service.py`
+  - `_filter_by_knowledge_graph()` → `test_mcp_tools.py`
+  - `MCPQuerySecureEnclave.apply_redaction()` → `test_mcp_secure_enclave.py`
+  - `_filter_internal_properties()` → `test_mcp_query_tool.py`
+  - `_build_error_response()` (error path) → `test_mcp_query_tool.py`
 
-  The "Agent-proposed ontology" scenario says the proposal comes from an AI agent.
-  The current implementation uses a hardcoded `GITHUB_PROPOSAL_NODES / GITHUB_PROPOSAL_EDGES`
-  array (a placeholder until the Extraction context is ready). Tests should verify
-  the UI correctly presents these proposals regardless of their origin.
+  ### What is NOT tested
 
-  The "Ontology change after initial extraction" scenario is **not implemented**:
-  when a user edits ontology for a data source that has already had a completed
-  sync run, the UI should warn them and require confirmation before proceeding.
-  This PR implements that warning and tests it.
+  The **wiring** of the success path inside `query_graph` itself is untested:
+
+  1. **Response format** — no test asserts the success dict contains
+     `success=True`, `rows`, `row_count`, `truncated`, and `execution_time_ms`.
+     If someone accidentally dropped `execution_time_ms` or renamed `row_count`,
+     no test would catch it.
+
+  2. **Secure enclave call** — no test verifies that `query_graph` actually calls
+     `secure_enclave.apply_redaction(rows)` on the service result. If that line
+     were removed, every `MCPQuerySecureEnclave` unit test would still pass —
+     the data would just be silently unredacted. This is a spec-breaking regression
+     with no safety net.
+
+  3. **Internal-property filter call** — no test verifies that
+     `_filter_internal_properties` is applied to the rows _after_ redaction.
+     The ordering (redact → strip) is correct but untested at the integration level.
+
+  ## Spec Requirements Satisfied
+
+  `specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e`:
+  - **Graph Query Tool — Scenario: Successful query**: response carries rows,
+    row_count, truncated, execution_time_ms with `success=True`.
+  - **Graph Query Tool — Scenario: Secure enclave redaction**: `query_graph` calls
+    `apply_redaction` and returns the redacted output to callers.
+  - **Graph Query Tool — Scenario: Internal property filtering**: `query_graph` calls
+    `_filter_internal_properties` and strips internal keys before returning results.
 
   ## What This Change Does
 
-  ### Part A — Tests for existing behavior
+  Add a new test file `src/api/tests/unit/query/test_mcp_query_tool_wiring.py` (or
+  extend `test_mcp_query_tool.py`) with tests that exercise the **full success branch**
+  of `query_graph` by patching its dependencies.
 
-  New file: `src/dev-ui/app/tests/ontology-wizard-flow.test.ts`
+  Because `query_graph` is wrapped by `@mcp.tool`, its underlying callable is exposed
+  via `.fn`. Tests call `await query_graph.fn(...)` directly, injecting fakes/mocks
+  for the FastMCP `Depends` arguments and patching the module-level callables.
 
-  #### Step 3 — Intent description
+  ### Approach
 
-  **`test_intent_validation_requires_non_empty_text`**
-  - With `intentText` empty, advancing to step 4 sets `intentError` and blocks.
-  - With `intentText` non-empty, advancing succeeds and clears `intentError`.
+  ```python
+  import query.presentation.mcp as mcp_module
 
-  **`test_intent_text_is_not_persisted_after_wizard_close`**
-  - After the wizard is closed/reset, `intentText` and `intentError` return to
-    their initial empty values.
+  async def test_success_response_format():
+      fake_service = FakeMCPQueryService(result=CypherQueryResult(
+          rows=[{"value": 42}],
+          row_count=1,
+          truncated=False,
+          execution_time_ms=12.5,
+      ))
+      fake_enclave = FakePassthroughEnclave()
 
-  #### Step 4 — Proposed ontology display
+      with (
+          patch.object(mcp_module, "get_mcp_secure_enclave", return_value=fake_enclave),
+      ):
+          result = await query_graph.fn(
+              cypher="MATCH (n) RETURN count(n)",
+              service=fake_service,
+          )
 
-  **`test_github_proposal_populates_nodes_and_edges`**
-  - Verify that when the adapter is `'github'` and the wizard advances to step 4,
-    `proposedNodes` is populated with the hardcoded `GITHUB_PROPOSAL_NODES` array
-    and `proposedEdges` is populated from `GITHUB_PROPOSAL_EDGES`.
-  - Pin the expected node labels: `['Repository', 'Issue', 'PullRequest', 'Commit', 'User']`.
-  - This is a regression guard: if someone accidentally removes or renames a
-    proposal, the test will catch it.
+      assert result["success"] is True
+      assert result["row_count"] == 1
+      assert result["truncated"] is False
+      assert result["execution_time_ms"] == 12.5
+      assert result["rows"] == [{"value": 42}]
+  ```
 
-  **`test_ontology_ready_flag_set_after_scan_completes`**
-  - After the "scan" simulation completes (the `scanningOntology` flag goes false),
-    `ontologyReady` is true and the approval button is enabled.
+  ### Tests to add
 
-  #### Approval flow
+  **`TestQueryGraphToolSuccessPath`**
+  - `test_success_response_contains_all_required_fields` — the dict has
+    `success`, `rows`, `row_count`, `truncated`, `execution_time_ms`.
+  - `test_success_flag_is_true` — `result["success"] is True`.
+  - `test_row_count_matches_rows_length` — `row_count == len(rows)`.
+  - `test_truncated_forwarded_from_service_result` — `truncated` is taken from
+    `CypherQueryResult.truncated`, not computed.
+  - `test_execution_time_ms_forwarded_from_service_result` — same for `execution_time_ms`.
 
-  **`test_approval_calls_api_with_correct_ontology_payload`**
-  - Mock the API call made when `approvingOntology` fires.
-  - Assert the payload includes `node_types` and `edge_types` arrays derived from
-    `proposedNodes` and `proposedEdges`.
-  - Assert the payload does NOT include transient edit state (`editing`, `editLabel`, etc.).
+  **`TestQueryGraphToolSecureEnclaveWiring`**
+  - `test_apply_redaction_called_on_service_result_rows` — patch `get_mcp_secure_enclave`
+    to return a recording enclave; assert `apply_redaction` was called with the rows
+    returned by the service.
+  - `test_apply_redaction_called_before_internal_property_filter` — the rows passed to
+    `_filter_internal_properties` are the POST-redaction rows, not the raw rows.
+  - `test_redacted_rows_returned_not_raw_rows` — when the enclave redacts a node, the
+    returned dict contains the redacted version.
 
-  **`test_approval_closes_wizard_on_success`**
-  - After successful API call, `wizardOpen` becomes false and `wizardStep` resets to 1.
-
-  **`test_approval_shows_error_on_api_failure`**
-  - When the API call rejects, a toast or error message is shown and `wizardOpen`
-    remains true (wizard stays open so user can retry).
-
-  ### Part B — Implement and test re-extraction warning
-
-  **Spec scenario:**
-  > GIVEN a knowledge graph with completed extraction
-  > WHEN the user modifies the ontology
-  > THEN the system warns that this will trigger a full re-extraction
-  > AND the user must confirm before the change is applied
-
-  **Detection logic** (implement in `data-sources/index.vue`):
-  - A data source has "completed extraction" when `sync_runs` contains at least
-    one entry with `status === 'completed'`.
-  - Expose a computed `hasCompletedExtraction` that checks this.
-
-  **Warning UI** (implement in `data-sources/index.vue`):
-  - When `hasCompletedExtraction` is true and the user clicks to edit the ontology
-    (e.g., clicks "Edit Ontology" on an existing data source, or opens the
-    type editor in step 4 while `hasCompletedExtraction` is set), show an
-    `AlertDialog` with:
-    - Title: "Modifying the ontology will trigger a full re-extraction"
-    - Body: Explanation that all data will be re-extracted and re-applied.
-    - Buttons: "Cancel" and "Confirm and edit".
-  - Only proceed to the edit view when the user clicks "Confirm and edit".
-
-  **Tests** (in `src/dev-ui/app/tests/ontology-wizard-flow.test.ts`):
-
-  **`test_has_completed_extraction_false_when_no_sync_runs`**
-  - A data source with `sync_runs: []` returns false from `hasCompletedExtraction`.
-
-  **`test_has_completed_extraction_false_when_all_runs_failed`**
-  - A data source with sync runs all having `status: 'failed'` returns false.
-
-  **`test_has_completed_extraction_true_when_any_run_completed`**
-  - A data source with one `status: 'completed'` run returns true even if other
-    runs failed.
-
-  **`test_re_extraction_warning_shown_before_ontology_edit`**
-  - Mock `hasCompletedExtraction` returning true.
-  - Simulate user clicking the edit ontology button.
-  - Assert that the re-extraction `AlertDialog` is shown (e.g., the dialog's
-    `open` prop is true).
-  - Assert that the edit view is NOT shown yet (user must confirm first).
-
-  **`test_edit_proceeds_after_confirmation`**
-  - User clicks "Confirm and edit" in the AlertDialog.
-  - Assert the dialog closes and the type editor is now visible.
-
-  **`test_edit_cancelled_leaves_ontology_unchanged`**
-  - User clicks "Cancel" in the AlertDialog.
-  - Assert the dialog closes and the type editor is NOT shown.
-  - Assert `proposedNodes` and `proposedEdges` are unchanged.
+  **`TestQueryGraphToolInternalPropertyFilterWiring`**
+  - `test_internal_properties_stripped_from_success_response` — patch the service to
+    return a row with `all_content_lower`; assert the key is absent from the tool
+    response.
+  - `test_filter_applied_after_kg_filter` — rows filtered by KG ID are then passed
+    through `_filter_internal_properties`.
 
   ## Files / Areas Affected
 
-  - `src/dev-ui/app/pages/data-sources/index.vue` — add `hasCompletedExtraction`
-    computed, re-extraction `AlertDialog`, and guard on the edit ontology trigger
-  - `src/dev-ui/app/tests/ontology-wizard-flow.test.ts` (new) — all tests above
+  - `src/api/tests/unit/query/test_mcp_query_tool_wiring.py` (new) — all tests above
+  - No production code changes expected
+
+  ## Tests
+
+  Pure unit tests — no infrastructure required:
+
+  ```bash
+  cd src/api && uv run pytest tests/unit/query/test_mcp_query_tool_wiring.py -v
+  ```
 
   ## How to Verify
 
-  ```bash
-  cd src/dev-ui && pnpm test -- ontology-wizard-flow
-  ```
-
-  All tests should pass green. To verify the warning UI manually:
-  1. Start the dev instance: `make instance-up`
-  2. Create a data source and complete a sync run.
-  3. Open the data source detail and click "Edit Ontology".
-  4. Confirm the AlertDialog appears before entering the editor.
+  1. Run the new tests and confirm they pass.
+  2. Temporarily remove the `rows = await secure_enclave.apply_redaction(rows)` line
+     in `query/presentation/mcp.py` and confirm
+     `test_apply_redaction_called_on_service_result_rows` fails — proves the test is
+     not a false positive.
+  3. Temporarily change `"row_count": len(filtered_rows)` to `"row_count": 0` and
+     confirm `test_row_count_matches_rows_length` fails.
 
   ## Caveats
 
-  - The "Agent-proposed ontology" scenario tests use the hardcoded
-    `GITHUB_PROPOSAL_NODES / GITHUB_PROPOSAL_EDGES` arrays as the "proposal".
-    When the Extraction context is implemented (AIHCM-174), these arrays will be
-    replaced by an API call. The tests should be updated at that point.
-  - The `hasCompletedExtraction` check assumes `sync_runs` is always populated
-    when a data source is fetched. If the backend omits `sync_runs` from the
-    list endpoint (for performance), the page may need to fetch sync runs
-    separately on demand — verify the current API response shape before
-    implementing.
-  - This task depends on task-115 (wizard steps 1-2 tests) to ensure the
-    test setup patterns are consistent across the wizard test suite.
+  - `query_graph` is an `async def` function decorated with `@mcp.tool`.  FastMCP
+    exposes the underlying callable via the `.fn` attribute (a `FunctionTool` or
+    similar descriptor). Tests should call `await query_graph.fn(...)` and inject
+    the `service` argument directly to bypass the `Depends` resolution.
+  - `get_mcp_secure_enclave()` is called _inside_ the tool function, not injected via
+    FastMCP's `Depends`. Patch it at the module level:
+    `patch.object(mcp_module, "get_mcp_secure_enclave", ...)`.
+  - The `get_mcp_auth_context()` call in `get_accessible_knowledge_graphs()` is not
+    relevant for `query_graph` — no auth-context patching is needed for these tests.
+  - Keep fakes consistent with the project's "fakes over mocks" testing philosophy:
+    `FakeMCPQueryService` should implement `IQueryGraphRepository`-aware fake patterns
+    rather than using `MagicMock`.
 ---

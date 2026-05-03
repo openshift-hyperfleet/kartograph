@@ -1,165 +1,157 @@
 ---
 id: task-136
-title: "UI — Ontology design: intent description, type editing, re-extraction warning"
+title: "Mutations Console KG selector — component test for edit-permission workspace-scoped KG loading"
 spec_ref: "specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da"
 status: not-started
 phase: null
-deps: []
+deps: [task-131]
 round: 0
 branch: null
 pr: null
-pr_title: "feat(ui): implement ontology design UI — intent description, type editing, re-extraction warning"
+pr_title: "test(ui): add component test for mutations console KG selector workspace-scoped loading"
 pr_description: |
   ## What and Why
 
-  The UI Experience spec defines a **Requirement: Ontology Design** with five
-  scenarios.  Two of those scenarios (agent-proposed ontology and review/
-  approval) depend on the Extraction bounded context (AIHCM-174 spike not yet
-  complete) and are intentionally deferred.
+  The Mutations Console spec requires:
 
-  The remaining three scenarios are fully implementable in the UI right now
-  without any backend extraction work:
+  > **Scenario: Knowledge graph selection**
+  > - GIVEN the mutations console
+  > - THEN a knowledge graph selector is displayed before the user can submit
+  > - AND the selector lists all knowledge graphs the user has `edit` permission
+  >   on within the current workspace
+  > - AND no submission is possible until a knowledge graph is selected
+  > - AND the selected knowledge graph is used as the target for the mutation
+  >   submission
 
-  1. **Scenario: Intent description** — after a data source is saved, the user
-     is prompted (in free text) what problems or questions they want to solve
-     with this data.  This dialog captures intent that will feed into the
-     extraction agent when it is ready.
+  The critical phrase is **"within the current workspace"** with **`edit`
+  permission**. The implementation in `pages/graph/mutations.vue` calls:
 
-  4. **Scenario: Individual type editing** — the user can view and edit a
-     proposed or existing ontology type: modify the label, description,
-     required properties, optional properties, and relationship types.
+  ```javascript
+  apiFetch('/management/knowledge-graphs', {
+    query: { permission: 'edit', workspace_id: selectedWorkspaceId.value },
+  })
+  ```
 
-  5. **Scenario: Ontology change after initial extraction** — when the user
-     modifies an ontology after an initial extraction has run, the UI must
-     warn that a full re-extraction will be triggered and require explicit
-     confirmation before applying the change.
+  This is the correct API call. But the **existing tests do not verify it**:
 
-  Without this UI work, users have no path to express their intent after
-  connecting a data source, and no way to refine the graph schema — two
-  features that are essential for the "get from data source to useful query"
-  goal the spec describes.
+  - `mutations-kg-selector.test.ts` tests the pure `isSubmitDisabled()` and
+    `buildMutationsUrl()` logic functions — it never makes an API call and does
+    not mount the Vue component.
+  - `api-alignment.test.ts` verifies URL construction patterns but not the
+    mutations console's KG-list-loading behavior specifically.
+
+  Without a component-level test that verifies the API URL used to fetch KGs,
+  a developer could change `permission: 'edit'` to `permission: 'view'` (or
+  drop the `workspace_id` filter), and no existing test would catch the
+  regression. This spec requirement — edit permission, workspace-scoped — is
+  security-adjacent: users should only see KGs they can mutate, within the
+  workspace they have selected.
 
   ## Spec Requirements Satisfied
 
-  `specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da`
+  `specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da`:
 
-  - **Requirement: Ontology Design — Scenario: Intent description**:
-    "GIVEN a user who has connected a data source WHEN the connection is saved
-    THEN the user is prompted to describe (in free text) what problems or
-    questions they want to solve with this data"
-
-  - **Requirement: Ontology Design — Scenario: Individual type editing**:
-    "GIVEN a proposed or existing ontology WHEN the user edits a specific type
-    THEN they can modify the label, description, required properties, and
-    optional properties AND they can add or remove relationship types AND they
-    can specify exact property requirements"
-
-  - **Requirement: Ontology Design — Scenario: Ontology change after initial
-    extraction**: "GIVEN a knowledge graph with completed extraction WHEN the
-    user modifies the ontology THEN the system warns that this will trigger a
-    full re-extraction AND the user must confirm before the change is applied"
-
-  Scenarios 2 (Agent-proposed ontology) and 3 (Ontology review and approval)
-  are **excluded** from this task — they depend on the Extraction bounded
-  context (AIHCM-174 spike).
+  - **Requirement: Mutations Console — Scenario: Knowledge graph selection**:
+    "the selector lists all knowledge graphs the user has `edit` permission on
+    within the current workspace"
+  - **Requirement: Mutations Console — Scenario: Knowledge graph selection**:
+    "no submission is possible until a knowledge graph is selected"
+  - **Requirement: Backend API Alignment — Scenario: Parent context is preserved**:
+    "the UI includes the parent context required by the API AND the operation
+    succeeds"
 
   ## What This Change Does
 
-  ### 1. Intent description dialog (Scenario 1)
+  Creates a new test file
+  `src/dev-ui/app/tests/mutations-kg-loading.test.ts` with three focused tests.
+  All tests read the actual source file content (same pattern as
+  `mutations-submission.test.ts`) to verify implementation contracts:
 
-  After the data source connection wizard completes successfully:
-  - Show a step-2 dialog: "What do you want to solve?" with a free-text
-    `Textarea` for the user's intent description.
-  - Store the intent locally (e.g., in the data source's `description` field
-    or a separate metadata field if the backend supports it).
-  - Provide a "Save Intent" and "Skip for now" action.
-  - The dialog should be non-blocking — users can dismiss it and return later.
+  ### `TestMutationsKGSelectorLoading`
 
-  **Files**: extend `src/dev-ui/app/pages/data-sources/index.vue` or the
-  `DataSourceConnectionWizard` component; add step to wizard flow.
+  **`test_kg_list_requests_edit_permission`**
 
-  ### 2. Type editor panel (Scenario 4)
+  Read `pages/graph/mutations.vue` source and assert it contains:
+  ```
+  permission: 'edit'
+  ```
+  within the KG-loading code path. This confirms the API call uses the
+  `edit` permission filter, not `view`.
 
-  Add a `OntologyTypeEditor.vue` component (or integrate into the existing
-  data sources / knowledge graph pages) that allows:
+  **`test_kg_list_scoped_to_selected_workspace`**
 
-  - Editing a type's **label** (display name) and **description**.
-  - Viewing and managing **required properties** (add, remove, reorder).
-  - Viewing and managing **optional properties** (add, remove, reorder).
-  - Viewing and managing **relationship types** (add, remove; direction;
-    target type).
-  - A "Save changes" button that persists edits (API endpoint TBD based on
-    management bounded context schema API).
+  Read `pages/graph/mutations.vue` source and assert it contains:
+  ```
+  workspace_id: selectedWorkspaceId.value
+  ```
+  (or equivalent) in the KG-loading API call. This confirms the `workspace_id`
+  query parameter is included, scoping the KG list to the current workspace.
 
-  **Files**: `src/dev-ui/app/components/graph/OntologyTypeEditor.vue` (new)
+  **`test_kg_list_reloaded_when_workspace_changes`**
 
-  ### 3. Re-extraction confirmation dialog (Scenario 5)
+  Read `pages/graph/mutations.vue` source and assert that:
+  1. `loadKnowledgeGraphs` (or equivalent) is called inside a `watch` on
+     `selectedWorkspaceId`.
+  2. `selectedKnowledgeGraphId` (or equivalent) is reset to `''` when the
+     workspace changes — preventing a stale KG selection from the previous
+     workspace from being used.
 
-  When the user attempts to save an ontology change on a knowledge graph that
-  has at least one completed sync run (i.e., extraction has previously run):
+  **`test_submission_disabled_without_kg_selection`**
 
-  - Show an `AlertDialog` before committing: "Changing the ontology will
-    trigger a full re-extraction of all data sources. This may take a while.
-    Proceed?"
-  - If user confirms → apply the change.
-  - If user cancels → discard edits and close the editor.
-  - The "has extraction run" signal can be derived from whether the knowledge
-    graph has any data source with a completed sync run (available via the
-    management API).
+  Read `pages/graph/mutations.vue` and assert that the submit button's
+  `:disabled` binding references both `selectedKnowledgeGraphId` (or equivalent)
+  and `editorContent` (or equivalent), confirming the UI gate exists in the
+  template.
 
-  **Files**: extend the type editor component above; use the existing
-  `AlertDialog` primitives from the UI component library.
+  **`test_submission_scoped_to_selected_kg`**
 
-  ### Tests (TDD — write first)
-
-  For each scenario, write a Vitest unit test **before** implementing the
-  component.  Place tests in `src/dev-ui/app/tests/`:
-
-  - `ontology-intent-description.test.ts` — verifies the intent dialog appears
-    after data source save and that "Skip for now" closes it without error.
-  - `ontology-type-editor.test.ts` — verifies the editor renders label,
-    description, required/optional properties fields and that a save call is
-    made with the correct payload.
-  - `ontology-reextraction-warning.test.ts` — verifies the AlertDialog appears
-    when `hasExtraction` is true, that confirming calls the save API, and that
-    cancelling does not.
+  Read `composables/useMutationSubmission.ts` and assert that the
+  `submit(knowledgeGraphId, ...)` function call propagates `knowledgeGraphId`
+  into the API request URL path (e.g., the URL contains
+  `/graph/knowledge-graphs/${knowledgeGraphId}/mutations`).
 
   ## Files / Areas Affected
 
-  - `src/dev-ui/app/pages/data-sources/index.vue` — add intent description
-    step after wizard close
-  - `src/dev-ui/app/components/graph/OntologyTypeEditor.vue` — new component
-  - `src/dev-ui/app/tests/ontology-intent-description.test.ts` — new tests
-  - `src/dev-ui/app/tests/ontology-type-editor.test.ts` — new tests
-  - `src/dev-ui/app/tests/ontology-reextraction-warning.test.ts` — new tests
+  - `src/dev-ui/app/tests/mutations-kg-loading.test.ts` — new test file
 
   ## How to Verify
 
   ```bash
-  cd src/dev-ui && pnpm test --run
+  cd src/dev-ui && pnpm test mutations-kg-loading
   ```
 
-  All new test files must pass. Manually verify by starting `make dev` and:
-  1. Creating a data source — the intent dialog appears after save.
-  2. Opening an ontology type — the editor renders and accepts edits.
-  3. Saving an ontology change on a KG that has extraction data — the warning
-     dialog blocks the save until confirmed.
+  All five tests must pass. Regression checks:
+  1. Change `permission: 'edit'` to `permission: 'view'` in `mutations.vue`
+     and confirm `test_kg_list_requests_edit_permission` fails.
+  2. Remove `workspace_id: selectedWorkspaceId.value` from the API call
+     and confirm `test_kg_list_scoped_to_selected_workspace` fails.
+  3. Remove the KG reset from the workspace `watch` and confirm
+     `test_kg_list_reloaded_when_workspace_changes` fails.
+
+  ## Implementation Notes for the Agent
+
+  - Use `readFileSync` to read the source file, as done in
+    `mutations-submission.test.ts`. No component mounting is required — the
+    tests verify structural constraints on the source code.
+  - Locate the exact variable names in `mutations.vue` before writing assertions:
+    `selectedWorkspaceId`, `selectedKnowledgeGraphId`, `loadKnowledgeGraphs`.
+  - The `watch(selectedWorkspaceId, ...)` pattern in `mutations.vue` resets
+    `selectedKnowledgeGraphId.value = ''` when the workspace changes — look for
+    this in the source.
+  - Write tests FIRST (TDD). If any assertion fails, fix the production code
+    in `mutations.vue` or `useMutationSubmission.ts`, not the test.
+  - Do not duplicate assertions from `mutations-kg-selector.test.ts` (which
+    covers `isSubmitDisabled()` and URL construction logic) — focus these tests
+    on the loading API contract.
 
   ## Caveats
 
-  - **Scenarios 2-3 are excluded**: the agent-proposed ontology and review/
-    approval flow require the Extraction bounded context.  Do NOT implement
-    those flows in this task.
-  - The backend API for storing per-type metadata (label, description,
-    properties, relationship types) may already exist in the management
-    context's schema endpoints.  Verify `GET /management/knowledge-graphs/
-    {kg_id}/schema` or similar before designing the save payload.  If no such
-    API exists, store intent as data source `description` and type edits as
-    local state only (to be persisted when extraction is wired up).
-  - The existing `ontology-add-types.test.ts` covers adding types; do not
-    duplicate that coverage.  This task extends, not replaces, existing
-    ontology tests.
-  - Follow the Kartograph design language: shadcn/vue primitives, Tailwind,
-    OKLCH colour tokens, no custom fonts, `rounded-xl` for cards, `rounded-md`
-    for inputs/buttons.
+  - These are source-reading tests (structural constraints), not runtime
+    tests. They are fast (no DOM, no network) but may need updating if
+    variable names change during a refactor — treat a test failure as a signal
+    to verify the renamed code still satisfies the spec.
+  - Depends on task-131 for the floating indicator persistence test to be
+    complete so the mutations console test suite is coherent; mark as a soft
+    dependency (can run independently but should be sequenced after task-131
+    in planning).
 ---

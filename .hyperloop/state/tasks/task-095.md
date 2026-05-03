@@ -2,11 +2,11 @@
 id: task-095
 title: Query execution — MCPQueryService error categorization unit tests
 spec_ref: specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-095
 pr: null
 pr_title: 'test(query): add MCPQueryService unit tests for all Error Categorization
   scenarios'

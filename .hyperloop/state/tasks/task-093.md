@@ -3,11 +3,11 @@ id: task-093
 title: MCP server — MCP Authentication requirement spec alignment
 spec_ref: specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-093
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/559
 pr_title: 'test(query): verify MCP Authentication scenarios against mcp-server spec'
 pr_description: "## What & Why\n\nThe **Requirement: MCP Authentication** in `specs/query/mcp-server.spec.md`\
   \ has\nnever had a hyperloop task created for it. All four scenarios are currently\n\

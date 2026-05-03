@@ -21,7 +21,12 @@ from management.domain.observability import (
     DataSourceProbe,
     DefaultDataSourceProbe,
 )
-from management.domain.value_objects import DataSourceId, Schedule, ScheduleType
+from management.domain.value_objects import (
+    DataSourceId,
+    Ontology,
+    Schedule,
+    ScheduleType,
+)
 from shared_kernel.datasource_types import DataSourceAdapterType
 
 if TYPE_CHECKING:
@@ -58,6 +63,7 @@ class DataSource:
     last_sync_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    ontology: Ontology | None = None
     _pending_events: list[DomainEvent] = field(default_factory=list, repr=False)
     _probe: DataSourceProbe = field(
         default_factory=DefaultDataSourceProbe,
@@ -110,6 +116,7 @@ class DataSource:
         adapter_type: DataSourceAdapterType,
         connection_config: dict[str, str],
         credentials_path: str | None = None,
+        ontology: Ontology | None = None,
         *,
         created_by: str | None = None,
         probe: DataSourceProbe | None = None,
@@ -143,6 +150,7 @@ class DataSource:
             credentials_path=credentials_path,
             schedule=Schedule(schedule_type=ScheduleType.MANUAL),
             last_sync_at=None,
+            ontology=ontology,
             created_at=now,
             updated_at=now,
             _probe=probe or DefaultDataSourceProbe(),
@@ -234,6 +242,48 @@ class DataSource:
                 "Cannot update schedule on a deleted data source"
             )
         self.schedule = schedule
+        self.updated_at = datetime.now(UTC)
+
+        self._pending_events.append(
+            DataSourceUpdated(
+                data_source_id=self.id.value,
+                knowledge_graph_id=self.knowledge_graph_id,
+                tenant_id=self.tenant_id,
+                name=self.name,
+                occurred_at=self.updated_at,
+                updated_by=updated_by,
+            )
+        )
+        self._probe.updated(
+            data_source_id=self.id.value,
+            knowledge_graph_id=self.knowledge_graph_id,
+            tenant_id=self.tenant_id,
+            name=self.name,
+        )
+
+    def update_ontology(
+        self,
+        ontology: Ontology,
+        *,
+        updated_by: str | None = None,
+    ) -> None:
+        """Update the data source's approved ontology.
+
+        Replaces the stored ontology with the provided one and emits
+        DataSourceUpdated. An empty Ontology (no node or edge types) is valid.
+
+        Args:
+            ontology: The new approved ontology
+            updated_by: The user performing the update (optional)
+
+        Raises:
+            AggregateDeletedError: If the data source has been marked for deletion
+        """
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot update ontology on a deleted data source"
+            )
+        self.ontology = ontology
         self.updated_at = datetime.now(UTC)
 
         self._pending_events.append(

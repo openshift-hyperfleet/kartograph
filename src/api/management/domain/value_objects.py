@@ -6,9 +6,9 @@ domain semantics for identifiers and domain concepts.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from ulid import ULID
 
@@ -125,3 +125,127 @@ class Schedule:
                 object.__setattr__(self, "value", None)
             else:
                 raise InvalidScheduleError("MANUAL schedule must not have a value")
+
+
+@dataclass(frozen=True)
+class OntologyNodeType:
+    """A node type definition within an ontology.
+
+    Immutable value object representing a single entity class in the graph
+    ontology. Describes what kinds of nodes exist, their labels, and which
+    properties are expected.
+
+    Attributes:
+        label: The type label (e.g. "Repository", "PullRequest")
+        description: Optional human-readable description
+        required_properties: Property names that must be present on nodes of this type
+        optional_properties: Property names that may be present on nodes of this type
+    """
+
+    label: str
+    description: str | None = None
+    required_properties: list[str] = field(default_factory=list)
+    optional_properties: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class OntologyEdgeType:
+    """An edge type definition within an ontology.
+
+    Immutable value object representing a single relationship class in the
+    graph ontology. Describes what kinds of edges exist, their labels, and
+    which node types they connect.
+
+    Attributes:
+        label: The edge label (e.g. "HAS_PR", "CREATED_BY")
+        from_type: The source node type label
+        to_type: The target node type label
+        description: Optional human-readable description
+        required_properties: Property names that must be present on edges of this type
+        optional_properties: Property names that may be present on edges of this type
+    """
+
+    label: str
+    from_type: str
+    to_type: str
+    description: str | None = None
+    required_properties: list[str] = field(default_factory=list)
+    optional_properties: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Ontology:
+    """An approved ontology for a data source.
+
+    Immutable value object aggregating node type and edge type definitions.
+    An empty Ontology (no types) is valid — it represents a data source
+    that has no approved ontology yet or where all types have been removed.
+
+    Attributes:
+        node_types: List of node type definitions
+        edge_types: List of edge type definitions
+    """
+
+    node_types: list[OntologyNodeType]
+    edge_types: list[OntologyEdgeType]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-serializable dictionary for persistence.
+
+        Returns:
+            Dictionary with node_types and edge_types lists
+        """
+        return {
+            "node_types": [
+                {
+                    "label": nt.label,
+                    "description": nt.description,
+                    "required_properties": list(nt.required_properties),
+                    "optional_properties": list(nt.optional_properties),
+                }
+                for nt in self.node_types
+            ],
+            "edge_types": [
+                {
+                    "label": et.label,
+                    "from_type": et.from_type,
+                    "to_type": et.to_type,
+                    "description": et.description,
+                    "required_properties": list(et.required_properties),
+                    "optional_properties": list(et.optional_properties),
+                }
+                for et in self.edge_types
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Ontology:
+        """Deserialize an Ontology from a dictionary.
+
+        Args:
+            data: Dictionary with node_types and edge_types lists
+
+        Returns:
+            Reconstructed Ontology value object
+        """
+        node_types = [
+            OntologyNodeType(
+                label=nt["label"],
+                description=nt.get("description"),
+                required_properties=list(nt.get("required_properties", [])),
+                optional_properties=list(nt.get("optional_properties", [])),
+            )
+            for nt in data.get("node_types", [])
+        ]
+        edge_types = [
+            OntologyEdgeType(
+                label=et["label"],
+                from_type=et["from_type"],
+                to_type=et["to_type"],
+                description=et.get("description"),
+                required_properties=list(et.get("required_properties", [])),
+                optional_properties=list(et.get("optional_properties", [])),
+            )
+            for et in data.get("edge_types", [])
+        ]
+        return cls(node_types=node_types, edge_types=edge_types)

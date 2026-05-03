@@ -154,7 +154,7 @@ def get_git_repository(
         Repository instance for the detected provider with appropriate token
 
     Raises:
-        ValueError: If URL is from an unsupported git provider
+        InvalidRemoteFileURL: If URL is from an unsupported git provider or has an invalid format
 
     Example:
         >>> # Factory auto-selects the right token based on URL

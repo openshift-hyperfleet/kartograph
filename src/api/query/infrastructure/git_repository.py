@@ -441,10 +441,10 @@ class GitRepositoryFactory:
             parsed = urlparse(url)
             hostname = parsed.hostname
         except Exception:
-            raise ValueError(f"Invalid URL format: {url}")
+            raise InvalidRemoteFileURL(f"Invalid URL format: {url}")
 
         if not hostname:
-            raise ValueError(f"Missing hostname in URL: {url}")
+            raise InvalidRemoteFileURL(f"Missing hostname in URL: {url}")
 
         # Detect provider by URL pattern and select appropriate token
         if "/-/blob/" in url:
@@ -454,7 +454,7 @@ class GitRepositoryFactory:
             # GitHub pattern: /blob/ (without /-/)
             return GithubRepository(access_token=github_token, probe=probe)
 
-        raise ValueError(
+        raise InvalidRemoteFileURL(
             f"Unsupported git provider. URL must contain /blob/ (GitHub) "
             f"or /-/blob/ (GitLab). Got: {url}"
         )

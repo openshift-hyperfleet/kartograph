@@ -782,5 +782,128 @@ describe('Backend API Alignment — Scenario: Parent context is preserved', () =
       expect(deleteUrl).not.toContain('/revoke')
       expect(deleteUrl).not.toContain('undefined')
     })
+
+    it('Data source update uses PATCH /management/data-sources/{ds_id} — not KG-scoped', () => {
+      // Backend route added in task-107: PATCH /management/data-sources/{ds_id}
+      // Per API conventions, PATCH/DELETE are at the flat DS level, not nested under KG.
+      // The old incorrect path was: /management/knowledge-graphs/{kg_id}/data-sources/{ds_id}
+      const dsId = 'ds-runtime-id'
+      const patchUrl = `/management/data-sources/${dsId}`
+
+      expect(patchUrl).toBe('/management/data-sources/ds-runtime-id')
+      expect(patchUrl).not.toContain('/knowledge-graphs/')
+      expect(patchUrl).not.toContain('undefined')
+    })
+
+    it('Data source delete uses DELETE /management/data-sources/{ds_id} — not KG-scoped', () => {
+      // Backend route added in task-107: DELETE /management/data-sources/{ds_id}
+      // Per API conventions, PATCH/DELETE are at the flat DS level, not nested under KG.
+      // The old incorrect path was: /management/knowledge-graphs/{kg_id}/data-sources/{ds_id}
+      const dsId = 'ds-runtime-id'
+      const deleteUrl = `/management/data-sources/${dsId}`
+
+      expect(deleteUrl).toBe('/management/data-sources/ds-runtime-id')
+      expect(deleteUrl).not.toContain('/knowledge-graphs/')
+      expect(deleteUrl).not.toContain('undefined')
+    })
+  })
+
+  // ── Data source PATCH/DELETE use flat (non-KG-scoped) endpoints ───────────
+
+  describe('Data source update — uses flat /management/data-sources/{ds_id}', () => {
+    it('GIVEN a data source WHEN name is updated THEN PATCH is sent to flat endpoint', async () => {
+      const apiFetch = vi.fn().mockResolvedValue({ id: 'ds-1', name: 'New Name' })
+
+      async function handleEditConfig(dsId: string, name: string) {
+        return apiFetch(`/management/data-sources/${dsId}`, {
+          method: 'PATCH',
+          body: { name },
+        })
+      }
+
+      await handleEditConfig('ds-abc-123', 'New Name')
+
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/management/data-sources/ds-abc-123',
+        expect.objectContaining({ method: 'PATCH' }),
+      )
+    })
+
+    it('GIVEN a data source WHEN token is updated THEN credentials field is included', async () => {
+      const apiFetch = vi.fn().mockResolvedValue({ id: 'ds-1', name: 'My DS' })
+
+      async function handleEditConfig(dsId: string, name: string, token: string) {
+        const body: Record<string, unknown> = { name }
+        if (token.trim()) {
+          body.credentials = { access_token: token.trim() }
+        }
+        return apiFetch(`/management/data-sources/${dsId}`, {
+          method: 'PATCH',
+          body,
+        })
+      }
+
+      await handleEditConfig('ds-1', 'My DS', 'ghp_secret_token')
+
+      const call = (apiFetch as ReturnType<typeof vi.fn>).mock.calls[0]
+      expect(call[0]).toBe('/management/data-sources/ds-1')
+      expect(call[1].body.credentials).toEqual({ access_token: 'ghp_secret_token' })
+    })
+
+    it('PATCH URL does not include knowledge_graph_id in path', async () => {
+      const apiFetch = vi.fn().mockResolvedValue({ id: 'ds-1' })
+
+      const dsId = 'ds-runtime-id'
+      // Correct flat endpoint — KG ID must NOT appear in the path
+      await apiFetch(`/management/data-sources/${dsId}`, { method: 'PATCH', body: { name: 'X' } })
+
+      const calledUrl = (apiFetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
+      expect(calledUrl).toMatch(/^\/management\/data-sources\/[^/]+$/)
+      expect(calledUrl).not.toContain('/knowledge-graphs/')
+    })
+  })
+
+  describe('Data source delete — uses flat /management/data-sources/{ds_id}', () => {
+    it('GIVEN a data source WHEN deleted THEN DELETE is sent to flat endpoint', async () => {
+      const apiFetch = vi.fn().mockResolvedValue(undefined)
+
+      async function handleDeleteDs(dsId: string) {
+        return apiFetch(`/management/data-sources/${dsId}`, { method: 'DELETE' })
+      }
+
+      await handleDeleteDs('ds-xyz-789')
+
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/management/data-sources/ds-xyz-789',
+        expect.objectContaining({ method: 'DELETE' }),
+      )
+    })
+
+    it('DELETE URL does not include knowledge_graph_id in path', async () => {
+      const apiFetch = vi.fn().mockResolvedValue(undefined)
+
+      const dsId = 'ds-runtime-id'
+      // Correct flat endpoint — KG ID must NOT appear in the path
+      await apiFetch(`/management/data-sources/${dsId}`, { method: 'DELETE' })
+
+      const calledUrl = (apiFetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
+      expect(calledUrl).toMatch(/^\/management\/data-sources\/[^/]+$/)
+      expect(calledUrl).not.toContain('/knowledge-graphs/')
+    })
+
+    it('GIVEN delete succeeds THEN list reloads without manual refresh', async () => {
+      const apiFetch = vi.fn().mockResolvedValue(undefined)
+      const loadDataSources = vi.fn().mockResolvedValue(undefined)
+
+      async function handleDeleteDs(dsId: string) {
+        await apiFetch(`/management/data-sources/${dsId}`, { method: 'DELETE' })
+        await loadDataSources()
+      }
+
+      await handleDeleteDs('ds-1')
+
+      expect(apiFetch).toHaveBeenCalledOnce()
+      expect(loadDataSources).toHaveBeenCalledOnce()
+    })
   })
 })

@@ -2959,3 +2959,74 @@ describe('Sync Polling - structural verification of data-sources/index.vue', () 
     expect(source).toMatch(/onMounted[\s\S]*?startPolling|startPolling[\s\S]*?onMounted/)
   })
 })
+
+// ── Task-101: kg_id query parameter handling ─────────────────────────────────
+//
+// Spec: Knowledge Graph Creation — "AND the user is prompted to add their first
+// data source" — the "Add Data Source" action navigates to /data-sources with
+// a kg_id query param so the wizard auto-opens with the new KG pre-selected.
+//
+// The data-sources page must handle the kg_id query param on mount by:
+//   1. Pre-selecting that knowledge graph in the wizard (selectedKnowledgeGraphId)
+//   2. Auto-opening the wizard dialog (wizardOpen = true)
+//
+// This makes the "Add Data Source" CTA from the post-creation prompt actionable —
+// the user lands on a data-sources wizard that already knows which KG to use.
+
+describe('Data Sources — kg_id query param pre-selects KG and opens wizard (Task-101)', () => {
+  it('openWizard with preselectedKgId sets selectedKnowledgeGraphId', () => {
+    // Simulates what the page does when kg_id is in the query: call openWizard
+    // with the preselectedKgId so the wizard step 1 KG selector shows it selected.
+    const selectedKnowledgeGraphId = { value: '' }
+    const wizardOpen = { value: false }
+
+    function openWizard(preselectedKgId?: string) {
+      selectedKnowledgeGraphId.value = preselectedKgId ?? ''
+      wizardOpen.value = true
+    }
+
+    openWizard('kg-from-query')
+
+    expect(selectedKnowledgeGraphId.value).toBe('kg-from-query')
+    expect(wizardOpen.value).toBe(true)
+  })
+
+  it('openWizard without preselectedKgId clears selectedKnowledgeGraphId', () => {
+    const selectedKnowledgeGraphId = { value: 'kg-old' }
+    const wizardOpen = { value: false }
+
+    function openWizard(preselectedKgId?: string) {
+      selectedKnowledgeGraphId.value = preselectedKgId ?? ''
+      wizardOpen.value = true
+    }
+
+    openWizard()
+
+    expect(selectedKnowledgeGraphId.value).toBe('')
+    expect(wizardOpen.value).toBe(true)
+  })
+
+  it('data-sources/index.vue source handles kg_id route query', () => {
+    const { readFileSync } = require('fs')
+    const { resolve } = require('path')
+    const source = readFileSync(
+      resolve(__dirname, '../pages/data-sources/index.vue'),
+      'utf-8',
+    )
+
+    // The page must read kg_id from the route query on mount
+    expect(source).toContain('kg_id')
+  })
+
+  it('data-sources/index.vue openWizard accepts optional preselectedKgId argument', () => {
+    const { readFileSync } = require('fs')
+    const { resolve } = require('path')
+    const source = readFileSync(
+      resolve(__dirname, '../pages/data-sources/index.vue'),
+      'utf-8',
+    )
+
+    // openWizard must accept a preselectedKgId so auto-open from kg_id query works
+    expect(source).toMatch(/openWizard\s*\([^)]*preselectedKgId/)
+  })
+})

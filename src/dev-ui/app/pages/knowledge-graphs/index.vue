@@ -154,18 +154,24 @@ async function handleCreate() {
   try {
     const { apiFetch } = useApiClient()
     // Knowledge graphs are workspace-scoped: POST /management/workspaces/{id}/knowledge-graphs
-    await apiFetch(`/management/workspaces/${selectedWorkspaceId.value}/knowledge-graphs`, {
-      method: 'POST',
-      body: {
-        name: createName.value.trim(),
-        description: createDescription.value.trim() || undefined,
+    const result = await apiFetch<{ id: string; name: string }>(
+      `/management/workspaces/${selectedWorkspaceId.value}/knowledge-graphs`,
+      {
+        method: 'POST',
+        body: {
+          name: createName.value.trim(),
+          description: createDescription.value.trim() || undefined,
+        },
       },
-    })
+    )
+    // Pass the new KG id so the data-sources wizard pre-selects it automatically.
+    // This satisfies: "AND the user is prompted to add their first data source"
+    // with the wizard scoped to the newly created knowledge graph.
     toast.success(`Knowledge graph "${createName.value.trim()}" created`, {
       description: 'Next: connect a data source to start populating your graph.',
       action: {
         label: 'Add Data Source',
-        onClick: () => navigateTo('/data-sources'),
+        onClick: () => navigateTo(`/data-sources?kg_id=${result.id}`),
       },
       duration: 8000,
     })

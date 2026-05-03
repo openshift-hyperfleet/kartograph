@@ -3,12 +3,12 @@ id: task-104
 title: Schema browser cross-navigation to query console, graph explorer, and ontology
   editor
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: in_progress
-phase: merge
+status: complete
+phase: null
 deps: []
 round: 7
 branch: hyperloop/task-104
-pr: https://github.com/openshift-hyperfleet/kartograph/pull/569
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/579
 pr_title: 'feat(ui): add cross-navigation from schema browser to query console and
   graph explorer'
 pr_description: "## What & Why\n\nThe **Schema Browser** requirement in `specs/ui/experience.spec.md`\

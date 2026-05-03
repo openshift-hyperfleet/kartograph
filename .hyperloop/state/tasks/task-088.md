@@ -2,11 +2,11 @@
 id: task-088
 title: Expose correlation_id in query_graph MCP error responses
 spec_ref: specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-088
 pr: null
 pr_title: 'fix(query): expose correlation_id in query_graph MCP forbidden and timeout
   error responses'

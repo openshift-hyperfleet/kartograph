@@ -27,7 +27,7 @@ pr_description: |
     it on `QueryForbiddenError`.
   - The PostgreSQL timeout path creates a correlation_id and sets it on `QueryTimeoutError`.
   - `MCPQueryService.execute_cypher_query()` propagates the correlation_id into the
-    returned `QueryError` value object (verified by `test_application_services.py`).
+    returned `QueryError` value object.
 
   However, the **MCP presentation layer** (`query/presentation/mcp.py`) builds the error
   dict without the `correlation_id` field:
@@ -67,12 +67,12 @@ pr_description: |
 
   ### 2. Add unit tests for `query_graph` error response format
 
-  Create or extend `src/api/tests/unit/query/test_mcp_query_tool.py`:
+  Create `src/api/tests/unit/query/test_mcp_query_tool.py`:
 
   1. **Forbidden error response includes correlation_id:**
      Mock `MCPQueryService.execute_cypher_query()` to return a `QueryError` with
-     `error_type="forbidden"` and a known `correlation_id`. Call `query_graph()` (via
-     direct function call, bypassing FastMCP) and assert the returned dict contains
+     `error_type="forbidden"` and a known `correlation_id`. Call `query_graph()` and
+     assert the returned dict contains
      `{"success": False, "error_type": "forbidden", "correlation_id": "<expected-id>"}`.
 
   2. **Timeout error response includes correlation_id:**
@@ -110,7 +110,7 @@ pr_description: |
      All 5 new tests must pass.
   2. Run `cd src/api && uv run pytest tests/unit/query/ -v` — no regressions.
   3. Manually: submit a CREATE query to the MCP endpoint and confirm the JSON response
-     body contains a `correlation_id` field.
+     body contains a `correlation_id` field alongside `error_type: "forbidden"`.
 
   ## Spec Mapping
 

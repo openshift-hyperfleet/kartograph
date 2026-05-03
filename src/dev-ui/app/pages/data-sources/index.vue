@@ -23,6 +23,15 @@ import {
   FileText,
   Settings,
 } from 'lucide-vue-next'
+import {
+  ADAPTERS,
+  isAdapterSelectable,
+  canAdvanceStep1,
+  inferNameFromRepoUrl,
+  validateStep2,
+  buildDataSourceCreationUrl,
+  buildDataSourceCreationBody,
+} from '@/utils/dataSourceWizard'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -152,29 +161,21 @@ const { hasTenant, tenantVersion } = useTenant()
 
 // ── Available adapters ─────────────────────────────────────────────────────
 
-const adapters: AdapterType[] = [
-  {
-    id: 'github',
-    label: 'GitHub',
-    description: 'Repositories, issues, pull requests, commits, and contributors',
-    icon: Github,
-    available: true,
-  },
-  {
-    id: 'gitlab',
-    label: 'GitLab',
-    description: 'Repositories, issues, merge requests, and pipelines',
-    icon: GitBranch,
-    available: false,
-  },
-  {
-    id: 'jira',
-    label: 'Jira',
-    description: 'Issues, epics, sprints, and project structure',
-    icon: Cable,
-    available: false,
-  },
-]
+/** Icon map: resolves the Lucide icon component for each adapter ID. */
+const ADAPTER_ICONS: Record<string, typeof Github> = {
+  github: Github,
+  gitlab: GitBranch,
+  jira: Cable,
+}
+
+/**
+ * Adapter list consumed by the template — extends the framework-free
+ * `ADAPTERS` definition from `utils/dataSourceWizard.ts` with Vue icon refs.
+ */
+const adapters: AdapterType[] = ADAPTERS.map((a) => ({
+  ...a,
+  icon: ADAPTER_ICONS[a.id] ?? Cable,
+}))
 
 // ── Wizard state ───────────────────────────────────────────────────────────
 
@@ -310,10 +311,11 @@ function toProposedEdge(e: typeof GITHUB_PROPOSAL_EDGES[0]): ProposedEdgeType {
 // ── Infer data source name from repo URL ───────────────────────────────────
 
 watch(connRepoUrl, (url) => {
+  // Only infer when the name field is still empty (do not overwrite user edits).
   if (!url.trim() || connName.value.trim()) return
-  const match = url.trim().match(/github\.com\/[^/]+\/([^/]+?)(?:\.git)?$/)
-  if (match) {
-    connName.value = match[1]
+  const inferred = inferNameFromRepoUrl(url)
+  if (inferred) {
+    connName.value = inferred
   }
 })
 
@@ -352,40 +354,28 @@ function openWizard(preselectedKgId?: string) {
 }
 
 function selectAdapter(id: string) {
+  // Guard: unavailable adapters cannot be selected.
+  if (!isAdapterSelectable(id)) return
   selectedAdapterId.value = id
 }
 
 function nextStep() {
   if (wizardStep.value === 1) {
-    if (!selectedAdapterId.value) return
-    if (!selectedKnowledgeGraphId.value) return
+    if (!canAdvanceStep1(selectedAdapterId.value, selectedKnowledgeGraphId.value)) return
     wizardStep.value = 2
     return
   }
 
   if (wizardStep.value === 2) {
-    connNameError.value = ''
-    connRepoUrlError.value = ''
-    connTokenError.value = ''
-    let valid = true
+    const validation = validateStep2({
+      connName: connName.value,
+      connRepoUrl: connRepoUrl.value,
+    })
+    connNameError.value = validation.connNameError
+    connRepoUrlError.value = validation.connRepoUrlError
+    connTokenError.value = validation.connTokenError
 
-    if (!connName.value.trim()) {
-      connNameError.value = 'Data source name is required.'
-      valid = false
-    }
-    if (!connRepoUrl.value.trim()) {
-      connRepoUrlError.value = 'Repository URL is required.'
-      valid = false
-    } else if (!connRepoUrl.value.includes('github.com')) {
-      connRepoUrlError.value = 'Enter a valid GitHub repository URL.'
-      valid = false
-    }
-    if (!connToken.value.trim()) {
-      connTokenError.value = 'Access token is required.'
-      valid = false
-    }
-
-    if (!valid) return
+    if (!validation.valid) return
     wizardStep.value = 3
     return
   }
@@ -558,14 +548,14 @@ async function createDataSource(params: {
   credentials?: Record<string, string>
 }) {
   const { apiFetch } = useApiClient()
-  return apiFetch(`/management/knowledge-graphs/${params.kg_id}/data-sources`, {
+  return apiFetch(buildDataSourceCreationUrl(params.kg_id), {
     method: 'POST',
-    body: {
+    body: buildDataSourceCreationBody({
       name: params.name,
       adapter_type: params.adapter_type,
       connection_config: params.connection_config,
       credentials: params.credentials,
-    },
+    }),
   })
 }
 
@@ -588,6 +578,9 @@ async function approveOntology() {
       },
       credentials: connToken.value ? { access_token: connToken.value } : undefined,
     })
+    // Clear the plaintext token immediately after the API call succeeds so
+    // that it does not linger in Vue's reactive state (readable via DevTools).
+    connToken.value = ''
     toast.success('Data source connected', {
       description: `${connName.value} has been connected and extraction will begin shortly.`,
     })
@@ -596,6 +589,7 @@ async function approveOntology() {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to connect data source'
     toast.error('Connection failed', { description: msg })
+    // Token is intentionally NOT cleared on failure so the user can retry.
   } finally {
     approvingOntology.value = false
   }

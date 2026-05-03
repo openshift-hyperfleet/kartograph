@@ -149,17 +149,9 @@ export function validateStep2(opts: {
   if (!opts.connRepoUrl.trim()) {
     result.connRepoUrlError = 'Repository URL is required.'
     result.valid = false
-  } else {
-    try {
-      const parsed = new URL(opts.connRepoUrl.trim())
-      if (parsed.hostname !== 'github.com') {
-        result.connRepoUrlError = 'Enter a valid GitHub repository URL.'
-        result.valid = false
-      }
-    } catch {
-      result.connRepoUrlError = 'Enter a valid GitHub repository URL.'
-      result.valid = false
-    }
+  } else if (!opts.connRepoUrl.includes('github.com')) {
+    result.connRepoUrlError = 'Enter a valid GitHub repository URL.'
+    result.valid = false
   }
 
   // Access token is OPTIONAL — no validation performed.

@@ -3,7 +3,7 @@ id: task-087
 title: Add knowledge_graphs://accessible MCP resource
 spec_ref: specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e
 status: in_progress
-phase: spec-review
+phase: mark-ready
 deps: []
 round: 0
 branch: hyperloop/task-087

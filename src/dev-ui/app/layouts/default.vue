@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import kartographLogo from '~/assets/kartograph-logo.png'
 import {
@@ -29,6 +29,7 @@ import {
   Plug,
   Settings2,
   BookOpen,
+  Search,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'

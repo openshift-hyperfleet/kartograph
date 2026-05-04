@@ -26,10 +26,12 @@ import { resolve } from 'path'
 const schemaVuePath = resolve(__dirname, '../pages/graph/schema.vue')
 const queryVuePath = resolve(__dirname, '../pages/query/index.vue')
 const explorerVuePath = resolve(__dirname, '../pages/graph/explorer.vue')
+const dataSourcesVuePath = resolve(__dirname, '../pages/data-sources/index.vue')
 
 const schemaContent = readFileSync(schemaVuePath, 'utf-8')
 const queryContent = readFileSync(queryVuePath, 'utf-8')
 const explorerContent = readFileSync(explorerVuePath, 'utf-8')
+const dataSourcesContent = readFileSync(dataSourcesVuePath, 'utf-8')
 
 // ────────────────────────────────────────────────────────────────────────────
 // Part 1: Sending side — schema.vue emits correct URL params
@@ -189,6 +191,39 @@ describe('Cross-navigation receiving side — graph explorer (graph/explorer.vue
 })
 
 // ────────────────────────────────────────────────────────────────────────────
+// Part 3b: Receiving side — data-sources/index.vue reads ?openOntologyType= on mount
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('Cross-navigation receiving side — data-sources (data-sources/index.vue)', () => {
+  describe('?openOntologyType= URL parameter triggers the ontology editor', () => {
+    it('data-sources/index.vue reads route.query.openOntologyType on mount', () => {
+      expect(dataSourcesContent).toContain('route.query.openOntologyType')
+    })
+
+    it('data-sources/index.vue calls requestOntologyEdit when param is present', () => {
+      // The handler must call requestOntologyEdit (not just read the param silently)
+      // Read the block guarded by openOntologyType and verify requestOntologyEdit is inside it
+      const paramIdx = dataSourcesContent.indexOf('openOntologyType')
+      const editIdx = dataSourcesContent.indexOf('requestOntologyEdit', paramIdx)
+      expect(paramIdx).toBeGreaterThan(-1)
+      expect(editIdx).toBeGreaterThan(-1)
+      expect(editIdx).toBeGreaterThan(paramIdx)
+    })
+
+    it('data-sources/index.vue type-guards the openOntologyType param before using it', () => {
+      // Must handle the case where the param is undefined (page opened without param)
+      expect(dataSourcesContent).toContain('openOntologyType')
+      // Guard: if (openOntologyType ...) — ensures no crash on normal navigation
+      const paramSection = dataSourcesContent.slice(
+        dataSourcesContent.indexOf('openOntologyType'),
+        dataSourcesContent.indexOf('openOntologyType') + 300,
+      )
+      expect(paramSection).toMatch(/if\s*\(openOntologyType/)
+    })
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
 // Part 4: End-to-end contract verification
 // Verifies that the param names SENT by schema.vue MATCH those READ by destinations
 // ────────────────────────────────────────────────────────────────────────────
@@ -207,6 +242,14 @@ describe('Cross-navigation parameter name contract', () => {
     // explorer.vue reads: route.query.type
     expect(schemaContent).toContain("query: { type: label }")
     expect(explorerContent).toContain('route.query.type')
+  })
+
+  it('schema.vue and data-sources/index.vue use matching "openOntologyType" param name', () => {
+    // schema.vue sends:           query: { openOntologyType: label }
+    // data-sources/index.vue reads: route.query.openOntologyType
+    // These must match — a rename in either file silently breaks the deep-link
+    expect(schemaContent).toContain('openOntologyType')
+    expect(dataSourcesContent).toContain('route.query.openOntologyType')
   })
 
   it('all three pages use Nuxt navigateTo / useRoute (consistent navigation API)', () => {

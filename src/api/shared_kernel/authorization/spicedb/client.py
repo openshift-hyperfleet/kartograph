@@ -27,7 +27,7 @@ from authzed.api.v1 import (
     WriteRelationshipsRequest,
 )
 from authzed.api.v1.permission_service_pb2 import CheckPermissionResponse
-from grpcutil import insecure_bearer_token_credentials
+import grpc.aio
 
 from shared_kernel.authorization.observability import (
     AuthorizationProbe,
@@ -43,6 +43,59 @@ from shared_kernel.authorization.types import (
     RelationshipTuple,
     SubjectRelation,
 )
+
+
+def _inject_bearer_metadata(client_call_details, token_metadata):
+    """Inject bearer token metadata into gRPC call details."""
+    metadata = list(client_call_details.metadata or [])
+    metadata.extend(token_metadata)
+    return grpc.aio.ClientCallDetails(
+        client_call_details.method,
+        client_call_details.timeout,
+        metadata,
+        client_call_details.credentials,
+        client_call_details.wait_for_ready,
+    )
+
+
+class _UnaryUnaryTokenInterceptor(grpc.aio.UnaryUnaryClientInterceptor):
+    def __init__(self, token: str):
+        self._metadata = (("authorization", f"Bearer {token}"),)
+
+    async def intercept_unary_unary(self, continuation, client_call_details, request):
+        return await continuation(
+            _inject_bearer_metadata(client_call_details, self._metadata), request
+        )
+
+
+class _UnaryStreamTokenInterceptor(grpc.aio.UnaryStreamClientInterceptor):
+    def __init__(self, token: str):
+        self._metadata = (("authorization", f"Bearer {token}"),)
+
+    async def intercept_unary_stream(self, continuation, client_call_details, request):
+        return await continuation(
+            _inject_bearer_metadata(client_call_details, self._metadata), request
+        )
+
+
+def _create_insecure_channel(endpoint: str, preshared_key: str) -> grpc.aio.Channel:
+    """Create an insecure gRPC channel with bearer token metadata injection.
+
+    Unlike grpc.local_channel_credentials (which restricts to loopback),
+    this works for any address — necessary for in-cluster connections
+    where SpiceDB serves plaintext gRPC on pod/service IPs.
+
+    Uses separate interceptor classes because grpc.aio.Channel uses elif
+    dispatch on isinstance checks — a single class inheriting from multiple
+    interceptor types only registers for the first matching type.
+    """
+    return grpc.aio.insecure_channel(
+        endpoint,
+        interceptors=[
+            _UnaryUnaryTokenInterceptor(preshared_key),
+            _UnaryStreamTokenInterceptor(preshared_key),
+        ],
+    )
 
 
 class RelationshipOperation(IntEnum):
@@ -244,22 +297,25 @@ class SpiceDBClient(AuthorizationProvider):
                     try:
                         from authzed.api.v1 import AsyncClient
 
-                        # Create credentials with preshared key
                         if self._use_tls:
                             credentials = _create_tls_credentials(
                                 self._preshared_key, self._cert_path
                             )
-                        else:
-                            credentials = insecure_bearer_token_credentials(
-                                self._preshared_key
+                            self._client = AsyncClient(
+                                self._endpoint,
+                                credentials,
                             )
+                        else:
                             self._probe.insecure_connection_used(self._endpoint)
-
-                        # Initialize client
-                        self._client = AsyncClient(
-                            self._endpoint,
-                            credentials,
-                        )
+                            # AsyncClient.__init__ calls grpc.aio.secure_channel
+                            # which doesn't support insecure mode. We bypass it
+                            # and init stubs directly on an insecure channel.
+                            # Pinned to authzed >= 1.24.0 API surface.
+                            channel = _create_insecure_channel(
+                                self._endpoint, self._preshared_key
+                            )
+                            self._client = AsyncClient.__new__(AsyncClient)
+                            self._client.init_stubs(channel)
                     except Exception as e:
                         self._probe.connection_failed(
                             endpoint=self._endpoint,

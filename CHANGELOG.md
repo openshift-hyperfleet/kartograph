@@ -1,5 +1,75 @@
 # Changelog
 
+## [3.33.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.33.0...v3.33.1) (2026-04-28)
+
+
+### Bug Fixes
+
+* **deploy:** add IAM single tenant mode configuration ([#494](https://github.com/openshift-hyperfleet/kartograph/issues/494)) ([9d3d27a](https://github.com/openshift-hyperfleet/kartograph/commit/9d3d27a26acfdc3fcd4b0b938d4933b54742a37e))
+
+## [3.33.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.8...v3.33.0) (2026-04-28)
+
+
+### Features
+
+* **deploy:** disable single-tenant mode in stage ([#447](https://github.com/openshift-hyperfleet/kartograph/issues/447)) ([b93fd61](https://github.com/openshift-hyperfleet/kartograph/commit/b93fd618ca022ce8e95404845a8eae0a0ec052a0))
+
+## [3.32.8](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.7...v3.32.8) (2026-04-23)
+
+
+### Bug Fixes
+
+* **deploy:** add KARTOGRAPH_CORS_ORIGINS env var to API deployment ([#451](https://github.com/openshift-hyperfleet/kartograph/issues/451)) ([224de76](https://github.com/openshift-hyperfleet/kartograph/commit/224de76983e3cbf950f5ca968da7d21002c3014e))
+
+## [3.32.7](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.6...v3.32.7) (2026-04-23)
+
+
+### Bug Fixes
+
+* **deploy:** use JSON list format for CORS origins in stage ([#448](https://github.com/openshift-hyperfleet/kartograph/issues/448)) ([31d6b68](https://github.com/openshift-hyperfleet/kartograph/commit/31d6b68bec9dbca3d747a54b04468f76fddf172e))
+
+## [3.32.6](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.5...v3.32.6) (2026-04-23)
+
+
+### Bug Fixes
+
+* **deploy:** update dev-ui Keycloak client ID for stage ([#444](https://github.com/openshift-hyperfleet/kartograph/issues/444)) ([79a2469](https://github.com/openshift-hyperfleet/kartograph/commit/79a24691a4f7851e1b11170e8072b3f5729af458))
+
+## [3.32.5](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.4...v3.32.5) (2026-04-23)
+
+
+### Bug Fixes
+
+* **deploy:** use FQDN for SpiceDB endpoint in stage overlay ([#441](https://github.com/openshift-hyperfleet/kartograph/issues/441)) ([469cb56](https://github.com/openshift-hyperfleet/kartograph/commit/469cb569bc8958f4f397065d35607520c75a8af0))
+
+## [3.32.4](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.3...v3.32.4) (2026-04-23)
+
+
+### Bug Fixes
+
+* **deploy:** use metrics port 9090 /metrics for SpiceDB health probes ([#438](https://github.com/openshift-hyperfleet/kartograph/issues/438)) ([b442785](https://github.com/openshift-hyperfleet/kartograph/commit/b44278515e9e896c03a4bf6a5f2e5a59dfd2c856))
+
+## [3.32.3](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.2...v3.32.3) (2026-04-23)
+
+
+### Bug Fixes
+
+* **deploy:** use HTTP scheme for SpiceDB health probes ([#432](https://github.com/openshift-hyperfleet/kartograph/issues/432)) ([b444d6e](https://github.com/openshift-hyperfleet/kartograph/commit/b444d6ebdb2cd3ad32639eba266282d66c397ca1))
+
+## [3.32.2](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.1...v3.32.2) (2026-04-23)
+
+
+### Bug Fixes
+
+* **deploy:** enable SpiceDB TLS with OpenShift service certs (v2) ([#427](https://github.com/openshift-hyperfleet/kartograph/issues/427)) ([0d072f7](https://github.com/openshift-hyperfleet/kartograph/commit/0d072f7d32f4aa3513d6950ebaf781e0c222e4cd))
+
+## [3.32.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.32.0...v3.32.1) (2026-04-22)
+
+
+### Bug Fixes
+
+* **deploy:** enable SpiceDB TLS for non-loopback stage connections ([#329](https://github.com/openshift-hyperfleet/kartograph/issues/329)) ([f63eda5](https://github.com/openshift-hyperfleet/kartograph/commit/f63eda5b7c182fe0016f5c772dae74323b5a780c))
+
 ## [3.32.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.31.4...v3.32.0) (2026-04-22)
 
 

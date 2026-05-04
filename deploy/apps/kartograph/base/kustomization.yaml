@@ -27,6 +27,7 @@ resources:
   # Config
   - configmap.yaml
   - spicedb-schema-configmap.yaml
+  - spicedb-ca-configmap.yaml
 
 commonLabels:
   app.kubernetes.io/name: kartograph

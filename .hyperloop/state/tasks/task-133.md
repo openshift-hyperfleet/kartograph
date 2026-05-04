@@ -4,9 +4,9 @@ title: MCP secure enclave — integration test for entity redaction at HTTP tran
   layer
 spec_ref: specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e
 status: in_progress
-phase: verify
+phase: implement
 deps: []
-round: 0
+round: 1
 branch: hyperloop/task-133
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/605
 pr_title: 'test(query): add integration test for secure enclave entity redaction via

@@ -9,6 +9,12 @@
 # Root cause of task-045 blocking defect: task-074 added Select imports to
 # mutations.vue without removing the pre-existing Select import block.
 #
+# NOTE: The grep is intentionally restricted to lines that look like actual
+# import/export statements.  A naive `grep -oE "from '...'"` also matches
+# substrings inside test-assertion string literals such as:
+#   expect(SFC).toContain("from '@/lib/foo'")
+# which causes a false positive (root cause of task-125 false FAIL).
+#
 # Usage:
 #   bash .hyperloop/checks/check-no-duplicate-vue-imports.sh [file...]
 #
@@ -52,11 +58,18 @@ for file in "${files[@]}"; do
   [[ -z "$file" ]] && continue
   [[ ! -f "$file" ]] && continue
 
-  # Extract all `from '...'` and `from "..."` module specifiers, including
-  # multi-line import blocks collapsed to just their from clause.
-  # Count occurrences of each unique module specifier; flag any > 1.
+  # Extract `from '...'` / `from "..."` module specifiers ONLY from lines that
+  # are actual import/export statements or the closing `} from '...'` of a
+  # multi-line import block.  A plain grep -oE "from '...'" also matches
+  # substrings inside test-assertion string literals such as:
+  #   expect(SFC).toContain("from '@/lib/foo'")
+  # which produces a false positive.  The two-step approach below:
+  #   1. Filters to lines starting with import/export keyword or `}` (multi-line
+  #      import closing brace), so plain string-literal lines are excluded.
+  #   2. Extracts the module specifier from the filtered set.
   duplicates=$(
-    grep -oE "from ['\"][^'\"]+['\"]" "$file" 2>/dev/null \
+    grep -E "^\s*(import|export)\s[^;\"']*from\s+['\"][^'\"]+['\"]|^\s*\}\s+from\s+['\"][^'\"]+['\"]" "$file" 2>/dev/null \
+      | grep -oE "from ['\"][^'\"]+['\"]" \
       | sort \
       | uniq -d \
       || true

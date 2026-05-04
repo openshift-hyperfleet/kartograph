@@ -151,6 +151,18 @@ class TestEnsureLimit:
 
         assert "LIMIT 100" in query
 
+    def test_adds_default_limit_of_1000_when_max_rows_not_specified(self, repository):
+        """Spec: No LIMIT in query → LIMIT of 1000 is appended automatically.
+
+        When _ensure_limit is called without an explicit max_rows argument the
+        default is DEFAULT_LIMIT (1000), satisfying the spec scenario:
+        "GIVEN a query without a LIMIT clause WHEN the query is executed
+         THEN a LIMIT of 1000 is appended automatically".
+        """
+        query = repository._ensure_limit("MATCH (n) RETURN n")
+
+        assert "LIMIT 1000" in query
+
     def test_preserves_existing_limit(self, repository):
         """Should preserve explicit LIMIT."""
         original = "MATCH (n) RETURN n LIMIT 50"
@@ -235,6 +247,57 @@ class TestExecuteCypher:
         call_args = mock_transaction.execute_cypher.call_args
         query_executed = call_args[0][0]
         assert "LIMIT 50" in query_executed
+
+    def test_default_limit_of_1000_appended_when_query_has_no_limit(
+        self, repository, mock_client, mock_transaction
+    ):
+        """Spec: No LIMIT in query → LIMIT of 1000 is appended automatically.
+
+        When execute_cypher is called without an explicit max_rows argument,
+        the default max_rows=1000 is used and _ensure_limit appends LIMIT 1000
+        to queries that have no LIMIT clause.
+        """
+        mock_client.transaction.return_value.__enter__ = MagicMock(
+            return_value=mock_transaction
+        )
+        mock_client.transaction.return_value.__exit__ = MagicMock(return_value=False)
+        mock_transaction.execute_cypher.return_value = CypherResult(
+            rows=(), row_count=0
+        )
+
+        # Call without explicit max_rows — uses the default (1000)
+        repository.execute_cypher("MATCH (n) RETURN n")
+
+        call_args = mock_transaction.execute_cypher.call_args
+        query_executed = call_args[0][0]
+        assert "LIMIT 1000" in query_executed, (
+            f"Expected LIMIT 1000 to be appended when no max_rows specified, "
+            f"but got query: {query_executed!r}"
+        )
+
+    def test_query_within_timeout_returns_results_normally(
+        self, repository, mock_client, mock_transaction
+    ):
+        """Spec: Query within timeout → results are returned normally.
+
+        GIVEN a query that completes within the timeout
+        WHEN the query executes
+        THEN results are returned normally (no exception raised).
+        """
+        expected_row = (42,)
+        mock_client.transaction.return_value.__enter__ = MagicMock(
+            return_value=mock_transaction
+        )
+        mock_client.transaction.return_value.__exit__ = MagicMock(return_value=False)
+        mock_transaction.execute_cypher.return_value = CypherResult(
+            rows=(expected_row,), row_count=1
+        )
+
+        result = repository.execute_cypher("MATCH (n) RETURN n.id", timeout_seconds=30)
+
+        # Results returned normally — no exception, data is present
+        assert len(result) == 1
+        assert result[0] == {"value": 42}
 
     def test_sets_statement_timeout(self, repository, mock_client, mock_transaction):
         """Should set PostgreSQL statement_timeout within the transaction."""

@@ -495,6 +495,38 @@ class TestExecuteCypherQuery:
         assert result.error_type == "execution_error"
         assert len(fake_probe.failed_calls) == 1
 
+    def test_categorizes_tenant_graph_not_found_as_execution_error(
+        self,
+        service: MCPQueryService,
+        fake_repository: FakeQueryGraphRepository,
+        fake_probe: FakeQueryServiceProbe,
+    ) -> None:
+        """Spec: Tenant graph not found → execution error type.
+
+        Per-Tenant Graph Routing scenario: when the AGE graph for the caller's
+        tenant has not been provisioned, the service returns error_type
+        'execution_error'. This ties the Per-Tenant Graph Routing requirement
+        to the Error Categorization requirement in a single test.
+
+        Spec:
+          - Per-Tenant Graph Routing: "request is rejected with an execution error"
+          - Error Categorization: "execution error → error type is 'execution_error'"
+        """
+        fake_repository.side_effect = QueryExecutionError(
+            "Tenant graph 'tenant_foo' has not been provisioned."
+        )
+
+        result = service.execute_cypher_query("MATCH (n) RETURN n")
+
+        assert isinstance(result, QueryError)
+        assert result.error_type == "execution_error"
+        assert len(fake_probe.failed_calls) == 1
+        # The error message describes the missing graph
+        assert (
+            "tenant" in result.message.lower()
+            or "provisioned" in result.message.lower()
+        )
+
     def test_categorizes_unknown_error(
         self,
         service: MCPQueryService,

@@ -1103,8 +1103,10 @@ describe('Task-129 — Scenario: Knowledge graph context', () => {
   })
 
   it('query page passes selectedKgId to the API call when scoped', () => {
-    // A non-empty selectedKgId is sent as a query parameter
-    expect(queryVue).toContain('selectedKgId.value || undefined')
+    // A non-__all__ selectedKgId is sent as a query parameter.
+    // The ternary gate converts '__all__' sentinel to undefined for unscoped queries.
+    // (Reka UI reserves value="" so we cannot use the simpler || undefined pattern.)
+    expect(queryVue).toContain("selectedKgId.value === '__all__'")
   })
 
   it('query page shows a "Scoped" badge when a specific KG is selected', () => {

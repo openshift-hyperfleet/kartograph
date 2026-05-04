@@ -2,12 +2,12 @@
 id: task-141
 title: UI Query Console — Cypher editor, execution, history, KG scope
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps:
 - task-140
 round: 0
-branch: null
+branch: hyperloop/task-141
 pr: null
 pr_title: 'feat(ui): add Cypher query console with editor, execution, and history'
 pr_description: "## What and Why\n\nThe Query Console is the primary tool for power\

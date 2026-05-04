@@ -155,8 +155,10 @@ class TestCORSSettingsFromEnv:
 
         settings = CORSSettings()
 
-        assert "https://app.example.com" in settings.origins
-        assert "https://admin.example.com" in settings.origins
+        assert settings.origins == [
+            "https://app.example.com",
+            "https://admin.example.com",
+        ]
         assert settings.is_enabled is True
 
     def test_empty_origins_env_disables_cors(

@@ -206,7 +206,8 @@ class TestErrorCategorization:
         result = service.execute_cypher_query("MATCH (n) DELETE n")
 
         assert isinstance(result, QueryError)
-        assert "DELETE" in result.message or "read-only" in result.message.lower()
+        assert "read-only" in result.message.lower()
+        assert "DELETE" in result.message
 
     # Scenario: Timeout error
     def test_timeout_error_type_when_repo_raises_query_timeout_error(self):
@@ -295,7 +296,8 @@ class TestErrorCategorization:
         result = service.execute_cypher_query("MATCH (n) RETURN n")
 
         assert isinstance(result, QueryError)
-        assert "does not exist" in result.message or "tenant" in result.message.lower()
+        assert "does not exist" in result.message
+        assert "tenant" in result.message.lower()
 
     # Scenario: Unexpected error
     def test_unknown_error_type_when_repo_raises_unexpected_exception(self):

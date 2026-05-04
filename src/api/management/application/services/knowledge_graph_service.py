@@ -571,7 +571,7 @@ class KnowledgeGraphService:
         if kg is None or kg.tenant_id != self._scope_to_tenant:
             raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
 
-        await self._kg_repo.save_ontology(kg_id, config)
-        await self._session.commit()
+        async with self._session.begin():
+            await self._kg_repo.save_ontology(kg_id, config)
 
         return config

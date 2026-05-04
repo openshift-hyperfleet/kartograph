@@ -21,6 +21,8 @@ from management.presentation.knowledge_graphs.models import (
     CreateKnowledgeGraphRequest,
     KnowledgeGraphListResponse,
     KnowledgeGraphResponse,
+    OntologyConfigRequest,
+    OntologyConfigResponse,
     UpdateKnowledgeGraphRequest,
 )
 from shared_kernel.authorization.types import Permission
@@ -319,6 +321,113 @@ async def update_knowledge_graph(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update knowledge graph",
+        )
+
+
+@router.get(
+    "/knowledge-graphs/{kg_id}/ontology",
+    response_model=OntologyConfigResponse,
+    summary="Get ontology for a knowledge graph",
+    description="""
+Retrieve the stored ontology configuration for a knowledge graph.
+
+Returns `200` with the OntologyConfig when an ontology has been saved.
+Returns `404` when no ontology has been saved yet — this is the default
+state for all knowledge graphs until a user approves a proposed ontology.
+
+Requires `view` permission on the knowledge graph.
+""",
+    response_description="Stored ontology including node types, edge types, and approval state",
+    responses={
+        200: {"description": "Ontology found and returned"},
+        401: {"description": "Authentication required"},
+        404: {
+            "description": "No ontology saved for this knowledge graph, or KG not found"
+        },
+        500: {"description": "Internal server error"},
+    },
+)
+async def get_knowledge_graph_ontology(
+    kg_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> OntologyConfigResponse:
+    """Get the ontology configuration for a knowledge graph."""
+    try:
+        config = await service.get_ontology(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+        )
+        if config is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No ontology found for knowledge graph {kg_id}",
+            )
+        return OntologyConfigResponse.from_domain(config)
+
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve ontology",
+        )
+
+
+@router.put(
+    "/knowledge-graphs/{kg_id}/ontology",
+    response_model=OntologyConfigResponse,
+    summary="Save ontology for a knowledge graph",
+    description="""
+Save (full replace) the ontology configuration for a knowledge graph.
+
+Stores the provided node types, edge types, and approval state. This is a
+full replace — not a merge. The stored ontology can be retrieved later via
+`GET /knowledge-graphs/{id}/ontology`.
+
+Requires `edit` permission on the knowledge graph.
+""",
+    response_description="The stored ontology as persisted",
+    responses={
+        200: {"description": "Ontology saved successfully"},
+        401: {"description": "Authentication required"},
+        403: {"description": "Insufficient permissions — edit required"},
+        404: {"description": "Knowledge graph not found"},
+        422: {"description": "Validation error in request body"},
+        500: {"description": "Internal server error"},
+    },
+)
+async def save_knowledge_graph_ontology(
+    kg_id: str,
+    request: OntologyConfigRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> OntologyConfigResponse:
+    """Save the ontology configuration for a knowledge graph."""
+    try:
+        config = await service.save_ontology(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+            config=request.to_domain(),
+        )
+        return OntologyConfigResponse.from_domain(config)
+
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save ontology",
         )
 
 

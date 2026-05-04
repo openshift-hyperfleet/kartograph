@@ -4,11 +4,11 @@ title: Schema browser cross-navigation — test receiving side for data-sources 
   editor deep-link
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-137
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/607
 pr_title: 'test(ui): add receiving-side test for schema browser → ontology editor
   cross-navigation'
 pr_description: "## What and Why\n\nThe **Schema Browser — Cross-navigation** spec\

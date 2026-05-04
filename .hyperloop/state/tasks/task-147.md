@@ -3,12 +3,12 @@ id: task-147
 title: UI Data Source Connection — adapter selection, configuration, credential handling
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-146
 round: 0
 branch: hyperloop/task-147
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/621
 pr_title: 'feat(ui): add guided data source connection flow with adapter selection
   and credentials'
 pr_description: "## What and Why\n\nOnce a knowledge graph exists, users need to connect\

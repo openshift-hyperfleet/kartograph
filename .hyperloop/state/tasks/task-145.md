@@ -3,12 +3,12 @@ id: task-145
 title: UI Mutations Console — file upload, KG selection, and submission with floating
   indicator
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps:
 - task-144
 round: 0
-branch: null
+branch: hyperloop/task-145
 pr: null
 pr_title: 'feat(ui): add mutations console submission flow with floating progress
   indicator'

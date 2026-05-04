@@ -353,7 +353,7 @@ async def provisioned_tenant_graph_with_timeout_data(
     integration_db_settings: DatabaseSettings,
     integration_connection_pool: ConnectionPool,
     default_tenant_id: str,
-) -> str:
+) -> AsyncGenerator[str, None]:
     """Provision the tenant AGE graph with 150 TimeoutNode entities.
 
     Creates the tenant graph (if absent) and populates it with 150 labeled
@@ -369,6 +369,10 @@ async def provisioned_tenant_graph_with_timeout_data(
     transaction.  The load is intentionally modest so the fixture completes
     in well under the test suite's patience threshold.
 
+    Cleans up TimeoutNode entities before setup (guards against leftover nodes
+    from a prior test run that failed before teardown) and after yield so that
+    the next test always starts with exactly 150 nodes.
+
     Args:
         async_client: Dependency ensuring the app lifespan has run and the
             default tenant exists in the DB before graph provisioning.
@@ -377,7 +381,7 @@ async def provisioned_tenant_graph_with_timeout_data(
         default_tenant_id: The default tenant's ULID, used to derive the
             tenant graph name (``tenant_{id}``).
 
-    Returns:
+    Yields:
         The tenant_id whose graph was provisioned and populated.
     """
     factory = ConnectionFactory(
@@ -387,14 +391,22 @@ async def provisioned_tenant_graph_with_timeout_data(
     graph_name = f"tenant_{default_tenant_id}"
     provisioner.ensure_graph_exists(graph_name)
 
-    # Populate the graph with 150 TimeoutNode entities.
-    # Using AgeGraphClient directly (bypasses the read-only QueryGraphRepository).
     client = AgeGraphClient(
         settings=integration_db_settings,
         connection_factory=factory,
         graph_name=graph_name,
         auto_create=False,
     )
+
+    # Pre-test cleanup: remove any TimeoutNode entities left by a prior run.
+    client.connect()
+    try:
+        client.execute_cypher("MATCH (n:TimeoutNode) DELETE n")
+    finally:
+        client.disconnect()
+
+    # Populate the graph with 150 TimeoutNode entities.
+    # Using AgeGraphClient directly (bypasses the read-only QueryGraphRepository).
     client.connect()
     try:
         for i in range(150):
@@ -402,7 +414,14 @@ async def provisioned_tenant_graph_with_timeout_data(
     finally:
         client.disconnect()
 
-    return default_tenant_id
+    yield default_tenant_id
+
+    # Teardown: remove TimeoutNode entities so the next test starts clean.
+    client.connect()
+    try:
+        client.execute_cypher("MATCH (n:TimeoutNode) DELETE n")
+    finally:
+        client.disconnect()
 
 
 # ---------------------------------------------------------------------------

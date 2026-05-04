@@ -46,6 +46,7 @@ from shared_kernel.outbox.observability import (
     DefaultEventSourceProbe,
     DefaultOutboxWorkerProbe,
 )
+from infrastructure.mcp_dependencies import dispose_mcp_auth_engine
 from query.presentation.mcp import mcp_http_app_proxy, query_mcp_app
 
 # Default work directory for JobPackage ZIP archives
@@ -496,6 +497,10 @@ async def kartograph_lifespan(app: FastAPI):
     # Shutdown: stop outbox worker
     if hasattr(app.state, "outbox_worker"):
         await app.state.outbox_worker.stop()
+
+    # Shutdown: dispose MCP auth engine so next startup creates a fresh one
+    # bound to the new event loop (prevents 'Event loop is closed' in tests).
+    await dispose_mcp_auth_engine()
 
     # Shutdown: close database engines
     await close_database_engines(app)

@@ -79,6 +79,20 @@ def get_schema_service_for_mcp() -> "ISchemaService":
 _mcp_auth_engine = None
 
 
+async def dispose_mcp_auth_engine() -> None:
+    """Dispose and reset the cached MCP auth engine.
+
+    Called during app lifespan shutdown so the next startup creates a fresh
+    engine bound to the new event loop. Without this, sequential test
+    lifespans (each with their own event loop) get 'Event loop is closed'
+    errors when the stale engine's connections are reused.
+    """
+    global _mcp_auth_engine
+    if _mcp_auth_engine is not None:
+        await _mcp_auth_engine.dispose()
+        _mcp_auth_engine = None
+
+
 async def validate_mcp_api_key(secret: str) -> APIKey | None:
     """Validate an API key secret for MCP authentication.
 

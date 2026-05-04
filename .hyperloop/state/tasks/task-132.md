@@ -3,11 +3,11 @@ id: task-132
 title: MCP query_graph — HTTP integration test for timeout error response format
 spec_ref: specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-132
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/599
 pr_title: 'test(query): add HTTP integration test for query_graph timeout error response'
 pr_description: "## What and Why\n\nThe MCP server spec requires that a query exceeding\
   \ the timeout is terminated\nand returned with `error_type: \"timeout\"`. The spec\

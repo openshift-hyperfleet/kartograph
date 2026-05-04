@@ -3,13 +3,13 @@ id: task-127
 title: 'UI: Workspace Management'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-118
 - task-119
 round: 0
 branch: hyperloop/task-127
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/598
 pr_title: 'feat(ui): add workspace management UI with creation and member management'
 pr_description: "## What & Why\n\nImplements the Workspace Management pages under\
   \ the \"Settings\" navigation group.\nUsers with appropriate permissions can create\

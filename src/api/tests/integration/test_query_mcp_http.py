@@ -4,6 +4,7 @@ Tests the full HTTP stack from the MCP HTTP endpoint through to the Cypher
 execution safeguards, verifying that:
   - Forbidden query responses include the ``correlation_id`` field.
   - Timeout query responses include ``error_type="timeout"`` and ``correlation_id``.
+  - Tenant graph not found responses include ``error_type="execution_error"``.
 
 Why this test exists
 --------------------
@@ -20,6 +21,8 @@ The *unit* tests verify each layer in isolation:
   — MCPQueryService converts QueryTimeoutError → QueryError(error_type="timeout").
 - ``test_mcp_query_tool.py::TestBuildErrorResponseTimeoutErrors`` — _build_error_response
   serialises correlation_id for timeout errors.
+- ``test_tenant_routing.py::TestTenantAwareQueryGraphRepository`` — unit tests for
+  graph-not-found rejection before the database is reached.
 
 What is MISSING from those unit tests: an end-to-end HTTP test that exercises
 the full MCP JSON-over-HTTP transport layer. A regression in ``mcp.py``'s
@@ -33,6 +36,11 @@ specs/query/query-execution.spec.md:
   - Requirement: Read-Only Enforcement
   - Scenario: Keyword blacklist (secondary)
     "AND the error response includes a correlation ID for log lookup"
+  - Requirement: Per-Tenant Graph Routing
+  - Scenario: Tenant graph not found
+    "GIVEN a tenant whose AGE graph has not been provisioned
+     WHEN a query is submitted
+     THEN the request is rejected with an execution error before reaching the database"
 
 specs/query/mcp-server.spec.md:
   - Requirement: Graph Query Tool
@@ -564,3 +572,154 @@ class TestMCPTimeoutQueryHTTPResponse:
             f"correlation_id must be a string, got {type(correlation_id)}"
         )
         assert len(correlation_id) > 0, "correlation_id must not be empty"
+
+
+# ---------------------------------------------------------------------------
+# Tests — tenant graph not found response
+# ---------------------------------------------------------------------------
+
+
+class TestMCPTenantGraphNotFoundHTTPResponse:
+    """HTTP-level tests for the tenant-graph-not-found error response.
+
+    These tests exercise the full stack WITHOUT provisioning the AGE graph,
+    exercising the guard in TenantAwareQueryGraphRepository that rejects
+    queries before they reach the database when the tenant graph is absent.
+
+    Stack exercised:
+      API key auth → MCP protocol parsing → query_graph tool →
+      MCPQueryService → TenantAwareQueryGraphRepository →
+      graph existence check fails → QueryExecutionError →
+      MCPQueryService returns QueryError(error_type='execution_error') →
+      _build_error_response → MCP HTTP response body
+
+    The unit tests in ``test_tenant_routing.py`` verify the routing layer in
+    isolation; this class confirms the behaviour is preserved end-to-end over
+    the MCP HTTP transport — a layer invisible to the unit pyramid.
+
+    Spec: specs/query/query-execution.spec.md
+      Requirement: Per-Tenant Graph Routing
+      Scenario: Tenant graph not found
+    """
+
+    @pytest.mark.asyncio
+    async def test_query_without_provisioned_graph_returns_execution_error(
+        self,
+        async_client: AsyncClient,
+        api_key_secret: str,
+    ) -> None:
+        """Querying without a provisioned tenant AGE graph yields execution_error.
+
+        Spec: Per-Tenant Graph Routing — Scenario: Tenant graph not found —
+        "GIVEN a tenant whose AGE graph has not been provisioned
+         WHEN a query is submitted
+         THEN the request is rejected with an execution error before reaching
+         the database"
+
+        The ``provisioned_tenant_graph`` fixture is intentionally absent so that
+        the AGE graph for the default tenant does NOT exist.  The
+        ``TenantAwareQueryGraphRepository`` must detect the absence and raise
+        ``QueryExecutionError`` before the query reaches PostgreSQL.
+
+        ``MCPQueryService`` converts ``QueryExecutionError`` to a
+        ``QueryError(error_type="execution_error")``, which
+        ``_build_error_response`` serialises into the MCP tool response.
+        """
+        async with Client(
+            StreamableHttpTransport(
+                url="http://test/query/mcp",
+                headers={"X-API-Key": api_key_secret},
+                httpx_client_factory=_make_asgi_httpx_factory(app),
+            )
+        ) as mcp_client:
+            result = await mcp_client.call_tool(
+                "query_graph",
+                {"cypher": "MATCH (n) RETURN n LIMIT 1"},
+            )
+
+        # MCP tool call itself must succeed at the protocol level (no MCP error)
+        assert result.is_error is False, (
+            f"Expected a tool result, got an MCP protocol error: {result}"
+        )
+
+        tool_result = result.data
+
+        # 1. success must be False (query was rejected before reaching DB)
+        assert tool_result["success"] is False, (
+            f"Expected success=False when tenant graph is not provisioned, "
+            f"got: {tool_result}"
+        )
+
+        # 2. error_type must be "execution_error" (graph not found ≠ forbidden)
+        assert tool_result["error_type"] == "execution_error", (
+            f"Expected error_type='execution_error', got: {tool_result}"
+        )
+
+        # 3. message must reference graph/tenant absence for debuggability
+        message = tool_result.get("message", "")
+        message_lower = message.lower()
+        assert any(
+            keyword in message_lower
+            for keyword in (
+                "does not exist",
+                "not found",
+                "graph",
+                "provision",
+                "tenant",
+            )
+        ), f"Expected message to reference graph absence, got: {message!r}"
+
+    @pytest.mark.asyncio
+    async def test_query_without_provisioned_graph_error_occurs_before_database(
+        self,
+        async_client: AsyncClient,
+        api_key_secret: str,
+    ) -> None:
+        """Graph-existence check runs before keyword validation (spec: before DB).
+
+        Spec: Per-Tenant Graph Routing — Scenario: Tenant graph not found —
+        "THEN the request is rejected with an execution error before reaching
+        the database"
+
+        This test submits a write query that would ordinarily be caught by the
+        keyword blacklist (READ-ONLY enforcement) if the tenant graph existed.
+        Because the graph is absent, the graph-existence guard must fire FIRST,
+        returning ``error_type="execution_error"`` rather than
+        ``error_type="forbidden"``.
+
+        If the order were reversed and the blacklist ran first, this test would
+        receive ``error_type="forbidden"`` — which would be a spec violation.
+        """
+        async with Client(
+            StreamableHttpTransport(
+                url="http://test/query/mcp",
+                headers={"X-API-Key": api_key_secret},
+                httpx_client_factory=_make_asgi_httpx_factory(app),
+            )
+        ) as mcp_client:
+            result = await mcp_client.call_tool(
+                "query_graph",
+                # CREATE is a blacklisted keyword — would normally yield "forbidden".
+                # Since the graph is not provisioned, the existence check must
+                # fire first and yield "execution_error" instead.
+                {"cypher": "CREATE (n:Test)"},
+            )
+
+        # MCP tool call itself must succeed at the protocol level
+        assert result.is_error is False, (
+            f"Expected a tool result, got an MCP protocol error: {result}"
+        )
+
+        tool_result = result.data
+
+        assert tool_result["success"] is False, (
+            f"Expected success=False, got: {tool_result}"
+        )
+
+        # The graph-existence guard must win over the keyword blacklist.
+        # "execution_error" confirms the ordering is correct.
+        assert tool_result["error_type"] == "execution_error", (
+            f"Expected error_type='execution_error' (graph-not-found guard fires "
+            f"before keyword blacklist), got error_type={tool_result.get('error_type')!r}. "
+            f"Full response: {tool_result}"
+        )

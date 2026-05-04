@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.34.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.33.1...v3.34.0) (2026-05-04)
+
+
+### Features
+
+* **api.management:** knowledge graph and data source resources ([#612](https://github.com/openshift-hyperfleet/kartograph/issues/612)) ([1b04657](https://github.com/openshift-hyperfleet/kartograph/commit/1b046571130985d55fe619d8bd4d5142c7db2377))
+
 ## [3.33.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.33.0...v3.33.1) (2026-04-28)
 
 

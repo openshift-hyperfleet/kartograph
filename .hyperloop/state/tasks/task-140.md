@@ -2,12 +2,12 @@
 id: task-140
 title: UI Application Shell — sidebar navigation, tenant context, responsive layout
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps:
 - task-139
 round: 0
-branch: null
+branch: hyperloop/task-140
 pr: null
 pr_title: 'feat(ui): add application shell with sidebar navigation and tenant context'
 pr_description: "## What and Why\n\nWith the design system foundation in place (task-139),\

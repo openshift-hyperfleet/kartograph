@@ -3,11 +3,11 @@ id: task-139
 title: UI Foundation — Vue/Nuxt project init with design system
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-139
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/609
 pr_title: 'feat(ui): initialize Vue/Nuxt project with design system foundation'
 pr_description: "## What and Why\n\nThis task bootstraps the Kartograph frontend from\
   \ scratch. There is currently no\n`src/ui/` directory — the only frontend artifact\

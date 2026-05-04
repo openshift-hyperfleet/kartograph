@@ -3,11 +3,11 @@ id: task-138
 title: UI Experience — Data Source Connection Flow and Schema Browser Cross-Navigation
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps: []
 round: 0
 branch: hyperloop/task-138
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/608
 pr_title: 'feat: implement data source connection guided flow and schema browser cross-navigation'
 pr_description: "## What and Why\n\nThis PR implements two groups of requirements\
   \ from `specs/ui/experience.spec.md` that\nare not yet verifiably complete in the\

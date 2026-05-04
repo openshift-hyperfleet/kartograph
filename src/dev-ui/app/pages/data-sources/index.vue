@@ -32,6 +32,12 @@ import {
   buildDataSourceCreationUrl,
   buildDataSourceCreationBody,
 } from '@/utils/dataSourceWizard'
+import {
+  validateTypeLabel,
+  validateIntentText,
+  parsePropertyList,
+  buildOntologySavePayload,
+} from '@/utils/ontologyWizard'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -381,11 +387,9 @@ function nextStep() {
   }
 
   if (wizardStep.value === 3) {
-    intentError.value = ''
-    if (!intentText.value.trim()) {
-      intentError.value = 'Please describe your intent before continuing.'
-      return
-    }
+    const intentValidation = validateIntentText(intentText.value)
+    intentError.value = intentValidation.error
+    if (!intentValidation.valid) return
     wizardStep.value = 4
     beginOntologyProposal()
     return
@@ -426,20 +430,16 @@ function startEditNode(index: number) {
 
 function saveEditNode(index: number) {
   const n = proposedNodes.value[index]
-  const trimmedLabel = n.editLabel.trim()
-  if (!trimmedLabel) {
-    n.editError = 'Label is required'
-    return
-  }
-  if (proposedNodes.value.some((x, i) => i !== index && x.label === trimmedLabel)) {
-    n.editError = 'A type with this label already exists'
+  const validation = validateTypeLabel(proposedNodes.value, n.editLabel, index)
+  if (!validation.valid) {
+    n.editError = validation.error
     return
   }
   n.editError = ''
-  n.label = trimmedLabel
+  n.label = n.editLabel.trim()
   n.description = n.editDescription
-  n.required_properties = n.editRequired.split(',').map((s) => s.trim()).filter(Boolean)
-  n.optional_properties = n.editOptional.split(',').map((s) => s.trim()).filter(Boolean)
+  n.required_properties = parsePropertyList(n.editRequired)
+  n.optional_properties = parsePropertyList(n.editOptional)
   n.editing = false
 }
 
@@ -463,20 +463,16 @@ function startEditEdge(index: number) {
 
 function saveEditEdge(index: number) {
   const e = proposedEdges.value[index]
-  const trimmedLabel = e.editLabel.trim()
-  if (!trimmedLabel) {
-    e.editError = 'Label is required'
-    return
-  }
-  if (proposedEdges.value.some((x, i) => i !== index && x.label === trimmedLabel)) {
-    e.editError = 'A type with this label already exists'
+  const validation = validateTypeLabel(proposedEdges.value, e.editLabel, index)
+  if (!validation.valid) {
+    e.editError = validation.error
     return
   }
   e.editError = ''
-  e.label = trimmedLabel
+  e.label = e.editLabel.trim()
   e.description = e.editDescription
-  e.required_properties = e.editRequired.split(',').map((s) => s.trim()).filter(Boolean)
-  e.optional_properties = e.editOptional.split(',').map((s) => s.trim()).filter(Boolean)
+  e.required_properties = parsePropertyList(e.editRequired)
+  e.optional_properties = parsePropertyList(e.editOptional)
   e.editing = false
 }
 
@@ -802,24 +798,7 @@ async function saveOntology() {
       `/management/data-sources/${editingDataSource.value.id}`,
       {
         method: 'PATCH',
-        body: {
-          ontology: {
-            node_types: editNodes.value.map((n) => ({
-              label: n.label,
-              description: n.description,
-              required_properties: n.required_properties,
-              optional_properties: n.optional_properties,
-            })),
-            edge_types: editEdges.value.map((e) => ({
-              label: e.label,
-              description: e.description,
-              from_type: e.from,
-              to_type: e.to,
-              required_properties: e.required_properties,
-              optional_properties: e.optional_properties,
-            })),
-          },
-        },
+        body: buildOntologySavePayload(editNodes.value, editEdges.value),
       },
     )
     toast.success('Ontology saved', {
@@ -850,20 +829,16 @@ function startEditNodeEditor(index: number) {
 
 function saveEditNodeEditor(index: number) {
   const n = editNodes.value[index]
-  const trimmedLabel = n.editLabel.trim()
-  if (!trimmedLabel) {
-    n.editError = 'Label is required'
-    return
-  }
-  if (editNodes.value.some((x, i) => i !== index && x.label === trimmedLabel)) {
-    n.editError = 'A type with this label already exists'
+  const validation = validateTypeLabel(editNodes.value, n.editLabel, index)
+  if (!validation.valid) {
+    n.editError = validation.error
     return
   }
   n.editError = ''
-  n.label = trimmedLabel
+  n.label = n.editLabel.trim()
   n.description = n.editDescription
-  n.required_properties = n.editRequired.split(',').map((s) => s.trim()).filter(Boolean)
-  n.optional_properties = n.editOptional.split(',').map((s) => s.trim()).filter(Boolean)
+  n.required_properties = parsePropertyList(n.editRequired)
+  n.optional_properties = parsePropertyList(n.editOptional)
   n.editing = false
 }
 
@@ -888,20 +863,16 @@ function startEditEdgeEditor(index: number) {
 
 function saveEditEdgeEditor(index: number) {
   const e = editEdges.value[index]
-  const trimmedLabel = e.editLabel.trim()
-  if (!trimmedLabel) {
-    e.editError = 'Label is required'
-    return
-  }
-  if (editEdges.value.some((x, i) => i !== index && x.label === trimmedLabel)) {
-    e.editError = 'A type with this label already exists'
+  const validation = validateTypeLabel(editEdges.value, e.editLabel, index)
+  if (!validation.valid) {
+    e.editError = validation.error
     return
   }
   e.editError = ''
-  e.label = trimmedLabel
+  e.label = e.editLabel.trim()
   e.description = e.editDescription
-  e.required_properties = e.editRequired.split(',').map((s) => s.trim()).filter(Boolean)
-  e.optional_properties = e.editOptional.split(',').map((s) => s.trim()).filter(Boolean)
+  e.required_properties = parsePropertyList(e.editRequired)
+  e.optional_properties = parsePropertyList(e.editOptional)
   e.editing = false
 }
 

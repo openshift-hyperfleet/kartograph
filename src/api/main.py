@@ -491,6 +491,8 @@ async def kartograph_lifespan(app: FastAPI):
         async with mcp_http_app_inner.lifespan(app):
             app.state._mcp_initialized = True
             yield
+        # Reset so the next lifespan cycle (e.g., a new test) can re-initialize.
+        app.state._mcp_initialized = False
     else:
         # MCP already initialized in previous lifespan cycle
         yield

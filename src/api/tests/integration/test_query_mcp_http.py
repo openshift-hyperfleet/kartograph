@@ -1,8 +1,9 @@
-"""HTTP-level integration tests for MCP forbidden query response contract.
+"""HTTP-level integration tests for MCP query error response contracts.
 
 Tests the full HTTP stack from the MCP HTTP endpoint through to the Cypher
-execution safeguards, verifying that forbidden query responses include the
-``correlation_id`` field as required by the spec.
+execution safeguards, verifying that:
+  - Forbidden query responses include the ``correlation_id`` field.
+  - Timeout query responses include ``error_type="timeout"`` and ``correlation_id``.
 
 Why this test exists
 --------------------
@@ -13,12 +14,18 @@ The *unit* tests verify each layer in isolation:
   — MCPQueryService preserves correlation_id in the returned QueryError.
 - ``test_mcp_query_tool.py::TestBuildErrorResponseForbiddenErrors`` — _build_error_response
   serialises correlation_id into the response dict.
+- ``test_query_repository.py::test_timeout_raises_query_timeout_error`` — repository
+  raises QueryTimeoutError when PostgreSQL cancels the statement.
+- ``test_application_services.py::TestExecuteCypherQuery::test_categorizes_timeout_error``
+  — MCPQueryService converts QueryTimeoutError → QueryError(error_type="timeout").
+- ``test_mcp_query_tool.py::TestBuildErrorResponseTimeoutErrors`` — _build_error_response
+  serialises correlation_id for timeout errors.
 
 What is MISSING from those unit tests: an end-to-end HTTP test that exercises
 the full MCP JSON-over-HTTP transport layer. A regression in ``mcp.py``'s
 ``_build_error_response`` (e.g., accidentally removing ``correlation_id`` from
-the dict) or a FastMCP serialisation change would be invisible to the existing
-unit tests. This file fills that gap.
+the dict, or dropping the timeout branch) or a FastMCP serialisation change
+would be invisible to the existing unit tests. This file fills that gap.
 
 Spec coverage
 -------------
@@ -26,6 +33,13 @@ specs/query/query-execution.spec.md:
   - Requirement: Read-Only Enforcement
   - Scenario: Keyword blacklist (secondary)
     "AND the error response includes a correlation ID for log lookup"
+
+specs/query/mcp-server.spec.md:
+  - Requirement: Graph Query Tool
+  - Scenario: Query timeout
+    "GIVEN a query that exceeds the timeout
+     WHEN the query is executed
+     THEN it is terminated and returned with error type 'timeout'"
 
 Run with:
     make instance-up
@@ -52,11 +66,32 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from httpx import ASGITransport, AsyncClient
 
+from graph.infrastructure.age_client import AgeGraphClient
 from graph.infrastructure.tenant_graph_handler import AGEGraphProvisioner
 from infrastructure.database.connection import ConnectionFactory
 from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.settings import DatabaseSettings
 from main import app
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# Cypher query that reliably exceeds a 1-second PostgreSQL statement_timeout.
+#
+# MATCH (a:TimeoutNode), (b:TimeoutNode), (c:TimeoutNode) produces a 3-way
+# Cartesian product over TimeoutNode entities (150 nodes = 3,375,000 combos).
+# RETURN count(*) forces the database to evaluate ALL combinations before
+# producing a single aggregated row — short-circuit optimisation via LIMIT
+# cannot apply because the LIMIT on the count result (always 1 row) is
+# unrelated to the Cartesian product evaluation.
+#
+# This query is used by TestMCPTimeoutQueryHTTPResponse after the
+# ``provisioned_tenant_graph_with_timeout_data`` fixture populates the
+# tenant graph with 150 TimeoutNode entities.
+_TIMEOUT_SLOW_QUERY = (
+    "MATCH (a:TimeoutNode), (b:TimeoutNode), (c:TimeoutNode) RETURN count(*)"
+)
 
 pytestmark = [pytest.mark.integration, pytest.mark.keycloak]
 
@@ -302,3 +337,208 @@ class TestMCPForbiddenQueryHTTPResponse:
         # correlation_id must also be present for DELETE-based forbidden errors
         assert "correlation_id" in tool_result
         assert len(str(tool_result["correlation_id"])) > 0
+
+
+# ---------------------------------------------------------------------------
+# Timeout fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def provisioned_tenant_graph_with_timeout_data(
+    async_client: AsyncClient,  # ensures app lifespan ran → default tenant created
+    integration_db_settings: DatabaseSettings,
+    integration_connection_pool: ConnectionPool,
+    default_tenant_id: str,
+) -> str:
+    """Provision the tenant AGE graph with 150 TimeoutNode entities.
+
+    Creates the tenant graph (if absent) and populates it with 150 labeled
+    nodes so that the Cartesian product query::
+
+        MATCH (a:TimeoutNode), (b:TimeoutNode), (c:TimeoutNode) RETURN count(*)
+
+    generates 3,375,000 combinations, reliably exceeding a 1-second
+    PostgreSQL statement_timeout on any hardware.
+
+    The 150 nodes are created via individual ``CREATE`` calls using the raw
+    ``AgeGraphClient`` (no read-only restriction), each committed in its own
+    transaction.  The load is intentionally modest so the fixture completes
+    in well under the test suite's patience threshold.
+
+    Args:
+        async_client: Dependency ensuring the app lifespan has run and the
+            default tenant exists in the DB before graph provisioning.
+        integration_db_settings: DB connection settings.
+        integration_connection_pool: Shared psycopg2 connection pool.
+        default_tenant_id: The default tenant's ULID, used to derive the
+            tenant graph name (``tenant_{id}``).
+
+    Returns:
+        The tenant_id whose graph was provisioned and populated.
+    """
+    factory = ConnectionFactory(
+        integration_db_settings, pool=integration_connection_pool
+    )
+    provisioner = AGEGraphProvisioner(connection_factory=factory)
+    graph_name = f"tenant_{default_tenant_id}"
+    provisioner.ensure_graph_exists(graph_name)
+
+    # Populate the graph with 150 TimeoutNode entities.
+    # Using AgeGraphClient directly (bypasses the read-only QueryGraphRepository).
+    client = AgeGraphClient(
+        settings=integration_db_settings,
+        connection_factory=factory,
+        graph_name=graph_name,
+        auto_create=False,
+    )
+    client.connect()
+    try:
+        for i in range(150):
+            client.execute_cypher(f"CREATE (n:TimeoutNode {{idx: {i}}})")
+    finally:
+        client.disconnect()
+
+    return default_tenant_id
+
+
+# ---------------------------------------------------------------------------
+# Tests — timeout query response
+# ---------------------------------------------------------------------------
+
+
+class TestMCPTimeoutQueryHTTPResponse:
+    """HTTP-level tests for timeout query response contract.
+
+    These tests exercise the full stack:
+      API key auth → MCP protocol parsing → query_graph tool →
+      MCPQueryService → TenantAwareQueryGraphRepository →
+      QueryGraphRepository.execute_cypher → PostgreSQL statement_timeout →
+      QueryTimeoutError → MCPQueryService returns QueryError(error_type='timeout') →
+      _build_error_response serialises correlation_id →
+      MCP HTTP response body
+
+    A regression in ``mcp.py``'s ``_build_error_response`` (e.g., accidentally
+    dropping ``correlation_id`` from the timeout branch) or a FastMCP
+    serialisation change would be invisible to the unit test pyramid. This
+    class fills that gap with a real end-to-end HTTP transport exercise.
+
+    Spec: specs/query/mcp-server.spec.md
+      Requirement: Graph Query Tool
+      Scenario: Query timeout
+
+    Spec: specs/query/query-execution.spec.md
+      Requirement: Timeout Enforcement — Scenario: Query exceeds timeout
+      Requirement: Error Categorization — Scenario: Timeout error
+    """
+
+    @pytest.mark.asyncio
+    async def test_timeout_query_error_type_is_timeout(
+        self,
+        async_client: AsyncClient,
+        api_key_secret: str,
+        provisioned_tenant_graph_with_timeout_data: str,
+    ) -> None:
+        """Timeout query HTTP response MUST return error_type='timeout'.
+
+        Spec: Graph Query Tool — Scenario: Query timeout —
+        "GIVEN a query that exceeds the timeout (default 30 seconds, max 60 seconds)
+         WHEN the query is executed
+         THEN it is terminated and returned with error type 'timeout'"
+
+        Sends a 3-way Cartesian product Cypher query over 150 TimeoutNode
+        entities (3,375,000 combinations) with ``timeout_seconds=1`` via the
+        MCP HTTP transport.  The PostgreSQL ``statement_timeout`` fires before
+        the query completes, causing ``QueryGraphRepository`` to raise
+        ``QueryTimeoutError``, which ``MCPQueryService`` converts to a
+        ``QueryError(error_type="timeout")``.  The MCP tool returns a response
+        dict with ``success=False`` and ``error_type="timeout"``.
+        """
+        async with Client(
+            StreamableHttpTransport(
+                url="http://test/query/mcp",
+                headers={"X-API-Key": api_key_secret},
+                httpx_client_factory=_make_asgi_httpx_factory(app),
+            )
+        ) as mcp_client:
+            result = await mcp_client.call_tool(
+                "query_graph",
+                {
+                    "cypher": _TIMEOUT_SLOW_QUERY,
+                    "timeout_seconds": 1,
+                },
+            )
+
+        # MCP tool call itself must succeed at the protocol level (no MCP error)
+        assert result.is_error is False, (
+            f"Expected a tool result, got an MCP protocol error: {result}"
+        )
+
+        tool_result = result.data
+
+        # 1. success must be False (query did not complete successfully)
+        assert tool_result["success"] is False, (
+            f"Expected success=False for timeout query, got: {tool_result}"
+        )
+
+        # 2. error_type must be "timeout" (not "execution_error" or "forbidden")
+        assert tool_result["error_type"] == "timeout", (
+            f"Expected error_type='timeout', got: {tool_result}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_timeout_query_response_includes_correlation_id(
+        self,
+        async_client: AsyncClient,
+        api_key_secret: str,
+        provisioned_tenant_graph_with_timeout_data: str,
+    ) -> None:
+        """Timeout query HTTP response MUST include a non-empty correlation_id.
+
+        Spec: Timeout Enforcement — Scenario: Query exceeds timeout —
+        "THEN a timeout error is returned with a correlation ID for debugging"
+
+        Spec: Error Categorization — Scenario: Timeout error —
+        "GIVEN a query that exceeds the timeout
+         THEN the error type is 'timeout'"
+
+        The ``correlation_id`` links the error response to the server-side log
+        entry so support staff can retrieve the redacted log context without the
+        raw query text being exposed in the API response.  A regression that
+        drops ``correlation_id`` from ``_build_error_response``'s timeout branch
+        would break this contract.
+        """
+        async with Client(
+            StreamableHttpTransport(
+                url="http://test/query/mcp",
+                headers={"X-API-Key": api_key_secret},
+                httpx_client_factory=_make_asgi_httpx_factory(app),
+            )
+        ) as mcp_client:
+            result = await mcp_client.call_tool(
+                "query_graph",
+                {
+                    "cypher": _TIMEOUT_SLOW_QUERY,
+                    "timeout_seconds": 1,
+                },
+            )
+
+        assert result.is_error is False, (
+            f"Expected a tool result, got an MCP protocol error: {result}"
+        )
+
+        tool_result = result.data
+
+        # correlation_id key must be present in the response
+        assert "correlation_id" in tool_result, (
+            f"Expected 'correlation_id' key in timeout response, "
+            f"got keys: {list(tool_result.keys())}"
+        )
+
+        # correlation_id must be a non-empty string (UUID format)
+        correlation_id = tool_result["correlation_id"]
+        assert correlation_id is not None, "correlation_id must not be None"
+        assert isinstance(correlation_id, str), (
+            f"correlation_id must be a string, got {type(correlation_id)}"
+        )
+        assert len(correlation_id) > 0, "correlation_id must not be empty"

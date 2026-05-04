@@ -3,9 +3,9 @@ id: task-136
 title: 'UI — Ontology design: intent description, type editing, re-extraction warning'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: verify
+phase: implement
 deps: []
-round: 0
+round: 1
 branch: hyperloop/task-136
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/606
 pr_title: 'feat(ui): implement ontology design UI — intent description, type editing,

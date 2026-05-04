@@ -3,11 +3,11 @@ id: task-137
 title: Schema browser cross-navigation — test receiving side for data-sources ontology
   editor deep-link
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-137
 pr: null
 pr_title: 'test(ui): add receiving-side test for schema browser → ontology editor
   cross-navigation'

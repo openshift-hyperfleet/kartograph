@@ -46,7 +46,7 @@ from shared_kernel.outbox.observability import (
     DefaultEventSourceProbe,
     DefaultOutboxWorkerProbe,
 )
-from query.presentation.mcp import mcp_http_app_inner, query_mcp_app
+from query.presentation.mcp import mcp_http_app_proxy, query_mcp_app
 
 # Default work directory for JobPackage ZIP archives
 _JOB_PACKAGE_WORK_DIR = Path("/tmp/kartograph/job_packages")  # noqa: S108
@@ -330,14 +330,7 @@ async def kartograph_lifespan(app: FastAPI):
 
     Engines are created here (within the running event loop) to ensure
     proper async context for database connections.
-
-    State is tracked per-app instance (app.state._mcp_initialized) to maintain
-    test isolation when multiple app instances are created.
     """
-    # Initialize MCP state tracking on this app instance
-    if not hasattr(app.state, "_mcp_initialized"):
-        app.state._mcp_initialized = False
-
     # Startup: initialize database engines
     init_database_engines(app)
 
@@ -486,15 +479,10 @@ async def kartograph_lifespan(app: FastAPI):
         )
         app.state.scheduler_task = scheduler_task
 
-    # MCP lifespan - skip if already initialized (e.g., in tests with multiple lifespans)
-    if not app.state._mcp_initialized:
-        async with mcp_http_app_inner.lifespan(app):
-            app.state._mcp_initialized = True
-            yield
-        # Reset so the next lifespan cycle (e.g., a new test) can re-initialize.
-        app.state._mcp_initialized = False
-    else:
-        # MCP already initialized in previous lifespan cycle
+    # MCP lifespan: refresh proxy so each startup gets a fresh
+    # StreamableHTTPSessionManager (it cannot be restarted after exit).
+    mcp_http_app_proxy.refresh()
+    async with mcp_http_app_proxy._app.lifespan(app):
         yield
 
     # Shutdown: stop scheduler background task

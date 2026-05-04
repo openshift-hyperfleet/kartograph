@@ -33,13 +33,35 @@ settings = get_settings()
 
 mcp = FastMCP(name=settings.app_name)
 
-_mcp_http_app = mcp.http_app(path="/mcp", stateless_http=True)
 
-#: The raw MCP Starlette app, exposed so main.py can invoke its lifespan.
-mcp_http_app_inner = _mcp_http_app
+class _MCPAppProxy:
+    """ASGI proxy whose inner app can be swapped without remounting.
+
+    FastMCP's StreamableHTTPSessionManager cannot be restarted after it
+    exits (it raises RuntimeError on a second .run() call).  This proxy
+    sits between the mounted route and the live FastMCP http_app so that
+    the lifespan can install a fresh http_app instance on each startup
+    without touching FastAPI's router.
+    """
+
+    def __init__(self) -> None:
+        self._app = mcp.http_app(path="/mcp", stateless_http=True)
+
+    def refresh(self) -> None:
+        """Replace the inner app with a freshly created instance."""
+        self._app = mcp.http_app(path="/mcp", stateless_http=True)
+
+    async def __call__(self, scope, receive, send) -> None:  # type: ignore[override]
+        await self._app(scope, receive, send)
+
+
+#: Proxy that holds the current live FastMCP http_app.  main.py's lifespan
+#: calls proxy.refresh() before entering the new app's lifespan context so
+#: every startup gets a fresh StreamableHTTPSessionManager.
+mcp_http_app_proxy = _MCPAppProxy()
 
 query_mcp_app = MCPApiKeyAuthMiddleware(
-    app=_mcp_http_app,
+    app=mcp_http_app_proxy,
     validate_api_key=validate_mcp_api_key,
     validate_bearer_token=validate_mcp_bearer_token,
 )

@@ -131,8 +131,8 @@ class SyncLifecycleHandler:
                 return
             sync_run.status = new_status
 
-        async with self._session.begin():
-            await self._sync_run_repo.save(sync_run)
+        await self._sync_run_repo.save(sync_run)
+        await self._session.commit()
 
     async def _update_data_source_last_sync_at(
         self,
@@ -150,5 +150,4 @@ class SyncLifecycleHandler:
             return
 
         ds.record_sync_completed()
-        async with self._session.begin():
-            await self._ds_repo.save(ds)
+        await self._ds_repo.save(ds)

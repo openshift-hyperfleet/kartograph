@@ -361,8 +361,7 @@ class _SessionedSyncLifecycleHandler:
                 data_source_repository=ds_repo,
             )
             await lifecycle_handler.handle(event_type, payload)
-            # SyncLifecycleHandler manages its own transactions internally;
-            # commit is a no-op if all inner begin() blocks already committed.
+            # SyncLifecycleHandler commits internally; this is a no-op if already committed.
             await session.commit()
 
 

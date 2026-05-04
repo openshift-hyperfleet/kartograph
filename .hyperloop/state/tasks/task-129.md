@@ -2,14 +2,14 @@
 id: task-129
 title: 'UI: Sync Monitoring (shell — requires Ingestion implementation)'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps:
 - task-118
 - task-119
 - task-120
 round: 0
-branch: null
+branch: hyperloop/task-129
 pr: null
 pr_title: 'feat(ui): add sync monitoring UI with status, history, logs, and manual
   trigger'

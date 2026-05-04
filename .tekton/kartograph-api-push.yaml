@@ -648,10 +648,10 @@ spec:
                 SHORT_SHA="${COMMIT_SHA:0:12}"
                 BRANCH="konflux/deploy-tag-api-${SHORT_SHA}"
 
-                git clone --depth 1 --branch main "$(params.GIT_URL)" /tmp/repo
+                git clone --depth 1 --branch main "https://github.com/openshift-online/hp-fleet-gitops" /tmp/repo
                 cd /tmp/repo
 
-                FILE="deploy/apps/kartograph/overlays/stage/kustomization.yaml"
+                FILE="apps/kartograph/overlays/stage/kustomization.yaml"
                 if [ ! -f "$FILE" ]; then
                   echo "Kustomization file not found, skipping"
                   exit 0
@@ -682,8 +682,7 @@ spec:
                   exit 0
                 fi
 
-                # Extract owner/repo from git URL
-                REPO=$(echo "$(params.GIT_URL)" | sed -E 's|https://github.com/||;s|\.git$||')
+                REPO="openshift-online/hp-fleet-gitops"
 
                 # Create PR via GitHub API
                 PR_RESPONSE=$(wget -q -O - --header="Authorization: token ${TOKEN}" \

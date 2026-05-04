@@ -46,6 +46,7 @@ from shared_kernel.outbox.observability import (
     DefaultEventSourceProbe,
     DefaultOutboxWorkerProbe,
 )
+from infrastructure.mcp_dependencies import dispose_mcp_auth_engine
 from query.presentation.mcp import mcp_http_app_proxy, query_mcp_app
 
 # Default work directory for JobPackage ZIP archives

@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.34.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.34.0...v3.34.1) (2026-05-04)
+
+
+### Bug Fixes
+
+* **ci:** point deploy-tag pipelines at hp-fleet-gitops ([#623](https://github.com/openshift-hyperfleet/kartograph/issues/623)) ([145b527](https://github.com/openshift-hyperfleet/kartograph/commit/145b5271a744882b477a41d7c46517c7f9b19b5f))
+
 ## [3.34.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.33.1...v3.34.0) (2026-05-04)
 
 

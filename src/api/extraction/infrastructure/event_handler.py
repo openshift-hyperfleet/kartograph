@@ -86,21 +86,6 @@ class ExtractionEventHandler:
                 knowledge_graph_id=knowledge_graph_id,
                 job_package_id=job_package_id,
             )
-
-            await self._outbox.append(
-                event_type="MutationLogProduced",
-                payload={
-                    "sync_run_id": sync_run_id,
-                    "data_source_id": data_source_id,
-                    "knowledge_graph_id": knowledge_graph_id,
-                    "mutation_log_id": mutation_log_id,
-                    "occurred_at": now.isoformat(),
-                },
-                occurred_at=now,
-                aggregate_type="sync_run",
-                aggregate_id=sync_run_id,
-            )
-
         except Exception as exc:
             await self._outbox.append(
                 event_type="ExtractionFailed",
@@ -114,3 +99,22 @@ class ExtractionEventHandler:
                 aggregate_type="sync_run",
                 aggregate_id=sync_run_id,
             )
+            return
+
+        # Extraction succeeded — append success event outside the try block so
+        # that an outbox write failure here is not mistaken for an extraction
+        # failure.  If MutationLogProduced cannot be written, the exception
+        # propagates to the outbox worker for a safe retry.
+        await self._outbox.append(
+            event_type="MutationLogProduced",
+            payload={
+                "sync_run_id": sync_run_id,
+                "data_source_id": data_source_id,
+                "knowledge_graph_id": knowledge_graph_id,
+                "mutation_log_id": mutation_log_id,
+                "occurred_at": now.isoformat(),
+            },
+            occurred_at=now,
+            aggregate_type="sync_run",
+            aggregate_id=sync_run_id,
+        )

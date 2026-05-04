@@ -421,6 +421,11 @@ class KnowledgeGraphService:
             await self._kg_repo.save(kg)
             await self._session.commit()
         except IntegrityError as e:
+            # SQLAlchemy rolls back the internal transaction automatically on
+            # IntegrityError, but the AsyncSession is left in a failed state
+            # until rollback() is called.  Without this, any subsequent use of
+            # the injected session raises PendingRollbackError.
+            await self._session.rollback()
             raise DuplicateKnowledgeGraphNameError(
                 f"Knowledge graph '{name}' already exists in tenant"
             ) from e

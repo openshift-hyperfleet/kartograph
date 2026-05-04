@@ -80,14 +80,28 @@ while IFS= read -r sha; do
 
   COMMIT_COUNT=$((COMMIT_COUNT + 1))
 
-  task_ref=$(git log -1 --format='%B' "$sha" 2>/dev/null \
-    | grep -iE '^Task-Ref:[[:space:]]*' \
-    | head -1 \
-    || true)
+  # Use git's strict trailer parser (%(trailers:key=Task-Ref,valueonly)) rather
+  # than a plain text grep. This ensures the Task-Ref line sits in a contiguous
+  # trailer block — a blank line between trailers causes git to silently discard
+  # all trailers above it, making %(trailers:...) return empty even when the
+  # text "Task-Ref: task-NNN" appears in the commit body (root cause of task-133
+  # FAIL: blank line between Task-Ref and Co-Authored-By broke the trailer block,
+  # grep found the string but git's parser did not recognise it as a trailer).
+  task_ref=$(git log -1 --format='%(trailers:key=Task-Ref,valueonly)' "$sha" 2>/dev/null \
+    | tr -d '[:space:]' || true)
 
   if [[ -z "$task_ref" ]]; then
     short_msg=$(git log -1 --format='%h %s' "$sha" 2>/dev/null || true)
-    MISSING_TRAILER="${MISSING_TRAILER}  MISSING: ${short_msg}\n"
+    # Check whether the raw body contains Task-Ref text at all, to give a
+    # more actionable error message when the trailer is present but malformed.
+    raw_ref=$(git log -1 --format='%B' "$sha" 2>/dev/null \
+      | grep -iE '^Task-Ref:[[:space:]]*' || true)
+    if [[ -n "$raw_ref" ]]; then
+      MISSING_TRAILER="${MISSING_TRAILER}  BROKEN TRAILER BLOCK: ${short_msg}\n"
+      MISSING_TRAILER="${MISSING_TRAILER}    (Task-Ref: line found but not parsed by git — blank line before Co-Authored-By breaks the block)\n"
+    else
+      MISSING_TRAILER="${MISSING_TRAILER}  MISSING: ${short_msg}\n"
+    fi
   fi
 done < <(git rev-list --first-parent "${MERGE_BASE}..HEAD" 2>/dev/null || true)
 
@@ -104,12 +118,27 @@ echo "FAIL: The following commits are missing a Task-Ref trailer:"
 echo ""
 printf "%b" "$MISSING_TRAILER"
 echo ""
-echo "Every commit on a task branch must include a trailer line in the commit"
-echo "message body (separated from the subject by a blank line):"
+echo "Every commit on a task branch must include a Task-Ref trailer in a"
+echo "contiguous trailer block at the very end of the commit message."
 echo ""
+echo "CORRECT — single contiguous block (no blank lines between trailers):"
+echo ""
+echo "  feat: brief subject"
+echo ""
+echo "  Optional body."
+echo ""
+echo "  Spec-Ref: specs/..."
 echo "  Task-Ref: task-NNN"
+echo "  Co-Authored-By: Claude <noreply@anthropic.com>"
 echo ""
-echo "── HOW TO ADD MISSING TRAILERS ────────────────────────────────────────────"
+echo "WRONG — blank line inside trailer block (git discards Task-Ref):"
+echo ""
+echo "  Spec-Ref: specs/..."
+echo "  Task-Ref: task-NNN"
+echo "                        ← blank line here breaks the block"
+echo "  Co-Authored-By: Claude <noreply@anthropic.com>"
+echo ""
+echo "── HOW TO FIX ─────────────────────────────────────────────────────────────"
 echo ""
 echo "For each commit listed above, amend or rebase to add the trailer:"
 echo ""

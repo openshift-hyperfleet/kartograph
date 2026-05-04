@@ -3,10 +3,10 @@ id: task-150
 title: UI API Key Management and MCP Integration page
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: merge
+phase: implement
 deps:
 - task-140
-round: 3
+round: 4
 branch: hyperloop/task-150
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/618
 pr_title: 'feat(ui): add API key management and MCP integration configuration page'

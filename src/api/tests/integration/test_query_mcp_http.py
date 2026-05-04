@@ -79,18 +79,16 @@ from main import app
 
 # Cypher query that reliably exceeds a 1-second PostgreSQL statement_timeout.
 #
-# MATCH (a:TimeoutNode), (b:TimeoutNode), (c:TimeoutNode) produces a 3-way
-# Cartesian product over TimeoutNode entities (150 nodes = 3,375,000 combos).
-# RETURN count(*) forces the database to evaluate ALL combinations before
-# producing a single aggregated row — short-circuit optimisation via LIMIT
-# cannot apply because the LIMIT on the count result (always 1 row) is
-# unrelated to the Cartesian product evaluation.
+# A 4-way Cartesian product over TimeoutNode entities (150 nodes = 150^4 =
+# 506,250,000 combos).  CI hardware evaluates ~18M combinations/second, so
+# this produces ~28 seconds of work — well beyond the 1-second timeout even
+# on 10x faster hardware.  A 3-way product (3.375M combos) completes in
+# ~188ms on CI runners and does NOT reliably trigger the timeout.
 #
-# This query is used by TestMCPTimeoutQueryHTTPResponse after the
-# ``provisioned_tenant_graph_with_timeout_data`` fixture populates the
-# tenant graph with 150 TimeoutNode entities.
+# RETURN count(*) forces full evaluation — no short-circuit via LIMIT applies.
 _TIMEOUT_SLOW_QUERY = (
-    "MATCH (a:TimeoutNode), (b:TimeoutNode), (c:TimeoutNode) RETURN count(*)"
+    "MATCH (a:TimeoutNode), (b:TimeoutNode), (c:TimeoutNode), (d:TimeoutNode)"
+    " RETURN count(*)"
 )
 
 pytestmark = [pytest.mark.integration, pytest.mark.keycloak]
@@ -357,12 +355,14 @@ async def provisioned_tenant_graph_with_timeout_data(
     """Provision the tenant AGE graph with 150 TimeoutNode entities.
 
     Creates the tenant graph (if absent) and populates it with 150 labeled
-    nodes so that the Cartesian product query::
+    nodes so that the 4-way Cartesian product query::
 
-        MATCH (a:TimeoutNode), (b:TimeoutNode), (c:TimeoutNode) RETURN count(*)
+        MATCH (a:TimeoutNode), (b:TimeoutNode), (c:TimeoutNode), (d:TimeoutNode)
+        RETURN count(*)
 
-    generates 3,375,000 combinations, reliably exceeding a 1-second
-    PostgreSQL statement_timeout on any hardware.
+    generates 506,250,000 (150^4) combinations, reliably exceeding a 1-second
+    PostgreSQL statement_timeout on any hardware. A 3-way product (150^3 =
+    3.375M combos) completes in ~188ms on CI runners and is not reliable.
 
     The 150 nodes are created via individual ``CREATE`` calls using the raw
     ``AgeGraphClient`` (no read-only restriction), each committed in its own

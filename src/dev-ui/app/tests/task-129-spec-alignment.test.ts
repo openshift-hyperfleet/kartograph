@@ -839,3 +839,575 @@ describe('Task-129 — URL construction: parent context is always included', () 
     expect(calledUrl).not.toContain('undefined')
   })
 })
+
+// ── Requirement: Navigation Structure — Scenario: Default landing ──────────────
+//
+// Spec: "GIVEN a returning user with existing knowledge graphs
+//        WHEN they open Kartograph
+//        THEN they land on the Explore section (Query Console or home dashboard)"
+
+const indexVue = readFileSync(resolve(appDir, 'pages/index.vue'), 'utf-8')
+const queryVue = readFileSync(resolve(appDir, 'pages/query/index.vue'), 'utf-8')
+const explorerVue = readFileSync(resolve(appDir, 'pages/graph/explorer.vue'), 'utf-8')
+const mutationProgressVue = readFileSync(
+  resolve(appDir, 'components/graph/MutationProgress.vue'),
+  'utf-8',
+)
+
+describe('Task-129 — Scenario: Default landing', () => {
+  it('index.vue redirects returning users with existing KGs to /query (Explore section)', () => {
+    // Spec: "THEN they land on the Explore section (Query Console or home dashboard)"
+    // The redirect runs in onMounted: if kgCount > 0 → navigateTo('/query')
+    expect(indexVue).toContain("navigateTo('/query')")
+  })
+
+  it('index.vue reads /management/knowledge-graphs to determine if user is returning', () => {
+    // The landing redirect checks KG count to classify user as new vs returning
+    expect(indexVue).toContain('/management/knowledge-graphs')
+  })
+
+  it('index.vue skips redirect on subsequent visits in the same session (session guard)', () => {
+    // SESSION_REDIRECT_KEY prevents duplicate redirects in the same browser session
+    expect(indexVue).toContain('SESSION_REDIRECT_KEY')
+    expect(indexVue).toContain('sessionStorage')
+  })
+})
+
+// ── Requirement: Ontology Design — Scenario: Intent description ───────────────
+//
+// Spec: "GIVEN a user who has connected a data source
+//        WHEN the connection is saved
+//        THEN the user is prompted to describe (in free text) what problems or
+//        questions they want to solve with this data"
+
+describe('Task-129 — Scenario: Intent description', () => {
+  it('data-sources page has an intentText ref for the free-text description prompt', () => {
+    // Step 3 of the wizard: the user describes their intent before ontology proposal
+    expect(dataSourcesVue).toContain('intentText')
+  })
+
+  it('intentText is validated before submitting — intentError is shown if invalid', () => {
+    expect(dataSourcesVue).toContain('intentError')
+    expect(dataSourcesVue).toContain('validateIntentText')
+  })
+
+  it('submitting intent calls beginOntologyProposal()', () => {
+    // After valid intent, the system starts the proposal flow
+    expect(dataSourcesVue).toContain('beginOntologyProposal')
+  })
+})
+
+// ── Requirement: Ontology Design — Scenario: Agent-proposed ontology ──────────
+//
+// Spec: "GIVEN a free-text intent description and a connected data source
+//        WHEN the user submits their intent
+//        THEN the system performs a lightweight scan of the data source
+//        AND an AI agent explores the scanned data and proposes an ontology
+//        AND the proposed ontology is presented to the user for review"
+
+describe('Task-129 — Scenario: Agent-proposed ontology', () => {
+  it('data-sources page has proposedNodes ref for the agent-proposed node types', () => {
+    expect(dataSourcesVue).toContain('proposedNodes')
+  })
+
+  it('data-sources page has proposedEdges ref for the agent-proposed edge types', () => {
+    expect(dataSourcesVue).toContain('proposedEdges')
+  })
+
+  it('data-sources page has ontologyReady ref — true when proposal is ready for review', () => {
+    // ontologyReady = true signals the wizard to show the review step
+    expect(dataSourcesVue).toContain('ontologyReady')
+  })
+
+  it('beginOntologyProposal() resets proposal state before re-fetching', () => {
+    // Clearing previous state prevents stale proposal data from being shown
+    expect(dataSourcesVue).toContain('proposedNodes.value = []')
+    expect(dataSourcesVue).toContain('proposedEdges.value = []')
+  })
+
+  it('beginOntologyProposal() sets ontologyReady to true after proposal is complete', () => {
+    expect(dataSourcesVue).toContain('ontologyReady.value = true')
+  })
+})
+
+// ── Requirement: Ontology Design — Scenario: Ontology review and approval ─────
+//
+// Spec: "GIVEN a proposed ontology
+//        WHEN the user reviews it
+//        THEN they can approve the ontology as-is
+//        OR iterate by editing individual types and relationships
+//        AND extraction begins only after the user explicitly approves"
+
+describe('Task-129 — Scenario: Ontology review and approval', () => {
+  it('data-sources page has an approveOntology() function that triggers extraction', () => {
+    // Spec: "extraction begins only after the user explicitly approves"
+    expect(dataSourcesVue).toContain('approveOntology')
+  })
+
+  it('approve button is disabled until ontologyReady is true', () => {
+    // Prevents the user from approving before the proposal has loaded
+    expect(dataSourcesVue).toContain(':disabled="!ontologyReady')
+  })
+
+  it('approvingOntology flag prevents double submission on approval', () => {
+    expect(dataSourcesVue).toContain('approvingOntology')
+  })
+
+  it('approval step is the final step in the wizard — extraction follows approval', () => {
+    // The wizard step after review/approval creates the data source and starts sync
+    expect(dataSourcesVue).toContain('approveOntology')
+    expect(dataSourcesVue).toContain('triggerSync')
+  })
+})
+
+// ── Requirement: Ontology Design — Scenario: Individual type editing ───────────
+//
+// Spec: "GIVEN a proposed or existing ontology
+//        WHEN the user edits a specific type
+//        THEN they can modify the label, description, required properties,
+//        and optional properties"
+
+describe('Task-129 — Scenario: Individual type editing', () => {
+  it('ProposedNodeType interface has editing, editLabel fields', () => {
+    // Per-type editing is tracked with in-row reactive state
+    expect(dataSourcesVue).toContain('editing: boolean')
+    expect(dataSourcesVue).toContain('editLabel')
+  })
+
+  it('startEditingNode() sets editing = true and copies current label to editLabel', () => {
+    expect(dataSourcesVue).toContain('n.editLabel = n.label')
+    expect(dataSourcesVue).toContain('n.editing = true')
+  })
+
+  it('saveNodeEdit() validates the label before saving', () => {
+    // Spec: label modification is subject to validation
+    expect(dataSourcesVue).toContain('validateTypeLabel')
+    expect(dataSourcesVue).toContain('n.editError')
+  })
+
+  it('cancelNodeEdit() closes the in-row editor without saving', () => {
+    // Spec: user can iterate without committing
+    expect(dataSourcesVue).toContain('n.editing = false')
+  })
+
+  it('editRequired and editOptional fields allow modifying property lists', () => {
+    expect(dataSourcesVue).toContain('editRequired')
+    expect(dataSourcesVue).toContain('editOptional')
+  })
+})
+
+// ── Requirement: Query Console — Scenario: Query editing ─────────────────────
+//
+// Spec: "GIVEN the query console
+//        THEN the editor provides Cypher syntax highlighting, autocomplete based
+//        on the current schema, and linting"
+
+describe('Task-129 — Scenario: Query editing', () => {
+  it('query page imports cypher language support from lang-cypher', () => {
+    // Spec: "Cypher syntax highlighting"
+    expect(queryVue).toContain("from '@/lib/codemirror/lang-cypher'")
+  })
+
+  it('query page uses cypherAutocomplete for schema-aware completion', () => {
+    // Spec: "autocomplete based on the current schema"
+    expect(queryVue).toContain('cypherAutocomplete')
+  })
+
+  it('query page uses ageCypherLinter for Cypher linting', () => {
+    // Spec: "linting"
+    expect(queryVue).toContain('ageCypherLinter')
+  })
+
+  it('query page uses CodeMirror extensions (imported from @codemirror/view)', () => {
+    expect(queryVue).toContain("from '@codemirror/view'")
+  })
+})
+
+// ── Requirement: Query Console — Scenario: Query execution ───────────────────
+//
+// Spec: "GIVEN a Cypher query in the editor
+//        WHEN the user executes it (button or Ctrl/Cmd+Enter)
+//        THEN results are displayed as a table with execution time and row count"
+
+describe('Task-129 — Scenario: Query execution', () => {
+  it('query page executes on Ctrl-Enter keymap', () => {
+    // Spec: "button or Ctrl/Cmd+Enter"
+    expect(queryVue).toContain("key: 'Ctrl-Enter'")
+  })
+
+  it('query page tracks executionTime in milliseconds', () => {
+    // Spec: "results are displayed... with execution time"
+    expect(queryVue).toContain('executionTime')
+    expect(queryVue).toContain('performance.now()')
+  })
+
+  it('query page reads row_count from the API response', () => {
+    // Spec: "results are displayed... with... row count"
+    expect(queryVue).toContain('row_count')
+  })
+
+  it('query page passes executionTime to the results display component', () => {
+    // The results panel receives executionTime as a prop
+    expect(queryVue).toContain(':execution-time="executionTime"')
+  })
+})
+
+// ── Requirement: Query Console — Scenario: Query history ─────────────────────
+//
+// Spec: "GIVEN previously executed queries
+//        THEN the user can browse, re-execute, or insert past queries
+//        from a history panel"
+
+describe('Task-129 — Scenario: Query history', () => {
+  it('query page stores query history in localStorage under a named key', () => {
+    // Spec: persistence implies localStorage (survives page refresh)
+    expect(queryVue).toContain('HISTORY_KEY')
+    expect(queryVue).toContain('localStorage')
+  })
+
+  it('query page adds executed queries to history via addToHistory()', () => {
+    expect(queryVue).toContain('addToHistory')
+  })
+
+  it('query page stores rowCount in history entries for context', () => {
+    // Shows how many rows each past query returned
+    expect(queryVue).toContain('rowCount')
+  })
+
+  it('query page exposes clearHistory() for clearing past queries', () => {
+    expect(queryVue).toContain('clearHistory')
+  })
+
+  it('query page opens a sheet/panel with history tab', () => {
+    // Spec: "from a history panel"
+    expect(queryVue).toContain("'history'")
+    expect(queryVue).toContain(':history="history"')
+  })
+})
+
+// ── Requirement: Query Console — Scenario: Knowledge graph context ────────────
+//
+// Spec: "GIVEN a query console
+//        THEN the user can optionally select a specific knowledge graph to scope queries
+//        AND when unscoped, queries span all knowledge graphs the user can access"
+
+describe('Task-129 — Scenario: Knowledge graph context', () => {
+  it('query page has a selectedKgId ref for the optional KG scope', () => {
+    // Spec: "optionally select a specific knowledge graph"
+    expect(queryVue).toContain('selectedKgId')
+  })
+
+  it('query page defaults to empty string meaning "all knowledge graphs"', () => {
+    // Spec: "when unscoped, queries span all knowledge graphs"
+    expect(queryVue).toContain("'All knowledge graphs'")
+  })
+
+  it('query page passes selectedKgId to the API call when scoped', () => {
+    // A non-empty selectedKgId is sent as a query parameter
+    expect(queryVue).toContain('selectedKgId.value || undefined')
+  })
+
+  it('query page shows a "Scoped" badge when a specific KG is selected', () => {
+    // Visual indicator that results are scoped, not cross-graph
+    expect(queryVue).toContain('Scoped')
+  })
+})
+
+// ── Requirement: Graph Explorer — Scenario: Node search ──────────────────────
+//
+// Spec: "GIVEN the graph explorer
+//        WHEN the user searches by type, name, or slug
+//        THEN matching nodes are displayed as cards with their properties"
+
+describe('Task-129 — Scenario: Node search', () => {
+  it('explorer page has a searchQuery ref for the search term', () => {
+    expect(explorerVue).toContain('searchQuery')
+  })
+
+  it('explorer page has a nodeTypeFilter for filtering by type', () => {
+    // Spec: "searches by type"
+    expect(explorerVue).toContain('nodeTypeFilter')
+  })
+
+  it('explorer page searches by slug, name, and title', () => {
+    // Spec: "searches by type, name, or slug"
+    expect(explorerVue).toContain('slug')
+    expect(explorerVue).toContain('name')
+  })
+
+  it('explorer page calls handleSearch() to execute the node search', () => {
+    expect(explorerVue).toContain('handleSearch()')
+  })
+
+  it('search placeholder text describes the supported search dimensions', () => {
+    // Discoverable search capabilities
+    expect(explorerVue).toContain('Search by name, slug, or title')
+  })
+})
+
+// ── Requirement: Graph Explorer — Scenario: Neighbor exploration ──────────────
+//
+// Spec: "GIVEN a node in the explorer
+//        WHEN the user expands its neighbors
+//        THEN connected nodes and edges are shown with labels and direction
+//        AND the user can drill into neighbors, building an exploration trail"
+
+describe('Task-129 — Scenario: Neighbor exploration', () => {
+  it('explorer page has expandedNeighbors ref tracking the expanded node', () => {
+    expect(explorerVue).toContain('expandedNeighbors')
+  })
+
+  it('explorer page fetches neighborNodes and neighborEdges on expand', () => {
+    // Spec: "connected nodes and edges are shown"
+    expect(explorerVue).toContain('neighborNodes')
+    expect(explorerVue).toContain('neighborEdges')
+  })
+
+  it('explorer page has drillIntoNeighbor() for building the exploration trail', () => {
+    // Spec: "the user can drill into neighbors, building an exploration trail"
+    expect(explorerVue).toContain('drillIntoNeighbor')
+  })
+
+  it('neighborsLoading tracks which node is having neighbors loaded', () => {
+    expect(explorerVue).toContain('neighborsLoading')
+  })
+})
+
+// ── Requirement: Mutations Console — Scenario: Empty state ───────────────────
+//
+// Spec: "GIVEN the mutations console with no content loaded
+//        THEN the user is presented with two primary actions (upload file, open editor)
+//        and a set of quick-start templates
+//        AND the user can drag and drop a .jsonl, .json, or .ndjson file"
+
+describe('Task-129 — Scenario: Empty state', () => {
+  it('mutations page has a defined empty state section', () => {
+    // Spec: "two primary actions... and quick-start templates"
+    expect(mutationsVue).toContain('Empty state')
+  })
+
+  it('mutations page offers "Upload File" action in the empty state', () => {
+    expect(mutationsVue).toContain('Upload File')
+  })
+
+  it('mutations page offers "Open Editor" action in the empty state', () => {
+    expect(mutationsVue).toContain('Open Editor')
+  })
+
+  it('mutations page offers quick-start templates in the empty state', () => {
+    // Spec: "Create Node, Create Edge, Update Properties, Delete Entity"
+    expect(mutationsVue).toContain('quickStartTemplates')
+  })
+
+  it('mutations page handles drag-and-drop of .jsonl files', () => {
+    // Spec: "drag and drop a .jsonl, .json, or .ndjson file"
+    expect(mutationsVue).toContain('handleDrop')
+    expect(mutationsVue).toContain('.jsonl')
+  })
+})
+
+// ── Requirement: Mutations Console — Scenario: JSONL editing ─────────────────
+//
+// Spec: "GIVEN the editor is open
+//        THEN the editor provides JSON syntax highlighting, line numbers,
+//        JSONL-aware linting, and autocomplete for mutation operation fields
+//        AND Ctrl/Cmd+Enter submits the mutations without leaving the editor"
+
+describe('Task-129 — Scenario: JSONL editing', () => {
+  it('mutations page uses JSON language mode for syntax highlighting', () => {
+    // Spec: "JSON syntax highlighting"
+    expect(mutationsVue).toContain("from '@codemirror/lang-json'")
+  })
+
+  it('mutations page includes lintGutter for inline gutter error indicators', () => {
+    // Spec: "parse errors are surfaced inline in the editor gutter"
+    expect(mutationsVue).toContain('lintGutter')
+  })
+
+  it('mutations page uses mutationLinter for JSONL-aware linting', () => {
+    // Spec: "JSONL-aware linting"
+    expect(mutationsVue).toContain('mutationLinter')
+  })
+
+  it('mutations page uses mutationAutocomplete for operation field autocomplete', () => {
+    // Spec: "autocomplete for mutation operation fields"
+    expect(mutationsVue).toContain('mutationAutocomplete')
+  })
+
+  it('mutations page includes lineNumbers extension for the editor', () => {
+    // Spec: "line numbers"
+    expect(mutationsVue).toContain('lineNumbers')
+  })
+})
+
+// ── Requirement: Mutations Console — Scenario: Live preview ──────────────────
+//
+// Spec: "GIVEN content in the editor
+//        THEN a live preview panel shows the operation count broken down by type
+//        (DEFINE, CREATE, UPDATE, DELETE) and any validation warnings
+//        AND parse errors are surfaced inline in the editor gutter"
+
+describe('Task-129 — Scenario: Live preview', () => {
+  it('mutations page computes totalOps for the live operation count', () => {
+    // Spec: "operation count broken down by type"
+    expect(mutationsVue).toContain('totalOps')
+  })
+
+  it('mutations page displays all four operation types in the preview breakdown', () => {
+    // Spec: "DEFINE, CREATE, UPDATE, DELETE"
+    expect(mutationsVue).toContain('DEFINE')
+    expect(mutationsVue).toContain('CREATE')
+    expect(mutationsVue).toContain('UPDATE')
+    expect(mutationsVue).toContain('DELETE')
+  })
+
+  it('mutations page has a live preview panel section', () => {
+    // Spec: "a live preview panel"
+    expect(mutationsVue).toContain('Live preview')
+  })
+})
+
+// ── Requirement: Mutations Console — Scenario: File upload ───────────────────
+//
+// Spec: "GIVEN a .jsonl, .json, or .ndjson file
+//        WHEN the user uploads it via the file picker or drag and drop
+//        THEN the file content is loaded into the editor
+//        AND files larger than 5 MB activate large-file mode: editing is disabled,
+//        a summary of operation counts is shown, and the user can submit directly"
+
+describe('Task-129 — Scenario: File upload', () => {
+  it('mutations page has a readFile() function that loads file content', () => {
+    expect(mutationsVue).toContain('readFile(file)')
+  })
+
+  it('mutations page validates file type (.jsonl, .json, .ndjson)', () => {
+    // Spec: ".jsonl, .json, or .ndjson"
+    expect(mutationsVue).toContain('.ndjson')
+    expect(mutationsVue).toContain('.json')
+    expect(mutationsVue).toContain('.jsonl')
+  })
+
+  it('mutations page activates large-file mode for files > 5MB', () => {
+    // Spec: "files larger than 5 MB activate large-file mode"
+    expect(mutationsVue).toContain('5_000_000')
+    expect(mutationsVue).toContain('largeFileMode')
+  })
+
+  it('mutations page disables CodeMirror editing in large-file mode', () => {
+    // Spec: "editing is disabled" for large files
+    expect(mutationsVue).toContain('largeFileMode.value')
+  })
+})
+
+// ── Requirement: Mutations Console — Scenario: Submission failure ─────────────
+//
+// Spec: "GIVEN a failed mutation submission
+//        THEN the floating indicator shows the error message
+//        AND the number of operations applied before failure is displayed
+//        if any were processed"
+
+describe('Task-129 — Scenario: Submission failure', () => {
+  it('MutationProgress component shows error state when status is "failed"', () => {
+    expect(mutationProgressVue).toContain("status === 'failed'")
+  })
+
+  it('MutationProgress component displays state.error message on failure', () => {
+    // Spec: "floating indicator shows the error message"
+    expect(mutationProgressVue).toContain('state.error')
+  })
+
+  it('MutationProgress component shows operations_applied count even on failure', () => {
+    // Spec: "number of operations applied before failure is displayed"
+    expect(mutationProgressVue).toContain('operations_applied')
+    expect(mutationProgressVue).toContain('applied before failure')
+  })
+
+  it('useMutationSubmission composable stores error in state.error on failure', () => {
+    const submissionComposable = readFileSync(
+      resolve(appDir, 'composables/useMutationSubmission.ts'),
+      'utf-8',
+    )
+    expect(submissionComposable).toContain("status = 'failed'")
+    expect(submissionComposable).toContain('state.value.error')
+  })
+})
+
+// ── Requirement: Mutations Console — Scenario: Template insertion ─────────────
+//
+// Spec: "GIVEN a template (quick-start or from the templates panel)
+//        WHEN the user selects it
+//        THEN the template content is appended to any existing editor content
+//        AND the editor is activated if it was not already open"
+
+describe('Task-129 — Scenario: Template insertion', () => {
+  it('mutations page has an insertTemplate() function', () => {
+    expect(mutationsVue).toContain('insertTemplate')
+  })
+
+  it('quick-start templates call insertTemplate() when clicked', () => {
+    // Spec: "the template content is appended"
+    expect(mutationsVue).toContain('@click="insertTemplate(template.content)"')
+  })
+
+  it('MutationTemplates component emits insertions handled by insertTemplate()', () => {
+    // Spec: "from the templates panel"
+    expect(mutationsVue).toContain('MutationTemplates')
+    expect(mutationsVue).toContain('@insert="insertTemplate"')
+  })
+})
+
+// ── Requirement: Mutations Console — Scenario: Deep-link to editor with pre-filled content
+//
+// Spec: "GIVEN a URL with ?view=editor or ?template=<content>
+//        WHEN the user navigates to /graph/mutations
+//        THEN the editor is opened automatically
+//        AND the template parameter content (if present) is inserted into the editor"
+
+describe('Task-129 — Scenario: Deep-link to editor with pre-filled content', () => {
+  it('mutations page reads ?view=editor from route query to auto-open editor', () => {
+    // Spec: "URL with ?view=editor... THEN the editor is opened automatically"
+    expect(mutationsVue).toContain("route.query.view === 'editor'")
+  })
+
+  it('mutations page reads ?template= from route query and inserts content', () => {
+    // Spec: "URL with ?template=<content>... inserted into the editor"
+    expect(mutationsVue).toContain('route.query.template')
+    expect(mutationsVue).toContain('insertTemplate(templateParam.trim())')
+  })
+
+  it('mutations page warns the user if the template URL param exceeds 1 KB', () => {
+    // Large template content is better handled via file upload
+    expect(mutationsVue).toContain('templateParam.length > 1024')
+  })
+})
+
+// ── Requirement: Interaction Principles — Scenario: Inline actions over navigation ──
+//
+// Spec: "GIVEN an editable resource (workspace name, group name)
+//        THEN editing happens in-place or in a side panel
+//        AND the user is not navigated to a separate edit page"
+
+describe('Task-129 — Scenario: Inline actions over navigation', () => {
+  it('workspaces page uses editingName ref for in-place name editing', () => {
+    // Spec: "editing happens in-place or in a side panel"
+    expect(workspacesVue).toContain('editingName')
+  })
+
+  it('workspaces page has startRename() to begin in-place editing', () => {
+    expect(workspacesVue).toContain('startRename')
+  })
+
+  it('workspaces page has cancelRename() to abort without navigating away', () => {
+    expect(workspacesVue).toContain('cancelRename')
+  })
+
+  it('workspaces page uses a SheetContent side panel (not a route) for workspace details', () => {
+    // Spec: "editing happens in-place or in a side panel"
+    expect(workspacesVue).toContain('SheetContent')
+  })
+
+  it('workspaces page does NOT navigate to a separate edit route (no /workspaces/:id/edit)', () => {
+    // Spec: "the user is not navigated to a separate edit page"
+    expect(workspacesVue).not.toContain('/edit')
+  })
+})

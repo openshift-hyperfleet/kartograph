@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.domain.aggregates import KnowledgeGraph
-from management.domain.value_objects import KnowledgeGraphId
+from management.domain.value_objects import KnowledgeGraphId, OntologyConfig
 from management.infrastructure.models import KnowledgeGraphModel
 from management.infrastructure.observability import (
     DefaultKnowledgeGraphRepositoryProbe,
@@ -159,8 +159,50 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
         self._probe.knowledge_graph_deleted(knowledge_graph.id.value)
         return True
 
+    async def save_ontology(self, kg_id: str, config: OntologyConfig) -> None:
+        """Update only the ontology JSONB column for the given KG.
+
+        Performs a targeted UPDATE of the ``ontology`` column without
+        touching outbox events or other aggregate fields.
+
+        Args:
+            kg_id: ULID string of the target KnowledgeGraph
+            config: The OntologyConfig to persist
+        """
+        from sqlalchemy import update
+
+        stmt = (
+            update(KnowledgeGraphModel)
+            .where(KnowledgeGraphModel.id == kg_id)
+            .values(ontology=config.to_dict())
+        )
+        await self._session.execute(stmt)
+        await self._session.flush()
+
+    async def get_ontology(self, kg_id: str) -> OntologyConfig | None:
+        """Read the ontology JSONB column for the given KG.
+
+        Args:
+            kg_id: ULID string of the target KnowledgeGraph
+
+        Returns:
+            Deserialized OntologyConfig, or None if column is NULL or KG not found
+        """
+        stmt = select(KnowledgeGraphModel).where(KnowledgeGraphModel.id == kg_id)
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+
+        if model is None or model.ontology is None:
+            return None
+
+        return OntologyConfig.from_dict(model.ontology)
+
     def _to_domain(self, model: KnowledgeGraphModel) -> KnowledgeGraph:
         """Reconstitute aggregate from database state without generating events."""
+        ontology: OntologyConfig | None = None
+        if model.ontology is not None:
+            ontology = OntologyConfig.from_dict(model.ontology)
+
         return KnowledgeGraph(
             id=KnowledgeGraphId(value=model.id),
             tenant_id=model.tenant_id,
@@ -169,4 +211,5 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
             description=model.description,
             created_at=model.created_at,
             updated_at=model.updated_at,
+            ontology=ontology,
         )

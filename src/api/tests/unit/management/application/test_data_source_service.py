@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any, Callable
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

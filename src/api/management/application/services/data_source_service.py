@@ -180,11 +180,7 @@ class DataSourceService:
             await self._secret_store.store(
                 path=cred_path,
                 tenant_id=self._scope_to_tenant,
-                name=name,
-                adapter_type=adapter_type,
-                connection_config=connection_config,
-                ontology=ontology,
-                created_by=user_id,
+                credentials=raw_credentials,
             )
             ds.credentials_path = cred_path
 
@@ -451,9 +447,9 @@ class DataSourceService:
         if ds.tenant_id != self._scope_to_tenant:
             raise ValueError(f"Data source {ds_id} not found")
 
-        async with self._session.begin():
-            ds.update_ontology(ontology=ontology, updated_by=user_id)
-            await self._ds_repo.save(ds)
+        ds.update_ontology(ontology=ontology, updated_by=user_id)
+        await self._ds_repo.save(ds)
+        await self._session.commit()
 
         self._probe.data_source_updated(ds_id=ds_id, name=ds.name)
 
@@ -569,11 +565,12 @@ class DataSourceService:
         )
         await self._sync_run_repo.save(sync_run)
 
-            # Record SyncStarted event on the data source aggregate.
-            # This event carries the sync_run_id so lifecycle handlers
-            # can update the correct sync run record.
-            ds.request_sync(sync_run_id=sync_run.id, requested_by=user_id)
-            await self._ds_repo.save(ds)
+        # Record SyncStarted event on the data source aggregate.
+        # This event carries the sync_run_id so lifecycle handlers
+        # can update the correct sync run record.
+        ds.request_sync(sync_run_id=sync_run.id, requested_by=user_id)
+        await self._ds_repo.save(ds)
+        await self._session.commit()
 
         self._probe.sync_requested(ds_id=ds_id)
 

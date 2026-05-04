@@ -62,6 +62,7 @@ CHECKS=(
   check-process-overlays-intact.sh
   check-process-overlay-content-intact.sh
   check-new-checks-pass-on-head.sh
+  check-commit-msg-hook-has-guard.sh
   check-branch-has-commits.sh
   check-implementation-commits-exist.sh
   check-task-owns-branch-commits.sh

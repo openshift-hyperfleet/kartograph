@@ -2,8 +2,8 @@
 id: task-144
 title: UI Mutations Console — JSONL editor, live preview, templates, deep-link
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: in_progress
-phase: merge
+status: complete
+phase: null
 deps:
 - task-140
 round: 0

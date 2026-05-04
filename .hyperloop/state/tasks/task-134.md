@@ -3,9 +3,9 @@ id: task-134
 title: MCP auth service unavailable → 503 — unit and integration tests
 spec_ref: specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e
 status: in_progress
-phase: verify
+phase: implement
 deps: []
-round: 3
+round: 4
 branch: hyperloop/task-134
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/603
 pr_title: 'test(query): add tests for MCP 503 response when auth backend is unavailable'

@@ -94,7 +94,7 @@ class TestGetTenant:
 
     @pytest.mark.asyncio
     async def test_gets_tenant_successfully(
-        self, async_client, clean_iam_data, tenant_auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers, process_outbox
     ):
         """Should retrieve tenant by ID."""
         # Create tenant
@@ -104,6 +104,9 @@ class TestGetTenant:
             headers=tenant_auth_headers,
         )
         created_tenant_id = create_response.json()["id"]
+
+        # Process outbox so SpiceDB has the creator's VIEW permission on the new tenant
+        await process_outbox()
 
         # Get tenant
         response = await async_client.get(
@@ -206,7 +209,7 @@ class TestDeleteTenant:
 
     @pytest.mark.asyncio
     async def test_deletes_tenant_successfully(
-        self, async_client, clean_iam_data, tenant_auth_headers
+        self, async_client, clean_iam_data, tenant_auth_headers, process_outbox
     ):
         """Should delete tenant and return 204."""
         # Create tenant
@@ -216,6 +219,9 @@ class TestDeleteTenant:
             headers=tenant_auth_headers,
         )
         created_tenant_id = create_response.json()["id"]
+
+        # Process outbox so SpiceDB has the creator's ADMINISTRATE permission on the new tenant
+        await process_outbox()
 
         # Delete tenant
         response = await async_client.delete(

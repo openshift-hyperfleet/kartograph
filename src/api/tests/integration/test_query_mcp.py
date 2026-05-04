@@ -195,13 +195,16 @@ class TestMCPQueryService:
         assert result.row_count <= 2
 
     def test_execute_cypher_query_marks_truncation(self, service_with_data):
-        """Should mark results as truncated when at limit."""
+        """Should mark results as truncated when the result set hits the limit.
+
+        The service fetches max_rows+1 to detect truncation. With 3 Person nodes
+        and max_rows=2, it fetches 3, gets 3 back (3 > 2), trims to 2, truncated=True.
+        """
         result = service_with_data.execute_cypher_query(
-            "MATCH (p:Person) RETURN p", max_rows=3
+            "MATCH (p:Person) RETURN p", max_rows=2
         )
 
-        # Exactly 3 results, should be marked as truncated
-        assert result.row_count == 3
+        assert result.row_count == 2
         assert result.truncated is True
 
     def test_execute_cypher_query_forbidden_error(self, service):

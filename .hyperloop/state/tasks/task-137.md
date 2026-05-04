@@ -3,8 +3,8 @@ id: task-137
 title: Schema browser cross-navigation — test receiving side for data-sources ontology
   editor deep-link
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: in_progress
-phase: merge
+status: complete
+phase: null
 deps: []
 round: 1
 branch: hyperloop/task-137

@@ -2,12 +2,12 @@
 id: task-146
 title: UI Knowledge Graph Management — list, create, workspace context
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps:
 - task-140
 round: 0
-branch: null
+branch: hyperloop/task-146
 pr: null
 pr_title: 'feat(ui): add knowledge graph management pages with workspace-scoped creation'
 pr_description: "## What and Why\n\nKnowledge Graphs are the central organizing concept\

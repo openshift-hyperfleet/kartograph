@@ -3,12 +3,12 @@ id: task-144
 title: UI Mutations Console — JSONL editor, live preview, templates, deep-link
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-140
 round: 0
 branch: hyperloop/task-144
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/615
 pr_title: 'feat(ui): add mutations console editor with JSONL editing, live preview,
   and templates'
 pr_description: "## What and Why\n\nThe Mutations Console lets power users author\

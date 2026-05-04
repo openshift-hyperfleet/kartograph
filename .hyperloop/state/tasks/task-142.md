@@ -3,12 +3,12 @@ id: task-142
 title: UI Schema Browser — type listing, detail panel, cross-navigation
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-140
 round: 0
 branch: hyperloop/task-142
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/613
 pr_title: 'feat(ui): add schema browser for graph ontology navigation'
 pr_description: "## What and Why\n\nThe Schema Browser lets users discover what node\
   \ types and edge types exist in\ntheir graph before writing queries. It is the \"\

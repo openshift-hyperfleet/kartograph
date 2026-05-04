@@ -3,14 +3,14 @@ id: task-128
 title: 'UI: Ontology Design (shell — requires Extraction spike)'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-118
 - task-119
 - task-120
 round: 0
 branch: hyperloop/task-128
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/601
 pr_title: 'feat(ui): add ontology design flow with intent capture and type editor'
 pr_description: "## What & Why\n\nImplements the agent-assisted ontology design flow\
   \ that begins after a data source\nis connected. Users describe their intent in\

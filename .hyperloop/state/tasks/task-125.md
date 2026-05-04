@@ -3,12 +3,12 @@ id: task-125
 title: 'UI: Mutations Console — File Upload, KG Selection & Submission'
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-124
 round: 0
 branch: hyperloop/task-125
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/600
 pr_title: 'feat(ui): add mutations console file upload, KG selection, and submission
   workflow'
 pr_description: "## What & Why\n\nCompletes the Mutations Console by adding the file\

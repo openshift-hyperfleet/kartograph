@@ -418,8 +418,8 @@ class KnowledgeGraphService:
         kg.update(name=name, description=description, updated_by=user_id)
 
         try:
-            async with self._session.begin():
-                await self._kg_repo.save(kg)
+            await self._kg_repo.save(kg)
+            await self._session.commit()
         except IntegrityError as e:
             raise DuplicateKnowledgeGraphNameError(
                 f"Knowledge graph '{name}' already exists in tenant"
@@ -470,23 +470,23 @@ class KnowledgeGraphService:
         if kg.tenant_id != self._scope_to_tenant:
             return False
 
-        async with self._session.begin():
-            # Cascade delete data sources if repo is available
-            if self._ds_repo is not None:
-                data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
-                for ds in data_sources:
-                    # Clean up encrypted credentials before removing the row to
-                    # prevent orphaned credential blobs in the secret store.
-                    if self._secret_store is not None and ds.credentials_path:
-                        await self._secret_store.delete(
-                            path=ds.credentials_path,
-                            tenant_id=self._scope_to_tenant,
-                        )
-                    ds.mark_for_deletion(deleted_by=user_id)
-                    await self._ds_repo.delete(ds)
+        # Cascade delete data sources if repo is available
+        if self._ds_repo is not None:
+            data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
+            for ds in data_sources:
+                # Clean up encrypted credentials before removing the row to
+                # prevent orphaned credential blobs in the secret store.
+                if self._secret_store is not None and ds.credentials_path:
+                    await self._secret_store.delete(
+                        path=ds.credentials_path,
+                        tenant_id=self._scope_to_tenant,
+                    )
+                ds.mark_for_deletion(deleted_by=user_id)
+                await self._ds_repo.delete(ds)
 
-            kg.mark_for_deletion(deleted_by=user_id)
-            await self._kg_repo.delete(kg)
+        kg.mark_for_deletion(deleted_by=user_id)
+        await self._kg_repo.delete(kg)
+        await self._session.commit()
 
         self._probe.knowledge_graph_deleted(kg_id=kg_id)
 
@@ -568,7 +568,7 @@ class KnowledgeGraphService:
         if kg is None or kg.tenant_id != self._scope_to_tenant:
             raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
 
-        async with self._session.begin():
-            await self._kg_repo.save_ontology(kg_id, config)
+        await self._kg_repo.save_ontology(kg_id, config)
+        await self._session.commit()
 
         return config

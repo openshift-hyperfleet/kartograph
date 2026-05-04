@@ -9,9 +9,8 @@ application-layer ports) per specs/nfr/testing.spec.md.
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -49,19 +48,14 @@ from tests.fakes.management import (
 
 @pytest.fixture
 def mock_session():
-    """Create a mock AsyncSession with begin() context manager.
+    """Create a mock AsyncSession with async commit.
 
     The session is mocked at the infrastructure boundary — unit tests of
     the application service do not exercise real SQLAlchemy transaction
     semantics.  Rollback behaviour is covered by integration tests.
     """
     session = MagicMock()
-
-    @asynccontextmanager
-    async def _begin():
-        yield
-
-    session.begin = _begin
+    session.commit = AsyncMock()
     return session
 
 

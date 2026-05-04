@@ -470,22 +470,25 @@ class KnowledgeGraphService:
         if kg.tenant_id != self._scope_to_tenant:
             return False
 
-        # Cascade delete data sources if repo is available
-        if self._ds_repo is not None:
-            data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
-            for ds in data_sources:
-                # Clean up encrypted credentials before removing the row to
-                # prevent orphaned credential blobs in the secret store.
-                if self._secret_store is not None and ds.credentials_path:
-                    await self._secret_store.delete(
-                        path=ds.credentials_path,
-                        tenant_id=self._scope_to_tenant,
-                    )
-                ds.mark_for_deletion(deleted_by=user_id)
-                await self._ds_repo.delete(ds)
+        # Use a savepoint so the entire cascade is atomic even though autobegin
+        # has already started a transaction via the get_by_id reads above.
+        async with self._session.begin_nested():
+            if self._ds_repo is not None:
+                data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
+                for ds in data_sources:
+                    # Clean up encrypted credentials before removing the row to
+                    # prevent orphaned credential blobs in the secret store.
+                    if self._secret_store is not None and ds.credentials_path:
+                        await self._secret_store.delete(
+                            path=ds.credentials_path,
+                            tenant_id=self._scope_to_tenant,
+                        )
+                    ds.mark_for_deletion(deleted_by=user_id)
+                    await self._ds_repo.delete(ds)
 
-        kg.mark_for_deletion(deleted_by=user_id)
-        await self._kg_repo.delete(kg)
+            kg.mark_for_deletion(deleted_by=user_id)
+            await self._kg_repo.delete(kg)
+
         await self._session.commit()
 
         self._probe.knowledge_graph_deleted(kg_id=kg_id)

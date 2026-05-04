@@ -59,9 +59,17 @@ describe('Data Sources Wizard - Form Validation', () => {
       if (!connRepoUrl.value.trim()) {
         connRepoUrlError.value = 'Repository URL is required.'
         valid = false
-      } else if (!connRepoUrl.value.includes('github.com')) {
-        connRepoUrlError.value = 'Enter a valid GitHub repository URL.'
-        valid = false
+      } else {
+        try {
+          const parsed = new URL(connRepoUrl.value.trim())
+          if (parsed.hostname !== 'github.com') {
+            connRepoUrlError.value = 'Enter a valid GitHub repository URL.'
+            valid = false
+          }
+        } catch {
+          connRepoUrlError.value = 'Enter a valid GitHub repository URL.'
+          valid = false
+        }
       }
       if (!connToken.value.trim()) {
         connTokenError.value = 'Access token is required.'
@@ -88,7 +96,7 @@ describe('Data Sources Wizard - Form Validation', () => {
       let valid = true
       if (!connName.value.trim()) { connNameError.value = 'Name required'; valid = false }
       if (!connRepoUrl.value.trim()) { connRepoUrlError.value = 'URL required'; valid = false }
-      else if (!connRepoUrl.value.includes('github.com')) { connRepoUrlError.value = 'Invalid URL'; valid = false }
+      else { try { const p = new URL(connRepoUrl.value.trim()); if (p.hostname !== 'github.com') { connRepoUrlError.value = 'Invalid URL'; valid = false } } catch { connRepoUrlError.value = 'Invalid URL'; valid = false } }
       if (!connToken.value.trim()) { connTokenError.value = 'Token required'; valid = false }
       return valid
     }

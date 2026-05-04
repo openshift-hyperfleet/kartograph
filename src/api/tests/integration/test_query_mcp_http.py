@@ -199,6 +199,8 @@ def _make_asgi_httpx_factory(
         headers: dict[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
         auth: httpx.Auth | None = None,
+        follow_redirects: bool = True,
+        **kwargs,
     ) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             transport=httpx.ASGITransport(app=asgi_app),
@@ -206,6 +208,7 @@ def _make_asgi_httpx_factory(
             headers=headers or {},
             timeout=timeout,
             auth=auth,
+            follow_redirects=follow_redirects,
         )
 
     return factory

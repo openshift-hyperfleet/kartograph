@@ -4,7 +4,7 @@ Adds an ``ontology`` JSONB column to store per-KnowledgeGraph ontology
 configuration (node types, edge types, approval state).  The column is
 nullable so existing rows are unaffected (NULL means no ontology saved).
 
-Revision ID: bba05241205d
+Revision ID: c0d1e2f3a4b5
 Revises: f183acf6d089
 Create Date: 2026-05-03 17:34:00.000000
 
@@ -17,7 +17,7 @@ from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
 # revision identifiers, used by Alembic.
-revision: str = "bba05241205d"
+revision: str = "c0d1e2f3a4b5"
 down_revision: Union[str, Sequence[str], None] = "f183acf6d089"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

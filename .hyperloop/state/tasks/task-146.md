@@ -3,12 +3,12 @@ id: task-146
 title: UI Knowledge Graph Management — list, create, workspace context
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: verify
+phase: spec-review
 deps:
 - task-140
 round: 0
 branch: hyperloop/task-146
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/617
 pr_title: 'feat(ui): add knowledge graph management pages with workspace-scoped creation'
 pr_description: "## What and Why\n\nKnowledge Graphs are the central organizing concept\
   \ of Kartograph. Before users can\nquery, explore, or ingest data, they need at\

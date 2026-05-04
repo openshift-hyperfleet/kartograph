@@ -165,27 +165,27 @@ class DataSourceService:
         if kg.tenant_id != self._scope_to_tenant:
             raise ValueError(f"Knowledge graph {kg_id} belongs to different tenant")
 
-        async with self._session.begin():
-            ds = DataSource.create(
-                knowledge_graph_id=kg_id,
+        ds = DataSource.create(
+            knowledge_graph_id=kg_id,
+            tenant_id=self._scope_to_tenant,
+            name=name,
+            adapter_type=adapter_type,
+            connection_config=connection_config,
+            ontology=ontology,
+            created_by=user_id,
+        )
+
+        if raw_credentials is not None:
+            cred_path = f"datasource/{ds.id.value}/credentials"
+            await self._secret_store.store(
+                path=cred_path,
                 tenant_id=self._scope_to_tenant,
-                name=name,
-                adapter_type=adapter_type,
-                connection_config=connection_config,
-                ontology=ontology,
-                created_by=user_id,
+                credentials=raw_credentials,
             )
+            ds.credentials_path = cred_path
 
-            if raw_credentials is not None:
-                cred_path = f"datasource/{ds.id.value}/credentials"
-                await self._secret_store.store(
-                    path=cred_path,
-                    tenant_id=self._scope_to_tenant,
-                    credentials=raw_credentials,
-                )
-                ds.credentials_path = cred_path
-
-            await self._ds_repo.save(ds)
+        await self._ds_repo.save(ds)
+        await self._session.commit()
 
         self._probe.data_source_created(
             ds_id=ds.id.value,
@@ -371,27 +371,27 @@ class DataSourceService:
         if ds.tenant_id != self._scope_to_tenant:
             raise ValueError(f"Data source {ds_id} not found")
 
-        async with self._session.begin():
-            if name is not None or connection_config is not None:
-                ds.update_connection(
-                    name=name if name is not None else ds.name,
-                    connection_config=connection_config
-                    if connection_config is not None
-                    else ds.connection_config,
-                    credentials_path=ds.credentials_path,
-                    updated_by=user_id,
-                )
+        if name is not None or connection_config is not None:
+            ds.update_connection(
+                name=name if name is not None else ds.name,
+                connection_config=connection_config
+                if connection_config is not None
+                else ds.connection_config,
+                credentials_path=ds.credentials_path,
+                updated_by=user_id,
+            )
 
-            if raw_credentials is not None:
-                cred_path = f"datasource/{ds.id.value}/credentials"
-                await self._secret_store.store(
-                    path=cred_path,
-                    tenant_id=self._scope_to_tenant,
-                    credentials=raw_credentials,
-                )
-                ds.credentials_path = cred_path
+        if raw_credentials is not None:
+            cred_path = f"datasource/{ds.id.value}/credentials"
+            await self._secret_store.store(
+                path=cred_path,
+                tenant_id=self._scope_to_tenant,
+                credentials=raw_credentials,
+            )
+            ds.credentials_path = cred_path
 
-            await self._ds_repo.save(ds)
+        await self._ds_repo.save(ds)
+        await self._session.commit()
 
         if name is not None:
             self._probe.data_source_updated(ds_id=ds_id, name=name)
@@ -447,9 +447,9 @@ class DataSourceService:
         if ds.tenant_id != self._scope_to_tenant:
             raise ValueError(f"Data source {ds_id} not found")
 
-        async with self._session.begin():
-            ds.update_ontology(ontology=ontology, updated_by=user_id)
-            await self._ds_repo.save(ds)
+        ds.update_ontology(ontology=ontology, updated_by=user_id)
+        await self._ds_repo.save(ds)
+        await self._session.commit()
 
         self._probe.data_source_updated(ds_id=ds_id, name=ds.name)
 
@@ -496,15 +496,15 @@ class DataSourceService:
         if ds.tenant_id != self._scope_to_tenant:
             return False
 
-        async with self._session.begin():
-            if ds.credentials_path:
-                await self._secret_store.delete(
-                    path=ds.credentials_path,
-                    tenant_id=self._scope_to_tenant,
-                )
+        if ds.credentials_path:
+            await self._secret_store.delete(
+                path=ds.credentials_path,
+                tenant_id=self._scope_to_tenant,
+            )
 
-            ds.mark_for_deletion(deleted_by=user_id)
-            await self._ds_repo.delete(ds)
+        ds.mark_for_deletion(deleted_by=user_id)
+        await self._ds_repo.delete(ds)
+        await self._session.commit()
 
         self._probe.data_source_deleted(ds_id=ds_id)
 
@@ -554,23 +554,23 @@ class DataSourceService:
 
         now = datetime.now(UTC)
 
-        async with self._session.begin():
-            sync_run = DataSourceSyncRun(
-                id=str(ULID()),
-                data_source_id=ds.id.value,
-                status="pending",
-                started_at=now,
-                completed_at=None,
-                error=None,
-                created_at=now,
-            )
-            await self._sync_run_repo.save(sync_run)
+        sync_run = DataSourceSyncRun(
+            id=str(ULID()),
+            data_source_id=ds.id.value,
+            status="pending",
+            started_at=now,
+            completed_at=None,
+            error=None,
+            created_at=now,
+        )
+        await self._sync_run_repo.save(sync_run)
 
-            # Record SyncStarted event on the data source aggregate.
-            # This event carries the sync_run_id so lifecycle handlers
-            # can update the correct sync run record.
-            ds.request_sync(sync_run_id=sync_run.id, requested_by=user_id)
-            await self._ds_repo.save(ds)
+        # Record SyncStarted event on the data source aggregate.
+        # This event carries the sync_run_id so lifecycle handlers
+        # can update the correct sync run record.
+        ds.request_sync(sync_run_id=sync_run.id, requested_by=user_id)
+        await self._ds_repo.save(ds)
+        await self._session.commit()
 
         self._probe.sync_requested(ds_id=ds_id)
 

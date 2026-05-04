@@ -6,10 +6,9 @@ credential storage, transaction management, and observability probe calls.
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any, Callable
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -336,14 +335,9 @@ class _RecordingDataSourceServiceProbe:
 
 @pytest.fixture
 def mock_session():
-    """Create a mock AsyncSession with begin() context manager."""
+    """Create a mock AsyncSession with async commit."""
     session = MagicMock()
-
-    @asynccontextmanager
-    async def _begin():
-        yield
-
-    session.begin = _begin
+    session.commit = AsyncMock()
     return session
 
 

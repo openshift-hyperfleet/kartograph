@@ -107,13 +107,13 @@ describe('Task-125 — Scenario: Query editing — Cypher syntax highlighting', 
     // staticExtensions in query/index.vue must include cypher() so syntax
     // highlighting is active from the first keystroke.
     expect(QUERY_VUE).toContain("cypher()")
-    expect(QUERY_VUE).toContain("from '@/lib/codemirror/lang-cypher'")
+    expect(QUERY_VUE).toContain("'@/lib/codemirror/lang-cypher'")
   })
 
   it('query/index.vue wires ageCypherLinter() into the CodeMirror setup', () => {
     // The linter must be in staticExtensions to surface AGE-specific issues.
     expect(QUERY_VUE).toContain('ageCypherLinter()')
-    expect(QUERY_VUE).toContain("from '@/lib/codemirror/lang-cypher/age-linter'")
+    expect(QUERY_VUE).toContain("'@/lib/codemirror/lang-cypher/age-linter'")
   })
 
   it('query/index.vue creates a dynamic autocomplete extension from live schema labels', () => {

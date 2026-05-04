@@ -55,10 +55,13 @@ repos:
         args: [--config-file=src/api/pyproject.toml, --ignore-missing-imports]
         additional_dependencies:
           - "apache-age-python"
+          - "croniter>=3.0.0"
           - "fastapi[standard]"
           - "pydantic-settings"
           - "psycopg2"
+          - "types-croniter>=6.2.2"
           - "types-psycopg2"
+          - "types-PyYAML"
           - "pytest"
           - "structlog"
         files: ^src/api/
@@ -66,6 +69,19 @@ repos:
   # Auto-export system properties on value object changes
   - repo: local
     hooks:
+      - id: check-no-worker-result-staged
+        name: Block staged .hyperloop/worker-result.yaml (add/modify/delete)
+        entry: bash .hyperloop/checks/check-no-worker-result-staged.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: check-no-multiple-alembic-heads
+        name: Block pushes that leave multiple Alembic migration heads
+        entry: bash .hyperloop/checks/check-no-multiple-alembic-heads.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
       - id: docs-export
         name: Export system properties documentation
         entry: bash -c 'make docs-export && git add website/src/data/system-properties.json'

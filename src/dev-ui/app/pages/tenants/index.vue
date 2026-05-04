@@ -268,7 +268,7 @@ onMounted(fetchTenants)
       <div class="flex items-center gap-3">
         <Building2 class="size-6 text-muted-foreground" />
         <div>
-          <h1 class="text-2xl font-bold tracking-tight">Tenants</h1>
+          <h1 class="text-2xl font-semibold tracking-tight">Tenants</h1>
           <p class="text-sm text-muted-foreground">Manage tenant organizations and membership</p>
         </div>
       </div>
@@ -330,7 +330,7 @@ onMounted(fetchTenants)
             :key="tenant.id"
             role="listitem"
             tabindex="0"
-            class="flex items-center gap-2 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            class="flex items-center gap-2 px-4 py-2.5 transition-colors hover:bg-muted/50 cursor-pointer focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset"
             :class="[
               selectedTenant?.id === tenant.id ? 'bg-muted' : '',
             ]"

@@ -195,13 +195,16 @@ class TestMCPQueryService:
         assert result.row_count <= 2
 
     def test_execute_cypher_query_marks_truncation(self, service_with_data):
-        """Should mark results as truncated when at limit."""
+        """Should mark results as truncated when the result set hits the limit.
+
+        The service fetches max_rows+1 to detect truncation. With 3 Person nodes
+        and max_rows=2, it fetches 3, gets 3 back (3 > 2), trims to 2, truncated=True.
+        """
         result = service_with_data.execute_cypher_query(
-            "MATCH (p:Person) RETURN p", max_rows=3
+            "MATCH (p:Person) RETURN p", max_rows=2
         )
 
-        # Exactly 3 results, should be marked as truncated
-        assert result.row_count == 3
+        assert result.row_count == 2
         assert result.truncated is True
 
     def test_execute_cypher_query_forbidden_error(self, service):
@@ -210,7 +213,7 @@ class TestMCPQueryService:
 
         assert isinstance(result, QueryError)
         assert result.error_type == "forbidden"
-        assert "read-only" in result.message.lower() or "CREATE" in result.message
+        assert any(k in result.message.lower() for k in ["read-only", "create"])
 
     def test_execute_cypher_query_timeout_error(self, service):
         """Should return QueryError for timeouts."""
@@ -222,7 +225,7 @@ class TestMCPQueryService:
         result = service.execute_cypher_query(slow_query, timeout_seconds=0.001)
 
         assert isinstance(result, QueryError)
-        assert result.error_type in ["timeout", "execution_error"]
+        assert result.error_type == "timeout"
 
     def test_execute_cypher_query_tracks_time(self, service_with_data):
         """Should track execution time."""

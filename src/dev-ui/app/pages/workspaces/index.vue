@@ -14,6 +14,10 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose,
 } from '@/components/ui/dialog'
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { Card, CardContent } from '@/components/ui/card'
@@ -381,6 +385,8 @@ onMounted(() => {
 
 watch(tenantVersion, () => {
   if (hasTenant.value) {
+    // Clear stale data immediately so old tenant's workspaces are not shown during load
+    workspaces.value = []
     closeDetails()
     fetchWorkspaces()
   }
@@ -394,7 +400,7 @@ watch(tenantVersion, () => {
       <div class="flex items-center gap-3">
         <FolderTree class="size-6 text-muted-foreground" />
         <div>
-          <h1 class="text-2xl font-bold tracking-tight">Workspaces</h1>
+          <h1 class="text-2xl font-semibold tracking-tight">Workspaces</h1>
           <p class="text-sm text-muted-foreground">Organize resources with hierarchical workspaces</p>
         </div>
       </div>
@@ -641,46 +647,42 @@ watch(tenantVersion, () => {
       </DialogContent>
     </Dialog>
 
-    <!-- Delete workspace dialog -->
-    <Dialog v-model:open="showDeleteDialog">
-      <DialogContent class="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Delete Workspace</DialogTitle>
-          <DialogDescription>
+    <!-- Delete workspace AlertDialog -->
+    <AlertDialog v-model:open="showDeleteDialog">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Workspace</AlertDialogTitle>
+          <AlertDialogDescription>
             Are you sure you want to delete "{{ workspaceToDelete?.name }}"? This action cannot be undone.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogClose as-child>
-            <Button variant="outline">Cancel</Button>
-          </DialogClose>
-          <Button variant="destructive" :disabled="deleting" @click="handleDelete">
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction :disabled="deleting" @click.prevent="handleDelete">
             <Loader2 v-if="deleting" class="mr-2 size-4 animate-spin" />
             Delete
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
 
-    <!-- Remove member confirmation dialog -->
-    <Dialog v-model:open="showRemoveMemberDialog">
-      <DialogContent class="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Remove Member</DialogTitle>
-          <DialogDescription>
+    <!-- Remove member confirmation AlertDialog -->
+    <AlertDialog v-model:open="showRemoveMemberDialog">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove Member</AlertDialogTitle>
+          <AlertDialogDescription>
             Are you sure you want to remove {{ memberToRemove?.member_type }} "{{ memberToRemove?.member_id }}" from "{{ selectedWorkspace?.name }}"?
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogClose as-child>
-            <Button variant="outline">Cancel</Button>
-          </DialogClose>
-          <Button variant="destructive" :disabled="removingMember" @click="handleRemoveMember">
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction :disabled="removingMember" @click.prevent="handleRemoveMember">
             <Loader2 v-if="removingMember" class="mr-2 size-4 animate-spin" />
             Remove
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>

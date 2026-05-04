@@ -11,7 +11,11 @@ from typing import Protocol, runtime_checkable
 
 from management.domain.aggregates import DataSource, KnowledgeGraph
 from management.domain.entities import DataSourceSyncRun
-from management.domain.value_objects import DataSourceId, KnowledgeGraphId
+from management.domain.value_objects import (
+    DataSourceId,
+    KnowledgeGraphId,
+    OntologyConfig,
+)
 
 
 @runtime_checkable
@@ -78,6 +82,30 @@ class IKnowledgeGraphRepository(Protocol):
         """
         ...
 
+    async def save_ontology(self, kg_id: str, config: OntologyConfig) -> None:
+        """Persist an OntologyConfig for the given KnowledgeGraph ID.
+
+        Performs a targeted update of the ``ontology`` JSONB column only.
+        Does not trigger outbox events — ontology changes are UI-state
+        operations, not domain events.
+
+        Args:
+            kg_id: ULID string of the target KnowledgeGraph
+            config: The OntologyConfig to persist (full replace, not merge)
+        """
+        ...
+
+    async def get_ontology(self, kg_id: str) -> OntologyConfig | None:
+        """Retrieve the OntologyConfig for the given KnowledgeGraph ID.
+
+        Args:
+            kg_id: ULID string of the target KnowledgeGraph
+
+        Returns:
+            The persisted OntologyConfig, or None if no ontology has been saved
+        """
+        ...
+
 
 @runtime_checkable
 class IDataSourceRepository(Protocol):
@@ -139,6 +167,17 @@ class IDataSourceRepository(Protocol):
         """
         ...
 
+    async def find_all(self) -> list[DataSource]:
+        """List all data sources across all knowledge graphs and tenants.
+
+        Used by the scheduler to find data sources with active (non-MANUAL)
+        schedules that may be due for a sync run.
+
+        Returns:
+            List of all DataSource aggregates
+        """
+        ...
+
 
 @runtime_checkable
 class IDataSourceSyncRunRepository(Protocol):
@@ -179,5 +218,21 @@ class IDataSourceSyncRunRepository(Protocol):
 
         Returns:
             List of DataSourceSyncRun entities for the data source
+        """
+        ...
+
+    async def get_latest_for_data_source(
+        self, data_source_id: str
+    ) -> DataSourceSyncRun | None:
+        """Return the most recent sync run for a data source.
+
+        Ordered by created_at DESC — returns the most recently created run,
+        or None if the data source has never synced.
+
+        Args:
+            data_source_id: The data source to fetch the latest run for
+
+        Returns:
+            The most recent DataSourceSyncRun entity, or None if not found
         """
         ...

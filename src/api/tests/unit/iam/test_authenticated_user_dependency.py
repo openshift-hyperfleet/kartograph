@@ -9,6 +9,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import HTTPException
 from pytest_archon import archrule
 
 from iam.application.observability import UserServiceProbe
@@ -16,6 +17,7 @@ from iam.application.value_objects import AuthenticatedUser
 from iam.dependencies.user import _AuthResult, get_authenticated_user
 from iam.domain.aggregates import User
 from iam.domain.value_objects import TenantId, UserId
+from iam.ports.exceptions import ProvisioningConflictError
 
 
 class TestAuthenticatedUserDependencyArchitecturalBoundaries:
@@ -280,3 +282,73 @@ class TestGetAuthenticatedUser:
         mock_user_repo.get_by_id.assert_not_awaited()
         mock_user_repo.save.assert_not_awaited()
         mock_probe.user_ensured.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_raises_http_409_when_username_conflict_occurs(
+        self,
+        jwt_auth_result: _AuthResult,
+        mock_user_repo: AsyncMock,
+        mock_session: AsyncMock,
+        mock_probe: MagicMock,
+    ) -> None:
+        """Should return HTTP 409 Conflict when two SSO users share a username.
+
+        The error must not expose database internals (IntegrityError details).
+        Requirement: Username Uniqueness - Duplicate username scenario.
+        """
+        # Simulate: user not found by ID (first lookup), but username is taken
+        mock_user_repo.get_by_id.return_value = None
+        mock_user_repo.save.side_effect = ProvisioningConflictError("testuser")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_authenticated_user(
+                auth_result=jwt_auth_result,
+                user_repo=mock_user_repo,
+                session=mock_session,
+                probe=mock_probe,
+            )
+
+        assert exc_info.value.status_code == 409
+        # Must not leak database details
+        assert "IntegrityError" not in str(exc_info.value.detail)
+        assert "duplicate key" not in str(exc_info.value.detail).lower()
+
+    @pytest.mark.asyncio
+    async def test_uses_sub_as_username_fallback_when_preferred_username_absent(
+        self,
+        mock_user_repo: AsyncMock,
+        mock_session: AsyncMock,
+        mock_probe: MagicMock,
+    ) -> None:
+        """Should use sub claim as username when preferred_username is missing.
+
+        Requirement: JIT Provisioning - Username fallback scenario.
+        The _authenticate dependency handles the fallback; here we verify
+        that JIT provisioning works correctly when the sub is used as the username.
+        """
+        # Simulate: JWT token where preferred_username was absent → sub used as username
+        auth_result = _AuthResult(
+            user_id=UserId(value="some-uuid-format-sub-123"),
+            username="some-uuid-format-sub-123",  # sub used as username fallback
+            api_key_tenant_id=None,
+            is_api_key=False,
+        )
+        mock_user_repo.get_by_id.return_value = None
+        mock_user_repo.save = AsyncMock()
+
+        result = await get_authenticated_user(
+            auth_result=auth_result,
+            user_repo=mock_user_repo,
+            session=mock_session,
+            probe=mock_probe,
+        )
+
+        assert result.user_id == UserId(value="some-uuid-format-sub-123")
+        assert result.username == "some-uuid-format-sub-123"
+        mock_user_repo.save.assert_awaited_once()
+        mock_probe.user_ensured.assert_called_once_with(
+            user_id="some-uuid-format-sub-123",
+            username="some-uuid-format-sub-123",
+            was_created=True,
+            was_updated=False,
+        )

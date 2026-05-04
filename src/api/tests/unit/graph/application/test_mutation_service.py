@@ -57,10 +57,11 @@ class TestGraphMutationServiceApplyMutations:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        result = service.apply_mutations(operations)
+        # knowledge_graph_id is required whenever the batch contains CREATE/UPDATE ops.
+        result = service.apply_mutations(operations, knowledge_graph_id="test-kg")
 
-        # Should call applier with operations
-        mock_applier.apply_batch.assert_called_once_with(operations)
+        # Should call applier with operations (stamped)
+        mock_applier.apply_batch.assert_called_once()
 
         # Should return result from applier
         assert result.success is True
@@ -83,7 +84,9 @@ class TestGraphMutationServiceApplyMutations:
                 type=EntityType.NODE,
                 label="person",
                 description="A person in the organization",
-                required_properties={"slug", "name"},
+                # Deliberately omit "slug" from caller-provided properties.
+                # The assertion below only proves injection if "slug" is absent here.
+                required_properties={"name"},
                 optional_properties={"email"},
             ),
         ]
@@ -100,6 +103,63 @@ class TestGraphMutationServiceApplyMutations:
         assert saved_type_def.label == "person"
         assert saved_type_def.entity_type == EntityType.NODE
         assert saved_type_def.description == "A person in the organization"
+
+        # System properties must be automatically added to required_properties
+        # per spec: system properties (data_source_id, source_path, slug) are
+        # automatically added to required properties for node types.
+        # Because "slug" was NOT in the caller-provided set, this assertion only
+        # passes when the service actually injects it — a regression would fail here.
+        assert "data_source_id" in saved_type_def.required_properties
+        assert "source_path" in saved_type_def.required_properties
+        assert "slug" in saved_type_def.required_properties
+
+    def test_apply_define_edge_type_adds_edge_system_properties(self):
+        """DEFINE for edge type adds data_source_id and source_path but NOT slug.
+
+        Spec (DEFINE edge type scenario): system properties for edges
+        (data_source_id, source_path) are automatically added. slug is a node-only
+        system property and MUST NOT appear in edge type definitions.
+        """
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True,
+            operations_applied=1,
+        )
+        mock_type_def_repo = Mock()
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.DEFINE,
+                type=EntityType.EDGE,
+                label="depends_on",
+                description="Dependency relationship between components",
+                required_properties={"weight"},
+                optional_properties=set(),
+            ),
+        ]
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        service.apply_mutations(operations)
+
+        mock_type_def_repo.save.assert_called_once()
+        saved_type_def = mock_type_def_repo.save.call_args[0][0]
+        assert saved_type_def.label == "depends_on"
+        assert saved_type_def.entity_type == EntityType.EDGE
+        assert (
+            saved_type_def.description == "Dependency relationship between components"
+        )
+
+        # Edge system properties MUST be automatically added
+        assert "data_source_id" in saved_type_def.required_properties
+        assert "source_path" in saved_type_def.required_properties
+
+        # slug is a node-only system property — MUST NOT appear on edge types
+        assert "slug" not in saved_type_def.required_properties
 
     def test_apply_mutations_emits_probe_events(self):
         """Should emit probe events for successful mutations."""
@@ -140,7 +200,8 @@ class TestGraphMutationServiceApplyMutations:
             type_definition_repository=mock_type_def_repo,
             probe=mock_probe,
         )
-        service.apply_mutations(operations)
+        # knowledge_graph_id required for CREATE ops
+        service.apply_mutations(operations, knowledge_graph_id="test-kg")
 
         # Should emit probe event
         mock_probe.mutations_applied.assert_called_once_with(
@@ -229,7 +290,8 @@ class TestGraphMutationServiceApplyMutations:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        result = service.apply_mutations(operations)
+        # Provide kg_id so enforcement passes; the error should be about the missing DEFINE
+        result = service.apply_mutations(operations, knowledge_graph_id="test-kg")
 
         # Should fail validation
         assert result.success is False
@@ -279,7 +341,8 @@ class TestGraphMutationServiceApplyMutations:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        result = service.apply_mutations(operations)
+        # knowledge_graph_id is required for CREATE ops; service stamps it before validation
+        result = service.apply_mutations(operations, knowledge_graph_id="test-kg")
 
         # Should succeed
         assert result.success is True
@@ -325,7 +388,8 @@ class TestGraphMutationServiceApplyMutations:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        result = service.apply_mutations(operations)
+        # knowledge_graph_id is required for CREATE ops; service stamps it before validation
+        result = service.apply_mutations(operations, knowledge_graph_id="test-kg")
 
         # Should succeed
         assert result.success is True
@@ -368,7 +432,8 @@ class TestGraphMutationServiceApplyMutations:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        result = service.apply_mutations(operations)
+        # Provide kg_id so enforcement passes; the error should be about missing "email"
+        result = service.apply_mutations(operations, knowledge_graph_id="test-kg")
 
         # Should fail validation
         assert result.success is False
@@ -417,7 +482,8 @@ class TestGraphMutationServiceApplyMutations:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        result = service.apply_mutations(operations)
+        # knowledge_graph_id required for CREATE ops
+        result = service.apply_mutations(operations, knowledge_graph_id="test-kg")
 
         # Should succeed
         assert result.success is True
@@ -452,14 +518,17 @@ class TestGraphMutationServiceApplyFromJSONL:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        result = service.apply_mutations_from_jsonl(jsonl_content)
+        # knowledge_graph_id is required for batches with CREATE/UPDATE ops
+        result = service.apply_mutations_from_jsonl(
+            jsonl_content, knowledge_graph_id="test-kg"
+        )
 
         # Should parse and apply 2 operations
         mock_applier.apply_batch.assert_called_once()
         operations = mock_applier.apply_batch.call_args[0][0]
         assert len(operations) == 2
         assert operations[0].op == MutationOperationType.CREATE
-        assert operations[1].op == "UPDATE"
+        assert operations[1].op == MutationOperationType.UPDATE
 
         # Should return result
         assert result.success is True
@@ -514,7 +583,8 @@ class TestGraphMutationServiceApplyFromJSONL:
             mutation_applier=mock_applier,
             type_definition_repository=mock_type_def_repo,
         )
-        service.apply_mutations_from_jsonl(jsonl_content)
+        # knowledge_graph_id required for CREATE ops
+        service.apply_mutations_from_jsonl(jsonl_content, knowledge_graph_id="test-kg")
 
         # Should parse only the valid line
         operations = mock_applier.apply_batch.call_args[0][0]
@@ -522,7 +592,10 @@ class TestGraphMutationServiceApplyFromJSONL:
         assert operations[0].op == MutationOperationType.CREATE
 
     def test_returns_error_on_invalid_json(self):
-        """Should return error result for invalid JSON."""
+        """Should return error result for invalid JSON with line number and content preview.
+
+        Spec: 'the error is reported with the line number and a content preview'.
+        """
         from graph.application.services import GraphMutationService
 
         mock_applier = Mock()
@@ -540,7 +613,27 @@ class TestGraphMutationServiceApplyFromJSONL:
         assert result.success is False
         assert result.operations_applied == 0
         assert len(result.errors) > 0
-        assert "JSON" in result.errors[0] or "parse" in result.errors[0].lower()
+
+        # Error message must include both parse indicator and the line number.
+        # Use case-insensitive checks that are robust to message formatting.
+        import re
+
+        first_error = result.errors[0]
+        assert "JSON" in first_error or "parse" in first_error.lower(), (
+            f"Error message must mention JSON or parse, got: {first_error!r}"
+        )
+        assert re.search(r"\bline\s*1\b", first_error, re.IGNORECASE), (
+            f"Error message must include 'line 1' token, got: {first_error!r}"
+        )
+
+        # At least one error entry must provide the content preview.
+        # Order-agnostic check so it works even if more errors are added.
+        assert len(result.errors) >= 2, (
+            "Expected at least two error entries (parse error + content preview)"
+        )
+        assert any("line content" in err.lower() for err in result.errors), (
+            "At least one error entry must include 'Line content:' preview"
+        )
 
     def test_returns_error_on_invalid_mutation_operation(self):
         """Should return error result for invalid MutationOperation."""
@@ -562,3 +655,363 @@ class TestGraphMutationServiceApplyFromJSONL:
         assert result.success is False
         assert result.operations_applied == 0
         assert len(result.errors) > 0
+
+
+class TestKnowledgeGraphIdStamping:
+    """Tests for knowledge_graph_id stamping behavior in GraphMutationService.
+
+    The system stamps knowledge_graph_id on all CREATE and UPDATE operations,
+    ensuring callers cannot spoof the graph ID.
+    """
+
+    def test_stamps_knowledge_graph_id_on_create_operation(self):
+        """Service should stamp knowledge_graph_id on CREATE operations."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True, operations_applied=1
+        )
+        mock_type_def_repo = Mock()
+        mock_type_def_repo.get.return_value = TypeDefinition(
+            label="person",
+            entity_type=EntityType.NODE,
+            description="A person",
+            required_properties={"slug", "name"},
+        )
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.CREATE,
+                type=EntityType.NODE,
+                id="person:abc123def456789a",
+                label="person",
+                set_properties={
+                    "slug": "alice",
+                    "name": "Alice",
+                    "data_source_id": "ds-123",
+                    "source_path": "people/alice.md",
+                    # No knowledge_graph_id - service should stamp it
+                },
+            ),
+        ]
+
+        service.apply_mutations(operations, knowledge_graph_id="kg-123")
+
+        # The applier should receive ops with knowledge_graph_id stamped
+        mock_applier.apply_batch.assert_called_once()
+        applied_ops = mock_applier.apply_batch.call_args[0][0]
+        assert len(applied_ops) == 1
+        assert applied_ops[0].set_properties is not None
+        assert applied_ops[0].set_properties.get("knowledge_graph_id") == "kg-123"
+
+    def test_overwrites_caller_provided_knowledge_graph_id(self):
+        """Service should overwrite any caller-provided knowledge_graph_id."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True, operations_applied=1
+        )
+        mock_type_def_repo = Mock()
+        mock_type_def_repo.get.return_value = TypeDefinition(
+            label="person",
+            entity_type=EntityType.NODE,
+            description="A person",
+            required_properties={"slug", "name"},
+        )
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.CREATE,
+                type=EntityType.NODE,
+                id="person:abc123def456789a",
+                label="person",
+                set_properties={
+                    "slug": "alice",
+                    "name": "Alice",
+                    "data_source_id": "ds-123",
+                    "source_path": "people/alice.md",
+                    "knowledge_graph_id": "SPOOFED-ID",  # Caller tries to spoof!
+                },
+            ),
+        ]
+
+        service.apply_mutations(operations, knowledge_graph_id="kg-123")
+
+        # The applier should receive ops with CORRECT knowledge_graph_id
+        applied_ops = mock_applier.apply_batch.call_args[0][0]
+        assert applied_ops[0].set_properties.get("knowledge_graph_id") == "kg-123"
+        assert applied_ops[0].set_properties.get("knowledge_graph_id") != "SPOOFED-ID"
+
+    def test_stamps_knowledge_graph_id_on_update_operation(self):
+        """Service should stamp knowledge_graph_id on UPDATE operations with set_properties."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True, operations_applied=1
+        )
+        mock_type_def_repo = Mock()
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.UPDATE,
+                type=EntityType.NODE,
+                id="person:abc123def456789a",
+                set_properties={"name": "Alice Updated"},
+            ),
+        ]
+
+        service.apply_mutations(operations, knowledge_graph_id="kg-456")
+
+        # UPDATE with set_properties should also be stamped
+        applied_ops = mock_applier.apply_batch.call_args[0][0]
+        assert applied_ops[0].set_properties.get("knowledge_graph_id") == "kg-456"
+
+    def test_rejects_create_update_without_knowledge_graph_id(self):
+        """Service should reject batches with CREATE or UPDATE when knowledge_graph_id is omitted.
+
+        The service is the authoritative source for knowledge_graph_id. Direct service
+        callers must always supply the parameter — it is not optional when the batch
+        contains any CREATE or UPDATE operation.
+        """
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_type_def_repo = Mock()
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.UPDATE,
+                type=EntityType.NODE,
+                id="person:abc123def456789a",
+                set_properties={"name": "Alice"},
+            ),
+        ]
+
+        # No knowledge_graph_id — service must reject the batch
+        result = service.apply_mutations(operations)
+
+        assert result.success is False
+        assert result.error_kind == "validation"
+        assert "knowledge_graph_id" in result.errors[0].lower()
+        # The applier must NOT be called when enforcement rejects the batch
+        mock_applier.apply_batch.assert_not_called()
+
+    def test_does_not_stamp_on_delete_operation(self):
+        """Service should NOT stamp knowledge_graph_id on DELETE operations.
+
+        DELETE ops have no set_properties so there is nowhere to stamp the value.
+        This test verifies that knowledge_graph_id is NOT injected into a DELETE
+        operation even when the knowledge_graph_id parameter IS provided to
+        apply_mutations(). This is different from the no-param test above.
+        """
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True, operations_applied=1
+        )
+        mock_type_def_repo = Mock()
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.DELETE,
+                type=EntityType.NODE,
+                id="person:abc123def456789a",
+            ),
+        ]
+
+        service.apply_mutations(operations, knowledge_graph_id="kg-123")
+
+        # DELETE ops have no set_properties - stamping should not apply
+        applied_ops = mock_applier.apply_batch.call_args[0][0]
+        assert applied_ops[0].set_properties is None
+
+    def test_stamps_knowledge_graph_id_in_jsonl_parse(self):
+        """apply_mutations_from_jsonl should stamp knowledge_graph_id from parameter."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True, operations_applied=1
+        )
+        mock_type_def_repo = Mock()
+        mock_type_def_repo.get.return_value = TypeDefinition(
+            label="person",
+            entity_type=EntityType.NODE,
+            description="A person",
+            required_properties={"slug", "name"},
+        )
+
+        jsonl_content = '{"op":"DEFINE","type":"node","label":"person","description":"A person","required_properties":["slug","name"]}\n{"op":"CREATE","type":"node","id":"person:abc123def456789a","label":"person","set_properties":{"slug":"alice","name":"Alice","data_source_id":"ds-123","source_path":"people/alice.md"}}'
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        service.apply_mutations_from_jsonl(jsonl_content, knowledge_graph_id="kg-789")
+
+        # Applier should receive CREATE op with knowledge_graph_id stamped
+        applied_ops = mock_applier.apply_batch.call_args[0][0]
+        create_op = next(o for o in applied_ops if o.op == MutationOperationType.CREATE)
+        assert create_op.set_properties.get("knowledge_graph_id") == "kg-789"
+
+
+class TestMutationResultErrorKind:
+    """Tests that error_kind is set correctly on MutationResult failures.
+
+    The error_kind field allows the presentation layer to select the correct
+    HTTP status code (422 for validation, 500 for server errors) without
+    parsing error message text.
+    """
+
+    def test_missing_type_definition_yields_validation_error_kind(self):
+        """CREATE with no DEFINE should yield error_kind='validation'."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_type_def_repo = Mock()
+        mock_type_def_repo.get.return_value = None  # Type not defined
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.CREATE,
+                type=EntityType.NODE,
+                id="person:abc123def456789a",
+                label="person",
+                set_properties={
+                    "slug": "alice",
+                    "name": "Alice",
+                    "data_source_id": "ds-123",
+                    "source_path": "people/alice.md",
+                },
+            ),
+        ]
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        # Provide kg_id so the enforcement gate passes; error should come from type def check
+        result = service.apply_mutations(operations, knowledge_graph_id="test-kg")
+
+        assert result.success is False
+        assert result.error_kind == "validation"
+
+    def test_missing_required_properties_yields_validation_error_kind(self):
+        """CREATE with missing required props should yield error_kind='validation'."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_type_def_repo = Mock()
+        mock_type_def_repo.get.return_value = TypeDefinition(
+            label="person",
+            entity_type=EntityType.NODE,
+            description="A person",
+            required_properties={"slug", "name", "email"},
+        )
+
+        operations = [
+            MutationOperation(
+                op=MutationOperationType.CREATE,
+                type=EntityType.NODE,
+                id="person:abc123def456789a",
+                label="person",
+                set_properties={
+                    "slug": "alice",
+                    "name": "Alice",
+                    # email is required but missing
+                    "data_source_id": "ds-123",
+                    "source_path": "people/alice.md",
+                },
+            ),
+        ]
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        # Provide kg_id so enforcement passes; error should come from required props check
+        result = service.apply_mutations(operations, knowledge_graph_id="test-kg")
+
+        assert result.success is False
+        assert result.error_kind == "validation"
+
+    def test_json_parse_error_yields_validation_error_kind(self):
+        """JSON parse failure in JSONL should yield error_kind='validation'."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_type_def_repo = Mock()
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        result = service.apply_mutations_from_jsonl("{not valid json")
+
+        assert result.success is False
+        assert result.error_kind == "validation"
+
+    def test_pydantic_validation_error_yields_validation_error_kind(self):
+        """Pydantic schema violation in JSONL should yield error_kind='validation'."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_type_def_repo = Mock()
+
+        # Missing required 'op' field — valid JSON, invalid MutationOperation
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        result = service.apply_mutations_from_jsonl('{"type":"node","id":"node:abc"}')
+
+        assert result.success is False
+        assert result.error_kind == "validation"
+
+    def test_successful_mutation_has_no_error_kind(self):
+        """Successful MutationResult should have error_kind=None."""
+        from graph.application.services import GraphMutationService
+
+        mock_applier = Mock()
+        mock_applier.apply_batch.return_value = MutationResult(
+            success=True, operations_applied=0
+        )
+        mock_type_def_repo = Mock()
+
+        service = GraphMutationService(
+            mutation_applier=mock_applier,
+            type_definition_repository=mock_type_def_repo,
+        )
+        result = service.apply_mutations([])
+
+        assert result.success is True
+        assert result.error_kind is None

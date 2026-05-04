@@ -55,6 +55,7 @@ class OutboxModel(Base):
     retry_count: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
+        default=0,
         server_default="0",
     )
     last_error: Mapped[str | None] = mapped_column(

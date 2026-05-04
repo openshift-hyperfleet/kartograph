@@ -241,6 +241,7 @@ class TestMutationOperation:
                 "name": "Alice",
                 "data_source_id": "ds-123",
                 "source_path": "people/alice.md",
+                "knowledge_graph_id": "kg-123",
             },
         )
         mutation.validate_operation()  # Should not raise
@@ -258,9 +259,45 @@ class TestMutationOperation:
                 "since": 2020,
                 "data_source_id": "ds-123",
                 "source_path": "people/alice.md",
+                "knowledge_graph_id": "kg-123",
             },
         )
         mutation.validate_operation()  # Should not raise
+
+    def test_create_node_requires_knowledge_graph_id(self):
+        """CREATE node should require knowledge_graph_id in set_properties."""
+        mutation = MutationOperation(
+            op=MutationOperationType.CREATE,
+            type=EntityType.NODE,
+            id="person:abc123def456789a",
+            label="person",
+            set_properties={
+                "slug": "alice-smith",
+                "data_source_id": "ds-123",
+                "source_path": "people/alice.md",
+                # Missing knowledge_graph_id!
+            },
+        )
+        with pytest.raises(ValueError, match="knowledge_graph_id"):
+            mutation.validate_operation()
+
+    def test_create_edge_requires_knowledge_graph_id(self):
+        """CREATE edge should require knowledge_graph_id in set_properties."""
+        mutation = MutationOperation(
+            op=MutationOperationType.CREATE,
+            type=EntityType.EDGE,
+            id="knows:abc123def456789a",
+            label="knows",
+            start_id="person:abc123def456789a",
+            end_id="person:def456abc123789a",
+            set_properties={
+                "data_source_id": "ds-123",
+                "source_path": "people/alice.md",
+                # Missing knowledge_graph_id!
+            },
+        )
+        with pytest.raises(ValueError, match="knowledge_graph_id"):
+            mutation.validate_operation()
 
     def test_create_requires_label(self):
         """CREATE should require label."""

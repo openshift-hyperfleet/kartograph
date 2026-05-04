@@ -602,6 +602,145 @@ class TestGitLabRepository:
         assert call_args[1]["follow_redirects"] is False
 
 
+class TestAsciiDocStripping:
+    """Tests for AsciiDoc metadata and comment stripping (spec: Fetch from GitHub).
+
+    Spec: AND AsciiDoc metadata and comments are stripped.
+
+    AsciiDoc files commonly begin with header attributes (:name: value),
+    single-line comments (// ...), and multi-line comment blocks (////).
+    The fetch_documentation_source tool must return only the content
+    starting from the document title (= Title).
+    """
+
+    @patch("query.infrastructure.git_repository.httpx.get")
+    def test_strips_attribute_metadata_before_title(self, mock_get, repository):
+        """Should strip AsciiDoc attribute definitions before the document title."""
+        blob_url = "https://github.com/owner/repo/blob/main/file.adoc"
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = (
+            ":doctype: article\n"
+            ":toc: auto\n"
+            ":author: John Doe\n"
+            "= Document Title\n"
+            "\n"
+            "Content here"
+        )
+        mock_get.return_value = mock_response
+
+        result = repository.get_file(blob_url)
+
+        assert result.success is True
+        assert result.content.startswith("= Document Title")
+        assert ":doctype: article" not in result.content
+        assert ":toc: auto" not in result.content
+        assert ":author: John Doe" not in result.content
+
+    @patch("query.infrastructure.git_repository.httpx.get")
+    def test_strips_single_line_comments_before_title(self, mock_get, repository):
+        """Should strip AsciiDoc single-line comments before the document title."""
+        blob_url = "https://github.com/owner/repo/blob/main/file.adoc"
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = (
+            "// This is a comment\n// Another comment\n= Document Title\n\nContent here"
+        )
+        mock_get.return_value = mock_response
+
+        result = repository.get_file(blob_url)
+
+        assert result.content.startswith("= Document Title")
+        assert "// This is a comment" not in result.content
+
+    @patch("query.infrastructure.git_repository.httpx.get")
+    def test_strips_mixed_metadata_and_comments(self, mock_get, repository):
+        """Should strip mixed metadata and comments before the document title."""
+        blob_url = "https://github.com/owner/repo/blob/main/file.adoc"
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = (
+            ":doctype: article\n"
+            "// A comment\n"
+            ":toc:\n"
+            "= Document Title\n"
+            "\n"
+            "== Section 1\n"
+            "\n"
+            "Body content"
+        )
+        mock_get.return_value = mock_response
+
+        result = repository.get_file(blob_url)
+
+        assert result.content.startswith("= Document Title")
+        assert "== Section 1" in result.content
+        assert "Body content" in result.content
+
+    @patch("query.infrastructure.git_repository.httpx.get")
+    def test_preserves_content_already_starting_from_title(self, mock_get, repository):
+        """Should return content unchanged if it already starts from the title."""
+        blob_url = "https://github.com/owner/repo/blob/main/file.adoc"
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "= Document Title\n\nContent here"
+        mock_get.return_value = mock_response
+
+        result = repository.get_file(blob_url)
+
+        assert result.content == "= Document Title\n\nContent here"
+
+    @patch("query.infrastructure.git_repository.httpx.get")
+    def test_returns_content_unchanged_when_no_title_found(self, mock_get, repository):
+        """Should return content as-is when no AsciiDoc title line is found."""
+        blob_url = "https://github.com/owner/repo/blob/main/file.txt"
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "Just plain text\nwith no AsciiDoc title\n"
+        mock_get.return_value = mock_response
+
+        result = repository.get_file(blob_url)
+
+        assert result.content == "Just plain text\nwith no AsciiDoc title\n"
+
+    @patch("query.infrastructure.git_repository.httpx.get")
+    def test_does_not_strip_section_headers_as_title(self, mock_get, repository):
+        """Should not treat == Section headers as the document title."""
+        blob_url = "https://github.com/owner/repo/blob/main/file.adoc"
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = (
+            ":doctype: article\n"
+            "== This Is A Section\n"
+            "\n"
+            "Content without a document title"
+        )
+        mock_get.return_value = mock_response
+
+        result = repository.get_file(blob_url)
+
+        # No document title (= Title) was found; '== Section' is not a match
+        # so content is returned unchanged
+        assert ":doctype: article" in result.content
+
+    @patch("query.infrastructure.git_repository.httpx.get")
+    def test_gitlab_also_strips_asciidoc_metadata(self, mock_get, mock_probe):
+        """GitLab fetches should also strip AsciiDoc metadata before the title."""
+        gitlab_repository = GitLabRepository(probe=mock_probe)
+        blob_url = "https://gitlab.com/owner/repo/-/blob/main/file.adoc"
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = (
+            ":doctype: book\n// comment\n= GitLab Document\n\nGitLab content"
+        )
+        mock_get.return_value = mock_response
+
+        result = gitlab_repository.get_file(blob_url)
+
+        assert result.content.startswith("= GitLab Document")
+        assert ":doctype: book" not in result.content
+
+
 class TestGitRepositoryFactory:
     """Tests for GitRepositoryFactory."""
 
@@ -685,17 +824,17 @@ class TestGitRepositoryFactory:
         assert isinstance(repo, GithubRepository)
 
     def test_raises_for_unsupported_provider(self):
-        """Should raise ValueError for unsupported providers."""
+        """Should raise InvalidRemoteFileURL for unsupported providers."""
         url = "https://bitbucket.org/owner/repo/src/main/file.txt"
 
-        with pytest.raises(ValueError, match="Unsupported git provider"):
+        with pytest.raises(InvalidRemoteFileURL, match="Unsupported git provider"):
             GitRepositoryFactory.create_from_url(url=url)
 
     def test_prevents_ssrf_with_github_in_path(self):
         """Should reject URLs with github.com in path (SSRF prevention)."""
         url = "https://evil.com/github.com/malicious"
 
-        with pytest.raises(ValueError, match="Unsupported git provider"):
+        with pytest.raises(InvalidRemoteFileURL, match="Unsupported git provider"):
             GitRepositoryFactory.create_from_url(url=url)
 
     def test_accepts_any_hostname_with_valid_pattern(self, mock_probe):
@@ -713,7 +852,7 @@ class TestGitRepositoryFactory:
         """Should reject URLs with github.com in query string (SSRF prevention)."""
         url = "https://evil.com/path?redirect=github.com"
 
-        with pytest.raises(ValueError, match="Unsupported git provider"):
+        with pytest.raises(InvalidRemoteFileURL, match="Unsupported git provider"):
             GitRepositoryFactory.create_from_url(url=url)
 
     def test_case_insensitive_hostname_matching(self):
@@ -724,15 +863,15 @@ class TestGitRepositoryFactory:
         assert isinstance(repo, GithubRepository)
 
     def test_rejects_invalid_url_format(self):
-        """Should raise ValueError for malformed URLs."""
+        """Should raise InvalidRemoteFileURL for malformed URLs."""
         url = "not-a-url"
 
-        with pytest.raises(ValueError, match="Missing hostname"):
+        with pytest.raises(InvalidRemoteFileURL, match="Missing hostname"):
             GitRepositoryFactory.create_from_url(url=url)
 
     def test_rejects_url_without_hostname(self):
-        """Should raise ValueError for URLs without hostname."""
+        """Should raise InvalidRemoteFileURL for URLs without hostname."""
         url = "file:///local/path/file.txt"
 
-        with pytest.raises(ValueError, match="Missing hostname"):
+        with pytest.raises(InvalidRemoteFileURL, match="Missing hostname"):
             GitRepositoryFactory.create_from_url(url=url)

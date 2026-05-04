@@ -79,13 +79,11 @@ class CORSSettings(BaseSettings):
     """CORS (Cross-Origin Resource Sharing) settings.
 
     Environment variables:
-        KARTOGRAPH_CORS_ORIGINS: Comma-separated list of allowed origins
+        KARTOGRAPH_CORS_ORIGINS: JSON list of allowed origins
             (default: empty, which disables CORS)
         KARTOGRAPH_CORS_ALLOW_CREDENTIALS: Allow credentials (default: true)
-        KARTOGRAPH_CORS_ALLOW_METHODS: Comma-separated list of allowed methods
-            (default: GET,POST,PUT,DELETE,OPTIONS,PATCH)
-        KARTOGRAPH_CORS_ALLOW_HEADERS: Comma-separated list of allowed headers
-            (default: *)
+        KARTOGRAPH_CORS_ALLOW_METHODS: JSON list of allowed methods (default: ['*'])
+        KARTOGRAPH_CORS_ALLOW_HEADERS: JSON list of allowed headers (default: ['*'])
     """
 
     model_config = SettingsConfigDict(
@@ -104,8 +102,8 @@ class CORSSettings(BaseSettings):
         description="Allow credentials in CORS requests",
     )
     allow_methods: list[str] = Field(
-        default_factory=lambda: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-        description="Allowed HTTP methods for CORS",
+        default_factory=lambda: ["*"],
+        description="Allowed HTTP methods for CORS (default: all methods via wildcard)",
     )
     allow_headers: list[str] = Field(
         default_factory=lambda: ["*"],
@@ -119,6 +117,23 @@ class CORSSettings(BaseSettings):
         default=600,
         description="Max age in seconds for CORS preflight cache (default: 10 minutes)",
     )
+
+    @model_validator(mode="after")
+    def validate_no_wildcard_origin_with_credentials(self) -> "CORSSettings":
+        """Reject wildcard origin when credentials are allowed.
+
+        Per the CORS spec and browser enforcement, 'Access-Control-Allow-Origin: *'
+        is incompatible with 'Access-Control-Allow-Credentials: true'.  Browsers
+        will reject such responses, so we fail fast at configuration time to
+        prevent a misconfiguration that silently breaks browser clients.
+        """
+        if self.allow_credentials and "*" in self.origins:
+            raise ValueError(
+                "Wildcard origin ('*') must not be used when credentials are "
+                "allowed (allow_credentials=True). Use an explicit origins allowlist "
+                "instead. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS/Errors/CORSNotSupportingCredentials"
+            )
+        return self
 
     @property
     def is_enabled(self) -> bool:

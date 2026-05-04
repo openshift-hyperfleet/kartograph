@@ -11,12 +11,20 @@ import {
   FileCode, Play, Trash2, Upload, Loader2,
   FileUp, XCircle, AlertTriangle, Building2,
   Plus, GitBranch, RefreshCw, BookOpen,
+  BookMarked, FolderTree,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Separator } from '@/components/ui/separator'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Tooltip, TooltipContent, TooltipTrigger,
 } from '@/components/ui/tooltip'
@@ -33,6 +41,7 @@ import { mutationLinter } from '@/lib/codemirror/mutation-jsonl/linter'
 import { useModifierKeys } from '@/composables/useModifierKeys'
 
 // Local components
+import LargeFileSummary from '@/components/graph/LargeFileSummary.vue'
 import MutationPreview from '@/components/graph/MutationPreview.vue'
 import MutationTemplates from '@/components/graph/MutationTemplates.vue'
 import WarningBrowser from '@/components/graph/WarningBrowser.vue'
@@ -42,6 +51,15 @@ import { parseContent, toJsonl, generateHexId, getBreakdown, type ParseResult } 
 
 // Worker-based parsing for large files
 import { useMutationWorker, LARGE_FILE_THRESHOLD } from '@/composables/useMutationWorker'
+
+// Pure utilities for this page (testable without mounting)
+import {
+  isAcceptedMutationFile,
+  getMergedEditorContent,
+  isCtrlOrCmdEnterEvent,
+  getEditorVisibilityForViewChange,
+  canSubmitMutations,
+} from '@/utils/mutationConsole'
 
 // ── Quick Start Templates ───────────────────────────────────────────────────
 
@@ -78,11 +96,86 @@ const quickStartTemplates = [
   },
 ]
 
-const { hasTenant } = useTenant()
+const { hasTenant, tenantVersion } = useTenant()
 const { ctrlHeld } = useModifierKeys()
 const submission = useMutationSubmission()
 const router = useRouter()
 const route = useRoute()
+
+// ── Workspace selection ─────────────────────────────────────────────────────
+
+interface WorkspaceItem {
+  id: string
+  name: string
+}
+
+const workspaces = ref<WorkspaceItem[]>([])
+const selectedWorkspaceId = ref('')
+const loadingWorkspaces = ref(false)
+
+async function loadWorkspaces() {
+  if (!hasTenant.value) return
+  loadingWorkspaces.value = true
+  try {
+    const { listWorkspaces } = useIamApi()
+    const result = await listWorkspaces()
+    workspaces.value = result.workspaces ?? []
+  } catch {
+    workspaces.value = []
+  } finally {
+    loadingWorkspaces.value = false
+  }
+}
+
+// ── Knowledge Graph selection ───────────────────────────────────────────────
+
+interface KnowledgeGraphItem {
+  id: string
+  name: string
+}
+
+const knowledgeGraphs = ref<KnowledgeGraphItem[]>([])
+const selectedKnowledgeGraphId = ref('')
+const loadingKgs = ref(false)
+
+async function loadKnowledgeGraphs() {
+  if (!hasTenant.value || !selectedWorkspaceId.value) return
+  loadingKgs.value = true
+  try {
+    const { apiFetch } = useApiClient()
+    // Request only KGs the user has 'edit' permission on within the selected
+    // workspace — the spec requires "within the current workspace" scoping.
+    // Backend supports ?workspace_id= filter on GET /management/knowledge-graphs
+    // via KnowledgeGraphService.list_for_workspace_with_permission().
+    const result = await apiFetch<{ knowledge_graphs: KnowledgeGraphItem[] }>(
+      '/management/knowledge-graphs',
+      { query: { permission: 'edit', workspace_id: selectedWorkspaceId.value } },
+    )
+    knowledgeGraphs.value = result.knowledge_graphs ?? []
+  } catch {
+    knowledgeGraphs.value = []
+  } finally {
+    loadingKgs.value = false
+  }
+}
+
+// Reload workspace list whenever the tenant changes; clear both selections
+watch(hasTenant, (has) => {
+  selectedWorkspaceId.value = ''
+  selectedKnowledgeGraphId.value = ''
+  if (has) loadWorkspaces()
+  else {
+    workspaces.value = []
+    knowledgeGraphs.value = []
+  }
+}, { immediate: true })
+
+// Reload KG list whenever the workspace changes; reset KG selection
+watch(selectedWorkspaceId, (wsId) => {
+  selectedKnowledgeGraphId.value = ''
+  if (wsId) loadKnowledgeGraphs()
+  else knowledgeGraphs.value = []
+})
 
 // ── Worker ─────────────────────────────────────────────────────────────────
 
@@ -127,13 +220,13 @@ function deactivateEditor() {
 
 // Handle browser back/forward button
 watch(() => route.query.view, (newView) => {
-  if (newView === 'editor') {
-    showEditor.value = true
-  } else {
-    // Only deactivate if there's no content to preserve
-    if (!editorContent.value.trim() && !largeFileMode.value) {
-      showEditor.value = false
-    }
+  const hasContent = !!editorContent.value.trim() || largeFileMode.value
+  const visibility = getEditorVisibilityForViewChange(
+    typeof newView === 'string' ? newView : undefined,
+    hasContent,
+  )
+  if (visibility !== null) {
+    showEditor.value = visibility
   }
 })
 
@@ -230,11 +323,7 @@ async function insertTemplate(content: string) {
     view.focus()
   } else {
     // CM still not ready — set content on the ref, CM will pick it up when it initializes
-    if (editorContent.value.trim()) {
-      editorContent.value += '\n' + content
-    } else {
-      editorContent.value = content
-    }
+    editorContent.value = getMergedEditorContent(editorContent.value, content)
   }
   submission.dismiss()
 }
@@ -251,7 +340,21 @@ function showAllTemplates() {
 const preparing = ref(false)
 
 async function handleSubmit() {
-  if (submitting.value || preparing.value || !editorContent.value.trim()) return
+  if (!canSubmitMutations({
+    selectedWorkspaceId: selectedWorkspaceId.value,
+    selectedKnowledgeGraphId: selectedKnowledgeGraphId.value,
+    content: editorContent.value,
+    isLargeFile: isLargeFile.value,
+    submitting: submitting.value,
+    preparing: preparing.value,
+  })) {
+    if (!selectedWorkspaceId.value) {
+      toast.error('Select a workspace before applying mutations')
+    } else if (!selectedKnowledgeGraphId.value) {
+      toast.error('Select a knowledge graph before applying mutations')
+    }
+    return
+  }
 
   // For large files, skip client-side re-parse and submit raw content directly
   if (isLargeFile.value) {
@@ -271,7 +374,7 @@ async function handleSubmit() {
     })
     const body = cleanLines.join('\n')
     preparing.value = false
-    submission.submit(body, opCount)
+    submission.submit(selectedKnowledgeGraphId.value, body, opCount)
     return
   }
 
@@ -289,7 +392,7 @@ async function handleSubmit() {
 
   // Convert parsed operations to clean JSONL for submission
   const jsonlBody = toJsonl(result.operations)
-  submission.submit(jsonlBody, result.operations.length)
+  submission.submit(selectedKnowledgeGraphId.value, jsonlBody, result.operations.length)
 }
 
 function clearEditor() {
@@ -312,7 +415,7 @@ function handleDrop(event: DragEvent) {
 }
 
 function readFile(file: File) {
-  if (!file.name.endsWith('.jsonl') && !file.name.endsWith('.json') && !file.name.endsWith('.ndjson')) {
+  if (!isAcceptedMutationFile(file.name)) {
     toast.error('Invalid file type', { description: 'Please upload a .jsonl, .json, or .ndjson file.' })
     return
   }
@@ -346,11 +449,7 @@ function readFile(file: File) {
       }
     } else {
       // Small file: set content directly — CM will pick it up via reactivity
-      if (editorContent.value.trim()) {
-        editorContent.value += '\n' + text
-      } else {
-        editorContent.value = text
-      }
+      editorContent.value = getMergedEditorContent(editorContent.value, text)
       toast.success(`Loaded ${file.name}`)
     }
     submission.dismiss()
@@ -374,7 +473,7 @@ function handleDragLeave() {
 // ── Keyboard Shortcut (global fallback) ────────────────────────────────────
 
 function handleCtrlEnter(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+  if (isCtrlOrCmdEnterEvent(e)) {
     e.preventDefault()
     handleSubmit()
   }
@@ -382,9 +481,18 @@ function handleCtrlEnter(e: KeyboardEvent) {
 
 onMounted(() => {
   document.addEventListener('keydown', handleCtrlEnter)
+  loadWorkspaces()
 
   const templateParam = route.query.template
   if (typeof templateParam === 'string' && templateParam.trim()) {
+    // Spec caveat: URL parameters over 1 KB may be truncated by some browsers.
+    // Warn the user and suggest file upload for large template content.
+    if (templateParam.length > 1024) {
+      toast.warning('Template content is large', {
+        description:
+          'URL parameters over 1 KB may be truncated by some browsers. Consider using file upload for large mutations.',
+      })
+    }
     nextTick(() => insertTemplate(templateParam.trim()))
   }
 })
@@ -401,7 +509,7 @@ onBeforeUnmount(() => {
       <div>
         <div class="flex items-center gap-3">
           <FileCode class="size-6 text-muted-foreground" />
-          <h1 class="text-2xl font-bold tracking-tight">Mutations Console</h1>
+          <h1 class="text-2xl font-semibold tracking-tight">Mutations Console</h1>
         </div>
         <p class="mt-1 text-muted-foreground">Author and submit JSONL mutations to the knowledge graph.</p>
       </div>
@@ -543,85 +651,16 @@ onBeforeUnmount(() => {
       <div class="grid gap-6" :class="isDesktop ? 'lg:grid-cols-[1fr_400px]' : ''">
         <!-- Left: Editor area -->
         <div class="space-y-4">
-          <!-- Large file mode: summary instead of editor -->
-          <Card v-if="largeFileMode">
-            <CardHeader class="pb-3">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                  <CardTitle class="text-base">Large File Mode</CardTitle>
-                  <Badge variant="secondary">
-                    {{ (editorContent.length / 1_000_000).toFixed(1) }} MB
-                  </Badge>
-                </div>
-                <Button variant="ghost" size="sm" @click="clearEditor">
-                  <Trash2 class="mr-2 size-4" />
-                  Clear
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent class="space-y-3">
-              <p class="text-sm text-muted-foreground">
-                File too large for interactive editing. Review the summary below and submit directly.
-              </p>
-
-              <!-- Parsing indicator -->
-              <div v-if="parsing" class="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 class="size-4 animate-spin" />
-                Analyzing operations...
-              </div>
-
-              <!-- Breakdown badges -->
-              <div v-else-if="workerResult" class="space-y-2">
-                <div class="flex flex-wrap gap-2">
-                  <Badge variant="secondary">
-                    {{ workerResult.totalOps.toLocaleString() }} operations
-                  </Badge>
-                  <Badge v-if="workerResult.breakdown.DEFINE > 0" variant="outline" class="gap-1">
-                    DEFINE <span class="font-mono">{{ workerResult.breakdown.DEFINE.toLocaleString() }}</span>
-                  </Badge>
-                  <Badge v-if="workerResult.breakdown.CREATE > 0" class="gap-1">
-                    CREATE <span class="font-mono">{{ workerResult.breakdown.CREATE.toLocaleString() }}</span>
-                  </Badge>
-                  <Badge v-if="workerResult.breakdown.UPDATE > 0" variant="secondary" class="gap-1">
-                    UPDATE <span class="font-mono">{{ workerResult.breakdown.UPDATE.toLocaleString() }}</span>
-                  </Badge>
-                  <Badge v-if="workerResult.breakdown.DELETE > 0" variant="destructive" class="gap-1">
-                    DELETE <span class="font-mono">{{ workerResult.breakdown.DELETE.toLocaleString() }}</span>
-                  </Badge>
-                </div>
-
-                <div v-if="workerResult.warningCount > 0" class="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    class="gap-2 border-yellow-500/30 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/10"
-                    @click="showWarningBrowser = true"
-                  >
-                    <AlertTriangle class="size-3.5" />
-                    Browse {{ workerResult.warningCount.toLocaleString() }} Warning{{ workerResult.warningCount === 1 ? '' : 's' }}
-                  </Button>
-                </div>
-
-                <div v-if="workerResult.parseErrors.length > 0" class="space-y-1">
-                  <div
-                    v-for="(error, idx) in workerResult.parseErrors.slice(0, 10)"
-                    :key="idx"
-                    class="flex items-start gap-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs"
-                  >
-                    <AlertTriangle class="mt-0.5 size-3 shrink-0 text-destructive" />
-                    <span class="font-mono">{{ error }}</span>
-                  </div>
-                  <p v-if="workerResult.parseErrors.length > 10" class="text-xs text-muted-foreground">
-                    ...and {{ workerResult.parseErrors.length - 10 }} more errors
-                  </p>
-                </div>
-
-                <p class="text-xs text-muted-foreground">
-                  Analyzed in {{ parseTimeMs.toFixed(0) }}ms
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+          <!-- Large file mode: summary panel (dedicated component) -->
+          <LargeFileSummary
+            v-if="largeFileMode"
+            :worker-result="workerResult"
+            :parsing="parsing"
+            :parse-time-ms="parseTimeMs"
+            :file-size-mb="editorContent.length / 1_000_000"
+            @clear="clearEditor"
+            @browse-warnings="showWarningBrowser = true"
+          />
 
           <!-- Normal editor card -->
           <Card
@@ -702,13 +741,77 @@ onBeforeUnmount(() => {
             </CardContent>
           </Card>
 
+          <!-- Workspace selector + Knowledge graph selector -->
+          <div class="space-y-3">
+            <!-- Step 1: Workspace selector -->
+            <div class="flex items-center gap-2">
+              <FolderTree class="size-4 shrink-0 text-muted-foreground" />
+              <span class="text-sm text-muted-foreground shrink-0 w-28">Workspace:</span>
+              <Select
+                v-model="selectedWorkspaceId"
+                :disabled="loadingWorkspaces || submitting"
+              >
+                <SelectTrigger class="h-9 flex-1 min-w-[200px] max-w-[320px]">
+                  <SelectValue
+                    :placeholder="loadingWorkspaces ? 'Loading workspaces…' : 'Select a workspace'"
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="ws in workspaces"
+                    :key="ws.id"
+                    :value="ws.id"
+                  >
+                    {{ ws.name }}
+                  </SelectItem>
+                  <div
+                    v-if="!loadingWorkspaces && workspaces.length === 0"
+                    class="px-2 py-4 text-center text-xs text-muted-foreground"
+                  >
+                    No workspaces found
+                  </div>
+                </SelectContent>
+              </Select>
+            </div>
+            <!-- Step 2: Knowledge graph selector (scoped to selected workspace) -->
+            <div class="flex items-center gap-2">
+              <BookMarked class="size-4 shrink-0 text-muted-foreground" />
+              <span class="text-sm text-muted-foreground shrink-0 w-28">Knowledge Graph:</span>
+              <Select
+                v-model="selectedKnowledgeGraphId"
+                :disabled="!selectedWorkspaceId || loadingKgs || submitting"
+              >
+                <SelectTrigger class="h-9 flex-1 min-w-[200px] max-w-[320px]">
+                  <SelectValue
+                    :placeholder="!selectedWorkspaceId ? 'Select a workspace first' : loadingKgs ? 'Loading knowledge graphs…' : 'Select a knowledge graph'"
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="kg in knowledgeGraphs"
+                    :key="kg.id"
+                    :value="kg.id"
+                  >
+                    {{ kg.name }}
+                  </SelectItem>
+                  <div
+                    v-if="selectedWorkspaceId && !loadingKgs && knowledgeGraphs.length === 0"
+                    class="px-2 py-4 text-center text-xs text-muted-foreground"
+                  >
+                    No knowledge graphs found in this workspace
+                  </div>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
           <!-- Action bar -->
           <div class="flex items-center gap-3">
             <Tooltip>
               <TooltipTrigger as-child>
                 <Button
-                  :disabled="submitting || preparing || (!editorContent.trim() && !largeFileMode)"
-                  :class="ctrlHeld && !submitting && !preparing && (editorContent.trim() || largeFileMode) ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''"
+                  :disabled="!canSubmitMutations({ selectedWorkspaceId, selectedKnowledgeGraphId, content: editorContent, isLargeFile: isLargeFile, submitting, preparing })"
+                  :class="ctrlHeld && canSubmitMutations({ selectedWorkspaceId, selectedKnowledgeGraphId, content: editorContent, isLargeFile: isLargeFile, submitting, preparing }) ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''"
                   @click="handleSubmit"
                 >
                   <Loader2 v-if="submitting || preparing" class="mr-2 size-4 animate-spin" />

@@ -46,7 +46,7 @@ class TestManagementEventTranslatorSupportedEvents:
         assert "DataSourceCreated" in supported
         assert "DataSourceUpdated" in supported
         assert "DataSourceDeleted" in supported
-        assert "DataSourceSyncRequested" in supported
+        assert "SyncStarted" in supported
 
     def test_supports_exactly_seven_event_types(self):
         """Translator should support exactly 7 event types."""
@@ -564,32 +564,36 @@ class TestManagementEventTranslatorDataSourceDeleted:
         assert operations[1].relation_name == "tenant"
 
 
-class TestManagementEventTranslatorDataSourceSyncRequested:
-    """Tests for DataSourceSyncRequested translation.
+class TestManagementEventTranslatorSyncStarted:
+    """Tests for SyncStarted translation.
 
-    DataSourceSyncRequested is a no-op for SpiceDB — sync requests
-    do not affect authorization relationships.
+    SyncStarted is a no-op for SpiceDB — sync lifecycle events do not
+    affect authorization relationships.
     """
 
     def test_returns_empty_list(self):
-        """DataSourceSyncRequested should produce no SpiceDB operations."""
+        """SyncStarted should produce no SpiceDB operations."""
         translator = ManagementEventTranslator()
         payload = {
+            "sync_run_id": "01ARZCX0P0HZGQP3MZXQQ0NNVV",
             "data_source_id": "01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             "knowledge_graph_id": "01ARZCX0P0HZGQP3MZXQQ0NNYY",
             "tenant_id": "01ARZCX0P0HZGQP3MZXQQ0NNXX",
+            "adapter_type": "github",
+            "connection_config": {"repo": "org/repo"},
+            "credentials_path": None,
             "occurred_at": "2026-01-08T12:00:00+00:00",
             "requested_by": "01ARZCX0P0HZGQP3MZXQQ0NNWW",
         }
 
-        operations = translator.translate("DataSourceSyncRequested", payload)
+        operations = translator.translate("SyncStarted", payload)
 
         assert operations == []
 
     def test_handler_is_registered(self):
-        """DataSourceSyncRequested should be in supported event types."""
+        """SyncStarted should be in supported event types."""
         translator = ManagementEventTranslator()
-        assert "DataSourceSyncRequested" in translator.supported_event_types()
+        assert "SyncStarted" in translator.supported_event_types()
 
 
 class TestManagementEventTranslatorValidation:

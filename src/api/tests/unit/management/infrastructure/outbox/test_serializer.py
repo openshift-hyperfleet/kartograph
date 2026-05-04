@@ -14,12 +14,12 @@ import pytest
 from management.domain.events import (
     DataSourceCreated,
     DataSourceDeleted,
-    DataSourceSyncRequested,
     DataSourceUpdated,
     DomainEvent,
     KnowledgeGraphCreated,
     KnowledgeGraphDeleted,
     KnowledgeGraphUpdated,
+    SyncStarted,
 )
 from management.infrastructure.outbox import ManagementEventSerializer
 
@@ -38,7 +38,7 @@ class TestSupportedEvents:
         assert "DataSourceCreated" in supported
         assert "DataSourceUpdated" in supported
         assert "DataSourceDeleted" in supported
-        assert "DataSourceSyncRequested" in supported
+        assert "SyncStarted" in supported
 
     def test_supported_count_matches_domain_event_union(self):
         """Supported types count should match the DomainEvent type alias members."""
@@ -172,20 +172,27 @@ class TestSerialize:
         assert payload["data_source_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNWW"
         assert payload["knowledge_graph_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNZZ"
 
-    def test_serializes_data_source_sync_requested(self):
-        """DataSourceSyncRequested should be serialized correctly."""
+    def test_serializes_sync_started(self):
+        """SyncStarted should be serialized correctly including connection_config."""
         serializer = ManagementEventSerializer()
-        event = DataSourceSyncRequested(
+        event = SyncStarted(
+            sync_run_id="01ARZCX0P0HZGQP3MZXQQ0NNVV",
             data_source_id="01ARZCX0P0HZGQP3MZXQQ0NNWW",
             knowledge_graph_id="01ARZCX0P0HZGQP3MZXQQ0NNZZ",
             tenant_id="01ARZCX0P0HZGQP3MZXQQ0NNYY",
+            adapter_type="github",
+            connection_config={"repo": "org/repo"},
+            credentials_path=None,
             occurred_at=datetime(2026, 3, 10, 12, 0, 0, tzinfo=UTC),
             requested_by="user-456",
         )
 
         payload = serializer.serialize(event)
 
+        assert payload["sync_run_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNVV"
         assert payload["data_source_id"] == "01ARZCX0P0HZGQP3MZXQQ0NNWW"
+        assert payload["adapter_type"] == "github"
+        assert payload["connection_config"] == {"repo": "org/repo"}
         assert payload["requested_by"] == "user-456"
 
     def test_payload_is_json_serializable(self):
@@ -324,10 +331,14 @@ class TestRoundTrip:
                 occurred_at=occurred_at,
                 deleted_by="user-1",
             ),
-            DataSourceSyncRequested(
+            SyncStarted(
+                sync_run_id="run-1",
                 data_source_id="ds-1",
                 knowledge_graph_id="kg-1",
                 tenant_id="tenant-1",
+                adapter_type="github",
+                connection_config={"repo": "org/repo"},
+                credentials_path=None,
                 occurred_at=occurred_at,
                 requested_by="user-1",
             ),

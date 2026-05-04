@@ -6,13 +6,15 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.17.2",
-    "authlib>=1.6.9",  # CVE fix: transitive dep pinned for security
+    "authlib>=1.6.9", # CVE fix: transitive dep pinned for security
     "apache-age-python>=0.0.7",
     "asyncpg>=0.31.0",
     "asyncpg-listen>=0.0.9",
     "authzed>=1.24.0",
     "bcrypt>=5.0.0",
+    "croniter>=3.0.0",
     "cyclopts==5.0.0a1",
+    "dlt[postgres]>=1.9.0",
     "fastapi[standard]>=0.123.9",
     "fastmcp==2.14.3",
     "httpx>=0.28.1",
@@ -37,7 +39,9 @@ dev = [
     "pytest-mock>=3.15.1",
     "rich>=14.2.0",
     "ruff>=0.14.8",
+    "types-croniter>=6.2.2",
     "types-psycopg2>=2.9.21.20251012",
+    "types-pyyaml>=6.0.12",
 ]
 
 [tool.pytest.ini_options]
@@ -46,14 +50,14 @@ pythonpath = ["."]
 
 [tool.pytest_env]
 # Database settings for integration tests
-KARTOGRAPH_DB_HOST = "localhost"
-KARTOGRAPH_DB_PORT = "5432"
+KARTOGRAPH_DB_HOST = { value = "localhost", skip_if_set = true }
+KARTOGRAPH_DB_PORT = { value = "5432", skip_if_set = true }
 KARTOGRAPH_DB_DATABASE = "kartograph"
 KARTOGRAPH_DB_USERNAME = "kartograph"
 KARTOGRAPH_DB_PASSWORD = "kartograph_dev_password"
 
 # SpiceDB settings for integration tests
-SPICEDB_ENDPOINT = "localhost:50051"
+SPICEDB_ENDPOINT = { value = "localhost:50051", skip_if_set = true }
 SPICEDB_PRESHARED_KEY = { value = "changeme", skip_if_set = true }
 SPICEDB_USE_TLS = { value = "true", skip_if_set = true }
 # Path to self-signed certificate (relative to src/api)

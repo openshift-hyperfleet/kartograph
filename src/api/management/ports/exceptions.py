@@ -28,6 +28,17 @@ class DuplicateDataSourceNameError(Exception):
     pass
 
 
+class KnowledgeGraphNotFoundError(Exception):
+    """Raised when a knowledge graph cannot be found.
+
+    This exception indicates that the requested knowledge graph does not
+    exist or is not accessible. The application layer should handle this
+    and return appropriate HTTP 404 responses.
+    """
+
+    pass
+
+
 class UnauthorizedError(Exception):
     """Raised when a user lacks permission to perform an operation.
 

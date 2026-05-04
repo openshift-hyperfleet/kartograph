@@ -58,6 +58,8 @@ class AgeGraphClient(GraphClientProtocol):
         settings: DatabaseSettings,
         connection_factory: ConnectionFactory | None = None,
         probe: GraphClientProbe | None = None,
+        graph_name: str | None = None,
+        auto_create: bool = False,
     ):
         """Initialize the AGE graph client.
 
@@ -65,10 +67,19 @@ class AgeGraphClient(GraphClientProtocol):
             settings: Database connection settings
             connection_factory: Optional connection factory (required for pooled mode)
             probe: Optional observability probe
+            graph_name: Optional graph name override. When provided, overrides
+                ``settings.graph_name``. Use this for per-tenant graph isolation
+                (e.g., ``"tenant_t1"``). Defaults to ``settings.graph_name``.
+            auto_create: When True, the graph is created during ``connect()`` if
+                it does not already exist. Defaults to False to prevent accidental
+                graph provisioning during normal API request handling. Pass
+                ``auto_create=True`` only in administrative / provisioning code
+                paths (e.g. dev setup, migration scripts, integration test fixtures).
         """
         self._settings = settings
         self._connection_factory = connection_factory
-        self._graph_name = settings.graph_name
+        self._graph_name = graph_name if graph_name is not None else settings.graph_name
+        self._auto_create = auto_create
         self._connected = False
         self._current_connection: PsycopgConnection | None = None
         self._probe = probe or DefaultGraphClientProbe()
@@ -102,7 +113,13 @@ class AgeGraphClient(GraphClientProtocol):
         return self._connection
 
     def connect(self) -> None:
-        """Establish connection to the graph database."""
+        """Establish connection to the graph database.
+
+        If ``auto_create`` was set to True at construction time the graph is
+        created when it does not already exist (suitable for dev / test setup).
+        Otherwise the graph is assumed to be provisioned externally and this
+        method will not attempt to create it.
+        """
         if self._connection_factory is None:
             raise ValueError(
                 "ConnectionFactory required. Pass connection_factory parameter to __init__."
@@ -110,7 +127,8 @@ class AgeGraphClient(GraphClientProtocol):
 
         try:
             self._current_connection = self._connection_factory.get_connection()
-            self._ensure_graph_exists()
+            if self._auto_create:
+                self._ensure_graph_exists()
             # Register AGType parser for automatic conversion of Vertex, Edge, Path objects
             age.setUpAge(self._current_connection, self._graph_name)
             self._connected = True
@@ -135,6 +153,38 @@ class AgeGraphClient(GraphClientProtocol):
                 )
                 self._connection.commit()
                 self._probe.graph_created(self._graph_name)
+
+    def graph_exists(self, graph_name: str) -> bool:
+        """Check whether an AGE graph with the given name exists.
+
+        Queries the Apache AGE catalog (``ag_catalog.ag_graph``) to determine
+        whether the named graph has been provisioned. This is a lightweight
+        read-only SQL query that does NOT require the AGE extension to be
+        set up for the specific graph_name.
+
+        Used by the Querying context to validate tenant graph existence
+        before executing Cypher queries.
+
+        Args:
+            graph_name: The name of the graph to check (e.g., ``"tenant_xyz"``).
+
+        Returns:
+            True if the graph exists in ag_catalog.ag_graph, False otherwise.
+
+        Raises:
+            DatabaseConnectionError: If not connected to the database.
+        """
+        if not self.is_connected():
+            from infrastructure.database.exceptions import DatabaseConnectionError
+
+            raise DatabaseConnectionError("Not connected to database")
+
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT 1 FROM ag_catalog.ag_graph WHERE name = %s",
+                (graph_name,),
+            )
+            return cursor.fetchone() is not None
 
     def disconnect(self) -> None:
         """Close the database connection and return it to the pool."""

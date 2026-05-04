@@ -38,14 +38,20 @@ class QueryServiceProbe(Protocol):
         self,
         query: str,
         reason: str,
+        correlation_id: str | None = None,
     ) -> None:
-        """Record that a query was rejected (security violation)."""
+        """Record that a query was rejected (security violation).
+
+        Note: The raw query MUST NOT be logged. Use correlation_id to cross-
+        reference the redacted log entry with the error response.
+        """
         ...
 
     def cypher_query_failed(
         self,
         query: str,
         error: str,
+        correlation_id: str | None = None,
     ) -> None:
         """Record that a query failed during execution."""
         ...
@@ -92,17 +98,31 @@ class DefaultQueryServiceProbe:
             **self._get_context_kwargs(),
         )
 
-    def cypher_query_rejected(self, query: str, reason: str) -> None:
+    def cypher_query_rejected(
+        self,
+        query: str,
+        reason: str,
+        correlation_id: str | None = None,
+    ) -> None:
+        # IMPORTANT: Do NOT log `query` — log only the correlation_id so that
+        # raw query text never appears in log output (spec: redacted reference).
         self._logger.warning(
             "mcp_cypher_query_rejected",
             reason=reason,
+            correlation_id=correlation_id,
             **self._get_context_kwargs(),
         )
 
-    def cypher_query_failed(self, query: str, error: str) -> None:
+    def cypher_query_failed(
+        self,
+        query: str,
+        error: str,
+        correlation_id: str | None = None,
+    ) -> None:
         self._logger.error(
             "mcp_cypher_query_failed",
             error=error,
+            correlation_id=correlation_id,
             **self._get_context_kwargs(),
         )
 
@@ -186,4 +206,59 @@ class DefaultSchemaResourceProbe:
             resource_uri=resource_uri,
             label=label,
             **self._get_context_kwargs(),
+        )
+
+
+class KnowledgeGraphResourceProbe(Protocol):
+    """Domain probe for knowledge_graphs://accessible MCP resource access."""
+
+    def knowledge_graphs_resource_accessed(
+        self,
+        user_id: str,
+        tenant_id: str,
+    ) -> None:
+        """Record that the accessible knowledge graphs resource was read."""
+        ...
+
+    def knowledge_graphs_resource_returned(
+        self,
+        user_id: str,
+        tenant_id: str,
+        count: int,
+    ) -> None:
+        """Record the number of accessible knowledge graphs returned."""
+        ...
+
+
+class DefaultKnowledgeGraphResourceProbe:
+    """Default implementation using structlog."""
+
+    def __init__(
+        self,
+        logger: structlog.stdlib.BoundLogger | None = None,
+    ) -> None:
+        self._logger = logger or structlog.get_logger()
+
+    def knowledge_graphs_resource_accessed(
+        self,
+        user_id: str,
+        tenant_id: str,
+    ) -> None:
+        self._logger.info(
+            "mcp_knowledge_graphs_resource_accessed",
+            user_id=user_id,
+            tenant_id=tenant_id,
+        )
+
+    def knowledge_graphs_resource_returned(
+        self,
+        user_id: str,
+        tenant_id: str,
+        count: int,
+    ) -> None:
+        self._logger.info(
+            "mcp_knowledge_graphs_resource_returned",
+            user_id=user_id,
+            tenant_id=tenant_id,
+            count=count,
         )

@@ -14,6 +14,10 @@ from query.infrastructure.observability.remote_file_repository_probe import (
     DefaultRemoteFileRepositoryProbe,
 )
 from query.infrastructure.prompt_repository import PromptRepository
+from query.infrastructure.tenant_routing import (
+    AGEGraphExistenceChecker,
+    TenantAwareQueryGraphRepository,
+)
 from query.ports.repositories import IRemoteFileRepository
 
 from infrastructure.database.connection import ConnectionFactory
@@ -27,6 +31,7 @@ from query.application.observability import (
 )
 from query.application.services import MCPQueryService
 from query.infrastructure.query_repository import QueryGraphRepository
+from shared_kernel.middleware.mcp_auth import get_mcp_auth_context
 
 if TYPE_CHECKING:
     from graph.infrastructure.age_client import AgeGraphClient
@@ -42,11 +47,19 @@ def get_query_service_probe() -> QueryServiceProbe:
 
 
 @contextmanager
-def mcp_graph_client_context() -> Generator["AgeGraphClient", None, None]:
+def mcp_graph_client_context(
+    graph_name: Optional[str] = None,
+) -> Generator["AgeGraphClient", None, None]:
     """Context manager for MCP graph client lifecycle.
 
     Creates a connected graph client and ensures proper cleanup.
     Uses the shared connection pool for efficiency.
+
+    Args:
+        graph_name: Optional graph name override. When provided (e.g.,
+            ``"tenant_{tenant_id}"``), the client targets that specific
+            AGE graph instead of the default from settings. Pass this
+            for per-tenant graph isolation (spec: Per-Tenant Graph Routing).
 
     Yields:
         Connected AgeGraphClient instance
@@ -57,7 +70,7 @@ def mcp_graph_client_context() -> Generator["AgeGraphClient", None, None]:
     pool = get_age_connection_pool()
     settings = get_database_settings()
     factory = ConnectionFactory(settings, pool=pool)
-    client = AgeGraphClient(settings, connection_factory=factory)
+    client = AgeGraphClient(settings, connection_factory=factory, graph_name=graph_name)
     client.connect()
     try:
         yield client
@@ -67,19 +80,49 @@ def mcp_graph_client_context() -> Generator["AgeGraphClient", None, None]:
 
 @contextmanager
 def get_mcp_query_service() -> Iterator[MCPQueryService]:
-    """Get MCPQueryService for MCP operations.
+    """Get a tenant-aware MCPQueryService for MCP tool calls.
+
+    Reads the authenticated tenant from the MCP auth ContextVar and
+    routes all queries to that tenant's AGE graph (``tenant_{tenant_id}``).
+
+    The tenant graph existence is checked before every query execution;
+    if the graph has not been provisioned the query is rejected with a
+    QueryExecutionError before any AGE round-trip (spec: Tenant graph not found).
 
     Context manager that manually resolves all dependencies to work with
-    FastMCP's docket DI system, which doesn't support nested Depends() chains.
-
+    FastMCP's DI system, which doesn't support nested Depends() chains.
     Handles graph client lifecycle (connect/disconnect) automatically.
 
+    Per-tenant graph routing:
+        Reads the authenticated MCP caller's tenant_id from the request
+        context and routes all queries to the corresponding AGE graph
+        (``tenant_{tenant_id}``). This guarantees tenant isolation at the
+        database level — all queries run against a graph that is dedicated to
+        and owned by the authenticated tenant.
+
     Yields:
-        MCPQueryService instance with active database connection
+        MCPQueryService instance scoped to the caller's tenant graph.
     """
-    with mcp_graph_client_context() as client:
+    auth_context = get_mcp_auth_context()
+    tenant_id = auth_context.tenant_id
+    tenant_graph_name = f"tenant_{tenant_id}"
+
+    pool = get_age_connection_pool()
+    settings = get_database_settings()
+    factory = ConnectionFactory(settings, pool=pool)
+
+    # Build the existence checker using a separate connection pool reference.
+    # This lets us verify the graph before opening an AGE-registered connection.
+    existence_checker = AGEGraphExistenceChecker(connection_factory=factory)
+
+    with mcp_graph_client_context(graph_name=tenant_graph_name) as client:
         probe = get_query_service_probe()
-        repository = QueryGraphRepository(client=client)
+        inner_repository = QueryGraphRepository(client=client)
+        repository = TenantAwareQueryGraphRepository(
+            tenant_id=tenant_id,
+            inner_repository=inner_repository,
+            existence_check_fn=existence_checker,
+        )
         yield MCPQueryService(repository=repository, probe=probe)
 
 
@@ -111,7 +154,7 @@ def get_git_repository(
         Repository instance for the detected provider with appropriate token
 
     Raises:
-        ValueError: If URL is from an unsupported git provider
+        InvalidRemoteFileURL: If URL is from an unsupported git provider or has an invalid format
 
     Example:
         >>> # Factory auto-selects the right token based on URL

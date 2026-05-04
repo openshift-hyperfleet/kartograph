@@ -5,6 +5,20 @@ Query execution translates Cypher queries into graph database operations with sa
 
 ## Requirements
 
+### Requirement: Per-Tenant Graph Routing
+The system SHALL route all queries to the caller's tenant-specific AGE graph.
+
+#### Scenario: Query routed to tenant graph
+- GIVEN an authenticated query request
+- WHEN the query is executed
+- THEN it executes against the AGE graph named `tenant_{tenant_id}` for the resolved tenant
+- AND queries never cross tenant boundaries regardless of query content
+
+#### Scenario: Tenant graph not found
+- GIVEN a tenant whose AGE graph has not been provisioned
+- WHEN a query is submitted
+- THEN the request is rejected with an execution error before reaching the database
+
 ### Requirement: Read-Only Enforcement
 The system SHALL enforce read-only query execution via defense-in-depth.
 

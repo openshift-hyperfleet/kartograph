@@ -75,9 +75,9 @@ class EntityIdGenerator:
             entity_slug: The entity's slug identifier (e.g., "alice-smith").
                 Can contain any characters including special chars and unicode.
                 Must be non-empty.
-            tenant_id: The tenant identifier. Default is "" for single-tenant
-                deployments. TODO: Properly incorporate tenant_id when
-                multi-tenancy is implemented.
+            tenant_id: The tenant identifier. Included in the canonical hash input
+                to ensure entity IDs are scoped to a tenant and cannot collide
+                across tenant boundaries. Use "" for single-tenant deployments.
 
         Returns:
             A deterministic ID string with lowercase type prefix.
@@ -117,8 +117,7 @@ class EntityIdGenerator:
         # Normalize to lowercase for consistent hashing and ID format
         normalized_type = entity_type_stripped.lower()
 
-        # Combine tenant, type, and slug for hash input
-        # TODO: Properly incorporate tenant_id when multi-tenancy is implemented
+        # Canonical hash input: {tenant_id}:{entity_type}:{entity_slug}
         combined = f"{tenant_id_str}:{normalized_type}:{entity_slug_stripped}"
 
         # Generate hash using shared hashing function
@@ -147,8 +146,9 @@ class EntityIdGenerator:
                 Must be non-empty.
             end_id: The ID of the end (target) node (e.g., "person:def456...").
                 Must be non-empty.
-            tenant_id: The tenant identifier. Default is "" for single-tenant
-                deployments. Included for consistency with node ID generation.
+            tenant_id: The tenant identifier. Included in the canonical hash input
+                to ensure edge IDs are scoped to a tenant and cannot collide
+                across tenant boundaries. Use "" for single-tenant deployments.
 
         Returns:
             A deterministic ID string with lowercase label prefix.
@@ -194,8 +194,7 @@ class EntityIdGenerator:
         # Normalize edge label to lowercase
         normalized_label = edge_label_stripped.lower()
 
-        # Combine tenant, start, edge label, and end for hash input
-        # Format: tenant:start_id:edge_label:end_id
+        # Canonical hash input: {tenant_id}:{start_id}:{edge_type}:{end_id}
         combined = (
             f"{tenant_id_str}:{start_id_stripped}:{normalized_label}:{end_id_stripped}"
         )

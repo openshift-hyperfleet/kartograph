@@ -121,3 +121,49 @@ class TestWithContext:
             request_id="req-456",
             graph_name="my_graph",
         )
+
+
+class TestMutationServerErrorOccurred:
+    """Tests for mutation_server_error_occurred method.
+
+    The probe is used in the presentation layer to emit domain-observable
+    events when server-side (infrastructure/database) errors occur during
+    mutation processing, instead of calling logger.error() directly.
+    """
+
+    def test_logs_at_error_level_with_errors_list(self):
+        """mutation_server_error_occurred should log at error level with errors."""
+        mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
+        probe = DefaultGraphServiceProbe(logger=mock_logger)
+
+        probe.mutation_server_error_occurred(errors=["Database connection failed"])
+
+        mock_logger.error.assert_called_once_with(
+            "graph_mutation_server_error",
+            errors=["Database connection failed"],
+        )
+
+    def test_logs_multiple_errors(self):
+        """mutation_server_error_occurred should handle multiple error strings."""
+        mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
+        probe = DefaultGraphServiceProbe(logger=mock_logger)
+
+        errors = ["Error 1: timeout", "Error 2: constraint violation"]
+        probe.mutation_server_error_occurred(errors=errors)
+
+        mock_logger.error.assert_called_once_with(
+            "graph_mutation_server_error",
+            errors=errors,
+        )
+
+    def test_logs_empty_error_list(self):
+        """mutation_server_error_occurred should handle an empty error list."""
+        mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
+        probe = DefaultGraphServiceProbe(logger=mock_logger)
+
+        probe.mutation_server_error_occurred(errors=[])
+
+        mock_logger.error.assert_called_once_with(
+            "graph_mutation_server_error",
+            errors=[],
+        )

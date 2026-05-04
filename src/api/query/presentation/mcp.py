@@ -7,37 +7,70 @@ from fastmcp.dependencies import Depends
 from fastmcp.server.dependencies import get_http_headers
 
 from infrastructure.mcp_dependencies import (
+    get_accessible_knowledge_graphs_for_mcp,
+    get_mcp_secure_enclave,
     validate_mcp_api_key,
     validate_mcp_bearer_token,
 )
 from infrastructure.settings import get_settings
+from query.application.observability import (
+    DefaultKnowledgeGraphResourceProbe,
+    KnowledgeGraphResourceProbe,
+)
 from query.application.services import MCPQueryService
+from query.domain.value_objects import QueryError, QueryResultRow
 from query.dependencies import (
     get_git_repository,
     get_mcp_query_service,
     get_prompt_repository,
 )
-from query.domain.value_objects import QueryError
+from query.ports.exceptions import InvalidRemoteFileURL, RemoteFileFetchFailed
 from query.ports.file_repository_models import RemoteFileRepositoryResponse
 from shared_kernel.middleware.mcp_api_key_auth import MCPApiKeyAuthMiddleware
+from shared_kernel.middleware.mcp_auth import get_mcp_auth_context
 
 settings = get_settings()
 
 mcp = FastMCP(name=settings.app_name)
 
-_mcp_http_app = mcp.http_app(path="/mcp", stateless_http=True)
 
-#: The raw MCP Starlette app, exposed so main.py can invoke its lifespan.
-mcp_http_app_inner = _mcp_http_app
+class _MCPAppProxy:
+    """ASGI proxy whose inner app can be swapped without remounting.
+
+    FastMCP's StreamableHTTPSessionManager cannot be restarted after it
+    exits (it raises RuntimeError on a second .run() call).  This proxy
+    sits between the mounted route and the live FastMCP http_app so that
+    the lifespan can install a fresh http_app instance on each startup
+    without touching FastAPI's router.
+    """
+
+    def __init__(self) -> None:
+        self._app = mcp.http_app(path="/mcp", stateless_http=True)
+
+    def refresh(self) -> None:
+        """Replace the inner app with a freshly created instance."""
+        self._app = mcp.http_app(path="/mcp", stateless_http=True)
+
+    async def __call__(self, scope, receive, send) -> None:  # type: ignore[override]
+        await self._app(scope, receive, send)
+
+
+#: Proxy that holds the current live FastMCP http_app.  main.py's lifespan
+#: calls proxy.refresh() before entering the new app's lifespan context so
+#: every startup gets a fresh StreamableHTTPSessionManager.
+mcp_http_app_proxy = _MCPAppProxy()
 
 query_mcp_app = MCPApiKeyAuthMiddleware(
-    app=_mcp_http_app,
+    app=mcp_http_app_proxy,
     validate_api_key=validate_mcp_api_key,
     validate_bearer_token=validate_mcp_bearer_token,
 )
 
 # Eagerly validate prompts at startup (fail-fast if missing)
 _prompt_repository = get_prompt_repository()
+
+#: Domain probe for knowledge graph resource observability (module-level singleton)
+_kg_resource_probe: KnowledgeGraphResourceProbe = DefaultKnowledgeGraphResourceProbe()
 
 
 def _filter_internal_properties(data: Any) -> Any:
@@ -70,11 +103,161 @@ def _filter_internal_properties(data: Any) -> Any:
         return data
 
 
+def _value_matches_kg(value: Any, knowledge_graph_id: str) -> bool | None:
+    """Check whether a single value is an entity matching *knowledge_graph_id*.
+
+    Three-valued return:
+    - ``True``  — value is a NodeDict/EdgeDict and its ``knowledge_graph_id``
+                  property equals *knowledge_graph_id*.
+    - ``False`` — value is a NodeDict/EdgeDict but its ``knowledge_graph_id``
+                  is absent, empty, or different.
+    - ``None``  — value is a scalar (int, str, etc.); no entity determination
+                  can be made.
+
+    For plain dicts (map results), the function recurses and returns ``True``
+    if any nested entity matches, ``False`` if entities exist but none match,
+    or ``None`` if no entities are found.
+    """
+    if not isinstance(value, dict):
+        return None  # scalar — no entity to check
+
+    props = value.get("properties")
+    if isinstance(props, dict):
+        # This is an entity dict (NodeDict or EdgeDict)
+        kg_id = props.get("knowledge_graph_id")
+        if isinstance(kg_id, str) and kg_id and kg_id == knowledge_graph_id:
+            return True
+        return False  # entity present, but doesn't match
+
+    # Plain dict (map result) — recurse into values
+    nested_has_entity = False
+    nested_has_match = False
+    for v in value.values():
+        result = _value_matches_kg(v, knowledge_graph_id)
+        if result is not None:
+            nested_has_entity = True
+            if result:
+                nested_has_match = True
+
+    if not nested_has_entity:
+        return None  # map with no entity values inside
+    return nested_has_match
+
+
+def _filter_by_knowledge_graph(
+    rows: list[QueryResultRow],
+    knowledge_graph_id: str | None,
+) -> list[QueryResultRow]:
+    """Filter query result rows to only include those from *knowledge_graph_id*.
+
+    If *knowledge_graph_id* is None, all rows are returned unchanged.
+
+    Inclusion rules:
+    - Node row (``{"node": NodeDict}``):
+        included iff ``node.properties.knowledge_graph_id == knowledge_graph_id``
+    - Edge row (``{"edge": EdgeDict}``):
+        included iff ``edge.properties.knowledge_graph_id == knowledge_graph_id``
+    - Map row (``{"key": NodeDict, ...}``):
+        included iff at least one nested entity has the matching ``knowledge_graph_id``
+    - Scalar row (``{"value": 42}``):
+        always included — no entity to filter on (e.g., aggregation counts)
+
+    Args:
+        rows:               Raw result rows from the graph repository.
+        knowledge_graph_id: ID to filter by, or None to skip filtering.
+
+    Returns:
+        Filtered list of rows (original objects, not copies).
+    """
+    if knowledge_graph_id is None:
+        return rows
+
+    filtered: list[QueryResultRow] = []
+    for row in rows:
+        has_any_entity = False
+        has_matching_entity = False
+
+        for value in row.values():
+            match_result = _value_matches_kg(value, knowledge_graph_id)
+            if match_result is not None:
+                has_any_entity = True
+                if match_result:
+                    has_matching_entity = True
+
+        # Pure scalar rows (no entities) always pass through
+        if has_matching_entity or not has_any_entity:
+            filtered.append(row)
+
+    return filtered
+
+
+def _build_error_response(result: QueryError) -> Dict[str, Any]:
+    """Build the error response dict for a failed Cypher query.
+
+    Constructs the dict returned by `query_graph` when execution fails.
+    The `correlation_id` key is included only when the QueryError carries a
+    non-None value — forbidden and timeout errors always have one; syntax and
+    unknown errors do not.
+
+    Spec requirements:
+      - Keyword blacklist scenario: "the error response includes a correlation
+        ID for log lookup".
+      - Timeout scenario: "a timeout error is returned with a correlation ID
+        for debugging".
+      - Execution/unknown errors: no correlation_id generated — omit key
+        entirely to avoid a spurious null in the client response.
+
+    Args:
+        result: The QueryError value object from MCPQueryService.
+
+    Returns:
+        Dict containing at minimum: success=False, error_type, message.
+        When correlation_id is not None, the dict also contains correlation_id.
+    """
+    response: Dict[str, Any] = {
+        "success": False,
+        "error_type": result.error_type,
+        "message": result.message,
+    }
+    if result.correlation_id is not None:
+        response["correlation_id"] = result.correlation_id
+    return response
+
+
+def _clamp_query_params(
+    timeout_seconds: int,
+    max_rows: int,
+    max_timeout: int = 60,
+    max_limit: int = 10_000,
+) -> tuple[int, int]:
+    """Clamp query parameters to their spec-defined maximums.
+
+    Extracts the bounds enforcement from ``query_graph`` into a pure, testable
+    helper so the clamping logic can be verified independently of the FastMCP
+    tool wrapper.
+
+    Spec: mcp-server.spec.md
+      - Scenario: Query timeout — "max 60 seconds"
+      - Scenario: Result limiting — "max 10000"
+
+    Args:
+        timeout_seconds: Requested query timeout. Clamped to ``max_timeout``.
+        max_rows: Requested row limit. Clamped to ``max_limit``.
+        max_timeout: Upper bound for timeout_seconds (default 60 s per spec).
+        max_limit: Upper bound for max_rows (default 10 000 per spec).
+
+    Returns:
+        A tuple of ``(clamped_timeout_seconds, clamped_max_rows)``.
+    """
+    return min(timeout_seconds, max_timeout), min(max_rows, max_limit)
+
+
 @mcp.tool
-def query_graph(
+async def query_graph(
     cypher: str,
     timeout_seconds: int = 30,
     max_rows: int = 1000,
+    knowledge_graph_id: str | None = None,
     service: MCPQueryService = Depends(get_mcp_query_service),  # type: ignore[arg-type]
 ) -> Dict[str, Any]:
     """Execute a Cypher query against the knowledge graph.
@@ -95,6 +278,10 @@ def query_graph(
             Default is 30 seconds. Maximum is 60 seconds.
         max_rows: Maximum number of rows to return. Default is 1000.
             Maximum is 10000.
+        knowledge_graph_id: Optional KnowledgeGraph ID to scope the results.
+            When provided, only entities belonging to that KnowledgeGraph
+            are returned. When omitted, results span all KnowledgeGraphs
+            in the tenant.
 
     Returns:
         A dictionary containing:
@@ -122,11 +309,13 @@ def query_graph(
 
         # Aggregations
         query_graph("MATCH (p:Person) RETURN count(p)")
+
+        # Scope to a specific KnowledgeGraph
+        query_graph("MATCH (p:Person) RETURN p", knowledge_graph_id="kg-01J...")
     """
 
-    # Enforce maximum limits
-    timeout_seconds = min(timeout_seconds, 60)
-    max_rows = min(max_rows, 10000)
+    # Enforce maximum limits (spec: max 60 s timeout, max 10 000 rows)
+    timeout_seconds, max_rows = _clamp_query_params(timeout_seconds, max_rows)
 
     result = service.execute_cypher_query(
         query=cypher,
@@ -135,20 +324,23 @@ def query_graph(
     )
 
     if isinstance(result, QueryError):
-        return {
-            "success": False,
-            "error_type": result.error_type,
-            "message": result.message,
-        }
+        return _build_error_response(result)
+
+    # Filter to the requested KnowledgeGraph (when provided)
+    rows = _filter_by_knowledge_graph(result.rows, knowledge_graph_id)
+
+    # Apply secure enclave: redact entities the caller is not authorized to see
+    secure_enclave = get_mcp_secure_enclave()
+    rows = await secure_enclave.apply_redaction(rows)
 
     # Filter internal properties before returning to agent
-    filtered_rows = _filter_internal_properties(result.rows)
+    filtered_rows = _filter_internal_properties(rows)
 
     # CypherQueryResult
     return {
         "success": True,
         "rows": filtered_rows,
-        "row_count": result.row_count,
+        "row_count": len(filtered_rows),
         "truncated": result.truncated,
         "execution_time_ms": result.execution_time_ms,
     }
@@ -180,21 +372,22 @@ def fetch_documentation_source(
         documentationmodule_view_uri: The view_uri from a DocumentationModule
             instance. Must be a GitHub blob URL like:
             https://github.com/openshift/openshift-docs/blob/main/modules/file.adoc
+            If the URL does not match GitHub or GitLab blob patterns, a
+            ``RemoteFileRepositoryResponse(success=False, error=...)`` is returned.
 
     Returns:
         class RemoteFileRepositoryResponse(BaseModel):
             success: bool
-            error: str | None = None
+            error: str | None = None  # populated when success=False
             content: str | None = None
             source_url: str | None = None
             raw_url: str | None = None
 
-    Examples:
-        # Get full content for a DocumentationModule
-        details = query_graph("MATCH (d:DocumentationModule {slug: 'abi-c3-resources-services'}) RETURN properties(d)")
-        view_uri = details["rows"][0]["view_uri"]
-        source = fetch_documentation_source(view_uri)
-        print(source["content"])  # Full AsciiDoc content starting from title
+    Example:
+        Fetch the full AsciiDoc source for a DocumentationModule whose
+        ``view_uri`` was returned by a prior ``query_graph`` call.  The
+        ``content`` field of the response contains the full document text
+        starting from its title line.
     """
 
     headers = get_http_headers()
@@ -202,13 +395,84 @@ def fetch_documentation_source(
     github_token = headers.get("x-github-pat", None)
     gitlab_token = headers.get("x-gitlab-pat", None)
 
-    repository = get_git_repository(
-        url=documentationmodule_view_uri,
-        github_token=github_token,
-        gitlab_token=gitlab_token,
+    try:
+        repository = get_git_repository(
+            url=documentationmodule_view_uri,
+            github_token=github_token,
+            gitlab_token=gitlab_token,
+        )
+        return repository.get_file(url=documentationmodule_view_uri)
+    except InvalidRemoteFileURL:
+        return RemoteFileRepositoryResponse(
+            success=False,
+            error="Invalid URL format: must be a GitHub or GitLab blob URL",
+        )
+    except RemoteFileFetchFailed as e:
+        return RemoteFileRepositoryResponse(
+            success=False,
+            error=str(e) or "Failed to fetch file from remote repository",
+        )
+
+
+@mcp.resource(
+    # NOTE: The spec uses 'knowledge_graphs://accessible' but URL schemes cannot
+    # contain underscores (RFC 3986). We use 'knowledge-graphs://accessible'
+    # (hyphen) which is the equivalent valid URI that FastMCP's pydantic
+    # AnyUrl validator accepts. MCP clients discover this URI via resources/list.
+    uri="knowledge-graphs://accessible",
+    name="AccessibleKnowledgeGraphs",
+    description="All knowledge graphs the authenticated caller has view permission on within their tenant",
+    mime_type="application/json",
+    annotations={"readOnlyHint": True, "idempotentHint": False},
+)
+async def get_accessible_knowledge_graphs() -> list[dict]:
+    """Get all knowledge graphs accessible to the authenticated caller.
+
+    Queries the management context for all knowledge graphs in the caller's
+    tenant, filtered to only those the caller has VIEW permission on via
+    SpiceDB authorization.
+
+    Returns:
+        List of knowledge graph summaries. Each entry contains:
+        - id: The knowledge graph's unique identifier
+        - name: The human-readable name
+        - description: A description of the knowledge graph's content
+
+        Returns an empty list when the caller has no accessible knowledge graphs.
+
+    Examples:
+        Read the resource to discover available knowledge graphs before querying:
+        - Resource URI: ``knowledge-graphs://accessible``
+        - Response: ``[{"id": "kg-01J...", "name": "My Graph", "description": "..."}]``
+
+        Use the returned ``id`` values with the ``query_graph`` tool's
+        ``knowledge_graph_id`` parameter to scope queries to a specific graph.
+    """
+    auth_context = get_mcp_auth_context()
+
+    _kg_resource_probe.knowledge_graphs_resource_accessed(
+        user_id=auth_context.user_id,
+        tenant_id=auth_context.tenant_id,
     )
 
-    return repository.get_file(url=documentationmodule_view_uri)
+    kgs = await get_accessible_knowledge_graphs_for_mcp()
+
+    result = [
+        {
+            "id": kg.id,
+            "name": kg.name,
+            "description": kg.description,
+        }
+        for kg in kgs
+    ]
+
+    _kg_resource_probe.knowledge_graphs_resource_returned(
+        user_id=auth_context.user_id,
+        tenant_id=auth_context.tenant_id,
+        count=len(result),
+    )
+
+    return result
 
 
 @mcp.resource(

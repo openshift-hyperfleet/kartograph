@@ -20,7 +20,7 @@ from management.domain.observability import (
     DefaultKnowledgeGraphProbe,
     KnowledgeGraphProbe,
 )
-from management.domain.value_objects import KnowledgeGraphId
+from management.domain.value_objects import KnowledgeGraphId, OntologyConfig
 
 if TYPE_CHECKING:
     from management.domain.events import DomainEvent
@@ -50,6 +50,7 @@ class KnowledgeGraph:
     description: str
     created_at: datetime
     updated_at: datetime
+    ontology: OntologyConfig | None = field(default=None)
     _pending_events: list[DomainEvent] = field(default_factory=list, repr=False)
     _probe: KnowledgeGraphProbe = field(
         default_factory=DefaultKnowledgeGraphProbe,
@@ -193,6 +194,41 @@ class KnowledgeGraph:
             tenant_id=self.tenant_id,
             name=name,
         )
+
+    def set_ontology(self, config: OntologyConfig) -> None:
+        """Store an ontology configuration on this knowledge graph.
+
+        Records no domain events — ontology changes are persisted via
+        KnowledgeGraphRepository.save_ontology() without triggering the outbox.
+
+        Args:
+            config: The OntologyConfig to attach
+
+        Raises:
+            AggregateDeletedError: If the knowledge graph has been deleted
+        """
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot set ontology on a deleted knowledge graph"
+            )
+        self.ontology = config
+        self.updated_at = datetime.now(UTC)
+
+    def clear_ontology(self) -> None:
+        """Remove the ontology configuration from this knowledge graph.
+
+        Records no domain events — ontology changes are persisted via
+        KnowledgeGraphRepository.save_ontology() without triggering the outbox.
+
+        Raises:
+            AggregateDeletedError: If the knowledge graph has been deleted
+        """
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot clear ontology on a deleted knowledge graph"
+            )
+        self.ontology = None
+        self.updated_at = datetime.now(UTC)
 
     def mark_for_deletion(
         self,

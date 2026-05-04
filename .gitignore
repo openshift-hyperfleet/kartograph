@@ -5,10 +5,12 @@ __pycache__/
 
 # Git worktrees
 worktrees/
+.worktrees/
 
 agent-notes/
 agent-memory/
 ess/
+.hyperloop/state/
 # ignore ai-generated scratchpad
 src/api/docs
 
@@ -173,3 +175,4 @@ certs/
 
 # Demo web interface (not for production)
 demo-web/
+.agent-memory/

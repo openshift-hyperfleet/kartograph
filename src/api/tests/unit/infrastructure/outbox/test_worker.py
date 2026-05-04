@@ -4,6 +4,7 @@ These tests use mocked dependencies to test the worker logic
 without requiring a real database or handler implementations.
 """
 
+import asyncio
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, call
 from uuid import uuid4
@@ -208,6 +209,48 @@ class TestOutboxWorkerLifecycle:
         worker._running = True
         await worker.stop()
 
+        assert worker._running is False
+
+    @pytest.mark.asyncio
+    async def test_in_progress_batch_completes_before_shutdown(self):
+        """GIVEN the outbox worker is processing a batch
+        WHEN stop() is called during batch processing
+        THEN the in-progress batch completes before the worker stops.
+
+        Spec: "in-progress event processing completes before shutdown"
+        (Graceful Shutdown scenario, Outbox Worker Lifecycle requirement)
+        """
+        processing_started = asyncio.Event()
+        processing_completed = asyncio.Event()
+
+        async def slow_process_batch() -> None:
+            processing_started.set()
+            await asyncio.sleep(0.05)  # Simulate in-progress batch work
+            processing_completed.set()
+
+        worker = OutboxWorker(
+            session_factory=AsyncMock(),
+            handler=AsyncMock(),
+            probe=MagicMock(),
+            event_source=None,
+            poll_interval_seconds=60,  # Long interval so only one batch runs
+        )
+
+        # Inject the controlled slow batch processor
+        worker._process_batch = slow_process_batch  # type: ignore[method-assign]
+
+        await worker.start()
+
+        # Wait until the batch has actually started before triggering shutdown
+        await asyncio.wait_for(processing_started.wait(), timeout=2.0)
+
+        # Trigger stop() while the batch is still running (inside the 0.05 s sleep)
+        await asyncio.wait_for(worker.stop(), timeout=2.0)
+
+        # The batch MUST have completed — not been interrupted by cancellation
+        assert processing_completed.is_set(), (
+            "In-progress batch must complete before the worker stops"
+        )
         assert worker._running is False
 
 

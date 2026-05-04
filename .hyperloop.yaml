@@ -3,8 +3,10 @@ base_branch: alpha
 max_workers: 6
 max_task_rounds: 30
 max_cycles: 10000
+max_auditors: 25
 poll_interval: 30
 runtime: local
+repo: openshift-hyperfleet/kartograph
 
 merge:
   auto_merge: true
@@ -18,3 +20,10 @@ notifications:
   type: github-comment
 
 dashboard: { enabled: true }
+
+gc:
+  retention_days: 30
+  summarize: true
+  run_every_cycles: 100
+
+pm_max_failures: 5

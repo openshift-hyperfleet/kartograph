@@ -4,12 +4,14 @@ Following TDD principles - tests verify user repository behavior with mocked dep
 """
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 from unittest.mock import AsyncMock, MagicMock
 
 from iam.domain.aggregates import User
 from iam.domain.value_objects import UserId
 from iam.infrastructure.models import UserModel
 from iam.infrastructure.user_repository import UserRepository
+from iam.ports.exceptions import ProvisioningConflictError
 from iam.ports.repositories import IUserRepository
 
 
@@ -36,6 +38,54 @@ class TestProtocolCompliance:
 
 class TestSave:
     """Tests for save method."""
+
+    @pytest.mark.asyncio
+    async def test_translates_integrity_error_to_provisioning_conflict(
+        self, repository, mock_session
+    ):
+        """Should raise ProvisioningConflictError (not IntegrityError) on duplicate username.
+
+        This ensures database internals are not exposed to callers.
+        session.add() is synchronous on AsyncSession, so we use MagicMock for it.
+        """
+        user = User(id=UserId.generate(), username="alice")
+
+        # Session returns None on the existence check (no existing user by id)
+        # but then raises IntegrityError when the new model is added.
+        # session.add() is sync on AsyncSession → use MagicMock (not AsyncMock).
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+        mock_session.add = MagicMock(
+            side_effect=IntegrityError(
+                statement="INSERT INTO users",
+                params={},
+                orig=Exception(
+                    'duplicate key value violates unique constraint "users_username_key"'
+                ),
+            )
+        )
+
+        with pytest.raises(ProvisioningConflictError) as exc_info:
+            await repository.save(user)
+
+        assert exc_info.value.username == "alice"
+
+    @pytest.mark.asyncio
+    async def test_does_not_swallow_non_integrity_errors(
+        self, repository, mock_session
+    ):
+        """Should propagate non-IntegrityError exceptions unchanged."""
+        user = User(id=UserId.generate(), username="alice")
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+        # session.add() is sync on AsyncSession → use MagicMock (not AsyncMock).
+        mock_session.add = MagicMock(side_effect=RuntimeError("Unexpected DB error"))
+
+        with pytest.raises(RuntimeError, match="Unexpected DB error"):
+            await repository.save(user)
 
     @pytest.mark.asyncio
     async def test_adds_new_user_to_session(self, repository, mock_session):

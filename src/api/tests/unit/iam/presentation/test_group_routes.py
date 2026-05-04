@@ -639,3 +639,302 @@ class TestRemoveWorkspaceMemberErrorCodes:
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestCreateGroupRoute:
+    """Tests for POST /iam/groups endpoint.
+
+    Spec: Group Creation requirement — creating a group with creator as admin,
+    duplicate name conflict, and name validation scenarios.
+    """
+
+    def test_create_group_returns_201_with_group_details(
+        self,
+        test_client: TestClient,
+        mock_group_service: AsyncMock,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """POST /groups should return 201 with the created group."""
+        group_id = GroupId.generate()
+        tenant_id = mock_current_user.tenant_id
+        group = Group(
+            id=group_id,
+            tenant_id=tenant_id,
+            name="Engineering",
+            members=[
+                GroupMember(user_id=mock_current_user.user_id, role=GroupRole.ADMIN)
+            ],
+        )
+        mock_group_service.create_group.return_value = group
+
+        response = test_client.post(
+            "/iam/groups",
+            json={"name": "Engineering"},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        result = response.json()
+        assert result["id"] == group_id.value
+        assert result["name"] == "Engineering"
+        # Creator should be in members
+        assert len(result["members"]) == 1
+        assert result["members"][0]["role"] == "admin"
+
+    def test_create_group_passes_user_id_and_name_to_service(
+        self,
+        test_client: TestClient,
+        mock_group_service: AsyncMock,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """POST /groups should forward name and creator_id to service."""
+        group_id = GroupId.generate()
+        group = Group(
+            id=group_id,
+            tenant_id=mock_current_user.tenant_id,
+            name="Platform",
+        )
+        mock_group_service.create_group.return_value = group
+
+        test_client.post("/iam/groups", json={"name": "Platform"})
+
+        mock_group_service.create_group.assert_called_once_with(
+            name="Platform",
+            creator_id=mock_current_user.user_id,
+        )
+
+    def test_create_group_returns_409_on_duplicate_name(
+        self,
+        test_client: TestClient,
+        mock_group_service: AsyncMock,
+    ) -> None:
+        """POST /groups should return 409 when group name already exists in tenant."""
+        from iam.ports.exceptions import DuplicateGroupNameError
+
+        mock_group_service.create_group.side_effect = DuplicateGroupNameError(
+            "Group 'Engineering' already exists"
+        )
+
+        response = test_client.post(
+            "/iam/groups",
+            json={"name": "Engineering"},
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+    def test_create_group_returns_422_for_empty_name(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """POST /groups should return 422 when name is empty string."""
+        response = test_client.post(
+            "/iam/groups",
+            json={"name": ""},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    def test_create_group_returns_422_for_whitespace_only_name(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """POST /groups should return 422 when name is whitespace-only.
+
+        Spec: 'Empty or whitespace-only name... is rejected with a validation error'
+        """
+        response = test_client.post(
+            "/iam/groups",
+            json={"name": "   "},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    def test_create_group_returns_422_for_missing_name(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """POST /groups should return 422 when name field is missing."""
+        response = test_client.post(
+            "/iam/groups",
+            json={},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    def test_create_group_trims_whitespace_from_name(
+        self,
+        test_client: TestClient,
+        mock_group_service: AsyncMock,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """POST /groups should pass the trimmed name to the service.
+
+        Spec: 'Valid name — GIVEN a name between 1 and 255 characters (after trimming whitespace)'
+        """
+        group = Group(
+            id=GroupId.generate(),
+            tenant_id=mock_current_user.tenant_id,
+            name="Engineering",
+        )
+        mock_group_service.create_group.return_value = group
+
+        test_client.post("/iam/groups", json={"name": "  Engineering  "})
+
+        # Service should receive the trimmed name
+        call_kwargs = mock_group_service.create_group.call_args.kwargs
+        assert call_kwargs["name"] == "Engineering"
+
+
+class TestGetGroupRoute:
+    """Tests for GET /iam/groups/{group_id} endpoint.
+
+    Spec: Group Retrieval requirement — authorized retrieval and
+    not-found response for unauthorized/non-existent groups.
+    """
+
+    def test_get_group_returns_200_when_found(
+        self,
+        test_client: TestClient,
+        mock_group_service: AsyncMock,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """GET /groups/{id} should return 200 with group details when user has VIEW."""
+        group_id = GroupId.generate()
+        group = Group(
+            id=group_id,
+            tenant_id=mock_current_user.tenant_id,
+            name="Engineering",
+            members=[],
+        )
+        mock_group_service.get_group.return_value = group
+
+        response = test_client.get(f"/iam/groups/{group_id.value}")
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["id"] == group_id.value
+        assert result["name"] == "Engineering"
+
+    def test_get_group_passes_group_id_and_user_id_to_service(
+        self,
+        test_client: TestClient,
+        mock_group_service: AsyncMock,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """GET /groups/{id} should forward group_id and user_id to service."""
+        group_id = GroupId.generate()
+        mock_group_service.get_group.return_value = Group(
+            id=group_id,
+            tenant_id=mock_current_user.tenant_id,
+            name="Engineering",
+        )
+
+        test_client.get(f"/iam/groups/{group_id.value}")
+
+        mock_group_service.get_group.assert_called_once_with(
+            group_id=group_id,
+            user_id=mock_current_user.user_id,
+        )
+
+    def test_get_group_returns_404_when_not_found(
+        self,
+        test_client: TestClient,
+        mock_group_service: AsyncMock,
+    ) -> None:
+        """GET /groups/{id} should return 404 when group not found or no VIEW permission.
+
+        Spec: 'Unauthorized or non-existent — a not-found response is returned'
+        """
+        group_id = GroupId.generate()
+        mock_group_service.get_group.return_value = None
+
+        response = test_client.get(f"/iam/groups/{group_id.value}")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_get_group_returns_400_for_invalid_group_id(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """GET /groups/{id} should return 400 for invalid group ID format."""
+        response = test_client.get("/iam/groups/not-a-valid-ulid")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestDeleteGroupRoute:
+    """Tests for DELETE /iam/groups/{group_id} endpoint.
+
+    Spec: Group Deletion requirement — successful deletion with member
+    snapshot, and authorization enforcement.
+    """
+
+    def test_delete_group_returns_204_on_success(
+        self,
+        test_client: TestClient,
+        mock_group_service: AsyncMock,
+    ) -> None:
+        """DELETE /groups/{id} should return 204 No Content when deletion succeeds.
+
+        Spec: 'Successful deletion — the group is removed'
+        """
+        group_id = GroupId.generate()
+        mock_group_service.delete_group.return_value = True
+
+        response = test_client.delete(f"/iam/groups/{group_id.value}")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.content == b""
+
+    def test_delete_group_passes_group_id_and_user_id_to_service(
+        self,
+        test_client: TestClient,
+        mock_group_service: AsyncMock,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """DELETE /groups/{id} should forward group_id and user_id to service."""
+        group_id = GroupId.generate()
+        mock_group_service.delete_group.return_value = True
+
+        test_client.delete(f"/iam/groups/{group_id.value}")
+
+        mock_group_service.delete_group.assert_called_once_with(
+            group_id=group_id,
+            user_id=mock_current_user.user_id,
+        )
+
+    def test_delete_group_returns_403_when_unauthorized(
+        self,
+        test_client: TestClient,
+        mock_group_service: AsyncMock,
+    ) -> None:
+        """DELETE /groups/{id} should return 403 when user lacks MANAGE permission."""
+        group_id = GroupId.generate()
+        mock_group_service.delete_group.side_effect = UnauthorizedError(
+            "User lacks manage permission"
+        )
+
+        response = test_client.delete(f"/iam/groups/{group_id.value}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_delete_group_returns_404_when_not_found(
+        self,
+        test_client: TestClient,
+        mock_group_service: AsyncMock,
+    ) -> None:
+        """DELETE /groups/{id} should return 404 when group does not exist."""
+        group_id = GroupId.generate()
+        mock_group_service.delete_group.return_value = False
+
+        response = test_client.delete(f"/iam/groups/{group_id.value}")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_delete_group_returns_400_for_invalid_group_id(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """DELETE /groups/{id} should return 400 for invalid group ID format."""
+        response = test_client.delete("/iam/groups/not-a-valid-ulid")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

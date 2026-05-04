@@ -58,16 +58,23 @@ class Group:
         initializes the aggregate, and records the GroupCreated event.
 
         Args:
-            name: The name of the group
+            name: The name of the group (1–255 characters after trimming whitespace)
             tenant_id: The tenant this group belongs to
 
         Returns:
             A new Group aggregate with GroupCreated event recorded
+
+        Raises:
+            ValueError: If name is empty, whitespace-only, or exceeds 255 characters
         """
+        trimmed = name.strip()
+        if not trimmed or len(trimmed) > 255:
+            raise ValueError("Group name must be between 1 and 255 characters")
+
         group = cls(
             id=GroupId.generate(),
             tenant_id=tenant_id,
-            name=name,
+            name=trimmed,
         )
         group._pending_events.append(
             GroupCreated(

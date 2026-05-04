@@ -37,6 +37,16 @@ import {
   DialogClose,
 } from '@/components/ui/dialog'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   Table,
   TableBody,
   TableCell,
@@ -51,6 +61,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { UserIdDisplay } from '@/components/ui/user-id'
+import { useCopyToClipboard } from '~/composables/useCopyToClipboard'
 
 const { createApiKey, listApiKeys, revokeApiKey } = useIamApi()
 const { currentTenantId } = useApiClient()
@@ -70,7 +81,7 @@ const isCreating = ref(false)
 const createExpiryError = ref('')
 
 const newlyCreatedKey = ref<APIKeyCreatedResponse | null>(null)
-const secretCopied = ref(false)
+const { copyToClipboard, copied: secretCopied } = useCopyToClipboard()
 const secretVisible = ref(true)
 
 const revokeDialogOpen = ref(false)
@@ -113,6 +124,8 @@ onMounted(() => {
 // Re-fetch when tenant changes
 watch(tenantVersion, () => {
   if (hasTenant.value) {
+    // Clear stale data immediately so old tenant's keys are not shown during load
+    apiKeys.value = []
     newlyCreatedKey.value = null
     secretCopied.value = false
     loadKeys()
@@ -155,22 +168,12 @@ async function handleCreate() {
 }
 
 // ── Copy to clipboard ──────────────────────────────────────────────────────
-
-async function copyToClipboard(text: string, label?: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    toast.success(label ? `${label} copied to clipboard` : 'Copied to clipboard')
-    return true
-  } catch {
-    toast.error('Failed to copy to clipboard')
-    return false
-  }
-}
+// Uses the centralised useCopyToClipboard composable (toast + copied flag).
 
 async function copySecret() {
   if (!newlyCreatedKey.value) return
-  const ok = await copyToClipboard(newlyCreatedKey.value.secret, 'API key secret')
-  if (ok) secretCopied.value = true
+  await copyToClipboard(newlyCreatedKey.value.secret, 'API key secret')
+  // `secretCopied` reactive flag is managed by the composable
 }
 
 async function copyKeyPrefix(prefix: string) {
@@ -291,7 +294,7 @@ function maskedSecret(secret: string): string {
           <KeyRound class="size-5 text-primary" />
         </div>
         <div>
-          <h1 class="text-2xl font-bold tracking-tight">API Keys</h1>
+          <h1 class="text-2xl font-semibold tracking-tight">API Keys</h1>
           <p class="text-sm text-muted-foreground">
             Create, view, and manage API keys for authenticating with Kartograph.
           </p>
@@ -729,31 +732,29 @@ function maskedSecret(secret: string): string {
 
     </template>
 
-    <!-- Revoke Confirmation Dialog -->
-    <Dialog v-model:open="revokeDialogOpen">
-      <DialogContent class="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle class="flex items-center gap-2">
+    <!-- Revoke Confirmation AlertDialog -->
+    <AlertDialog v-model:open="revokeDialogOpen">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle class="flex items-center gap-2">
             <AlertTriangle class="size-5 text-destructive" />
             Revoke API Key
-          </DialogTitle>
-          <DialogDescription>
+          </AlertDialogTitle>
+          <AlertDialogDescription>
             Are you sure you want to revoke
             <span class="font-semibold">{{ keyToRevoke?.name }}</span>
             (<code class="font-mono text-xs">{{ keyToRevoke?.prefix }}...</code>)?
             This action is immediate and cannot be undone. Any applications using this key will lose access.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogClose as-child>
-            <Button variant="outline" :disabled="isRevoking">Cancel</Button>
-          </DialogClose>
-          <Button variant="destructive" :disabled="isRevoking" @click="handleRevoke">
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel :disabled="isRevoking">Cancel</AlertDialogCancel>
+          <AlertDialogAction :disabled="isRevoking" @click.prevent="handleRevoke">
             <Loader2 v-if="isRevoking" class="mr-2 size-4 animate-spin" />
             {{ isRevoking ? 'Revoking...' : 'Revoke Key' }}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>

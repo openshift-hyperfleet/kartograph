@@ -13,7 +13,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.domain.aggregates import DataSource
-from management.domain.value_objects import DataSourceId, Schedule, ScheduleType
+from management.domain.value_objects import (
+    DataSourceId,
+    Ontology,
+    Schedule,
+    ScheduleType,
+)
 from management.infrastructure.models import DataSourceModel
 from management.infrastructure.observability import (
     DataSourceRepositoryProbe,
@@ -62,6 +67,12 @@ class DataSourceRepository(IDataSourceRepository):
             result = await self._session.execute(stmt)
             model = result.scalar_one_or_none()
 
+            ontology_json = (
+                data_source.ontology.to_dict()
+                if data_source.ontology is not None
+                else None
+            )
+
             if model:
                 model.name = data_source.name
                 model.connection_config = data_source.connection_config
@@ -70,6 +81,7 @@ class DataSourceRepository(IDataSourceRepository):
                 model.schedule_value = data_source.schedule.value
                 model.last_sync_at = data_source.last_sync_at
                 model.updated_at = data_source.updated_at
+                model.ontology_json = ontology_json
             else:
                 model = DataSourceModel(
                     id=data_source.id.value,
@@ -82,6 +94,7 @@ class DataSourceRepository(IDataSourceRepository):
                     schedule_type=data_source.schedule.schedule_type.value,
                     schedule_value=data_source.schedule.value,
                     last_sync_at=data_source.last_sync_at,
+                    ontology_json=ontology_json,
                     created_at=data_source.created_at,
                     updated_at=data_source.updated_at,
                 )
@@ -140,6 +153,13 @@ class DataSourceRepository(IDataSourceRepository):
         self._probe.data_sources_listed(knowledge_graph_id, len(data_sources))
         return data_sources
 
+    async def find_all(self) -> list[DataSource]:
+        """List all data sources across all knowledge graphs and tenants."""
+        stmt = select(DataSourceModel)
+        result = await self._session.execute(stmt)
+        models = result.scalars().all()
+        return [self._to_domain(model) for model in models]
+
     async def delete(self, data_source: DataSource) -> bool:
         stmt = select(DataSourceModel).where(DataSourceModel.id == data_source.id.value)
         result = await self._session.execute(stmt)
@@ -167,6 +187,11 @@ class DataSourceRepository(IDataSourceRepository):
 
     def _to_domain(self, model: DataSourceModel) -> DataSource:
         """Reconstitute aggregate from database state without generating events."""
+        ontology = (
+            Ontology.from_dict(model.ontology_json)
+            if model.ontology_json is not None
+            else None
+        )
         return DataSource(
             id=DataSourceId(value=model.id),
             knowledge_graph_id=model.knowledge_graph_id,
@@ -182,4 +207,5 @@ class DataSourceRepository(IDataSourceRepository):
             last_sync_at=model.last_sync_at,
             created_at=model.created_at,
             updated_at=model.updated_at,
+            ontology=ontology,
         )

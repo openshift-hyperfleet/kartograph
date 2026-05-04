@@ -64,7 +64,7 @@ class TestSyncRunRoundTrip:
         sync_run = DataSourceSyncRun(
             id=str(ULID()),
             data_source_id=ds.id.value,
-            status="running",
+            status="ingesting",
             started_at=now,
             completed_at=None,
             error=None,
@@ -79,7 +79,7 @@ class TestSyncRunRoundTrip:
         assert retrieved is not None
         assert retrieved.id == sync_run.id
         assert retrieved.data_source_id == ds.id.value
-        assert retrieved.status == "running"
+        assert retrieved.status == "ingesting"
         assert retrieved.started_at is not None
         assert retrieved.completed_at is None
         assert retrieved.error is None
@@ -228,7 +228,7 @@ class TestSyncRunUpdate:
         sync_run = DataSourceSyncRun(
             id=str(ULID()),
             data_source_id=ds.id.value,
-            status="running",
+            status="ingesting",
             started_at=now,
             completed_at=None,
             error=None,
@@ -315,7 +315,7 @@ class TestFindByDataSource:
         sync_run_ds2 = DataSourceSyncRun(
             id=str(ULID()),
             data_source_id=ds2.id.value,
-            status="running",
+            status="ingesting",
             started_at=now,
             completed_at=None,
             error=None,

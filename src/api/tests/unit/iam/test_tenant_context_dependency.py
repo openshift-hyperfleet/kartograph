@@ -85,15 +85,39 @@ class TestValidateUlidNormalization:
         result = _validate_ulid(mixed)
         assert result.value == canonical
 
-    def test_normalized_ulid_used_in_spicedb_subject(
+    @pytest.mark.asyncio
+    async def test_normalized_ulid_used_in_spicedb_subject(
         self,
+        valid_tenant_id: TenantId,
         mock_authz: AsyncMock,
         mock_probe: MagicMock,
         mock_tenant_repo: AsyncMock,
     ) -> None:
-        """SpiceDB check should use the normalized (canonical) tenant ID, not the raw header value."""
-        # This is tested via get_tenant_context to confirm end-to-end normalization
-        # is covered in test_returns_tenant_context_with_valid_ulid_header
+        """Full-flow: lowercase header ULID is normalized to uppercase before SpiceDB check and TenantContext."""
+        lowercase_header = valid_tenant_id.value.lower()
+
+        result = await get_tenant_context(
+            x_tenant_id=lowercase_header,
+            user_id="user-123",
+            username="alice",
+            authz=mock_authz,
+            probe=mock_probe,
+            single_tenant_mode=False,
+            tenant_repository=mock_tenant_repo,
+            default_tenant_name="default",
+            bootstrap_admin_usernames=[],
+        )
+
+        # SpiceDB must receive the canonical uppercase ULID, not the raw lowercase input
+        mock_authz.check_permission.assert_awaited_once_with(
+            resource=f"tenant:{valid_tenant_id.value}",
+            permission="view",
+            subject="user:user-123",
+        )
+
+        # The returned TenantContext must carry the canonical uppercase ULID
+        assert result.tenant_id == valid_tenant_id.value
+        assert result.tenant_id == lowercase_header.upper()
 
     def test_raises_value_error_for_invalid_input(self) -> None:
         """Should raise ValueError for non-ULID strings."""

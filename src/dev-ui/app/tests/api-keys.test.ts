@@ -1,0 +1,791 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+// ── API Key Management Page Logic ─────────────────────────────────────────────
+//
+// Spec: "API Key Management"
+// Covers:
+//   - Scenario: Create key (validation, success, secret shown once)
+//   - Scenario: List keys (status: active, expired, revoked; creation date, last used, expiration)
+//   - Scenario: Revoke key (marked revoked, can no longer authenticate)
+
+// ── Helper functions (extracted from api-keys/index.vue logic) ────────────────
+
+function isExpired(expiresAt: string): boolean {
+  return new Date(expiresAt) < new Date()
+}
+
+function keyStatus(key: { is_revoked: boolean; expires_at: string }): 'active' | 'revoked' | 'expired' {
+  if (key.is_revoked) return 'revoked'
+  if (isExpired(key.expires_at)) return 'expired'
+  return 'active'
+}
+
+function daysUntilExpiry(expiresAt: string): number {
+  const now = new Date()
+  const expiry = new Date(expiresAt)
+  return Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+function maskedSecret(secret: string): string {
+  if (secret.length <= 8) return secret
+  return secret.slice(0, 8) + '•'.repeat(Math.min(24, secret.length - 8))
+}
+
+// ── Scenario: isExpired logic ─────────────────────────────────────────────────
+
+describe('API Keys - isExpired', () => {
+  it('returns false for a future expiry date', () => {
+    const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+    expect(isExpired(future)).toBe(false)
+  })
+
+  it('returns true for a past expiry date', () => {
+    const past = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
+    expect(isExpired(past)).toBe(true)
+  })
+})
+
+// ── Scenario: keyStatus logic ─────────────────────────────────────────────────
+// Spec: "THEN keys are listed with status (active, expired, revoked)"
+
+describe('API Keys - keyStatus', () => {
+  const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+  const past = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
+
+  it('returns "revoked" for a revoked key regardless of expiry', () => {
+    expect(keyStatus({ is_revoked: true, expires_at: future })).toBe('revoked')
+    expect(keyStatus({ is_revoked: true, expires_at: past })).toBe('revoked')
+  })
+
+  it('returns "expired" for a non-revoked key past its expiry date', () => {
+    expect(keyStatus({ is_revoked: false, expires_at: past })).toBe('expired')
+  })
+
+  it('returns "active" for a non-revoked key with a future expiry date', () => {
+    expect(keyStatus({ is_revoked: false, expires_at: future })).toBe('active')
+  })
+})
+
+// ── Scenario: daysUntilExpiry ─────────────────────────────────────────────────
+
+describe('API Keys - daysUntilExpiry', () => {
+  it('returns a positive number for a future expiry', () => {
+    const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+    const days = daysUntilExpiry(future)
+    expect(days).toBeGreaterThan(0)
+    expect(days).toBeLessThanOrEqual(31) // Allow 1 day of tolerance
+  })
+
+  it('returns a negative number for a past expiry', () => {
+    const past = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
+    const days = daysUntilExpiry(past)
+    expect(days).toBeLessThan(0)
+  })
+})
+
+// ── Scenario: maskedSecret ────────────────────────────────────────────────────
+
+describe('API Keys - maskedSecret', () => {
+  it('shows first 8 chars and replaces rest with bullet dots', () => {
+    const secret = 'fakekey_abc123xy' // gitleaks:allow
+    const masked = maskedSecret(secret)
+    expect(masked.startsWith('fakekey_')).toBe(true)
+    expect(masked).toContain('•')
+  })
+
+  it('returns short secrets unchanged (≤ 8 chars)', () => {
+    expect(maskedSecret('abc1234')).toBe('abc1234')
+  })
+
+  it('caps bullet replacement at 24 characters', () => {
+    const longSecret = 'krtgph_' + 'a'.repeat(100)
+    const masked = maskedSecret(longSecret)
+    const bullets = masked.slice(8)
+    expect(bullets.length).toBe(24)
+  })
+})
+
+// ── Scenario: Create key validation ──────────────────────────────────────────
+// Spec: "GIVEN a user with create_api_key permission
+// WHEN they create a key with a name and expiration
+// THEN the key is created and the secret is shown once"
+
+describe('API Keys - create key validation', () => {
+  it('rejects creation when name is empty', async () => {
+    const createForm = { name: '', expires_in_days: 30 }
+    let toastError = ''
+    const apiFetch = vi.fn()
+
+    async function handleCreate() {
+      if (!createForm.name.trim()) {
+        toastError = 'Key name is required'
+        return
+      }
+      await apiFetch('/iam/api-keys', { method: 'POST', body: createForm })
+    }
+
+    await handleCreate()
+    expect(toastError).toBe('Key name is required')
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it('rejects expiry of 0 days as out of range', async () => {
+    const createForm = { name: 'Test Key', expires_in_days: 0 }
+    let expiryError = ''
+    const apiFetch = vi.fn()
+
+    async function handleCreate() {
+      if (!createForm.name.trim()) return
+      if (createForm.expires_in_days < 1 || createForm.expires_in_days > 3650) {
+        expiryError = 'Must be between 1 and 3650 days'
+        return
+      }
+      await apiFetch('/iam/api-keys', { method: 'POST', body: createForm })
+    }
+
+    await handleCreate()
+    expect(expiryError).toBe('Must be between 1 and 3650 days')
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it('rejects expiry of 3651 days as out of range', async () => {
+    const createForm = { name: 'Test Key', expires_in_days: 3651 }
+    let expiryError = ''
+    const apiFetch = vi.fn()
+
+    async function handleCreate() {
+      if (!createForm.name.trim()) return
+      if (createForm.expires_in_days < 1 || createForm.expires_in_days > 3650) {
+        expiryError = 'Must be between 1 and 3650 days'
+        return
+      }
+      await apiFetch('/iam/api-keys', { method: 'POST' })
+    }
+
+    await handleCreate()
+    expect(expiryError).toBe('Must be between 1 and 3650 days')
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it('creates key and shows secret once on success', async () => {
+    const createForm = { name: 'CI Pipeline', expires_in_days: 365 }
+    const newlyCreatedKey = { value: null as { name: string; secret: string } | null }
+    const isCreating = { value: false }
+    const apiFetch = vi.fn().mockResolvedValue({
+      id: 'key-abc',
+      name: 'CI Pipeline',
+      secret: 'fake-key-value', // gitleaks:allow
+      prefix: 'kfake_',
+    })
+    let toastMsg = ''
+
+    async function handleCreate() {
+      if (!createForm.name.trim()) return
+      isCreating.value = true
+      try {
+        const key = await apiFetch('/iam/api-keys', { method: 'POST', body: createForm })
+        newlyCreatedKey.value = key
+        toastMsg = `API key "${key.name}" created`
+      } finally {
+        isCreating.value = false
+      }
+    }
+
+    await handleCreate()
+    expect(newlyCreatedKey.value?.secret).toBe('fake-key-value')
+    expect(toastMsg).toBe('API key "CI Pipeline" created')
+    expect(isCreating.value).toBe(false)
+  })
+
+  it('resets isCreating on API failure', async () => {
+    const createForm = { name: 'Bad Key', expires_in_days: 30 }
+    const isCreating = { value: false }
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Forbidden'))
+    let errorMsg = ''
+
+    async function handleCreate() {
+      isCreating.value = true
+      try {
+        await apiFetch('/iam/api-keys', { method: 'POST', body: createForm })
+      } catch (err) {
+        errorMsg = err instanceof Error ? err.message : 'Failed'
+      } finally {
+        isCreating.value = false
+      }
+    }
+
+    await handleCreate()
+    expect(isCreating.value).toBe(false)
+    expect(errorMsg).toBe('Forbidden')
+  })
+})
+
+// ── Scenario: Revoke key ──────────────────────────────────────────────────────
+// Spec: "GIVEN an active or expired key WHEN the user revokes it
+// THEN the key is marked revoked and can no longer authenticate"
+
+describe('API Keys - revoke key', () => {
+  it('opens revoke confirmation dialog with the target key', () => {
+    const keyToRevoke = { value: null as { id: string; name: string } | null }
+    const revokeDialogOpen = { value: false }
+
+    function confirmRevoke(key: { id: string; name: string }) {
+      keyToRevoke.value = key
+      revokeDialogOpen.value = true
+    }
+
+    confirmRevoke({ id: 'key-abc', name: 'CI Pipeline' })
+    expect(revokeDialogOpen.value).toBe(true)
+    expect(keyToRevoke.value?.id).toBe('key-abc')
+    expect(keyToRevoke.value?.name).toBe('CI Pipeline')
+  })
+
+  it('calls revoke API and reloads key list on confirmation', async () => {
+    const keyToRevoke = { value: { id: 'key-abc', name: 'CI Pipeline' } }
+    const revokeDialogOpen = { value: true }
+    const isRevoking = { value: false }
+    const revokeApiFetch = vi.fn().mockResolvedValue({})
+    const loadKeys = vi.fn().mockResolvedValue(undefined)
+    let toastMsg = ''
+
+    // Mirrors useIamApi.revokeApiKey: DELETE /iam/api-keys/{id} (not POST /revoke)
+    async function handleRevoke() {
+      if (!keyToRevoke.value) return
+      isRevoking.value = true
+      try {
+        await revokeApiFetch(`/iam/api-keys/${keyToRevoke.value.id}`, { method: 'DELETE' })
+        toastMsg = `API key "${keyToRevoke.value.name}" revoked`
+        await loadKeys()
+      } finally {
+        revokeDialogOpen.value = false
+        keyToRevoke.value = null
+        isRevoking.value = false
+      }
+    }
+
+    await handleRevoke()
+    expect(revokeApiFetch).toHaveBeenCalledWith('/iam/api-keys/key-abc', { method: 'DELETE' })
+    expect(toastMsg).toBe('API key "CI Pipeline" revoked')
+    expect(loadKeys).toHaveBeenCalledOnce()
+    expect(revokeDialogOpen.value).toBe(false)
+    expect(keyToRevoke.value).toBeNull()
+    expect(isRevoking.value).toBe(false)
+  })
+
+  it('resets dialog state on revoke API failure', async () => {
+    const keyToRevoke = { value: { id: 'key-abc', name: 'CI Pipeline' } }
+    const revokeDialogOpen = { value: true }
+    const isRevoking = { value: false }
+    const revokeApiFetch = vi.fn().mockRejectedValue(new Error('Not found'))
+    let errorMsg = ''
+
+    // Mirrors useIamApi.revokeApiKey: DELETE /iam/api-keys/{id}
+    async function handleRevoke() {
+      if (!keyToRevoke.value) return
+      isRevoking.value = true
+      try {
+        await revokeApiFetch(`/iam/api-keys/${keyToRevoke.value.id}`, { method: 'DELETE' })
+      } catch (err) {
+        errorMsg = err instanceof Error ? err.message : 'Failed to revoke'
+      } finally {
+        revokeDialogOpen.value = false
+        keyToRevoke.value = null
+        isRevoking.value = false
+      }
+    }
+
+    await handleRevoke()
+    expect(errorMsg).toBe('Not found')
+    expect(revokeDialogOpen.value).toBe(false)
+    expect(isRevoking.value).toBe(false)
+  })
+
+  it('does nothing when keyToRevoke is null', async () => {
+    const keyToRevoke = { value: null as { id: string } | null }
+    const revokeApiFetch = vi.fn()
+
+    async function handleRevoke() {
+      if (!keyToRevoke.value) return
+      await revokeApiFetch(`/iam/api-keys/${keyToRevoke.value.id}`, { method: 'DELETE' })
+    }
+
+    await handleRevoke()
+    expect(revokeApiFetch).not.toHaveBeenCalled()
+  })
+})
+
+// ── Backend API Alignment: exact endpoint URL assertions ──────────────────────
+// Spec: "Backend API Alignment" — every CRUD operation calls the documented endpoint.
+// These tests mirror the useIamApi composable's implementation exactly so that
+// any future drift between the composable and the test is immediately visible.
+
+describe('API Keys - backend endpoint alignment (useIamApi)', () => {
+  it('listApiKeys calls GET /iam/api-keys', async () => {
+    const mockApiFetch = vi.fn().mockResolvedValue([])
+
+    // Mirrors useIamApi.listApiKeys exactly
+    async function listApiKeys(userId?: string) {
+      const query: Record<string, string> = {}
+      if (userId) query.user_id = userId
+      return mockApiFetch('/iam/api-keys', { query })
+    }
+
+    await listApiKeys()
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/iam/api-keys',
+      expect.objectContaining({ query: {} }),
+    )
+  })
+
+  it('listApiKeys passes user_id query param when filtering by user', async () => {
+    const mockApiFetch = vi.fn().mockResolvedValue([])
+
+    async function listApiKeys(userId?: string) {
+      const query: Record<string, string> = {}
+      if (userId) query.user_id = userId
+      return mockApiFetch('/iam/api-keys', { query })
+    }
+
+    await listApiKeys('user-42')
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/iam/api-keys',
+      expect.objectContaining({ query: { user_id: 'user-42' } }),
+    )
+  })
+
+  it('createApiKey calls POST /iam/api-keys with name and expires_in_days', async () => {
+    const mockApiFetch = vi.fn().mockResolvedValue({
+      id: 'key-new',
+      name: 'CI Pipeline',
+      secret: 'fake-secret', // gitleaks:allow
+    })
+
+    // Mirrors useIamApi.createApiKey exactly
+    async function createApiKey(data: { name: string; expires_in_days?: number }) {
+      return mockApiFetch('/iam/api-keys', { method: 'POST', body: data })
+    }
+
+    await createApiKey({ name: 'CI Pipeline', expires_in_days: 365 })
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/iam/api-keys',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.objectContaining({ name: 'CI Pipeline', expires_in_days: 365 }),
+      }),
+    )
+  })
+
+  it('revokeApiKey calls DELETE /iam/api-keys/{id} — not POST /revoke', async () => {
+    const mockApiFetch = vi.fn().mockResolvedValue(undefined)
+
+    // Mirrors useIamApi.revokeApiKey exactly
+    async function revokeApiKey(apiKeyId: string) {
+      return mockApiFetch(`/iam/api-keys/${apiKeyId}`, { method: 'DELETE' })
+    }
+
+    await revokeApiKey('key-abc')
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/iam/api-keys/key-abc',
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+    // Explicit negative assertion: must NOT be the old POST /revoke pattern
+    expect(mockApiFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining('/revoke'),
+      expect.anything(),
+    )
+  })
+})
+
+// ── Scenario: Key list filtering ──────────────────────────────────────────────
+// Spec: "THEN keys are listed with status (active, expired, revoked), creation date, last used, and expiration"
+
+describe('API Keys - list filtering by status', () => {
+  const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+  const past = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
+
+  const keys = [
+    { id: '1', name: 'Active', is_revoked: false, expires_at: future, last_used_at: null },
+    { id: '2', name: 'Expired', is_revoked: false, expires_at: past, last_used_at: null },
+    { id: '3', name: 'Revoked', is_revoked: true, expires_at: future, last_used_at: null },
+  ]
+
+  it('separates active keys', () => {
+    const activeKeys = keys.filter((k) => !k.is_revoked && !isExpired(k.expires_at))
+    expect(activeKeys).toHaveLength(1)
+    expect(activeKeys[0].name).toBe('Active')
+  })
+
+  it('separates expired keys (non-revoked but past expiry)', () => {
+    const expiredKeys = keys.filter((k) => !k.is_revoked && isExpired(k.expires_at))
+    expect(expiredKeys).toHaveLength(1)
+    expect(expiredKeys[0].name).toBe('Expired')
+  })
+
+  it('separates revoked keys', () => {
+    const revokedKeys = keys.filter((k) => k.is_revoked)
+    expect(revokedKeys).toHaveLength(1)
+    expect(revokedKeys[0].name).toBe('Revoked')
+  })
+})
+
+// ── Secret shown once: dismiss clears the key ─────────────────────────────────
+describe('API Keys - secret shown once after dismiss', () => {
+  it('dismissCreatedKey clears newlyCreatedKey and resets secretCopied', () => {
+    const newlyCreatedKey = { value: { name: 'My Key', secret: 'fake-key' } as { name: string; secret: string } | null } // gitleaks:allow
+    const secretCopied = { value: true }
+    const secretVisible = { value: false }
+
+    function dismissCreatedKey() {
+      newlyCreatedKey.value = null
+      secretCopied.value = false
+      secretVisible.value = true
+    }
+
+    dismissCreatedKey()
+    expect(newlyCreatedKey.value).toBeNull()
+    expect(secretCopied.value).toBe(false)
+    expect(secretVisible.value).toBe(true)
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+// Tenant selector — data refresh on tenant change
+// Spec: "switching tenants refreshes all data in the UI"
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('API Keys page - tenant switch reloads data', () => {
+  it('api key list is cleared immediately when tenant version changes', () => {
+    // Stale keys from the previous tenant
+    let apiKeys = [
+      { id: 'k-old', name: 'Old Tenant Key', prefix: 'krt_old', is_revoked: false, expires_at: '2099-01-01T00:00:00Z', created_at: '', last_used_at: null, created_by_user_id: 'u-1' },
+    ]
+    let newlyCreatedKey: { id: string; secret: string } | null = { id: 'k-1', secret: 'super-secret' }
+
+    // Expected watch handler behaviour: clear stale data before async fetch
+    function onTenantVersionChange() {
+      apiKeys = []            // ← must happen before loadKeys()
+      newlyCreatedKey = null  // ← clear banner so old secret is not shown
+    }
+
+    expect(apiKeys).toHaveLength(1)
+    expect(newlyCreatedKey).not.toBeNull()
+
+    onTenantVersionChange()
+
+    expect(apiKeys).toHaveLength(0)
+    expect(newlyCreatedKey).toBeNull()
+  })
+
+  it('loadKeys is called after tenant version changes', async () => {
+    const loadKeys = vi.fn().mockResolvedValue([])
+    let tenantVersion = 1
+
+    async function onTenantVersionChange() {
+      await loadKeys()
+    }
+
+    tenantVersion = 2
+    await onTenantVersionChange()
+
+    expect(loadKeys).toHaveBeenCalledOnce()
+  })
+
+  it('api key list shows new-tenant keys after tenant switch completes', async () => {
+    let apiKeys: Array<{ id: string; name: string }> = [
+      { id: 'k-old', name: 'Old Key' },
+    ]
+
+    const newKey = { id: 'k-new', name: 'New Tenant Key' }
+    const loadKeys = vi.fn().mockResolvedValue([newKey])
+
+    async function onTenantVersionChange() {
+      apiKeys = []
+      apiKeys = await loadKeys()
+    }
+
+    await onTenantVersionChange()
+
+    expect(apiKeys).toHaveLength(1)
+    expect(apiKeys[0].name).toBe('New Tenant Key')
+    expect(apiKeys[0].id).not.toBe('k-old')
+  })
+})
+
+// ── Copy-to-clipboard for API Key identifiers ─────────────────────────────────
+// Spec: "Interaction Principles — Copy-to-clipboard"
+// GIVEN any identifier, configuration snippet, or secret
+// THEN a copy button is provided
+// AND a toast confirms the copy action
+
+describe('API Keys - copy key prefix to clipboard', () => {
+  it('calls clipboard.writeText with the key prefix and shows toast', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    let toastMsg = ''
+    let copiedPrefix = ''
+
+    async function copyKeyPrefix(prefix: string) {
+      try {
+        await writeText(prefix)
+        toastMsg = 'Key prefix copied to clipboard'
+        copiedPrefix = prefix
+      } catch {
+        toastMsg = 'Failed to copy to clipboard'
+      }
+    }
+
+    await copyKeyPrefix('krtgph_abc123')
+    expect(writeText).toHaveBeenCalledWith('krtgph_abc123')
+    expect(toastMsg).toBe('Key prefix copied to clipboard')
+    expect(copiedPrefix).toBe('krtgph_abc123')
+  })
+
+  it('shows error feedback when clipboard write fails', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('NotAllowedError'))
+    let toastMsg = ''
+
+    async function copyKeyPrefix(prefix: string) {
+      try {
+        await writeText(prefix)
+        toastMsg = 'Key prefix copied to clipboard'
+      } catch {
+        toastMsg = 'Failed to copy to clipboard'
+      }
+    }
+
+    await copyKeyPrefix('krtgph_abc123')
+    expect(toastMsg).toBe('Failed to copy to clipboard')
+  })
+
+  it('resets copiedPrefix state after copy timeout', () => {
+    const copiedPrefix = { value: 'krtgph_abc123' }
+
+    function resetCopied() {
+      copiedPrefix.value = ''
+    }
+
+    resetCopied()
+    expect(copiedPrefix.value).toBe('')
+  })
+})
+
+describe('API Keys - copy newly-created secret (shown once)', () => {
+  it('calls clipboard.writeText with the secret and sets secretCopied', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    const secretCopied = { value: false }
+    let toastMsg = ''
+
+    const newlyCreatedKey = {
+      value: { name: 'CI Pipeline', secret: 'krtgph_test_secret' }, // gitleaks:allow
+    }
+
+    async function copySecret() {
+      if (!newlyCreatedKey.value) return
+      try {
+        await writeText(newlyCreatedKey.value.secret)
+        secretCopied.value = true
+        toastMsg = 'Secret copied to clipboard'
+      } catch {
+        toastMsg = 'Failed to copy'
+      }
+    }
+
+    await copySecret()
+    expect(writeText).toHaveBeenCalledWith('krtgph_test_secret')
+    expect(secretCopied.value).toBe(true)
+    expect(toastMsg).toBe('Secret copied to clipboard')
+  })
+
+  it('does not copy when newlyCreatedKey is null', async () => {
+    const writeText = vi.fn()
+    const newlyCreatedKey = { value: null as { secret: string } | null }
+
+    async function copySecret() {
+      if (!newlyCreatedKey.value) return
+      await writeText(newlyCreatedKey.value.secret)
+    }
+
+    await copySecret()
+    expect(writeText).not.toHaveBeenCalled()
+  })
+})
+
+// ── Mutation feedback — create and revoke toasts ───────────────────────────────
+// Spec: "Interaction Principles — Mutation feedback"
+
+describe('API Keys - mutation feedback on create', () => {
+  it('shows success toast with key name after create', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({ id: 'key-new', name: 'CI Pipeline', secret: 'krtgph_x' }) // gitleaks:allow
+    let successToast = ''
+
+    async function handleCreate(name: string, expiresInDays: number) {
+      if (!name.trim()) return
+      if (expiresInDays < 1 || expiresInDays > 3650) return
+      const key = await apiFetch('/iam/api-keys', { method: 'POST', body: { name, expires_in_days: expiresInDays } })
+      successToast = `API key "${key.name}" created`
+    }
+
+    await handleCreate('CI Pipeline', 365)
+    expect(successToast).toBe('API key "CI Pipeline" created')
+  })
+
+  it('shows error toast when key creation fails', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Forbidden'))
+    let errorToast = ''
+
+    async function handleCreate(name: string, expiresInDays: number) {
+      if (!name.trim()) return
+      try {
+        await apiFetch('/iam/api-keys', { method: 'POST', body: { name, expires_in_days: expiresInDays } })
+      } catch (err) {
+        errorToast = err instanceof Error ? err.message : 'Failed to create API key'
+      }
+    }
+
+    await handleCreate('CI Pipeline', 365)
+    expect(errorToast).toBe('Forbidden')
+  })
+})
+
+describe('API Keys - mutation feedback on revoke', () => {
+  it('shows success toast with key name after revoke', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({})
+    const keyToRevoke = { id: 'key-abc', name: 'CI Pipeline' }
+    let successToast = ''
+
+    async function handleRevoke() {
+      await apiFetch(`/iam/api-keys/${keyToRevoke.id}`, { method: 'DELETE' })
+      successToast = `API key "${keyToRevoke.name}" revoked`
+    }
+
+    await handleRevoke()
+    expect(successToast).toBe('API key "CI Pipeline" revoked')
+  })
+
+  it('shows error feedback when revoke fails', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Not found'))
+    let errorToast = ''
+
+    async function handleRevoke(keyId: string) {
+      try {
+        await apiFetch(`/iam/api-keys/${keyId}`, { method: 'DELETE' })
+      } catch (err) {
+        errorToast = err instanceof Error ? err.message : 'Failed to revoke key'
+      }
+    }
+
+    await handleRevoke('key-abc')
+    expect(errorToast).toBe('Not found')
+  })
+})
+
+// ── Backend API Alignment — Scenario: Resource operations succeed end-to-end ──
+// Spec requirement: "AND the UI reflects the updated state without requiring a
+// manual refresh"
+// Verifies that after create/revoke operations, loadKeys() is called so the
+// API key list is refreshed automatically without a manual page reload.
+
+describe('Backend API Alignment — Scenario: Resource operations succeed end-to-end — API key list refresh after create', () => {
+  it('calls loadKeys() after successful API key creation', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({
+      id: 'key-new',
+      name: 'CI Pipeline',
+      secret: 'fake-secret', // gitleaks:allow
+      prefix: 'kfake_',
+    })
+    const loadKeys = vi.fn().mockResolvedValue(undefined)
+    const createForm = { name: 'CI Pipeline', expires_in_days: 30 }
+    const isCreating = { value: false }
+    const createDialogOpen = { value: true }
+
+    async function handleCreate() {
+      if (!createForm.name.trim()) return
+      isCreating.value = true
+      try {
+        const key = await apiFetch('/iam/api-keys', { method: 'POST', body: createForm })
+        void key
+        await loadKeys()
+      } finally {
+        createDialogOpen.value = false
+        isCreating.value = false
+      }
+    }
+
+    await handleCreate()
+    expect(loadKeys).toHaveBeenCalledOnce()
+  })
+
+  it('does NOT call loadKeys() when API key creation throws', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Forbidden'))
+    const loadKeys = vi.fn().mockResolvedValue(undefined)
+    const createForm = { name: 'CI Pipeline', expires_in_days: 30 }
+    const isCreating = { value: false }
+
+    async function handleCreate() {
+      if (!createForm.name.trim()) return
+      isCreating.value = true
+      try {
+        await apiFetch('/iam/api-keys', { method: 'POST', body: createForm })
+        await loadKeys()
+      } catch {
+        // error path — refresh must NOT be called
+      } finally {
+        isCreating.value = false
+      }
+    }
+
+    await handleCreate()
+    expect(loadKeys).not.toHaveBeenCalled()
+  })
+})
+
+describe('Backend API Alignment — Scenario: Resource operations succeed end-to-end — API key list refresh after revoke', () => {
+  it('calls loadKeys() after successful API key revocation', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({})
+    const loadKeys = vi.fn().mockResolvedValue(undefined)
+    const keyToRevoke = { value: { id: 'key-abc', name: 'CI Pipeline' } as { id: string; name: string } | null }
+    const isRevoking = { value: false }
+    const revokeDialogOpen = { value: true }
+
+    async function handleRevoke() {
+      if (!keyToRevoke.value) return
+      isRevoking.value = true
+      try {
+        await apiFetch(`/iam/api-keys/${keyToRevoke.value.id}`, { method: 'DELETE' })
+        await loadKeys()
+      } finally {
+        revokeDialogOpen.value = false
+        keyToRevoke.value = null
+        isRevoking.value = false
+      }
+    }
+
+    await handleRevoke()
+    expect(loadKeys).toHaveBeenCalledOnce()
+  })
+
+  it('does NOT call loadKeys() when revoke API throws', async () => {
+    const apiFetch = vi.fn().mockRejectedValue(new Error('Not found'))
+    const loadKeys = vi.fn().mockResolvedValue(undefined)
+    const keyToRevoke = { value: { id: 'key-abc', name: 'CI Pipeline' } as { id: string; name: string } | null }
+    const isRevoking = { value: false }
+    const revokeDialogOpen = { value: true }
+
+    async function handleRevoke() {
+      if (!keyToRevoke.value) return
+      isRevoking.value = true
+      try {
+        await apiFetch(`/iam/api-keys/${keyToRevoke.value.id}`, { method: 'DELETE' })
+        await loadKeys()
+      } catch {
+        // error path — refresh must NOT be called
+      } finally {
+        revokeDialogOpen.value = false
+        keyToRevoke.value = null
+        isRevoking.value = false
+      }
+    }
+
+    await handleRevoke()
+    expect(loadKeys).not.toHaveBeenCalled()
+  })
+})

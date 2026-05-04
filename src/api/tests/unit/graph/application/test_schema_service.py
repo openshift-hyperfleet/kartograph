@@ -255,6 +255,35 @@ class TestGetNodeSchema:
 
         assert result is None
 
+    def test_same_label_different_entity_types_scoped_correctly(
+        self, service, mock_repository
+    ):
+        """Same label scoped by entity type returns only the node definition.
+
+        Scenario: Same label, different entity types
+        - GIVEN a node type "link" and an edge type "link"
+        - WHEN the node schema is requested for "link"
+        - THEN only the node definition is returned (labels are scoped by
+          entity type, not globally unique)
+        """
+        node_link_def = TypeDefinition(
+            label="link",
+            entity_type=EntityType.NODE,
+            description="A link node",
+            required_properties={"url"},
+            optional_properties=set(),
+        )
+        # Repository returns node-scoped definition when queried with "node"
+        mock_repository.get.return_value = node_link_def
+
+        result = service.get_node_schema("link")
+
+        assert result is not None
+        assert result.entity_type == EntityType.NODE
+        assert result.label == "link"
+        # Should call repository with entity_type="node" (not "edge")
+        mock_repository.get.assert_called_once_with("link", "node")
+
 
 class TestGetEdgeSchema:
     """Tests for get_edge_schema method."""

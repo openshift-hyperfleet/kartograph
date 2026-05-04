@@ -13,6 +13,7 @@ import {
   Loader2,
   CircleCheck,
   Zap,
+  X,
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -40,12 +41,14 @@ import {
 } from '@/components/ui/tooltip'
 
 import type { APIKeyResponse, APIKeyCreatedResponse } from '~/types'
+import { useCopyToClipboard } from '~/composables/useCopyToClipboard'
 
 const { createApiKey, listApiKeys } = useIamApi()
 const { extractErrorMessage } = useErrorHandler()
 const { hasTenant, currentTenantName, tenantVersion } = useTenant()
 const transientSecret = useTransientSecret()
 const config = useRuntimeConfig()
+const { copyToClipboard } = useCopyToClipboard()
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -235,17 +238,7 @@ async function handleCreateKey() {
 }
 
 // ── Clipboard ──────────────────────────────────────────────────────────────
-
-async function copyToClipboard(text: string, label?: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    toast.success(label ? `${label} copied` : 'Copied to clipboard')
-    return true
-  } catch {
-    toast.error('Failed to copy to clipboard')
-    return false
-  }
-}
+// Uses the centralised useCopyToClipboard composable (toast + copied flag).
 
 async function copyConfig(tab: string, text: string) {
   const ok = await copyToClipboard(text, `${tab} config`)
@@ -259,6 +252,11 @@ async function copySecret() {
   if (!newlyCreatedKey.value) return
   const ok = await copyToClipboard(newlyCreatedKey.value.secret, 'API key secret')
   if (ok) secretCopied.value = true
+}
+
+function dismissSecret() {
+  newlyCreatedKey.value = null
+  secretCopied.value = false
 }
 
 async function copyEndpoint() {
@@ -286,7 +284,7 @@ async function copyHeaderValue(key: string, value: string) {
         <Plug class="size-5 text-primary" />
       </div>
       <div>
-        <h1 class="text-2xl font-bold tracking-tight">MCP Integration</h1>
+        <h1 class="text-2xl font-semibold tracking-tight">MCP Integration</h1>
         <p class="text-sm text-muted-foreground">
           Connect AI agents to your knowledge graph via the Model Context Protocol.
         </p>
@@ -315,7 +313,7 @@ async function copyHeaderValue(key: string, value: string) {
       </Alert>
 
       <!-- Newly created key banner -->
-      <Alert v-if="newlyCreatedKey" class="border-green-500/30 bg-green-500/5">
+      <Alert v-if="newlyCreatedKey" data-testid="new-key-banner" class="border-green-500/30 bg-green-500/5">
         <CircleCheck class="size-4 text-green-600 dark:text-green-400" />
         <AlertDescription class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div class="min-w-0">
@@ -325,7 +323,7 @@ async function copyHeaderValue(key: string, value: string) {
           </div>
           <div class="flex items-center gap-2 shrink-0">
             <code class="rounded bg-muted px-2 py-1 font-mono text-xs truncate max-w-[180px]"
-              :title="newlyCreatedKey.secret">
+              :title="newlyCreatedKey.secret" data-testid="api-key-secret">
               {{ newlyCreatedKey.secret }}
             </code>
             <Tooltip>
@@ -337,6 +335,16 @@ async function copyHeaderValue(key: string, value: string) {
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Copy the raw API key secret</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <Button variant="ghost" size="icon" class="shrink-0 size-7 text-muted-foreground hover:text-foreground"
+                  data-testid="dismiss-secret-panel" aria-label="Dismiss key banner"
+                  @click="dismissSecret">
+                  <X class="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Dismiss — the secret will not be shown again</TooltipContent>
             </Tooltip>
           </div>
         </AlertDescription>
@@ -435,7 +443,8 @@ async function copyHeaderValue(key: string, value: string) {
 
             <!-- State: No keys at all — prompt to create -->
             <template v-else>
-              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                data-testid="create-key-prompt">
                 <p class="text-sm text-muted-foreground">
                   No API keys found. Create one to generate connection configs.
                 </p>
@@ -500,14 +509,15 @@ async function copyHeaderValue(key: string, value: string) {
               </p>
               <div class="relative">
                 <pre class="overflow-x-auto rounded-md border bg-muted/50
-                   p-4 pr-14 font-mono text-[13px] leading-relaxed 
-                   text-foreground 
-                   whitespace-pre">{{ mcpConfigClaudeDisplay(configSecret) }}</pre>
+                   p-4 pr-14 font-mono text-[13px] leading-relaxed
+                   text-foreground
+                   whitespace-pre" data-testid="mcp-snippet">{{ mcpConfigClaudeDisplay(configSecret) }}</pre>
                 <Tooltip>
                   <TooltipTrigger as-child>
                     <Button variant="ghost" size="icon"
                       class="absolute right-2 top-2 size-8 text-muted-foreground hover:text-foreground"
                       :class="copiedConfigTab === 'Claude Code' ? 'text-green-600 dark:text-green-400' : ''"
+                      data-testid="copy-snippet-button"
                       @click="copyConfig('Claude Code', mcpConfigClaudeCopy(configSecret))">
                       <component :is="copiedConfigTab === 'Claude Code' ? Check : Copy" class="size-4" />
                     </Button>
@@ -602,7 +612,7 @@ async function copyHeaderValue(key: string, value: string) {
       <!-- Endpoint Details (collapsible) -->
       <Card>
         <button
-          class="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset rounded-lg"
+          class="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset rounded-lg"
           :aria-expanded="showDetails" aria-controls="endpoint-details-content" @click="showDetails = !showDetails">
           <div class="flex items-center gap-2">
             <Info class="size-4 text-muted-foreground" />
@@ -682,7 +692,7 @@ async function copyHeaderValue(key: string, value: string) {
       <!-- Available Tools (collapsible) -->
       <Card>
         <button
-          class="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset rounded-lg"
+          class="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset rounded-lg"
           :aria-expanded="showTools" aria-controls="tools-content" @click="showTools = !showTools">
           <div class="flex items-center gap-2">
             <Terminal class="size-4 text-muted-foreground" />

@@ -44,17 +44,24 @@ class GraphQueryService:
         self,
         slug: str,
         node_type: str | None = None,
+        knowledge_graph_id: str | None = None,
     ) -> list[NodeRecord]:
         """Search for nodes by their slug.
 
         Args:
             slug: The entity slug to search for.
             node_type: Optional type filter.
+            knowledge_graph_id: Optional KnowledgeGraph ID filter. When provided,
+                only nodes whose ``knowledge_graph_id`` property matches are returned.
+                When absent, nodes across all KnowledgeGraphs in the tenant graph
+                are returned.
 
         Returns:
             List of matching nodes.
         """
-        nodes = self._repository.find_nodes_by_slug(slug, node_type=node_type)
+        nodes = self._repository.find_nodes_by_slug(
+            slug, node_type=node_type, knowledge_graph_id=knowledge_graph_id
+        )
         self._probe.slug_searched(
             slug=slug,
             node_type=node_type,

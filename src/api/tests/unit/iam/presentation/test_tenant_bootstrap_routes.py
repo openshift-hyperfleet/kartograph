@@ -165,3 +165,118 @@ class TestCreateTenantWithoutTenantContext:
             name="Acme Corp",
             creator_id=mock_authenticated_user.user_id,
         )
+
+
+class TestTenantNameValidation:
+    """Spec: Tenant Name Validation requirement.
+
+    Verifies that the CREATE endpoint enforces name length constraints via
+    Pydantic validation (min_length=1, max_length=255 on CreateTenantRequest).
+    """
+
+    def test_create_tenant_returns_422_for_empty_name(
+        self,
+        mock_tenant_service: AsyncMock,
+        mock_authz: AsyncMock,
+        mock_authenticated_user: AuthenticatedUser,
+    ) -> None:
+        """Scenario: Empty name — request rejected with validation error.
+
+        GIVEN an empty string as tenant name
+        WHEN used to create a tenant
+        THEN the request is rejected with a 422 validation error
+        """
+        client = _create_test_client(
+            mock_tenant_service=mock_tenant_service,
+            mock_authz=mock_authz,
+            mock_authenticated_user=mock_authenticated_user,
+            single_tenant_mode=False,
+        )
+
+        response = client.post("/iam/tenants", json={"name": ""})
+
+        # Pydantic min_length=1 validation catches empty name
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        # Service must never be called when validation fails
+        mock_tenant_service.create_tenant.assert_not_called()
+
+    def test_create_tenant_returns_422_for_name_exceeding_255_chars(
+        self,
+        mock_tenant_service: AsyncMock,
+        mock_authz: AsyncMock,
+        mock_authenticated_user: AuthenticatedUser,
+    ) -> None:
+        """Scenario: Name too long — request rejected with validation error.
+
+        GIVEN a name exceeding 255 characters
+        WHEN used to create a tenant
+        THEN the request is rejected with a 422 validation error
+        """
+        client = _create_test_client(
+            mock_tenant_service=mock_tenant_service,
+            mock_authz=mock_authz,
+            mock_authenticated_user=mock_authenticated_user,
+            single_tenant_mode=False,
+        )
+
+        too_long_name = "x" * 256  # 256 chars exceeds max_length=255
+        response = client.post("/iam/tenants", json={"name": too_long_name})
+
+        # Pydantic max_length=255 validation catches over-long names
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        mock_tenant_service.create_tenant.assert_not_called()
+
+    def test_create_tenant_accepts_name_at_max_length_boundary(
+        self,
+        mock_tenant_service: AsyncMock,
+        mock_authz: AsyncMock,
+        mock_authenticated_user: AuthenticatedUser,
+    ) -> None:
+        """Scenario: Valid name — exactly 255 characters is accepted.
+
+        GIVEN a name of exactly 255 characters
+        WHEN used to create a tenant
+        THEN the name is accepted (boundary case within max_length=255)
+        """
+        max_valid_name = "x" * 255
+        tenant = Tenant.create(name=max_valid_name)
+        mock_tenant_service.create_tenant.return_value = tenant
+
+        client = _create_test_client(
+            mock_tenant_service=mock_tenant_service,
+            mock_authz=mock_authz,
+            mock_authenticated_user=mock_authenticated_user,
+            single_tenant_mode=False,
+        )
+
+        response = client.post("/iam/tenants", json={"name": max_valid_name})
+
+        assert response.status_code == status.HTTP_201_CREATED
+        mock_tenant_service.create_tenant.assert_called_once()
+
+    def test_create_tenant_accepts_single_char_name(
+        self,
+        mock_tenant_service: AsyncMock,
+        mock_authz: AsyncMock,
+        mock_authenticated_user: AuthenticatedUser,
+    ) -> None:
+        """Scenario: Valid name — minimum 1 character is accepted.
+
+        GIVEN a single character name
+        WHEN used to create a tenant
+        THEN the name is accepted (minimum valid length)
+        """
+        tenant = Tenant.create(name="A")
+        mock_tenant_service.create_tenant.return_value = tenant
+
+        client = _create_test_client(
+            mock_tenant_service=mock_tenant_service,
+            mock_authz=mock_authz,
+            mock_authenticated_user=mock_authenticated_user,
+            single_tenant_mode=False,
+        )
+
+        response = client.post("/iam/tenants", json={"name": "A"})
+
+        assert response.status_code == status.HTTP_201_CREATED
+        mock_tenant_service.create_tenant.assert_called_once()

@@ -158,6 +158,89 @@ class TestFindNodesBySlug:
         assert "Person" in query
 
 
+class TestFindNodesBySlugKnowledgeGraphFiltering:
+    """Tests for find_nodes_by_slug with optional knowledge_graph_id filtering.
+
+    Spec: specs/graph/queries.spec.md — "Requirement: KnowledgeGraph Filtering"
+    """
+
+    def test_includes_knowledge_graph_id_filter_when_provided(
+        self, repository, mock_graph_client
+    ):
+        """Query MUST include knowledge_graph_id filter when parameter is provided.
+
+        Scenario: Filtered query
+        GIVEN a query with a knowledge_graph_id parameter
+        WHEN the query is executed
+        THEN only nodes with a matching knowledge_graph_id property are queried
+        """
+        mock_graph_client.execute_cypher.return_value = CypherResult(
+            rows=tuple(), row_count=0
+        )
+
+        repository.find_nodes_by_slug("alice-smith", knowledge_graph_id="kg-001")
+
+        call_args = mock_graph_client.execute_cypher.call_args
+        query = call_args[0][0]
+        assert "knowledge_graph_id" in query
+        assert "kg-001" in query
+
+    def test_omits_knowledge_graph_id_filter_when_not_provided(
+        self, repository, mock_graph_client
+    ):
+        """Query MUST NOT include knowledge_graph_id filter when parameter is absent.
+
+        Scenario: Unfiltered query
+        GIVEN a query without a knowledge_graph_id parameter
+        WHEN the query is executed
+        THEN nodes across all KnowledgeGraphs in the tenant graph are returned
+        """
+        mock_graph_client.execute_cypher.return_value = CypherResult(
+            rows=tuple(), row_count=0
+        )
+
+        repository.find_nodes_by_slug("alice-smith")
+
+        call_args = mock_graph_client.execute_cypher.call_args
+        query = call_args[0][0]
+        # No knowledge_graph_id constraint should be in the query
+        assert "knowledge_graph_id" not in query
+
+    def test_omits_knowledge_graph_id_filter_when_none(
+        self, repository, mock_graph_client
+    ):
+        """Query MUST NOT include knowledge_graph_id filter when parameter is None.
+
+        Scenario: Unfiltered query
+        """
+        mock_graph_client.execute_cypher.return_value = CypherResult(
+            rows=tuple(), row_count=0
+        )
+
+        repository.find_nodes_by_slug("alice-smith", knowledge_graph_id=None)
+
+        call_args = mock_graph_client.execute_cypher.call_args
+        query = call_args[0][0]
+        assert "knowledge_graph_id" not in query
+
+    def test_combined_type_and_kg_filter(self, repository, mock_graph_client):
+        """Query must support both node_type and knowledge_graph_id filters together."""
+        mock_graph_client.execute_cypher.return_value = CypherResult(
+            rows=tuple(), row_count=0
+        )
+
+        repository.find_nodes_by_slug(
+            "alice-smith", node_type="Person", knowledge_graph_id="kg-002"
+        )
+
+        call_args = mock_graph_client.execute_cypher.call_args
+        query = call_args[0][0]
+        assert "Person" in query
+        assert "alice-smith" in query
+        assert "knowledge_graph_id" in query
+        assert "kg-002" in query
+
+
 class TestGetNeighbors:
     """Tests for get_neighbors method."""
 

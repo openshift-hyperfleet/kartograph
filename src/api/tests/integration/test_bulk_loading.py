@@ -226,6 +226,108 @@ class TestBulkLoadingIdempotency:
         count = query_result.rows[0][0]
         assert count == 2, f"Expected 2 nodes, got {count}"
 
+    def test_create_merges_properties_on_existing_node(
+        self, clean_graph: AgeGraphClient
+    ):
+        """Second CREATE on same node ID should MERGE properties, not replace them.
+
+        Spec: "Create an existing node (idempotent merge)"
+          THEN existing properties are preserved
+          AND new properties from set_properties are added
+
+        This test is the regression guard for the jsonb || merge fix.
+        Before the fix, _build_update_existing_query used:
+            SET properties = (s.properties::text)::ag_catalog.agtype
+        which replaces the entire properties object, silently dropping any
+        property not present in the second batch.
+        """
+        strategy = AgeBulkLoadingStrategy()
+        probe = DefaultMutationProbe()
+        node_id = "person:eeee111122223333"
+
+        # First CREATE: node with 3 properties (slug, name, age)
+        first_batch = [
+            MutationOperation(
+                op=MutationOperationType.CREATE,
+                type=EntityType.NODE,
+                id=node_id,
+                label="person",
+                set_properties={
+                    "slug": "alice",
+                    "name": "Alice",
+                    "age": 30,
+                    "data_source_id": "ds-abc",
+                    "source_path": "people/alice.md",
+                },
+            ),
+        ]
+        result1 = strategy.apply_batch(
+            client=clean_graph,
+            operations=first_batch,
+            probe=probe,
+            graph_name=clean_graph.graph_name,
+        )
+        assert result1.success is True
+
+        # Second CREATE: same ID, but WITHOUT 'age', and WITH new 'email'
+        second_batch = [
+            MutationOperation(
+                op=MutationOperationType.CREATE,
+                type=EntityType.NODE,
+                id=node_id,
+                label="person",
+                set_properties={
+                    "slug": "alice",
+                    "name": "Alice",
+                    "email": "alice@example.com",  # New property
+                    "data_source_id": "ds-abc",
+                    "source_path": "people/alice.md",
+                    # 'age' intentionally absent — must still be preserved
+                },
+            ),
+        ]
+        result2 = strategy.apply_batch(
+            client=clean_graph,
+            operations=second_batch,
+            probe=probe,
+            graph_name=clean_graph.graph_name,
+        )
+        assert result2.success is True
+
+        # Verify exactly 1 node exists (idempotent — no duplicates)
+        count_result = clean_graph.execute_cypher(
+            "MATCH (n:person) WHERE n.id = 'person:eeee111122223333' "
+            "RETURN count(n) as cnt"
+        )
+        assert count_result.rows[0][0] == 1, "Should have exactly one node"
+
+        # Query each property individually (AGE requires single-column returns)
+        name_result = clean_graph.execute_cypher(
+            "MATCH (n:person) WHERE n.id = 'person:eeee111122223333' RETURN n.name"
+        )
+        age_result = clean_graph.execute_cypher(
+            "MATCH (n:person) WHERE n.id = 'person:eeee111122223333' RETURN n.age"
+        )
+        email_result = clean_graph.execute_cypher(
+            "MATCH (n:person) WHERE n.id = 'person:eeee111122223333' RETURN n.email"
+        )
+
+        name = name_result.rows[0][0]
+        age = age_result.rows[0][0]
+        email = email_result.rows[0][0]
+
+        # New property from second batch must be present
+        assert email == "alice@example.com", (
+            f"New 'email' property should have been added. Got: {email}"
+        )
+        # Existing property from first batch (absent in second batch) must be preserved
+        assert age == 30, (
+            f"Existing 'age' property should be preserved after second CREATE. "
+            f"Got: {age!r}. This indicates CREATE replaced instead of merged properties."
+        )
+        # Property present in both batches (should reflect second-batch value)
+        assert name == "Alice"
+
 
 @pytest.mark.integration
 class TestEdgeLabelPreCreation:

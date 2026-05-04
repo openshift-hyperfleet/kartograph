@@ -7,6 +7,7 @@ tracks the status and timing of a data source synchronization.
 from datetime import datetime
 
 from sqlalchemy import (
+    ARRAY,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -31,6 +32,14 @@ class DataSourceSyncRunModel(Base):
     Foreign Key Constraints:
     - data_source_id references data_sources.id with CASCADE delete
       Sync runs are automatically deleted when a data source is deleted
+
+    Lifecycle statuses:
+    - pending: Initial state when sync run is created
+    - ingesting: Data extraction pipeline is running
+    - ai_extracting: AI entity extraction is in progress
+    - applying: Graph mutations are being applied
+    - completed: Sync finished successfully (terminal)
+    - failed: Sync failed at any stage (terminal)
     """
 
     __tablename__ = "data_source_sync_runs"
@@ -54,12 +63,19 @@ class DataSourceSyncRunModel(Base):
         insert_default=_utc_now,
         nullable=False,
     )
+    logs: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        nullable=False,
+        default=list,
+        server_default="{}",
+    )
 
     __table_args__ = (
         Index("idx_sync_runs_data_source_id", "data_source_id"),
         Index("idx_sync_runs_data_source_status", "data_source_id", "status"),
         CheckConstraint(
-            "status IN ('pending', 'running', 'completed', 'failed')",
+            "status IN ('pending', 'ingesting', 'ai_extracting', 'applying', "
+            "'completed', 'failed')",
             name="ck_sync_runs_status",
         ),
     )

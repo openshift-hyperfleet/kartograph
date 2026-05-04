@@ -11,16 +11,6 @@ def prompts_dir(tmp_path):
     return tmp_path / "prompts"
 
 
-@pytest.fixture
-def repository(prompts_dir):
-    """Create repository with temporary directory and required files."""
-    prompts_dir.mkdir(parents=True, exist_ok=True)
-    # Create required file for repository to initialize
-    instructions_file = prompts_dir / "agent_instructions.md"
-    instructions_file.write_text("# Default Instructions", encoding="utf-8")
-    return PromptRepository(prompts_dir=prompts_dir)
-
-
 class TestInit:
     """Tests for repository initialization."""
 

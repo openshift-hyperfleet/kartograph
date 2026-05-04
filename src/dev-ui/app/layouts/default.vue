@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import kartographLogo from '~/assets/kartograph-logo.png'
 import {
@@ -28,8 +28,11 @@ import {
   Cable,
   Plug,
   Settings2,
+  BookOpen,
+  Search,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -56,12 +59,47 @@ import { useSidebar } from '@/composables/useSidebar'
 import { useColorMode } from '@/composables/useColorMode'
 
 const route = useRoute()
+const router = useRouter()
 const { isCollapsed, isMobileOpen, toggleCollapsed, closeMobile } = useSidebar()
 const { isDark, toggle: toggleColorMode } = useColorMode()
 
+// ── Global search (keyboard shortcut "/") ─────────────────────────────────
+// Pressing "/" anywhere outside a form field focuses this search input.
+// Pressing Enter with a query navigates to the Query Console with the text
+// pre-filled. This enables power-users to jump directly to a query without
+// touching the mouse.
+
+const globalSearchQuery = ref('')
+
+function handleGlobalKeydown(event: KeyboardEvent) {
+  if (event.key !== '/') return
+  // Suppress when the user is already typing inside a form field.
+  const tag = (event.target as HTMLElement)?.tagName?.toLowerCase() ?? ''
+  if (['input', 'textarea', 'select'].includes(tag)) return
+  event.preventDefault()
+  const el = document.querySelector<HTMLInputElement>('[data-testid="global-search-input"]')
+  el?.focus()
+}
+
+function handleSearchSubmit() {
+  const q = globalSearchQuery.value.trim()
+  if (!q) return
+  globalSearchQuery.value = ''
+  router.push({ path: '/query', query: { query: q } })
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', handleGlobalKeydown)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleGlobalKeydown)
+})
+
 // ── Auth & Tenant state ────────────────────────────────────────────────────
 const { user, isAuthenticated, logout } = useAuth()
-const { listTenants } = useIamApi()
+const { listTenants, listWorkspaces } = useIamApi()
+const { apiFetch } = useApiClient()
 const { extractErrorMessage } = useErrorHandler()
 const {
   currentTenantId,
@@ -159,6 +197,38 @@ watch(isAuthenticated, (authenticated) => {
   }
 }, { immediate: true })
 
+// ── Workspace guidance ─────────────────────────────────────────────────────
+// When a user enters a tenant for the first time with no personal workspace,
+// suggest creating or joining one.
+
+const WORKSPACE_GUIDANCE_LAYOUT_KEY = 'kartograph:workspace-guidance:'
+
+watch(currentTenantId, async (newId, oldId) => {
+  if (!newId) return
+
+  const guidanceKey = `${WORKSPACE_GUIDANCE_LAYOUT_KEY}${newId}`
+  if (typeof localStorage !== 'undefined' && localStorage.getItem(guidanceKey)) return
+
+  try {
+    const result = await listWorkspaces()
+    if (result.count === 0) {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(guidanceKey, 'true')
+      }
+      toast('Create or join a workspace', {
+        description: 'Workspaces help you organise your knowledge graphs. Create one or ask a team member to invite you.',
+        action: {
+          label: 'Manage Workspaces',
+          onClick: () => navigateTo('/workspaces'),
+        },
+        duration: 8000,
+      })
+    }
+  } catch {
+    // Workspace guidance is best-effort — ignore errors
+  }
+}, { immediate: true })
+
 // ── Navigation (Token 2 + Token 6) ────────────────────────────────────────
 
 interface NavItem {
@@ -167,6 +237,7 @@ interface NavItem {
   to: string
   disabled?: boolean
   badge?: string
+  ariaLabel?: string
 }
 
 interface NavSection {
@@ -176,37 +247,76 @@ interface NavSection {
 
 const homeItem: NavItem = { label: 'Home', icon: LayoutDashboard, to: '/' }
 
-const navSections: NavSection[] = [
-  {
-    title: 'Knowledge',
-    items: [
-      { label: 'Schema Browser', icon: Database, to: '/graph/schema' },
-      { label: 'Explorer', icon: Share2, to: '/graph/explorer' },
-      { label: 'Query Console', icon: Terminal, to: '/query' },
-      { label: 'Mutations', icon: FileCode, to: '/graph/mutations' },
-    ],
-  },
-  {
-    title: 'Connect',
-    items: [
-      { label: 'Data Sources', icon: Cable, to: '#', disabled: true, badge: 'Soon' },
-    ],
-  },
-  {
-    title: 'Integrate',
-    items: [
-      { label: 'API Keys', icon: KeyRound, to: '/api-keys' },
-      { label: 'MCP Endpoints', icon: Plug, to: '/integrate/mcp' },
-    ],
-  },
-  {
-    title: 'Settings',
-    items: [
-      { label: 'Workspaces', icon: FolderTree, to: '/workspaces' },
-      { label: 'Groups', icon: Users, to: '/groups' },
-    ],
-  },
-]
+// Active sync statuses matching the backend (task-042 canonical values)
+const ACTIVE_SYNC_STATUSES = new Set(['pending', 'ingesting', 'ai_extracting', 'applying'])
+
+const activeSyncCount = ref(0)
+
+async function fetchActiveSyncCount() {
+  if (!hasTenant.value) return
+  try {
+    const result = await apiFetch<{ data_sources: Array<{ latest_sync_run?: { status: string } }> }>(
+      '/management/data-sources',
+    )
+    activeSyncCount.value = (result.data_sources ?? []).filter(
+      (ds) => ds.latest_sync_run && ACTIVE_SYNC_STATUSES.has(ds.latest_sync_run.status),
+    ).length
+  } catch {
+    // Best-effort — badge is an optional indicator, not critical UI
+    activeSyncCount.value = 0
+  }
+}
+
+watch(currentTenantId, (id) => {
+  if (id) fetchActiveSyncCount()
+  else activeSyncCount.value = 0
+}, { immediate: true })
+
+const navSections = computed<NavSection[]>(() => {
+  const badge = activeSyncCount.value > 0 ? String(activeSyncCount.value) : undefined
+  const dsAriaLabel = badge
+    ? `Data Sources — ${activeSyncCount.value} active sync${activeSyncCount.value === 1 ? '' : 's'}`
+    : undefined
+  return [
+    {
+      title: 'Explore',
+      items: [
+        { label: 'Query Console', icon: Terminal, to: '/query' },
+        { label: 'Schema Browser', icon: Database, to: '/graph/schema' },
+        { label: 'Graph Explorer', icon: Share2, to: '/graph/explorer' },
+        { label: 'Mutations Console', icon: FileCode, to: '/graph/mutations' },
+      ],
+    },
+    {
+      title: 'Data',
+      items: [
+        { label: 'Knowledge Graphs', icon: BookOpen, to: '/knowledge-graphs' },
+        {
+          label: 'Data Sources',
+          icon: Cable,
+          to: '/data-sources',
+          badge,
+          ariaLabel: dsAriaLabel,
+        },
+      ],
+    },
+    {
+      title: 'Connect',
+      items: [
+        { label: 'API Keys', icon: KeyRound, to: '/api-keys' },
+        { label: 'MCP Integration', icon: Plug, to: '/integrate/mcp' },
+      ],
+    },
+    {
+      title: 'Settings',
+      items: [
+        { label: 'Workspaces', icon: FolderTree, to: '/workspaces' },
+        { label: 'Groups', icon: Users, to: '/groups' },
+        { label: 'Tenants', icon: Building2, to: '/tenants' },
+      ],
+    },
+  ]
+})
 
 function isActive(to: string): boolean {
   if (to === '/') return route.path === '/'
@@ -226,10 +336,12 @@ const breadcrumbs = computed(() => {
     '/groups': 'Groups',
     '/api-keys': 'API Keys',
     '/graph/schema': 'Schema Browser',
-    '/graph/explorer': 'Explorer',
+    '/graph/explorer': 'Graph Explorer',
     '/graph/mutations': 'Mutations',
     '/query': 'Query Console',
     '/integrate/mcp': 'MCP Integration',
+    '/knowledge-graphs': 'Knowledge Graphs',
+    '/data-sources': 'Data Sources',
   }
 
   if (path !== '/' && routeLabels[path]) {
@@ -246,6 +358,10 @@ const breadcrumbs = computed(() => {
 })
 
 const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
+
+// Close the mobile sheet whenever the route changes so the overlay does not
+// persist across programmatic navigations or browser history traversal.
+watch(() => route.path, () => { closeMobile() })
 </script>
 
 <template>
@@ -354,7 +470,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
               <TooltipTrigger as-child>
                 <DropdownMenuTrigger as-child>
                   <button
-                    class="flex w-full items-center justify-center rounded-md bg-sidebar-accent p-2 transition-colors hover:bg-sidebar-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                    class="flex w-full items-center justify-center rounded-md bg-sidebar-accent p-2 transition-colors hover:bg-sidebar-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-sidebar-ring/50"
                     :aria-label="tenantAriaLabel"
                   >
                     <Building2 class="size-4 shrink-0 text-sidebar-primary" aria-hidden="true" />
@@ -367,7 +483,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
             </Tooltip>
             <DropdownMenuTrigger v-else as-child>
               <button
-                class="flex w-full items-center gap-2 rounded-md bg-sidebar-accent px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                class="flex w-full items-center gap-2 rounded-md bg-sidebar-accent px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-sidebar-ring/50"
                 :aria-label="tenantAriaLabel"
               >
                 <Building2 class="size-4 shrink-0 text-sidebar-primary" aria-hidden="true" />
@@ -492,7 +608,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
                       </NuxtLink>
                     </TooltipTrigger>
                     <TooltipContent side="right" :side-offset="8">
-                      {{ item.label }}{{ item.disabled ? ' (Coming Soon)' : '' }}
+                      {{ item.label }}
                     </TooltipContent>
                   </Tooltip>
                 </template>
@@ -514,6 +630,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
                   <NuxtLink
                     v-else
                     :to="item.to"
+                    :aria-label="item.ariaLabel"
                     :class="[
                       'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
                       isActive(item.to)
@@ -523,6 +640,9 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
                   >
                     <component :is="item.icon" class="size-4 shrink-0" />
                     <span class="truncate">{{ item.label }}</span>
+                    <Badge v-if="item.badge" variant="secondary" class="ml-auto text-[10px] px-1.5 py-0">
+                      {{ item.badge }}
+                    </Badge>
                   </NuxtLink>
                 </template>
               </template>
@@ -598,7 +718,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
             <DropdownMenu v-else>
               <DropdownMenuTrigger as-child>
                 <button
-                  class="flex w-full items-center gap-2 rounded-md bg-sidebar-accent px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                  class="flex w-full items-center gap-2 rounded-md bg-sidebar-accent px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-sidebar-ring/50"
                   :aria-label="tenantAriaLabel"
                 >
                   <Building2 class="size-4 shrink-0 text-sidebar-primary" aria-hidden="true" />
@@ -680,6 +800,7 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
                   <NuxtLink
                     v-else
                     :to="item.to"
+                    :aria-label="item.ariaLabel"
                     :class="[
                       'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
                       isActive(item.to)
@@ -690,6 +811,9 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
                   >
                     <component :is="item.icon" class="size-4 shrink-0" />
                     <span>{{ item.label }}</span>
+                    <Badge v-if="item.badge" variant="secondary" class="ml-auto text-[10px] px-1.5 py-0">
+                      {{ item.badge }}
+                    </Badge>
                   </NuxtLink>
                 </template>
               </div>
@@ -735,6 +859,25 @@ const sidebarWidth = computed(() => (isCollapsed.value ? 'w-16' : 'w-64'))
               <span v-else class="text-foreground font-medium">{{ crumb.label }}</span>
             </template>
           </nav>
+
+          <!-- Global search (keyboard shortcut "/") -->
+          <!-- Power-users can press "/" from anywhere outside a form field to
+               jump here. Submitting with Enter navigates to the Query Console
+               with the typed text pre-filled as the initial Cypher query. -->
+          <form
+            class="hidden md:flex items-center relative mx-2"
+            @submit.prevent="handleSearchSubmit"
+          >
+            <Search class="absolute left-2.5 size-3.5 text-muted-foreground pointer-events-none" aria-hidden="true" />
+            <Input
+              v-model="globalSearchQuery"
+              data-testid="global-search-input"
+              type="search"
+              placeholder="Search  /"
+              class="h-8 w-48 pl-8 pr-2 text-sm bg-muted/50 border-transparent focus:border-border focus:bg-background transition-all"
+              aria-label="Global search — press / to focus"
+            />
+          </form>
 
           <div class="flex-1" />
 

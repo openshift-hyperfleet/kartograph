@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 
+from pydantic import ValidationError
+
 from graph.application.observability import (
     DefaultGraphServiceProbe,
     GraphServiceProbe,
@@ -15,7 +17,9 @@ from graph.application.observability import (
 from graph.domain.value_objects import (
     get_system_properties_for_entity,
     MutationOperation,
+    MutationOperationType,
     MutationResult,
+    PLATFORM_STAMPED_PROPERTIES,
     TypeDefinition,
 )
 from graph.ports.repositories import (
@@ -49,9 +53,38 @@ class GraphMutationService:
         self._type_definition_repository = type_definition_repository
         self._probe = probe or DefaultGraphServiceProbe()
 
+    def _stamp_knowledge_graph_id(
+        self,
+        operations: list[MutationOperation],
+        knowledge_graph_id: str,
+    ) -> list[MutationOperation]:
+        """Stamp knowledge_graph_id onto all CREATE and UPDATE operations.
+
+        The system is the authoritative source for knowledge_graph_id — callers
+        cannot set this value themselves. Any caller-provided value is overwritten.
+        Only operations with set_properties are stamped (DELETE has no set_properties).
+
+        Args:
+            operations: List of mutation operations.
+            knowledge_graph_id: The authoritative KnowledgeGraph ID to stamp.
+
+        Returns:
+            New list of operations with knowledge_graph_id stamped on relevant ops.
+        """
+        stamped: list[MutationOperation] = []
+        for op in operations:
+            if op.op in (MutationOperationType.CREATE, MutationOperationType.UPDATE):
+                if op.set_properties is not None:
+                    new_props = dict(op.set_properties)
+                    new_props["knowledge_graph_id"] = knowledge_graph_id
+                    op = op.model_copy(update={"set_properties": new_props})
+            stamped.append(op)
+        return stamped
+
     def apply_mutations(
         self,
         operations: list[MutationOperation],
+        knowledge_graph_id: str | None = None,
     ) -> MutationResult:
         """Apply a batch of mutation operations.
 
@@ -61,12 +94,40 @@ class GraphMutationService:
 
         Validates that CREATE operations have corresponding type definitions.
 
+        When knowledge_graph_id is provided, it is stamped onto all CREATE and UPDATE
+        operations (overwriting any caller-provided value) to prevent graph ID spoofing.
+
         Args:
             operations: List of mutation operations to apply.
+            knowledge_graph_id: Optional KnowledgeGraph ID to stamp on all CREATE/UPDATE
+                ops. When provided, the system enforces this value — caller-supplied
+                knowledge_graph_id values in set_properties are overwritten.
 
         Returns:
             MutationResult with success status and operation count.
         """
+        # Reject batches containing CREATE or UPDATE operations when knowledge_graph_id
+        # is not provided. The service must be the authoritative source for the graph
+        # ID — it cannot stamp what it does not know.
+        requires_knowledge_graph_id = any(
+            op.op in (MutationOperationType.CREATE, MutationOperationType.UPDATE)
+            for op in operations
+        )
+        if requires_knowledge_graph_id and knowledge_graph_id is None:
+            return MutationResult(
+                success=False,
+                operations_applied=0,
+                errors=[
+                    "knowledge_graph_id is required when the batch contains CREATE "
+                    "or UPDATE operations. Pass knowledge_graph_id to apply_mutations()."
+                ],
+                error_kind="validation",
+            )
+
+        # Stamp knowledge_graph_id on CREATE/UPDATE operations before any validation.
+        # The service is the authoritative source — callers cannot spoof this value.
+        if knowledge_graph_id is not None:
+            operations = self._stamp_knowledge_graph_id(operations, knowledge_graph_id)
         # Collect DEFINE operations from this batch
         defines_in_batch = {
             (op.label, op.type)
@@ -90,6 +151,7 @@ class GraphMutationService:
                         success=False,
                         operations_applied=0,
                         errors=[error_msg],
+                        error_kind="validation",
                     )
 
                 # Validate required properties if type definition exists in repository
@@ -109,6 +171,7 @@ class GraphMutationService:
                             success=False,
                             operations_applied=0,
                             errors=[error_msg],
+                            error_kind="validation",
                         )
 
                 # Validate required properties for types defined in current batch
@@ -146,6 +209,7 @@ class GraphMutationService:
                                 success=False,
                                 operations_applied=0,
                                 errors=[error_msg],
+                                error_kind="validation",
                             )
 
         # Store DEFINE operations in the repository
@@ -189,14 +253,20 @@ class GraphMutationService:
     def apply_mutations_from_jsonl(
         self,
         jsonl_content: str,
+        knowledge_graph_id: str | None = None,
     ) -> MutationResult:
         """Parse JSONL content and apply mutations.
 
         Each line in the JSONL should be a valid MutationOperation JSON object.
         Empty lines and whitespace-only lines are ignored.
 
+        When knowledge_graph_id is provided, it is stamped onto all CREATE and UPDATE
+        operations, overwriting any caller-supplied value.
+
         Args:
             jsonl_content: JSONL string with one operation per line.
+            knowledge_graph_id: Optional KnowledgeGraph ID to stamp on all CREATE/UPDATE
+                ops. The system overwrites any caller-provided value.
 
         Returns:
             MutationResult with success status and operation count.
@@ -228,9 +298,13 @@ class GraphMutationService:
                             f"JSON parse error on line {line_num}: {str(e)}",
                             f"Line content: {line_preview}",
                         ],
+                        error_kind="validation",
                     )
-                except Exception as e:
-                    # Validation error from Pydantic
+                except ValidationError as e:
+                    # Pydantic schema validation failure — bad field types, missing
+                    # required fields, or pattern mismatches. Only Pydantic raises
+                    # ValidationError here; real runtime errors propagate to the
+                    # outer except and are reported as error_kind="server".
                     line_preview = line[:100] + "..." if len(line) > 100 else line
                     return MutationResult(
                         success=False,
@@ -239,17 +313,21 @@ class GraphMutationService:
                             f"Validation error on line {line_num}: {str(e)}",
                             f"Line content: {line_preview}",
                         ],
+                        error_kind="validation",
                     )
 
-            # Apply all parsed operations
-            return self.apply_mutations(operations)
+            # Apply all parsed operations, forwarding knowledge_graph_id for stamping
+            return self.apply_mutations(
+                operations, knowledge_graph_id=knowledge_graph_id
+            )
 
         except Exception as e:
-            # Catch-all for unexpected errors
+            # Catch-all for unexpected errors (infrastructure/database failures)
             return MutationResult(
                 success=False,
                 operations_applied=0,
                 errors=[f"Unexpected error: {str(e)}"],
+                error_kind="server",
             )
 
     def _discover_optional_properties(
@@ -293,14 +371,22 @@ class GraphMutationService:
             # Calculate extra properties
             provided_props = set(op.set_properties.keys())
 
-            # Get entity-specific system properties
+            # Get entity-specific system properties (auto-added by DEFINE)
             system_props = get_system_properties_for_entity(op.type)
 
             required_props = type_def.required_properties | system_props
             existing_optional = set(type_def.optional_properties)
 
-            # Extra props = provided - required - already_optional
-            extra_props = provided_props - required_props - existing_optional
+            # Exclude platform-stamped properties (e.g. knowledge_graph_id) from
+            # schema learning — these are always managed by the service layer, never
+            # by callers, and must not appear as optional properties in type defs.
+            # Extra props = provided - required - already_optional - stamped_by_platform
+            extra_props = (
+                provided_props
+                - required_props
+                - existing_optional
+                - PLATFORM_STAMPED_PROPERTIES
+            )
 
             if not extra_props:
                 # No new optional properties discovered

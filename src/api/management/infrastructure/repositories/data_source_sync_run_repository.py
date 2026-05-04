@@ -8,6 +8,7 @@ events through the outbox pattern.
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy import desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.domain.entities import DataSourceSyncRun
@@ -49,6 +50,7 @@ class DataSourceSyncRunRepository(IDataSourceSyncRunRepository):
             model.status = sync_run.status
             model.completed_at = sync_run.completed_at
             model.error = sync_run.error
+            model.logs = sync_run.logs
         else:
             model = DataSourceSyncRunModel(
                 id=sync_run.id,
@@ -58,6 +60,7 @@ class DataSourceSyncRunRepository(IDataSourceSyncRunRepository):
                 completed_at=sync_run.completed_at,
                 error=sync_run.error,
                 created_at=sync_run.created_at,
+                logs=sync_run.logs,
             )
             self._session.add(model)
 
@@ -90,6 +93,24 @@ class DataSourceSyncRunRepository(IDataSourceSyncRunRepository):
         self._probe.sync_runs_listed(data_source_id, len(runs))
         return runs
 
+    async def get_latest_for_data_source(
+        self, data_source_id: str
+    ) -> DataSourceSyncRun | None:
+        """Return the most recent sync run for a data source (by created_at DESC)."""
+        stmt = (
+            select(DataSourceSyncRunModel)
+            .where(DataSourceSyncRunModel.data_source_id == data_source_id)
+            .order_by(desc(DataSourceSyncRunModel.created_at))
+            .limit(1)
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+
+        if model is None:
+            return None
+
+        return self._to_domain(model)
+
     def _to_domain(self, model: DataSourceSyncRunModel) -> DataSourceSyncRun:
         """Reconstitute entity from database state."""
         return DataSourceSyncRun(
@@ -100,4 +121,5 @@ class DataSourceSyncRunRepository(IDataSourceSyncRunRepository):
             completed_at=model.completed_at,
             error=model.error,
             created_at=model.created_at,
+            logs=model.logs if model.logs is not None else [],
         )

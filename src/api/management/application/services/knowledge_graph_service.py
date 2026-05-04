@@ -14,15 +14,17 @@ from management.application.observability import (
     KnowledgeGraphServiceProbe,
 )
 from management.domain.aggregates import KnowledgeGraph
-from management.domain.value_objects import KnowledgeGraphId
+from management.domain.value_objects import KnowledgeGraphId, OntologyConfig
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
+    KnowledgeGraphNotFoundError,
     UnauthorizedError,
 )
 from management.ports.repositories import (
     IDataSourceRepository,
     IKnowledgeGraphRepository,
 )
+from management.ports.secret_store import ISecretStoreRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
@@ -48,6 +50,7 @@ class KnowledgeGraphService:
         scope_to_tenant: str,
         probe: KnowledgeGraphServiceProbe | None = None,
         data_source_repository: IDataSourceRepository | None = None,
+        secret_store: ISecretStoreRepository | None = None,
     ) -> None:
         """Initialize KnowledgeGraphService with dependencies.
 
@@ -58,6 +61,7 @@ class KnowledgeGraphService:
             scope_to_tenant: Tenant ID string to scope this service to
             probe: Optional domain probe for observability
             data_source_repository: Optional DS repository for cascade delete
+            secret_store: Optional secret store for credential cleanup on cascade delete
         """
         self._session = session
         self._kg_repo = knowledge_graph_repository
@@ -65,6 +69,7 @@ class KnowledgeGraphService:
         self._scope_to_tenant = scope_to_tenant
         self._probe = probe or DefaultKnowledgeGraphServiceProbe()
         self._ds_repo = data_source_repository
+        self._secret_store = secret_store
 
     async def _check_permission(
         self,
@@ -263,6 +268,106 @@ class KnowledgeGraphService:
 
         return kgs
 
+    async def list_for_workspace_with_permission(
+        self,
+        user_id: str,
+        workspace_id: str,
+        permission: Permission = Permission.VIEW,
+    ) -> list[KnowledgeGraph]:
+        """List knowledge graphs in a workspace filtered by per-KG permission.
+
+        Discovers KGs linked to the workspace via SpiceDB relationships, then
+        filters to those the user has the requested permission on.
+
+        Unlike list_for_workspace(), this method does NOT require workspace-level
+        VIEW permission — per-KG permission checks are sufficient. This supports
+        the Mutations Console KG selector which must show KGs the user can EDIT
+        within the selected workspace, regardless of their workspace role.
+
+        Args:
+            user_id: The user requesting the list
+            workspace_id: The workspace to filter by
+            permission: Minimum permission to check on each KG (VIEW or EDIT)
+
+        Returns:
+            KGs in the workspace that the user has the requested permission on.
+            Returns an empty list when the workspace has no KGs or when the user
+            lacks the requested permission on all workspace KGs.
+        """
+        # Discover KG IDs linked to the workspace via SpiceDB relationships
+        tuples = await self._authz.read_relationships(
+            resource_type=ResourceType.KNOWLEDGE_GRAPH,
+            relation=RelationType.WORKSPACE,
+            subject_type=ResourceType.WORKSPACE,
+            subject_id=workspace_id,
+        )
+
+        # Extract KG IDs from relationship tuples (format: "knowledge_graph:<id>")
+        kg_ids: list[str] = []
+        for rel_tuple in tuples:
+            parts = rel_tuple.resource.split(":")
+            if len(parts) == 2:
+                kg_ids.append(parts[1])
+
+        # Filter by per-KG permission (no workspace-level check required)
+        kgs: list[KnowledgeGraph] = []
+        for kg_id in kg_ids:
+            has_perm = await self._check_permission(
+                user_id=user_id,
+                resource_type=ResourceType.KNOWLEDGE_GRAPH,
+                resource_id=kg_id,
+                permission=permission,
+            )
+            if has_perm:
+                kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
+                if kg is not None and kg.tenant_id == self._scope_to_tenant:
+                    kgs.append(kg)
+
+        self._probe.knowledge_graphs_listed(
+            workspace_id=workspace_id,
+            count=len(kgs),
+        )
+        return kgs
+
+    async def list_all(
+        self,
+        user_id: str,
+        permission: Permission = Permission.VIEW,
+    ) -> list[KnowledgeGraph]:
+        """List all knowledge graphs in the current tenant accessible to the user.
+
+        Fetches all KGs in the tenant then filters to those the user has the
+        requested permission on via SpiceDB.
+
+        Args:
+            user_id: The user requesting the list
+            permission: The permission to check (VIEW by default; pass EDIT to
+                return only KGs the user can edit — e.g. for the Mutations
+                Console KG selector which must show only submission targets).
+
+        Returns:
+            List of KnowledgeGraph aggregates the user has the requested
+            permission on.
+        """
+        all_kgs = await self._kg_repo.find_by_tenant(self._scope_to_tenant)
+
+        accessible_kgs: list[KnowledgeGraph] = []
+        for kg in all_kgs:
+            has_permission = await self._check_permission(
+                user_id=user_id,
+                resource_type=ResourceType.KNOWLEDGE_GRAPH,
+                resource_id=kg.id.value,
+                permission=permission,
+            )
+            if has_permission:
+                accessible_kgs.append(kg)
+
+        self._probe.knowledge_graphs_listed(
+            workspace_id=self._scope_to_tenant,
+            count=len(accessible_kgs),
+        )
+        return accessible_kgs
+
     async def update(
         self,
         user_id: str,
@@ -305,16 +410,16 @@ class KnowledgeGraphService:
 
         kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
         if kg is None:
-            raise ValueError(f"Knowledge graph {kg_id} not found")
+            raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
 
         if kg.tenant_id != self._scope_to_tenant:
-            raise ValueError(f"Knowledge graph {kg_id} not found")
+            raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
 
         kg.update(name=name, description=description, updated_by=user_id)
 
         try:
-            async with self._session.begin():
-                await self._kg_repo.save(kg)
+            await self._kg_repo.save(kg)
+            await self._session.commit()
         except IntegrityError as e:
             raise DuplicateKnowledgeGraphNameError(
                 f"Knowledge graph '{name}' already exists in tenant"
@@ -365,17 +470,108 @@ class KnowledgeGraphService:
         if kg.tenant_id != self._scope_to_tenant:
             return False
 
-        async with self._session.begin():
-            # Cascade delete data sources if repo is available
+        # Use a savepoint so the entire cascade is atomic even though autobegin
+        # has already started a transaction via the get_by_id reads above.
+        async with self._session.begin_nested():
             if self._ds_repo is not None:
                 data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
                 for ds in data_sources:
+                    # Clean up encrypted credentials before removing the row to
+                    # prevent orphaned credential blobs in the secret store.
+                    if self._secret_store is not None and ds.credentials_path:
+                        await self._secret_store.delete(
+                            path=ds.credentials_path,
+                            tenant_id=self._scope_to_tenant,
+                        )
                     ds.mark_for_deletion(deleted_by=user_id)
                     await self._ds_repo.delete(ds)
 
             kg.mark_for_deletion(deleted_by=user_id)
             await self._kg_repo.delete(kg)
 
+        await self._session.commit()
+
         self._probe.knowledge_graph_deleted(kg_id=kg_id)
 
         return True
+
+    async def get_ontology(
+        self,
+        user_id: str,
+        kg_id: str,
+    ) -> OntologyConfig | None:
+        """Retrieve the ontology for a knowledge graph.
+
+        Returns None when no ontology has been saved yet (caller should
+        convert to 404). Returns None also when the KG does not exist or
+        the caller lacks VIEW permission (existence leakage prevention).
+
+        Args:
+            user_id: The user requesting access
+            kg_id: The knowledge graph ID
+
+        Returns:
+            The OntologyConfig if one has been saved, otherwise None
+        """
+        kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
+        if kg is None or kg.tenant_id != self._scope_to_tenant:
+            return None
+
+        has_view = await self._check_permission(
+            user_id=user_id,
+            resource_type=ResourceType.KNOWLEDGE_GRAPH,
+            resource_id=kg_id,
+            permission=Permission.VIEW,
+        )
+        if not has_view:
+            return None
+
+        return await self._kg_repo.get_ontology(kg_id)
+
+    async def save_ontology(
+        self,
+        user_id: str,
+        kg_id: str,
+        config: OntologyConfig,
+    ) -> OntologyConfig:
+        """Persist an ontology configuration for a knowledge graph.
+
+        Requires EDIT permission on the knowledge graph. Performs a full
+        replace (not a merge) of the stored ontology.
+
+        Args:
+            user_id: The user performing the operation
+            kg_id: The knowledge graph ID
+            config: The OntologyConfig to persist
+
+        Returns:
+            The stored OntologyConfig (same as input)
+
+        Raises:
+            UnauthorizedError: If user lacks EDIT permission
+            KnowledgeGraphNotFoundError: If KG does not exist in this tenant
+        """
+        has_edit = await self._check_permission(
+            user_id=user_id,
+            resource_type=ResourceType.KNOWLEDGE_GRAPH,
+            resource_id=kg_id,
+            permission=Permission.EDIT,
+        )
+        if not has_edit:
+            self._probe.permission_denied(
+                user_id=user_id,
+                resource_id=kg_id,
+                permission=Permission.EDIT,
+            )
+            raise UnauthorizedError(
+                f"User {user_id} lacks edit permission on knowledge graph {kg_id}"
+            )
+
+        kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
+        if kg is None or kg.tenant_id != self._scope_to_tenant:
+            raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
+
+        await self._kg_repo.save_ontology(kg_id, config)
+        await self._session.commit()
+
+        return config

@@ -6,6 +6,7 @@ credential management, transaction management, and observability.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +18,7 @@ from management.application.observability import (
 )
 from management.domain.aggregates import DataSource
 from management.domain.entities import DataSourceSyncRun
-from management.domain.value_objects import DataSourceId, KnowledgeGraphId
+from management.domain.value_objects import DataSourceId, KnowledgeGraphId, Ontology
 from management.ports.exceptions import UnauthorizedError
 from management.ports.repositories import (
     IDataSourceRepository,
@@ -33,6 +34,19 @@ from shared_kernel.authorization.types import (
     format_subject,
 )
 from shared_kernel.datasource_types import DataSourceAdapterType
+
+
+@dataclass
+class DataSourceWithLatestRun:
+    """Pair of a DataSource aggregate and its most recent sync run (if any).
+
+    Used by list_all_for_user to return a flat list of data sources with
+    their latest sync status embedded — avoiding N+1 API calls from the
+    sidebar navigation badge.
+    """
+
+    data_source: DataSource
+    latest_sync_run: DataSourceSyncRun | None
 
 
 class DataSourceService:
@@ -108,6 +122,7 @@ class DataSourceService:
         adapter_type: DataSourceAdapterType,
         connection_config: dict[str, str],
         raw_credentials: dict[str, str] | None = None,
+        ontology: Ontology | None = None,
     ) -> DataSource:
         """Create a new data source in a knowledge graph.
 
@@ -150,26 +165,27 @@ class DataSourceService:
         if kg.tenant_id != self._scope_to_tenant:
             raise ValueError(f"Knowledge graph {kg_id} belongs to different tenant")
 
-        async with self._session.begin():
-            ds = DataSource.create(
-                knowledge_graph_id=kg_id,
+        ds = DataSource.create(
+            knowledge_graph_id=kg_id,
+            tenant_id=self._scope_to_tenant,
+            name=name,
+            adapter_type=adapter_type,
+            connection_config=connection_config,
+            ontology=ontology,
+            created_by=user_id,
+        )
+
+        if raw_credentials is not None:
+            cred_path = f"datasource/{ds.id.value}/credentials"
+            await self._secret_store.store(
+                path=cred_path,
                 tenant_id=self._scope_to_tenant,
-                name=name,
-                adapter_type=adapter_type,
-                connection_config=connection_config,
-                created_by=user_id,
+                credentials=raw_credentials,
             )
+            ds.credentials_path = cred_path
 
-            if raw_credentials is not None:
-                cred_path = f"datasource/{ds.id.value}/credentials"
-                await self._secret_store.store(
-                    path=cred_path,
-                    tenant_id=self._scope_to_tenant,
-                    credentials=raw_credentials,
-                )
-                ds.credentials_path = cred_path
-
-            await self._ds_repo.save(ds)
+        await self._ds_repo.save(ds)
+        await self._session.commit()
 
         self._probe.data_source_created(
             ds_id=ds.id.value,
@@ -263,6 +279,50 @@ class DataSourceService:
 
         return data_sources
 
+    async def list_all_for_user(
+        self,
+        user_id: str,
+    ) -> list[DataSourceWithLatestRun]:
+        """Return all data sources accessible to the user across the tenant.
+
+        Discovers all knowledge graphs in the current tenant, filters to those
+        the user has VIEW permission on, then aggregates their data sources with
+        the latest sync run per source. This enables the sidebar navigation badge
+        to show a live count of active syncs with a single API call.
+
+        Args:
+            user_id: Authenticated user requesting the list.
+
+        Returns:
+            List of DataSourceWithLatestRun pairs (data source + optional latest run).
+        """
+        all_kgs = await self._kg_repo.find_by_tenant(self._scope_to_tenant)
+
+        result: list[DataSourceWithLatestRun] = []
+        for kg in all_kgs:
+            has_view = await self._check_permission(
+                user_id=user_id,
+                resource_type=ResourceType.KNOWLEDGE_GRAPH,
+                resource_id=kg.id.value,
+                permission=Permission.VIEW,
+            )
+            if not has_view:
+                continue
+
+            data_sources = await self._ds_repo.find_by_knowledge_graph(kg.id.value)
+            for ds in data_sources:
+                latest_run = await self._sync_run_repo.get_latest_for_data_source(
+                    ds.id.value
+                )
+                result.append(
+                    DataSourceWithLatestRun(
+                        data_source=ds,
+                        latest_sync_run=latest_run,
+                    )
+                )
+
+        return result
+
     async def update(
         self,
         user_id: str,
@@ -311,32 +371,87 @@ class DataSourceService:
         if ds.tenant_id != self._scope_to_tenant:
             raise ValueError(f"Data source {ds_id} not found")
 
-        async with self._session.begin():
-            if name is not None or connection_config is not None:
-                ds.update_connection(
-                    name=name if name is not None else ds.name,
-                    connection_config=connection_config
-                    if connection_config is not None
-                    else ds.connection_config,
-                    credentials_path=ds.credentials_path,
-                    updated_by=user_id,
-                )
+        if name is not None or connection_config is not None:
+            ds.update_connection(
+                name=name if name is not None else ds.name,
+                connection_config=connection_config
+                if connection_config is not None
+                else ds.connection_config,
+                credentials_path=ds.credentials_path,
+                updated_by=user_id,
+            )
 
-            if raw_credentials is not None:
-                cred_path = f"datasource/{ds.id.value}/credentials"
-                await self._secret_store.store(
-                    path=cred_path,
-                    tenant_id=self._scope_to_tenant,
-                    credentials=raw_credentials,
-                )
-                ds.credentials_path = cred_path
+        if raw_credentials is not None:
+            cred_path = f"datasource/{ds.id.value}/credentials"
+            await self._secret_store.store(
+                path=cred_path,
+                tenant_id=self._scope_to_tenant,
+                credentials=raw_credentials,
+            )
+            ds.credentials_path = cred_path
 
-            await self._ds_repo.save(ds)
+        await self._ds_repo.save(ds)
+        await self._session.commit()
 
         if name is not None:
             self._probe.data_source_updated(ds_id=ds_id, name=name)
         else:
             self._probe.data_source_updated(ds_id=ds_id, name=ds.name)
+
+        return ds
+
+    async def update_ontology(
+        self,
+        user_id: str,
+        ds_id: str,
+        ontology: Ontology,
+    ) -> DataSource:
+        """Update the approved ontology for a data source.
+
+        Requires EDIT permission on the data source. Replaces the stored
+        ontology with the provided one and persists the change.
+
+        Args:
+            user_id: The user performing the update
+            ds_id: The data source ID
+            ontology: The new approved ontology (may be empty)
+
+        Returns:
+            The updated DataSource aggregate
+
+        Raises:
+            UnauthorizedError: If user lacks EDIT permission on the DS
+            ValueError: If DS not found or belongs to a different tenant
+        """
+        has_edit = await self._check_permission(
+            user_id=user_id,
+            resource_type=ResourceType.DATA_SOURCE,
+            resource_id=ds_id,
+            permission=Permission.EDIT,
+        )
+
+        if not has_edit:
+            self._probe.permission_denied(
+                user_id=user_id,
+                resource_id=ds_id,
+                permission=Permission.EDIT,
+            )
+            raise UnauthorizedError(
+                f"User {user_id} lacks edit permission on data source {ds_id}"
+            )
+
+        ds = await self._ds_repo.get_by_id(DataSourceId(value=ds_id))
+        if ds is None:
+            raise ValueError(f"Data source {ds_id} not found")
+
+        if ds.tenant_id != self._scope_to_tenant:
+            raise ValueError(f"Data source {ds_id} not found")
+
+        ds.update_ontology(ontology=ontology, updated_by=user_id)
+        await self._ds_repo.save(ds)
+        await self._session.commit()
+
+        self._probe.data_source_updated(ds_id=ds_id, name=ds.name)
 
         return ds
 
@@ -381,15 +496,15 @@ class DataSourceService:
         if ds.tenant_id != self._scope_to_tenant:
             return False
 
-        async with self._session.begin():
-            if ds.credentials_path:
-                await self._secret_store.delete(
-                    path=ds.credentials_path,
-                    tenant_id=self._scope_to_tenant,
-                )
+        if ds.credentials_path:
+            await self._secret_store.delete(
+                path=ds.credentials_path,
+                tenant_id=self._scope_to_tenant,
+            )
 
-            ds.mark_for_deletion(deleted_by=user_id)
-            await self._ds_repo.delete(ds)
+        ds.mark_for_deletion(deleted_by=user_id)
+        await self._ds_repo.delete(ds)
+        await self._session.commit()
 
         self._probe.data_source_deleted(ds_id=ds_id)
 
@@ -439,21 +554,23 @@ class DataSourceService:
 
         now = datetime.now(UTC)
 
-        async with self._session.begin():
-            sync_run = DataSourceSyncRun(
-                id=str(ULID()),
-                data_source_id=ds.id.value,
-                status="pending",
-                started_at=now,
-                completed_at=None,
-                error=None,
-                created_at=now,
-            )
-            await self._sync_run_repo.save(sync_run)
+        sync_run = DataSourceSyncRun(
+            id=str(ULID()),
+            data_source_id=ds.id.value,
+            status="pending",
+            started_at=now,
+            completed_at=None,
+            error=None,
+            created_at=now,
+        )
+        await self._sync_run_repo.save(sync_run)
 
-            # Record sync requested event on the data source aggregate
-            ds.request_sync(requested_by=user_id)
-            await self._ds_repo.save(ds)
+        # Record SyncStarted event on the data source aggregate.
+        # This event carries the sync_run_id so lifecycle handlers
+        # can update the correct sync run record.
+        ds.request_sync(sync_run_id=sync_run.id, requested_by=user_id)
+        await self._ds_repo.save(ds)
+        await self._session.commit()
 
         self._probe.sync_requested(ds_id=ds_id)
 

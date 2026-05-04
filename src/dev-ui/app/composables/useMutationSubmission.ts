@@ -39,7 +39,7 @@ export function useMutationSubmission() {
   const { applyMutations } = useGraphApi()
   const { extractErrorMessage } = useErrorHandler()
 
-  async function submit(jsonlContent: string, opCount: number) {
+  async function submit(knowledgeGraphId: string, jsonlContent: string, opCount: number) {
     if (state.value.status === 'submitting') return
 
     state.value = {
@@ -55,7 +55,7 @@ export function useMutationSubmission() {
     const timeoutId = setTimeout(() => controller.abort(), 300_000) // 5 min
 
     try {
-      const result = await applyMutations(jsonlContent, { signal: controller.signal })
+      const result = await applyMutations(knowledgeGraphId, jsonlContent, { signal: controller.signal })
       clearTimeout(timeoutId)
       state.value.completedAt = Date.now()
       state.value.result = result

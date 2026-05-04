@@ -17,15 +17,20 @@ export function useGraphApi() {
   // ── Mutations ──────────────────────────────────────────────────────────
 
   /**
-   * Apply JSONL mutations to the graph.
+   * Apply JSONL mutations to the graph scoped to a specific knowledge graph.
    *
    * Uses native `fetch` instead of `$fetch`/ofetch because large mutation
    * payloads can take 30+ seconds to process. `$fetch` and browser-level
    * CORS preflight caching can cause spurious "NetworkError" / CORS failures
    * on long-running requests. Native `fetch` with explicit signal handling
    * is more reliable for these cases.
+   *
+   * @param knowledgeGraphId - The ID of the target knowledge graph. The backend
+   *   enforces `edit` permission on this resource and stamps it on all
+   *   CREATE/UPDATE operations.
    */
   async function applyMutations(
+    knowledgeGraphId: string,
     jsonlContent: string,
     options?: { signal?: AbortSignal },
   ): Promise<MutationResult> {
@@ -44,7 +49,7 @@ export function useGraphApi() {
     }
 
     const response = await fetch(
-      `${config.public.apiBaseUrl}/graph/mutations`,
+      `${config.public.apiBaseUrl}/graph/knowledge-graphs/${knowledgeGraphId}/mutations`,
       {
         method: 'POST',
         headers,

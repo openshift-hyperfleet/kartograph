@@ -55,7 +55,7 @@ class TestSearchBySlug:
         result = service.search_by_slug("alice-smith", node_type="Person")
 
         mock_repository.find_nodes_by_slug.assert_called_once_with(
-            "alice-smith", node_type="Person"
+            "alice-smith", node_type="Person", knowledge_graph_id=None
         )
         assert result == expected
 
@@ -81,7 +81,43 @@ class TestSearchBySlug:
         service.search_by_slug("some-slug")
 
         mock_repository.find_nodes_by_slug.assert_called_once_with(
-            "some-slug", node_type=None
+            "some-slug", node_type=None, knowledge_graph_id=None
+        )
+
+    def test_passes_knowledge_graph_id_to_repository(self, service, mock_repository):
+        """Service MUST pass knowledge_graph_id parameter through to the repository.
+
+        Spec: specs/graph/queries.spec.md — Requirement: KnowledgeGraph Filtering
+        Scenario: Filtered query
+        GIVEN a query with a knowledge_graph_id parameter
+        WHEN the query is executed
+        THEN only nodes with a matching knowledge_graph_id property are returned
+        """
+        mock_repository.find_nodes_by_slug.return_value = []
+
+        service.search_by_slug("alice-smith", knowledge_graph_id="kg-001")
+
+        mock_repository.find_nodes_by_slug.assert_called_once_with(
+            "alice-smith", node_type=None, knowledge_graph_id="kg-001"
+        )
+
+    def test_passes_none_knowledge_graph_id_when_not_provided(
+        self, service, mock_repository
+    ):
+        """Service MUST pass None knowledge_graph_id when not specified.
+
+        Spec: specs/graph/queries.spec.md — Requirement: KnowledgeGraph Filtering
+        Scenario: Unfiltered query
+        GIVEN a query without a knowledge_graph_id parameter
+        WHEN the query is executed
+        THEN nodes across all KnowledgeGraphs are returned
+        """
+        mock_repository.find_nodes_by_slug.return_value = []
+
+        service.search_by_slug("alice-smith", node_type="Person")
+
+        mock_repository.find_nodes_by_slug.assert_called_once_with(
+            "alice-smith", node_type="Person", knowledge_graph_id=None
         )
 
 

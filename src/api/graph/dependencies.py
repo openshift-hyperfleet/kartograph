@@ -10,6 +10,11 @@ from typing import Annotated
 
 from fastapi import Depends
 
+from iam.application.value_objects import CurrentUser
+from iam.dependencies.user import get_current_user
+from infrastructure.authorization_dependencies import get_spicedb_client
+from shared_kernel.authorization.protocols import AuthorizationProvider
+
 from graph.application.observability import (
     DefaultGraphServiceProbe,
     DefaultSchemaServiceProbe,
@@ -20,6 +25,7 @@ from graph.application.services import (
     GraphMutationService,
     GraphQueryService,
     GraphSchemaService,
+    GraphSecureEnclaveService,
 )
 from graph.infrastructure.age_bulk_loading import AgeBulkLoadingStrategy
 from graph.infrastructure.age_client import AgeGraphClient
@@ -33,6 +39,23 @@ from infrastructure.database.connection import ConnectionFactory
 from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.dependencies import get_age_connection_pool
 from infrastructure.settings import get_database_settings
+
+
+def get_tenant_graph_name(current_user: CurrentUser) -> str:
+    """Derive the tenant-specific AGE graph name from the current user's tenant.
+
+    Kartograph uses per-tenant graph isolation. Each tenant's data is stored
+    in an AGE graph named ``tenant_{tenant_id}``, ensuring that no data bleeds
+    across tenant boundaries.
+
+    Args:
+        current_user: The authenticated user with a resolved tenant_id.
+
+    Returns:
+        Graph name string in the form ``tenant_{tenant_id}``
+        (e.g., ``tenant_t1`` for tenant ID ``t1``).
+    """
+    return f"tenant_{current_user.tenant_id.value}"
 
 
 def get_graph_service_probe() -> GraphServiceProbe:
@@ -55,21 +78,27 @@ def get_schema_service_probe() -> SchemaServiceProbe:
 
 def get_age_graph_client(
     pool: Annotated[ConnectionPool, Depends(get_age_connection_pool)],
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> Generator[AgeGraphClient, None, None]:
-    """Get request-scoped AGE graph client.
+    """Get request-scoped AGE graph client scoped to the current tenant.
 
     Each request gets its own client with a connection from the pool.
+    The graph name is derived from the user's tenant_id for per-tenant isolation:
+    ``tenant_{tenant_id}`` (e.g., ``tenant_t1`` for tenant ``t1``).
+
     Connection is automatically returned to pool on cleanup.
 
     Args:
         pool: Application-scoped connection pool
+        current_user: Authenticated user used to derive the tenant-specific graph name.
 
     Yields:
-        Connected AgeGraphClient instance
+        Connected AgeGraphClient instance scoped to the tenant's graph.
     """
     settings = get_database_settings()
+    graph_name = get_tenant_graph_name(current_user)
     factory = ConnectionFactory(settings, pool=pool)
-    client = AgeGraphClient(settings, connection_factory=factory)
+    client = AgeGraphClient(settings, connection_factory=factory, graph_name=graph_name)
     client.connect()
     try:
         yield client
@@ -99,16 +128,46 @@ def get_graph_query_service(
     return GraphQueryService(repository=repository, probe=probe)
 
 
+def get_graph_secure_enclave_service(
+    query_service: Annotated[GraphQueryService, Depends(get_graph_query_service)],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> GraphSecureEnclaveService:
+    """Get GraphSecureEnclaveService for authorized read operations.
+
+    The secure enclave wraps the GraphQueryService and applies per-entity
+    authorization based on each entity's knowledge_graph_id property.
+    Unauthorized entities are redacted rather than removed, preserving
+    graph topology while protecting sensitive content.
+
+    Args:
+        query_service: Underlying graph query service.
+        authz: Authorization provider (SpiceDB client).
+        current_user: The authenticated user making the request.
+
+    Returns:
+        GraphSecureEnclaveService instance scoped to the requesting user.
+    """
+    return GraphSecureEnclaveService(
+        query_service=query_service,
+        authz=authz,
+        user_id=current_user.user_id.value,
+    )
+
+
 def get_mutation_applier(
     client: Annotated[AgeGraphClient, Depends(get_age_graph_client)],
 ) -> MutationApplier:
-    """Get MutationApplier instance.
+    """Get MutationApplier instance routed to the current tenant's graph.
+
+    Uses ``get_age_graph_client`` so that mutations are always written to the
+    correct tenant-isolated graph (``tenant_{tenant_id}``).
 
     Args:
-        client: Request-scoped graph client
+        client: Request-scoped graph client for the tenant graph.
 
     Returns:
-        MutationApplier instance with AGE bulk loading strategy
+        MutationApplier instance with AGE bulk loading strategy.
     """
     # AgeBulkLoadingStrategy creates its own AgeIndexingStrategy by default
     strategy = AgeBulkLoadingStrategy()

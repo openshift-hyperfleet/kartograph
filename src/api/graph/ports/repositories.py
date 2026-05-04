@@ -37,12 +37,17 @@ class IGraphReadOnlyRepository(Protocol):
         self,
         slug: str,
         node_type: str | None = None,
+        knowledge_graph_id: str | None = None,
     ) -> list[NodeRecord]:
-        """Find nodes by their slug, optionally filtered by type.
+        """Find nodes by their slug, optionally filtered by type and KnowledgeGraph.
 
         Args:
             slug: The entity slug (e.g., "alice-smith")
             node_type: Optional type filter (e.g., "Person")
+            knowledge_graph_id: Optional KnowledgeGraph ID filter. When provided,
+                only nodes whose ``knowledge_graph_id`` property matches are returned.
+                When absent, nodes across all KnowledgeGraphs in the tenant graph
+                are returned.
 
         Returns:
             List of matching nodes.

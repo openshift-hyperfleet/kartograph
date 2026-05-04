@@ -76,8 +76,12 @@ function clearNodeTypeFilter() {
   typeFilterSearch.value = ''
 }
 
-// Property expansion tracking
+// Property expansion tracking — long-value expanders (per nodeId:key)
 const expandedProps = ref(new Set<string>())
+
+// Property preview — per-node "show all" toggle (5-property collapsed view)
+const MAX_VISIBLE_PROPS = 5
+const expandedPropNodes = ref(new Set<string>())
 
 // Neighbor exploration state
 const neighborsLoading = ref<string | null>(null)
@@ -341,6 +345,34 @@ function getPropertyEntries(properties: Record<string, unknown>): [string, unkno
   return Object.entries(properties)
 }
 
+/** Return visible property entries for a node card, limited to MAX_VISIBLE_PROPS
+ * unless the card's property list has been expanded. */
+function getVisibleProperties(
+  properties: Record<string, unknown>,
+  nodeId: string,
+): [string, unknown][] {
+  const entries = Object.entries(properties)
+  if (expandedPropNodes.value.has(nodeId) || entries.length <= MAX_VISIBLE_PROPS) {
+    return entries
+  }
+  return entries.slice(0, MAX_VISIBLE_PROPS)
+}
+
+/** How many properties are hidden behind the "Show more" button. */
+function hiddenPropertyCount(properties: Record<string, unknown>, nodeId: string): number {
+  const total = Object.keys(properties).length
+  if (expandedPropNodes.value.has(nodeId) || total <= MAX_VISIBLE_PROPS) return 0
+  return total - MAX_VISIBLE_PROPS
+}
+
+/** Toggle per-node property list expansion. */
+function togglePropNodeExpansion(nodeId: string) {
+  const next = new Set(expandedPropNodes.value)
+  if (next.has(nodeId)) next.delete(nodeId)
+  else next.add(nodeId)
+  expandedPropNodes.value = next
+}
+
 function formatPropertyValue(value: unknown): string {
   if (value === null || value === undefined) return '—'
   if (typeof value === 'object') return JSON.stringify(value)
@@ -581,11 +613,11 @@ watch(tenantVersion, () => {
               </div>
             </CardHeader>
             <CardContent class="flex flex-1 flex-col gap-3">
-              <!-- Properties table -->
+              <!-- Properties table (collapsed to 5 properties by default) -->
               <div v-if="getPropertyEntries(node.properties).length > 0" class="rounded-md border">
                 <Table>
                   <TableBody>
-                    <TableRow v-for="[key, value] in getPropertyEntries(node.properties)" :key="key">
+                    <TableRow v-for="[key, value] in getVisibleProperties(node.properties, node.id)" :key="key">
                       <TableCell class="w-[120px] align-top font-mono text-xs font-medium text-muted-foreground">{{ key }}</TableCell>
                       <TableCell class="font-mono text-xs">
                         <template v-if="formatPropertyValue(value).length > 100">
@@ -610,6 +642,20 @@ watch(tenantVersion, () => {
                     </TableRow>
                   </TableBody>
                 </Table>
+                <!-- "Show N more" / "Show less" toggle -->
+                <button
+                  v-if="hiddenPropertyCount(node.properties, node.id) > 0 || expandedPropNodes.has(node.id)"
+                  class="flex w-full items-center justify-center gap-1 border-t px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                  @click="togglePropNodeExpansion(node.id)"
+                >
+                  <ChevronDown v-if="!expandedPropNodes.has(node.id)" class="size-3" />
+                  <ChevronUp v-else class="size-3" />
+                  <span v-if="!expandedPropNodes.has(node.id)">
+                    Show {{ hiddenPropertyCount(node.properties, node.id) }} more
+                    {{ hiddenPropertyCount(node.properties, node.id) === 1 ? 'property' : 'properties' }}
+                  </span>
+                  <span v-else>Show fewer properties</span>
+                </button>
               </div>
 
               <!-- Action buttons -->

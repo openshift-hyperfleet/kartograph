@@ -2,7 +2,7 @@
 
 > [!Important]
 >
-> `deploy/apps/kartograph` is deprecated, replaced by https://gitlab.cee.redhat.com/hcm-gitops/fleet-gitops/-/tree/main/apps/kartograph
+> `deploy/apps/kartograph` is deprecated, replaced by https://github.com/openshift-online/hp-fleet-gitops
 
 ## Release Flow
 

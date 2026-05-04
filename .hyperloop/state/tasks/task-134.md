@@ -2,11 +2,11 @@
 id: task-134
 title: MCP auth service unavailable → 503 — unit and integration tests
 spec_ref: specs/query/mcp-server.spec.md@2ac8d03afbf2153e3b569f1289e10b5ad5d21d6e
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-134
 pr: null
 pr_title: 'test(query): add tests for MCP 503 response when auth backend is unavailable'
 pr_description: "## What and Why\n\nThe MCP Server spec requires the system to return\

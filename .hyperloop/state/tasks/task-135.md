@@ -2,8 +2,8 @@
 id: task-135
 title: Query execution — cross-tenant isolation integration test
 spec_ref: specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2
-status: in_progress
-phase: merge
+status: complete
+phase: null
 deps: []
 round: 0
 branch: hyperloop/task-135

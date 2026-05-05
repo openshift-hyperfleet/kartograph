@@ -52,9 +52,9 @@ pythonpath = ["."]
 # Database settings for integration tests
 KARTOGRAPH_DB_HOST = { value = "localhost", skip_if_set = true }
 KARTOGRAPH_DB_PORT = { value = "5432", skip_if_set = true }
-KARTOGRAPH_DB_DATABASE = "kartograph"
-KARTOGRAPH_DB_USERNAME = "kartograph"
-KARTOGRAPH_DB_PASSWORD = "kartograph_dev_password"
+KARTOGRAPH_DB_DATABASE = { value = "kartograph", skip_if_set = true }
+KARTOGRAPH_DB_USERNAME = { value = "kartograph", skip_if_set = true }
+KARTOGRAPH_DB_PASSWORD = { value = "kartograph_dev_password", skip_if_set = true }
 
 # SpiceDB settings for integration tests
 SPICEDB_ENDPOINT = { value = "localhost:50051", skip_if_set = true }

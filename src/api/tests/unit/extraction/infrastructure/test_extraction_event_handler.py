@@ -237,3 +237,60 @@ class TestExtractionEventHandlerFailure:
         event = outbox.appended[0]
         assert event["aggregate_type"] == "sync_run"
         assert event["aggregate_id"] == "run-003"
+
+
+class _FailingOutboxRepository(_FakeOutboxRepository):
+    """Outbox repository that raises on the first write (simulates outbox failure)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._call_count = 0
+
+    async def append(  # type: ignore[override]
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+        occurred_at: datetime,
+        aggregate_type: str,
+        aggregate_id: str,
+    ) -> None:
+        self._call_count += 1
+        if self._call_count == 1:
+            raise RuntimeError("outbox write failed")
+        await super().append(
+            event_type=event_type,
+            payload=payload,
+            occurred_at=occurred_at,
+            aggregate_type=aggregate_type,
+            aggregate_id=aggregate_id,
+        )
+
+
+@pytest.mark.asyncio
+class TestExtractionEventHandlerOutboxIsolation:
+    """Tests that success-path outbox failures are not misclassified as ExtractionFailed.
+
+    Regression guard for the 'success-path outbox wrap' bug where placing
+    self._outbox.append(MutationLogProduced) inside the try block caused an
+    outbox write failure to emit ExtractionFailed even though extraction succeeded.
+    """
+
+    async def test_outbox_failure_after_successful_extraction_propagates(
+        self,
+        extraction_service: _FakeExtractionService,
+    ):
+        """If the extraction succeeds but appending MutationLogProduced fails,
+        the exception must propagate — NOT emit ExtractionFailed."""
+        failing_outbox = _FailingOutboxRepository()
+        handler = ExtractionEventHandler(
+            extraction_service=extraction_service,
+            outbox=failing_outbox,
+        )
+
+        with pytest.raises(RuntimeError, match="outbox write failed"):
+            await handler.handle("JobPackageProduced", _job_package_produced_payload())
+
+        # Extraction ran successfully
+        assert len(extraction_service.calls) == 1
+        # No ExtractionFailed event was appended (the outbox itself blew up)
+        assert len(failing_outbox.appended) == 0

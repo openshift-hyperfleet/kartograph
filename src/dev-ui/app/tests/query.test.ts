@@ -42,18 +42,17 @@ describe('test_1_unscoped_query_omits_knowledge_graph_id', () => {
     expect(args).not.toHaveProperty('knowledge_graph_id')
   })
 
-  it('query/index.vue uses __all__ sentinel gate to omit knowledge_graph_id when unscoped', () => {
+  it('query/index.vue uses falsy gate to omit knowledge_graph_id when unscoped', () => {
     // Static verification: the page template must contain the gate expression
-    // that prevents the '__all__' sentinel from being sent as knowledge_graph_id.
-    // (Reka UI reserves value="" for clearing selection, so '__all__' is used.)
+    // that prevents the empty-string sentinel from being sent as knowledge_graph_id.
     const { readFileSync } = require('node:fs')
     const { resolve } = require('node:path')
     const src: string = readFileSync(
       resolve(__dirname, '../pages/query/index.vue'),
       'utf-8',
     )
-    // The ternary gate converts '__all__' → undefined before the API call.
-    expect(src).toContain("selectedKgId.value === '__all__'")
+    // The || undefined gate converts '' → undefined before the API call.
+    expect(src).toContain('selectedKgId.value || undefined')
   })
 })
 
@@ -94,15 +93,15 @@ describe('test_2_scoped_query_passes_selected_kg_id', () => {
 // AND the badge is absent when no KG is selected (showing "Unscoped" instead)
 
 describe('test_3_scoped_badge_visible_when_kg_selected', () => {
-  it('query/index.vue renders a "Scoped" badge when selectedKgId differs from __all__ sentinel', () => {
+  it('query/index.vue renders a "Scoped" badge when selectedKgId is truthy (a KG is selected)', () => {
     const { readFileSync } = require('node:fs')
     const { resolve } = require('node:path')
     const src: string = readFileSync(
       resolve(__dirname, '../pages/query/index.vue'),
       'utf-8',
     )
-    // The Scoped badge is conditionally rendered when selectedKgId !== '__all__'.
-    expect(src).toContain("selectedKgId !== '__all__'")
+    // The Scoped badge is conditionally rendered via v-if="selectedKgId" (truthy check).
+    expect(src).toContain('v-if="selectedKgId"')
     expect(src).toContain('Scoped')
   })
 
@@ -117,16 +116,15 @@ describe('test_3_scoped_badge_visible_when_kg_selected', () => {
     expect(src).toContain('Unscoped')
   })
 
-  it('selectedKgId is initialised to __all__ sentinel so Unscoped is the default', () => {
+  it('selectedKgId is initialised to empty string so Unscoped is the default', () => {
     const { readFileSync } = require('node:fs')
     const { resolve } = require('node:path')
     const src: string = readFileSync(
       resolve(__dirname, '../pages/query/index.vue'),
       'utf-8',
     )
-    // The reactive state default must be '__all__' so Unscoped shows on first render.
-    // (Reka UI reserves value="" for clearing selection — cannot use empty string.)
-    expect(src).toContain("selectedKgId = ref('__all__')")
+    // The reactive state default must be '' (falsy) so Unscoped shows on first render.
+    expect(src).toContain("selectedKgId = ref('')")
   })
 })
 
@@ -208,16 +206,16 @@ describe('test_5_clearing_selection_restores_unscoped_mode', () => {
     expect(args).not.toHaveProperty('knowledge_graph_id')
   })
 
-  it('the "All knowledge graphs" SelectItem has value="__all__" to produce the unscoped state', () => {
+  it('the "All knowledge graphs" SelectItem has value="" to produce the unscoped state', () => {
     const { readFileSync } = require('node:fs')
     const { resolve } = require('node:path')
     const src: string = readFileSync(
       resolve(__dirname, '../pages/query/index.vue'),
       'utf-8',
     )
-    // value="__all__" is the sentinel for "all knowledge graphs" — any other value is a KG ID.
-    // (Reka UI reserves value="" for clearing selection — cannot use empty string here.)
-    expect(src).toMatch(/<SelectItem[^>]*value="__all__"[^>]*>/)
+    // value="" is the empty-string sentinel for "all knowledge graphs" (unscoped).
+    // Empty string is falsy → || undefined gate converts it to undefined in executeQuery.
+    expect(src).toMatch(/<SelectItem[^>]*value=""[^>]*>/)
     expect(src).toContain('All knowledge graphs')
   })
 

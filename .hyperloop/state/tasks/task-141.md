@@ -1,7 +1,7 @@
 ---
 id: task-141
 title: UI Query Console — Cypher editor, execution, history, KG scope
-spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
+spec_ref: specs/ui/experience.spec.md@b09196133e2bec6e4ef7ea131d54214b3089df98
 status: in_progress
 phase: verify
 deps:

@@ -115,6 +115,7 @@ CHECKS=(
   check-cascade-delete-rollback-test.sh
   check-unused-fixtures.sh
   check-no-future-placeholder-comments.sh
+  string-constants-match-spec.sh
 )
 
 FAILED=()

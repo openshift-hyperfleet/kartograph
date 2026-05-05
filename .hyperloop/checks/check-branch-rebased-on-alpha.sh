@@ -28,8 +28,21 @@ fi
 
 COMMITS_BEHIND=$(git rev-list --count "${MERGE_BASE}..${BASE_BRANCH}" 2>/dev/null || echo "0")
 
+if [[ "$COMMITS_BEHIND" -eq 0 ]]; then
+  echo "OK: Branch is fully up-to-date with '${BASE_BRANCH}'."
+  exit 0
+fi
+
 if [[ "$COMMITS_BEHIND" -le 5 ]]; then
   echo "OK: Branch is ${COMMITS_BEHIND} commit(s) behind '${BASE_BRANCH}' — within acceptable range."
+  echo ""
+  echo "WARNING: The ${COMMITS_BEHIND} alpha commit(s) NOT yet on this branch may include new test files."
+  echo "check-no-test-regressions.sh pass 2 will catch any test-coverage gap, but running it"
+  echo "NOW (before the full suite) avoids discovering the gap at the end of a long suite run."
+  echo ""
+  echo "Recommended: run check-no-test-regressions.sh standalone and confirm PASS (pass 2) before"
+  echo "running check-run-backend-suite.sh. If it fails, rebase immediately:"
+  echo "  git fetch origin && git branch -f alpha origin/alpha && git rebase alpha"
   exit 0
 fi
 

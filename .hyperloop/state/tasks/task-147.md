@@ -3,7 +3,7 @@ id: task-147
 title: UI Data Source Connection — adapter selection, configuration, credential handling
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: mark-ready
+phase: merge
 deps:
 - task-146
 round: 4

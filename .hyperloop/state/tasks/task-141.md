@@ -3,10 +3,10 @@ id: task-141
 title: UI Query Console — Cypher editor, execution, history, KG scope
 spec_ref: specs/ui/experience.spec.md@b09196133e2bec6e4ef7ea131d54214b3089df98
 status: in_progress
-phase: merge
+phase: implement
 deps:
 - task-140
-round: 15
+round: 16
 branch: hyperloop/task-141
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/616
 pr_title: 'feat(ui): add Cypher query console with editor, execution, and history'

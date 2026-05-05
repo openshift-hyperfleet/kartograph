@@ -3,7 +3,7 @@ id: task-151
 title: UI Workspace Management — create workspaces and manage members
 spec_ref: specs/ui/experience.spec.md@b09196133e2bec6e4ef7ea131d54214b3089df98
 status: in_progress
-phase: verify
+phase: spec-review
 deps:
 - task-140
 round: 13

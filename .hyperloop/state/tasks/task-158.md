@@ -2,11 +2,11 @@
 id: task-158
 title: 'Fix query catch-all error type: ''unexpected_error'' → ''unknown_error'''
 spec_ref: specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2
-status: not_started
-phase: null
+status: in_progress
+phase: implement
 deps: []
 round: 0
-branch: null
+branch: hyperloop/task-158
 pr: null
 pr_title: 'fix(query): rename unexpected_error to unknown_error per spec'
 pr_description: "## What and Why\n\n`query-execution.spec.md` — Requirement: Error\

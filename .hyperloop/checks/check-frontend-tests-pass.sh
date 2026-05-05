@@ -37,6 +37,31 @@ if ! command -v pnpm &>/dev/null; then
   exit 1
 fi
 
+# Detect missing node_modules BEFORE attempting to run tests.
+#
+# WHY: Without node_modules the vitest binary is absent and pnpm emits the
+# opaque error "sh: line 1: vitest: command not found" with no indication of
+# what went wrong.  In isolated worktrees (e.g. Hyperloop task agents) pnpm
+# install is NOT run automatically on checkout — the dependency must be
+# installed manually.  This guard provides a clear, actionable message before
+# the test runner is even invoked.
+#
+# Observed in task-141: verifier blocked submission because vitest was missing;
+# CI passed (external evidence the tests work) but the worktree was missing
+# node_modules, causing a confusing environment mismatch.
+if [[ ! -d "$UI_DIR/node_modules" ]]; then
+  echo "FAIL: node_modules not found in $UI_DIR."
+  echo ""
+  echo "Dependencies must be installed before running tests."
+  echo ""
+  echo "Fix (run from the repo root):"
+  echo "  cd $UI_DIR && pnpm install"
+  echo ""
+  echo "Then re-run this check:"
+  echo "  bash .hyperloop/checks/check-frontend-tests-pass.sh"
+  exit 1
+fi
+
 echo "=== Running frontend test suite in: $UI_DIR ==="
 echo "    (CI=true disables vitest watch mode)"
 echo ""

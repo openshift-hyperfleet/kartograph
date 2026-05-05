@@ -529,7 +529,7 @@ class TestProbeObservability:
     def test_probe_cypher_query_failed_called_on_unknown_error(
         self, probe: FakeQueryServiceProbe
     ) -> None:
-        """Probe records failure for unexpected errors."""
+        """Probe records failure for unknown errors."""
         service = make_service(raises=RuntimeError("Unexpected"), probe=probe)
 
         service.execute_cypher_query("MATCH (n) RETURN n")

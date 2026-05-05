@@ -90,6 +90,7 @@ CHECKS=(
   check-alpha-local-vs-remote.sh
   check-branch-rebased-on-alpha.sh
   check-branch-rebases-cleanly.sh
+  check-no-merge-commits-on-branch.sh
   check-no-state-file-commits.sh
   check-worker-result-not-committed.sh
   check-all-commits-have-task-ref.sh

@@ -3,7 +3,7 @@ id: task-100
 title: Add cross-tenant boundary enforcement integration test for MCP queries
 spec_ref: specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2
 status: in_progress
-phase: verify
+phase: spec-review
 deps: []
 round: 28
 branch: hyperloop/task-100

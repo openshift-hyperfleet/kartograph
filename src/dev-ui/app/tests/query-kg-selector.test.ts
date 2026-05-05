@@ -45,21 +45,21 @@ describe('test_kg_selector_rendered_in_query_console', () => {
   })
 
   it('the selector includes an "All knowledge graphs" unscoped option', () => {
-    // The SelectItem uses value="__all__" (Reka UI reserves value="" for
-    // clearing selection) and displays "All knowledge graphs" as its label.
-    expect(queryVue).toMatch(/<SelectItem[^>]*value="__all__"[^>]*>/)
+    // The SelectItem uses value="" (empty string is falsy → unscoped default)
+    // and displays "All knowledge graphs" as its label.
+    expect(queryVue).toMatch(/<SelectItem[^>]*value=""[^>]*>/)
     expect(queryVue).toContain('All knowledge graphs')
   })
 
-  it('selectedKgId is initialised to the __all__ sentinel (unscoped by default)', () => {
-    // '__all__' is the sentinel for "all knowledge graphs". Reka UI reserves
-    // value="" for clearing selection, so we cannot use empty string here.
-    expect(queryVue).toContain("selectedKgId = ref('__all__')")
+  it('selectedKgId is initialised to empty string (unscoped by default)', () => {
+    // '' is the sentinel for "all knowledge graphs". Empty string is falsy in
+    // JavaScript, enabling the simple || undefined gate in executeQuery.
+    expect(queryVue).toContain("selectedKgId = ref('')")
   })
 
   it('the selector shows a Scoped badge when a KG is selected', () => {
-    // Badge is shown when selectedKgId differs from the '__all__' sentinel.
-    expect(queryVue).toContain("selectedKgId !== '__all__'")
+    // Badge is shown via truthy check on selectedKgId (non-empty string = scoped).
+    expect(queryVue).toContain('v-if="selectedKgId"')
     expect(queryVue).toContain('Scoped')
   })
 
@@ -173,17 +173,16 @@ describe('test_selected_kg_included_in_query_request', () => {
     expect(args.knowledge_graph_id).toBe('kg-1')
   })
 
-  it('query/index.vue gates selectedKgId using __all__ sentinel check before passing to queryGraph', () => {
+  it('query/index.vue gates selectedKgId using falsy check before passing to queryGraph', () => {
     const { readFileSync } = require('node:fs')
     const { resolve } = require('node:path')
     const queryVue: string = readFileSync(
       resolve(__dirname, '../pages/query/index.vue'),
       'utf-8',
     )
-    // The ternary gate converts '__all__' sentinel to undefined for the MCP call
-    // (omitting knowledge_graph_id entirely when the query is unscoped).
-    // Reka UI reserves value="" so we cannot use the simpler || undefined pattern.
-    expect(queryVue).toContain("selectedKgId.value === '__all__'")
+    // The || undefined gate converts '' (empty string, unscoped) to undefined for
+    // the MCP call, omitting knowledge_graph_id entirely when the query is unscoped.
+    expect(queryVue).toContain('selectedKgId.value || undefined')
   })
 })
 

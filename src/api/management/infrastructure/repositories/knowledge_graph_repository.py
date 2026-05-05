@@ -20,7 +20,10 @@ from management.infrastructure.observability import (
     KnowledgeGraphRepositoryProbe,
 )
 from management.infrastructure.outbox import ManagementEventSerializer
-from management.ports.exceptions import DuplicateKnowledgeGraphNameError
+from management.ports.exceptions import (
+    DuplicateKnowledgeGraphNameError,
+    KnowledgeGraphNotFoundError,
+)
 from management.ports.repositories import IKnowledgeGraphRepository
 
 if TYPE_CHECKING:
@@ -176,8 +179,12 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
             .where(KnowledgeGraphModel.id == kg_id)
             .values(ontology=config.to_dict())
         )
-        await self._session.execute(stmt)
+        result = await self._session.execute(stmt)
         await self._session.flush()
+        # CursorResult.rowcount is always available for DML statements;
+        # mypy's AsyncSession stub returns the broader Result[Any] type.
+        if result.rowcount == 0:  # type: ignore[attr-defined]
+            raise KnowledgeGraphNotFoundError(f"Knowledge graph '{kg_id}' not found")
 
     async def get_ontology(self, kg_id: str) -> OntologyConfig | None:
         """Read the ontology JSONB column for the given KG.

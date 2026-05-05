@@ -6,6 +6,7 @@ pipeline and emits either JobPackageProduced or IngestionFailed to the outbox.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -82,21 +83,10 @@ class IngestionEventHandler:
                 connection_config=payload.get("connection_config", {}),
                 credentials_path=payload.get("credentials_path"),
             )
-
-            await self._outbox.append(
-                event_type="JobPackageProduced",
-                payload={
-                    "sync_run_id": sync_run_id,
-                    "data_source_id": data_source_id,
-                    "knowledge_graph_id": knowledge_graph_id,
-                    "job_package_id": str(job_package_id),
-                    "occurred_at": now.isoformat(),
-                },
-                occurred_at=now,
-                aggregate_type="sync_run",
-                aggregate_id=sync_run_id,
-            )
-
+        except asyncio.CancelledError:
+            # Propagate task cancellation so the event loop can shut down
+            # gracefully.  CancelledError must never be swallowed here.
+            raise
         except Exception as exc:
             await self._outbox.append(
                 event_type="IngestionFailed",
@@ -110,3 +100,20 @@ class IngestionEventHandler:
                 aggregate_type="sync_run",
                 aggregate_id=sync_run_id,
             )
+            return
+
+        # Ingestion succeeded — append success event outside the try block so
+        # that an outbox write failure is not misclassified as IngestionFailed.
+        await self._outbox.append(
+            event_type="JobPackageProduced",
+            payload={
+                "sync_run_id": sync_run_id,
+                "data_source_id": data_source_id,
+                "knowledge_graph_id": knowledge_graph_id,
+                "job_package_id": str(job_package_id),
+                "occurred_at": now.isoformat(),
+            },
+            occurred_at=now,
+            aggregate_type="sync_run",
+            aggregate_id=sync_run_id,
+        )

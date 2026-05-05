@@ -6,6 +6,7 @@ and result in JobPackageProduced or IngestionFailed being written to outbox.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -219,3 +220,90 @@ class TestIngestionEventHandlerFailure:
         event = outbox.appended[0]
         assert event["aggregate_type"] == "sync_run"
         assert event["aggregate_id"] == "run-003"
+
+
+class _FailingOutboxRepository(_FakeOutboxRepository):
+    """Outbox repository that raises on the first write (simulates outbox failure)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._call_count = 0
+
+    async def append(  # type: ignore[override]
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+        occurred_at: datetime,
+        aggregate_type: str,
+        aggregate_id: str,
+    ) -> None:
+        self._call_count += 1
+        if self._call_count == 1:
+            raise RuntimeError("outbox write failed")
+        await super().append(
+            event_type=event_type,
+            payload=payload,
+            occurred_at=occurred_at,
+            aggregate_type=aggregate_type,
+            aggregate_id=aggregate_id,
+        )
+
+
+@pytest.mark.asyncio
+class TestIngestionEventHandlerOutboxIsolation:
+    """Tests that success-path outbox failures are not misclassified as IngestionFailed.
+
+    Regression guard for the 'success-path outbox wrap' bug where placing
+    self._outbox.append(JobPackageProduced) inside the try block caused an
+    outbox write failure to emit IngestionFailed even though ingestion succeeded.
+    """
+
+    async def test_outbox_failure_after_successful_ingestion_propagates(
+        self,
+        ingestion_service: _FakeIngestionService,
+    ):
+        """If ingestion succeeds but appending JobPackageProduced fails,
+        the exception must propagate — NOT emit IngestionFailed."""
+        failing_outbox = _FailingOutboxRepository()
+        handler = IngestionEventHandler(
+            ingestion_service=ingestion_service,
+            outbox=failing_outbox,
+        )
+
+        with pytest.raises(RuntimeError, match="outbox write failed"):
+            await handler.handle("SyncStarted", _sync_started_payload())
+
+        # Ingestion ran successfully
+        assert len(ingestion_service.calls) == 1
+        # No IngestionFailed event was appended
+        assert len(failing_outbox.appended) == 0
+
+    async def test_cancelled_error_propagates(
+        self,
+        ingestion_service: _FakeIngestionService,
+        outbox: _FakeOutboxRepository,
+    ):
+        """asyncio.CancelledError must be re-raised, not swallowed as IngestionFailed."""
+
+        class _CancellingService(_FakeIngestionService):
+            async def run(  # type: ignore[override]
+                self,
+                sync_run_id: str,
+                data_source_id: str,
+                knowledge_graph_id: str,
+                adapter_type: str,
+                connection_config: dict[str, str],
+                credentials_path: str | None,
+            ) -> JobPackageId:
+                raise asyncio.CancelledError()
+
+        handler = IngestionEventHandler(
+            ingestion_service=_CancellingService(),
+            outbox=outbox,
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await handler.handle("SyncStarted", _sync_started_payload())
+
+        # No IngestionFailed event emitted — cancellation is not a service failure
+        assert len(outbox.appended) == 0

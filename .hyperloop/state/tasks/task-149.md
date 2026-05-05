@@ -3,8 +3,8 @@ id: task-149
 title: UI Ontology Design Flow — intent capture, AI-proposed ontology, review and
   approval
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
-status: in_progress
-phase: merge
+status: complete
+phase: null
 deps:
 - task-147
 round: 1

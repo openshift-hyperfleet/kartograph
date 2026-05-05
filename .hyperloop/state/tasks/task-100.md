@@ -2,10 +2,10 @@
 id: task-100
 title: Add cross-tenant boundary enforcement integration test for MCP queries
 spec_ref: specs/query/query-execution.spec.md@dbcf0d7c2fa9c2456896ee20adbfdc8cc33090c2
-status: in_progress
-phase: merge
+status: failed
+phase: null
 deps: []
-round: 29
+round: 30
 branch: hyperloop/task-100
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/566
 pr_title: 'test(query): add cross-tenant isolation integration test for MCP query

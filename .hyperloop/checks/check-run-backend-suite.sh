@@ -106,6 +106,7 @@ CHECKS=(
   check-no-direct-logger-usage.sh
   check-no-coming-soon-stubs.sh
   check-weak-test-assertions.sh
+  check-no-sentinel-value-assertions.sh
   check-di-wiring-updated.sh
   check-event-handlers-registered.sh
   check-domain-events-have-consumers.sh

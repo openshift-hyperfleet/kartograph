@@ -4,10 +4,10 @@ title: UI Mutations Console — file upload, KG selection, and submission with f
   indicator
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: merge
+phase: implement
 deps:
 - task-144
-round: 12
+round: 13
 branch: hyperloop/task-145
 pr: https://github.com/openshift-hyperfleet/kartograph/pull/620
 pr_title: 'feat(ui): add mutations console submission flow with floating progress

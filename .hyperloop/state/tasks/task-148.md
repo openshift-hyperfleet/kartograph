@@ -3,12 +3,12 @@ id: task-148
 title: UI Sync Monitoring — progress, history, logs, manual trigger
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-147
 round: 0
 branch: hyperloop/task-148
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/630
 pr_title: 'feat(ui): add sync monitoring with progress indicators, history, and logs'
 pr_description: "## What and Why\n\nAfter connecting a data source, users need visibility\
   \ into what's happening:\nis the sync running, what phase is it in, has it ever\

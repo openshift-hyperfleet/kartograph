@@ -4,12 +4,12 @@ title: UI Ontology Design Flow — intent capture, AI-proposed ontology, review 
   approval
 spec_ref: specs/ui/experience.spec.md@e77913c2cc6d8b719291e2dbb6870519a94d50da
 status: in_progress
-phase: implement
+phase: verify
 deps:
 - task-147
 round: 0
 branch: hyperloop/task-149
-pr: null
+pr: https://github.com/openshift-hyperfleet/kartograph/pull/631
 pr_title: 'feat(ui): add AI-assisted ontology design flow with review and approval'
 pr_description: "## What and Why\n\nAfter connecting a data source, the user needs\
   \ to define what the knowledge graph\nshould represent: what node types exist, what\

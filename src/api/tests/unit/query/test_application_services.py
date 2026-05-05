@@ -527,13 +527,18 @@ class TestExecuteCypherQuery:
             or "provisioned" in result.message.lower()
         )
 
-    def test_categorizes_unknown_error(
+    def test_unknown_error_type_for_unexpected_exception(
         self,
         service: MCPQueryService,
         fake_repository: FakeQueryGraphRepository,
         fake_probe: FakeQueryServiceProbe,
     ) -> None:
-        """Should categorize unexpected errors as unknown_error."""
+        """GIVEN an unexpected failure during query execution
+        THEN the error type is "unknown_error".
+
+        Spec: Error Categorization — Unexpected error scenario
+        (specs/query/query-execution.spec.md).
+        """
         fake_repository.side_effect = ValueError("Unexpected error")
 
         result = service.execute_cypher_query("MATCH (n) RETURN n")

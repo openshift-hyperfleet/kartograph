@@ -378,16 +378,15 @@ describe('Task-125 — Scenario: Knowledge graph context — selector UI', () =>
     expect(QUERY_VUE).toContain('v-model="selectedKgId"')
   })
 
-  it('selectedKgId defaults to __all__ sentinel (unscoped)', () => {
+  it('selectedKgId defaults to empty string (unscoped)', () => {
     // Spec: "optionally select" means unscoped is the correct default state.
-    // '__all__' is used as the sentinel (Reka UI reserves value="" for clearing).
-    expect(QUERY_VUE).toContain("selectedKgId = ref('__all__')")
+    // '' (empty string) is the sentinel — falsy in JS, enabling || undefined gate.
+    expect(QUERY_VUE).toContain("selectedKgId = ref('')")
   })
 
-  it('All knowledge graphs option has value="__all__" to represent unscoped state', () => {
-    // The __all__ sentinel → undefined in executeQuery omits knowledge_graph_id.
-    // (Reka UI reserves value="" for clearing selection — cannot use empty string.)
-    expect(QUERY_VUE).toMatch(/<SelectItem[^>]*value="__all__"[^>]*>/)
+  it('All knowledge graphs option has value="" to represent unscoped state', () => {
+    // The empty-string sentinel → undefined in executeQuery omits knowledge_graph_id.
+    expect(QUERY_VUE).toMatch(/<SelectItem[^>]*value=""[^>]*>/)
     expect(QUERY_VUE).toContain('All knowledge graphs')
   })
 
@@ -397,8 +396,8 @@ describe('Task-125 — Scenario: Knowledge graph context — selector UI', () =>
   })
 
   it('Scoped badge is shown when a KG is selected', () => {
-    // Visual feedback: Scoped badge when selectedKgId !== '__all__' sentinel.
-    expect(QUERY_VUE).toContain("selectedKgId !== '__all__'")
+    // Visual feedback: Scoped badge when selectedKgId is truthy (non-empty string).
+    expect(QUERY_VUE).toContain('v-if="selectedKgId"')
     expect(QUERY_VUE).toContain('Scoped')
   })
 
@@ -429,11 +428,10 @@ describe('Task-125 — Scenario: Knowledge graph context — query argument wiri
     expect(args.knowledge_graph_id).toBe('kg-engineering')
   })
 
-  it('the __all__ sentinel gate is present in executeQuery in query/index.vue', () => {
+  it('the falsy gate is present in executeQuery in query/index.vue', () => {
     // Static analysis: the gate must be in production code, not just tests.
-    // The ternary converts '__all__' → undefined before the MCP/API call.
-    // (Reka UI reserves value="" so we use '__all__' as the unscoped sentinel.)
-    expect(QUERY_VUE).toContain("selectedKgId.value === '__all__'")
+    // The || undefined gate converts '' → undefined before the MCP/API call.
+    expect(QUERY_VUE).toContain('selectedKgId.value || undefined')
   })
 
   it('KG list is populated by calling /management/knowledge-graphs', () => {

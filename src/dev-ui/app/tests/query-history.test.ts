@@ -610,10 +610,10 @@ describe('Query Console KG scope selector — structural verification', () => {
     'utf-8',
   )
 
-  it('declares selectedKgId ref initialised to __all__ sentinel (unscoped default)', () => {
-    // '__all__' is the sentinel for "all knowledge graphs". Reka UI reserves
-    // value="" for clearing selection, so we use '__all__' instead.
-    expect(queryVue).toContain("selectedKgId = ref('__all__')")
+  it('declares selectedKgId ref initialised to empty string (unscoped default)', () => {
+    // '' is the sentinel for "all knowledge graphs". Empty string is falsy,
+    // enabling the simple || undefined gate in executeQuery.
+    expect(queryVue).toContain("selectedKgId = ref('')")
   })
 
   it('declares knowledgeGraphs ref to hold the list from the API', () => {
@@ -641,9 +641,9 @@ describe('Query Console KG scope selector — structural verification', () => {
   })
 
   it('includes "All knowledge graphs" as the unscoped option in the Select', () => {
-    // The SelectItem uses value="__all__" (not value="" which Reka UI reserves
-    // for clearing selection) and displays "All knowledge graphs" as its label.
-    expect(queryVue).toMatch(/<SelectItem[^>]*value="__all__"[^>]*>/)
+    // The SelectItem uses value="" (empty string sentinel) and displays
+    // "All knowledge graphs" as its label.
+    expect(queryVue).toMatch(/<SelectItem[^>]*value=""[^>]*>/)
     expect(queryVue).toContain('All knowledge graphs')
   })
 
@@ -660,10 +660,9 @@ describe('Query Console KG scope selector — structural verification', () => {
     expect(queryVue).toContain('Unscoped')
   })
 
-  it('gates knowledge_graph_id via __all__ sentinel check in executeQuery', () => {
-    // The ternary gate converts '__all__' sentinel to undefined so the MCP
-    // call omits knowledge_graph_id entirely when the query is unscoped.
-    // (Reka UI reserves value="" so we cannot use the || undefined gate directly.)
-    expect(queryVue).toContain("selectedKgId.value === '__all__'")
+  it('gates knowledge_graph_id via falsy check in executeQuery', () => {
+    // The || undefined gate converts '' (empty string, unscoped) to undefined
+    // so the MCP call omits knowledge_graph_id entirely when the query is unscoped.
+    expect(queryVue).toContain('selectedKgId.value || undefined')
   })
 })

@@ -69,9 +69,9 @@ const schemaLoading = ref(false)
 
 // Knowledge graph context selector
 // When a KG ID is selected, queries are scoped to that graph.
-// '__all__' is the sentinel for "all knowledge graphs accessible in this tenant".
-// Reka UI reserves value="" for clearing selection, so we cannot use empty string.
-const selectedKgId = ref('__all__')
+// '' (empty string) is the sentinel for "all knowledge graphs accessible in this tenant".
+// Empty string is falsy in JavaScript, enabling the simple || undefined gate below.
+const selectedKgId = ref('')
 
 const knowledgeGraphs = ref<Array<{ id: string; name: string }>>([])
 
@@ -89,7 +89,7 @@ async function loadKnowledgeGraphs() {
 }
 
 const kgScopeLabel = computed(() => {
-  if (selectedKgId.value === '__all__') return 'All knowledge graphs'
+  if (!selectedKgId.value) return 'All knowledge graphs'
   return knowledgeGraphs.value.find((kg) => kg.id === selectedKgId.value)?.name ?? 'Unknown graph'
 })
 
@@ -195,7 +195,7 @@ async function executeQuery() {
       cypherQuery,
       Number(timeout.value),
       Number(maxRows.value),
-      selectedKgId.value === '__all__' ? undefined : selectedKgId.value,
+      selectedKgId.value || undefined,
     )
     executionTime.value = Math.round(performance.now() - start)
     result.value = res
@@ -488,7 +488,7 @@ onBeforeUnmount(() => {
               <SelectValue :placeholder="kgScopeLabel" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__all__">All knowledge graphs</SelectItem>
+              <SelectItem value="">All knowledge graphs</SelectItem>
               <SelectItem
                 v-for="kg in knowledgeGraphs"
                 :key="kg.id"
@@ -498,7 +498,7 @@ onBeforeUnmount(() => {
               </SelectItem>
             </SelectContent>
           </Select>
-          <Badge v-if="selectedKgId !== '__all__'" variant="secondary" class="shrink-0 text-[10px]">Scoped</Badge>
+          <Badge v-if="selectedKgId" variant="secondary" class="shrink-0 text-[10px]">Scoped</Badge>
           <Badge v-else variant="outline" class="shrink-0 text-[10px]">Unscoped</Badge>
         </div>
 

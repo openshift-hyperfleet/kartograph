@@ -469,14 +469,15 @@ class TestSecureEnclaveRedactionIntegration:
         kg_view_for_alice: None,
         provisioned_enclave_graph: AgeGraphClient,
     ) -> None:
-        """Unauthorized caller receives nodes redacted to {id} only.
+        """Unauthorized caller receives nodes redacted with label and _redacted flag.
 
         Spec: "GIVEN query results containing entities the caller is not authorized to view
                WHEN the results are returned
-               THEN unauthorized nodes are redacted to ID-only (all other properties stripped)"
+               THEN unauthorized nodes are redacted (properties stripped, label and
+               _redacted flag preserved for topology context)"
 
         bob has NO viewer relation on KG_RESTRICTED_ID → all nodes are redacted to
-        ``{"id": "..."}`` — no label, no properties.
+        ``{"id": "...", "label": "...", "_redacted": true}`` with optional domainId.
         """
         # Insert 2 Person nodes stamped with the restricted KG
         provisioned_enclave_graph.execute_cypher(
@@ -488,7 +489,7 @@ class TestSecureEnclaveRedactionIntegration:
             f"knowledge_graph_id: '{KG_RESTRICTED_ID}'}})"
         )
 
-        # Bob calls query_graph scoped to the restricted KG
+        # Bob calls query_graph — KG scoping via WHERE clause
         async with Client(
             StreamableHttpTransport(
                 url="http://test/query/mcp",
@@ -499,8 +500,10 @@ class TestSecureEnclaveRedactionIntegration:
             result = await mcp_client.call_tool(
                 "query_graph",
                 {
-                    "cypher": "MATCH (n:Person) RETURN n LIMIT 10",
-                    "knowledge_graph_id": KG_RESTRICTED_ID,
+                    "cypher": (
+                        f"MATCH (n:Person) WHERE n.knowledge_graph_id = "
+                        f"'{KG_RESTRICTED_ID}' RETURN n LIMIT 10"
+                    ),
                 },
             )
 
@@ -519,9 +522,20 @@ class TestSecureEnclaveRedactionIntegration:
 
         for row in rows:
             node = row["node"]
-            assert set(node.keys()) == {"id"}, (
-                "Unauthorized node MUST be redacted to {id} only — "
-                f"got keys: {set(node.keys())}.  Full node: {node}"
+            # Redacted nodes include id, label, _redacted, and optionally domainId
+            assert "id" in node, f"Redacted node must have 'id' — got: {node}"
+            assert "label" in node, f"Redacted node must have 'label' — got: {node}"
+            assert node.get("_redacted") is True, (
+                f"Redacted node must have '_redacted': true — got: {node}"
+            )
+            assert "properties" not in node, (
+                f"Redacted node must NOT have 'properties' — got: {node}"
+            )
+            # Only id, label, _redacted, and optionally domainId are allowed
+            allowed_keys = {"id", "label", "_redacted", "domainId"}
+            assert set(node.keys()) <= allowed_keys, (
+                f"Unauthorized node has unexpected keys — "
+                f"got keys: {set(node.keys())}, allowed: {allowed_keys}.  Full node: {node}"
             )
 
     async def test_unauthorized_edges_redacted_to_structural_fields_only(
@@ -531,13 +545,14 @@ class TestSecureEnclaveRedactionIntegration:
         kg_view_for_alice: None,
         provisioned_enclave_graph: AgeGraphClient,
     ) -> None:
-        """Unauthorized caller receives edges redacted to {id, start_id, end_id} only.
+        """Unauthorized caller receives edges redacted with label, topology, and _redacted flag.
 
-        Spec: "AND unauthorized edges are redacted to their ID, start_id, and end_id only
-               (all other properties stripped)"
+        Spec: "AND unauthorized edges are redacted to their structural fields
+               (id, label, start_id, end_id, _redacted) with properties stripped"
 
         bob has NO viewer relation on KG_RESTRICTED_ID → the KNOWS edge is redacted to
-        ``{"id": "...", "start_id": "...", "end_id": "..."}`` — no label, no properties.
+        ``{"id": "...", "label": "...", "start_id": "...", "end_id": "...", "_redacted": true}``
+        with optional domainId.
         """
         # Insert two Person nodes and a KNOWS edge, all stamped with the restricted KG
         provisioned_enclave_graph.execute_cypher(
@@ -547,7 +562,7 @@ class TestSecureEnclaveRedactionIntegration:
             f"(b:Person {{name: 'PersonB', knowledge_graph_id: '{KG_RESTRICTED_ID}'}})"
         )
 
-        # Bob calls query_graph returning only the edge (not the nodes)
+        # Bob calls query_graph — KG scoping via WHERE clause on edge properties
         async with Client(
             StreamableHttpTransport(
                 url="http://test/query/mcp",
@@ -558,8 +573,11 @@ class TestSecureEnclaveRedactionIntegration:
             result = await mcp_client.call_tool(
                 "query_graph",
                 {
-                    "cypher": "MATCH (a)-[r:KNOWS]->(b) RETURN r LIMIT 10",
-                    "knowledge_graph_id": KG_RESTRICTED_ID,
+                    "cypher": (
+                        f"MATCH (a)-[r:KNOWS]->(b) "
+                        f"WHERE r.knowledge_graph_id = '{KG_RESTRICTED_ID}' "
+                        f"RETURN r LIMIT 10"
+                    ),
                 },
             )
 
@@ -576,9 +594,22 @@ class TestSecureEnclaveRedactionIntegration:
         )
 
         edge = rows[0]["edge"]
-        assert set(edge.keys()) == {"id", "start_id", "end_id"}, (
-            "Unauthorized edge MUST be redacted to {id, start_id, end_id} only — "
-            f"got keys: {set(edge.keys())}.  Full edge: {edge}"
+        # Redacted edges include id, label, start_id, end_id, _redacted, and optionally domainId
+        assert "id" in edge, f"Redacted edge must have 'id' — got: {edge}"
+        assert "label" in edge, f"Redacted edge must have 'label' — got: {edge}"
+        assert "start_id" in edge, f"Redacted edge must have 'start_id' — got: {edge}"
+        assert "end_id" in edge, f"Redacted edge must have 'end_id' — got: {edge}"
+        assert edge.get("_redacted") is True, (
+            f"Redacted edge must have '_redacted': true — got: {edge}"
+        )
+        assert "properties" not in edge, (
+            f"Redacted edge must NOT have 'properties' — got: {edge}"
+        )
+        # Only structural fields and redaction metadata are allowed
+        allowed_keys = {"id", "label", "start_id", "end_id", "_redacted", "domainId"}
+        assert set(edge.keys()) <= allowed_keys, (
+            f"Unauthorized edge has unexpected keys — "
+            f"got keys: {set(edge.keys())}, allowed: {allowed_keys}.  Full edge: {edge}"
         )
 
     async def test_graph_topology_preserved_for_unauthorized_caller(
@@ -594,7 +625,8 @@ class TestSecureEnclaveRedactionIntegration:
 
         Insert 3 Person nodes; bob's query returns 3 rows — the entities are NOT filtered
         out, only their properties are stripped. Each row carries a redacted node
-        ``{"id": "..."}`` so the caller knows the entity exists.
+        ``{"id": "...", "label": "...", "_redacted": true}`` so the caller knows the
+        entity exists and its type.
         """
         # Insert 3 Person nodes stamped with the restricted KG
         for i in range(3):
@@ -603,7 +635,7 @@ class TestSecureEnclaveRedactionIntegration:
                 f"knowledge_graph_id: '{KG_RESTRICTED_ID}'}})"
             )
 
-        # Bob calls query_graph scoped to the restricted KG
+        # Bob calls query_graph — KG scoping via WHERE clause
         async with Client(
             StreamableHttpTransport(
                 url="http://test/query/mcp",
@@ -614,8 +646,10 @@ class TestSecureEnclaveRedactionIntegration:
             result = await mcp_client.call_tool(
                 "query_graph",
                 {
-                    "cypher": "MATCH (n:Person) RETURN n LIMIT 100",
-                    "knowledge_graph_id": KG_RESTRICTED_ID,
+                    "cypher": (
+                        f"MATCH (n:Person) WHERE n.knowledge_graph_id = "
+                        f"'{KG_RESTRICTED_ID}' RETURN n LIMIT 100"
+                    ),
                 },
             )
 
@@ -633,11 +667,16 @@ class TestSecureEnclaveRedactionIntegration:
             f"Rows: {rows}"
         )
 
-        # Each row must be redacted (cross-check with test_unauthorized_nodes_redacted_to_id_only)
+        # Each row must be redacted with label and _redacted flag
         for row in rows:
             node = row["node"]
-            assert set(node.keys()) == {"id"}, (
-                "Topology-preserved rows must still be redacted to {id} only — "
+            assert "id" in node, f"Redacted node must have 'id' — got: {node}"
+            assert "label" in node, f"Redacted node must have 'label' — got: {node}"
+            assert node.get("_redacted") is True, (
+                f"Redacted node must have '_redacted': true — got: {node}"
+            )
+            assert "properties" not in node, (
+                f"Topology-preserved rows must be redacted (no 'properties') — "
                 f"got keys: {set(node.keys())}.  Full node: {node}"
             )
 
@@ -666,7 +705,7 @@ class TestSecureEnclaveRedactionIntegration:
             f"knowledge_graph_id: '{KG_RESTRICTED_ID}'}})"
         )
 
-        # Alice calls query_graph scoped to the restricted KG
+        # Alice calls query_graph — KG scoping via WHERE clause
         async with Client(
             StreamableHttpTransport(
                 url="http://test/query/mcp",
@@ -677,8 +716,10 @@ class TestSecureEnclaveRedactionIntegration:
             result = await mcp_client.call_tool(
                 "query_graph",
                 {
-                    "cypher": "MATCH (n:Person) RETURN n LIMIT 10",
-                    "knowledge_graph_id": KG_RESTRICTED_ID,
+                    "cypher": (
+                        f"MATCH (n:Person) WHERE n.knowledge_graph_id = "
+                        f"'{KG_RESTRICTED_ID}' RETURN n LIMIT 10"
+                    ),
                 },
             )
 

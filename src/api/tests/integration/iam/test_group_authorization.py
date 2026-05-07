@@ -211,10 +211,11 @@ class TestGroupListingFiltered:
         bob_user_id: str,
         clean_iam_data,
     ):
-        """Group listing should show groups visible via tenant->view.
+        """Group listing should only show groups the user has explicit access to.
 
-        Per schema: group.view = admin + member_relation + tenant->view
-        Bob is a tenant member, so he should see groups in his tenant.
+        Per schema (default-deny): group.view = admin + member_relation + tenant->administrate
+        Bob is a regular tenant member (not admin), so he should NOT see
+        groups he is not a member of.
         """
         # Alice creates a group
         group_id = await create_group(
@@ -225,7 +226,7 @@ class TestGroupListingFiltered:
             name="visible_group",
         )
 
-        # Bob lists groups - should see alice's group via tenant->view
+        # Bob lists groups - should NOT see alice's group (default-deny model)
         resp = await async_client.get(
             "/iam/groups",
             headers=bob_tenant_auth_headers,
@@ -235,7 +236,8 @@ class TestGroupListingFiltered:
         )
 
         group_ids = [g["id"] for g in resp.json()]
-        assert group_id in group_ids, (
-            f"Bob should see alice's group {group_id} via tenant->view, "
-            f"but only sees {group_ids}"
+        assert group_id not in group_ids, (
+            f"Bob should NOT see alice's group {group_id} without explicit membership "
+            f"(default-deny: tenant->view no longer grants group visibility), "
+            f"but sees {group_ids}"
         )

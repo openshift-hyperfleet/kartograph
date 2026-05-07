@@ -388,9 +388,10 @@ class TestAutoGrantRootWorkspaceAccess:
         bob_user_id: str,
         clean_iam_data,
     ):
-        """Adding a user as regular tenant member should NOT grant root workspace admin.
+        """Adding a user as regular tenant member should NOT grant root workspace access.
 
-        Regular members get VIEW on workspaces via tenant->view, but not MANAGE.
+        With the default-deny model (workspace.view uses tenant->administrate),
+        regular tenant members get neither MANAGE nor VIEW on root workspace.
         """
         # Create tenant (alice is admin)
         create_resp = await async_client.post(
@@ -430,7 +431,7 @@ class TestAutoGrantRootWorkspaceAccess:
             timeout=5.0,
         )
 
-        # Get root workspace
+        # Get root workspace via alice (tenant admin) — bob can't list workspaces
         new_tenant_headers = {
             **tenant_auth_headers,
             "X-Tenant-ID": tenant_id,
@@ -463,15 +464,16 @@ class TestAutoGrantRootWorkspaceAccess:
             "Regular tenant member should NOT have MANAGE permission on root workspace"
         )
 
-        # But bob should have VIEW via tenant->view
+        # With default-deny (workspace.view = tenant->administrate), bob also
+        # does NOT have VIEW on root workspace — only tenant admins inherit view.
         has_view = await spicedb_client.check_permission(
             ws_resource,
             Permission.VIEW,
             bob_subject,
         )
-        assert has_view is True, (
-            "Regular tenant member should have VIEW permission on root workspace "
-            "via tenant->view"
+        assert has_view is False, (
+            "Regular tenant member should NOT have VIEW permission on root workspace "
+            "(default-deny: workspace.view requires tenant->administrate, not tenant->view)"
         )
 
     @pytest.mark.asyncio
@@ -573,14 +575,16 @@ class TestAutoGrantRootWorkspaceAccess:
             "Downgraded tenant member should NOT have MANAGE on root workspace"
         )
 
-        # Bob should still have VIEW via tenant->view
+        # With default-deny (workspace.view = tenant->administrate), bob also
+        # loses VIEW on root workspace when downgraded from admin to member.
         has_view = await spicedb_client.check_permission(
             ws_resource,
             Permission.VIEW,
             bob_subject,
         )
-        assert has_view is True, (
-            "Downgraded tenant member should still have VIEW via tenant->view"
+        assert has_view is False, (
+            "Downgraded tenant member should NOT have VIEW on root workspace "
+            "(default-deny: workspace.view requires tenant->administrate)"
         )
 
     @pytest.mark.asyncio

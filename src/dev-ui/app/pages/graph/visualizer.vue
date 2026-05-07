@@ -129,8 +129,8 @@ async function loadKnowledgeGraphs() {
       '/management/knowledge-graphs',
     )
     knowledgeGraphs.value = result.knowledge_graphs ?? []
-    if (knowledgeGraphs.value.length > 0 && !selectedKgId.value) {
-      selectedKgId.value = knowledgeGraphs.value[0].id
+    if (!selectedKgId.value) {
+      selectedKgId.value = '__all__'
     }
   } catch (err) {
     toast.error('Failed to load knowledge graphs', { description: extractErrorMessage(err) })
@@ -177,7 +177,7 @@ async function loadGraphData() {
 
   try {
     const data = await getBulkGraphData(
-      selectedKgId.value || undefined,
+      selectedKgId.value === '__all__' ? undefined : selectedKgId.value || undefined,
       {
         onProgress: (received, total) => {
           progressReceived.value = received
@@ -403,7 +403,7 @@ watch(selectedKgId, (newId, oldId) => {
 // ── Tenant switch ──────────────────────────────────────────────────────────
 
 watch(tenantVersion, () => {
-  selectedKgId.value = ''
+  selectedKgId.value = '__all__'
   knowledgeGraphs.value = []
   loadKnowledgeGraphs().then(() => {
     if (selectedKgId.value) loadGraphData()
@@ -486,6 +486,9 @@ onBeforeUnmount(() => {
             <SelectValue placeholder="Select knowledge graph..." />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="__all__">
+              All Knowledge Graphs
+            </SelectItem>
             <SelectItem
               v-for="kg in knowledgeGraphs"
               :key="kg.id"

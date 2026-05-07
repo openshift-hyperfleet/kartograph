@@ -150,24 +150,23 @@ class GraphSecureEnclaveService:
     # -----------------------------------------------------------------------
 
     async def _authorize_node(self, node: NodeRecord) -> AuthorizedNode:
-        """Authorize a single node, returning full record or ID-only redaction."""
+        """Authorize a single node, returning full record or redacted with type."""
         kg_id = self._extract_kg_id(node.properties)
         if kg_id is None:
-            # Missing, null, non-string, or empty knowledge_graph_id → deny
-            return RedactedNodeRecord(id=node.id)
+            return RedactedNodeRecord(id=node.id, label=node.label)
 
         if await self._check_kg_view(kg_id):
             return node
 
-        return RedactedNodeRecord(id=node.id)
+        return RedactedNodeRecord(id=node.id, label=node.label)
 
     async def _authorize_edge(self, edge: EdgeRecord) -> AuthorizedEdge:
-        """Authorize a single edge, returning full record or endpoint-only redaction."""
+        """Authorize a single edge, returning full record or redacted with type."""
         kg_id = self._extract_kg_id(edge.properties)
         if kg_id is None:
-            # Missing, null, non-string, or empty knowledge_graph_id → deny
             return RedactedEdgeRecord(
                 id=edge.id,
+                label=edge.label,
                 start_id=edge.start_id,
                 end_id=edge.end_id,
             )
@@ -177,6 +176,7 @@ class GraphSecureEnclaveService:
 
         return RedactedEdgeRecord(
             id=edge.id,
+            label=edge.label,
             start_id=edge.start_id,
             end_id=edge.end_id,
         )

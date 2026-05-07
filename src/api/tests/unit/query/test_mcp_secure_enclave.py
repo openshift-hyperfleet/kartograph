@@ -198,16 +198,20 @@ class TestNodeRedaction:
         assert result[0]["node"]["id"] == "1"
 
     @pytest.mark.asyncio
-    async def test_unauthorized_node_redacted_to_id_only(
+    async def test_unauthorized_node_redacted_preserves_topology(
         self, unauthorized_enclave: MCPQuerySecureEnclave
     ) -> None:
-        """Unauthorized node should have ALL properties stripped, keeping only 'id'."""
+        """Unauthorized node keeps id, label, domainId, _redacted flag. Properties stripped."""
         rows = [
             {
                 "node": {
                     "id": "1",
                     "label": "Person",
-                    "properties": {"name": "Alice", "knowledge_graph_id": "kg-1"},
+                    "properties": {
+                        "id": "person:abc123",
+                        "name": "Alice",
+                        "knowledge_graph_id": "kg-1",
+                    },
                 }
             }
         ]
@@ -215,9 +219,10 @@ class TestNodeRedaction:
 
         assert len(result) == 1
         node = result[0]["node"]
-        # Only 'id' should remain
-        assert node == {"id": "1"}
-        assert "label" not in node
+        assert node["id"] == "1"
+        assert node["label"] == "Person"
+        assert node["domainId"] == "person:abc123"
+        assert node["_redacted"] is True
         assert "properties" not in node
 
     @pytest.mark.asyncio
@@ -236,7 +241,10 @@ class TestNodeRedaction:
         ]
         result = await _redact(authorized_enclave, rows)
 
-        assert result[0]["node"] == {"id": "1"}
+        assert result[0]["node"]["id"] == "1"
+        assert result[0]["node"]["label"] == "Person"
+        assert result[0]["node"]["_redacted"] is True
+        assert "properties" not in result[0]["node"]
 
     @pytest.mark.asyncio
     async def test_node_with_empty_knowledge_graph_id_is_redacted(
@@ -254,7 +262,10 @@ class TestNodeRedaction:
         ]
         result = await _redact(authorized_enclave, rows)
 
-        assert result[0]["node"] == {"id": "1"}
+        assert result[0]["node"]["id"] == "1"
+        assert result[0]["node"]["label"] == "Person"
+        assert result[0]["node"]["_redacted"] is True
+        assert "properties" not in result[0]["node"]
 
     @pytest.mark.asyncio
     async def test_node_with_none_knowledge_graph_id_is_redacted(
@@ -272,7 +283,10 @@ class TestNodeRedaction:
         ]
         result = await _redact(authorized_enclave, rows)
 
-        assert result[0]["node"] == {"id": "1"}
+        assert result[0]["node"]["id"] == "1"
+        assert result[0]["node"]["label"] == "Person"
+        assert result[0]["node"]["_redacted"] is True
+        assert "properties" not in result[0]["node"]
 
 
 class TestEdgeRedaction:
@@ -304,10 +318,10 @@ class TestEdgeRedaction:
         assert edge["end_id"] == "2"
 
     @pytest.mark.asyncio
-    async def test_unauthorized_edge_redacted_to_endpoints_only(
+    async def test_unauthorized_edge_redacted_preserves_topology(
         self, unauthorized_enclave: MCPQuerySecureEnclave
     ) -> None:
-        """Unauthorized edge should keep only id, start_id, and end_id."""
+        """Unauthorized edge keeps id, label, endpoints, domainId, _redacted. Properties stripped."""
         rows = [
             {
                 "edge": {
@@ -315,7 +329,11 @@ class TestEdgeRedaction:
                     "label": "KNOWS",
                     "start_id": "1",
                     "end_id": "2",
-                    "properties": {"since": 2020, "knowledge_graph_id": "kg-1"},
+                    "properties": {
+                        "id": "knows:def456",
+                        "since": 2020,
+                        "knowledge_graph_id": "kg-1",
+                    },
                 }
             }
         ]
@@ -323,8 +341,12 @@ class TestEdgeRedaction:
 
         assert len(result) == 1
         edge = result[0]["edge"]
-        assert edge == {"id": "10", "start_id": "1", "end_id": "2"}
-        assert "label" not in edge
+        assert edge["id"] == "10"
+        assert edge["label"] == "KNOWS"
+        assert edge["start_id"] == "1"
+        assert edge["end_id"] == "2"
+        assert edge["domainId"] == "knows:def456"
+        assert edge["_redacted"] is True
         assert "properties" not in edge
 
     @pytest.mark.asyncio
@@ -345,7 +367,11 @@ class TestEdgeRedaction:
         ]
         result = await _redact(authorized_enclave, rows)
 
-        assert result[0]["edge"] == {"id": "10", "start_id": "1", "end_id": "2"}
+        assert result[0]["edge"]["id"] == "10"
+        assert result[0]["edge"]["start_id"] == "1"
+        assert result[0]["edge"]["end_id"] == "2"
+        assert result[0]["edge"]["_redacted"] is True
+        assert "properties" not in result[0]["edge"]
 
 
 class TestGraphTopologyPreservation:
@@ -381,8 +407,13 @@ class TestGraphTopologyPreservation:
         # Both rows remain (topology preserved)
         assert len(result) == 2
         # Both are redacted (id-only)
-        assert result[0]["node"] == {"id": "1"}
-        assert result[1]["node"] == {"id": "2"}
+        assert result[0]["node"]["id"] == "1"
+        assert result[0]["node"]["label"] == "Person"
+        assert result[0]["node"]["_redacted"] is True
+        assert "properties" not in result[0]["node"]
+        assert result[1]["node"]["id"] == "2"
+        assert result[1]["node"]["_redacted"] is True
+        assert "properties" not in result[1]["node"]
 
     @pytest.mark.asyncio
     async def test_unauthorized_edges_remain_in_results(
@@ -403,7 +434,11 @@ class TestGraphTopologyPreservation:
         result = await _redact(unauthorized_enclave, rows)
 
         assert len(result) == 1
-        assert result[0]["edge"] == {"id": "10", "start_id": "1", "end_id": "2"}
+        assert result[0]["edge"]["id"] == "10"
+        assert result[0]["edge"]["start_id"] == "1"
+        assert result[0]["edge"]["end_id"] == "2"
+        assert result[0]["edge"]["_redacted"] is True
+        assert "properties" not in result[0]["edge"]
 
     @pytest.mark.asyncio
     async def test_mixed_authorized_and_unauthorized(
@@ -438,7 +473,9 @@ class TestGraphTopologyPreservation:
         # Alice is authorized — full properties
         assert result[0]["node"]["properties"]["name"] == "Alice"
         # Bob is not authorized — redacted
-        assert result[1]["node"] == {"id": "2"}
+        assert result[1]["node"]["id"] == "2"
+        assert result[1]["node"]["_redacted"] is True
+        assert "properties" not in result[1]["node"]
 
 
 class TestScalarValues:
@@ -511,8 +548,14 @@ class TestMapResults:
         ]
         result = await _redact(unauthorized_enclave, rows)
 
-        assert result[0]["person"] == {"id": "1"}
-        assert result[0]["relationship"] == {"id": "10", "start_id": "1", "end_id": "2"}
+        assert result[0]["person"]["id"] == "1"
+        assert result[0]["person"]["_redacted"] is True
+        assert "properties" not in result[0]["person"]
+        assert result[0]["relationship"]["id"] == "10"
+        assert result[0]["relationship"]["start_id"] == "1"
+        assert result[0]["relationship"]["end_id"] == "2"
+        assert result[0]["relationship"]["_redacted"] is True
+        assert "properties" not in result[0]["relationship"]
 
 
 class TestPermissionCaching:
@@ -601,7 +644,10 @@ class TestAuthorizationFailSafe:
         result = await _redact(enclave, rows)
 
         # Redacted due to SpiceDB error
-        assert result[0]["node"] == {"id": "1"}
+        assert result[0]["node"]["id"] == "1"
+        assert result[0]["node"]["label"] == "Person"
+        assert result[0]["node"]["_redacted"] is True
+        assert "properties" not in result[0]["node"]
 
     @pytest.mark.asyncio
     async def test_spicedb_error_causes_edge_redaction(
@@ -622,7 +668,11 @@ class TestAuthorizationFailSafe:
         ]
         result = await _redact(enclave, rows)
 
-        assert result[0]["edge"] == {"id": "10", "start_id": "1", "end_id": "2"}
+        assert result[0]["edge"]["id"] == "10"
+        assert result[0]["edge"]["start_id"] == "1"
+        assert result[0]["edge"]["end_id"] == "2"
+        assert result[0]["edge"]["_redacted"] is True
+        assert "properties" not in result[0]["edge"]
 
 
 class TestSubjectInAuthorizationCall:

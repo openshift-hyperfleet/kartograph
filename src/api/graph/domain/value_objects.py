@@ -125,19 +125,22 @@ class NodeRecord(BaseModel):
 
 
 class RedactedNodeRecord(BaseModel):
-    """ID-only representation of a node the requesting user is not authorized to view.
+    """Redacted representation of a node the requesting user is not authorized to view.
 
-    Per the Secure Enclave pattern (specs/iam/authorization.spec.md), when a user
-    lacks VIEW permission on a node's parent KnowledgeGraph, only the entity ID is
-    returned. The node is NOT removed from the result set — graph topology is preserved.
+    Per the Secure Enclave pattern, when a user lacks VIEW permission on a
+    node's parent KnowledgeGraph, only the entity ID and type label are returned.
+    All properties are stripped. The node is NOT removed from the result set —
+    graph topology is preserved.
 
     Attributes:
         id: Unique identifier for the node (e.g., "documentation_module:abf3ad8")
+        label: The node's type label (e.g., "Repository") — preserved for topology context
     """
 
     model_config = ConfigDict(frozen=True)
 
     id: str
+    label: str
 
 
 class EdgeRecord(BaseModel):
@@ -161,15 +164,16 @@ class EdgeRecord(BaseModel):
 
 
 class RedactedEdgeRecord(BaseModel):
-    """Endpoint-preserving representation of an edge the user is not authorized to view.
+    """Redacted representation of an edge the user is not authorized to view.
 
-    Per the Secure Enclave pattern (specs/iam/authorization.spec.md), when a user
-    lacks VIEW permission on an edge's parent KnowledgeGraph, only the edge ID,
-    start_id, and end_id are returned. All other properties are stripped.
-    The edge is NOT removed from the result set — graph topology is preserved.
+    Per the Secure Enclave pattern, when a user lacks VIEW permission on an
+    edge's parent KnowledgeGraph, only the edge ID, type label, and endpoint
+    IDs are returned. All properties are stripped. The edge is NOT removed
+    from the result set — graph topology is preserved.
 
     Attributes:
         id: Unique identifier for the edge
+        label: The relationship type (e.g., "KNOWS") — preserved for topology context
         start_id: ID of the source node (preserved for topology)
         end_id: ID of the target node (preserved for topology)
     """
@@ -177,6 +181,7 @@ class RedactedEdgeRecord(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: str
+    label: str
     start_id: str
     end_id: str
 

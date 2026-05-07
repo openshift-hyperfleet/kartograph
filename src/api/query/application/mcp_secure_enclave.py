@@ -12,10 +12,10 @@ Authorization model:
 
 Redaction rules:
     - Authorized node:   full NodeDict returned
-    - Unauthorized node: ``{"id": node_id}`` (all other fields stripped)
+    - Unauthorized node: ``{"id": node_id, "label": type_label}`` (properties stripped)
     - Authorized edge:   full EdgeDict returned
-    - Unauthorized edge: ``{"id": edge_id, "start_id": ..., "end_id": ...}``
-                         (all other fields stripped, topology preserved)
+    - Unauthorized edge: ``{"id": edge_id, "label": type_label, "start_id": ..., "end_id": ...}``
+                         (properties stripped, topology preserved)
     - Scalar values:     passed through unchanged (no entity to authorize)
     - Map results:       each nested node/edge value is recursively evaluated
 
@@ -145,21 +145,37 @@ class MCPQuerySecureEnclave:
     # ------------------------------------------------------------------
 
     async def _authorize_node(self, node: dict[str, Any]) -> dict[str, Any]:
-        """Return full NodeDict if authorized, or ``{"id": ...}`` if not."""
-        kg_id = self._extract_kg_id(node.get("properties", {}))
+        """Return full NodeDict if authorized, or redacted with id/label/domainId."""
+        props = node.get("properties", {})
+        kg_id = self._extract_kg_id(props)
         if kg_id is None or not await self._check_kg_view(kg_id):
-            return {"id": node["id"]}
+            redacted: dict[str, Any] = {
+                "id": node["id"],
+                "label": node.get("label", ""),
+                "_redacted": True,
+            }
+            domain_id = props.get("id") if isinstance(props, dict) else None
+            if domain_id:
+                redacted["domainId"] = domain_id
+            return redacted
         return node
 
     async def _authorize_edge(self, edge: dict[str, Any]) -> dict[str, Any]:
-        """Return full EdgeDict if authorized, or minimal topology dict if not."""
-        kg_id = self._extract_kg_id(edge.get("properties", {}))
+        """Return full EdgeDict if authorized, or redacted with topology."""
+        props = edge.get("properties", {})
+        kg_id = self._extract_kg_id(props)
         if kg_id is None or not await self._check_kg_view(kg_id):
-            return {
+            redacted: dict[str, Any] = {
                 "id": edge["id"],
+                "label": edge.get("label", ""),
                 "start_id": edge["start_id"],
                 "end_id": edge["end_id"],
+                "_redacted": True,
             }
+            domain_id = props.get("id") if isinstance(props, dict) else None
+            if domain_id:
+                redacted["domainId"] = domain_id
+            return redacted
         return edge
 
     # ------------------------------------------------------------------

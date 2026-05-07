@@ -3,13 +3,13 @@ import type { CypherResult, GraphData, GraphNode, GraphEdge } from '~/types'
 function isNodeObject(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const obj = value as Record<string, unknown>
-  return 'id' in obj && 'label' in obj && 'properties' in obj && !('start_id' in obj)
+  return 'id' in obj && 'label' in obj && ('properties' in obj || '_redacted' in obj) && !('start_id' in obj)
 }
 
 function isEdgeObject(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const obj = value as Record<string, unknown>
-  return 'id' in obj && 'label' in obj && 'start_id' in obj && 'end_id' in obj
+  return 'id' in obj && 'label' in obj && 'start_id' in obj && 'end_id' in obj && ('properties' in obj || '_redacted' in obj)
 }
 
 function resolveDisplayName(props: Record<string, unknown>, label: string): string {
@@ -64,19 +64,21 @@ function scanValue(
   }
 
   if (isNodeObject(value)) {
+    const isRedacted = '_redacted' in value
     const props = (value.properties as Record<string, unknown>) ?? {}
     const ageId = String(value.id)
-    const appId = resolveId(value.id, props)
+    const appId = isRedacted && typeof value.domainId === 'string' && value.domainId
+      ? value.domainId as string
+      : resolveId(value.id, props)
 
-    // Track AGE numeric ID → application ID mapping for edge resolution
     ageIdToAppId.set(ageId, appId)
 
     if (!nodeMap.has(appId)) {
       nodeMap.set(appId, {
         id: appId,
         label: String(value.label),
-        properties: props,
-        displayName: resolveDisplayName(props, String(value.label)),
+        properties: isRedacted ? { _redacted: true } : props,
+        displayName: isRedacted ? `[${value.label}]` : resolveDisplayName(props, String(value.label)),
       })
     }
     return

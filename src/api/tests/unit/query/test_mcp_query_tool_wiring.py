@@ -618,18 +618,18 @@ class TestQueryGraphToolInternalPropertyFilterWiring:
         ):
             result = await query_graph.fn(
                 cypher="MATCH (n:Person) RETURN n",
-                knowledge_graph_id="kg-1",  # only kg-1 rows should survive
+                knowledge_graph_id="kg-1",
                 service=fake_service,
             )
 
-        # KG filter: only Alice (kg-1) survives
-        assert result["row_count"] == 1, "KG filter must exclude rows from kg-2"
-        assert len(result["rows"]) == 1
+        # KG post-filter removed — Secure Enclave handles authorization.
+        # Both rows pass through (knowledge_graph_id param is deprecated).
+        assert result["row_count"] == 2
+        assert len(result["rows"]) == 2
 
-        node_props = result["rows"][0]["node"]["properties"]
-        # Internal property filter: all_content_lower stripped
-        assert "all_content_lower" not in node_props, (
-            "all_content_lower must be stripped after KG filter + enclave"
-        )
-        assert node_props["name"] == "Alice"
-        assert node_props["knowledge_graph_id"] == "kg-1"
+        # Internal property filter: all_content_lower stripped from both
+        for row in result["rows"]:
+            node_props = row["node"]["properties"]
+            assert "all_content_lower" not in node_props, (
+                "all_content_lower must be stripped after enclave"
+            )

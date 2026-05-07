@@ -369,7 +369,13 @@ async def get_visualizer_data(
             result_nodes.append(node)
         else:
             result_nodes.append(
-                {"id": node["id"], "type": "_redacted", "label": "", "domainId": ""}
+                {
+                    "id": node["id"],
+                    "domainId": node.get("domainId", ""),
+                    "type": node.get("type", "unknown"),
+                    "label": "",
+                    "_redacted": True,
+                }
             )
 
     result_edges = []
@@ -383,10 +389,11 @@ async def get_visualizer_data(
             result_edges.append(
                 {
                     "id": edge["id"],
+                    "domainId": edge.get("domainId", ""),
                     "source": edge["source"],
                     "target": edge["target"],
-                    "type": "_redacted",
-                    "domainId": "",
+                    "type": edge.get("type", "unknown"),
+                    "_redacted": True,
                 }
             )
 

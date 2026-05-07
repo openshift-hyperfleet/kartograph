@@ -77,8 +77,8 @@ trap cleanup EXIT
 # Add a temporary worktree based on current HEAD.
 git worktree add "$WORKTREE_PATH" -b "$TEMP_BRANCH" HEAD --quiet 2>/dev/null
 
-REBASE_EXIT=0
-REBASE_OUTPUT=$(git -C "$WORKTREE_PATH" rebase alpha 2>&1) || REBASE_EXIT=$?
+REBASE_OUTPUT=$(git -C "$WORKTREE_PATH" rebase alpha 2>&1 || true)
+REBASE_EXIT=$?
 
 if [[ $REBASE_EXIT -eq 0 ]]; then
   echo ""

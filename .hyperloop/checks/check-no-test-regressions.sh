@@ -2,18 +2,8 @@
 # check-no-test-regressions.sh
 #
 # Fails if any test file that existed on the base branch has been deleted or
-# had test cases removed in the current branch. Deleting or truncating passing
-# tests is a TDD violation regardless of implementation quality.
-#
-# COUNTING STRATEGY (avoids false positives on legitimate refactoring):
-#   TypeScript/JavaScript (.test.ts, .spec.ts, .test.js, .spec.js):
-#     Counts net change in it() / test() call occurrences.
-#     Raw line reduction from removing outdated comments or shortening test
-#     descriptions does NOT trigger a failure — only actual test deletions do.
-#   Python (.py):
-#     Counts net change in `def test_` function definitions.
-#   Other file types:
-#     Falls back to raw line count heuristic.
+# had lines removed in the current branch. Deleting or truncating passing tests
+# is a TDD violation regardless of implementation quality.
 #
 # TWO COMPARISON PASSES:
 #   Pass 1 (merge-base): detects regressions relative to when this branch was cut.
@@ -62,18 +52,8 @@ deleted_tests=$(git diff --name-only --diff-filter=D "$MERGE_BASE" HEAD -- \
   '*.test.ts' '*.spec.ts' '*.test.js' '*.spec.js' \
   2>/dev/null || true)
 
-# 2. Find test files with test cases removed.
-#
-#    WHY NOT RAW LINE COUNT: raw line count triggers false positives when
-#    legitimate refactoring removes outdated comments or shortens test
-#    descriptions without removing any actual test case. Example: task-148
-#    correctly removed "Reka UI reserves value='' for clearing selection"
-#    explanatory comments after migrating from __all__ to '' — five test files
-#    had net negative line count but identical it() call counts before and after.
-#
-#    By counting it()/test() calls (TS/JS) or def test_ functions (Python),
-#    we detect actual test deletion while tolerating any amount of comment/
-#    description refactoring.
+# 2. Find test files with lines removed (net negative line count)
+#    A file that shrinks may have had tests removed without full deletion.
 shrunk_tests=""
 changed_tests=$(git diff --name-only "$MERGE_BASE" HEAD -- \
   '*/tests/*.py' '*/tests/**/*.py' \
@@ -81,32 +61,12 @@ changed_tests=$(git diff --name-only "$MERGE_BASE" HEAD -- \
   2>/dev/null || true)
 
 for f in $changed_tests; do
-  if [[ "$f" =~ \.(test|spec)\.(ts|tsx|js|jsx)$ ]]; then
-    # TypeScript/JavaScript: count it() / test() registrations, not raw lines.
-    # This tolerates comment removal, description rewording, and whitespace
-    # cleanup — none of which reduce test coverage.
-    added=$(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null \
-      | grep -E '^\+[^+]' | grep -cE '\bit\(|\btest\(' || true)
-    removed=$(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null \
-      | grep -E '^\-[^-]' | grep -cE '\bit\(|\btest\(' || true)
-    metric="it/test calls"
-  elif [[ "$f" =~ \.py$ ]]; then
-    # Python: count def test_ function definitions, not raw lines.
-    added=$(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null \
-      | grep -E '^\+[^+]' | grep -cE 'def test_' || true)
-    removed=$(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null \
-      | grep -E '^\-[^-]' | grep -cE 'def test_' || true)
-    metric="test functions"
-  else
-    # Fallback: raw line count for any other test file type.
-    added=$(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null | grep -c '^+[^+]' || true)
-    removed=$(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null | grep -c '^-[^-]' || true)
-    metric="lines"
-  fi
-
+  # Count added vs removed lines for this file
+  added=$(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null | grep -c '^+[^+]' || true)
+  removed=$(git diff "$MERGE_BASE" HEAD -- "$f" 2>/dev/null | grep -c '^-[^-]' || true)
   if [[ "$removed" -gt "$added" ]]; then
     net_removed=$(( removed - added ))
-    shrunk_tests="${shrunk_tests}  $f  (net -${net_removed} ${metric})\n"
+    shrunk_tests="${shrunk_tests}  $f  (net -${net_removed} lines)\n"
   fi
 done
 
@@ -121,7 +81,7 @@ fi
 
 if [[ -n "$shrunk_tests" ]]; then
   echo ""
-  echo "--- Test files with NET TEST REMOVAL (test cases removed > added) ---"
+  echo "--- Test files with NET LINE REMOVAL (lines deleted > lines added) ---"
   printf "%b" "$shrunk_tests"
   found=$((found + 1))
 fi
@@ -183,29 +143,13 @@ for f in $changed_vs_alpha; do
     continue
   fi
 
-  # Count net test-case change between alpha HEAD and this HEAD.
-  # Apply the same per-type counting strategy as pass 1.
-  if [[ "$f" =~ \.(test|spec)\.(ts|tsx|js|jsx)$ ]]; then
-    added_vs_alpha=$(git diff "$ALPHA_HEAD" HEAD -- "$f" 2>/dev/null \
-      | grep -E '^\+[^+]' | grep -cE '\bit\(|\btest\(' || true)
-    removed_vs_alpha=$(git diff "$ALPHA_HEAD" HEAD -- "$f" 2>/dev/null \
-      | grep -E '^\-[^-]' | grep -cE '\bit\(|\btest\(' || true)
-    metric="it/test calls"
-  elif [[ "$f" =~ \.py$ ]]; then
-    added_vs_alpha=$(git diff "$ALPHA_HEAD" HEAD -- "$f" 2>/dev/null \
-      | grep -E '^\+[^+]' | grep -cE 'def test_' || true)
-    removed_vs_alpha=$(git diff "$ALPHA_HEAD" HEAD -- "$f" 2>/dev/null \
-      | grep -E '^\-[^-]' | grep -cE 'def test_' || true)
-    metric="test functions"
-  else
-    added_vs_alpha=$(git diff "$ALPHA_HEAD" HEAD -- "$f" 2>/dev/null | grep -c '^+[^+]' || true)
-    removed_vs_alpha=$(git diff "$ALPHA_HEAD" HEAD -- "$f" 2>/dev/null | grep -c '^-[^-]' || true)
-    metric="lines"
-  fi
+  # Count net line change between alpha HEAD and this HEAD for this file
+  added_vs_alpha=$(git diff "$ALPHA_HEAD" HEAD -- "$f" 2>/dev/null | grep -c '^+[^+]' || true)
+  removed_vs_alpha=$(git diff "$ALPHA_HEAD" HEAD -- "$f" 2>/dev/null | grep -c '^-[^-]' || true)
 
   if [[ "$removed_vs_alpha" -gt "$added_vs_alpha" ]]; then
     net_removed=$(( removed_vs_alpha - added_vs_alpha ))
-    shrunk_vs_alpha="${shrunk_vs_alpha}  $f  (net -${net_removed} ${metric} vs $BASE_BRANCH HEAD)\n"
+    shrunk_vs_alpha="${shrunk_vs_alpha}  $f  (net -${net_removed} lines vs $BASE_BRANCH HEAD)\n"
   fi
 done
 
@@ -221,7 +165,7 @@ fi
 if [[ -n "$shrunk_vs_alpha" ]]; then
   echo ""
   echo "--- Test files SMALLER than $BASE_BRANCH HEAD ---"
-  echo "    These files have fewer test cases than what $BASE_BRANCH currently carries."
+  echo "    These files have fewer net lines than what $BASE_BRANCH currently carries."
   echo "    This typically means $BASE_BRANCH gained tests after this branch was cut"
   echo "    and those tests are absent here. Cherry-picking this branch onto alpha"
   echo "    would REGRESS alpha's test suite."

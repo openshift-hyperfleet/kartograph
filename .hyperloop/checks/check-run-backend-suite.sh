@@ -51,27 +51,6 @@ if [[ "$PWD" != "$REPO_ROOT" ]]; then
   cd "$REPO_ROOT"
 fi
 
-# ── Auto-install git hooks (idempotent) ─────────────────────────────────────
-#
-# WHY: check-commit-msg-hook-has-guard.sh is in the suite and fails when the
-# hook is absent. The install scripts are idempotent — they print PASS and exit
-# 0 when the hook is already current, so running them here is always safe.
-#
-# This auto-install ensures that even when an agent session starts directly
-# inside a pre-placed worktree (without a fresh checkout), both hooks are
-# present for ALL commits made after the first suite run.
-#
-# Note: hooks installed HERE protect commits made AFTER this point in the
-# session. For full protection starting from the first commit, agents must
-# still run install-git-commit-msg-hook.sh as the session-start ritual
-# (implementer overlay §71). The auto-install here eliminates the recurring
-# pattern where correct work is blocked solely by the missing-hook procedural
-# check (task-100, task-109: same failure mode, two consecutive tasks).
-echo "── Auto-installing git hooks (idempotent) ──────────────────"
-bash "$CHECKS_DIR/install-git-commit-msg-hook.sh" || true
-bash "$CHECKS_DIR/install-git-pre-commit-hook.sh" || true
-echo ""
-
 # Ordered list of checks to run. Order matters:
 # - Infra integrity first (catch sabotage before evaluating code)
 # - Staleness second (stale branch → false positives in content checks)

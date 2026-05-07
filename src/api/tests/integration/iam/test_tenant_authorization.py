@@ -577,12 +577,14 @@ class TestAutoGrantRootWorkspaceAccess:
 
         # With default-deny (workspace.view = tenant->administrate), bob also
         # loses VIEW on root workspace when downgraded from admin to member.
-        has_view = await spicedb_client.check_permission(
+        view_revoked = await wait_for_permission_revoked(
+            spicedb_client,
             ws_resource,
             Permission.VIEW,
             bob_subject,
+            timeout=5.0,
         )
-        assert has_view is False, (
+        assert view_revoked, (
             "Downgraded tenant member should NOT have VIEW on root workspace "
             "(default-deny: workspace.view requires tenant->administrate)"
         )

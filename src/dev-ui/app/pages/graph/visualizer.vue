@@ -24,6 +24,7 @@ const { extractErrorMessage } = useErrorHandler()
 
 const cosmographContainer = ref<HTMLElement | null>(null)
 let cosmograph: any = null
+let loadAbortController: AbortController | null = null
 
 const isPaused = ref(false)
 let rawNodes: VisualizerNode[] = []
@@ -165,6 +166,10 @@ const progressPercent = computed(() => {
 })
 
 async function loadGraphData() {
+  if (loadAbortController) loadAbortController.abort()
+  loadAbortController = new AbortController()
+  const signal = loadAbortController.signal
+
   isLoading.value = true
   loadingPhase.value = 'Fetching graph data...'
   progressReceived.value = 0
@@ -179,6 +184,7 @@ async function loadGraphData() {
     const data = await getBulkGraphData(
       selectedKgId.value === '__all__' ? undefined : selectedKgId.value || undefined,
       {
+        signal,
         onProgress: (received, total) => {
           progressReceived.value = received
           progressTotal.value = total
@@ -405,8 +411,9 @@ watch(selectedKgId, (newId, oldId) => {
 watch(tenantVersion, () => {
   selectedKgId.value = '__all__'
   knowledgeGraphs.value = []
+  if (!hasTenant.value) return
   loadKnowledgeGraphs().then(() => {
-    if (selectedKgId.value) loadGraphData()
+    if (selectedKgId.value && hasTenant.value) loadGraphData()
   })
 })
 

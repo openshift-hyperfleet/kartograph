@@ -27,10 +27,9 @@ import { buildQueryGraphArgs } from '~/composables/api/useQueryApi'
 
 describe('test_1_unscoped_query_omits_knowledge_graph_id', () => {
   it('knowledge_graph_id is absent when no KG is selected', () => {
-    // Mirrors: queryGraph(cypher, timeout, maxRows, selectedKgId.value || undefined)
-    // with selectedKgId.value = '' (default, unscoped state)
-    const selectedKgId = ''
-    const args = buildQueryGraphArgs('MATCH (n) RETURN n', 30, 1000, selectedKgId || undefined)
+    // With __all__ sentinel, the page converts to undefined before calling the API
+    const selectedKgId = '__all__'
+    const args = buildQueryGraphArgs('MATCH (n) RETURN n', 30, 1000, selectedKgId === '__all__' ? undefined : selectedKgId)
     expect(args).not.toHaveProperty('knowledge_graph_id')
   })
 
@@ -42,17 +41,15 @@ describe('test_1_unscoped_query_omits_knowledge_graph_id', () => {
     expect(args).not.toHaveProperty('knowledge_graph_id')
   })
 
-  it('query/index.vue uses falsy gate to omit knowledge_graph_id when unscoped', () => {
-    // Static verification: the page template must contain the gate expression
-    // that prevents the empty-string sentinel from being sent as knowledge_graph_id.
+  it('query/index.vue no longer passes knowledge_graph_id to backend', () => {
+    // KG scoping is now done via WHERE clause template injection, not a backend param.
     const { readFileSync } = require('node:fs')
     const { resolve } = require('node:path')
     const src: string = readFileSync(
       resolve(__dirname, '../pages/query/index.vue'),
       'utf-8',
     )
-    // The || undefined gate converts '' → undefined before the API call.
-    expect(src).toContain('selectedKgId.value || undefined')
+    expect(src).toContain("selectedKgId.value === '__all__'")
   })
 })
 
@@ -101,7 +98,7 @@ describe('test_3_scoped_badge_visible_when_kg_selected', () => {
       'utf-8',
     )
     // The Scoped badge is conditionally rendered via v-if="selectedKgId" (truthy check).
-    expect(src).toContain('v-if="selectedKgId"')
+    expect(src).toContain("selectedKgId !== '__all__'")
     expect(src).toContain('Scoped')
   })
 
@@ -124,7 +121,7 @@ describe('test_3_scoped_badge_visible_when_kg_selected', () => {
       'utf-8',
     )
     // The reactive state default must be '' (falsy) so Unscoped shows on first render.
-    expect(src).toContain("selectedKgId = ref('')")
+    expect(src).toContain("selectedKgId = ref('__all__')")
   })
 })
 
@@ -192,17 +189,14 @@ describe('test_4_kg_selector_populated_from_api', () => {
 // THEN the next query execution omits knowledge_graph_id
 
 describe('test_5_clearing_selection_restores_unscoped_mode', () => {
-  it('empty string after clearing selection results in undefined knowledge_graph_id', () => {
-    // Simulate: user picks a KG, then picks "All knowledge graphs" (value="")
+  it('selecting __all__ after a KG results in undefined knowledge_graph_id', () => {
     let selectedKgId = 'kg-abc123'
 
-    // User selects a KG → scoped
-    let args = buildQueryGraphArgs('MATCH (n) RETURN n', 30, 1000, selectedKgId || undefined)
+    let args = buildQueryGraphArgs('MATCH (n) RETURN n', 30, 1000, selectedKgId === '__all__' ? undefined : selectedKgId)
     expect(args.knowledge_graph_id).toBe('kg-abc123')
 
-    // User clears selection (selects "All knowledge graphs")
-    selectedKgId = ''
-    args = buildQueryGraphArgs('MATCH (n) RETURN n', 30, 1000, selectedKgId || undefined)
+    selectedKgId = '__all__'
+    args = buildQueryGraphArgs('MATCH (n) RETURN n', 30, 1000, selectedKgId === '__all__' ? undefined : selectedKgId)
     expect(args).not.toHaveProperty('knowledge_graph_id')
   })
 
@@ -215,16 +209,13 @@ describe('test_5_clearing_selection_restores_unscoped_mode', () => {
     )
     // value="" is the empty-string sentinel for "all knowledge graphs" (unscoped).
     // Empty string is falsy → || undefined gate converts it to undefined in executeQuery.
-    expect(src).toMatch(/<SelectItem[^>]*value=""[^>]*>/)
+    expect(src).toMatch(/<SelectItem[^>]*value="__all__"[^>]*>/)
     expect(src).toContain('All knowledge graphs')
   })
 
   it('Unscoped badge is shown again after KG selection is cleared', () => {
-    // Mirrors the v-if/v-else badge logic:
-    //   <Badge v-if="selectedKgId">Scoped</Badge>
-    //   <Badge v-else>Unscoped</Badge>
-    const selectedKgId = ''  // cleared
-    const isScoped = Boolean(selectedKgId)
-    expect(isScoped).toBe(false)  // → Unscoped badge renders
+    const selectedKgId = '__all__'
+    const isScoped = selectedKgId !== '__all__'
+    expect(isScoped).toBe(false)
   })
 })

@@ -51,14 +51,17 @@ function scanValue(
 
   // Check edge first (edges have all node fields plus start_id/end_id)
   if (isEdgeObject(value)) {
+    const isRedacted = '_redacted' in value
     const props = (value.properties as Record<string, unknown>) ?? {}
-    const id = resolveId(value.id, props)
+    const id = isRedacted && typeof value.domainId === 'string' && value.domainId
+      ? value.domainId as string
+      : resolveId(value.id, props)
     rawEdges.push({
       id,
       label: String(value.label),
       ageStartId: String(value.start_id),
       ageEndId: String(value.end_id),
-      properties: props,
+      properties: isRedacted ? { _redacted: true } : props,
     })
     return
   }

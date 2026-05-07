@@ -4,6 +4,8 @@ import type {
   NodeNeighborsResult,
   SchemaLabelsResponse,
   TypeDefinition,
+  VisualizerNode,
+  VisualizerEdge,
 } from '~/types'
 
 /**
@@ -117,6 +119,62 @@ export function useGraphApi() {
     return apiFetch<TypeDefinition>(`/graph/schema/edges/${label}`)
   }
 
+  // ── Visualizer ────────────────────────────────────────────────────────
+
+  async function getBulkGraphData(
+    knowledgeGraphId?: string,
+    options?: {
+      signal?: AbortSignal
+      onProgress?: (received: number, total: number | null) => void
+    },
+  ): Promise<{ nodes: VisualizerNode[]; edges: VisualizerEdge[] }> {
+    const config = useRuntimeConfig()
+    const { accessToken } = useAuth()
+    const currentTenantId = useState<string | null>('tenant:current', () => null)
+
+    const params = new URLSearchParams()
+    if (knowledgeGraphId) params.set('knowledge_graph_id', knowledgeGraphId)
+    const qs = params.toString()
+    const url = `${config.public.apiBaseUrl}/graph/visualizer/data${qs ? `?${qs}` : ''}`
+
+    const headers: Record<string, string> = {}
+    if (accessToken.value) headers['Authorization'] = `Bearer ${accessToken.value}`
+    if (currentTenantId.value) headers['X-Tenant-ID'] = currentTenantId.value
+
+    const response = await fetch(url, { headers, signal: options?.signal })
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      throw new Error(text || `Request failed with status ${response.status}`)
+    }
+
+    const contentLength = response.headers.get('content-length')
+    const total = contentLength ? parseInt(contentLength, 10) : null
+    const reader = response.body?.getReader()
+
+    if (!reader) return response.json()
+
+    const chunks: Uint8Array[] = []
+    let received = 0
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+      received += value.length
+      options?.onProgress?.(received, total)
+    }
+
+    const all = new Uint8Array(received)
+    let pos = 0
+    for (const chunk of chunks) {
+      all.set(chunk, pos)
+      pos += chunk.length
+    }
+
+    return JSON.parse(new TextDecoder().decode(all))
+  }
+
   return {
     applyMutations,
     findNodesBySlug,
@@ -125,5 +183,6 @@ export function useGraphApi() {
     listEdgeLabels,
     getNodeSchema,
     getEdgeSchema,
+    getBulkGraphData,
   }
 }

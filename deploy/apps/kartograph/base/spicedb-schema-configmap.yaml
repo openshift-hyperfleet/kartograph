@@ -43,7 +43,7 @@ data:
         	permission member = admin + member_relation
 
         	/** Permission to view group details (tenant members can discover groups) */
-        	permission view = admin + member_relation + tenant->view
+        	permission view = admin + member_relation + tenant->administrate
 
         	/** Permission to manage group membership and delete group */
         	permission manage = admin
@@ -84,9 +84,10 @@ data:
         	 * Permission to view workspace and its resources.
         	 * Granted to:
         	 * - Direct workspace members (admin, editor, member)
-        	 * - All tenant members (tenant->view) for organizational visibility
+        	 * - Tenant admins (tenant->administrate) for administrative visibility
+        	 * Tenant members without a workspace role cannot view the workspace (default deny).
         	 */
-        	permission view = admin + editor + member + tenant->view
+        	permission view = admin + editor + member + tenant->administrate
 
         	/** Permission to edit workspace configuration */
         	permission edit = admin + editor

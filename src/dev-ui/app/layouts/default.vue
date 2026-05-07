@@ -30,6 +30,7 @@ import {
   Settings2,
   BookOpen,
   Search,
+  Orbit,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -284,6 +285,7 @@ const navSections = computed<NavSection[]>(() => {
         { label: 'Query Console', icon: Terminal, to: '/query' },
         { label: 'Schema Browser', icon: Database, to: '/graph/schema' },
         { label: 'Graph Explorer', icon: Share2, to: '/graph/explorer' },
+        { label: 'Graph Visualizer', icon: Orbit, to: '/graph/visualizer' },
         { label: 'Mutations Console', icon: FileCode, to: '/graph/mutations' },
       ],
     },
@@ -337,6 +339,7 @@ const breadcrumbs = computed(() => {
     '/api-keys': 'API Keys',
     '/graph/schema': 'Schema Browser',
     '/graph/explorer': 'Graph Explorer',
+    '/graph/visualizer': 'Graph Visualizer',
     '/graph/mutations': 'Mutations',
     '/query': 'Query Console',
     '/integrate/mcp': 'MCP Integration',

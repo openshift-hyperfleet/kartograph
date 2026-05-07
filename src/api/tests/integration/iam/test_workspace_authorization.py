@@ -333,10 +333,11 @@ class TestWorkspaceListingFiltered:
         bob_user_id: str,
         clean_iam_data,
     ):
-        """Workspace listing should only show workspaces user can VIEW.
+        """Workspace listing should only show workspaces user has explicit access to.
 
-        Per the schema: workspace.view = admin + editor + member + tenant->view
-        All tenant members can view all workspaces in their tenant via tenant->view.
+        Per the schema (default-deny): workspace.view = admin + editor + member + tenant->administrate
+        Regular tenant members no longer inherit VIEW via tenant->view.
+        Bob has no explicit workspace roles, so he should see no workspaces.
         """
         # Create workspaces (side effect: they exist in the tenant for listing)
         await create_child_workspace(
@@ -354,19 +355,21 @@ class TestWorkspaceListingFiltered:
             name="listing_ws_2",
         )
 
-        # Bob is tenant member -> has VIEW on all tenant workspaces via tenant->view
+        # Bob is tenant member but has no explicit workspace roles.
+        # With default-deny, tenant->view no longer grants workspace visibility.
         resp = await async_client.get(
             "/iam/workspaces",
             headers=bob_tenant_auth_headers,
         )
         assert resp.status_code == 200, (
-            f"Bob should be able to list workspaces, got {resp.status_code}"
+            f"Bob should be able to list workspaces (empty list), got {resp.status_code}"
         )
 
         workspace_ids = [w["id"] for w in resp.json()["workspaces"]]
-        # Bob should see root + child workspaces via tenant->view
-        assert len(workspace_ids) >= 1, (
-            "Bob should see at least the root workspace as tenant member"
+        assert len(workspace_ids) == 0, (
+            f"Bob should see no workspaces without explicit membership "
+            f"(default-deny: tenant->view no longer grants workspace visibility), "
+            f"but sees {workspace_ids}"
         )
 
 

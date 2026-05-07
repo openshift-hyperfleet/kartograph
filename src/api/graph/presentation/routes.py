@@ -5,14 +5,18 @@ Provides REST API for manual testing and future external integrations.
 
 from __future__ import annotations
 
+import gzip
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi.responses import Response
 from starlette.concurrency import run_in_threadpool
 
 from iam.application.value_objects import CurrentUser
 from iam.dependencies.user import get_current_user
 from infrastructure.authorization_dependencies import get_spicedb_client
+from infrastructure.database.connection_pool import ConnectionPool
+from infrastructure.dependencies import get_age_connection_pool
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
     Permission,
@@ -32,12 +36,14 @@ from graph.dependencies import (
     get_graph_secure_enclave_service,
     get_graph_service_probe,
     get_schema_service,
+    get_tenant_graph_name,
 )
 from graph.domain.value_objects import (
     MutationResult,
     SchemaLabelsResponse,
     TypeDefinition,
 )
+from graph.infrastructure.bulk_data_reader import fetch_bulk_graph_data
 
 router = APIRouter(
     prefix="/graph",
@@ -308,3 +314,108 @@ async def get_edge_schema_endpoint(
         )
 
     return schema
+
+
+@router.get("/visualizer/data")
+async def get_visualizer_data(
+    request: Request,
+    pool: Annotated[ConnectionPool, Depends(get_age_connection_pool)],
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+    knowledge_graph_id: Annotated[str | None, Query()] = None,
+) -> Response:
+    """Fetch all nodes and edges for the tenant graph (bulk read for visualization).
+
+    Applies Secure Enclave redaction: entities belonging to KnowledgeGraphs
+    the caller does not have VIEW permission on are redacted to preserve
+    graph topology while hiding properties. Redacted nodes carry only their
+    ``id`` and ``type`` set to ``"_redacted"``; redacted edges carry ``id``,
+    ``source``, ``target``, and ``type`` set to ``"_redacted"``.
+
+    Response is gzip-compressed when the client accepts it.
+
+    Query parameters:
+        knowledge_graph_id: Optional filter to a single KnowledgeGraph.
+    """
+    import json as json_mod
+
+    graph_name = get_tenant_graph_name(current_user)
+    graph_data = await run_in_threadpool(fetch_bulk_graph_data, pool, graph_name)
+
+    subject = format_subject(ResourceType.USER, current_user.user_id.value)
+    kg_cache: dict[str, bool] = {}
+
+    async def has_view(kg_id: str) -> bool:
+        if kg_id in kg_cache:
+            return kg_cache[kg_id]
+        try:
+            resource = format_resource(ResourceType.KNOWLEDGE_GRAPH, kg_id)
+            granted = await authz.check_permission(resource, Permission.VIEW, subject)
+        except Exception:
+            granted = False
+        kg_cache[kg_id] = granted
+        return granted
+
+    def get_kg_id(entity: dict[str, Any]) -> str | None:
+        val = entity.get("knowledge_graph_id")
+        return val if isinstance(val, str) and val else None
+
+    result_nodes = []
+    for node in graph_data.get("nodes", []):
+        kg = get_kg_id(node)
+        if knowledge_graph_id and (kg is None or kg != knowledge_graph_id):
+            continue
+        if kg is not None and await has_view(kg):
+            result_nodes.append(node)
+        else:
+            result_nodes.append(
+                {
+                    "id": node["id"],
+                    "domainId": node.get("domainId", ""),
+                    "type": node.get("type", "unknown"),
+                    "label": "",
+                    "_redacted": True,
+                }
+            )
+
+    result_edges = []
+    for edge in graph_data.get("edges", []):
+        kg = get_kg_id(edge)
+        if knowledge_graph_id and (kg is None or kg != knowledge_graph_id):
+            continue
+        if kg is not None and await has_view(kg):
+            result_edges.append(edge)
+        else:
+            result_edges.append(
+                {
+                    "id": edge["id"],
+                    "domainId": edge.get("domainId", ""),
+                    "source": edge["source"],
+                    "target": edge["target"],
+                    "type": edge.get("type", "unknown"),
+                    "_redacted": True,
+                }
+            )
+
+    result = {"nodes": result_nodes, "edges": result_edges}
+    json_bytes = json_mod.dumps(result).encode("utf-8")
+
+    accept_encoding = request.headers.get("accept-encoding", "")
+    if "gzip" in accept_encoding:
+        compressed = gzip.compress(json_bytes, compresslevel=6)
+        return Response(
+            content=compressed,
+            media_type="application/json",
+            headers={
+                "Content-Encoding": "gzip",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+            },
+        )
+
+    return Response(
+        content=json_bytes,
+        media_type="application/json",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+    )

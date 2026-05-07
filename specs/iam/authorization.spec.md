@@ -33,9 +33,15 @@ The system SHALL enforce the following permission model for workspaces.
 - GIVEN a user with the `member` role on a workspace
 - THEN the user has `view` permission only
 
-#### Scenario: Tenant member visibility
-- GIVEN a user who is a member (or admin) of a tenant
+#### Scenario: Tenant admin visibility
+- GIVEN a user with the `admin` relation on a tenant
 - THEN the user has `view` permission on all workspaces in that tenant
+
+#### Scenario: Tenant member workspace isolation
+- GIVEN a user with the `member` relation on a tenant (but NOT `admin`)
+- AND the user has no direct or group-inherited role on a workspace
+- THEN the user does NOT have `view` permission on that workspace
+- AND entities belonging to knowledge graphs in that workspace are redacted via Secure Enclave
 
 ### Requirement: Root Workspace Create-Child Access
 The system SHALL grant all tenant members the ability to create child workspaces under the root workspace.
@@ -161,6 +167,11 @@ The system SHALL enforce the following permission model for groups.
 - GIVEN a user with the `member` role on a group
 - THEN the user has `view` permission only
 
-#### Scenario: Tenant member visibility
-- GIVEN a user who is a member of the tenant
+#### Scenario: Tenant admin group visibility
+- GIVEN a user with the `admin` relation on a tenant
 - THEN the user has `view` permission on all groups in that tenant
+
+#### Scenario: Tenant member group isolation
+- GIVEN a user with the `member` relation on a tenant (but NOT `admin`)
+- AND the user has no direct role on a group
+- THEN the user does NOT have `view` permission on that group

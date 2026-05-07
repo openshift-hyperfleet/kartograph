@@ -396,7 +396,7 @@ class TestListWorkspaceMembers:
         )
 
     @pytest.mark.asyncio
-    async def test_tenant_member_can_list_workspace_members_via_tenant_view(
+    async def test_tenant_member_cannot_list_workspace_members_without_membership(
         self,
         async_client: AsyncClient,
         tenant_auth_headers: dict,
@@ -406,11 +406,11 @@ class TestListWorkspaceMembers:
         bob_user_id: str,
         clean_iam_data,
     ):
-        """Tenant member can list workspace members via tenant->view relation.
+        """Tenant member cannot list workspace members without explicit membership (default-deny).
 
-        Per the SpiceDB schema: workspace.view = admin + editor + member + tenant->view
-        Bob is a tenant member (not explicitly a workspace member), so he has
-        VIEW permission on all workspaces in the tenant via the tenant->view path.
+        Per the SpiceDB schema (default-deny): workspace.view = admin + editor + member + tenant->administrate
+        Bob is a regular tenant member (not admin, not workspace member), so he
+        does NOT have VIEW permission on workspaces via tenant->view anymore.
         """
         ws_id = await create_child_workspace(
             async_client,
@@ -420,14 +420,15 @@ class TestListWorkspaceMembers:
             name="tenant_view_list_ws",
         )
 
-        # Bob is a tenant member and has VIEW via tenant->view relation.
-        # Per the SpiceDB schema: workspace.view = admin + editor + member + tenant->view
+        # Bob is a tenant member but NOT a workspace member.
+        # Per default-deny schema, workspace.view requires tenant->administrate,
+        # not tenant->view. Bob should be denied.
         list_resp = await async_client.get(
             f"/iam/workspaces/{ws_id}/members",
             headers=bob_tenant_auth_headers,
         )
-        assert list_resp.status_code == 200, (
-            f"Tenant member should be able to list workspace members via tenant->view, "
+        assert list_resp.status_code == 403, (
+            f"Tenant member without workspace membership should be denied (default-deny), "
             f"got {list_resp.status_code}: {list_resp.text}"
         )
 

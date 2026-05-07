@@ -143,13 +143,6 @@ class TestPublicEndpointsAccessible:
 
         assert response.status_code == 200
 
-    @pytest.mark.asyncio
-    async def test_util_graph_viewer_accessible(self, async_client):
-        """GET /util/graph-viewer should be accessible without authentication (dev utility)."""
-        response = await async_client.get("/util/graph-viewer")
-
-        assert response.status_code == 200
-
 
 class TestInvalidTokenReturns401:
     """Verify invalid tokens return 401 with proper headers."""

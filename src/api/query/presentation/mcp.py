@@ -278,10 +278,10 @@ async def query_graph(
             Default is 30 seconds. Maximum is 60 seconds.
         max_rows: Maximum number of rows to return. Default is 1000.
             Maximum is 10000.
-        knowledge_graph_id: Optional KnowledgeGraph ID to scope the results.
-            When provided, only entities belonging to that KnowledgeGraph
-            are returned. When omitted, results span all KnowledgeGraphs
-            in the tenant.
+        knowledge_graph_id: Deprecated — no longer used for server-side filtering.
+            KG scoping should be done in the Cypher query itself using
+            WHERE n.knowledge_graph_id = '...'. Secure Enclave redaction
+            handles authorization regardless.
 
     Returns:
         A dictionary containing:
@@ -326,12 +326,9 @@ async def query_graph(
     if isinstance(result, QueryError):
         return _build_error_response(result)
 
-    # Filter to the requested KnowledgeGraph (when provided)
-    rows = _filter_by_knowledge_graph(result.rows, knowledge_graph_id)
-
     # Apply secure enclave: redact entities the caller is not authorized to see
     secure_enclave = get_mcp_secure_enclave()
-    rows = await secure_enclave.apply_redaction(rows)
+    rows = await secure_enclave.apply_redaction(result.rows)
 
     # Filter internal properties before returning to agent
     filtered_rows = _filter_internal_properties(rows)

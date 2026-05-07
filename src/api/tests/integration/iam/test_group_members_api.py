@@ -262,7 +262,7 @@ class TestListGroupMembers:
         )
 
     @pytest.mark.asyncio
-    async def test_tenant_member_can_list_group_members(
+    async def test_tenant_member_cannot_list_group_members_without_membership(
         self,
         async_client: AsyncClient,
         tenant_auth_headers: dict,
@@ -272,10 +272,11 @@ class TestListGroupMembers:
         bob_user_id: str,
         clean_iam_data,
     ):
-        """Tenant member (not group member) can list group members via VIEW.
+        """Tenant member (not group member) cannot list group members (default-deny).
 
-        Per the SpiceDB schema: group.view = admin + member_relation + tenant->view
-        So tenant members should be able to view group members.
+        Per the SpiceDB schema (default-deny): group.view = admin + member_relation + tenant->administrate
+        Regular tenant members no longer inherit VIEW via tenant->view.
+        Bob is a tenant member but NOT a group member, so he should be denied.
         """
         group_id = await create_group(
             async_client,
@@ -286,13 +287,13 @@ class TestListGroupMembers:
         )
 
         # Bob is tenant member but NOT group member
-        # Per schema, bob should have VIEW via tenant->view
+        # Per default-deny schema, bob does NOT have VIEW (requires tenant->administrate)
         list_resp = await async_client.get(
             f"/iam/groups/{group_id}/members",
             headers=bob_tenant_auth_headers,
         )
-        assert list_resp.status_code == 200, (
-            f"Tenant member should be able to list group members via tenant->view, "
+        assert list_resp.status_code == 403, (
+            f"Tenant member without group membership should be denied (default-deny), "
             f"got {list_resp.status_code}: {list_resp.text}"
         )
 

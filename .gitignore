@@ -11,6 +11,7 @@ agent-notes/
 agent-memory/
 ess/
 .hyperloop/state/
+.hyperloop/intake/
 # ignore ai-generated scratchpad
 src/api/docs
 

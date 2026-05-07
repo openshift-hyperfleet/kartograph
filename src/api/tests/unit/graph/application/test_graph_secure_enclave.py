@@ -265,8 +265,9 @@ class TestUnauthorizedNodeReturnsIdOnly:
         redacted = results[0]
         # RedactedNodeRecord should have no properties field at all
         assert not hasattr(redacted, "properties") or not redacted.properties  # type: ignore[union-attr]
-        # Also should not expose label
-        assert not hasattr(redacted, "label") or not redacted.label  # type: ignore[union-attr]
+        # Label (type) IS preserved for topology context
+        assert hasattr(redacted, "label")
+        assert redacted.label == unauthorized_node.label  # type: ignore[union-attr]
 
     @pytest.mark.asyncio
     async def test_unauthorized_node_not_removed_from_result_set(

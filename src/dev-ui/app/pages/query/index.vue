@@ -69,8 +69,8 @@ const schemaLoading = ref(false)
 
 // Knowledge graph context selector
 // When a KG ID is selected, queries are scoped to that graph.
-// An empty string means "all knowledge graphs accessible in this tenant".
-const selectedKgId = ref('')
+// '__all__' is the sentinel for "all knowledge graphs accessible in this tenant".
+const selectedKgId = ref('__all__')
 
 const knowledgeGraphs = ref<Array<{ id: string; name: string }>>([])
 
@@ -88,7 +88,7 @@ async function loadKnowledgeGraphs() {
 }
 
 const kgScopeLabel = computed(() => {
-  if (!selectedKgId.value) return 'All knowledge graphs'
+  if (!selectedKgId.value || selectedKgId.value === '__all__') return 'All knowledge graphs'
   return knowledgeGraphs.value.find((kg) => kg.id === selectedKgId.value)?.name ?? 'Unknown graph'
 })
 
@@ -99,6 +99,16 @@ const kgScopeLabel = computed(() => {
 // state if they are ever placed in a shared composable (e.g. useQueryScope)
 // so that selecting a KG in one view automatically scopes the other.
 // Do NOT implement until that cross-panel coordination story is fully spec'd.
+
+// When a specific KG is selected, pre-fill the editor with a scoped query template
+watch(selectedKgId, (newId, oldId) => {
+  if (!newId || newId === '__all__' || newId === oldId) return
+  const kg = knowledgeGraphs.value.find(k => k.id === newId)
+  const name = kg?.name ?? newId
+  const template = `MATCH (n)\nWHERE n.knowledge_graph_id = '${newId}'\nRETURN n LIMIT 25`
+  query.value = template
+  toast.info(`Scoped to ${name}`, { description: 'Query template updated with KG filter' })
+})
 
 // History
 const HISTORY_KEY = 'kartograph:query-history'
@@ -194,7 +204,6 @@ async function executeQuery() {
       cypherQuery,
       Number(timeout.value),
       Number(maxRows.value),
-      selectedKgId.value || undefined,
     )
     executionTime.value = Math.round(performance.now() - start)
     result.value = res
@@ -487,7 +496,7 @@ onBeforeUnmount(() => {
               <SelectValue :placeholder="kgScopeLabel" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All knowledge graphs</SelectItem>
+              <SelectItem value="__all__">All knowledge graphs</SelectItem>
               <SelectItem
                 v-for="kg in knowledgeGraphs"
                 :key="kg.id"
@@ -497,7 +506,7 @@ onBeforeUnmount(() => {
               </SelectItem>
             </SelectContent>
           </Select>
-          <Badge v-if="selectedKgId" variant="secondary" class="shrink-0 text-[10px]">Scoped</Badge>
+          <Badge v-if="selectedKgId && selectedKgId !== '__all__'" variant="secondary" class="shrink-0 text-[10px]">Scoped</Badge>
           <Badge v-else variant="outline" class="shrink-0 text-[10px]">Unscoped</Badge>
         </div>
 

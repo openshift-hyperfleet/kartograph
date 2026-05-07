@@ -56,6 +56,7 @@ def mock_session():
     """
     session = MagicMock()
     session.commit = AsyncMock()
+    session.rollback = AsyncMock()
     return session
 
 

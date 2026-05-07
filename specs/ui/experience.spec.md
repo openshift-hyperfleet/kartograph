@@ -26,7 +26,7 @@ The system SHALL organize navigation around user goals, not internal architectur
 #### Scenario: Primary navigation
 - GIVEN an authenticated user
 - THEN the sidebar presents navigation grouped as:
-  - **Explore** — Query Console, Schema Browser, Graph Explorer, Mutations Console
+  - **Explore** — Query Console, Schema Browser, Graph Explorer, Graph Visualizer, Mutations Console
   - **Data** — Knowledge Graphs, Data Sources (with sync status)
   - **Connect** — API Keys, MCP Integration
   - **Settings** — Workspaces, Groups, Tenants
@@ -217,6 +217,76 @@ The system SHALL provide an interactive node browser with neighbor traversal.
 - WHEN the user expands its neighbors
 - THEN connected nodes and edges are shown with labels and direction
 - AND the user can drill into neighbors, building an exploration trail
+
+### Requirement: Graph Visualizer
+The system SHALL provide a full-screen, force-directed graph visualization using Cosmograph.
+
+The reference implementation is `src/api/util/dev_routes.py` (`_VIEWER_TEMPLATE` and supporting functions). The dev-ui page must preserve the exact visual behavior and interaction model of that implementation — it is being promoted from a dev utility, not redesigned.
+
+#### Scenario: Graph rendering
+- GIVEN the graph visualizer
+- WHEN the user opens the page
+- THEN a Cosmograph instance fills the entire content area with a dark background (`#0a0a0a`)
+- AND nodes are colored by type (Cosmograph's `pointColorBy: 'nodeType'`) and sized by degree (`pointSizeBy: 'degree'`, range `[1, 100]`)
+- AND edges are rendered as thin gray lines (`linkWidth: 0.5`, `linkColor: '#555555'`)
+- AND the force simulation uses `gravity: 0.1`, `repulsion: 1.0`, `linkSpring: 0.5`, `friction: 0.9`
+- AND the Cosmograph npm package (`@cosmograph/cosmograph`) is used — not loaded from CDN
+
+#### Scenario: Knowledge graph selection
+- GIVEN the graph visualizer
+- THEN a floating control panel is overlaid in the top-left corner (semi-transparent dark background, `rgba(20, 20, 20, 0.95)`)
+- AND the panel contains a knowledge graph selector listing all graphs the user has access to within the current tenant
+- AND switching knowledge graphs destroys the current Cosmograph instance, re-fetches data, and re-initializes
+
+#### Scenario: Loading state
+- GIVEN a graph data fetch in progress
+- THEN a centered loading indicator shows the current phase ("Fetching graph data...", "Parsing data...", "Preparing visualization...")
+- AND a progress bar shows bytes received (with percentage if content-length is known)
+- AND the data is streamed via `response.body.getReader()` for progressive feedback
+
+#### Scenario: Node inspection
+- GIVEN a rendered graph
+- WHEN the user hovers over a node (`onPointMouseOver`)
+- THEN a floating metadata panel appears in the top-right corner showing all properties as a key-value table
+- AND the panel header shows `{type}: {label}`
+- AND hovering away hides the panel unless it is pinned
+- WHEN the user clicks a node (`onPointClick`)
+- THEN the metadata panel is pinned and remains visible until the close button is clicked or another node is clicked
+- AND the hovered node shows a white ring (`hoveredPointRingColor: '#ffffff'`), focused nodes show cyan (`focusedPointRingColor: '#4fc3f7'`)
+
+#### Scenario: Edge inspection
+- GIVEN a rendered graph
+- WHEN the user hovers over an edge (`onLinkMouseOver`)
+- THEN a tooltip follows the cursor showing the relationship type in cyan (`#4fc3f7`) and the source/target node labels below in gray
+- AND the hovered edge highlights in cyan with increased width (`hoveredLinkColor: '#4fc3f7'`, `hoveredLinkWidthIncrease: 3`)
+
+#### Scenario: Search and highlight
+- GIVEN a rendered graph
+- WHEN the user types in the search input within the control panel
+- THEN nodes matching by label, type, domainId, name, or slug are selected/highlighted via `cosmograph.selectPoints()`
+- AND a status line shows the match count (e.g., "3 matches")
+- AND if a single match is found, the view zooms to that node via `cosmograph.zoomToPoint()`
+- AND clearing the search input deselects all points
+
+#### Scenario: Layout controls
+- GIVEN a rendered graph
+- THEN the control panel contains a "Pause" / "Play" toggle that calls `cosmograph.pause()` / `cosmograph.unpause()`
+- AND a "Fit to Screen" button that pauses the simulation and calls `cosmograph.fitView(500)` after a short delay
+- AND a status line shows node count, edge count, and simulation state ("Running simulation..." / "Paused" / "Layout complete")
+
+#### Scenario: Empty graph
+- GIVEN a knowledge graph with no nodes
+- WHEN the visualizer loads
+- THEN the loading area displays "No nodes in graph. Add some data first." and the status shows "Empty graph"
+
+#### Scenario: Data endpoint
+- GIVEN a knowledge graph with data
+- WHEN the visualizer requests graph data
+- THEN the API returns all nodes and edges via a dedicated authenticated bulk data endpoint
+- AND each node includes: `id` (AGE internal), `domainId` (application-level), `label` (display name derived from name → slug → domainId → type label), `type` (AGE vertex label), and all domain properties
+- AND each edge includes: `id`, `domainId`, `source` (AGE start_id), `target` (AGE end_id), `type` (AGE edge label), and all domain properties
+- AND the response is gzip-compressed when the client accepts it (level 6)
+- AND the endpoint queries AGE label tables directly via SQL UNION ALL (not Cypher) for performance with large graphs
 
 ### Requirement: Mutations Console
 The system SHALL provide a JSONL editor for authoring and applying graph mutations directly.

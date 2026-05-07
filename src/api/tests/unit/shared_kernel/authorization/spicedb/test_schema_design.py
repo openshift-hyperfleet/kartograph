@@ -80,25 +80,36 @@ class TestWorkspaceViewPermission:
 
     Workspace VIEW should be granted to:
     - Direct workspace members (admin, editor, member roles)
-    - All tenant members (via tenant->view) for organizational visibility
+    - Tenant admins (via tenant->administrate) for administrative visibility
 
-    Uses tenant->view (permission composition) instead of tenant->member
-    (relation) following SpiceDB best practices. Since tenant.view = admin +
-    member, the end result is the same, but the schema is more maintainable.
+    Default-deny: tenant members without a workspace role cannot view
+    the workspace. Only tenant admins have implicit visibility.
     """
 
-    def test_workspace_view_includes_tenant_member(self, schema: str):
-        """Verify workspace view permission includes tenant->view.
+    def test_workspace_view_includes_tenant_admin(self, schema: str):
+        """Verify workspace view permission includes tenant->administrate.
 
-        Tenant members should have VIEW access to all workspaces in their tenant
-        for organizational visibility, without requiring per-workspace grants.
-        Uses tenant->view (permission composition) instead of tenant->member
-        (relation) following SpiceDB best practices.
+        Tenant admins should have VIEW access to all workspaces for
+        administrative visibility. Regular tenant members require explicit
+        workspace membership (default-deny).
         """
         view_expr = _extract_permission(schema, "workspace", "view")
         assert view_expr is not None, "workspace.view permission not found in schema"
-        assert "tenant->view" in view_expr, (
-            f"workspace.view should include 'tenant->view' for organizational visibility. "
+        assert "tenant->administrate" in view_expr, (
+            f"workspace.view should include 'tenant->administrate' for admin visibility. "
+            f"Current expression: {view_expr}"
+        )
+
+    def test_workspace_view_excludes_tenant_member(self, schema: str):
+        """Verify workspace view does NOT include tenant->view.
+
+        Default-deny: tenant membership alone should NOT grant workspace
+        visibility. Users must have explicit workspace membership.
+        """
+        view_expr = _extract_permission(schema, "workspace", "view")
+        assert view_expr is not None, "workspace.view permission not found in schema"
+        assert "tenant->view" not in view_expr, (
+            f"workspace.view should NOT include 'tenant->view' (default-deny). "
             f"Current expression: {view_expr}"
         )
 
@@ -113,17 +124,16 @@ class TestWorkspaceViewPermission:
                 f"Current expression: {view_expr}"
             )
 
-    def test_group_view_includes_tenant_member(self, schema: str):
-        """Verify group view permission includes tenant->view (existing pattern).
+    def test_group_view_includes_tenant_admin(self, schema: str):
+        """Verify group view permission includes tenant->administrate.
 
-        This test documents the existing pattern that workspace.view follows.
-        Uses tenant->view (permission composition) instead of tenant->member
-        (relation) following SpiceDB best practices.
+        Tenant admins can discover all groups. Regular members require
+        direct group membership (default-deny).
         """
         view_expr = _extract_permission(schema, "group", "view")
         assert view_expr is not None, "group.view permission not found in schema"
-        assert "tenant->view" in view_expr, (
-            f"group.view should include 'tenant->view'. Current expression: {view_expr}"
+        assert "tenant->administrate" in view_expr, (
+            f"group.view should include 'tenant->administrate'. Current expression: {view_expr}"
         )
 
     def test_workspace_edit_excludes_tenant_member(self, schema: str):

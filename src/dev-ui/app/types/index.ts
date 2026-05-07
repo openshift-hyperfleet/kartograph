@@ -150,3 +150,22 @@ export interface GraphData {
   nodes: GraphNode[]
   edges: GraphEdge[]
 }
+
+// ── Visualizer Types (Cosmograph bulk data) ────────────────────────────────
+
+export interface VisualizerNode {
+  id: string
+  domainId: string
+  label: string
+  type: string
+  [key: string]: unknown
+}
+
+export interface VisualizerEdge {
+  id: string
+  domainId: string
+  source: string
+  target: string
+  type: string
+  [key: string]: unknown
+}

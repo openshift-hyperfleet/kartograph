@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.35.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.34.1...v3.35.0) (2026-05-07)
+
+
+### Features
+
+* Graph Visualizer, default-deny authz, Secure Enclave improvements ([#632](https://github.com/openshift-hyperfleet/kartograph/issues/632)) ([8baad9f](https://github.com/openshift-hyperfleet/kartograph/commit/8baad9f55de809184dc20fd94a587362bfc9e8d4))
+
 ## [3.34.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.34.0...v3.34.1) (2026-05-04)
 
 

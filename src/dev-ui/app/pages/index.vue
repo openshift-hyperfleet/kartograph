@@ -232,13 +232,17 @@ async function fetchStats() {
   statsLoading.value = true
 
   // Fetch all in parallel, each independently catching errors
-  const [nodeResult, edgeResult, keysResult, wsResult] = await Promise.allSettled([
+  const [kgResult, nodeResult, edgeResult, keysResult, wsResult] = await Promise.allSettled([
+    apiFetch<{ knowledge_graphs: { id: string }[] }>('/management/knowledge-graphs'),
     listNodeLabels(),
     listEdgeLabels(),
     listApiKeys(),
     listWorkspaces(),
   ])
 
+  kgCount.value = kgResult.status === 'fulfilled'
+    ? kgResult.value.knowledge_graphs?.length ?? 0
+    : 0
   nodeTypeCount.value = nodeResult.status === 'fulfilled'
     ? (nodeResult.value as SchemaLabelsResponse).count
     : null

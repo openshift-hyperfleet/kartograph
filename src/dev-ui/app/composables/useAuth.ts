@@ -37,6 +37,7 @@ export function useAuth() {
       authority,
       client_id: kc.clientId,
       redirect_uri: `${window.location.origin}/auth/callback`,
+      silent_redirect_uri: `${window.location.origin}/auth/silent-renew`,
       post_logout_redirect_uri: window.location.origin,
       response_type: 'code',
       scope: 'openid profile email',
@@ -70,6 +71,12 @@ export function useAuth() {
 
     _manager.events.addSilentRenewError((err) => {
       console.error('[auth] silent renew failed', err)
+      user.value = null
+    })
+
+    _manager.events.addAccessTokenExpired(() => {
+      console.warn('[auth] access token expired, clearing session')
+      user.value = null
     })
 
     return _manager

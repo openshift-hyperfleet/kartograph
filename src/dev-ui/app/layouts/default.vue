@@ -57,10 +57,17 @@ import {
 import { useSidebar } from '@/composables/useSidebar'
 import { useColorMode } from '@/composables/useColorMode'
 
+const config = useRuntimeConfig()
 const route = useRoute()
 const router = useRouter()
 const { isCollapsed, isMobileOpen, toggleCollapsed, closeMobile } = useSidebar()
 const { isDark, toggle: toggleColorMode } = useColorMode()
+
+const appVersion = computed(() => {
+  const v = config.public.appVersion as string
+  if (!v || v === 'dev') return 'dev'
+  return v.match(/^\d/) ? `v${v}` : v
+})
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -878,6 +885,10 @@ watch(() => route.path, () => { closeMobile() })
                   <LogOut class="mr-2 size-4" />
                   Log out
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <div class="px-2 py-1.5 text-[10px] text-muted-foreground/60 select-all">
+                  {{ appVersion }}
+                </div>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

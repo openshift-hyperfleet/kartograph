@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from iam.domain.aggregates import Tenant
 from iam.domain.value_objects import TenantRole
@@ -49,17 +49,28 @@ class TenantResponse(BaseModel):
 
 
 class AddTenantMemberRequest(BaseModel):
-    """Request model for adding a member to a tenant."""
+    """Request model for adding a member to a tenant.
 
-    user_id: str = Field(..., description="User ID to add as member", min_length=1)
+    Accepts either ``user_id`` (UUID) or ``email`` — exactly one must be provided.
+    When ``email`` is given, the route handler resolves it to a user ID.
+    """
+
+    user_id: str | None = Field(
+        None, description="User ID to add as member", min_length=1
+    )
+    email: str | None = Field(None, description="Email address of the user to add")
     role: TenantRoleEnum = Field(..., description="Role to assign (admin or member)")
 
-    def to_domain_role(self) -> TenantRole:
-        """Convert API role to domain TenantRole.
+    @model_validator(mode="after")
+    def _exactly_one_identifier(self) -> "AddTenantMemberRequest":
+        if self.user_id and self.email:
+            raise ValueError("Provide either user_id or email, not both")
+        if not self.user_id and not self.email:
+            raise ValueError("Either user_id or email is required")
+        return self
 
-        Returns:
-            TenantRole domain value object
-        """
+    def to_domain_role(self) -> TenantRole:
+        """Convert API role to domain TenantRole."""
         return TenantRole(self.role.value)
 
 

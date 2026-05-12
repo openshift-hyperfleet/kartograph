@@ -130,6 +130,10 @@ class IUserRepository(Protocol):
         """
         ...
 
+    async def get_by_email(self, email: str) -> User | None:
+        """Retrieve a user by their email address."""
+        ...
+
     async def get_by_ids(self, user_ids: list[UserId]) -> list[User]:
         """Retrieve multiple users by their IDs.
 

@@ -137,6 +137,23 @@ class UserRepository(IUserRepository):
             email=model.email,
         )
 
+    async def get_by_email(self, email: str) -> User | None:
+        """Retrieve a user by their email address."""
+        stmt = select(UserModel).where(UserModel.email == email)
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+
+        if model is None:
+            return None
+
+        self._probe.user_retrieved(model.id)
+        return User(
+            id=UserId(value=model.id),
+            username=model.username,
+            name=model.name,
+            email=model.email,
+        )
+
     async def get_by_ids(self, user_ids: list[UserId]) -> list[User]:
         """Retrieve multiple users by their IDs.
 

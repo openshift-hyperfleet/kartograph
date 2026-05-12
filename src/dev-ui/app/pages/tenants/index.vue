@@ -225,8 +225,10 @@ async function handleAddMember() {
   if (!selectedTenant.value || !newMemberId.value.trim()) return
   addingMember.value = true
   try {
+    const identifier = newMemberId.value.trim()
+    const isEmail = identifier.includes('@')
     await addTenantMember(selectedTenant.value.id, {
-      user_id: newMemberId.value.trim(),
+      ...(isEmail ? { email: identifier } : { user_id: identifier }),
       role: newMemberRole.value,
     })
     toast.success('Member added')

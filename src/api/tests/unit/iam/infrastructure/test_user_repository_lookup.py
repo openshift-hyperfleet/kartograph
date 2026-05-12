@@ -124,3 +124,38 @@ class TestSearch:
         result = await repository.search("zzz_no_match")
 
         assert result == []
+
+
+class TestGetByEmail:
+    """Tests for get_by_email method."""
+
+    @pytest.mark.asyncio
+    async def test_returns_user_when_found(self, repository, mock_session):
+        """Should return user when email matches."""
+        user_id = UserId.generate()
+        model = UserModel(
+            id=user_id.value,
+            username="alice",
+            name="Alice",
+            email="alice@example.com",
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = model
+        mock_session.execute.return_value = mock_result
+
+        result = await repository.get_by_email("alice@example.com")
+
+        assert result is not None
+        assert result.email == "alice@example.com"
+        assert result.username == "alice"
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_not_found(self, repository, mock_session):
+        """Should return None when email doesn't exist."""
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        result = await repository.get_by_email("nobody@example.com")
+
+        assert result is None

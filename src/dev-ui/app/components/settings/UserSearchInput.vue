@@ -39,6 +39,7 @@ const hasSearched = ref(false)
 const selectedUser = ref<UserProfileResponse | null>(null)
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const displayText = computed(() => {
   if (selectedUser.value) {
@@ -98,11 +99,11 @@ function selectUser(user: UserProfileResponse) {
 }
 
 function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Enter' && UUID_RE.test(searchQuery.value.trim())) {
+  const val = searchQuery.value.trim()
+  if (event.key === 'Enter' && (UUID_RE.test(val) || EMAIL_RE.test(val))) {
     event.preventDefault()
-    const uuid = searchQuery.value.trim()
     selectedUser.value = null
-    emit('update:modelValue', uuid)
+    emit('update:modelValue', val)
     open.value = false
     searchQuery.value = ''
     searchResults.value = []

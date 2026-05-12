@@ -51,7 +51,7 @@ export function useIamApi() {
 
   function addTenantMember(
     tenantId: string,
-    data: { user_id: string; role: 'admin' | 'member' },
+    data: { user_id?: string; email?: string; role: 'admin' | 'member' },
   ): Promise<TenantMemberResponse> {
     return apiFetch<TenantMemberResponse>(`/iam/tenants/${tenantId}/members`, {
       method: 'POST',

@@ -4,6 +4,7 @@ import {
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import UserSearchInput from '@/components/settings/UserSearchInput.vue'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -96,11 +97,9 @@ const emit = defineEmits<{
               Add myself
             </button>
           </div>
-          <Input
-            id="tenant-panel-member-id"
+          <UserSearchInput
             :model-value="newMemberId"
-            placeholder="Enter user ID..."
-            @update:model-value="emit('update:newMemberId', $event as string)"
+            @update:model-value="emit('update:newMemberId', $event)"
           />
         </div>
         <div class="space-y-1.5">

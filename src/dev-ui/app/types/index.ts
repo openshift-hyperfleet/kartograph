@@ -67,6 +67,20 @@ export interface APIKeyCreatedResponse extends APIKeyResponse {
   secret: string
 }
 
+// ── User Types ────────────────────────────────────────────────────────────
+
+export interface UserProfileResponse {
+  id: string
+  username: string
+  name: string | null
+  email: string | null
+}
+
+export interface UserListResponse {
+  users: UserProfileResponse[]
+  count: number
+}
+
 // ── Graph Types ────────────────────────────────────────────────────────────
 
 export interface NodeRecord {

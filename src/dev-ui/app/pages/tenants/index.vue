@@ -162,7 +162,12 @@ async function handleCreate() {
     const created = await createTenant({ name: createFormName.value.trim() })
     createFormName.value = ''
     toast.success(`Tenant "${created.name}" created`)
-    await fetchTenants()
+    // Optimistically add the new tenant to the list. Re-fetching from the
+    // API would race with the outbox worker that writes the SpiceDB
+    // relationship — until that completes, lookup_resources won't include
+    // this tenant and the UI would appear to "lose" it until refresh.
+    tenants.value = [...tenants.value, created]
+    syncTenantList(tenants.value)
     // Auto-select the newly created tenant if none is currently selected
     if (!hasTenant.value) {
       switchTenant(created.id, created.name)
@@ -196,8 +201,10 @@ async function handleDelete() {
       closeDetails()
     }
     toast.success(`Tenant "${name}" deleted`)
-    await fetchTenants()
-    // If the deleted tenant was the currently-selected one, fall back
+    // Optimistically remove from the list instead of re-fetching (same
+    // outbox race as create — SpiceDB relationships are async).
+    tenants.value = tenants.value.filter((t) => t.id !== deletedId)
+    syncTenantList(tenants.value)
     if (wasCurrentTenant) {
       handleCurrentTenantDeleted()
     }

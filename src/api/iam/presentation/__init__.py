@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from iam.presentation import api_keys, groups, tenants, workspaces
+from iam.presentation import api_keys, groups, tenants, users, workspaces
 
 # Create main IAM router with common configuration.
 # Auth is enforced per-endpoint (each handler declares its own Depends),
@@ -24,6 +24,7 @@ router = APIRouter(
 router.include_router(groups.router)
 router.include_router(tenants.router)
 router.include_router(api_keys.router)
+router.include_router(users.router)
 router.include_router(workspaces.router)
 
 __all__ = ["router"]

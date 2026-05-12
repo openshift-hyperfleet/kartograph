@@ -4,6 +4,7 @@ import {
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import UserSearchInput from '@/components/settings/UserSearchInput.vue'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -178,10 +179,16 @@ function formatDate(iso: string): string {
               Add myself
             </button>
           </div>
+          <UserSearchInput
+            v-if="newMemberType === 'user'"
+            :model-value="newMemberId"
+            @update:model-value="emit('update:newMemberId', $event)"
+          />
           <Input
+            v-else
             id="ws-panel-member-id"
             :model-value="newMemberId"
-            placeholder="User or group ID..."
+            placeholder="Enter group ID..."
             @update:model-value="emit('update:newMemberId', $event as string)"
           />
         </div>

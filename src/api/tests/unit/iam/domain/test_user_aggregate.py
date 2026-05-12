@@ -35,6 +35,23 @@ class TestUserCreation:
         with pytest.raises(TypeError):
             User(id=UserId.generate())
 
+    def test_creates_with_optional_profile_fields(self):
+        """User can be created with name and email."""
+        user = User(
+            id=UserId.generate(),
+            username="alice",
+            name="Alice Smith",
+            email="alice@example.com",
+        )
+        assert user.name == "Alice Smith"
+        assert user.email == "alice@example.com"
+
+    def test_name_and_email_default_to_none(self):
+        """Name and email should default to None when not provided."""
+        user = User(id=UserId.generate(), username="alice")
+        assert user.name is None
+        assert user.email is None
+
     def test_username_is_immutable(self):
         """Test that username cannot be changed after creation."""
         user = User(

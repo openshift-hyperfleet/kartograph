@@ -58,6 +58,8 @@ class _AuthResult:
     username: str
     api_key_tenant_id: TenantId | None
     is_api_key: bool
+    name: str | None = None
+    email: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +112,8 @@ async def _authenticate(
                 username=username,
                 api_key_tenant_id=None,
                 is_api_key=False,
+                name=claims.name,
+                email=claims.email,
             )
 
         except InvalidTokenError as e:
@@ -163,8 +167,11 @@ async def _ensure_user_exists(
     user_repo: UserRepository,
     session: AsyncSession,
     probe: UserServiceProbe,
+    *,
+    name: str | None = None,
+    email: str | None = None,
 ) -> None:
-    """Ensure user exists in database (find-or-create with SSO username sync).
+    """Ensure user exists in database (find-or-create with SSO profile sync).
 
     This is a lightweight JIT provisioning helper that does not require
     tenant scoping. It mirrors the logic in ``UserService.ensure_user``
@@ -177,13 +184,20 @@ async def _ensure_user_exists(
         user_repo: Repository for user persistence
         session: Database session for transaction management
         probe: Domain probe for observability
+        name: The user's display name (from SSO)
+        email: The user's email address (from SSO)
     """
     try:
         async with session.begin():
             existing = await user_repo.get_by_id(user_id)
             if existing:
-                if existing.username != username:
-                    user = User(id=user_id, username=username)
+                needs_update = (
+                    existing.username != username
+                    or existing.name != name
+                    or existing.email != email
+                )
+                if needs_update:
+                    user = User(id=user_id, username=username, name=name, email=email)
                     await user_repo.save(user)
                     probe.user_ensured(
                         user_id=user_id.value,
@@ -200,7 +214,7 @@ async def _ensure_user_exists(
                     )
                 return
 
-            user = User(id=user_id, username=username)
+            user = User(id=user_id, username=username, name=name, email=email)
             await user_repo.save(user)
             probe.user_ensured(
                 user_id=user_id.value,
@@ -409,6 +423,8 @@ async def get_authenticated_user(
             user_repo,
             session,
             probe,
+            name=auth_result.name,
+            email=auth_result.email,
         )
 
     return AuthenticatedUser(
@@ -476,6 +492,7 @@ def get_user_service(
 
 async def get_current_user(
     current_user: Annotated[CurrentUser, Depends(get_current_user_no_jit)],
+    auth_result: Annotated[_AuthResult, Depends(_authenticate)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     session: Annotated[AsyncSession, Depends(get_write_session)],
     probe: Annotated[UserServiceProbe, Depends(get_user_service_probe)],
@@ -491,6 +508,7 @@ async def get_current_user(
 
     Args:
         current_user: Authenticated user with tenant context
+        auth_result: Cached authentication result from ``_authenticate``
         user_repo: Repository for JIT user provisioning
         session: Database session for JIT user provisioning
         probe: Domain probe for JIT provisioning observability
@@ -506,6 +524,8 @@ async def get_current_user(
             user_repo,
             session,
             probe,
+            name=auth_result.name,
+            email=auth_result.email,
         )
 
     return current_user

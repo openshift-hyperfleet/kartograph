@@ -11,6 +11,7 @@ import type {
   GroupRole,
   APIKeyResponse,
   APIKeyCreatedResponse,
+  UserListResponse,
 } from '~/types'
 
 /**
@@ -224,6 +225,20 @@ export function useIamApi() {
     })
   }
 
+  // ── Users ──────────────────────────────────────────────────────────────
+
+  function lookupUsers(ids: string[]): Promise<UserListResponse> {
+    return apiFetch<UserListResponse>('/iam/users', {
+      query: { ids: ids.join(',') },
+    })
+  }
+
+  function searchUsers(query: string): Promise<UserListResponse> {
+    return apiFetch<UserListResponse>('/iam/users', {
+      query: { search: query },
+    })
+  }
+
   return {
     // Tenants
     listTenants,
@@ -257,5 +272,8 @@ export function useIamApi() {
     createApiKey,
     listApiKeys,
     revokeApiKey,
+    // Users
+    lookupUsers,
+    searchUsers,
   }
 }

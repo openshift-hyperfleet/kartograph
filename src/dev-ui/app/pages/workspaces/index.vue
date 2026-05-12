@@ -276,8 +276,10 @@ async function handleAddMember() {
   if (!selectedWorkspace.value || !newMemberId.value.trim()) return
   addingMember.value = true
   try {
+    const identifier = newMemberId.value.trim()
+    const isEmail = identifier.includes('@') && newMemberType.value === 'user'
     await addWorkspaceMember(selectedWorkspace.value.id, {
-      member_id: newMemberId.value.trim(),
+      ...(isEmail ? { email: identifier } : { member_id: identifier }),
       member_type: newMemberType.value,
       role: newMemberRole.value,
     })

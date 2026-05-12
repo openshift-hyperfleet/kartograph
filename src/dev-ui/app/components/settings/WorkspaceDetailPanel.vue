@@ -169,9 +169,9 @@ function formatDate(iso: string): string {
       <div class="space-y-2 mb-4">
         <div class="space-y-1.5">
           <div class="flex items-center justify-between">
-            <Label for="ws-panel-member-id">Member ID <span class="text-destructive">*</span></Label>
+            <Label for="ws-panel-member-id">{{ newMemberType === 'user' ? 'User ID or Email' : 'Group ID' }} <span class="text-destructive">*</span></Label>
             <button
-              v-if="currentUserId && newMemberId !== currentUserId"
+              v-if="newMemberType === 'user' && currentUserId && newMemberId !== currentUserId"
               type="button"
               class="text-xs text-primary hover:underline"
               @click="emit('update:newMemberId', currentUserId)"
@@ -191,6 +191,7 @@ function formatDate(iso: string): string {
             placeholder="Enter group ID..."
             @update:model-value="emit('update:newMemberId', $event as string)"
           />
+          <p v-if="newMemberType === 'user'" class="text-[11px] text-muted-foreground">Search existing users, or type an email address. Users must have signed in at least once.</p>
         </div>
         <div class="flex gap-2">
           <div class="flex-1 space-y-1.5">

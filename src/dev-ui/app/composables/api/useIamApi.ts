@@ -107,7 +107,7 @@ export function useIamApi() {
 
   function addWorkspaceMember(
     workspaceId: string,
-    data: { member_id: string; member_type: WorkspaceMemberType; role: WorkspaceRole },
+    data: { member_id?: string; email?: string; member_type: WorkspaceMemberType; role: WorkspaceRole },
   ): Promise<WorkspaceMemberResponse> {
     return apiFetch<WorkspaceMemberResponse>(`/iam/workspaces/${workspaceId}/members`, {
       method: 'POST',
@@ -175,7 +175,7 @@ export function useIamApi() {
 
   function addGroupMember(
     groupId: string,
-    data: { user_id: string; role: GroupRole },
+    data: { user_id?: string; email?: string; role: GroupRole },
   ): Promise<GroupMemberResponse> {
     return apiFetch<GroupMemberResponse>(`/iam/groups/${groupId}/members`, {
       method: 'POST',

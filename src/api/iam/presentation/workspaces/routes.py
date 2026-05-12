@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from iam.application.services import WorkspaceService
 from iam.application.value_objects import CurrentUser
-from iam.dependencies.user import get_current_user
+from iam.dependencies.user import get_current_user, get_user_repository
+from iam.infrastructure.user_repository import UserRepository
 from iam.dependencies.workspace import get_workspace_service
 from iam.domain.value_objects import MemberType, WorkspaceId
 from iam.domain.exceptions import CannotRemoveLastAdminError
@@ -313,9 +314,11 @@ async def add_workspace_member(
     request: AddWorkspaceMemberRequest,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[WorkspaceService, Depends(get_workspace_service)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> WorkspaceMemberResponse:
     """Add a member (user or group) to a workspace.
 
+    For user members, accepts either ``member_id`` or ``email``.
     Requires MANAGE permission on the workspace.
     """
     # Validate workspace ID format
@@ -327,17 +330,33 @@ async def add_workspace_member(
             detail="Invalid workspace ID format",
         )
 
+    # Resolve member identity
+    if request.email:
+        user = await user_repo.get_by_email(request.email)
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    f'No user with email "{request.email}" has signed in yet. '
+                    "They must log in at least once before they can be added."
+                ),
+            )
+        resolved_member_id = user.id.value
+    else:
+        assert request.member_id is not None
+        resolved_member_id = request.member_id
+
     try:
         await service.add_member(
             workspace_id=workspace_id_obj,
             acting_user_id=current_user.user_id,
-            member_id=request.member_id,
+            member_id=resolved_member_id,
             member_type=request.to_domain_member_type(),
             role=request.to_domain_role(),
         )
 
         return WorkspaceMemberResponse(
-            member_id=request.member_id,
+            member_id=resolved_member_id,
             member_type=request.member_type,
             role=request.role,
         )

@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.36.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.36.0...v3.36.1) (2026-05-13)
+
+
+### Bug Fixes
+
+* **auth:** enable token revocation on signout ([92bf9f7](https://github.com/openshift-hyperfleet/kartograph/commit/92bf9f707bdab914998f5f7c71e311f5e64ff874))
+* **auth:** use refresh tokens instead of iframe for silent renewal ([#637](https://github.com/openshift-hyperfleet/kartograph/issues/637)) ([1d25d43](https://github.com/openshift-hyperfleet/kartograph/commit/1d25d43700bdb695107339e330f419292dfb6172))
+
 ## [3.36.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.35.0...v3.36.0) (2026-05-13)
 
 

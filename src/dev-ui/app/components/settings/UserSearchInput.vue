@@ -119,9 +119,8 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
-// Clear selected user display when modelValue is cleared externally
 watch(() => props.modelValue, (val) => {
-  if (!val) {
+  if (!val || (selectedUser.value && val !== selectedUser.value.id)) {
     selectedUser.value = null
   }
 })

@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.36.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.35.0...v3.36.0) (2026-05-13)
+
+
+### Features
+
+* **iam:** user profiles, identity resolution, and UX improvements ([#634](https://github.com/openshift-hyperfleet/kartograph/issues/634)) ([397838e](https://github.com/openshift-hyperfleet/kartograph/commit/397838e91ac6df98b7aeb3c030b20d8b9fbd563d))
+
 ## [3.35.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.34.1...v3.35.0) (2026-05-07)
 
 

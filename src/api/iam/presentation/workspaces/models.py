@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from iam.application.value_objects import WorkspaceAccessGrant
 from iam.domain.aggregates import Workspace
@@ -133,6 +133,15 @@ class AddWorkspaceMemberRequest(BaseModel):
         examples=["01HN3XQ7K2XYZ123456789ABCD"],
     )
     email: str | None = Field(None, description="Email address of the user to add")
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _normalize_email(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        return v if v else None
+
     member_type: MemberTypeEnum = Field(
         ...,
         description="Type of member being added",

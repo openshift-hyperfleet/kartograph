@@ -66,6 +66,14 @@ class AddGroupMemberRequest(BaseModel):
     email: str | None = Field(None, description="Email address of the user to add")
     role: GroupRoleEnum = Field(..., description="Role to assign")
 
+    @field_validator("email", mode="before")
+    @classmethod
+    def _normalize_email(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        return v if v else None
+
     @model_validator(mode="after")
     def _exactly_one_identifier(self) -> "AddGroupMemberRequest":
         if self.user_id and self.email:

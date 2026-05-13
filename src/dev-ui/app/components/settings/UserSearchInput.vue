@@ -37,6 +37,7 @@ const searchResults = ref<UserProfileResponse[]>([])
 const loading = ref(false)
 const hasSearched = ref(false)
 const selectedUser = ref<UserProfileResponse | null>(null)
+let searchToken = 0
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -63,18 +64,21 @@ async function doSearch(query: string) {
     hasSearched.value = false
     return
   }
+  const token = ++searchToken
   loading.value = true
   try {
     const result = await searchUsers(query)
+    if (token !== searchToken) return
     searchResults.value = result.users
     hasSearched.value = true
   }
   catch {
+    if (token !== searchToken) return
     searchResults.value = []
     hasSearched.value = true
   }
   finally {
-    loading.value = false
+    if (token === searchToken) loading.value = false
   }
 }
 

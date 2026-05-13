@@ -6,7 +6,8 @@ import tailwindcss from '@tailwindcss/vite'
 function readVersion(): string {
   try {
     const raw = readFileSync(resolve(__dirname, 'VERSION'), 'utf-8')
-    return raw.split('#')[0].trim()
+    const version = raw.split('#')[0].trim()
+    return version || process.env.APP_VERSION || 'dev'
   } catch {
     return process.env.APP_VERSION || 'dev'
   }

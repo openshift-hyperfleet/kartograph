@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from iam.domain.aggregates import Tenant
 from iam.domain.value_objects import TenantRole
@@ -60,6 +60,14 @@ class AddTenantMemberRequest(BaseModel):
     )
     email: str | None = Field(None, description="Email address of the user to add")
     role: TenantRoleEnum = Field(..., description="Role to assign (admin or member)")
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _normalize_email(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        return v if v else None
 
     @model_validator(mode="after")
     def _exactly_one_identifier(self) -> "AddTenantMemberRequest":

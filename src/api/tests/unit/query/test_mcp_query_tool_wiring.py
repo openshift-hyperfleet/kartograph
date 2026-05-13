@@ -575,8 +575,8 @@ class TestQueryGraphToolInternalPropertyFilterWiring:
         assert node_props["content_summary"] == "A brief guide."
 
     @pytest.mark.asyncio
-    async def test_filter_applied_after_kg_filter(self) -> None:
-        """Internal property filter MUST be applied after KG filter.
+    async def test_internal_property_filter_applied_to_all_rows(self) -> None:
+        """Internal property filter MUST be applied to all rows.
 
         When knowledge_graph_id is specified, rows are first filtered to that
         KG, then passed through the enclave, then internal properties are
@@ -618,7 +618,6 @@ class TestQueryGraphToolInternalPropertyFilterWiring:
         ):
             result = await query_graph.fn(
                 cypher="MATCH (n:Person) RETURN n",
-                knowledge_graph_id="kg-1",
                 service=fake_service,
             )
 

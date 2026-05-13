@@ -343,8 +343,7 @@ async def add_workspace_member(
             )
         resolved_member_id = user.id.value
     else:
-        assert request.member_id is not None
-        resolved_member_id = request.member_id
+        resolved_member_id = request.member_id  # type: ignore[assignment]
 
     try:
         await service.add_member(

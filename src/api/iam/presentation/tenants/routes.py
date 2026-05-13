@@ -300,9 +300,8 @@ async def add_tenant_member(
         user_id_obj = user.id
     else:
         try:
-            assert request.user_id is not None  # guaranteed by model_validator
-            user_id_obj = UserId.from_string(request.user_id)
-        except ValueError:
+            user_id_obj = UserId.from_string(request.user_id)  # type: ignore[arg-type]
+        except (ValueError, TypeError):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid user ID format",

@@ -11,6 +11,8 @@ import json
 import logging
 from typing import Any
 
+from psycopg2 import sql
+
 from infrastructure.database.connection_pool import ConnectionPool
 
 logger = logging.getLogger(__name__)
@@ -52,26 +54,37 @@ def fetch_bulk_graph_data(pool: ConnectionPool, graph_name: str) -> dict[str, An
                 f"Found {len(vertex_labels)} vertex labels, {len(edge_labels)} edge labels"
             )
 
+            reserved_keys = {"id", "label", "type", "domainId", "source", "target"}
+            graph_ident = sql.Identifier(graph_name)
+
             nodes: list[dict[str, Any]] = []
             if vertex_labels:
                 union_parts = []
                 for label in vertex_labels:
-                    union_parts.append(f'''
-                        SELECT
-                            id::text AS age_id,
-                            '{label}' AS label,
-                            ag_catalog.agtype_out(properties) AS props
-                        FROM "{graph_name}"."{label}"
-                    ''')
+                    union_parts.append(
+                        sql.SQL("""
+                            SELECT
+                                id::text AS age_id,
+                                {label_lit} AS label,
+                                ag_catalog.agtype_out(properties) AS props
+                            FROM {schema}.{table}
+                        """).format(
+                            label_lit=sql.Literal(label),
+                            schema=graph_ident,
+                            table=sql.Identifier(label),
+                        )
+                    )
 
-                cur.execute(" UNION ALL ".join(union_parts))
+                cur.execute(sql.SQL(" UNION ALL ").join(union_parts))
 
                 for row in cur.fetchall():
                     age_id, label, props_str = row
                     try:
                         props = json.loads(props_str) if props_str else {}
                         domain_id = props.get("id", "")
-                        props_copy = {k: v for k, v in props.items() if k != "id"}
+                        props_copy = {
+                            k: v for k, v in props.items() if k not in reserved_keys
+                        }
                         nodes.append(
                             {
                                 "id": age_id,
@@ -93,24 +106,32 @@ def fetch_bulk_graph_data(pool: ConnectionPool, graph_name: str) -> dict[str, An
             if edge_labels:
                 union_parts = []
                 for label in edge_labels:
-                    union_parts.append(f'''
-                        SELECT
-                            id::text AS age_id,
-                            start_id::text AS source,
-                            end_id::text AS target,
-                            '{label}' AS label,
-                            ag_catalog.agtype_out(properties) AS props
-                        FROM "{graph_name}"."{label}"
-                    ''')
+                    union_parts.append(
+                        sql.SQL("""
+                            SELECT
+                                id::text AS age_id,
+                                start_id::text AS source,
+                                end_id::text AS target,
+                                {label_lit} AS label,
+                                ag_catalog.agtype_out(properties) AS props
+                            FROM {schema}.{table}
+                        """).format(
+                            label_lit=sql.Literal(label),
+                            schema=graph_ident,
+                            table=sql.Identifier(label),
+                        )
+                    )
 
-                cur.execute(" UNION ALL ".join(union_parts))
+                cur.execute(sql.SQL(" UNION ALL ").join(union_parts))
 
                 for row in cur.fetchall():
                     age_id, source, target, label, props_str = row
                     try:
                         props = json.loads(props_str) if props_str else {}
                         domain_id = props.get("id", "")
-                        props_copy = {k: v for k, v in props.items() if k != "id"}
+                        props_copy = {
+                            k: v for k, v in props.items() if k not in reserved_keys
+                        }
                         edges.append(
                             {
                                 "id": age_id,

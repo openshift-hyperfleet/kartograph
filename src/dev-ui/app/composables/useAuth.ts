@@ -72,11 +72,13 @@ export function useAuth() {
     _manager.events.addSilentRenewError((err) => {
       console.error('[auth] silent renew failed', err)
       user.value = null
+      _manager!.removeUser().catch(() => {})
     })
 
     _manager.events.addAccessTokenExpired(() => {
       console.warn('[auth] access token expired, clearing session')
       user.value = null
+      _manager!.removeUser().catch(() => {})
     })
 
     return _manager

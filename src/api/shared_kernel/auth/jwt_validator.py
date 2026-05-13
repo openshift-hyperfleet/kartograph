@@ -24,6 +24,8 @@ class TokenClaims:
 
     sub: str
     preferred_username: str | None
+    name: str | None = None
+    email: str | None = None
 
 
 class InvalidTokenError(Exception):
@@ -145,11 +147,17 @@ class JWTValidator:
         # Extract username claim
         username = claims.get(self._username_claim)
 
+        # Extract optional profile claims
+        name = claims.get("name")
+        email = claims.get("email")
+
         self._probe.token_validated(user_id=str(user_id))
 
         return TokenClaims(
             sub=str(user_id),
             preferred_username=str(username) if username is not None else None,
+            name=str(name) if name is not None else None,
+            email=str(email) if email is not None else None,
         )
 
     async def _get_jwks(self) -> dict[str, Any]:

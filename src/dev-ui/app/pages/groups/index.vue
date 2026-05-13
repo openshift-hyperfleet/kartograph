@@ -241,8 +241,10 @@ async function handleAddMember() {
   if (!selectedGroup.value || !newMemberId.value.trim()) return
   addingMember.value = true
   try {
+    const identifier = newMemberId.value.trim()
+    const isEmail = identifier.includes('@')
     await addGroupMember(selectedGroup.value.id, {
-      user_id: newMemberId.value.trim(),
+      ...(isEmail ? { email: identifier } : { user_id: identifier }),
       role: newMemberRole.value,
     })
     toast.success('Member added')

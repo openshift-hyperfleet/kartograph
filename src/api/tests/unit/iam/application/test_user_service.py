@@ -85,7 +85,7 @@ class TestEnsureUser:
 
         mock_user_repository.get_by_id = AsyncMock(return_value=existing_user)
 
-        result = await user_service.ensure_user(user_id, "alice")
+        result = await user_service.ensure_user(user_id, "alice", name=None, email=None)
 
         assert result == existing_user
         mock_user_repository.save.assert_not_called()
@@ -106,7 +106,7 @@ class TestEnsureUser:
         mock_user_repository.get_by_id = AsyncMock(return_value=None)
         mock_user_repository.save = AsyncMock()
 
-        result = await user_service.ensure_user(user_id, "bob")
+        result = await user_service.ensure_user(user_id, "bob", name=None, email=None)
 
         assert result.id == user_id
         assert result.username == "bob"
@@ -132,7 +132,9 @@ class TestEnsureUser:
         mock_user_repository.get_by_id = AsyncMock(return_value=existing_user)
         mock_user_repository.save = AsyncMock()
 
-        result = await user_service.ensure_user(user_id, "alice_new")
+        result = await user_service.ensure_user(
+            user_id, "alice_new", name=None, email=None
+        )
 
         assert result.username == "alice_new"
         mock_user_repository.save.assert_called_once()
@@ -146,6 +148,44 @@ class TestEnsureUser:
         )
 
     @pytest.mark.asyncio
+    async def test_syncs_name_and_email_when_changed(
+        self, user_service, mock_user_repository, mock_probe
+    ):
+        """Should update name and email if changed in SSO."""
+        user_id = UserId.generate()
+        existing_user = User(
+            id=user_id, username="alice", name="Old Name", email="old@example.com"
+        )
+        mock_user_repository.get_by_id = AsyncMock(return_value=existing_user)
+        mock_user_repository.save = AsyncMock()
+
+        result = await user_service.ensure_user(
+            user_id, "alice", name="New Name", email="new@example.com"
+        )
+
+        assert result.name == "New Name"
+        assert result.email == "new@example.com"
+        mock_user_repository.save.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_no_update_when_profile_unchanged(
+        self, user_service, mock_user_repository, mock_probe
+    ):
+        """Should not save when username, name, and email are all unchanged."""
+        user_id = UserId.generate()
+        existing_user = User(
+            id=user_id, username="alice", name="Alice", email="alice@example.com"
+        )
+        mock_user_repository.get_by_id = AsyncMock(return_value=existing_user)
+
+        result = await user_service.ensure_user(
+            user_id, "alice", name="Alice", email="alice@example.com"
+        )
+
+        assert result == existing_user
+        mock_user_repository.save.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_records_failure_on_exception(
         self, user_service, mock_user_repository, mock_probe
     ):
@@ -156,7 +196,7 @@ class TestEnsureUser:
         mock_user_repository.save = AsyncMock(side_effect=Exception("DB error"))
 
         with pytest.raises(Exception):
-            await user_service.ensure_user(user_id, "charlie")
+            await user_service.ensure_user(user_id, "charlie", name=None, email=None)
 
         mock_probe.user_provision_failed.assert_called_once()
         call_args = mock_probe.user_provision_failed.call_args[1]

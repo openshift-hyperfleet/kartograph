@@ -20,7 +20,12 @@ from iam.dependencies.multi_tenant_mode import (
     _get_single_tenant_mode,
 )
 from iam.dependencies.tenant import get_tenant_service
-from iam.dependencies.user import get_authenticated_user, get_current_user
+from iam.dependencies.user import (
+    get_authenticated_user,
+    get_current_user,
+    get_user_repository,
+)
+from iam.infrastructure.user_repository import UserRepository
 from iam.domain.aggregates import Tenant
 from iam.domain.value_objects import TenantId, UserId
 from iam.ports.exceptions import UnauthorizedError
@@ -101,6 +106,9 @@ def _create_test_client(
     app.dependency_overrides[get_authenticated_user] = lambda: mock_authenticated_user
     app.dependency_overrides[get_spicedb_client] = lambda: mock_authz
     app.dependency_overrides[_get_single_tenant_mode] = lambda: single_tenant_mode
+    app.dependency_overrides[get_user_repository] = lambda: AsyncMock(
+        spec=UserRepository
+    )
 
     app.include_router(router)
     return TestClient(app)

@@ -39,7 +39,8 @@ export function useAuth() {
       redirect_uri: `${window.location.origin}/auth/callback`,
       post_logout_redirect_uri: window.location.origin,
       response_type: 'code',
-      scope: 'openid profile email',
+      scope: 'openid profile email offline_access',
+      revokeTokenTypes: ['refresh_token'],
 
       // Explicit endpoint overrides – avoids an extra discovery request when
       // the Keycloak instance is on a different host/port from the UI and
@@ -70,6 +71,14 @@ export function useAuth() {
 
     _manager.events.addSilentRenewError((err) => {
       console.error('[auth] silent renew failed', err)
+      user.value = null
+      _manager!.removeUser().catch(() => {})
+    })
+
+    _manager.events.addAccessTokenExpired(() => {
+      console.warn('[auth] access token expired, clearing session')
+      user.value = null
+      _manager!.removeUser().catch(() => {})
     })
 
     return _manager

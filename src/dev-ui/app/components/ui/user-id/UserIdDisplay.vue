@@ -11,19 +11,33 @@ const props = withDefaults(defineProps<{
   label: 'User ID copied',
 })
 
-const { isCurrentUser, displayName } = useCurrentUser()
+const { isCurrentUser, displayName: currentUserDisplayName } = useCurrentUser()
+const { getDisplayName, resolveUsers } = useUserDirectory()
 
 const isMe = computed(() => isCurrentUser(props.userId))
 
+const displayLabel = computed(() => {
+  if (isMe.value && currentUserDisplayName.value) return currentUserDisplayName.value
+  return getDisplayName(props.userId)
+})
+
 const tooltipLabel = computed(() => {
-  if (!isMe.value) return undefined
-  return displayName.value ? `You (${displayName.value})` : 'You'
+  if (!isMe.value) return props.userId
+  return currentUserDisplayName.value ? `You (${currentUserDisplayName.value})` : 'You'
+})
+
+// Trigger resolution on mount for non-current users
+onMounted(() => {
+  if (!isMe.value) {
+    resolveUsers([props.userId])
+  }
 })
 </script>
 
 <template>
   <div class="inline-flex items-center gap-1.5 min-w-0">
-    <CopyableText :text="userId" :label="label" />
+    <span class="truncate text-sm" :title="userId">{{ displayLabel }}</span>
+    <CopyableText :text="userId" :label="label" class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
     <Badge
       v-if="isMe"
       variant="outline"

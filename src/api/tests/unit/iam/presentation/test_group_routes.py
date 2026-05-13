@@ -119,10 +119,16 @@ def test_client(
     from iam.dependencies.user import get_current_user
     from iam.presentation import router
 
+    from iam.dependencies.user import get_user_repository
+    from iam.infrastructure.user_repository import UserRepository
+
     app = FastAPI()
 
     app.dependency_overrides[get_group_service] = lambda: mock_group_service
     app.dependency_overrides[get_current_user] = lambda: mock_current_user
+    app.dependency_overrides[get_user_repository] = lambda: AsyncMock(
+        spec=UserRepository
+    )
 
     app.include_router(router)
 

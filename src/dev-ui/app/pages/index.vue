@@ -46,6 +46,7 @@ const apiKeys = ref<APIKeyResponse[]>([])
 
 // KG count is fetched once during the redirect check and reused by the checklist.
 const kgCount = ref<number>(0)
+let statsRequestSeq = 0
 
 /**
  * True once the workspace list has been fetched and contains at least one entry.
@@ -229,42 +230,50 @@ const SESSION_REDIRECT_KEY = 'kartograph:home-redirect-done'
 
 async function fetchStats() {
   if (!hasTenant.value) return
+  const seq = ++statsRequestSeq
   statsLoading.value = true
 
-  // Fetch all in parallel, each independently catching errors
-  const [nodeResult, edgeResult, keysResult, wsResult] = await Promise.allSettled([
-    listNodeLabels(),
-    listEdgeLabels(),
-    listApiKeys(),
-    listWorkspaces(),
-  ])
+  try {
+    const [kgResult, nodeResult, edgeResult, keysResult, wsResult] = await Promise.allSettled([
+      apiFetch<{ knowledge_graphs: { id: string }[] }>('/management/knowledge-graphs'),
+      listNodeLabels(),
+      listEdgeLabels(),
+      listApiKeys(),
+      listWorkspaces(),
+    ])
 
-  nodeTypeCount.value = nodeResult.status === 'fulfilled'
-    ? (nodeResult.value as SchemaLabelsResponse).count
-    : null
-  edgeTypeCount.value = edgeResult.status === 'fulfilled'
-    ? (edgeResult.value as SchemaLabelsResponse).count
-    : null
+    if (seq !== statsRequestSeq) return
 
-  if (keysResult.status === 'fulfilled') {
-    const keys = keysResult.value as APIKeyResponse[]
-    apiKeys.value = keys
-    apiKeyCount.value = keys.filter((k) => !k.is_revoked).length
-  } else {
-    apiKeys.value = []
-    apiKeyCount.value = null
+    kgCount.value = kgResult.status === 'fulfilled'
+      ? kgResult.value.knowledge_graphs?.length ?? 0
+      : 0
+    nodeTypeCount.value = nodeResult.status === 'fulfilled'
+      ? (nodeResult.value as SchemaLabelsResponse).count
+      : null
+    edgeTypeCount.value = edgeResult.status === 'fulfilled'
+      ? (edgeResult.value as SchemaLabelsResponse).count
+      : null
+
+    if (keysResult.status === 'fulfilled') {
+      const keys = keysResult.value as APIKeyResponse[]
+      apiKeys.value = keys
+      apiKeyCount.value = keys.filter((k) => !k.is_revoked).length
+    } else {
+      apiKeys.value = []
+      apiKeyCount.value = null
+    }
+
+    if (wsResult.status === 'fulfilled') {
+      const wsResponse = wsResult.value as WorkspaceListResponse
+      workspaceCount.value = wsResponse.count
+      workspaces.value = wsResponse.workspaces
+    } else {
+      workspaceCount.value = null
+      workspaces.value = []
+    }
+  } finally {
+    if (seq === statsRequestSeq) statsLoading.value = false
   }
-
-  if (wsResult.status === 'fulfilled') {
-    const wsResponse = wsResult.value as WorkspaceListResponse
-    workspaceCount.value = wsResponse.count
-    workspaces.value = wsResponse.workspaces
-  } else {
-    workspaceCount.value = null
-    workspaces.value = []
-  }
-
-  statsLoading.value = false
 }
 
 onMounted(async () => {

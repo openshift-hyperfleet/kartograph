@@ -1,5 +1,17 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
+
+function readVersion(): string {
+  try {
+    const raw = readFileSync(resolve(__dirname, 'VERSION'), 'utf-8')
+    const version = raw.split('#')[0].trim()
+    return version || process.env.APP_VERSION || 'dev'
+  } catch {
+    return process.env.APP_VERSION || 'dev'
+  }
+}
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
@@ -14,6 +26,7 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     public: {
+      appVersion: readVersion(),
       apiBaseUrl: 'http://localhost:8000',
       mcpEndpointUrl: 'http://localhost:8000/query/mcp',
       keycloak: {

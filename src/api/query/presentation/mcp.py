@@ -18,7 +18,7 @@ from query.application.observability import (
     KnowledgeGraphResourceProbe,
 )
 from query.application.services import MCPQueryService
-from query.domain.value_objects import QueryError, QueryResultRow
+from query.domain.value_objects import QueryError
 from query.dependencies import (
     get_git_repository,
     get_mcp_query_service,
@@ -101,94 +101,6 @@ def _filter_internal_properties(data: Any) -> Any:
         return [_filter_internal_properties(item) for item in data]
     else:
         return data
-
-
-def _value_matches_kg(value: Any, knowledge_graph_id: str) -> bool | None:
-    """Check whether a single value is an entity matching *knowledge_graph_id*.
-
-    Three-valued return:
-    - ``True``  — value is a NodeDict/EdgeDict and its ``knowledge_graph_id``
-                  property equals *knowledge_graph_id*.
-    - ``False`` — value is a NodeDict/EdgeDict but its ``knowledge_graph_id``
-                  is absent, empty, or different.
-    - ``None``  — value is a scalar (int, str, etc.); no entity determination
-                  can be made.
-
-    For plain dicts (map results), the function recurses and returns ``True``
-    if any nested entity matches, ``False`` if entities exist but none match,
-    or ``None`` if no entities are found.
-    """
-    if not isinstance(value, dict):
-        return None  # scalar — no entity to check
-
-    props = value.get("properties")
-    if isinstance(props, dict):
-        # This is an entity dict (NodeDict or EdgeDict)
-        kg_id = props.get("knowledge_graph_id")
-        if isinstance(kg_id, str) and kg_id and kg_id == knowledge_graph_id:
-            return True
-        return False  # entity present, but doesn't match
-
-    # Plain dict (map result) — recurse into values
-    nested_has_entity = False
-    nested_has_match = False
-    for v in value.values():
-        result = _value_matches_kg(v, knowledge_graph_id)
-        if result is not None:
-            nested_has_entity = True
-            if result:
-                nested_has_match = True
-
-    if not nested_has_entity:
-        return None  # map with no entity values inside
-    return nested_has_match
-
-
-def _filter_by_knowledge_graph(
-    rows: list[QueryResultRow],
-    knowledge_graph_id: str | None,
-) -> list[QueryResultRow]:
-    """Filter query result rows to only include those from *knowledge_graph_id*.
-
-    If *knowledge_graph_id* is None, all rows are returned unchanged.
-
-    Inclusion rules:
-    - Node row (``{"node": NodeDict}``):
-        included iff ``node.properties.knowledge_graph_id == knowledge_graph_id``
-    - Edge row (``{"edge": EdgeDict}``):
-        included iff ``edge.properties.knowledge_graph_id == knowledge_graph_id``
-    - Map row (``{"key": NodeDict, ...}``):
-        included iff at least one nested entity has the matching ``knowledge_graph_id``
-    - Scalar row (``{"value": 42}``):
-        always included — no entity to filter on (e.g., aggregation counts)
-
-    Args:
-        rows:               Raw result rows from the graph repository.
-        knowledge_graph_id: ID to filter by, or None to skip filtering.
-
-    Returns:
-        Filtered list of rows (original objects, not copies).
-    """
-    if knowledge_graph_id is None:
-        return rows
-
-    filtered: list[QueryResultRow] = []
-    for row in rows:
-        has_any_entity = False
-        has_matching_entity = False
-
-        for value in row.values():
-            match_result = _value_matches_kg(value, knowledge_graph_id)
-            if match_result is not None:
-                has_any_entity = True
-                if match_result:
-                    has_matching_entity = True
-
-        # Pure scalar rows (no entities) always pass through
-        if has_matching_entity or not has_any_entity:
-            filtered.append(row)
-
-    return filtered
 
 
 def _build_error_response(result: QueryError) -> Dict[str, Any]:

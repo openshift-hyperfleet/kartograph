@@ -6,7 +6,7 @@ and this repository only handles metadata persistence.
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,11 +62,15 @@ class UserRepository(IUserRepository):
             if model:
                 # Update existing user
                 model.username = user.username
+                model.name = user.name
+                model.email = user.email
             else:
                 # Create new user
                 model = UserModel(
                     id=user.id.value,
                     username=user.username,
+                    name=user.name,
+                    email=user.email,
                 )
                 self._session.add(model)
 
@@ -104,6 +108,8 @@ class UserRepository(IUserRepository):
         return User(
             id=UserId(value=model.id),
             username=model.username,
+            name=model.name,
+            email=model.email,
         )
 
     async def get_by_username(self, username: str) -> User | None:
@@ -127,4 +133,86 @@ class UserRepository(IUserRepository):
         return User(
             id=UserId(value=model.id),
             username=model.username,
+            name=model.name,
+            email=model.email,
         )
+
+    async def get_by_email(self, email: str) -> User | None:
+        """Retrieve a user by their email address."""
+        stmt = select(UserModel).where(UserModel.email == email)
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+
+        if model is None:
+            return None
+
+        self._probe.user_retrieved(model.id)
+        return User(
+            id=UserId(value=model.id),
+            username=model.username,
+            name=model.name,
+            email=model.email,
+        )
+
+    async def get_by_ids(self, user_ids: list[UserId]) -> list[User]:
+        """Retrieve multiple users by their IDs.
+
+        Args:
+            user_ids: List of user IDs to look up
+
+        Returns:
+            List of User aggregates found (may be fewer than requested)
+        """
+        if not user_ids:
+            return []
+
+        stmt = select(UserModel).where(
+            UserModel.id.in_([uid.value for uid in user_ids])
+        )
+        result = await self._session.execute(stmt)
+        models = result.scalars().all()
+
+        return [
+            User(
+                id=UserId(value=model.id),
+                username=model.username,
+                name=model.name,
+                email=model.email,
+            )
+            for model in models
+        ]
+
+    async def search(self, query: str, limit: int = 20) -> list[User]:
+        """Search users by username, name, or email (case-insensitive).
+
+        Args:
+            query: Search string to match against username, name, and email
+            limit: Maximum number of results to return (default 20)
+
+        Returns:
+            List of matching User aggregates
+        """
+        pattern = f"%{query}%"
+        stmt = (
+            select(UserModel)
+            .where(
+                or_(
+                    UserModel.username.ilike(pattern),
+                    UserModel.name.ilike(pattern),
+                    UserModel.email.ilike(pattern),
+                )
+            )
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        models = result.scalars().all()
+
+        return [
+            User(
+                id=UserId(value=model.id),
+                username=model.username,
+                name=model.name,
+                email=model.email,
+            )
+            for model in models
+        ]

@@ -93,6 +93,8 @@ class TestSave:
         user = User(
             id=UserId.generate(),
             username="alice",
+            name="Alice Smith",
+            email="alice@example.com",
         )
 
         # Mock session to return None (user doesn't exist)
@@ -108,6 +110,8 @@ class TestSave:
         assert isinstance(added_model, UserModel)
         assert added_model.id == user.id.value
         assert added_model.username == user.username
+        assert added_model.name == "Alice Smith"
+        assert added_model.email == "alice@example.com"
 
     @pytest.mark.asyncio
     async def test_updates_existing_user(self, repository, mock_session):
@@ -116,10 +120,14 @@ class TestSave:
         user = User(
             id=user_id,
             username="alice_updated",
+            name="New Name",
+            email="new@example.com",
         )
 
         # Mock existing user
-        existing_model = UserModel(id=user_id.value, username="alice")
+        existing_model = UserModel(
+            id=user_id.value, username="alice", name="Old Name", email="old@example.com"
+        )
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = existing_model
         mock_session.execute.return_value = mock_result
@@ -129,6 +137,8 @@ class TestSave:
         # Should not add, should update
         mock_session.add.assert_not_called()
         assert existing_model.username == "alice_updated"
+        assert existing_model.name == "New Name"
+        assert existing_model.email == "new@example.com"
 
 
 class TestGetById:
@@ -151,7 +161,12 @@ class TestGetById:
     async def test_returns_user_when_found(self, repository, mock_session):
         """Should return user when found."""
         user_id = UserId.generate()
-        model = UserModel(id=user_id.value, username="alice")
+        model = UserModel(
+            id=user_id.value,
+            username="alice",
+            name="Alice Smith",
+            email="alice@example.com",
+        )
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = model
@@ -162,6 +177,8 @@ class TestGetById:
         assert result is not None
         assert result.id.value == user_id.value
         assert result.username == "alice"
+        assert result.name == "Alice Smith"
+        assert result.email == "alice@example.com"
 
 
 class TestGetByUsername:

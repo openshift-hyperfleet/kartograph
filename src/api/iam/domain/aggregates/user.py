@@ -12,14 +12,14 @@ class User:
     """User aggregate representing a person in the system.
 
     Users are provisioned from SSO (Red Hat SSO) and represent individuals
-    who can be members of groups and access resources.
-
-    Currently minimal (id and username only) as users are provisioned from SSO.
-    Future enhancements will add additional profile fields.
+    who can be members of groups and access resources. Profile fields
+    (name, email) are synced from the identity provider on each login.
     """
 
     id: UserId
     username: str
+    name: str | None = None
+    email: str | None = None
 
     def __str__(self) -> str:
         """Return string representation."""

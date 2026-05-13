@@ -361,6 +361,57 @@ The system SHALL provide a UI for API key lifecycle management.
 - WHEN the user revokes it
 - THEN the key is marked revoked and can no longer authenticate
 
+### Requirement: User Identity Resolution
+The system SHALL resolve user IDs to human-readable names throughout the UI.
+
+#### Scenario: Member lists
+- GIVEN a member list (tenant, workspace, or group) displaying user IDs
+- WHEN the list is rendered
+- THEN each user ID is resolved to a display name via the batch user lookup endpoint (`GET /iam/users?ids=...`)
+- AND the display shows the user's `name` (preferred) or `username` as a fallback
+- AND the current user is annotated with a "You" badge
+
+#### Scenario: Resolution caching
+- GIVEN user IDs that have been previously resolved in the session
+- WHEN the same IDs appear on another page or after re-render
+- THEN cached values are used without additional API calls
+- AND the cache is invalidated on tenant switch
+
+#### Scenario: Unresolvable IDs
+- GIVEN a user ID that is not returned by the lookup endpoint (e.g., user removed from tenant)
+- WHEN the ID is displayed
+- THEN the raw UUID is shown as a fallback with muted styling
+
+#### Scenario: Created-by attribution
+- GIVEN a resource with a `created_by_user_id` field (e.g., API keys)
+- WHEN the resource is displayed
+- THEN the creator is shown as a resolved display name, not a raw UUID
+
+### Requirement: User Search and Autocomplete
+The system SHALL provide user search with autocomplete for all member management operations.
+
+#### Scenario: Add member search
+- GIVEN a user adding a member to a workspace, group, or tenant
+- WHEN they begin typing in the member input field
+- THEN the system searches by user ID, username, name, or email
+- AND matching users are shown in a dropdown with their display name, username, and email
+- AND the search queries the user lookup endpoint with a `search` query parameter
+
+#### Scenario: Minimum query length
+- GIVEN a user typing in the member search field
+- WHEN fewer than 2 characters have been entered
+- THEN no search is triggered (avoids overly broad results)
+
+#### Scenario: Debounced search
+- GIVEN a user typing in the member search field
+- WHEN characters are entered in quick succession
+- THEN the search request is debounced (300ms) to avoid excessive API calls
+
+#### Scenario: No results
+- GIVEN a search query that matches no users in the tenant
+- WHEN the dropdown renders
+- THEN a "No users found" message is displayed
+
 ### Requirement: Workspace Management
 The system SHALL provide a UI for workspace and member management.
 

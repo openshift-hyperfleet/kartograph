@@ -4,6 +4,7 @@ import {
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import UserSearchInput from '@/components/settings/UserSearchInput.vue'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -135,7 +136,7 @@ const emit = defineEmits<{
       <div class="space-y-2 mb-4">
         <div class="space-y-1.5">
           <div class="flex items-center justify-between">
-            <Label for="grp-panel-member-id">User ID <span class="text-destructive">*</span></Label>
+            <Label for="grp-panel-member-id">User ID or Email <span class="text-destructive">*</span></Label>
             <button
               v-if="currentUserId && newMemberId !== currentUserId"
               type="button"
@@ -145,12 +146,11 @@ const emit = defineEmits<{
               Add myself
             </button>
           </div>
-          <Input
-            id="grp-panel-member-id"
+          <UserSearchInput
             :model-value="newMemberId"
-            placeholder="Enter user ID..."
-            @update:model-value="emit('update:newMemberId', $event as string)"
+            @update:model-value="emit('update:newMemberId', $event)"
           />
+          <p class="text-[11px] text-muted-foreground">Search existing users, or type an email address. Users must have signed in at least once.</p>
         </div>
         <div class="space-y-1.5">
           <Label>Role</Label>

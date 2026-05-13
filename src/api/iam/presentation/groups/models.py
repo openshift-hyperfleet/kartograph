@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from iam.domain.aggregates import Group
 from iam.domain.value_objects import GroupRole
@@ -57,17 +57,33 @@ class UpdateGroupRequest(BaseModel):
 
 
 class AddGroupMemberRequest(BaseModel):
-    """Request model for adding a member to a group."""
+    """Request model for adding a member to a group.
 
-    user_id: str = Field(..., description="User ID to add", min_length=1)
+    Accepts either ``user_id`` (UUID) or ``email`` — exactly one must be provided.
+    """
+
+    user_id: str | None = Field(None, description="User ID to add", min_length=1)
+    email: str | None = Field(None, description="Email address of the user to add")
     role: GroupRoleEnum = Field(..., description="Role to assign")
 
-    def to_domain_role(self) -> GroupRole:
-        """Convert API role to domain GroupRole.
+    @field_validator("email", mode="before")
+    @classmethod
+    def _normalize_email(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        return v if v else None
 
-        Returns:
-            GroupRole domain value object
-        """
+    @model_validator(mode="after")
+    def _exactly_one_identifier(self) -> "AddGroupMemberRequest":
+        if self.user_id and self.email:
+            raise ValueError("Provide either user_id or email, not both")
+        if not self.user_id and not self.email:
+            raise ValueError("Either user_id or email is required")
+        return self
+
+    def to_domain_role(self) -> GroupRole:
+        """Convert API role to domain GroupRole."""
         return GroupRole(self.role.value)
 
 

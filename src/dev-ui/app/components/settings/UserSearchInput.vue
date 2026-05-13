@@ -93,13 +93,18 @@ watch(searchQuery, (val) => {
   debouncedSearch(val)
 })
 
+function resetSearch() {
+  searchToken++
+  searchQuery.value = ''
+  searchResults.value = []
+  hasSearched.value = false
+}
+
 function selectUser(user: UserProfileResponse) {
   selectedUser.value = user
   emit('update:modelValue', user.id)
   open.value = false
-  searchQuery.value = ''
-  searchResults.value = []
-  hasSearched.value = false
+  resetSearch()
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -109,9 +114,7 @@ function handleKeydown(event: KeyboardEvent) {
     selectedUser.value = null
     emit('update:modelValue', val)
     open.value = false
-    searchQuery.value = ''
-    searchResults.value = []
-    hasSearched.value = false
+    resetSearch()
   }
 }
 

@@ -46,6 +46,7 @@ const apiKeys = ref<APIKeyResponse[]>([])
 
 // KG count is fetched once during the redirect check and reused by the checklist.
 const kgCount = ref<number>(0)
+let statsRequestSeq = 0
 
 /**
  * True once the workspace list has been fetched and contains at least one entry.
@@ -229,6 +230,7 @@ const SESSION_REDIRECT_KEY = 'kartograph:home-redirect-done'
 
 async function fetchStats() {
   if (!hasTenant.value) return
+  const seq = ++statsRequestSeq
   statsLoading.value = true
 
   try {
@@ -239,6 +241,8 @@ async function fetchStats() {
       listApiKeys(),
       listWorkspaces(),
     ])
+
+    if (seq !== statsRequestSeq) return
 
     kgCount.value = kgResult.status === 'fulfilled'
       ? kgResult.value.knowledge_graphs?.length ?? 0
@@ -268,7 +272,7 @@ async function fetchStats() {
       workspaces.value = []
     }
   } finally {
-    statsLoading.value = false
+    if (seq === statsRequestSeq) statsLoading.value = false
   }
 }
 

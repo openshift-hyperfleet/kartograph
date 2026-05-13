@@ -8,5 +8,5 @@ import MutationProgress from '@/components/graph/MutationProgress.vue'
     <NuxtPage />
   </NuxtLayout>
   <MutationProgress />
-  <Toaster richColors :duration="5000" position="bottom-right" />
+  <Toaster richColors :duration="10000" position="bottom-right" />
 </template>

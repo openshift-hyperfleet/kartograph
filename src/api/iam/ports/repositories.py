@@ -130,6 +130,33 @@ class IUserRepository(Protocol):
         """
         ...
 
+    async def get_by_email(self, email: str) -> User | None:
+        """Retrieve a user by their email address."""
+        ...
+
+    async def get_by_ids(self, user_ids: list[UserId]) -> list[User]:
+        """Retrieve multiple users by their IDs.
+
+        Args:
+            user_ids: List of user IDs to look up
+
+        Returns:
+            List of User aggregates found (may be fewer than requested)
+        """
+        ...
+
+    async def search(self, query: str, limit: int = 20) -> list[User]:
+        """Search users by username, name, or email (case-insensitive).
+
+        Args:
+            query: Search string to match against username, name, and email
+            limit: Maximum number of results to return (default 20)
+
+        Returns:
+            List of matching User aggregates
+        """
+        ...
+
 
 @runtime_checkable
 class ITenantRepository(Protocol):

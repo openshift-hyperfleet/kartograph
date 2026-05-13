@@ -170,6 +170,7 @@ class TestGetCurrentUser:
     @pytest.mark.asyncio
     async def test_calls_jit_user_provisioning_for_bearer_token(
         self,
+        jwt_auth_result: _AuthResult,
         mock_user_repo: AsyncMock,
         mock_session: AsyncMock,
         mock_probe: MagicMock,
@@ -183,6 +184,7 @@ class TestGetCurrentUser:
 
         result = await get_current_user(
             current_user=current_user,
+            auth_result=jwt_auth_result,
             user_repo=mock_user_repo,
             session=mock_session,
             probe=mock_probe,
@@ -195,6 +197,7 @@ class TestGetCurrentUser:
     @pytest.mark.asyncio
     async def test_skips_jit_provisioning_for_api_key(
         self,
+        api_key_auth_result: _AuthResult,
         mock_user_repo: AsyncMock,
         mock_session: AsyncMock,
         mock_probe: MagicMock,
@@ -208,6 +211,7 @@ class TestGetCurrentUser:
 
         result = await get_current_user(
             current_user=current_user,
+            auth_result=api_key_auth_result,
             user_repo=mock_user_repo,
             session=mock_session,
             probe=mock_probe,

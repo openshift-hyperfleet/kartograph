@@ -4,6 +4,7 @@ import {
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import UserSearchInput from '@/components/settings/UserSearchInput.vue'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -168,9 +169,9 @@ function formatDate(iso: string): string {
       <div class="space-y-2 mb-4">
         <div class="space-y-1.5">
           <div class="flex items-center justify-between">
-            <Label for="ws-panel-member-id">Member ID <span class="text-destructive">*</span></Label>
+            <Label for="ws-panel-member-id">{{ newMemberType === 'user' ? 'User ID or Email' : 'Group ID' }} <span class="text-destructive">*</span></Label>
             <button
-              v-if="currentUserId && newMemberId !== currentUserId"
+              v-if="newMemberType === 'user' && currentUserId && newMemberId !== currentUserId"
               type="button"
               class="text-xs text-primary hover:underline"
               @click="emit('update:newMemberId', currentUserId)"
@@ -178,12 +179,19 @@ function formatDate(iso: string): string {
               Add myself
             </button>
           </div>
+          <UserSearchInput
+            v-if="newMemberType === 'user'"
+            :model-value="newMemberId"
+            @update:model-value="emit('update:newMemberId', $event)"
+          />
           <Input
+            v-else
             id="ws-panel-member-id"
             :model-value="newMemberId"
-            placeholder="User or group ID..."
+            placeholder="Enter group ID..."
             @update:model-value="emit('update:newMemberId', $event as string)"
           />
+          <p v-if="newMemberType === 'user'" class="text-[11px] text-muted-foreground">Search existing users, or type an email address. Users must have signed in at least once.</p>
         </div>
         <div class="flex gap-2">
           <div class="flex-1 space-y-1.5">

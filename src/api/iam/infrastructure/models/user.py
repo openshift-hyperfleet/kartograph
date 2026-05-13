@@ -23,6 +23,8 @@ class UserModel(Base, TimestampMixin):
 
     id: Mapped[str] = mapped_column(String(255), primary_key=True)
     username: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     def __repr__(self) -> str:
         """Return string representation."""

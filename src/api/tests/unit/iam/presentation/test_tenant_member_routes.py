@@ -23,7 +23,12 @@ from fastapi.testclient import TestClient
 from iam.application.services import TenantService
 from iam.application.value_objects import CurrentUser
 from iam.dependencies.tenant import get_tenant_service
-from iam.dependencies.user import get_authenticated_user, get_current_user
+from iam.dependencies.user import (
+    get_authenticated_user,
+    get_current_user,
+    get_user_repository,
+)
+from iam.infrastructure.user_repository import UserRepository
 from iam.domain.exceptions import CannotRemoveLastAdminError
 from iam.domain.value_objects import TenantId, UserId
 from iam.ports.exceptions import UnauthorizedError
@@ -65,6 +70,7 @@ def _make_client(
     mock_tenant_service: AsyncMock,
     mock_authz: AsyncMock,
     mock_current_user: CurrentUser,
+    mock_user_repo: AsyncMock | None = None,
 ) -> TestClient:
     """Build a test client with overridden dependencies."""
     from iam.application.value_objects import AuthenticatedUser
@@ -79,6 +85,9 @@ def _make_client(
     app.dependency_overrides[get_current_user] = lambda: mock_current_user
     app.dependency_overrides[get_authenticated_user] = lambda: mock_authenticated_user
     app.dependency_overrides[get_spicedb_client] = lambda: mock_authz
+    app.dependency_overrides[get_user_repository] = lambda: (
+        mock_user_repo if mock_user_repo else AsyncMock(spec=UserRepository)
+    )
     app.include_router(router)
     return TestClient(app)
 
@@ -291,6 +300,114 @@ class TestRemoveTenantMemberRoute:
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestAddTenantMemberByEmail:
+    """Tests for adding a tenant member by email address."""
+
+    @pytest.fixture
+    def mock_user_repo(self):
+        return AsyncMock(spec=UserRepository)
+
+    def test_resolves_email_and_adds_member(
+        self,
+        mock_tenant_service: AsyncMock,
+        mock_authz: AsyncMock,
+        mock_current_user: CurrentUser,
+        mock_user_repo: AsyncMock,
+        valid_tenant_id: TenantId,
+    ) -> None:
+        """Should resolve email to user_id and add member."""
+        from iam.domain.aggregates import User as UserAggregate
+
+        mock_user_repo.get_by_email = AsyncMock(
+            return_value=UserAggregate(
+                id=UserId(value="resolved-id"),
+                username="alice",
+                name="Alice",
+                email="alice@example.com",
+            )
+        )
+        mock_tenant_service.add_member = AsyncMock()
+        client = _make_client(
+            mock_tenant_service, mock_authz, mock_current_user, mock_user_repo
+        )
+
+        response = client.post(
+            f"/iam/tenants/{valid_tenant_id.value}/members",
+            json={"email": "alice@example.com", "role": "member"},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["user_id"] == "resolved-id"
+        mock_user_repo.get_by_email.assert_called_once_with("alice@example.com")
+
+    def test_email_not_found_returns_404(
+        self,
+        mock_tenant_service: AsyncMock,
+        mock_authz: AsyncMock,
+        mock_current_user: CurrentUser,
+        mock_user_repo: AsyncMock,
+        valid_tenant_id: TenantId,
+    ) -> None:
+        """Should return 404 with clear message when no user has that email."""
+        mock_user_repo.get_by_email = AsyncMock(return_value=None)
+        client = _make_client(
+            mock_tenant_service, mock_authz, mock_current_user, mock_user_repo
+        )
+
+        response = client.post(
+            f"/iam/tenants/{valid_tenant_id.value}/members",
+            json={"email": "nobody@example.com", "role": "member"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        detail = response.json()["detail"]
+        assert "signed in" in detail.lower() or "log in" in detail.lower()
+
+    def test_rejects_both_user_id_and_email(
+        self,
+        mock_tenant_service: AsyncMock,
+        mock_authz: AsyncMock,
+        mock_current_user: CurrentUser,
+        mock_user_repo: AsyncMock,
+        valid_tenant_id: TenantId,
+    ) -> None:
+        """Should return 422 when both user_id and email are provided."""
+        client = _make_client(
+            mock_tenant_service, mock_authz, mock_current_user, mock_user_repo
+        )
+
+        response = client.post(
+            f"/iam/tenants/{valid_tenant_id.value}/members",
+            json={
+                "user_id": "some-id",
+                "email": "alice@example.com",
+                "role": "member",
+            },
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    def test_rejects_neither_user_id_nor_email(
+        self,
+        mock_tenant_service: AsyncMock,
+        mock_authz: AsyncMock,
+        mock_current_user: CurrentUser,
+        mock_user_repo: AsyncMock,
+        valid_tenant_id: TenantId,
+    ) -> None:
+        """Should return 422 when neither user_id nor email is provided."""
+        client = _make_client(
+            mock_tenant_service, mock_authz, mock_current_user, mock_user_repo
+        )
+
+        response = client.post(
+            f"/iam/tenants/{valid_tenant_id.value}/members",
+            json={"role": "member"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
 class TestListTenantMembersRoute:

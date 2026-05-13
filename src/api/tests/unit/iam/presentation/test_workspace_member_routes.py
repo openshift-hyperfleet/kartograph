@@ -64,15 +64,18 @@ def test_client(
     mock_current_user: CurrentUser,
 ) -> TestClient:
     """Create TestClient with mocked dependencies."""
-    from iam.dependencies.user import get_current_user
+    from iam.dependencies.user import get_current_user, get_user_repository
     from iam.dependencies.workspace import get_workspace_service
+    from iam.infrastructure.user_repository import UserRepository
     from iam.presentation import router
 
     app = FastAPI()
 
-    # Override dependencies with mocks
     app.dependency_overrides[get_workspace_service] = lambda: mock_workspace_service
     app.dependency_overrides[get_current_user] = lambda: mock_current_user
+    app.dependency_overrides[get_user_repository] = lambda: AsyncMock(
+        spec=UserRepository
+    )
 
     app.include_router(router)
 

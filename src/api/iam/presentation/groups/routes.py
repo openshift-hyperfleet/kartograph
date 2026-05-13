@@ -7,7 +7,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from iam.dependencies.group import get_group_service
-from iam.dependencies.user import get_current_user
+from iam.dependencies.user import get_current_user, get_user_repository
+from iam.infrastructure.user_repository import UserRepository
 from iam.application.services import GroupService
 from iam.application.value_objects import CurrentUser
 from iam.domain.value_objects import GroupId, UserId
@@ -291,10 +292,11 @@ async def add_group_member(
     request: AddGroupMemberRequest,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[GroupService, Depends(get_group_service)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> GroupMemberResponse:
     """Add a member to a group.
 
-    Requires MANAGE permission on the group.
+    Accepts either ``user_id`` or ``email``. Requires MANAGE permission.
     """
     try:
         group_id_obj = GroupId.from_string(group_id)
@@ -304,13 +306,25 @@ async def add_group_member(
             detail="Invalid group ID format",
         )
 
-    try:
-        user_id_obj = UserId.from_string(request.user_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid user ID format",
-        )
+    if request.email:
+        user = await user_repo.get_by_email(request.email)
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    f'No user with email "{request.email}" has signed in yet. '
+                    "They must log in at least once before they can be added."
+                ),
+            )
+        user_id_obj = user.id
+    else:
+        try:
+            user_id_obj = UserId.from_string(request.user_id)  # type: ignore[arg-type]
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid user ID format",
+            )
 
     try:
         await service.add_member(
@@ -321,7 +335,7 @@ async def add_group_member(
         )
 
         return GroupMemberResponse(
-            user_id=request.user_id,
+            user_id=user_id_obj.value,
             role=request.to_domain_role(),
         )
 

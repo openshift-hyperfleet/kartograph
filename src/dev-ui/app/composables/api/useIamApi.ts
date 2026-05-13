@@ -11,6 +11,7 @@ import type {
   GroupRole,
   APIKeyResponse,
   APIKeyCreatedResponse,
+  UserListResponse,
 } from '~/types'
 
 /**
@@ -50,7 +51,7 @@ export function useIamApi() {
 
   function addTenantMember(
     tenantId: string,
-    data: { user_id: string; role: 'admin' | 'member' },
+    data: { user_id?: string; email?: string; role: 'admin' | 'member' },
   ): Promise<TenantMemberResponse> {
     return apiFetch<TenantMemberResponse>(`/iam/tenants/${tenantId}/members`, {
       method: 'POST',
@@ -106,7 +107,7 @@ export function useIamApi() {
 
   function addWorkspaceMember(
     workspaceId: string,
-    data: { member_id: string; member_type: WorkspaceMemberType; role: WorkspaceRole },
+    data: { member_id?: string; email?: string; member_type: WorkspaceMemberType; role: WorkspaceRole },
   ): Promise<WorkspaceMemberResponse> {
     return apiFetch<WorkspaceMemberResponse>(`/iam/workspaces/${workspaceId}/members`, {
       method: 'POST',
@@ -174,7 +175,7 @@ export function useIamApi() {
 
   function addGroupMember(
     groupId: string,
-    data: { user_id: string; role: GroupRole },
+    data: { user_id?: string; email?: string; role: GroupRole },
   ): Promise<GroupMemberResponse> {
     return apiFetch<GroupMemberResponse>(`/iam/groups/${groupId}/members`, {
       method: 'POST',
@@ -224,6 +225,20 @@ export function useIamApi() {
     })
   }
 
+  // ── Users ──────────────────────────────────────────────────────────────
+
+  function lookupUsers(ids: string[]): Promise<UserListResponse> {
+    return apiFetch<UserListResponse>('/iam/users', {
+      query: { ids: ids.join(',') },
+    })
+  }
+
+  function searchUsers(query: string): Promise<UserListResponse> {
+    return apiFetch<UserListResponse>('/iam/users', {
+      query: { search: query },
+    })
+  }
+
   return {
     // Tenants
     listTenants,
@@ -257,5 +272,8 @@ export function useIamApi() {
     createApiKey,
     listApiKeys,
     revokeApiKey,
+    // Users
+    lookupUsers,
+    searchUsers,
   }
 }

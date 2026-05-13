@@ -35,7 +35,7 @@ The system SHALL validate JWT tokens using JWKS keys fetched from the OIDC provi
 - THEN validation fails
 
 ### Requirement: User Identity Extraction
-The system SHALL extract user identity from JWT claims.
+The system SHALL extract user identity and profile claims from JWT tokens.
 
 #### Scenario: Standard claims
 - GIVEN a valid JWT with `sub` and `preferred_username` claims
@@ -43,10 +43,18 @@ The system SHALL extract user identity from JWT claims.
 - THEN the `sub` claim is used as the user ID
 - AND the `preferred_username` claim is used as the username
 
-#### Scenario: Missing username claim
-- GIVEN a valid JWT without a `preferred_username` claim
+#### Scenario: Profile claims
+- GIVEN a valid JWT with `name` and `email` claims
 - WHEN the token is validated
-- THEN the `sub` claim is used as both the user ID and username
+- THEN the `name` claim is extracted as the display name
+- AND the `email` claim is extracted as the email address
+- AND these are passed through to JIT provisioning for storage
+
+#### Scenario: Missing optional claims
+- GIVEN a valid JWT without `preferred_username`, `name`, or `email` claims
+- WHEN the token is validated
+- THEN the `sub` claim is used as the username
+- AND `name` and `email` are treated as null
 
 #### Scenario: Missing subject claim
 - GIVEN a JWT without a `sub` claim

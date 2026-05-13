@@ -44,11 +44,20 @@ export function useApiClient() {
       headers['X-Tenant-ID'] = currentTenantId.value
     }
 
-    return $fetch<T>(path, {
-      baseURL: config.public.apiBaseUrl as string,
-      ...opts,
-      headers,
-    })
+    try {
+      return await $fetch<T>(path, {
+        baseURL: config.public.apiBaseUrl as string,
+        ...opts,
+        headers,
+      })
+    } catch (err: unknown) {
+      const fetchErr = err as { statusCode?: number }
+      if (fetchErr.statusCode === 401) {
+        const { user } = useAuth()
+        user.value = null
+      }
+      throw err
+    }
   }
 
   return {

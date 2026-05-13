@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from iam.application.value_objects import WorkspaceAccessGrant
 from iam.domain.aggregates import Workspace
@@ -122,18 +122,26 @@ class WorkspaceRoleEnum(StrEnum):
 class AddWorkspaceMemberRequest(BaseModel):
     """Request model for adding a member to a workspace.
 
-    Attributes:
-        member_id: User ID or Group ID to add
-        member_type: Type of member (user or group)
-        role: Role to assign (admin, editor, or member)
+    For user members, either ``member_id`` or ``email`` can be provided.
+    For group members, ``member_id`` is required.
     """
 
-    member_id: str = Field(
-        ...,
+    member_id: str | None = Field(
+        None,
         description="User ID or Group ID to add as member",
         min_length=1,
         examples=["01HN3XQ7K2XYZ123456789ABCD"],
     )
+    email: str | None = Field(None, description="Email address of the user to add")
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _normalize_email(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        return v if v else None
+
     member_type: MemberTypeEnum = Field(
         ...,
         description="Type of member being added",
@@ -144,6 +152,16 @@ class AddWorkspaceMemberRequest(BaseModel):
         description="Role to assign to the member",
         examples=[r.value for r in WorkspaceRoleEnum],
     )
+
+    @model_validator(mode="after")
+    def _validate_identifier(self) -> "AddWorkspaceMemberRequest":
+        if self.member_id and self.email:
+            raise ValueError("Provide either member_id or email, not both")
+        if not self.member_id and not self.email:
+            raise ValueError("Either member_id or email is required")
+        if self.email and self.member_type != MemberTypeEnum.USER:
+            raise ValueError("Email can only be used when member_type is 'user'")
+        return self
 
     def to_domain_member_type(self) -> MemberType:
         """Convert API member_type to domain MemberType.

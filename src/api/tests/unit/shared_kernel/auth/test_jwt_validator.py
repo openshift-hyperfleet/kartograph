@@ -516,6 +516,59 @@ class TestJWTValidator:
         assert claims.preferred_username is None
 
     @pytest.mark.asyncio
+    async def test_validate_token_extracts_name_and_email(
+        self,
+        validator: JWTValidator,
+        mock_probe: MagicMock,
+        openid_config: dict[str, Any],
+    ) -> None:
+        """Token with name and email claims populates TokenClaims fields."""
+        token = create_test_token(
+            extra_claims={
+                "name": "Test User",
+                "email": "test@example.com",
+            }
+        )
+        jwks = create_jwks_response()
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client.get.side_effect = [
+                self._create_response_mock(openid_config),
+                self._create_response_mock(jwks),
+            ]
+
+            claims = await validator.validate_token(token)
+
+        assert claims.name == "Test User"
+        assert claims.email == "test@example.com"
+
+    @pytest.mark.asyncio
+    async def test_validate_token_name_and_email_default_to_none(
+        self,
+        validator: JWTValidator,
+        mock_probe: MagicMock,
+        openid_config: dict[str, Any],
+    ) -> None:
+        """Token without name/email claims defaults those fields to None."""
+        token = create_test_token()
+        jwks = create_jwks_response()
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client.get.side_effect = [
+                self._create_response_mock(openid_config),
+                self._create_response_mock(jwks),
+            ]
+
+            claims = await validator.validate_token(token)
+
+        assert claims.name is None
+        assert claims.email is None
+
+    @pytest.mark.asyncio
     async def test_probe_jwks_fetched_called(
         self,
         validator: JWTValidator,

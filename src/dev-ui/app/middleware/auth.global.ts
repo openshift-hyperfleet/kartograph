@@ -7,7 +7,7 @@
 export default defineNuxtRouteMiddleware(async (to) => {
   // Always allow the callback page through – it needs to process the
   // authorization code before we have a session.
-  if (to.path === '/auth/callback') {
+  if (to.path === '/auth/callback' || to.path === '/auth/silent-renew') {
     return
   }
 

@@ -8,7 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from iam.dependencies.multi_tenant_mode import require_multi_tenant_mode
 from iam.dependencies.tenant import get_tenant_service
-from iam.dependencies.user import get_authenticated_user, get_current_user
+from iam.dependencies.user import (
+    get_authenticated_user,
+    get_current_user,
+    get_user_repository,
+)
+from iam.infrastructure.user_repository import UserRepository
 from iam.application.services import TenantService
 from iam.application.value_objects import AuthenticatedUser, CurrentUser
 from iam.domain.exceptions import CannotRemoveLastAdminError
@@ -265,25 +270,12 @@ async def add_tenant_member(
     request: AddTenantMemberRequest,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[TenantService, Depends(get_tenant_service)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> TenantMemberResponse:
     """Add a member to a tenant.
 
-    Requires the caller to have administrate permission on the tenant.
-
-    Args:
-        tenant_id: Tenant ID (ULID format)
-        request: Add member request with user_id and role
-        current_user: Current authenticated user
-        service: Tenant service for orchestration
-
-    Returns:
-        TenantMemberResponse with the added member details
-
-    Raises:
-        HTTPException: 400 if tenant ID or user ID is invalid
-        HTTPException: 403 if caller is not tenant admin
-        HTTPException: 404 if tenant not found
-        HTTPException: 500 for unexpected errors
+    Accepts either ``user_id`` (UUID) or ``email``. When email is provided,
+    the user is looked up globally — they must have signed in at least once.
     """
     # Validate tenant ID format
     try:
@@ -294,14 +286,26 @@ async def add_tenant_member(
             detail="Invalid tenant ID format",
         )
 
-    # Validate user ID format
-    try:
-        user_id_obj = UserId.from_string(request.user_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid user ID format",
-        )
+    # Resolve user identity from email or user_id
+    if request.email:
+        user = await user_repo.get_by_email(request.email)
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    f'No user with email "{request.email}" has signed in yet. '
+                    "They must log in at least once before they can be added."
+                ),
+            )
+        user_id_obj = user.id
+    else:
+        try:
+            user_id_obj = UserId.from_string(request.user_id)  # type: ignore[arg-type]
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid user ID format",
+            )
 
     try:
         await service.add_member(
@@ -311,7 +315,7 @@ async def add_tenant_member(
             requesting_user_id=current_user.user_id,
         )
         return TenantMemberResponse(
-            user_id=request.user_id,
+            user_id=user_id_obj.value,
             role=request.role.value,
         )
 

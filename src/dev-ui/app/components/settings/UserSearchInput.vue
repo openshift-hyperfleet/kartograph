@@ -147,7 +147,7 @@ watch(() => props.modelValue, (val) => {
           <Input
             v-model="searchQuery"
             placeholder="Search users..."
-            class="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm shadow-none outline-none ring-0 focus-visible:ring-0 focus-visible:shadow-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            class="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm shadow-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             @keydown="handleKeydown"
           />
         </div>

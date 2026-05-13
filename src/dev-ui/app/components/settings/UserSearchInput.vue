@@ -86,6 +86,7 @@ const debouncedSearch = useDebounceFn(doSearch, 300)
 
 watch(searchQuery, (val) => {
   if (val.length < 2) {
+    searchToken++
     searchResults.value = []
     hasSearched.value = false
     return

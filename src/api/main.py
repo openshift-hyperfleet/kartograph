@@ -141,11 +141,10 @@ class _SessionedIngestionEventHandler:
 
         async with self._session_factory() as session:
             outbox = OutboxRepository(session=session)
-            # Adapter registry is empty; unknown adapter type will raise ValueError,
-            # causing IngestionFailed to be emitted by the handler.
-            # Real adapters are registered here as the platform evolves.
+            from ingestion.infrastructure.adapters.github import GitHubAdapter
+
             ingestion_service = IngestionService(
-                adapter_registry={},
+                adapter_registry={"github": GitHubAdapter()},
                 work_dir=_JOB_PACKAGE_WORK_DIR,
             )
             ingestion_handler = IngestionEventHandler(

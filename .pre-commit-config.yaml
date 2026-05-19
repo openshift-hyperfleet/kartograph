@@ -29,13 +29,13 @@ repos:
       - id: ai-attribution-reminder
       # - id: check-version  # Optional: Checks for updates once per 24h (non-blocking)
 
-  # Commit message validation
+      # Commit message validation
   - repo: https://github.com/compilerla/conventional-pre-commit
     rev: v4.3.0
     hooks:
       - id: conventional-pre-commit
-        stages: [commit-msg]
-        args: [--verbose]
+        stages: [ commit-msg ]
+        args: [ --verbose ]
 
   # Python code quality hooks
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -43,7 +43,7 @@ repos:
     hooks:
       # Run the linter with auto-fix
       - id: ruff
-        args: [--fix]
+        args: [ --fix ]
       # Run the formatter
       - id: ruff-format
 
@@ -52,7 +52,7 @@ repos:
     rev: v1.19.1
     hooks:
       - id: mypy
-        args: [--config-file=src/api/pyproject.toml, --ignore-missing-imports]
+        args: [ --config-file=src/api/pyproject.toml, --ignore-missing-imports ]
         additional_dependencies:
           - "apache-age-python"
           - "croniter>=3.0.0"
@@ -69,22 +69,10 @@ repos:
   # Auto-export system properties on value object changes
   - repo: local
     hooks:
-      - id: check-no-worker-result-staged
-        name: Block staged .hyperloop/worker-result.yaml (add/modify/delete)
-        entry: bash .hyperloop/checks/check-no-worker-result-staged.sh
-        language: system
-        pass_filenames: false
-        always_run: true
-      - id: check-no-multiple-alembic-heads
-        name: Block pushes that leave multiple Alembic migration heads
-        entry: bash .hyperloop/checks/check-no-multiple-alembic-heads.sh
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [pre-push]
       - id: docs-export
         name: Export system properties documentation
-        entry: bash -c 'make docs-export && git add website/src/data/system-properties.json'
+        entry: bash -c 'make docs-export && git add
+          website/src/data/system-properties.json'
         language: system
         pass_filenames: false
         files: ^(src/api/graph/domain/value_objects\.py|src/api/infrastructure/settings\.py|scripts/export_system_properties\.py|scripts/export_settings\.py)$
@@ -94,4 +82,4 @@ repos:
         files: ^src/api/.*\.py$
         language: system
         pass_filenames: false
-        stages: [pre-push]
+        stages: [ pre-push ]

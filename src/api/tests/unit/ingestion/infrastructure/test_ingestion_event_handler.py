@@ -66,6 +66,7 @@ class _FakeIngestionService:
         adapter_type: str,
         connection_config: dict[str, str],
         credentials_path: str | None,
+        tenant_id: str | None = None,
     ) -> JobPackageId:
         self.calls.append(
             {
@@ -294,6 +295,7 @@ class TestIngestionEventHandlerOutboxIsolation:
                 adapter_type: str,
                 connection_config: dict[str, str],
                 credentials_path: str | None,
+                tenant_id: str | None = None,
             ) -> JobPackageId:
                 raise asyncio.CancelledError()
 

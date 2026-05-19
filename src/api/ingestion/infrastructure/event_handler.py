@@ -82,6 +82,7 @@ class IngestionEventHandler:
                 adapter_type=payload["adapter_type"],
                 connection_config=payload.get("connection_config", {}),
                 credentials_path=payload.get("credentials_path"),
+                tenant_id=payload.get("tenant_id"),
             )
         except asyncio.CancelledError:
             # Propagate task cancellation so the event loop can shut down

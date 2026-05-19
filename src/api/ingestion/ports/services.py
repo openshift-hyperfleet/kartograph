@@ -22,6 +22,7 @@ class IIngestionService(Protocol):
         adapter_type: str,
         connection_config: dict[str, str],
         credentials_path: str | None,
+        tenant_id: str | None = None,
     ) -> JobPackageId:
         """Run the ingestion pipeline.
 

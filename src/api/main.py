@@ -142,10 +142,34 @@ class _SessionedIngestionEventHandler:
         async with self._session_factory() as session:
             outbox = OutboxRepository(session=session)
             from ingestion.infrastructure.adapters.github import GitHubAdapter
+            from infrastructure.settings import get_management_settings
+            from management.infrastructure.repositories.fernet_secret_store import (
+                FernetSecretStore,
+            )
+
+            credential_reader = None
+            if payload.get("credentials_path"):
+                mgmt_settings = get_management_settings()
+                encryption_keys = [
+                    key.strip()
+                    for key in mgmt_settings.encryption_key.get_secret_value().split(
+                        ","
+                    )
+                    if key.strip()
+                ]
+                if not encryption_keys:
+                    raise RuntimeError(
+                        "No valid encryption keys configured for FernetSecretStore"
+                    )
+                credential_reader = FernetSecretStore(
+                    session=session,
+                    encryption_keys=encryption_keys,
+                )
 
             ingestion_service = IngestionService(
                 adapter_registry={"github": GitHubAdapter()},
                 work_dir=_JOB_PACKAGE_WORK_DIR,
+                credential_reader=credential_reader,
             )
             ingestion_handler = IngestionEventHandler(
                 ingestion_service=ingestion_service,

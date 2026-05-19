@@ -7,8 +7,12 @@ The service is stateless; all context flows via method parameters.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ingestion.ports.adapters import IDatasourceAdapter
+
+if TYPE_CHECKING:
+    from shared_kernel.credential_reader import ICredentialReader
 from shared_kernel.job_package.builder import JobPackageBuilder
 from shared_kernel.job_package.value_objects import (
     JobPackageId,
@@ -39,9 +43,11 @@ class IngestionService:
         self,
         adapter_registry: dict[str, IDatasourceAdapter],
         work_dir: Path,
+        credential_reader: "ICredentialReader | None" = None,
     ) -> None:
         self._adapter_registry = adapter_registry
         self._work_dir = work_dir
+        self._credential_reader = credential_reader
 
     async def run(
         self,
@@ -51,6 +57,7 @@ class IngestionService:
         adapter_type: str,
         connection_config: dict[str, str],
         credentials_path: str | None,
+        tenant_id: str | None = None,
     ) -> JobPackageId:
         """Run the ingestion pipeline for a data source sync.
 
@@ -60,8 +67,8 @@ class IngestionService:
             knowledge_graph_id: The knowledge graph this feeds
             adapter_type: The adapter type string (e.g. "github")
             connection_config: Key-value adapter configuration
-            credentials_path: Vault path for credentials (currently unused;
-                future implementations will decrypt and pass credentials)
+            credentials_path: Path for encrypted credentials
+            tenant_id: Tenant ID for credential decryption scoping
 
         Returns:
             The JobPackageId of the produced ZIP archive
@@ -78,9 +85,17 @@ class IngestionService:
                 f"Registered adapters: {list(self._adapter_registry.keys())}"
             )
 
-        # TODO: decrypt credentials from credentials_path when secret store
-        # is injected. Currently an empty dict is passed as placeholder.
         credentials: dict[str, str] = {}
+        if credentials_path:
+            if not tenant_id:
+                raise ValueError(
+                    "tenant_id is required when credentials_path is provided"
+                )
+            if self._credential_reader is None:
+                raise RuntimeError("credential_reader is not configured")
+            credentials = await self._credential_reader.retrieve(
+                credentials_path, tenant_id
+            )
 
         # Extract raw items from the adapter using the new ExtractionResult API
         result = await adapter.extract(

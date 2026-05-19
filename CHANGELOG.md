@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.37.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.36.1...v3.37.0) (2026-05-19)
+
+
+### Features
+
+* add spec and develop skills with workflows ([23d16fb](https://github.com/openshift-hyperfleet/kartograph/commit/23d16fb213697a16469f7602af0bffe6c55c26b5))
+
+
+### Bug Fixes
+
+* **auth:** remove offline_access scope from dev-ui OIDC config ([b014e1e](https://github.com/openshift-hyperfleet/kartograph/commit/b014e1e6ed1d75792237f91480ba6bce7feb0108))
+* **ingestion:** parse repo_url in GitHub adapter and add sync run logs ([cfef29f](https://github.com/openshift-hyperfleet/kartograph/commit/cfef29f85575cff7fba0debc24b5b268485154e0))
+* **ingestion:** register GitHub adapter in ingestion service ([b03314a](https://github.com/openshift-hyperfleet/kartograph/commit/b03314aa1cd2c5a23d93b80f1d0eac33b1776155))
+
 ## [3.36.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.36.0...v3.36.1) (2026-05-13)
 
 

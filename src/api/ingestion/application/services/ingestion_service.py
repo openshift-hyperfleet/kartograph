@@ -86,7 +86,13 @@ class IngestionService:
             )
 
         credentials: dict[str, str] = {}
-        if credentials_path and tenant_id and self._credential_reader:
+        if credentials_path:
+            if not tenant_id:
+                raise ValueError(
+                    "tenant_id is required when credentials_path is provided"
+                )
+            if self._credential_reader is None:
+                raise RuntimeError("credential_reader is not configured")
             credentials = await self._credential_reader.retrieve(
                 credentials_path, tenant_id
             )

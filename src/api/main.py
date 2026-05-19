@@ -148,7 +148,15 @@ class _SessionedIngestionEventHandler:
             )
 
             mgmt_settings = get_management_settings()
-            encryption_keys = mgmt_settings.encryption_key.get_secret_value().split(",")
+            encryption_keys = [
+                key.strip()
+                for key in mgmt_settings.encryption_key.get_secret_value().split(",")
+                if key.strip()
+            ]
+            if not encryption_keys:
+                raise RuntimeError(
+                    "No valid encryption keys configured for FernetSecretStore"
+                )
             credential_reader = FernetSecretStore(
                 session=session,
                 encryption_keys=encryption_keys,

@@ -676,7 +676,7 @@ function startPolling() {
     if (!hasActiveSyncs.value) {
       stopPolling()
     }
-  }, 5000)
+  }, 3000)
 }
 
 onMounted(async () => {
@@ -931,6 +931,7 @@ async function viewLogs(ds: DataSourceItem, run: SyncRun) {
   logsError.value = null
   logSheetOpen.value = true
   await fetchRunLogs(ds.id, run.id)
+  await loadDataSources()
 }
 
 async function fetchRunLogs(dsId: string, runId: string) {

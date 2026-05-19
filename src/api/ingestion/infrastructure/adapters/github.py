@@ -77,6 +77,49 @@ class GitHubAdapter:
     def __init__(self, http_client: httpx.AsyncClient | None = None) -> None:
         self._http_client = http_client
 
+    @staticmethod
+    def _parse_connection_config(
+        config: dict[str, str],
+    ) -> tuple[str, str, str]:
+        """Parse connection_config into (owner, repo, branch).
+
+        Accepts either a ``repo_url`` key (parsed from a GitHub URL) or
+        explicit ``owner``/``repo``/``branch`` keys.
+        """
+        if "repo_url" in config:
+            url = config["repo_url"].rstrip("/")
+            # Strip trailing .git
+            if url.endswith(".git"):
+                url = url[:-4]
+            # Handle https://github.com/owner/repo[/tree/branch/...]
+            parts = url.split("/")
+            try:
+                gh_idx = next(
+                    i
+                    for i, p in enumerate(parts)
+                    if p in ("github.com", "www.github.com")
+                )
+            except StopIteration:
+                raise ValueError(f"Cannot parse GitHub URL: {config['repo_url']}")
+            if len(parts) < gh_idx + 3:
+                raise ValueError(
+                    f"GitHub URL must include owner and repo: {config['repo_url']}"
+                )
+            owner = parts[gh_idx + 1]
+            repo = parts[gh_idx + 2]
+            branch = config.get("branch", "main")
+            # Extract branch from /tree/branch-name if present
+            if len(parts) > gh_idx + 4 and parts[gh_idx + 3] == "tree":
+                branch = parts[gh_idx + 4]
+            return owner, repo, branch
+
+        if "owner" in config and "repo" in config:
+            return config["owner"], config["repo"], config.get("branch", "main")
+
+        raise ValueError(
+            "connection_config must include either 'repo_url' or 'owner'+'repo' keys"
+        )
+
     async def extract(
         self,
         connection_config: dict[str, str],
@@ -94,23 +137,27 @@ class GitHubAdapter:
         the checkpoint commit SHA, and fetches only their content.
 
         Args:
-            connection_config: Repository parameters. Expected keys:
-                - ``owner``: GitHub organisation or user name.
-                - ``repo``: Repository name.
-                - ``branch``: Branch to extract (default: "main").
+            connection_config: Repository parameters. Accepts either:
+                - ``repo_url``: Full GitHub URL (e.g. ``https://github.com/owner/repo``)
+                - Or explicit keys: ``owner``, ``repo``, ``branch`` (default: "main")
             credentials: Decrypted GitHub credentials. Expected keys:
-                - ``token``: A GitHub personal access token (PAT) or App token.
+                - ``token`` or ``access_token``: A GitHub PAT or App token.
             checkpoint: Previous checkpoint containing ``commit_sha``, or None.
             sync_mode: Controls whether to run a full refresh or incremental.
 
         Returns:
             ExtractionResult with changeset entries, content blobs, and the
             updated checkpoint (new HEAD commit SHA).
+
+        Raises:
+            ValueError: If the repo URL cannot be parsed or required keys are missing.
         """
-        owner = connection_config["owner"]
-        repo = connection_config["repo"]
-        branch = connection_config.get("branch", "main")
-        token = credentials["token"]
+        owner, repo, branch = self._parse_connection_config(connection_config)
+        token = credentials.get("token") or credentials.get("access_token", "")
+        if not token:
+            raise ValueError(
+                "GitHub credentials must include 'token' or 'access_token'"
+            )
 
         use_full_refresh = (
             sync_mode == SyncMode.FULL_REFRESH

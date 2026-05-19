@@ -112,14 +112,16 @@ class SyncLifecycleHandler:
         now = datetime.now(UTC)
 
         if event_type in _FAILURE_EVENTS:
+            error_msg = payload.get("error", "Unknown error")
             sync_run.status = "failed"
-            sync_run.error = payload.get("error", "Unknown error")
+            sync_run.error = error_msg
             sync_run.completed_at = now
+            sync_run.logs.append(f"[{now.isoformat()}] {event_type}: {error_msg}")
 
         elif event_type == "MutationsApplied":
             sync_run.status = "completed"
             sync_run.completed_at = now
-            # Also update DataSource.last_sync_at
+            sync_run.logs.append(f"[{now.isoformat()}] Sync completed")
             await self._update_data_source_last_sync_at(
                 data_source_id=sync_run.data_source_id,
                 now=now,
@@ -130,6 +132,9 @@ class SyncLifecycleHandler:
             if new_status is None:
                 return
             sync_run.status = new_status
+            sync_run.logs.append(
+                f"[{now.isoformat()}] {event_type}: status → {new_status}"
+            )
 
         await self._sync_run_repo.save(sync_run)
         await self._session.commit()

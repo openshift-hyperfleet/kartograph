@@ -126,6 +126,43 @@ The system SHALL track the execution status of each sync operation.
 - WHEN the data source is deleted
 - THEN all associated sync runs are cascade-deleted
 
+### Requirement: Adapter Connection Config Normalization
+Each adapter SHALL accept user-friendly connection parameters and normalize them internally.
+
+#### Scenario: GitHub adapter accepts repository URL
+- GIVEN a GitHub data source with connection_config containing `repo_url` (e.g. `https://github.com/owner/repo`)
+- WHEN ingestion runs
+- THEN the adapter parses the URL into owner, repo, and branch (defaulting to "main")
+- AND URLs with `/tree/branch-name` suffixes extract the branch
+
+#### Scenario: GitHub adapter accepts explicit parameters
+- GIVEN a GitHub data source with connection_config containing `owner`, `repo`, and optionally `branch`
+- WHEN ingestion runs
+- THEN the adapter uses the explicit values directly
+
+#### Scenario: GitHub adapter accepts flexible credential keys
+- GIVEN credentials containing either `token` or `access_token`
+- WHEN ingestion runs
+- THEN the adapter accepts either key for the GitHub PAT
+
+#### Scenario: Invalid connection config
+- GIVEN a connection_config that cannot be parsed (missing both `repo_url` and `owner`/`repo`)
+- WHEN ingestion runs
+- THEN the sync run fails with a clear error message
+
+### Requirement: Sync Run Logs
+The system SHALL capture log entries for sync run lifecycle transitions.
+
+#### Scenario: Status transition logging
+- GIVEN a sync run in progress
+- WHEN a lifecycle event is processed (e.g. SyncStarted, JobPackageProduced)
+- THEN a timestamped log entry is appended to the sync run
+
+#### Scenario: Failure logging
+- GIVEN a sync run that fails
+- WHEN the failure event is processed
+- THEN the error message is captured in the sync run logs
+
 ### Requirement: Permission Inheritance
 Data source permissions SHALL be fully inherited from the parent knowledge graph.
 

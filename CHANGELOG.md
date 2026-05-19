@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.37.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.37.0...v3.37.1) (2026-05-19)
+
+
+### Bug Fixes
+
+* **ingestion:** wire GitHub adapter, credential reader, sync run logs, and UI polling ([#640](https://github.com/openshift-hyperfleet/kartograph/issues/640)) ([2909fd1](https://github.com/openshift-hyperfleet/kartograph/commit/2909fd127710708ae1a0b80c99fea0c8a7b9c65b))
+
 ## [3.37.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.36.1...v3.37.0) (2026-05-19)
 
 

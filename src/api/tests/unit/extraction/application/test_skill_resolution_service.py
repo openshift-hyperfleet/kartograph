@@ -34,8 +34,12 @@ class TestExtractionSkillResolutionService:
             mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
         )
 
-        assert "schema_modeling" in resolved
-        assert "prepopulation_validation" in resolved
+        assert "schema_modeling" in resolved.skills
+        assert "prepopulation_validation" in resolved.skills
+        assert "capabilities_intake" in resolved.skills
+        assert "goal" in resolved.system_prompt.lower()
+        assert len(resolved.prompt_hierarchy) > 0
+        assert len(resolved.guardrails) > 0
 
     async def test_extraction_mode_uses_extraction_defaults(self):
         service = ExtractionSkillResolutionService(
@@ -47,8 +51,12 @@ class TestExtractionSkillResolutionService:
             mode=ExtractionSessionMode.EXTRACTION_OPERATIONS,
         )
 
-        assert "job_setup" in resolved
-        assert "minor_edits" in resolved
+        assert "job_setup" in resolved.skills
+        assert "minor_edits" in resolved.skills
+        assert "schema_edits_secondary" in resolved.skills
+        assert "extraction" in resolved.system_prompt.lower()
+        assert len(resolved.prompt_hierarchy) > 0
+        assert len(resolved.guardrails) > 0
 
     async def test_kg_overrides_replace_matching_template_and_append_new(self):
         repo = _InMemorySkillOverrideRepository(
@@ -69,8 +77,8 @@ class TestExtractionSkillResolutionService:
             mode=ExtractionSessionMode.EXTRACTION_OPERATIONS,
         )
 
-        assert resolved["job_setup"] == "KG-specific job setup instructions"
-        assert resolved["custom_review"] == "Custom review flow"
+        assert resolved.skills["job_setup"] == "KG-specific job setup instructions"
+        assert resolved.skills["custom_review"] == "Custom review flow"
 
     async def test_override_merge_is_deterministic(self):
         repo = _InMemorySkillOverrideRepository(
@@ -92,5 +100,5 @@ class TestExtractionSkillResolutionService:
         )
 
         # Additional override keys are merged in sorted order for determinism.
-        assert list(resolved.keys())[-2:] == ["a_first", "z_last"]
+        assert list(resolved.skills.keys())[-2:] == ["a_first", "z_last"]
 

@@ -55,6 +55,39 @@ class _InMemoryAgentSessionRepository:
         return sorted(sessions, key=lambda s: s.updated_at, reverse=True)
 
 
+class _StaticSkillResolutionService:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, ExtractionSessionMode]] = []
+
+    async def resolve_for_session(
+        self,
+        knowledge_graph_id: str,
+        mode: ExtractionSessionMode,
+    ):
+        self.calls.append((knowledge_graph_id, mode))
+        if mode == ExtractionSessionMode.SCHEMA_BOOTSTRAP:
+            return type(
+                "_Resolved",
+                (),
+                {
+                    "system_prompt": "Bootstrap system prompt",
+                    "prompt_hierarchy": ("platform", "mode"),
+                    "guardrails": ("never leak credentials",),
+                    "skills": {"schema_modeling": "bootstrap schema guidance"},
+                },
+            )()
+        return type(
+            "_Resolved",
+            (),
+            {
+                "system_prompt": "Operations system prompt",
+                "prompt_hierarchy": ("platform", "operations"),
+                "guardrails": ("mutation logs only",),
+                "skills": {"job_setup": "operations setup guidance"},
+            },
+        )()
+
+
 @pytest.mark.asyncio
 class TestExtractionAgentSessionService:
     async def test_reuses_active_session_for_same_scope(self):
@@ -158,4 +191,24 @@ class TestExtractionAgentSessionService:
 
         assert len(sessions) == 2
         assert any(session.id == first.id and session.archived_at is not None for session in sessions)
+
+    async def test_new_session_initializes_runtime_context_from_skill_resolution(self):
+        repo = _InMemoryAgentSessionRepository()
+        skill_resolution = _StaticSkillResolutionService()
+        service = ExtractionAgentSessionService(
+            repository=repo,
+            skill_resolution_service=skill_resolution,
+        )
+
+        session = await service.get_or_create_active_session(
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+        )
+
+        assert "agent_configuration" in session.runtime_context
+        config = session.runtime_context["agent_configuration"]
+        assert config["system_prompt"] == "Bootstrap system prompt"
+        assert config["skills"]["schema_modeling"] == "bootstrap schema guidance"
+        assert skill_resolution.calls == [("kg-1", ExtractionSessionMode.SCHEMA_BOOTSTRAP)]
 

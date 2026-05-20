@@ -13,7 +13,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.domain.aggregates import KnowledgeGraph
-from management.domain.value_objects import KnowledgeGraphId, OntologyConfig
+from management.domain.value_objects import (
+    KnowledgeGraphId,
+    OntologyConfig,
+    WorkspaceMode,
+)
 from management.infrastructure.models import KnowledgeGraphModel
 from management.infrastructure.observability import (
     DefaultKnowledgeGraphRepositoryProbe,
@@ -67,6 +71,7 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
             if model:
                 model.name = knowledge_graph.name
                 model.description = knowledge_graph.description
+                model.workspace_mode = knowledge_graph.workspace_mode.value
                 model.updated_at = knowledge_graph.updated_at
             else:
                 model = KnowledgeGraphModel(
@@ -75,6 +80,7 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
                     workspace_id=knowledge_graph.workspace_id,
                     name=knowledge_graph.name,
                     description=knowledge_graph.description,
+                    workspace_mode=knowledge_graph.workspace_mode.value,
                     created_at=knowledge_graph.created_at,
                     updated_at=knowledge_graph.updated_at,
                 )
@@ -219,4 +225,5 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
             created_at=model.created_at,
             updated_at=model.updated_at,
             ontology=ontology,
+            workspace_mode=WorkspaceMode(model.workspace_mode),
         )

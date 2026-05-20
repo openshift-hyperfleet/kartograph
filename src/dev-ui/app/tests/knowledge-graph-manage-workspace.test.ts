@@ -36,4 +36,23 @@ describe('Knowledge Graph Manage Workspace - mode-aware controls', () => {
     expect(manageWorkspaceVue).toContain('active_schema_bootstrap_session_id')
     expect(manageWorkspaceVue).toContain('active_extraction_operations_session_id')
   })
+
+  it('keeps extraction conversation panel visible in extraction mode', () => {
+    expect(manageWorkspaceVue).toContain('Extraction Conversation')
+    expect(manageWorkspaceVue).toContain('message_history')
+    expect(manageWorkspaceVue).toContain('statusProjection.workspace_mode === \'extraction_operations\'')
+  })
+
+  it('supports explicit Clear chat reset for extraction session', () => {
+    expect(manageWorkspaceVue).toContain('clearChat')
+    expect(manageWorkspaceVue).toContain('/sessions/extraction_operations/clear-chat')
+    expect(manageWorkspaceVue).toContain('Clear chat')
+  })
+
+  it('provides tabbed lower operations area for extraction workflows', () => {
+    expect(manageWorkspaceVue).toContain('Operations Workspace')
+    expect(manageWorkspaceVue).toContain('TabsTrigger value="extraction-jobs"')
+    expect(manageWorkspaceVue).toContain('TabsTrigger value="manual-mutations"')
+    expect(manageWorkspaceVue).toContain('TabsTrigger value="run-logs"')
+  })
 })

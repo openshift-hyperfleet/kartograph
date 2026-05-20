@@ -1468,19 +1468,8 @@ describe('Knowledge Graphs page — edit and delete structural checks', () => {
     'utf-8',
   )
 
-  it('declares editDialogOpen state', () => {
-    expect(kgVue).toMatch(/editDialogOpen/)
-  })
-
   it('declares deleteDialogOpen state', () => {
     expect(kgVue).toMatch(/deleteDialogOpen/)
-  })
-
-  it('calls PATCH /management/knowledge-graphs/ in handleEdit', () => {
-    // Check that both PATCH method and knowledge-graphs URL path appear in the file
-    // (they may be on separate lines in multi-line API call syntax)
-    expect(kgVue).toContain("method: 'PATCH'")
-    expect(kgVue).toContain('/management/knowledge-graphs/')
   })
 
   it('calls DELETE /management/knowledge-graphs/ in handleDelete', () => {
@@ -1488,10 +1477,6 @@ describe('Knowledge Graphs page — edit and delete structural checks', () => {
     // (they may be on separate lines in multi-line API call syntax)
     expect(kgVue).toContain("method: 'DELETE'")
     expect(kgVue).toContain('/management/knowledge-graphs/')
-  })
-
-  it('edit dialog is present in the template', () => {
-    expect(kgVue).toMatch(/editDialogOpen|Edit Knowledge Graph/)
   })
 
   it('delete AlertDialog is present in the template', () => {
@@ -1502,13 +1487,30 @@ describe('Knowledge Graphs page — edit and delete structural checks', () => {
     expect(kgVue).toMatch(/data sources?/i)
   })
 
-  it('handleEdit calls loadKnowledgeGraphs after success', () => {
-    expect(kgVue).toContain('handleEdit')
-    expect(kgVue).toContain('loadKnowledgeGraphs')
-  })
-
   it('handleDelete calls loadKnowledgeGraphs after success', () => {
     expect(kgVue).toContain('handleDelete')
+  })
+})
+
+describe('Knowledge Graphs page - manage/query/delete row action set', () => {
+  const kgVue = readFileSync(
+    resolve(__dirname, '../pages/knowledge-graphs/index.vue'),
+    'utf-8',
+  )
+
+  it('renders Manage, Query, and Delete row actions', () => {
+    expect(kgVue).toContain('Manage')
+    expect(kgVue).toContain('Query')
+    expect(kgVue).toContain('Delete')
+  })
+
+  it('does not render legacy Add Data Source or Edit row buttons', () => {
+    expect(kgVue).not.toMatch(/<Button size="sm" variant="outline"[\s\S]*Add Data Source/)
+    expect(kgVue).not.toMatch(/<Button size="sm" variant="outline"[\s\S]*Edit/)
+  })
+
+  it('wires Manage action to knowledge graph manage workspace route', () => {
+    expect(kgVue).toContain('navigateTo(`/knowledge-graphs/${kg.id}/manage`)')
   })
 })
 

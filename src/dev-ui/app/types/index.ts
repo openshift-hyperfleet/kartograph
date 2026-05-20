@@ -103,6 +103,8 @@ export interface TypeDefinition {
   description: string
   required_properties: string[]
   optional_properties: string[]
+  prepopulated?: boolean
+  instance_count?: number
 }
 
 export interface SchemaLabelsResponse {

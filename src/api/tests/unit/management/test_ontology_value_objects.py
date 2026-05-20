@@ -33,6 +33,8 @@ class TestNodeTypeDefinition:
         assert nt.description == ""
         assert nt.required_properties == ()
         assert nt.optional_properties == ()
+        assert nt.prepopulated is False
+        assert nt.prepopulated_instance_count == 0
 
     def test_required_properties_default_empty(self):
         """required_properties defaults to an empty tuple."""
@@ -94,6 +96,17 @@ class TestNodeTypeDefinition:
         assert "description" in d
         assert "required_properties" in d
         assert "optional_properties" in d
+        assert "prepopulated" in d
+        assert "prepopulated_instance_count" in d
+
+    def test_prepopulated_instance_count_must_be_non_negative(self):
+        """NodeTypeDefinition should reject negative prepopulated instance counts."""
+        with pytest.raises(ValueError, match="prepopulated_instance_count"):
+            NodeTypeDefinition(
+                label="Repo",
+                prepopulated=True,
+                prepopulated_instance_count=-1,
+            )
 
 
 class TestEdgeTypeDefinition:

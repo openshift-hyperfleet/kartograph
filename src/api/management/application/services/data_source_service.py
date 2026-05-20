@@ -455,6 +455,86 @@ class DataSourceService:
 
         return ds
 
+    async def refresh_commit_references(
+        self,
+        user_id: str,
+        ds_id: str,
+        tracked_branch_head_commit: str,
+        clone_head_commit: str | None = None,
+    ) -> DataSource:
+        """Persist refreshed source commit references for a data source.
+
+        Requires MANAGE permission on the data source. This action updates
+        tracked and clone commit references and initializes extraction baseline
+        on first refresh so per-source diff counts can be computed immediately.
+        """
+        has_manage = await self._check_permission(
+            user_id=user_id,
+            resource_type=ResourceType.DATA_SOURCE,
+            resource_id=ds_id,
+            permission=Permission.MANAGE,
+        )
+        if not has_manage:
+            self._probe.permission_denied(
+                user_id=user_id,
+                resource_id=ds_id,
+                permission=Permission.MANAGE,
+            )
+            raise UnauthorizedError(
+                f"User {user_id} lacks manage permission on data source {ds_id}"
+            )
+
+        ds = await self._ds_repo.get_by_id(DataSourceId(value=ds_id))
+        if ds is None or ds.tenant_id != self._scope_to_tenant:
+            raise ValueError(f"Data source {ds_id} not found")
+
+        resolved_clone_head = clone_head_commit or tracked_branch_head_commit
+        ds.tracked_branch_head_commit = tracked_branch_head_commit
+        ds.clone_head_commit = resolved_clone_head
+        if ds.last_extraction_baseline_commit is None:
+            ds.last_extraction_baseline_commit = tracked_branch_head_commit
+
+        await self._ds_repo.save(ds)
+        await self._session.commit()
+        self._probe.data_source_updated(ds_id=ds_id, name=ds.name)
+        return ds
+
+    async def adopt_tracked_head_as_baseline(
+        self,
+        user_id: str,
+        ds_id: str,
+    ) -> DataSource:
+        """Move extraction baseline to the currently tracked branch head."""
+        has_manage = await self._check_permission(
+            user_id=user_id,
+            resource_type=ResourceType.DATA_SOURCE,
+            resource_id=ds_id,
+            permission=Permission.MANAGE,
+        )
+        if not has_manage:
+            self._probe.permission_denied(
+                user_id=user_id,
+                resource_id=ds_id,
+                permission=Permission.MANAGE,
+            )
+            raise UnauthorizedError(
+                f"User {user_id} lacks manage permission on data source {ds_id}"
+            )
+
+        ds = await self._ds_repo.get_by_id(DataSourceId(value=ds_id))
+        if ds is None or ds.tenant_id != self._scope_to_tenant:
+            raise ValueError(f"Data source {ds_id} not found")
+        if not ds.tracked_branch_head_commit:
+            raise ValueError(
+                "Cannot adopt tracked branch head as baseline before refs are refreshed"
+            )
+
+        ds.last_extraction_baseline_commit = ds.tracked_branch_head_commit
+        await self._ds_repo.save(ds)
+        await self._session.commit()
+        self._probe.data_source_updated(ds_id=ds_id, name=ds.name)
+        return ds
+
     async def delete(
         self,
         user_id: str,

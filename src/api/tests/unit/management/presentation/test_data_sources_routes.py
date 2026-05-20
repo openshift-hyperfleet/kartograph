@@ -51,6 +51,12 @@ def mock_diff_summary_service() -> AsyncMock:
 
 
 @pytest.fixture
+def mock_commit_reference_service() -> AsyncMock:
+    """Mock GitCommitReferenceService for commit-ref route testing."""
+    return AsyncMock()
+
+
+@pytest.fixture
 def mock_current_user() -> CurrentUser:
     """Mock CurrentUser for authentication."""
     return CurrentUser(
@@ -102,12 +108,14 @@ def test_client(
     mock_ds_service: AsyncMock,
     mock_sync_run_repo: AsyncMock,
     mock_diff_summary_service: AsyncMock,
+    mock_commit_reference_service: AsyncMock,
     mock_current_user: CurrentUser,
 ) -> TestClient:
     """Create TestClient with mocked dependencies."""
     from iam.dependencies.user import get_current_user
     from management.dependencies.data_source import (
         get_data_source_service,
+        get_git_commit_reference_service,
         get_git_diff_summary_service,
         get_sync_run_repository,
     )
@@ -119,6 +127,9 @@ def test_client(
     app.dependency_overrides[get_sync_run_repository] = lambda: mock_sync_run_repo
     app.dependency_overrides[get_git_diff_summary_service] = (
         lambda: mock_diff_summary_service
+    )
+    app.dependency_overrides[get_git_commit_reference_service] = (
+        lambda: mock_commit_reference_service
     )
     app.dependency_overrides[get_current_user] = lambda: mock_current_user
 
@@ -794,6 +805,90 @@ class TestDataSourceDiffSummaryRoute:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_diff_summary_service.build_summary.assert_not_called()
+
+
+class TestDataSourceCommitReferenceRoutes:
+    """Tests for commit-reference refresh/baseline endpoints."""
+
+    def test_refresh_commit_references_returns_updated_data_source(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_commit_reference_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Refresh endpoint should return updated commit references."""
+        refreshed = sample_data_source
+        refreshed.clone_head_commit = "aaa"
+        refreshed.tracked_branch_head_commit = "aaa"
+        refreshed.last_extraction_baseline_commit = "aaa"
+        mock_ds_service.get.return_value = sample_data_source
+        mock_commit_reference_service.resolve_tracked_head_commit.return_value = "aaa"
+        mock_ds_service.refresh_commit_references.return_value = refreshed
+
+        response = test_client.post(
+            f"/management/data-sources/{sample_data_source.id.value}/commit-refs/refresh"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["clone_head_commit"] == "aaa"
+        assert payload["tracked_branch_head_commit"] == "aaa"
+        assert payload["last_extraction_baseline_commit"] == "aaa"
+
+    def test_refresh_commit_references_returns_404_when_inaccessible(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_commit_reference_service: AsyncMock,
+    ) -> None:
+        """Refresh endpoint should return 404 if DS not found/authorized."""
+        mock_ds_service.get.return_value = None
+
+        response = test_client.post(
+            "/management/data-sources/01JPQRST1234567890ABCDEFDS/commit-refs/refresh"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_ds_service.refresh_commit_references.assert_not_called()
+        mock_commit_reference_service.resolve_tracked_head_commit.assert_not_called()
+
+    def test_adopt_tracked_head_as_baseline_returns_updated_data_source(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Adopt endpoint should return DS with baseline moved to tracked head."""
+        updated = sample_data_source
+        updated.last_extraction_baseline_commit = "tracked-head"
+        updated.tracked_branch_head_commit = "tracked-head"
+        mock_ds_service.adopt_tracked_head_as_baseline.return_value = updated
+
+        response = test_client.post(
+            f"/management/data-sources/{sample_data_source.id.value}/commit-refs/adopt-tracked-head"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["last_extraction_baseline_commit"] == "tracked-head"
+
+    def test_adopt_tracked_head_as_baseline_returns_404_for_missing_source(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Adopt endpoint should return 404 if service reports missing DS."""
+        mock_ds_service.adopt_tracked_head_as_baseline.side_effect = ValueError(
+            "Data source not found"
+        )
+
+        response = test_client.post(
+            f"/management/data-sources/{sample_data_source.id.value}/commit-refs/adopt-tracked-head"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 class TestUpdateDataSourceRoute:

@@ -1030,6 +1030,107 @@ class TestDataSourceServiceTriggerSync:
         assert ds_probe.sync_requested_calls[0]["ds_id"] == ds.id.value
 
 
+class TestDataSourceServiceCommitReferenceActions:
+    """Tests for commit reference refresh/baseline actions."""
+
+    @pytest.mark.asyncio
+    async def test_refresh_commit_references_requires_manage_permission(
+        self, service, authz, ds_repo, user_id
+    ) -> None:
+        """refresh_commit_references() must check MANAGE permission."""
+        ds = _make_ds()
+        ds_repo.seed(ds)
+        authz.grant_all()
+
+        await service.refresh_commit_references(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            tracked_branch_head_commit="abc123",
+            clone_head_commit="abc123",
+        )
+
+        authz.assert_check_called_once(
+            resource=f"data_source:{ds.id.value}",
+            permission=Permission.MANAGE,
+            subject=f"user:{user_id}",
+        )
+
+    @pytest.mark.asyncio
+    async def test_refresh_commit_references_initializes_baseline_when_empty(
+        self, service, authz, ds_repo, user_id
+    ) -> None:
+        """First commit-refresh should initialize extraction baseline."""
+        ds = _make_ds()
+        ds.last_extraction_baseline_commit = None
+        ds_repo.seed(ds)
+        authz.grant_all()
+
+        updated = await service.refresh_commit_references(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            tracked_branch_head_commit="abc123",
+            clone_head_commit="abc123",
+        )
+
+        assert updated.tracked_branch_head_commit == "abc123"
+        assert updated.clone_head_commit == "abc123"
+        assert updated.last_extraction_baseline_commit == "abc123"
+
+    @pytest.mark.asyncio
+    async def test_refresh_commit_references_preserves_existing_baseline(
+        self, service, authz, ds_repo, user_id
+    ) -> None:
+        """Refresh should not overwrite an existing extraction baseline."""
+        ds = _make_ds()
+        ds.last_extraction_baseline_commit = "baseline000"
+        ds_repo.seed(ds)
+        authz.grant_all()
+
+        updated = await service.refresh_commit_references(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            tracked_branch_head_commit="tracked999",
+            clone_head_commit="tracked999",
+        )
+
+        assert updated.last_extraction_baseline_commit == "baseline000"
+        assert updated.tracked_branch_head_commit == "tracked999"
+
+    @pytest.mark.asyncio
+    async def test_adopt_tracked_head_as_baseline_updates_baseline(
+        self, service, authz, ds_repo, user_id
+    ) -> None:
+        """adopt_tracked_head_as_baseline() should copy tracked head to baseline."""
+        ds = _make_ds()
+        ds.last_extraction_baseline_commit = "old-base"
+        ds.tracked_branch_head_commit = "new-head"
+        ds_repo.seed(ds)
+        authz.grant_all()
+
+        updated = await service.adopt_tracked_head_as_baseline(
+            user_id=user_id,
+            ds_id=ds.id.value,
+        )
+
+        assert updated.last_extraction_baseline_commit == "new-head"
+
+    @pytest.mark.asyncio
+    async def test_adopt_tracked_head_as_baseline_requires_tracked_head(
+        self, service, authz, ds_repo, user_id
+    ) -> None:
+        """adopt_tracked_head_as_baseline() should reject when tracked head missing."""
+        ds = _make_ds()
+        ds.tracked_branch_head_commit = None
+        ds_repo.seed(ds)
+        authz.grant_all()
+
+        with pytest.raises(ValueError, match="tracked branch head"):
+            await service.adopt_tracked_head_as_baseline(
+                user_id=user_id,
+                ds_id=ds.id.value,
+            )
+
+
 class TestDataSourceServiceListAllForUser:
     """Unit tests for DataSourceService.list_all_for_user."""
 

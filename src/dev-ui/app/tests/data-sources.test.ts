@@ -2023,6 +2023,59 @@ describe('Backend API Alignment — Scenario: Resource operations succeed end-to
   })
 })
 
+describe('Source commit refresh actions', () => {
+  it('refreshCommitRefs calls refresh endpoint and reloads data sources on success', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({})
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+    const refreshingCommitRefs: Record<string, boolean> = {}
+
+    async function refreshCommitRefs(dsId: string) {
+      refreshingCommitRefs[dsId] = true
+      try {
+        await apiFetch(`/management/data-sources/${dsId}/commit-refs/refresh`, {
+          method: 'POST',
+        })
+        await loadDataSources()
+      } finally {
+        refreshingCommitRefs[dsId] = false
+      }
+    }
+
+    await refreshCommitRefs('ds-1')
+    expect(apiFetch).toHaveBeenCalledWith('/management/data-sources/ds-1/commit-refs/refresh', {
+      method: 'POST',
+    })
+    expect(loadDataSources).toHaveBeenCalledOnce()
+    expect(refreshingCommitRefs['ds-1']).toBe(false)
+  })
+
+  it('adoptTrackedHeadBaseline calls adopt endpoint and reloads data on success', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({})
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+    const adoptingBaselines: Record<string, boolean> = {}
+
+    async function adoptTrackedHeadBaseline(dsId: string) {
+      adoptingBaselines[dsId] = true
+      try {
+        await apiFetch(`/management/data-sources/${dsId}/commit-refs/adopt-tracked-head`, {
+          method: 'POST',
+        })
+        await loadDataSources()
+      } finally {
+        adoptingBaselines[dsId] = false
+      }
+    }
+
+    await adoptTrackedHeadBaseline('ds-2')
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/management/data-sources/ds-2/commit-refs/adopt-tracked-head',
+      { method: 'POST' },
+    )
+    expect(loadDataSources).toHaveBeenCalledOnce()
+    expect(adoptingBaselines['ds-2']).toBe(false)
+  })
+})
+
 describe('Diff summary panel behavior', () => {
   it('detects maintenance readiness when tracked head differs from baseline', () => {
     function isMaintenanceReady(ds: {

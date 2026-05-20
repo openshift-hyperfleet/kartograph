@@ -360,6 +360,102 @@ class TestGetKnowledgeGraphWorkspaceStatusRoute:
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
+class TestWorkspaceCommandsRoutes:
+    """Tests for workspace validate/transition command endpoints."""
+
+    def _status_projection(self, kg_id: str) -> KnowledgeGraphWorkspaceStatus:
+        return KnowledgeGraphWorkspaceStatus(
+            knowledge_graph_id=kg_id,
+            workspace_mode=WorkspaceMode.SCHEMA_BOOTSTRAP,
+            readiness=WorkspaceReadinessStatus(
+                has_minimum_entity_types=True,
+                has_minimum_relationship_types=True,
+                prepopulated_types_ready=True,
+            ),
+            transition_eligible=True,
+            session_pointers=WorkspaceSessionPointers(),
+        )
+
+    def test_validate_workspace_returns_200(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        mock_kg_service.validate_workspace.return_value = self._status_projection(
+            sample_knowledge_graph.id.value
+        )
+
+        response = test_client.post(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/workspace/validate"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_validate_workspace_returns_403_when_unauthorized(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        mock_kg_service.validate_workspace.side_effect = UnauthorizedError("forbidden")
+
+        response = test_client.post(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/workspace/validate"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_transition_workspace_returns_200(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        transitioned = KnowledgeGraphWorkspaceStatus(
+            knowledge_graph_id=sample_knowledge_graph.id.value,
+            workspace_mode=WorkspaceMode.EXTRACTION_OPERATIONS,
+            readiness=WorkspaceReadinessStatus(
+                has_minimum_entity_types=True,
+                has_minimum_relationship_types=True,
+                prepopulated_types_ready=True,
+            ),
+            transition_eligible=False,
+            session_pointers=WorkspaceSessionPointers(
+                active_extraction_operations_session_id="01JPQRST1234567890ABCDEFSE"
+            ),
+        )
+        mock_kg_service.transition_workspace_to_extraction.return_value = transitioned
+
+        response = test_client.post(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/workspace/transition-to-extraction"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["workspace_mode"] == WorkspaceMode.EXTRACTION_OPERATIONS.value
+        assert (
+            payload["session_pointers"]["active_extraction_operations_session_id"]
+            == "01JPQRST1234567890ABCDEFSE"
+        )
+
+    def test_transition_workspace_returns_409_when_not_ready(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        mock_kg_service.transition_workspace_to_extraction.side_effect = ValueError(
+            "not ready"
+        )
+
+        response = test_client.post(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/workspace/transition-to-extraction"
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+
 class TestCreateKnowledgeGraphRoute:
     """Tests for POST /management/workspaces/{workspace_id}/knowledge-graphs endpoint."""
 

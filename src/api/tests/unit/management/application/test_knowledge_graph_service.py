@@ -526,6 +526,103 @@ class TestKnowledgeGraphServiceWorkspaceStatus:
         assert result.transition_eligible is False
 
 
+class TestKnowledgeGraphServiceWorkspaceCommands:
+    """Tests for validate_workspace and transition_workspace_to_extraction."""
+
+    @pytest.mark.asyncio
+    async def test_validate_workspace_requires_edit_permission(
+        self, service, authz, kg_repo, user_id
+    ):
+        kg = _make_kg()
+        kg_repo.seed(kg)
+        await _grant_kg_view(authz, kg.id.value, user_id)
+
+        with pytest.raises(UnauthorizedError):
+            await service.validate_workspace(user_id=user_id, kg_id=kg.id.value)
+
+    @pytest.mark.asyncio
+    async def test_validate_workspace_returns_projection_when_authorized(
+        self, service, authz, kg_repo, user_id
+    ):
+        kg = _make_kg()
+        kg_repo.seed(kg)
+        await _grant_kg_edit(authz, kg.id.value, user_id)
+
+        result = await service.validate_workspace(user_id=user_id, kg_id=kg.id.value)
+
+        assert result.knowledge_graph_id == kg.id.value
+        assert result.workspace_mode == WorkspaceMode.SCHEMA_BOOTSTRAP
+
+    @pytest.mark.asyncio
+    async def test_transition_workspace_requires_edit_permission(
+        self, service, authz, kg_repo, user_id
+    ):
+        kg = _make_kg()
+        kg.set_ontology(
+            OntologyConfig(
+                node_types=(NodeTypeDefinition(label="Repository"),),
+                edge_types=(
+                    EdgeTypeDefinition(
+                        label="CONTAINS",
+                        source_labels=("Repository",),
+                        target_labels=("Repository",),
+                    ),
+                ),
+            )
+        )
+        kg_repo.seed(kg)
+        await _grant_kg_view(authz, kg.id.value, user_id)
+
+        with pytest.raises(UnauthorizedError):
+            await service.transition_workspace_to_extraction(
+                user_id=user_id,
+                kg_id=kg.id.value,
+            )
+
+    @pytest.mark.asyncio
+    async def test_transition_workspace_changes_mode_and_creates_session_pointer(
+        self, service, authz, kg_repo, user_id
+    ):
+        kg = _make_kg()
+        kg.set_ontology(
+            OntologyConfig(
+                node_types=(NodeTypeDefinition(label="Repository"),),
+                edge_types=(
+                    EdgeTypeDefinition(
+                        label="CONTAINS",
+                        source_labels=("Repository",),
+                        target_labels=("Repository",),
+                    ),
+                ),
+            )
+        )
+        kg_repo.seed(kg)
+        await _grant_kg_edit(authz, kg.id.value, user_id)
+
+        result = await service.transition_workspace_to_extraction(
+            user_id=user_id,
+            kg_id=kg.id.value,
+        )
+
+        assert result.workspace_mode == WorkspaceMode.EXTRACTION_OPERATIONS
+        assert result.transition_eligible is False
+        assert result.session_pointers.active_extraction_operations_session_id is not None
+
+    @pytest.mark.asyncio
+    async def test_transition_workspace_rejects_when_not_ready(
+        self, service, authz, kg_repo, user_id
+    ):
+        kg = _make_kg()
+        kg_repo.seed(kg)
+        await _grant_kg_edit(authz, kg.id.value, user_id)
+
+        with pytest.raises(ValueError, match="not ready for transition"):
+            await service.transition_workspace_to_extraction(
+                user_id=user_id,
+                kg_id=kg.id.value,
+            )
+
+
 # ---- list_for_workspace ----
 
 

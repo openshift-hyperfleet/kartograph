@@ -37,6 +37,15 @@ class KnowledgeGraphModel(Base, TimestampMixin):
         default=WorkspaceMode.SCHEMA_BOOTSTRAP.value,
         server_default=WorkspaceMode.SCHEMA_BOOTSTRAP.value,
     )
+    active_schema_bootstrap_session_id: Mapped[str | None] = mapped_column(
+        String(26), nullable=True
+    )
+    active_extraction_operations_session_id: Mapped[str | None] = mapped_column(
+        String(26), nullable=True
+    )
+    most_recent_completed_session_id: Mapped[str | None] = mapped_column(
+        String(26), nullable=True
+    )
     ontology: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
 
     __table_args__ = (

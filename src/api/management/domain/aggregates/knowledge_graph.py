@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from ulid import ULID
+
 from management.domain.events import (
     KnowledgeGraphCreated,
     KnowledgeGraphDeleted,
@@ -57,6 +59,9 @@ class KnowledgeGraph:
     updated_at: datetime
     ontology: OntologyConfig | None = field(default=None)
     workspace_mode: WorkspaceMode = field(default=WorkspaceMode.SCHEMA_BOOTSTRAP)
+    active_schema_bootstrap_session_id: str | None = field(default=None)
+    active_extraction_operations_session_id: str | None = field(default=None)
+    most_recent_completed_session_id: str | None = field(default=None)
     _pending_events: list[DomainEvent] = field(default_factory=list, repr=False)
     _probe: KnowledgeGraphProbe = field(
         default_factory=DefaultKnowledgeGraphProbe,
@@ -237,14 +242,16 @@ class KnowledgeGraph:
         self.ontology = None
         self.updated_at = datetime.now(UTC)
 
-    def transition_to_extraction_operations(self) -> None:
+    def transition_to_extraction_operations(self) -> str:
         """Transition workspace mode from bootstrap to extraction operations."""
         if self.workspace_mode == WorkspaceMode.EXTRACTION_OPERATIONS:
             raise InvalidWorkspaceModeTransitionError(
                 "Workspace mode is already extraction_operations"
             )
         self.workspace_mode = WorkspaceMode.EXTRACTION_OPERATIONS
+        self.active_extraction_operations_session_id = str(ULID())
         self.updated_at = datetime.now(UTC)
+        return self.active_extraction_operations_session_id
 
     def mark_for_deletion(
         self,

@@ -2023,6 +2023,48 @@ describe('Backend API Alignment — Scenario: Resource operations succeed end-to
   })
 })
 
+describe('Diff summary panel behavior', () => {
+  it('detects maintenance readiness when tracked head differs from baseline', () => {
+    function isMaintenanceReady(ds: {
+      last_extraction_baseline_commit?: string | null
+      tracked_branch_head_commit?: string | null
+    }): boolean {
+      if (!ds.last_extraction_baseline_commit || !ds.tracked_branch_head_commit) return false
+      return ds.last_extraction_baseline_commit !== ds.tracked_branch_head_commit
+    }
+
+    expect(
+      isMaintenanceReady({
+        last_extraction_baseline_commit: 'aaa',
+        tracked_branch_head_commit: 'bbb',
+      }),
+    ).toBe(true)
+    expect(
+      isMaintenanceReady({
+        last_extraction_baseline_commit: 'aaa',
+        tracked_branch_head_commit: 'aaa',
+      }),
+    ).toBe(false)
+  })
+
+  it('keeps changed-file list collapsed by default and toggles on demand', () => {
+    const expanded: Record<string, boolean> = {}
+
+    function isDiffExpanded(dsId: string): boolean {
+      return expanded[dsId] === true
+    }
+    function toggleDiffExpanded(dsId: string) {
+      expanded[dsId] = !isDiffExpanded(dsId)
+    }
+
+    expect(isDiffExpanded('ds-1')).toBe(false)
+    toggleDiffExpanded('ds-1')
+    expect(isDiffExpanded('ds-1')).toBe(true)
+    toggleDiffExpanded('ds-1')
+    expect(isDiffExpanded('ds-1')).toBe(false)
+  })
+})
+
 // ── task-082: Ontology Editor — save to backend after post-extraction edit ───
 // Spec: "GIVEN a knowledge graph with completed extraction
 //        WHEN the user modifies the ontology

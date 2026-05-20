@@ -95,7 +95,28 @@ interface DataSourceItem {
   knowledge_graph_id: string
   last_sync_at: string | null
   created_at: string
+  clone_head_commit?: string | null
+  last_extraction_baseline_commit?: string | null
+  tracked_branch_head_commit?: string | null
   sync_runs?: SyncRun[]
+  diff_summary?: DataSourceDiffSummary | null
+}
+
+interface DiffChangedFile {
+  path: string
+  status: string
+}
+
+interface DataSourceDiffSummary {
+  baseline_commit: string | null
+  tracked_head_commit: string | null
+  total_changed_files: number
+  added_count: number
+  modified_count: number
+  removed_count: number
+  renamed_count: number
+  files_truncated: boolean
+  changed_files: DiffChangedFile[]
 }
 
 interface AdapterType {
@@ -595,6 +616,20 @@ async function approveOntology() {
 
 const dataSources = ref<DataSourceItem[]>([])
 const loadingDataSources = ref(false)
+const expandedDiffLists = ref<Record<string, boolean>>({})
+
+function isMaintenanceReady(ds: DataSourceItem): boolean {
+  if (!ds.last_extraction_baseline_commit || !ds.tracked_branch_head_commit) return false
+  return ds.last_extraction_baseline_commit !== ds.tracked_branch_head_commit
+}
+
+function isDiffExpanded(dsId: string): boolean {
+  return expandedDiffLists.value[dsId] === true
+}
+
+function toggleDiffExpanded(dsId: string) {
+  expandedDiffLists.value[dsId] = !isDiffExpanded(dsId)
+}
 
 async function loadDataSources() {
   if (!hasTenant.value) return
@@ -622,6 +657,13 @@ async function loadDataSources() {
             )) ?? []
           } catch {
             ds.sync_runs = []
+          }
+          try {
+            ds.diff_summary = await apiFetch<DataSourceDiffSummary>(
+              `/management/data-sources/${ds.id}/diff-summary`
+            )
+          } catch {
+            ds.diff_summary = null
           }
           all.push(ds)
         }
@@ -1139,6 +1181,76 @@ async function handleDeleteDs() {
               <Button size="sm" variant="outline" @click="triggerSync(ds.id)">
                 Sync Now
               </Button>
+            </div>
+          </div>
+          <!-- Commit status and diff summary cues -->
+          <div class="border-t px-4 py-3">
+            <p class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Commit Status</p>
+            <div class="grid gap-2 sm:grid-cols-3">
+              <div class="rounded-md border bg-muted/20 p-2">
+                <p class="text-[10px] uppercase tracking-wider text-muted-foreground">Local clone commit</p>
+                <p class="mt-1 font-mono text-xs break-all">{{ ds.clone_head_commit ?? '—' }}</p>
+              </div>
+              <div class="rounded-md border bg-muted/20 p-2">
+                <p class="text-[10px] uppercase tracking-wider text-muted-foreground">Commit during last extraction</p>
+                <p class="mt-1 font-mono text-xs break-all">{{ ds.last_extraction_baseline_commit ?? '—' }}</p>
+              </div>
+              <div class="rounded-md border bg-muted/20 p-2">
+                <p class="text-[10px] uppercase tracking-wider text-muted-foreground">Tracked branch head commit</p>
+                <p class="mt-1 font-mono text-xs break-all">{{ ds.tracked_branch_head_commit ?? '—' }}</p>
+              </div>
+            </div>
+
+            <div
+              v-if="ds.diff_summary"
+              class="mt-3 rounded-md border p-2"
+              :class="isMaintenanceReady(ds) ? 'border-amber-300 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20' : 'bg-muted/10'"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <div class="text-xs">
+                  <span class="font-medium">{{ ds.diff_summary.total_changed_files }}</span>
+                  changed files
+                  (<span class="text-emerald-700 dark:text-emerald-400">+{{ ds.diff_summary.added_count }}</span>,
+                  <span class="text-blue-700 dark:text-blue-400">~{{ ds.diff_summary.modified_count }}</span>,
+                  <span class="text-rose-700 dark:text-rose-400">-{{ ds.diff_summary.removed_count }}</span>,
+                  <span class="text-purple-700 dark:text-purple-400">r{{ ds.diff_summary.renamed_count }}</span>)
+                </div>
+                <Badge
+                  :variant="isMaintenanceReady(ds) ? 'default' : 'secondary'"
+                  class="text-[10px]"
+                >
+                  {{ isMaintenanceReady(ds) ? 'New commits available' : 'Up to date' }}
+                </Badge>
+              </div>
+
+              <div class="mt-2 flex items-center justify-between">
+                <p class="text-[11px] text-muted-foreground">
+                  Changed-file list is collapsed by default for large diffs.
+                </p>
+                <Button
+                  v-if="ds.diff_summary.changed_files.length > 0"
+                  size="sm"
+                  variant="ghost"
+                  class="h-6 px-2 text-[10px]"
+                  @click="toggleDiffExpanded(ds.id)"
+                >
+                  {{ isDiffExpanded(ds.id) ? 'Hide changed files' : 'Show changed files' }}
+                </Button>
+              </div>
+
+              <div v-if="isDiffExpanded(ds.id) && ds.diff_summary.changed_files.length > 0" class="mt-2 space-y-1 rounded-md border bg-background/80 p-2">
+                <div
+                  v-for="file in ds.diff_summary.changed_files"
+                  :key="`${file.status}:${file.path}`"
+                  class="flex items-start justify-between gap-2 text-[11px]"
+                >
+                  <span class="font-mono break-all">{{ file.path }}</span>
+                  <Badge variant="outline" class="h-5 text-[10px] uppercase">{{ file.status }}</Badge>
+                </div>
+                <p v-if="ds.diff_summary.files_truncated" class="pt-1 text-[10px] text-muted-foreground">
+                  Showing first {{ ds.diff_summary.changed_files.length }} files. Refine or page for full list.
+                </p>
+              </div>
             </div>
           </div>
           <!-- Sync history -->

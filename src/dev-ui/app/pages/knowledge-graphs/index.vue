@@ -8,7 +8,6 @@ import {
   Loader2,
   Cable,
   Database,
-  Pencil,
   Trash2,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -81,14 +80,6 @@ const selectedWorkspaceId = ref('')
 const creating = ref(false)
 const createNameError = ref('')
 const createWorkspaceError = ref('')
-
-// Edit dialog
-const editDialogOpen = ref(false)
-const editingKgId = ref('')
-const editName = ref('')
-const editDescription = ref('')
-const editNameError = ref('')
-const saving = ref(false)
 
 // Delete dialog
 const deleteDialogOpen = ref(false)
@@ -183,42 +174,6 @@ async function handleCreate() {
     })
   } finally {
     creating.value = false
-  }
-}
-
-function openEditDialog(kg: KnowledgeGraphItem) {
-  editingKgId.value = kg.id
-  editName.value = kg.name
-  editDescription.value = kg.description ?? ''
-  editNameError.value = ''
-  editDialogOpen.value = true
-}
-
-async function handleEdit() {
-  editNameError.value = ''
-  if (!editName.value.trim()) {
-    editNameError.value = 'Knowledge graph name is required'
-    return
-  }
-  saving.value = true
-  try {
-    const { apiFetch } = useApiClient()
-    await apiFetch(`/management/knowledge-graphs/${editingKgId.value}`, {
-      method: 'PATCH',
-      body: {
-        name: editName.value.trim(),
-        description: editDescription.value.trim(),
-      },
-    })
-    toast.success('Knowledge graph updated')
-    editDialogOpen.value = false
-    await loadKnowledgeGraphs()
-  } catch (err) {
-    toast.error('Failed to update knowledge graph', {
-      description: extractErrorMessage(err),
-    })
-  } finally {
-    saving.value = false
   }
 }
 
@@ -370,17 +325,13 @@ watch(tenantVersion, () => {
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <Button size="sm" variant="outline" @click="navigateTo('/data-sources')">
-                <Cable class="mr-1.5 size-3.5" />
-                Add Data Source
+              <Button size="sm" variant="outline" @click="navigateTo(`/knowledge-graphs/${kg.id}/manage`)">
+                <BookOpen class="mr-1.5 size-3.5" />
+                Manage
               </Button>
               <Button size="sm" variant="outline" @click="navigateTo('/query')">
                 <Database class="mr-1.5 size-3.5" />
                 Query
-              </Button>
-              <Button size="sm" variant="outline" @click="openEditDialog(kg)">
-                <Pencil class="mr-1.5 size-3.5" />
-                Edit
               </Button>
               <Button
                 size="sm"
@@ -465,49 +416,6 @@ watch(tenantVersion, () => {
             <Button type="submit" :disabled="creating || !createName.trim() || !selectedWorkspaceId">
               <Loader2 v-if="creating" class="mr-2 size-4 animate-spin" />
               {{ creating ? 'Creating...' : 'Create' }}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-
-    <!-- Edit Knowledge Graph Dialog -->
-    <Dialog v-model:open="editDialogOpen">
-      <DialogContent class="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Edit Knowledge Graph</DialogTitle>
-          <DialogDescription>
-            Update the name or description of this knowledge graph.
-          </DialogDescription>
-        </DialogHeader>
-        <form class="space-y-4" @submit.prevent="handleEdit">
-          <div class="space-y-1.5">
-            <Label for="edit-kg-name">Name <span class="text-destructive">*</span></Label>
-            <Input
-              id="edit-kg-name"
-              v-model="editName"
-              placeholder="e.g. Engineering Knowledge Base"
-              :disabled="saving"
-              @input="editNameError = ''"
-            />
-            <p v-if="editNameError" class="text-sm text-destructive">{{ editNameError }}</p>
-          </div>
-          <div class="space-y-1.5">
-            <Label for="edit-kg-description">Description</Label>
-            <Input
-              id="edit-kg-description"
-              v-model="editDescription"
-              placeholder="What does this knowledge graph represent?"
-              :disabled="saving"
-            />
-          </div>
-          <DialogFooter>
-            <DialogClose as-child>
-              <Button type="button" variant="outline" :disabled="saving">Cancel</Button>
-            </DialogClose>
-            <Button type="submit" :disabled="saving || !editName.trim()">
-              <Loader2 v-if="saving" class="mr-2 size-4 animate-spin" />
-              {{ saving ? 'Saving...' : 'Save' }}
             </Button>
           </DialogFooter>
         </form>

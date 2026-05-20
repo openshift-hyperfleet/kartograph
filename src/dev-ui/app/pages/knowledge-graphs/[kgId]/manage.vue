@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
+import { Input } from '@/components/ui/input'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 
 interface WorkspaceReadinessStatus {
   has_minimum_entity_types: boolean
@@ -50,6 +52,13 @@ interface MutationLogRunView {
   error: string | null
 }
 
+interface ExtractionSessionResponse {
+  id: string
+  message_history: Array<{ role?: string; content?: string; message?: string }>
+  runtime_context: Record<string, unknown>
+  updated_at: string
+}
+
 const route = useRoute()
 const { hasTenant, tenantVersion } = useTenant()
 const { extractErrorMessage } = useErrorHandler()
@@ -58,6 +67,11 @@ const kgId = computed(() => String(route.params.kgId ?? ''))
 const loading = ref(false)
 const validating = ref(false)
 const transitioning = ref(false)
+const sessionLoading = ref(false)
+const clearingChat = ref(false)
+const extractionSession = ref<ExtractionSessionResponse | null>(null)
+const extractionTab = ref('extraction-jobs')
+const draftMessage = ref('')
 const statusProjection = ref<WorkspaceStatusResponse | null>(null)
 const mutationLogLoading = ref(false)
 const mutationLogRuns = ref<MutationLogRunView[]>([])
@@ -142,6 +156,23 @@ async function loadMutationLogRuns() {
   }
 }
 
+async function loadExtractionSession() {
+  if (!kgId.value) return
+  sessionLoading.value = true
+  try {
+    extractionSession.value = await apiFetch<ExtractionSessionResponse>(
+      `/extraction/knowledge-graphs/${kgId.value}/sessions/extraction_operations/active`,
+    )
+  } catch (err) {
+    extractionSession.value = null
+    toast.error('Failed to load extraction conversation', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    sessionLoading.value = false
+  }
+}
+
 async function validateWorkspace() {
   if (!kgId.value) return
   validating.value = true
@@ -169,13 +200,31 @@ async function transitionToExtraction() {
       { method: 'POST' },
     )
     toast.success('Workspace transitioned to extraction operations')
-    navigateTo(`/graph/mutations?kg_id=${kgId.value}&view=editor`)
+    await loadExtractionSession()
   } catch (err) {
     toast.error('Transition failed', {
       description: extractErrorMessage(err),
     })
   } finally {
     transitioning.value = false
+  }
+}
+
+async function clearChat() {
+  if (!kgId.value) return
+  clearingChat.value = true
+  try {
+    extractionSession.value = await apiFetch<ExtractionSessionResponse>(
+      `/extraction/knowledge-graphs/${kgId.value}/sessions/extraction_operations/clear-chat`,
+      { method: 'POST' },
+    )
+    toast.success('Extraction chat cleared')
+  } catch (err) {
+    toast.error('Failed to clear chat', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    clearingChat.value = false
   }
 }
 
@@ -186,9 +235,19 @@ onMounted(() => {
 
 watch(tenantVersion, () => {
   statusProjection.value = null
+  extractionSession.value = null
   loadWorkspaceStatus()
   loadMutationLogRuns()
 })
+
+watch(
+  () => statusProjection.value?.workspace_mode,
+  (mode) => {
+    if (mode === 'extraction_operations') {
+      loadExtractionSession()
+    }
+  },
+)
 </script>
 
 <template>
@@ -317,114 +376,195 @@ watch(tenantVersion, () => {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle class="text-base">MutationLog Browser</CardTitle>
-          <CardDescription>
-            Knowledge-graph scoped mutation runs with per-entry operation previews and run metrics.
-          </CardDescription>
-        </CardHeader>
-        <CardContent class="grid gap-4 lg:grid-cols-[320px_1fr]">
-          <div class="rounded border">
-            <div class="flex items-center justify-between border-b px-3 py-2">
-              <p class="text-xs font-medium text-muted-foreground">Runs</p>
-              <Button size="sm" variant="ghost" class="h-6 px-2 text-[10px]" @click="loadMutationLogRuns">
-                Refresh
+      <div v-if="statusProjection.workspace_mode === 'extraction_operations'" class="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle class="text-base">Extraction Conversation</CardTitle>
+            <CardDescription>
+              Conversation stays visible while you run extraction and manual-mutation operations.
+            </CardDescription>
+          </CardHeader>
+          <CardContent class="space-y-3">
+            <div v-if="sessionLoading" class="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 class="size-3.5 animate-spin" />
+              Loading active extraction session...
+            </div>
+            <div v-else class="space-y-2 max-h-52 overflow-auto rounded border p-2">
+              <div
+                v-for="(entry, idx) in extractionSession?.message_history ?? []"
+                :key="`${idx}-${entry.role ?? 'unknown'}`"
+                class="rounded px-2 py-1 text-xs"
+                :class="entry.role === 'assistant' ? 'bg-muted' : 'bg-primary/10'"
+              >
+                <p class="mb-0.5 font-medium">{{ entry.role ?? 'system' }}</p>
+                <p>{{ entry.content ?? entry.message ?? '(empty)' }}</p>
+              </div>
+              <p v-if="(extractionSession?.message_history?.length ?? 0) === 0" class="text-xs text-muted-foreground">
+                Session is active. Start by drafting extraction or mutation tasks below.
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <Input
+                v-model="draftMessage"
+                disabled
+                placeholder="Streaming conversation input will be enabled in issue #668"
+              />
+              <Button variant="outline" :disabled="clearingChat || sessionLoading" @click="clearChat">
+                <Loader2 v-if="clearingChat" class="mr-1.5 size-3.5 animate-spin" />
+                Clear chat
               </Button>
             </div>
-            <div v-if="mutationLogLoading" class="flex items-center gap-2 px-3 py-4 text-xs text-muted-foreground">
-              <Loader2 class="size-3.5 animate-spin" />
-              Loading mutation runs...
-            </div>
-            <div v-else-if="mutationLogRuns.length === 0" class="px-3 py-4 text-xs text-muted-foreground">
-              No mutation log runs found for this knowledge graph yet.
-            </div>
-            <div v-else class="max-h-72 overflow-auto p-2 space-y-1.5">
-              <button
-                v-for="run in mutationLogRuns"
-                :key="run.id"
-                class="w-full rounded border px-2 py-1.5 text-left text-xs transition-colors"
-                :class="selectedMutationLogRunId === run.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/40'"
-                @click="selectedMutationLogRunId = run.id"
-              >
-                <p class="font-medium truncate">{{ run.data_source_name }}</p>
-                <p class="text-muted-foreground truncate">{{ new Date(run.started_at).toLocaleString() }}</p>
-                <div class="mt-1 flex items-center justify-between">
-                  <Badge variant="outline" class="text-[10px]">{{ run.status }}</Badge>
-                  <span class="font-mono text-[10px] text-muted-foreground">{{ run.mutation_log_id }}</span>
-                </div>
-              </button>
-            </div>
-          </div>
+          </CardContent>
+        </Card>
 
-          <div v-if="selectedMutationLogRun" class="space-y-3 rounded border p-3">
-            <div class="flex flex-wrap items-center gap-2">
-              <Badge>{{ selectedMutationLogRun.status }}</Badge>
-              <p class="text-xs text-muted-foreground">
-                Data source: <span class="font-medium text-foreground">{{ selectedMutationLogRun.data_source_name }}</span>
-              </p>
-              <p class="text-xs text-muted-foreground">
-                MutationLog: <span class="font-mono text-foreground">{{ selectedMutationLogRun.mutation_log_id }}</span>
-              </p>
-            </div>
-            <div class="grid gap-2 sm:grid-cols-2">
-              <div class="rounded border px-3 py-2 text-xs">
-                <p class="text-muted-foreground">Started</p>
-                <p class="mt-1">{{ new Date(selectedMutationLogRun.started_at).toLocaleString() }}</p>
-              </div>
-              <div class="rounded border px-3 py-2 text-xs">
-                <p class="text-muted-foreground">Completed</p>
-                <p class="mt-1">
-                  {{ selectedMutationLogRun.completed_at ? new Date(selectedMutationLogRun.completed_at).toLocaleString() : 'In progress' }}
+        <Card>
+          <CardHeader>
+            <CardTitle class="text-base">Operations Workspace</CardTitle>
+            <CardDescription>
+              Tabbed controls for extraction jobs, manual mutations, and run/log visibility.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs v-model="extractionTab" class="w-full">
+              <TabsList class="grid w-full grid-cols-3">
+                <TabsTrigger value="extraction-jobs">Extraction Jobs</TabsTrigger>
+                <TabsTrigger value="manual-mutations">Manual Mutations</TabsTrigger>
+                <TabsTrigger value="run-logs">Run/Logs</TabsTrigger>
+              </TabsList>
+              <TabsContent value="extraction-jobs" class="mt-3 space-y-2 text-sm">
+                <p class="text-muted-foreground">
+                  Trigger extraction and maintenance controls from the data sources operations panel.
                 </p>
-              </div>
-              <div class="rounded border px-3 py-2 text-xs">
-                <p class="text-muted-foreground">Session</p>
-                <p class="mt-1 font-mono break-all">{{ selectedMutationLogRun.session_id ?? 'None' }}</p>
-              </div>
-              <div class="rounded border px-3 py-2 text-xs">
-                <p class="text-muted-foreground">Actor</p>
-                <p class="mt-1 font-mono break-all">{{ selectedMutationLogRun.actor_id ?? 'None' }}</p>
-              </div>
-            </div>
-            <div class="grid gap-2 sm:grid-cols-2">
-              <div class="rounded border px-3 py-2 text-xs">
-                <p class="text-muted-foreground flex items-center gap-1.5">
-                  <Coins class="size-3.5" />
-                  Token usage
+                <Button size="sm" variant="outline" @click="navigateTo('/data-sources')">
+                  Open Data Source Operations
+                </Button>
+              </TabsContent>
+              <TabsContent value="manual-mutations" class="mt-3 space-y-2 text-sm">
+                <p class="text-muted-foreground">
+                  Open the mutation editor scoped to this knowledge graph for minor direct edits.
                 </p>
-                <p class="mt-1 font-medium">{{ (selectedMutationLogRun.token_usage_total ?? 0).toLocaleString() }}</p>
-              </div>
-              <div class="rounded border px-3 py-2 text-xs">
-                <p class="text-muted-foreground flex items-center gap-1.5">
-                  <DollarSign class="size-3.5" />
-                  Cost (USD)
+                <Button size="sm" @click="navigateTo(`/graph/mutations?kg_id=${kgId}&view=editor`)">
+                  Open Manual Mutations
+                </Button>
+              </TabsContent>
+              <TabsContent value="run-logs" class="mt-3 space-y-2 text-sm">
+                <p class="text-muted-foreground">
+                  Review sync run history, maintenance outcomes, and operational logs.
                 </p>
-                <p class="mt-1 font-medium">${{ (selectedMutationLogRun.cost_total_usd ?? 0).toFixed(2) }}</p>
-              </div>
-            </div>
-            <div class="rounded border p-3">
-              <p class="mb-2 text-xs font-medium text-muted-foreground">Per-entry operation previews</p>
-              <div v-if="Object.keys(selectedMutationLogRun.operation_counts).length === 0" class="text-xs text-muted-foreground">
-                No operation class counts recorded for this run.
-              </div>
-              <div v-else class="space-y-1.5">
-                <div
-                  v-for="([opClass, count]) in Object.entries(selectedMutationLogRun.operation_counts)"
-                  :key="opClass"
-                  class="flex items-center justify-between rounded border px-2 py-1.5 text-xs"
-                >
-                  <span class="font-mono">{{ opClass }}</span>
-                  <Badge variant="secondary">{{ count }}</Badge>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div v-else class="rounded border border-dashed p-6 text-sm text-muted-foreground">
-            Select a mutation run to view summary and per-entry previews.
-          </div>
-        </CardContent>
-      </Card>
+                <Button size="sm" variant="outline" @click="navigateTo('/data-sources')">
+                  Open Run and Log Views
+                </Button>
+                <Card class="mt-2">
+                  <CardHeader>
+                    <CardTitle class="text-sm">MutationLog Browser</CardTitle>
+                    <CardDescription>
+                      Knowledge-graph scoped mutation runs with per-entry operation previews and run metrics.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent class="grid gap-3 xl:grid-cols-[280px_1fr]">
+                    <div class="rounded border">
+                      <div class="flex items-center justify-between border-b px-3 py-2">
+                        <p class="text-xs font-medium text-muted-foreground">Runs</p>
+                        <Button size="sm" variant="ghost" class="h-6 px-2 text-[10px]" @click="loadMutationLogRuns">
+                          Refresh
+                        </Button>
+                      </div>
+                      <div v-if="mutationLogLoading" class="flex items-center gap-2 px-3 py-4 text-xs text-muted-foreground">
+                        <Loader2 class="size-3.5 animate-spin" />
+                        Loading mutation runs...
+                      </div>
+                      <div v-else-if="mutationLogRuns.length === 0" class="px-3 py-4 text-xs text-muted-foreground">
+                        No mutation log runs found for this knowledge graph yet.
+                      </div>
+                      <div v-else class="max-h-64 overflow-auto p-2 space-y-1.5">
+                        <button
+                          v-for="run in mutationLogRuns"
+                          :key="run.id"
+                          class="w-full rounded border px-2 py-1.5 text-left text-xs transition-colors"
+                          :class="selectedMutationLogRunId === run.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/40'"
+                          @click="selectedMutationLogRunId = run.id"
+                        >
+                          <p class="font-medium truncate">{{ run.data_source_name }}</p>
+                          <p class="text-muted-foreground truncate">{{ new Date(run.started_at).toLocaleString() }}</p>
+                          <div class="mt-1 flex items-center justify-between">
+                            <Badge variant="outline" class="text-[10px]">{{ run.status }}</Badge>
+                            <span class="font-mono text-[10px] text-muted-foreground">{{ run.mutation_log_id }}</span>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div v-if="selectedMutationLogRun" class="space-y-3 rounded border p-3">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <Badge>{{ selectedMutationLogRun.status }}</Badge>
+                        <p class="text-xs text-muted-foreground">
+                          Data source:
+                          <span class="font-medium text-foreground">{{ selectedMutationLogRun.data_source_name }}</span>
+                        </p>
+                      </div>
+                      <div class="grid gap-2 sm:grid-cols-2">
+                        <div class="rounded border px-3 py-2 text-xs">
+                          <p class="text-muted-foreground">MutationLog</p>
+                          <p class="mt-1 font-mono break-all">{{ selectedMutationLogRun.mutation_log_id }}</p>
+                        </div>
+                        <div class="rounded border px-3 py-2 text-xs">
+                          <p class="text-muted-foreground">Session</p>
+                          <p class="mt-1 font-mono break-all">{{ selectedMutationLogRun.session_id ?? 'None' }}</p>
+                        </div>
+                        <div class="rounded border px-3 py-2 text-xs">
+                          <p class="text-muted-foreground">Started</p>
+                          <p class="mt-1">{{ new Date(selectedMutationLogRun.started_at).toLocaleString() }}</p>
+                        </div>
+                        <div class="rounded border px-3 py-2 text-xs">
+                          <p class="text-muted-foreground">Completed</p>
+                          <p class="mt-1">
+                            {{ selectedMutationLogRun.completed_at ? new Date(selectedMutationLogRun.completed_at).toLocaleString() : 'In progress' }}
+                          </p>
+                        </div>
+                      </div>
+                      <div class="grid gap-2 sm:grid-cols-2">
+                        <div class="rounded border px-3 py-2 text-xs">
+                          <p class="text-muted-foreground flex items-center gap-1.5">
+                            <Coins class="size-3.5" />
+                            Token usage
+                          </p>
+                          <p class="mt-1 font-medium">{{ (selectedMutationLogRun.token_usage_total ?? 0).toLocaleString() }}</p>
+                        </div>
+                        <div class="rounded border px-3 py-2 text-xs">
+                          <p class="text-muted-foreground flex items-center gap-1.5">
+                            <DollarSign class="size-3.5" />
+                            Cost (USD)
+                          </p>
+                          <p class="mt-1 font-medium">${{ (selectedMutationLogRun.cost_total_usd ?? 0).toFixed(2) }}</p>
+                        </div>
+                      </div>
+                      <div class="rounded border p-3">
+                        <p class="mb-2 text-xs font-medium text-muted-foreground">Per-entry operation previews</p>
+                        <div v-if="Object.keys(selectedMutationLogRun.operation_counts).length === 0" class="text-xs text-muted-foreground">
+                          No operation class counts recorded for this run.
+                        </div>
+                        <div v-else class="space-y-1.5">
+                          <div
+                            v-for="([opClass, count]) in Object.entries(selectedMutationLogRun.operation_counts)"
+                            :key="opClass"
+                            class="flex items-center justify-between rounded border px-2 py-1.5 text-xs"
+                          >
+                            <span class="font-mono">{{ opClass }}</span>
+                            <Badge variant="secondary">{{ count }}</Badge>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div v-else class="rounded border border-dashed p-6 text-sm text-muted-foreground">
+                      Select a mutation run to view summary and per-entry previews.
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      </div>
     </template>
   </div>
 </template>

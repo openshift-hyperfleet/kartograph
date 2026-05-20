@@ -92,6 +92,52 @@ const selectedMutationLogRun = computed(() =>
   mutationLogRuns.value.find((run) => run.id === selectedMutationLogRunId.value) ?? null,
 )
 
+const progressChecklist = computed(() => {
+  const readiness = statusProjection.value?.readiness
+  if (!readiness) return []
+  return [
+    {
+      id: 'entity-types',
+      label: 'Minimum entity types',
+      passed: readiness.has_minimum_entity_types,
+      passDetail: 'At least one entity type defined.',
+      failDetail: 'Add at least one entity type before transition.',
+    },
+    {
+      id: 'relationship-types',
+      label: 'Minimum relationship types',
+      passed: readiness.has_minimum_relationship_types,
+      passDetail: 'At least one relationship type defined.',
+      failDetail: 'Add at least one relationship type before transition.',
+    },
+    {
+      id: 'prepopulated-types',
+      label: 'Prepopulated instance coverage',
+      passed: readiness.prepopulated_types_ready,
+      passDetail: 'All prepopulated types have at least one instance.',
+      failDetail: 'Create instances for all prepopulated types listed below.',
+    },
+  ]
+})
+
+const nextSteps = computed(() => {
+  if (!statusProjection.value) return []
+  const steps = ['Run Validate to refresh readiness signals after schema changes.']
+  if (!statusProjection.value.readiness.has_minimum_entity_types) {
+    steps.push('Define at least one entity type in schema bootstrap mode.')
+  }
+  if (!statusProjection.value.readiness.has_minimum_relationship_types) {
+    steps.push('Define at least one relationship type linked to your entity types.')
+  }
+  if (!statusProjection.value.readiness.prepopulated_types_ready) {
+    steps.push('Populate missing prepopulated types with at least one instance each.')
+  }
+  if (statusProjection.value.transition_eligible) {
+    steps.push('Transition is enabled. Use Go to Extraction/Mutations when ready.')
+  }
+  return steps
+})
+
 async function loadWorkspaceStatus() {
   if (!hasTenant.value || !kgId.value) return
   loading.value = true
@@ -314,7 +360,30 @@ watch(
             Bootstrap readiness requirements from workspace validation.
           </CardDescription>
         </CardHeader>
-        <CardContent class="space-y-2 text-sm">
+        <CardContent class="space-y-4 text-sm">
+          <div class="rounded border p-3">
+            <p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Bootstrap Progress Checklist
+            </p>
+            <div class="space-y-2">
+              <div
+                v-for="item in progressChecklist"
+                :key="item.id"
+                class="rounded border px-3 py-2"
+              >
+                <div class="flex items-center justify-between">
+                  <p class="font-medium">{{ item.label }}</p>
+                  <Badge :variant="item.passed ? 'default' : 'destructive'">
+                    {{ item.passed ? 'Pass' : 'Fail' }}
+                  </Badge>
+                </div>
+                <p class="mt-1 text-xs text-muted-foreground">
+                  {{ item.passed ? item.passDetail : item.failDetail }}
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div class="flex items-center justify-between rounded border px-3 py-2">
             <span>Has minimum entity types</span>
             <Badge :variant="statusProjection.readiness.has_minimum_entity_types ? 'default' : 'destructive'">
@@ -333,17 +402,56 @@ watch(
               {{ statusProjection.readiness.prepopulated_types_ready ? 'Yes' : 'No' }}
             </Badge>
           </div>
-          <div v-if="statusProjection.readiness.blocking_reasons.length > 0" class="rounded border border-destructive/50 p-3">
-            <p class="mb-1 text-xs font-medium text-destructive flex items-center gap-1.5">
-              <ShieldAlert class="size-3.5" />
-              Blocking reasons
+
+          <div class="rounded border p-3">
+            <p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Validation Diagnostics
+            </p>
+            <div
+              v-if="statusProjection.readiness.prepopulated_types_without_instances.length > 0"
+              class="rounded border border-amber-400/60 bg-amber-50/60 p-2 text-xs dark:border-amber-800 dark:bg-amber-950/20"
+            >
+              <p class="font-medium text-amber-800 dark:text-amber-300">
+                Prepopulated types missing instances
+              </p>
+              <ul class="mt-1 list-disc space-y-1 pl-4 text-muted-foreground">
+                <li
+                  v-for="typeLabel in statusProjection.readiness.prepopulated_types_without_instances"
+                  :key="typeLabel"
+                >
+                  {{ typeLabel }}
+                </li>
+              </ul>
+            </div>
+
+            <div v-if="statusProjection.readiness.blocking_reasons.length > 0" class="mt-2 rounded border border-destructive/50 p-3">
+              <p class="mb-1 text-xs font-medium text-destructive flex items-center gap-1.5">
+                <ShieldAlert class="size-3.5" />
+                Blocking reasons
+              </p>
+              <ul class="list-disc pl-4 text-xs text-muted-foreground space-y-1">
+                <li v-for="reason in statusProjection.readiness.blocking_reasons" :key="reason">
+                  {{ reason }}
+                </li>
+              </ul>
+            </div>
+            <p
+              v-else-if="statusProjection.readiness.prepopulated_types_without_instances.length === 0"
+              class="text-xs text-muted-foreground"
+            >
+              No validation diagnostics are currently blocking transition.
+            </p>
+          </div>
+
+          <div class="rounded border p-3">
+            <p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Next Steps
             </p>
             <ul class="list-disc pl-4 text-xs text-muted-foreground space-y-1">
-              <li v-for="reason in statusProjection.readiness.blocking_reasons" :key="reason">
-                {{ reason }}
-              </li>
+              <li v-for="step in nextSteps" :key="step">{{ step }}</li>
             </ul>
           </div>
+
         </CardContent>
       </Card>
 

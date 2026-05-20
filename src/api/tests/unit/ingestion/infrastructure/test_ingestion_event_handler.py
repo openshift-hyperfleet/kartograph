@@ -169,6 +169,24 @@ class TestIngestionEventHandlerSuccess:
         assert call["baseline_commit"] == "abc123"
         assert call["credentials"] == {"token": "secret"}
 
+    async def test_prefers_runtime_credentials_over_payload_credentials(
+        self,
+        handler: IngestionEventHandler,
+        ingestion_service: _FakeIngestionService,
+    ):
+        """Runtime credentials override payload credentials to avoid payload leakage."""
+        payload = _sync_started_payload()
+        payload["credentials"] = {"token": "payload-token"}
+
+        await handler.handle(
+            "SyncStarted",
+            payload,
+            runtime_credentials={"token": "runtime-token"},
+        )
+
+        call = ingestion_service.calls[0]
+        assert call["credentials"] == {"token": "runtime-token"}
+
     async def test_emits_job_package_produced_on_success(
         self,
         handler: IngestionEventHandler,
@@ -243,6 +261,48 @@ class TestIngestionEventHandlerFailure:
         assert event["payload"]["sync_run_id"] == "run-002"
         assert event["payload"]["data_source_id"] == "ds-001"
         assert "credentials expired" in event["payload"]["error"]
+
+    async def test_redacts_secret_material_from_failure_payload(
+        self,
+        outbox: _FakeOutboxRepository,
+    ):
+        """Failure payload must redact token-shaped credential values."""
+
+        class _LeakyService(_FakeIngestionService):
+            async def run(  # type: ignore[override]
+                self,
+                sync_run_id: str,
+                data_source_id: str,
+                knowledge_graph_id: str,
+                adapter_type: str,
+                connection_config: dict[str, str],
+                credentials_path: str | None,
+                credentials: dict[str, str] | None = None,
+                baseline_commit: str | None = None,
+            ) -> JobPackageId:
+                raise RuntimeError(
+                    "github auth failed for token ghp_1234567890abcdef1234567890abcdef1234"
+                )
+
+        handler = IngestionEventHandler(
+            ingestion_service=_LeakyService(),
+            outbox=outbox,
+        )
+        payload = _sync_started_payload(sync_run_id="run-redact")
+        await handler.handle(
+            "SyncStarted",
+            payload,
+            runtime_credentials={
+                "token": "ghp_1234567890abcdef1234567890abcdef1234"
+            },
+        )
+
+        event = outbox.appended[0]
+        assert event["event_type"] == "IngestionFailed"
+        assert "ghp_1234567890abcdef1234567890abcdef1234" not in event["payload"][
+            "error"
+        ]
+        assert "***REDACTED***" in event["payload"]["error"]
 
     async def test_ingestion_failed_aggregate_type(
         self,

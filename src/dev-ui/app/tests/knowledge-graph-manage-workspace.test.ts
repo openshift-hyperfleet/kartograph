@@ -82,3 +82,25 @@ describe('Knowledge Graph Manage Workspace - mutation log browser', () => {
     expect(manageWorkspaceVue).toContain('Object.entries(selectedMutationLogRun.operation_counts)')
   })
 })
+
+describe('Knowledge Graph Manage Workspace - bootstrap readiness guidance', () => {
+  it('renders a bootstrap progress checklist section with explicit checks', () => {
+    expect(manageWorkspaceVue).toContain('Bootstrap Progress Checklist')
+    expect(manageWorkspaceVue).toContain('progressChecklist')
+    expect(manageWorkspaceVue).toContain('Minimum entity types')
+    expect(manageWorkspaceVue).toContain('Minimum relationship types')
+    expect(manageWorkspaceVue).toContain('Prepopulated instance coverage')
+  })
+
+  it('renders diagnostics panel with prepopulated type failures and blocking reasons', () => {
+    expect(manageWorkspaceVue).toContain('Validation Diagnostics')
+    expect(manageWorkspaceVue).toContain('prepopulated_types_without_instances')
+    expect(manageWorkspaceVue).toContain('blocking_reasons')
+  })
+
+  it('renders explicit next steps guidance for transition readiness', () => {
+    expect(manageWorkspaceVue).toContain('Next Steps')
+    expect(manageWorkspaceVue).toContain('Run Validate to refresh readiness signals')
+    expect(manageWorkspaceVue).toContain('Transition is enabled')
+  })
+})

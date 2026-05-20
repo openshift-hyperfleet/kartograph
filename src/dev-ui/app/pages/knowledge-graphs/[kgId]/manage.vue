@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
-import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import SharedConversationPanel from '@/components/extraction/SharedConversationPanel.vue'
 
 interface WorkspaceReadinessStatus {
   has_minimum_entity_types: boolean
@@ -83,6 +83,12 @@ const modeLabel = computed(() =>
     : 'Schema Bootstrap',
 )
 
+const sessionMode = computed<'schema_bootstrap' | 'extraction_operations'>(() =>
+  statusProjection.value?.workspace_mode === 'extraction_operations'
+    ? 'extraction_operations'
+    : 'schema_bootstrap',
+)
+
 const canTransition = computed(() =>
   statusProjection.value?.workspace_mode === 'schema_bootstrap'
   && statusProjection.value?.transition_eligible === true,
@@ -136,6 +142,13 @@ const nextSteps = computed(() => {
     steps.push('Transition is enabled. Use Go to Extraction/Mutations when ready.')
   }
   return steps
+})
+
+const sessionActivityLines = computed(() => {
+  const context = extractionSession.value?.runtime_context ?? {}
+  const candidate = context.activity_lines ?? context.ndjson_activity_lines ?? context.thinking_lines
+  if (!Array.isArray(candidate)) return []
+  return candidate.filter((line): line is string => typeof line === 'string' && line.trim().length > 0)
 })
 
 async function loadWorkspaceStatus() {
@@ -207,7 +220,7 @@ async function loadExtractionSession() {
   sessionLoading.value = true
   try {
     extractionSession.value = await apiFetch<ExtractionSessionResponse>(
-      `/extraction/knowledge-graphs/${kgId.value}/sessions/extraction_operations/active`,
+      `/extraction/knowledge-graphs/${kgId.value}/sessions/${sessionMode.value}/active`,
     )
   } catch (err) {
     extractionSession.value = null
@@ -261,7 +274,7 @@ async function clearChat() {
   clearingChat.value = true
   try {
     extractionSession.value = await apiFetch<ExtractionSessionResponse>(
-      `/extraction/knowledge-graphs/${kgId.value}/sessions/extraction_operations/clear-chat`,
+      `/extraction/knowledge-graphs/${kgId.value}/sessions/${sessionMode.value}/clear-chat`,
       { method: 'POST' },
     )
     toast.success('Extraction chat cleared')
@@ -289,7 +302,7 @@ watch(tenantVersion, () => {
 watch(
   () => statusProjection.value?.workspace_mode,
   (mode) => {
-    if (mode === 'extraction_operations') {
+    if (mode) {
       loadExtractionSession()
     }
   },
@@ -484,48 +497,19 @@ watch(
         </CardContent>
       </Card>
 
-      <div v-if="statusProjection.workspace_mode === 'extraction_operations'" class="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle class="text-base">Extraction Conversation</CardTitle>
-            <CardDescription>
-              Conversation stays visible while you run extraction and manual-mutation operations.
-            </CardDescription>
-          </CardHeader>
-          <CardContent class="space-y-3">
-            <div v-if="sessionLoading" class="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 class="size-3.5 animate-spin" />
-              Loading active extraction session...
-            </div>
-            <div v-else class="space-y-2 max-h-52 overflow-auto rounded border p-2">
-              <div
-                v-for="(entry, idx) in extractionSession?.message_history ?? []"
-                :key="`${idx}-${entry.role ?? 'unknown'}`"
-                class="rounded px-2 py-1 text-xs"
-                :class="entry.role === 'assistant' ? 'bg-muted' : 'bg-primary/10'"
-              >
-                <p class="mb-0.5 font-medium">{{ entry.role ?? 'system' }}</p>
-                <p>{{ entry.content ?? entry.message ?? '(empty)' }}</p>
-              </div>
-              <p v-if="(extractionSession?.message_history?.length ?? 0) === 0" class="text-xs text-muted-foreground">
-                Session is active. Start by drafting extraction or mutation tasks below.
-              </p>
-            </div>
-            <div class="flex items-center gap-2">
-              <Input
-                v-model="draftMessage"
-                disabled
-                placeholder="Streaming conversation input will be enabled in issue #668"
-              />
-              <Button variant="outline" :disabled="clearingChat || sessionLoading" @click="clearChat">
-                <Loader2 v-if="clearingChat" class="mr-1.5 size-3.5 animate-spin" />
-                Clear chat
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      <div class="space-y-4">
+        <SharedConversationPanel
+          v-model:draft-message="draftMessage"
+          :mode-label="modeLabel"
+          :session="extractionSession"
+          :loading="sessionLoading"
+          :clearing="clearingChat"
+          :activity-lines="sessionActivityLines"
+          @refresh="loadExtractionSession"
+          @clear-chat="clearChat"
+        />
 
-        <Card>
+        <Card v-if="statusProjection.workspace_mode === 'extraction_operations'">
           <CardHeader>
             <CardTitle class="text-base">Operations Workspace</CardTitle>
             <CardDescription>

@@ -345,6 +345,16 @@ describe('Schema Browser - schema.vue uses ontology editor (not mutations consol
   it('graph explorer button (second) still navigates to /graph/explorer', () => {
     expect(schemaContent).toContain("path: '/graph/explorer'")
   })
+
+  it('schema.vue shows prepopulated indicator badge when provided', () => {
+    expect(schemaContent).toContain('Prepopulated')
+    expect(schemaContent).toContain('?.prepopulated')
+  })
+
+  it('schema.vue shows instance count metadata badge for node and edge types', () => {
+    expect(schemaContent).toContain('instances')
+    expect(schemaContent).toContain('fetchInstanceCount')
+  })
 })
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
+import { Input } from '@/components/ui/input'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 
 interface WorkspaceReadinessStatus {
   has_minimum_entity_types: boolean
@@ -29,6 +31,13 @@ interface WorkspaceStatusResponse {
   session_pointers: WorkspaceSessionPointers
 }
 
+interface ExtractionSessionResponse {
+  id: string
+  message_history: Array<{ role?: string; content?: string; message?: string }>
+  runtime_context: Record<string, unknown>
+  updated_at: string
+}
+
 const route = useRoute()
 const { hasTenant, tenantVersion } = useTenant()
 const { extractErrorMessage } = useErrorHandler()
@@ -37,6 +46,11 @@ const kgId = computed(() => String(route.params.kgId ?? ''))
 const loading = ref(false)
 const validating = ref(false)
 const transitioning = ref(false)
+const sessionLoading = ref(false)
+const clearingChat = ref(false)
+const extractionSession = ref<ExtractionSessionResponse | null>(null)
+const extractionTab = ref('extraction-jobs')
+const draftMessage = ref('')
 const statusProjection = ref<WorkspaceStatusResponse | null>(null)
 
 const modeLabel = computed(() =>
@@ -67,6 +81,23 @@ async function loadWorkspaceStatus() {
   }
 }
 
+async function loadExtractionSession() {
+  if (!kgId.value) return
+  sessionLoading.value = true
+  try {
+    extractionSession.value = await apiFetch<ExtractionSessionResponse>(
+      `/extraction/knowledge-graphs/${kgId.value}/sessions/extraction_operations/active`,
+    )
+  } catch (err) {
+    extractionSession.value = null
+    toast.error('Failed to load extraction conversation', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    sessionLoading.value = false
+  }
+}
+
 async function validateWorkspace() {
   if (!kgId.value) return
   validating.value = true
@@ -94,7 +125,7 @@ async function transitionToExtraction() {
       { method: 'POST' },
     )
     toast.success('Workspace transitioned to extraction operations')
-    navigateTo(`/graph/mutations?kg_id=${kgId.value}&view=editor`)
+    await loadExtractionSession()
   } catch (err) {
     toast.error('Transition failed', {
       description: extractErrorMessage(err),
@@ -104,14 +135,42 @@ async function transitionToExtraction() {
   }
 }
 
+async function clearChat() {
+  if (!kgId.value) return
+  clearingChat.value = true
+  try {
+    extractionSession.value = await apiFetch<ExtractionSessionResponse>(
+      `/extraction/knowledge-graphs/${kgId.value}/sessions/extraction_operations/clear-chat`,
+      { method: 'POST' },
+    )
+    toast.success('Extraction chat cleared')
+  } catch (err) {
+    toast.error('Failed to clear chat', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    clearingChat.value = false
+  }
+}
+
 onMounted(() => {
   loadWorkspaceStatus()
 })
 
 watch(tenantVersion, () => {
   statusProjection.value = null
+  extractionSession.value = null
   loadWorkspaceStatus()
 })
+
+watch(
+  () => statusProjection.value?.workspace_mode,
+  (mode) => {
+    if (mode === 'extraction_operations') {
+      loadExtractionSession()
+    }
+  },
+)
 </script>
 
 <template>
@@ -239,6 +298,90 @@ watch(tenantVersion, () => {
           </div>
         </CardContent>
       </Card>
+
+      <div v-if="statusProjection.workspace_mode === 'extraction_operations'" class="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle class="text-base">Extraction Conversation</CardTitle>
+            <CardDescription>
+              Conversation stays visible while you run extraction and manual-mutation operations.
+            </CardDescription>
+          </CardHeader>
+          <CardContent class="space-y-3">
+            <div v-if="sessionLoading" class="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 class="size-3.5 animate-spin" />
+              Loading active extraction session...
+            </div>
+            <div v-else class="space-y-2 max-h-52 overflow-auto rounded border p-2">
+              <div
+                v-for="(entry, idx) in extractionSession?.message_history ?? []"
+                :key="`${idx}-${entry.role ?? 'unknown'}`"
+                class="rounded px-2 py-1 text-xs"
+                :class="entry.role === 'assistant' ? 'bg-muted' : 'bg-primary/10'"
+              >
+                <p class="mb-0.5 font-medium">{{ entry.role ?? 'system' }}</p>
+                <p>{{ entry.content ?? entry.message ?? '(empty)' }}</p>
+              </div>
+              <p v-if="(extractionSession?.message_history?.length ?? 0) === 0" class="text-xs text-muted-foreground">
+                Session is active. Start by drafting extraction or mutation tasks below.
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <Input
+                v-model="draftMessage"
+                disabled
+                placeholder="Streaming conversation input will be enabled in issue #668"
+              />
+              <Button variant="outline" :disabled="clearingChat || sessionLoading" @click="clearChat">
+                <Loader2 v-if="clearingChat" class="mr-1.5 size-3.5 animate-spin" />
+                Clear chat
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle class="text-base">Operations Workspace</CardTitle>
+            <CardDescription>
+              Tabbed controls for extraction jobs, manual mutations, and run/log visibility.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs v-model="extractionTab" class="w-full">
+              <TabsList class="grid w-full grid-cols-3">
+                <TabsTrigger value="extraction-jobs">Extraction Jobs</TabsTrigger>
+                <TabsTrigger value="manual-mutations">Manual Mutations</TabsTrigger>
+                <TabsTrigger value="run-logs">Run/Logs</TabsTrigger>
+              </TabsList>
+              <TabsContent value="extraction-jobs" class="mt-3 space-y-2 text-sm">
+                <p class="text-muted-foreground">
+                  Trigger extraction and maintenance controls from the data sources operations panel.
+                </p>
+                <Button size="sm" variant="outline" @click="navigateTo('/data-sources')">
+                  Open Data Source Operations
+                </Button>
+              </TabsContent>
+              <TabsContent value="manual-mutations" class="mt-3 space-y-2 text-sm">
+                <p class="text-muted-foreground">
+                  Open the mutation editor scoped to this knowledge graph for minor direct edits.
+                </p>
+                <Button size="sm" @click="navigateTo(`/graph/mutations?kg_id=${kgId}&view=editor`)">
+                  Open Manual Mutations
+                </Button>
+              </TabsContent>
+              <TabsContent value="run-logs" class="mt-3 space-y-2 text-sm">
+                <p class="text-muted-foreground">
+                  Review sync run history, maintenance outcomes, and operational logs.
+                </p>
+                <Button size="sm" variant="outline" @click="navigateTo('/data-sources')">
+                  Open Run and Log Views
+                </Button>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      </div>
     </template>
   </div>
 </template>

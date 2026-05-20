@@ -110,6 +110,8 @@ class WorkspaceReadinessResponse(BaseModel):
     has_minimum_entity_types: bool
     has_minimum_relationship_types: bool
     prepopulated_types_ready: bool
+    prepopulated_types_without_instances: list[str] = Field(default_factory=list)
+    blocking_reasons: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_domain(cls, readiness: WorkspaceReadinessStatus) -> "WorkspaceReadinessResponse":
@@ -117,6 +119,10 @@ class WorkspaceReadinessResponse(BaseModel):
             has_minimum_entity_types=readiness.has_minimum_entity_types,
             has_minimum_relationship_types=readiness.has_minimum_relationship_types,
             prepopulated_types_ready=readiness.prepopulated_types_ready,
+            prepopulated_types_without_instances=list(
+                readiness.prepopulated_types_without_instances
+            ),
+            blocking_reasons=list(readiness.blocking_reasons),
         )
 
 
@@ -182,6 +188,15 @@ class NodeTypeDefinitionModel(BaseModel):
         default_factory=list,
         description="Properties nodes of this type may optionally have",
     )
+    prepopulated: bool = Field(
+        default=False,
+        description="Whether this type must have at least one instance before transition",
+    )
+    prepopulated_instance_count: int = Field(
+        default=0,
+        ge=0,
+        description="Current known instance count used for readiness evaluation",
+    )
 
     def to_domain(self) -> NodeTypeDefinition:
         """Convert to domain NodeTypeDefinition value object."""
@@ -190,6 +205,8 @@ class NodeTypeDefinitionModel(BaseModel):
             description=self.description,
             required_properties=tuple(self.required_properties),
             optional_properties=tuple(self.optional_properties),
+            prepopulated=self.prepopulated,
+            prepopulated_instance_count=self.prepopulated_instance_count,
         )
 
     @classmethod
@@ -200,6 +217,8 @@ class NodeTypeDefinitionModel(BaseModel):
             description=nt.description,
             required_properties=list(nt.required_properties),
             optional_properties=list(nt.optional_properties),
+            prepopulated=nt.prepopulated,
+            prepopulated_instance_count=nt.prepopulated_instance_count,
         )
 
 

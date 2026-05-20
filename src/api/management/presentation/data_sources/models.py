@@ -296,6 +296,19 @@ class SyncRunResponse(BaseModel):
         None, description="When the sync run completed"
     )
     error: str | None = Field(None, description="Error message if the sync run failed")
+    mutation_log_id: str | None = Field(
+        None, description="Associated mutation log run ID when available"
+    )
+    session_id: str | None = Field(
+        None, description="Extraction session ID associated with this mutation run"
+    )
+    actor_id: str | None = Field(
+        None, description="Actor identity associated with this mutation run"
+    )
+    operation_counts: dict[str, int] = Field(
+        default_factory=dict,
+        description="Operation counts grouped by operation class for this run",
+    )
     token_usage_total: int | None = Field(
         None, description="Total model tokens consumed during extraction for this run"
     )
@@ -323,6 +336,26 @@ class SyncRunResponse(BaseModel):
             started_at=run.started_at,
             completed_at=run.completed_at,
             error=run.error,
+            mutation_log_id=(
+                run.mutation_log_run.mutation_log_id
+                if run.mutation_log_run is not None
+                else None
+            ),
+            session_id=(
+                run.mutation_log_run.session_id
+                if run.mutation_log_run is not None
+                else None
+            ),
+            actor_id=(
+                run.mutation_log_run.actor_id
+                if run.mutation_log_run is not None
+                else None
+            ),
+            operation_counts=(
+                dict(run.mutation_log_run.operation_counts)
+                if run.mutation_log_run is not None
+                else {}
+            ),
             token_usage_total=(
                 run.mutation_log_run.token_usage_total
                 if run.mutation_log_run is not None

@@ -480,6 +480,43 @@ class TestListSyncRunsRoute:
         assert payload["token_usage_total"] == 3210
         assert payload["cost_total_usd"] == pytest.approx(1.23)
 
+    def test_list_sync_runs_includes_mutation_log_run_preview_fields(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        """Sync run response should include mutation-run IDs and op class counts."""
+        sample_sync_run.mutation_log_run = MutationLogRunMetadata(
+            mutation_log_id="mlog-preview-1",
+            knowledge_graph_id=sample_data_source.knowledge_graph_id,
+            session_id="sess-preview-1",
+            actor_id="actor-preview-1",
+            started_at=sample_sync_run.started_at,
+            token_usage_total=144,
+            cost_total_usd=0.07,
+            operation_counts={"create_node": 8, "create_edge": 13, "update_node": 2},
+        )
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.find_by_data_source.return_value = [sample_sync_run]
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}/sync-runs"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()[0]
+        assert payload["mutation_log_id"] == "mlog-preview-1"
+        assert payload["session_id"] == "sess-preview-1"
+        assert payload["actor_id"] == "actor-preview-1"
+        assert payload["operation_counts"] == {
+            "create_node": 8,
+            "create_edge": 13,
+            "update_node": 2,
+        }
+
     def test_list_sync_runs_returns_404_when_ds_not_found(
         self,
         test_client: TestClient,

@@ -123,6 +123,11 @@ class SyncLifecycleHandler:
             sync_run.status = "completed"
             sync_run.completed_at = now
             sync_run.logs.append(f"[{now.isoformat()}] Sync completed")
+            if payload.get("no_changes_detected") is True:
+                sync_run.logs.append(
+                    f"[{now.isoformat()}] No source changes were detected; "
+                    "heavy extraction was short-circuited."
+                )
             if sync_run.mutation_log_run is not None:
                 sync_run.mutation_log_run.completed_at = now
                 if payload.get("token_usage_total") is not None:

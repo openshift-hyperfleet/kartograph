@@ -466,6 +466,78 @@ class TestListSyncRunsRoute:
         mock_sync_run_repo.find_by_data_source.assert_not_called()
 
 
+class TestRunControlRoutes:
+    """Tests for POST /management/data-sources/{ds_id}/run-controls/{action}."""
+
+    def test_pause_run_control_returns_200_with_affected_count(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        mock_ds_service.apply_run_control.return_value = type(
+            "_Result",
+            (),
+            {
+                "action": "pause",
+                "affected_count": 1,
+                "updated_runs": [sample_sync_run],
+                "started_run": None,
+            },
+        )()
+
+        response = test_client.post(
+            "/management/data-sources/01JPQRST1234567890ABCDEFDS/run-controls/pause"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["action"] == "pause"
+        assert payload["affected_count"] == 1
+        assert len(payload["updated_runs"]) == 1
+        assert payload["started_run"] is None
+
+    def test_start_run_control_returns_started_run(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        mock_ds_service.apply_run_control.return_value = type(
+            "_Result",
+            (),
+            {
+                "action": "start",
+                "affected_count": 1,
+                "updated_runs": [],
+                "started_run": sample_sync_run,
+            },
+        )()
+
+        response = test_client.post(
+            "/management/data-sources/01JPQRST1234567890ABCDEFDS/run-controls/start"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["action"] == "start"
+        assert payload["affected_count"] == 1
+        assert payload["started_run"]["id"] == sample_sync_run.id
+
+    def test_run_control_returns_403_when_unauthorized(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+    ) -> None:
+        mock_ds_service.apply_run_control.side_effect = UnauthorizedError("no permission")
+
+        response = test_client.post(
+            "/management/data-sources/01JPQRST1234567890ABCDEFDS/run-controls/halt"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
 class TestGetSyncRunLogsRoute:
     """Tests for GET /management/data-sources/{ds_id}/sync-runs/{run_id}/logs endpoint.
 

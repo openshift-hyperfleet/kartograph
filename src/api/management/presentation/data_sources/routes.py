@@ -27,6 +27,8 @@ from management.presentation.data_sources.models import (
     DataSourceListResponse,
     DataSourceResponse,
     DataSourceWithSyncResponse,
+    RunControlAction,
+    RunControlResponse,
     SyncRunLogsResponse,
     SyncRunResponse,
     UpdateDataSourceRequest,
@@ -439,6 +441,53 @@ async def list_sync_runs(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to list sync runs",
+        )
+
+
+@router.post(
+    "/data-sources/{ds_id}/run-controls/{action}",
+    status_code=status.HTTP_200_OK,
+)
+async def control_sync_runs(
+    ds_id: str,
+    action: RunControlAction,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+) -> RunControlResponse:
+    """Apply run-control action to extraction sync runs for a data source."""
+    try:
+        result = await service.apply_run_control(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+            action=action,
+        )
+        return RunControlResponse(
+            action=action,
+            affected_count=result.affected_count,
+            updated_runs=[SyncRunResponse.from_domain(run) for run in result.updated_runs],
+            started_run=(
+                SyncRunResponse.from_domain(result.started_run)
+                if result.started_run is not None
+                else None
+            ),
+        )
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except ValueError as e:
+        detail = str(e)
+        status_code = (
+            status.HTTP_422_UNPROCESSABLE_ENTITY
+            if "Unsupported run control action" in detail
+            else status.HTTP_404_NOT_FOUND
+        )
+        raise HTTPException(status_code=status_code, detail=detail)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to apply run control action",
         )
 
 

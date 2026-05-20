@@ -29,6 +29,7 @@ The persistence and query engine for property graph data.
 | [Mutations](graph/mutations.spec.md) | Applying mutation logs to the graph |
 | [Queries](graph/queries.spec.md) | Reading nodes, edges, and subgraphs |
 | [Schema](graph/schema.spec.md) | Type definitions and schema management |
+| [Schema Authoring](graph/schema-authoring.spec.md) | Bootstrap and ongoing schema authoring lifecycle |
 | [Bulk Loading](graph/bulk-loading.spec.md) | High-throughput graph ingestion |
 
 ### [Management](management/) — Control Plane
@@ -37,6 +38,7 @@ CRUD for platform resources: knowledge graphs, data sources, credentials.
 | Spec | Scope |
 |------|-------|
 | [Knowledge Graphs](management/knowledge-graphs.spec.md) | Knowledge graph configuration lifecycle |
+| [Knowledge Graph Workspace](management/knowledge-graph-workspace.spec.md) | Knowledge graph mode lifecycle and workspace status |
 | [Data Sources](management/data-sources.spec.md) | Data source configuration and sync runs |
 | [Credentials](management/credentials.spec.md) | Encrypted credential storage |
 
@@ -55,6 +57,14 @@ Connecting to external sources, detecting changes, and packaging raw content for
 |------|-------|
 | [Adapters](ingestion/adapters.spec.md) | Adapter port, GitHub adapter, dlt framework integration |
 | [Sync Lifecycle](ingestion/sync-lifecycle.spec.md) | Event-driven state machine, status tracking, staleness detection |
+
+### [Extraction](extraction/) — Agent-Orchestrated Mutation Production
+AI-assisted schema and extraction workflows that emit MutationLogs for Graph application.
+
+| Spec | Scope |
+|------|-------|
+| [Operations](extraction/operations.spec.md) | Mode-specific agent operations and mutation-log production |
+| [Agent Sessions](extraction/agent-sessions.spec.md) | Session lifecycle, reset behavior, and session metrics |
 
 ### [Shared Kernel](shared-kernel/) — Cross-Cutting Contracts
 Capabilities shared across bounded contexts.
@@ -88,3 +98,4 @@ The web interface for platform setup, data source management, and graph explorat
 | [CORS](nfr/cors.spec.md) | Cross-origin resource sharing policy |
 | [Application Lifecycle](nfr/application-lifecycle.spec.md) | Startup bootstrap, shutdown, default configuration |
 | [API Conventions](nfr/api-conventions.spec.md) | URL structure, status codes, error format, request/response models |
+| [Workload Execution](nfr/workload-execution.spec.md) | Container execution model, credential injection, and workload isolation |

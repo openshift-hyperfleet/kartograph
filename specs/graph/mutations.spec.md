@@ -157,3 +157,18 @@ The system SHALL enforce correct ordering of operations to maintain referential 
 - AND DELETE operations run next (edges before nodes)
 - AND CREATE operations follow (nodes before edges)
 - AND UPDATE operations run last
+
+### Requirement: MutationLog Run Metadata
+The system SHALL persist run-level metadata for mutation logs.
+
+#### Scenario: Session and scope association
+- GIVEN mutations produced by an extraction or manual-edit session
+- WHEN the mutation log run is persisted
+- THEN the run is associated with session ID and knowledge graph ID
+- AND actor identity and run timestamps are recorded
+
+#### Scenario: Metrics capture
+- GIVEN a persisted mutation log run
+- WHEN run metrics are finalized
+- THEN token usage and cost totals are stored
+- AND operation counts are stored by operation class

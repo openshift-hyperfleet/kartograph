@@ -21,6 +21,7 @@ from management.presentation.knowledge_graphs.models import (
     CreateKnowledgeGraphRequest,
     KnowledgeGraphListResponse,
     KnowledgeGraphResponse,
+    KnowledgeGraphWorkspaceStatusResponse,
     OntologyConfigRequest,
     OntologyConfigResponse,
     UpdateKnowledgeGraphRequest,
@@ -153,6 +154,43 @@ async def get_knowledge_graph(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve knowledge graph",
+        )
+
+
+@router.get(
+    "/knowledge-graphs/{kg_id}/workspace-status",
+    response_model=KnowledgeGraphWorkspaceStatusResponse,
+    summary="Get knowledge graph workspace status projection",
+    description="""
+Return mode/readiness/session status used by the knowledge graph Manage workspace UI.
+
+Returns 404 when the knowledge graph does not exist or the caller lacks `view`
+permission on the knowledge graph.
+""",
+)
+async def get_knowledge_graph_workspace_status(
+    kg_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> KnowledgeGraphWorkspaceStatusResponse:
+    """Get workspace status projection for a knowledge graph."""
+    try:
+        status_projection = await service.get_workspace_status(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+        )
+        if status_projection is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Knowledge graph {kg_id} not found",
+            )
+        return KnowledgeGraphWorkspaceStatusResponse.from_domain(status_projection)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve workspace status",
         )
 
 

@@ -102,6 +102,44 @@ class WorkspaceMode(StrEnum):
 
 
 @dataclass(frozen=True)
+class WorkspaceReadinessStatus:
+    """Readiness flags used to determine bootstrap transition eligibility."""
+
+    has_minimum_entity_types: bool
+    has_minimum_relationship_types: bool
+    prepopulated_types_ready: bool
+
+    @property
+    def is_ready(self) -> bool:
+        """Return true when all readiness checks pass."""
+        return (
+            self.has_minimum_entity_types
+            and self.has_minimum_relationship_types
+            and self.prepopulated_types_ready
+        )
+
+
+@dataclass(frozen=True)
+class WorkspaceSessionPointers:
+    """Session pointers projected for workspace status UIs."""
+
+    active_schema_bootstrap_session_id: str | None = None
+    active_extraction_operations_session_id: str | None = None
+    most_recent_completed_session_id: str | None = None
+
+
+@dataclass(frozen=True)
+class KnowledgeGraphWorkspaceStatus:
+    """Workspace status projection for a knowledge graph."""
+
+    knowledge_graph_id: str
+    workspace_mode: WorkspaceMode
+    readiness: WorkspaceReadinessStatus
+    transition_eligible: bool
+    session_pointers: WorkspaceSessionPointers
+
+
+@dataclass(frozen=True)
 class Schedule:
     """Schedule configuration for data source synchronization.
 

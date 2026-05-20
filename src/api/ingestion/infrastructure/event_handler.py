@@ -74,6 +74,22 @@ class IngestionEventHandler:
         knowledge_graph_id = payload["knowledge_graph_id"]
         now = datetime.now(UTC)
 
+        if payload.get("no_changes_detected") is True:
+            await self._outbox.append(
+                event_type="MutationsApplied",
+                payload={
+                    "sync_run_id": sync_run_id,
+                    "data_source_id": data_source_id,
+                    "knowledge_graph_id": knowledge_graph_id,
+                    "no_changes_detected": True,
+                    "occurred_at": now.isoformat(),
+                },
+                occurred_at=now,
+                aggregate_type="sync_run",
+                aggregate_id=sync_run_id,
+            )
+            return
+
         try:
             job_package_id = await self._ingestion_service.run(
                 sync_run_id=sync_run_id,

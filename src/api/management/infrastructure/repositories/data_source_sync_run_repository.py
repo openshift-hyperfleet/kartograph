@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy import desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.domain.entities import DataSourceSyncRun
+from management.domain.entities import DataSourceSyncRun, MutationLogRunMetadata
 from management.infrastructure.models import DataSourceSyncRunModel
 from management.infrastructure.observability import (
     DefaultSyncRunRepositoryProbe,
@@ -51,6 +51,11 @@ class DataSourceSyncRunRepository(IDataSourceSyncRunRepository):
             model.completed_at = sync_run.completed_at
             model.error = sync_run.error
             model.logs = sync_run.logs
+            model.mutation_log_run = (
+                sync_run.mutation_log_run.to_dict()
+                if sync_run.mutation_log_run is not None
+                else None
+            )
         else:
             model = DataSourceSyncRunModel(
                 id=sync_run.id,
@@ -61,6 +66,11 @@ class DataSourceSyncRunRepository(IDataSourceSyncRunRepository):
                 error=sync_run.error,
                 created_at=sync_run.created_at,
                 logs=sync_run.logs,
+                mutation_log_run=(
+                    sync_run.mutation_log_run.to_dict()
+                    if sync_run.mutation_log_run is not None
+                    else None
+                ),
             )
             self._session.add(model)
 
@@ -122,4 +132,9 @@ class DataSourceSyncRunRepository(IDataSourceSyncRunRepository):
             error=model.error,
             created_at=model.created_at,
             logs=model.logs if model.logs is not None else [],
+            mutation_log_run=(
+                MutationLogRunMetadata.from_dict(model.mutation_log_run)
+                if model.mutation_log_run is not None
+                else None
+            ),
         )

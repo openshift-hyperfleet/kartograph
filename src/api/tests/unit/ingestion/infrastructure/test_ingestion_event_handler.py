@@ -199,6 +199,27 @@ class TestIngestionEventHandlerSuccess:
         assert event["aggregate_type"] == "sync_run"
         assert event["aggregate_id"] == "run-001"
 
+    async def test_short_circuits_when_no_changes_detected(
+        self,
+        handler: IngestionEventHandler,
+        ingestion_service: _FakeIngestionService,
+        outbox: _FakeOutboxRepository,
+    ):
+        """When no_changes_detected is true, heavy ingestion is skipped."""
+        payload = _sync_started_payload(sync_run_id="run-004")
+        payload["no_changes_detected"] = True
+        payload["tracked_branch_head_commit"] = "abc123"
+        payload["baseline_commit"] = "abc123"
+
+        await handler.handle("SyncStarted", payload)
+
+        assert ingestion_service.calls == []
+        assert len(outbox.appended) == 1
+        event = outbox.appended[0]
+        assert event["event_type"] == "MutationsApplied"
+        assert event["payload"]["sync_run_id"] == "run-004"
+        assert event["payload"]["no_changes_detected"] is True
+
 
 @pytest.mark.asyncio
 class TestIngestionEventHandlerFailure:

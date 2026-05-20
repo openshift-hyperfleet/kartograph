@@ -280,6 +280,13 @@ class _SessionedIngestionEventHandler:
                         enriched_payload["tracked_branch_head_commit"] = tracked_head
                         ds.tracked_branch_head_commit = tracked_head
                         await ds_repo.save(ds)
+                        baseline_commit = enriched_payload.get("baseline_commit")
+                        if (
+                            isinstance(baseline_commit, str)
+                            and baseline_commit
+                            and baseline_commit == tracked_head
+                        ):
+                            enriched_payload["no_changes_detected"] = True
 
             await ingestion_handler.handle(event_type, enriched_payload)
             await session.commit()

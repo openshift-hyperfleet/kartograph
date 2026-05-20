@@ -392,6 +392,48 @@ class TestMutationsAppliedTransition:
         saved_ds = mock_ds_repo.save.call_args[0][0]
         assert saved_ds.last_sync_at is not None
 
+    async def test_mutations_applied_logs_no_changes_short_circuit(
+        self,
+        handler: SyncLifecycleHandler,
+        mock_sync_run_repo: AsyncMock,
+        mock_ds_repo: AsyncMock,
+    ):
+        """No-change short-circuit should leave an explicit audit log entry."""
+        from management.domain.aggregates import DataSource
+        from management.domain.value_objects import DataSourceId, Schedule, ScheduleType
+        from shared_kernel.datasource_types import DataSourceAdapterType
+
+        run = _make_sync_run(status="ingesting")
+        mock_sync_run_repo.get_by_id.return_value = run
+
+        now = datetime.now(UTC)
+        ds = DataSource(
+            id=DataSourceId(value="ds-001"),
+            knowledge_graph_id="kg-001",
+            tenant_id="tenant-001",
+            name="My DS",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={},
+            credentials_path=None,
+            schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+            last_sync_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_ds_repo.get_by_id.return_value = ds
+
+        await handler.handle(
+            "MutationsApplied",
+            _payload(
+                sync_run_id=run.id,
+                knowledge_graph_id="kg-001",
+                no_changes_detected=True,
+            ),
+        )
+
+        saved_run: DataSourceSyncRun = mock_sync_run_repo.save.call_args[0][0]
+        assert any("No source changes were detected" in line for line in saved_run.logs)
+
 
 @pytest.mark.asyncio
 class TestMutationApplicationFailedTransition:

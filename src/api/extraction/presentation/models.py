@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from extraction.domain.entities.agent_session import ExtractionAgentSession
-from extraction.domain.value_objects import ExtractionSessionMode
+from extraction.domain.value_objects import BootstrapIntakePath, ExtractionSessionMode
 
 
 class ExtractionSessionResponse(BaseModel):
@@ -44,4 +44,14 @@ class ExtractionSessionListResponse(BaseModel):
 
     sessions: list[ExtractionSessionResponse]
     count: int
+
+
+class BootstrapIntakePathSelectionRequest(BaseModel):
+    """Request model for bootstrap intake path selection."""
+
+    selected_path: BootstrapIntakePath
+    capabilities_goals: str | None = Field(
+        default=None,
+        description="Optional user summary of capabilities and schema goals",
+    )
 

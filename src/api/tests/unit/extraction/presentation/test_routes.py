@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from extraction.application.agent_session_service import ExtractionAgentSessionService
 from extraction.domain.entities.agent_session import ExtractionAgentSession
+from extraction.domain.value_objects import BootstrapIntakePath
 from iam.application.value_objects import CurrentUser
 from iam.domain.value_objects import TenantId, UserId
 
@@ -175,4 +176,24 @@ class TestExtractionSessionRoutes:
         assert first.status_code == status.HTTP_200_OK
         assert second.status_code == status.HTTP_200_OK
         assert first.json()["id"] == second.json()["id"]
+
+    def test_select_bootstrap_intake_path_persists_choice(self, extraction_client):
+        client, _ = extraction_client
+        active = client.get(
+            "/extraction/knowledge-graphs/kg-123/sessions/schema_bootstrap/active"
+        )
+        assert active.status_code == status.HTTP_200_OK
+
+        response = client.post(
+            "/extraction/knowledge-graphs/kg-123/sessions/schema_bootstrap/active/intake-path",
+            json={
+                "selected_path": BootstrapIntakePath.GUIDED_CO_DESIGN.value,
+                "capabilities_goals": "I know core entities but need help with relationships.",
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        intake = payload["runtime_context"]["bootstrap_intake"]
+        assert intake["selected_path"] == BootstrapIntakePath.GUIDED_CO_DESIGN.value
+        assert intake["status"] == "path_selected"
 

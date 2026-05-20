@@ -9,7 +9,7 @@ import pytest
 
 from extraction.application.agent_session_service import ExtractionAgentSessionService
 from extraction.domain.entities.agent_session import ExtractionAgentSession
-from extraction.domain.value_objects import ExtractionSessionMode
+from extraction.domain.value_objects import BootstrapIntakePath, ExtractionSessionMode
 
 
 class _InMemoryAgentSessionRepository:
@@ -211,4 +211,43 @@ class TestExtractionAgentSessionService:
         assert config["system_prompt"] == "Bootstrap system prompt"
         assert config["skills"]["schema_modeling"] == "bootstrap schema guidance"
         assert skill_resolution.calls == [("kg-1", ExtractionSessionMode.SCHEMA_BOOTSTRAP)]
+
+    async def test_bootstrap_session_seeds_capabilities_intake_prompt_state(self):
+        repo = _InMemoryAgentSessionRepository()
+        service = ExtractionAgentSessionService(repository=repo)
+
+        session = await service.get_or_create_active_session(
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+        )
+
+        assert session.message_history
+        assert session.message_history[0]["role"] == "assistant"
+        assert "capabilities" in session.message_history[0]["content"].lower()
+        intake = session.runtime_context["bootstrap_intake"]
+        assert intake["status"] == "awaiting_path_selection"
+        assert intake["selected_path"] is None
+
+    async def test_select_bootstrap_intake_path_persists_choice_for_continuity(self):
+        repo = _InMemoryAgentSessionRepository()
+        service = ExtractionAgentSessionService(repository=repo)
+        session = await service.get_or_create_active_session(
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+        )
+
+        updated = await service.set_bootstrap_intake_path_for_active_session(
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            selected_path=BootstrapIntakePath.GUIDED_CO_DESIGN,
+            capabilities_goals="I can provide domain terms but need guidance.",
+        )
+
+        intake = updated.runtime_context["bootstrap_intake"]
+        assert intake["selected_path"] == BootstrapIntakePath.GUIDED_CO_DESIGN.value
+        assert intake["status"] == "path_selected"
+        assert intake["capabilities_goals"] == "I can provide domain terms but need guidance."
+        assert updated.id == session.id
 

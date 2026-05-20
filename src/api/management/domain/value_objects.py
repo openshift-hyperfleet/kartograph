@@ -94,6 +94,13 @@ class ScheduleType(StrEnum):
     INTERVAL = "interval"
 
 
+class WorkspaceMode(StrEnum):
+    """Lifecycle mode of a knowledge-graph workspace."""
+
+    SCHEMA_BOOTSTRAP = "schema_bootstrap"
+    EXTRACTION_OPERATIONS = "extraction_operations"
+
+
 @dataclass(frozen=True)
 class Schedule:
     """Schedule configuration for data source synchronization.

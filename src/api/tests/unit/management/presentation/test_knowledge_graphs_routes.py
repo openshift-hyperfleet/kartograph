@@ -19,7 +19,7 @@ from management.application.services.knowledge_graph_service import (
     KnowledgeGraphService,
 )
 from management.domain.aggregates import KnowledgeGraph
-from management.domain.value_objects import KnowledgeGraphId
+from management.domain.value_objects import KnowledgeGraphId, WorkspaceMode
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
     KnowledgeGraphNotFoundError,
@@ -100,6 +100,10 @@ class TestListKnowledgeGraphsRoute:
         assert len(result["knowledge_graphs"]) == 1
         assert result["knowledge_graphs"][0]["id"] == sample_knowledge_graph.id.value
         assert result["knowledge_graphs"][0]["name"] == sample_knowledge_graph.name
+        assert (
+            result["knowledge_graphs"][0]["workspace_mode"]
+            == WorkspaceMode.SCHEMA_BOOTSTRAP.value
+        )
 
     def test_list_knowledge_graphs_calls_list_all_with_view_permission_by_default(
         self,
@@ -254,6 +258,7 @@ class TestGetKnowledgeGraphRoute:
         assert result["description"] == sample_knowledge_graph.description
         assert result["tenant_id"] == sample_knowledge_graph.tenant_id
         assert result["workspace_id"] == sample_knowledge_graph.workspace_id
+        assert result["workspace_mode"] == WorkspaceMode.SCHEMA_BOOTSTRAP.value
 
     def test_get_knowledge_graph_calls_service_with_user_id(
         self,

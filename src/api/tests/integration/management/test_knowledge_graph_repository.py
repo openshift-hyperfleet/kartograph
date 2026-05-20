@@ -22,6 +22,7 @@ from management.infrastructure.repositories.knowledge_graph_repository import (
     KnowledgeGraphRepository,
 )
 from management.ports.exceptions import DuplicateKnowledgeGraphNameError
+from management.domain.value_objects import WorkspaceMode
 from shared_kernel.datasource_types import DataSourceAdapterType
 
 pytestmark = pytest.mark.integration
@@ -83,6 +84,32 @@ class TestKnowledgeGraphRoundTrip:
 
         assert retrieved is not None
         assert retrieved.description == ""
+
+    @pytest.mark.asyncio
+    async def test_saves_and_retrieves_workspace_mode(
+        self,
+        knowledge_graph_repository: KnowledgeGraphRepository,
+        async_session,
+        test_tenant: str,
+        test_workspace: str,
+        clean_management_data,
+    ):
+        """Should persist workspace mode transition state."""
+        kg = KnowledgeGraph.create(
+            tenant_id=test_tenant,
+            workspace_id=test_workspace,
+            name="Workspace Mode KG",
+            description="Tracks mode lifecycle",
+        )
+        kg.transition_to_extraction_operations()
+
+        async with async_session.begin():
+            await knowledge_graph_repository.save(kg)
+
+        retrieved = await knowledge_graph_repository.get_by_id(kg.id)
+
+        assert retrieved is not None
+        assert retrieved.workspace_mode == WorkspaceMode.EXTRACTION_OPERATIONS
 
 
 class TestKnowledgeGraphUpdate:

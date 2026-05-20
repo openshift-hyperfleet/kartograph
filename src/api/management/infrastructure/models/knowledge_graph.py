@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.database.models import Base, TimestampMixin
+from management.domain.value_objects import WorkspaceMode
 
 
 class KnowledgeGraphModel(Base, TimestampMixin):
@@ -30,6 +31,12 @@ class KnowledgeGraphModel(Base, TimestampMixin):
     workspace_id: Mapped[str] = mapped_column(String(26), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    workspace_mode: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default=WorkspaceMode.SCHEMA_BOOTSTRAP.value,
+        server_default=WorkspaceMode.SCHEMA_BOOTSTRAP.value,
+    )
     ontology: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
 
     __table_args__ = (

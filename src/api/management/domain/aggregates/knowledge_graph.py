@@ -15,12 +15,17 @@ from management.domain.exceptions import (
     AggregateDeletedError,
     InvalidIdentifierError,
     InvalidKnowledgeGraphNameError,
+    InvalidWorkspaceModeTransitionError,
 )
 from management.domain.observability import (
     DefaultKnowledgeGraphProbe,
     KnowledgeGraphProbe,
 )
-from management.domain.value_objects import KnowledgeGraphId, OntologyConfig
+from management.domain.value_objects import (
+    KnowledgeGraphId,
+    OntologyConfig,
+    WorkspaceMode,
+)
 
 if TYPE_CHECKING:
     from management.domain.events import DomainEvent
@@ -51,6 +56,7 @@ class KnowledgeGraph:
     created_at: datetime
     updated_at: datetime
     ontology: OntologyConfig | None = field(default=None)
+    workspace_mode: WorkspaceMode = field(default=WorkspaceMode.SCHEMA_BOOTSTRAP)
     _pending_events: list[DomainEvent] = field(default_factory=list, repr=False)
     _probe: KnowledgeGraphProbe = field(
         default_factory=DefaultKnowledgeGraphProbe,
@@ -63,6 +69,7 @@ class KnowledgeGraph:
         self._validate_name(self.name)
         self._validate_identifier(self.tenant_id, "tenant_id")
         self._validate_identifier(self.workspace_id, "workspace_id")
+        self.workspace_mode = WorkspaceMode(self.workspace_mode)
 
     def _validate_name(self, name: str) -> None:
         """Validate knowledge graph name length.
@@ -228,6 +235,15 @@ class KnowledgeGraph:
                 "Cannot clear ontology on a deleted knowledge graph"
             )
         self.ontology = None
+        self.updated_at = datetime.now(UTC)
+
+    def transition_to_extraction_operations(self) -> None:
+        """Transition workspace mode from bootstrap to extraction operations."""
+        if self.workspace_mode == WorkspaceMode.EXTRACTION_OPERATIONS:
+            raise InvalidWorkspaceModeTransitionError(
+                "Workspace mode is already extraction_operations"
+            )
+        self.workspace_mode = WorkspaceMode.EXTRACTION_OPERATIONS
         self.updated_at = datetime.now(UTC)
 
     def mark_for_deletion(

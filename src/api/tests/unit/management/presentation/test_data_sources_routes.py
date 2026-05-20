@@ -69,6 +69,9 @@ def sample_data_source(mock_current_user: CurrentUser) -> DataSource:
         last_sync_at=None,
         created_at=now,
         updated_at=now,
+        clone_head_commit="1111111111111111111111111111111111111111",
+        last_extraction_baseline_commit="2222222222222222222222222222222222222222",
+        tracked_branch_head_commit="3333333333333333333333333333333333333333",
     )
 
 
@@ -134,6 +137,15 @@ class TestListDataSourcesRoute:
         assert result[0]["id"] == sample_data_source.id.value
         assert result[0]["name"] == sample_data_source.name
         assert result[0]["adapter_type"] == sample_data_source.adapter_type.value
+        assert result[0]["clone_head_commit"] == sample_data_source.clone_head_commit
+        assert (
+            result[0]["last_extraction_baseline_commit"]
+            == sample_data_source.last_extraction_baseline_commit
+        )
+        assert (
+            result[0]["tracked_branch_head_commit"]
+            == sample_data_source.tracked_branch_head_commit
+        )
 
     def test_list_data_sources_returns_empty_list(
         self,

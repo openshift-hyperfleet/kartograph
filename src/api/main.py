@@ -48,6 +48,7 @@ from shared_kernel.outbox.observability import (
 )
 from infrastructure.mcp_dependencies import dispose_mcp_auth_engine
 from query.presentation.mcp import mcp_http_app_proxy, query_mcp_app
+from graph.ports.mutation_log import MutationLogApplyResult
 
 # Default work directory for JobPackage ZIP archives
 _JOB_PACKAGE_WORK_DIR = Path("/tmp/kartograph/job_packages")  # noqa: S108
@@ -238,7 +239,7 @@ class _StubMutationLogApplier:
     result in MutationApplicationFailed being emitted.
     """
 
-    async def apply_mutation_log(self, mutation_log_id: str) -> bool:
+    async def apply_mutation_log(self, mutation_log_id: str) -> MutationLogApplyResult:
         raise NotImplementedError(
             "Graph mutation application via outbox is not yet fully implemented. "
             "Register a real IMutationLogApplier to enable graph writes from the outbox."

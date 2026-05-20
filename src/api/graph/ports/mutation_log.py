@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Protocol
+
+
+@dataclass(frozen=True)
+class MutationLogApplyResult:
+    """Result metadata produced when applying a mutation log."""
+
+    success: bool
+    operation_counts: dict[str, int] = field(default_factory=dict)
+    token_usage_total: int | None = None
+    cost_total_usd: float | None = None
 
 
 class IMutationLogApplier(Protocol):
@@ -15,7 +26,7 @@ class IMutationLogApplier(Protocol):
     infrastructure (AGE connection pools, bulk loading strategies, etc.).
     """
 
-    async def apply_mutation_log(self, mutation_log_id: str) -> bool:
+    async def apply_mutation_log(self, mutation_log_id: str) -> MutationLogApplyResult:
         """Apply all mutations from a MutationLog to the graph database.
 
         Args:
@@ -24,7 +35,7 @@ class IMutationLogApplier(Protocol):
                 log content from storage (filesystem, object store, etc.).
 
         Returns:
-            True if all mutations were applied successfully.
+            MutationLogApplyResult with success flag and finalized run metrics.
 
         Raises:
             Exception: Any exception signals a failure; callers should

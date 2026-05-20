@@ -1124,6 +1124,35 @@ describe('Mutations Console - navigation placement', () => {
   })
 })
 
+describe('Mutations Console - manual mutation assistant and live inspector', () => {
+  it('renders the assistant + inspector panel title', () => {
+    expect(mutationsVue).toContain('Manual Mutation Assistant + Live Graph Inspector')
+  })
+
+  it('includes entity and relationship inspector tabs', () => {
+    expect(mutationsVue).toContain('TabsTrigger value="entities"')
+    expect(mutationsVue).toContain('TabsTrigger value="relationships"')
+  })
+
+  it('loads live inspector data through queryGraph for selected knowledge graph', () => {
+    expect(mutationsVue).toContain('loadLiveInspector')
+    expect(mutationsVue).toContain('queryGraph(')
+    expect(mutationsVue).toContain('selectedKnowledgeGraphId.value')
+  })
+
+  it('tracks edited session fields/types and applies highlight styling', () => {
+    expect(mutationsVue).toContain('sessionEditedTypes')
+    expect(mutationsVue).toContain('sessionEditedFields')
+    expect(mutationsVue).toContain('border-amber-500/70 bg-amber-500/10')
+  })
+
+  it('clears edited highlights after successful apply and refreshes inspector', () => {
+    expect(mutationsVue).toContain('resetSessionEditHighlights')
+    expect(mutationsVue).toContain("if (status === 'success')")
+    expect(mutationsVue).toContain('await loadLiveInspector()')
+  })
+})
+
 // ────────────────────────────────────────────────────────────────────────────
 // Design Language — Typography: no font-bold (700) in page files
 // Spec: "font weights are limited to regular (400), medium (500), and semibold (600)"

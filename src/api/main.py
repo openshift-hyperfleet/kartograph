@@ -273,9 +273,6 @@ class _SessionedIngestionEventHandler:
                             )
                         except KeyError:
                             credentials = {}
-                    if credentials:
-                        enriched_payload["credentials"] = credentials
-
                     tracked_head = await self._resolve_github_tracked_head_commit(
                         connection_config=ds.connection_config,
                         credentials=credentials,
@@ -292,7 +289,11 @@ class _SessionedIngestionEventHandler:
                         ):
                             enriched_payload["no_changes_detected"] = True
 
-            await ingestion_handler.handle(event_type, enriched_payload)
+            await ingestion_handler.handle(
+                event_type,
+                enriched_payload,
+                runtime_credentials=credentials,
+            )
             await session.commit()
 
 

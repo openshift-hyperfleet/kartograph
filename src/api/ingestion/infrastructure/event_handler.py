@@ -7,6 +7,7 @@ pipeline and emits either JobPackageProduced or IngestionFailed to the outbox.
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -49,10 +50,29 @@ class IngestionEventHandler:
         """Return event types handled by this handler."""
         return frozenset({"SyncStarted"})
 
+    @staticmethod
+    def _redact_sensitive_error(message: str) -> str:
+        """Redact token-like secrets from error strings before persistence."""
+        patterns = (
+            # GitHub PAT prefixes
+            re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"),
+            # Generic bearer tokens
+            re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-+/=]{16,}\b"),
+            # Common key/value credential leaks
+            re.compile(
+                r"(?i)\b(token|access_token|password|api[_-]?key)\b\s*[:=]\s*['\"]?[^\s,'\"]+"
+            ),
+        )
+        redacted = message
+        for pattern in patterns:
+            redacted = pattern.sub("***REDACTED***", redacted)
+        return redacted
+
     async def handle(
         self,
         event_type: str,
         payload: dict[str, Any],
+        runtime_credentials: dict[str, str] | None = None,
     ) -> None:
         """Process a SyncStarted event by running the ingestion pipeline.
 
@@ -100,6 +120,7 @@ class IngestionEventHandler:
                 credentials_path=payload.get("credentials_path"),
                 tenant_id=payload.get("tenant_id"),
                 credentials=payload.get("credentials"),
+                credentials=runtime_credentials or payload.get("credentials"),
                 baseline_commit=payload.get("baseline_commit"),
             )
         except asyncio.CancelledError:
@@ -112,7 +133,7 @@ class IngestionEventHandler:
                 payload={
                     "sync_run_id": sync_run_id,
                     "data_source_id": data_source_id,
-                    "error": str(exc),
+                    "error": self._redact_sensitive_error(str(exc)),
                     "occurred_at": now.isoformat(),
                 },
                 occurred_at=now,

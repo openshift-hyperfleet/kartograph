@@ -40,6 +40,7 @@ class ExtractionEventHandler:
         self,
         extraction_service: IExtractionService,
         outbox: "IOutboxRepository",
+        runtime_context_builder: Any,
     ) -> None:
         """Initialize the extraction event handler.
 
@@ -50,6 +51,7 @@ class ExtractionEventHandler:
         """
         self._extraction_service = extraction_service
         self._outbox = outbox
+        self._runtime_context_builder = runtime_context_builder
 
     def supported_event_types(self) -> frozenset[str]:
         """Return event types handled by this handler."""
@@ -80,11 +82,16 @@ class ExtractionEventHandler:
         now = datetime.now(UTC)
 
         try:
+            runtime_context = self._runtime_context_builder.build(
+                sync_run_id=sync_run_id,
+                job_package_id=job_package_id,
+            )
             mutation_log_id = await self._extraction_service.run(
                 sync_run_id=sync_run_id,
                 data_source_id=data_source_id,
                 knowledge_graph_id=knowledge_graph_id,
                 job_package_id=job_package_id,
+                runtime_context=runtime_context,
             )
         except Exception as exc:
             await self._outbox.append(

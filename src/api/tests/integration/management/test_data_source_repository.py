@@ -112,6 +112,49 @@ class TestDataSourceRoundTrip:
         assert retrieved is not None
         assert retrieved.credentials_path == "vault://secrets/github"
 
+    @pytest.mark.asyncio
+    async def test_saves_and_retrieves_commit_references(
+        self,
+        data_source_repository: DataSourceRepository,
+        knowledge_graph_repository: KnowledgeGraphRepository,
+        async_session,
+        test_tenant: str,
+        test_workspace: str,
+        clean_management_data,
+    ):
+        """Should roundtrip Git commit reference tracking fields."""
+        kg = KnowledgeGraph.create(
+            tenant_id=test_tenant,
+            workspace_id=test_workspace,
+            name="Test KG",
+            description="For DS commit reference tests",
+        )
+        async with async_session.begin():
+            await knowledge_graph_repository.save(kg)
+
+        ds = DataSource.create(
+            knowledge_graph_id=kg.id.value,
+            tenant_id=test_tenant,
+            name="GitHub With Commits",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"repo": "org/repo"},
+        )
+        ds.clone_head_commit = "1111111111111111111111111111111111111111"
+        ds.last_extraction_baseline_commit = "2222222222222222222222222222222222222222"
+        ds.tracked_branch_head_commit = "3333333333333333333333333333333333333333"
+
+        async with async_session.begin():
+            await data_source_repository.save(ds)
+
+        retrieved = await data_source_repository.get_by_id(ds.id)
+        assert retrieved is not None
+        assert retrieved.clone_head_commit == ds.clone_head_commit
+        assert (
+            retrieved.last_extraction_baseline_commit
+            == ds.last_extraction_baseline_commit
+        )
+        assert retrieved.tracked_branch_head_commit == ds.tracked_branch_head_commit
+
 
 class TestDataSourceUpdate:
     """Tests for updating data sources."""

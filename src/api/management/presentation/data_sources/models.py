@@ -189,6 +189,15 @@ class DataSourceResponse(BaseModel):
     last_sync_at: datetime | None = Field(
         None, description="When the last sync completed"
     )
+    clone_head_commit: str | None = Field(
+        None, description="Latest known commit in the local/ingested clone"
+    )
+    last_extraction_baseline_commit: str | None = Field(
+        None, description="Commit used as baseline during the last extraction run"
+    )
+    tracked_branch_head_commit: str | None = Field(
+        None, description="Latest known commit at the tracked source branch head"
+    )
     created_at: datetime = Field(..., description="When the DS was created")
     updated_at: datetime = Field(..., description="When the DS was last updated")
     ontology: OntologyModel | None = Field(
@@ -214,6 +223,9 @@ class DataSourceResponse(BaseModel):
             adapter_type=ds.adapter_type.value,
             schedule_type=ds.schedule.schedule_type.value,
             last_sync_at=ds.last_sync_at,
+            clone_head_commit=ds.clone_head_commit,
+            last_extraction_baseline_commit=ds.last_extraction_baseline_commit,
+            tracked_branch_head_commit=ds.tracked_branch_head_commit,
             created_at=ds.created_at,
             updated_at=ds.updated_at,
             ontology=(
@@ -293,6 +305,15 @@ class DataSourceWithSyncResponse(BaseModel):
     last_sync_at: datetime | None = Field(
         None, description="When the last sync completed"
     )
+    clone_head_commit: str | None = Field(
+        None, description="Latest known commit in the local/ingested clone"
+    )
+    last_extraction_baseline_commit: str | None = Field(
+        None, description="Commit used as baseline during the last extraction run"
+    )
+    tracked_branch_head_commit: str | None = Field(
+        None, description="Latest known commit at the tracked source branch head"
+    )
     created_at: datetime = Field(..., description="When the DS was created")
     updated_at: datetime = Field(..., description="When the DS was last updated")
     ontology: OntologyModel | None = Field(
@@ -325,6 +346,9 @@ class DataSourceWithSyncResponse(BaseModel):
             adapter_type=ds.adapter_type.value,
             schedule_type=ds.schedule.schedule_type.value,
             last_sync_at=ds.last_sync_at,
+            clone_head_commit=ds.clone_head_commit,
+            last_extraction_baseline_commit=ds.last_extraction_baseline_commit,
+            tracked_branch_head_commit=ds.tracked_branch_head_commit,
             created_at=ds.created_at,
             updated_at=ds.updated_at,
             ontology=(

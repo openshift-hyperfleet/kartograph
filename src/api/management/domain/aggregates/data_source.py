@@ -63,6 +63,9 @@ class DataSource:
     last_sync_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    clone_head_commit: str | None = None
+    last_extraction_baseline_commit: str | None = None
+    tracked_branch_head_commit: str | None = None
     ontology: Ontology | None = None
     _pending_events: list[DomainEvent] = field(default_factory=list, repr=False)
     _probe: DataSourceProbe = field(

@@ -145,6 +145,19 @@ class TestDataSourceCreate:
         )
         assert ds.last_sync_at is None
 
+    def test_create_sets_commit_references_to_none(self):
+        """create() should default commit-reference tracking fields to None."""
+        ds = DataSource.create(
+            knowledge_graph_id="kg-1",
+            tenant_id="t",
+            name="Source",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={},
+        )
+        assert ds.clone_head_commit is None
+        assert ds.last_extraction_baseline_commit is None
+        assert ds.tracked_branch_head_commit is None
+
     def test_create_with_credentials_path(self):
         """create() should store optional credentials_path."""
         ds = DataSource.create(

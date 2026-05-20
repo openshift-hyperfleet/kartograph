@@ -144,6 +144,24 @@ The system SHALL show sync progress and status for each data source.
 - WHEN the user triggers a sync
 - THEN a new sync run begins and progress is shown
 
+#### Scenario: Commit-hash status cues
+- GIVEN a Git-backed data source card in the UI
+- WHEN commit reference data is available
+- THEN the UI displays `Local clone commit`, `Commit during last extraction`, and tracked branch head commit values
+- AND the UI visually indicates whether new commits are available since the last extraction baseline
+
+#### Scenario: Maintenance-readiness cue
+- GIVEN a Git-backed data source where tracked branch head differs from commit during last extraction
+- WHEN the user views data source status
+- THEN the UI highlights that maintenance/extraction work can be run for new source changes
+
+#### Scenario: Diff summary cue
+- GIVEN a Git-backed data source with commit references for baseline and latest tracked branch head
+- WHEN the user opens sync/maintenance details
+- THEN the UI shows a diff summary relative to the last extraction baseline suitable for deciding whether to run maintenance
+- AND the summary includes aggregate counts and a changed-file list
+- AND the changed-file list is collapsed by default and expanded on demand to avoid overwhelming the page
+
 ### Requirement: Get Started Querying (MCP Connection)
 The system SHALL make it easy for users to connect AI agents to their knowledge graph via MCP.
 

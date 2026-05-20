@@ -22,6 +22,10 @@ from management.presentation.knowledge_graphs.models import (
     KnowledgeGraphListResponse,
     KnowledgeGraphResponse,
     KnowledgeGraphWorkspaceStatusResponse,
+    MaintenanceRunListResponse,
+    MaintenanceRunResponse,
+    MaintenanceScheduleResponse,
+    MaintenanceScheduleUpsertRequest,
     OntologyConfigRequest,
     OntologyConfigResponse,
     UpdateKnowledgeGraphRequest,
@@ -29,6 +33,160 @@ from management.presentation.knowledge_graphs.models import (
 from shared_kernel.authorization.types import Permission
 
 router = APIRouter(tags=["knowledge-graphs"])
+
+
+@router.get(
+    "/knowledge-graphs/{kg_id}/maintenance-schedule",
+    response_model=MaintenanceScheduleResponse,
+    summary="Get KG maintenance schedule configuration",
+)
+async def get_knowledge_graph_maintenance_schedule(
+    kg_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> MaintenanceScheduleResponse:
+    """Get knowledge-graph scoped maintenance schedule settings."""
+    try:
+        schedule = await service.get_maintenance_schedule(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+        )
+        return MaintenanceScheduleResponse.from_domain(schedule)
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load maintenance schedule",
+        )
+
+
+@router.put(
+    "/knowledge-graphs/{kg_id}/maintenance-schedule",
+    response_model=MaintenanceScheduleResponse,
+    summary="Create or update KG maintenance schedule configuration",
+)
+async def upsert_knowledge_graph_maintenance_schedule(
+    kg_id: str,
+    request: MaintenanceScheduleUpsertRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> MaintenanceScheduleResponse:
+    """Upsert knowledge-graph scoped maintenance schedule settings."""
+    try:
+        schedule = await service.upsert_maintenance_schedule(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+            cron_expression=request.cron_expression,
+            timezone_name=request.timezone_name,
+            enabled=request.enabled,
+        )
+        return MaintenanceScheduleResponse.from_domain(schedule)
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save maintenance schedule",
+        )
+
+
+@router.get(
+    "/knowledge-graphs/{kg_id}/maintenance-runs",
+    response_model=MaintenanceRunListResponse,
+    summary="List KG maintenance run outcomes",
+)
+async def list_knowledge_graph_maintenance_runs(
+    kg_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> MaintenanceRunListResponse:
+    """List persisted maintenance orchestration outcomes for a KG."""
+    try:
+        runs = await service.list_maintenance_runs(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+            limit=limit,
+        )
+        items = [MaintenanceRunResponse.from_domain(run) for run in runs]
+        return MaintenanceRunListResponse(runs=items, count=len(items))
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list maintenance runs",
+        )
+
+
+@router.post(
+    "/knowledge-graphs/{kg_id}/maintenance-runs/trigger",
+    response_model=MaintenanceRunResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Trigger KG maintenance orchestration",
+)
+async def trigger_knowledge_graph_maintenance_run(
+    kg_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> MaintenanceRunResponse:
+    """Trigger a maintenance run across all data sources in a knowledge graph."""
+    try:
+        run = await service.trigger_maintenance_run(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+        )
+        return MaintenanceRunResponse.from_domain(run)
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to trigger maintenance run",
+        )
 
 
 @router.get(

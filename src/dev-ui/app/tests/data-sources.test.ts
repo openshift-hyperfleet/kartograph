@@ -3162,3 +3162,26 @@ describe('Extraction telemetry dashboard - structural verification', () => {
     expect(source).toContain('previous 24h')
   })
 })
+
+describe('Scheduled maintenance orchestration - structural verification', () => {
+  const source = readFileSync(
+    resolve(__dirname, '../pages/data-sources/index.vue'),
+    'utf-8',
+  )
+
+  it('declares maintenance schedule state and loader function', () => {
+    expect(source).toContain('maintenanceSchedule')
+    expect(source).toContain('loadMaintenanceOrchestration')
+  })
+
+  it('renders the scheduled maintenance panel and trigger action', () => {
+    expect(source).toContain('Scheduled maintenance orchestration')
+    expect(source).toContain('maintenance-runs/trigger')
+    expect(source).toContain('Run now')
+  })
+
+  it('renders maintenance outcome history list', () => {
+    expect(source).toContain('No maintenance orchestration runs recorded yet.')
+    expect(source).toContain('maintenanceOutcomeTone')
+  })
+})

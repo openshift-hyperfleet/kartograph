@@ -20,6 +20,9 @@ from management.application.services.knowledge_graph_service import (
 )
 from management.domain.aggregates import KnowledgeGraph
 from management.domain.value_objects import (
+    KnowledgeGraphMaintenanceRunOutcome,
+    KnowledgeGraphMaintenanceRunRecord,
+    KnowledgeGraphMaintenanceSchedule,
     KnowledgeGraphId,
     KnowledgeGraphWorkspaceStatus,
     WorkspaceMode,
@@ -358,6 +361,133 @@ class TestGetKnowledgeGraphWorkspaceStatusRoute:
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestKnowledgeGraphMaintenanceRoutes:
+    """Tests for KG maintenance schedule and run history routes."""
+
+    def test_get_maintenance_schedule_returns_200(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        mock_kg_service.get_maintenance_schedule.return_value = (
+            KnowledgeGraphMaintenanceSchedule(
+                enabled=True,
+                cron_expression="0 9 * * *",
+                timezone_name="UTC",
+                next_run_at=datetime.now(UTC),
+            )
+        )
+
+        response = test_client.get(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/maintenance-schedule"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["enabled"] is True
+        assert payload["cron_expression"] == "0 9 * * *"
+        mock_kg_service.get_maintenance_schedule.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            kg_id=sample_knowledge_graph.id.value,
+        )
+
+    def test_put_maintenance_schedule_calls_service(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        mock_kg_service.upsert_maintenance_schedule.return_value = (
+            KnowledgeGraphMaintenanceSchedule(
+                enabled=True,
+                cron_expression="30 8 * * *",
+                timezone_name="America/New_York",
+                next_run_at=datetime.now(UTC),
+            )
+        )
+
+        response = test_client.put(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/maintenance-schedule",
+            json={
+                "enabled": True,
+                "cron_expression": "30 8 * * *",
+                "timezone_name": "America/New_York",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_kg_service.upsert_maintenance_schedule.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            kg_id=sample_knowledge_graph.id.value,
+            cron_expression="30 8 * * *",
+            timezone_name="America/New_York",
+            enabled=True,
+        )
+
+    def test_list_maintenance_runs_returns_200(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        mock_kg_service.list_maintenance_runs.return_value = [
+            KnowledgeGraphMaintenanceRunRecord(
+                run_id="01JTESTRUN1234567890ABCDE",
+                triggered_at=datetime.now(UTC),
+                outcome=KnowledgeGraphMaintenanceRunOutcome.NO_CHANGES,
+                message="No commit delta detected",
+                target_data_source_ids=("ds-1",),
+            )
+        ]
+
+        response = test_client.get(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/maintenance-runs"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert len(payload["runs"]) == 1
+        assert payload["runs"][0]["outcome"] == "no-changes"
+        mock_kg_service.list_maintenance_runs.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            kg_id=sample_knowledge_graph.id.value,
+            limit=20,
+        )
+
+    def test_trigger_maintenance_run_returns_201(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        mock_kg_service.trigger_maintenance_run.return_value = (
+            KnowledgeGraphMaintenanceRunRecord(
+                run_id="01JTRIGGER1234567890ABCDE",
+                triggered_at=datetime.now(UTC),
+                outcome=KnowledgeGraphMaintenanceRunOutcome.STARTED,
+                message="Scheduled maintenance launched",
+                target_data_source_ids=("ds-1", "ds-2"),
+            )
+        )
+
+        response = test_client.post(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/maintenance-runs/trigger"
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        payload = response.json()
+        assert payload["outcome"] == "started"
+        mock_kg_service.trigger_maintenance_run.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            kg_id=sample_knowledge_graph.id.value,
+        )
 
 
 class TestWorkspaceCommandsRoutes:

@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.domain.aggregates import KnowledgeGraph
 from management.domain.value_objects import (
+    KnowledgeGraphMaintenanceRunRecord,
+    KnowledgeGraphMaintenanceSchedule,
     KnowledgeGraphId,
     OntologyConfig,
     WorkspaceMode,
@@ -82,6 +84,14 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
                     knowledge_graph.most_recent_completed_session_id
                 )
                 model.updated_at = knowledge_graph.updated_at
+                model.maintenance_schedule = (
+                    knowledge_graph.maintenance_schedule.to_dict()
+                    if knowledge_graph.maintenance_schedule is not None
+                    else None
+                )
+                model.maintenance_run_history = [
+                    run.to_dict() for run in knowledge_graph.maintenance_run_history
+                ]
             else:
                 model = KnowledgeGraphModel(
                     id=knowledge_graph.id.value,
@@ -101,6 +111,14 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
                     ),
                     created_at=knowledge_graph.created_at,
                     updated_at=knowledge_graph.updated_at,
+                    maintenance_schedule=(
+                        knowledge_graph.maintenance_schedule.to_dict()
+                        if knowledge_graph.maintenance_schedule is not None
+                        else None
+                    ),
+                    maintenance_run_history=[
+                        run.to_dict() for run in knowledge_graph.maintenance_run_history
+                    ],
                 )
                 self._session.add(model)
 
@@ -233,6 +251,15 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
         ontology: OntologyConfig | None = None
         if model.ontology is not None:
             ontology = OntologyConfig.from_dict(model.ontology)
+        maintenance_schedule: KnowledgeGraphMaintenanceSchedule | None = None
+        if model.maintenance_schedule is not None:
+            maintenance_schedule = KnowledgeGraphMaintenanceSchedule.from_dict(
+                model.maintenance_schedule
+            )
+        maintenance_run_history = tuple(
+            KnowledgeGraphMaintenanceRunRecord.from_dict(raw_run)
+            for raw_run in (model.maintenance_run_history or [])
+        )
 
         return KnowledgeGraph(
             id=KnowledgeGraphId(value=model.id),
@@ -243,6 +270,8 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
             created_at=model.created_at,
             updated_at=model.updated_at,
             ontology=ontology,
+            maintenance_schedule=maintenance_schedule,
+            maintenance_run_history=maintenance_run_history,
             workspace_mode=WorkspaceMode(model.workspace_mode),
             active_schema_bootstrap_session_id=model.active_schema_bootstrap_session_id,
             active_extraction_operations_session_id=(

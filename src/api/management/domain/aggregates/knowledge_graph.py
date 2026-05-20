@@ -24,6 +24,8 @@ from management.domain.observability import (
     KnowledgeGraphProbe,
 )
 from management.domain.value_objects import (
+    KnowledgeGraphMaintenanceRunRecord,
+    KnowledgeGraphMaintenanceSchedule,
     KnowledgeGraphId,
     OntologyConfig,
     WorkspaceMode,
@@ -58,6 +60,10 @@ class KnowledgeGraph:
     created_at: datetime
     updated_at: datetime
     ontology: OntologyConfig | None = field(default=None)
+    maintenance_schedule: KnowledgeGraphMaintenanceSchedule | None = field(default=None)
+    maintenance_run_history: tuple[KnowledgeGraphMaintenanceRunRecord, ...] = field(
+        default_factory=tuple
+    )
     workspace_mode: WorkspaceMode = field(default=WorkspaceMode.SCHEMA_BOOTSTRAP)
     active_schema_bootstrap_session_id: str | None = field(default=None)
     active_extraction_operations_session_id: str | None = field(default=None)
@@ -240,6 +246,27 @@ class KnowledgeGraph:
                 "Cannot clear ontology on a deleted knowledge graph"
             )
         self.ontology = None
+        self.updated_at = datetime.now(UTC)
+
+    def set_maintenance_schedule(self, schedule: KnowledgeGraphMaintenanceSchedule) -> None:
+        """Persist KG-level maintenance schedule configuration."""
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot set maintenance schedule on a deleted knowledge graph"
+            )
+        self.maintenance_schedule = schedule
+        self.updated_at = datetime.now(UTC)
+
+    def append_maintenance_run(
+        self, run: KnowledgeGraphMaintenanceRunRecord, *, max_history: int = 50
+    ) -> None:
+        """Append a maintenance orchestration run to KG-scoped history."""
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot append maintenance history on a deleted knowledge graph"
+            )
+        history = [*self.maintenance_run_history, run]
+        self.maintenance_run_history = tuple(history[-max_history:])
         self.updated_at = datetime.now(UTC)
 
     def transition_to_extraction_operations(self) -> str:

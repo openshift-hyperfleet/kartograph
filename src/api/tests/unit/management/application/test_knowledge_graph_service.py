@@ -19,9 +19,13 @@ from management.application.services.knowledge_graph_service import (
     KnowledgeGraphService,
 )
 from management.domain.aggregates import DataSource, KnowledgeGraph
+from management.domain.entities.data_source_sync_run import DataSourceSyncRun
 from management.domain.value_objects import (
     DataSourceId,
     EdgeTypeDefinition,
+    KnowledgeGraphMaintenanceRunOutcome,
+    KnowledgeGraphMaintenanceSchedule,
+    KnowledgeGraphMaintenanceRunRecord,
     KnowledgeGraphWorkspaceStatus,
     KnowledgeGraphId,
     NodeTypeDefinition,
@@ -1290,6 +1294,140 @@ class TestListForWorkspaceWithPermission:
 
         assert len(result) == 1
         assert result[0].id.value == kg1.id.value
+
+
+class _InMemorySyncRunRepository:
+    """Minimal in-memory sync-run repository for KG maintenance tests."""
+
+    def __init__(self) -> None:
+        self.saved: list[DataSourceSyncRun] = []
+
+    async def save(self, sync_run: DataSourceSyncRun) -> None:
+        self.saved.append(sync_run)
+
+    async def get_by_id(self, sync_run_id: str) -> DataSourceSyncRun | None:
+        for run in self.saved:
+            if run.id == sync_run_id:
+                return run
+        return None
+
+    async def find_by_data_source(self, data_source_id: str) -> list[DataSourceSyncRun]:
+        return [run for run in self.saved if run.data_source_id == data_source_id]
+
+    async def get_latest_for_data_source(
+        self, data_source_id: str
+    ) -> DataSourceSyncRun | None:
+        matches = [run for run in self.saved if run.data_source_id == data_source_id]
+        return max(matches, key=lambda run: run.created_at) if matches else None
+
+
+class TestKnowledgeGraphMaintenanceScheduling:
+    """Tests for KG-scoped maintenance schedule and run history APIs."""
+
+    @pytest.mark.asyncio
+    async def test_upsert_maintenance_schedule_persists_timezone_and_next_run(
+        self, mock_session, kg_repo, ds_repo, secret_store, authz, probe, tenant_id, user_id
+    ):
+        """Upserting schedule stores config and computes a next_run_at timestamp."""
+        kg = _make_kg(kg_id="kg-maint-001", tenant_id=tenant_id)
+        kg_repo.seed(kg)
+        await _grant_kg_manage(authz, kg.id.value, user_id)
+        sync_run_repo = _InMemorySyncRunRepository()
+        svc = KnowledgeGraphService(
+            session=mock_session,
+            knowledge_graph_repository=kg_repo,
+            data_source_repository=ds_repo,
+            secret_store=secret_store,
+            authz=authz,
+            scope_to_tenant=tenant_id,
+            probe=probe,
+            sync_run_repository=sync_run_repo,
+        )
+
+        schedule = await svc.upsert_maintenance_schedule(
+            user_id=user_id,
+            kg_id=kg.id.value,
+            cron_expression="0 9 * * *",
+            timezone_name="America/New_York",
+            enabled=True,
+        )
+
+        assert isinstance(schedule, KnowledgeGraphMaintenanceSchedule)
+        assert schedule.cron_expression == "0 9 * * *"
+        assert schedule.timezone_name == "America/New_York"
+        assert schedule.enabled is True
+        assert schedule.next_run_at is not None
+
+    @pytest.mark.asyncio
+    async def test_trigger_maintenance_run_records_no_changes_outcome(
+        self, mock_session, kg_repo, ds_repo, secret_store, authz, probe, tenant_id, user_id
+    ):
+        """When no DS has commit deltas, trigger records NO_CHANGES."""
+        kg = _make_kg(kg_id="kg-maint-002", tenant_id=tenant_id)
+        kg_repo.seed(kg)
+        await _grant_kg_manage(authz, kg.id.value, user_id)
+
+        ds_no_change = _make_ds(ds_id="ds-no-change", kg_id=kg.id.value, tenant_id=tenant_id)
+        ds_no_change.last_extraction_baseline_commit = "abc123"
+        ds_no_change.tracked_branch_head_commit = "abc123"
+        ds_repo.seed(ds_no_change)
+
+        sync_run_repo = _InMemorySyncRunRepository()
+        svc = KnowledgeGraphService(
+            session=mock_session,
+            knowledge_graph_repository=kg_repo,
+            data_source_repository=ds_repo,
+            secret_store=secret_store,
+            authz=authz,
+            scope_to_tenant=tenant_id,
+            probe=probe,
+            sync_run_repository=sync_run_repo,
+        )
+
+        run = await svc.trigger_maintenance_run(
+            user_id=user_id,
+            kg_id=kg.id.value,
+        )
+
+        assert isinstance(run, KnowledgeGraphMaintenanceRunRecord)
+        assert run.outcome == KnowledgeGraphMaintenanceRunOutcome.NO_CHANGES
+        assert run.target_data_source_ids == ("ds-no-change",)
+        assert len(sync_run_repo.saved) == 0
+
+    @pytest.mark.asyncio
+    async def test_trigger_maintenance_run_records_started_and_creates_sync_runs(
+        self, mock_session, kg_repo, ds_repo, secret_store, authz, probe, tenant_id, user_id
+    ):
+        """When DS commit deltas exist, trigger records STARTED and enqueues sync runs."""
+        kg = _make_kg(kg_id="kg-maint-003", tenant_id=tenant_id)
+        kg_repo.seed(kg)
+        await _grant_kg_manage(authz, kg.id.value, user_id)
+
+        ds_changed = _make_ds(ds_id="ds-changed", kg_id=kg.id.value, tenant_id=tenant_id)
+        ds_changed.last_extraction_baseline_commit = "abc123"
+        ds_changed.tracked_branch_head_commit = "def456"
+        ds_repo.seed(ds_changed)
+
+        sync_run_repo = _InMemorySyncRunRepository()
+        svc = KnowledgeGraphService(
+            session=mock_session,
+            knowledge_graph_repository=kg_repo,
+            data_source_repository=ds_repo,
+            secret_store=secret_store,
+            authz=authz,
+            scope_to_tenant=tenant_id,
+            probe=probe,
+            sync_run_repository=sync_run_repo,
+        )
+
+        run = await svc.trigger_maintenance_run(
+            user_id=user_id,
+            kg_id=kg.id.value,
+        )
+
+        assert run.outcome == KnowledgeGraphMaintenanceRunOutcome.STARTED
+        assert run.target_data_source_ids == ("ds-changed",)
+        assert len(sync_run_repo.saved) == 1
 
     @pytest.mark.asyncio
     async def test_returns_empty_list_when_no_kgs_in_workspace(

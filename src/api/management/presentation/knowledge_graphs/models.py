@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 from management.domain.aggregates import KnowledgeGraph
 from management.domain.value_objects import (
     EdgeTypeDefinition,
+    KnowledgeGraphMaintenanceRunRecord,
+    KnowledgeGraphMaintenanceSchedule,
     KnowledgeGraphWorkspaceStatus,
     NodeTypeDefinition,
     OntologyConfig,
@@ -168,6 +170,72 @@ class KnowledgeGraphWorkspaceStatusResponse(BaseModel):
                 status.session_pointers
             ),
         )
+
+
+class MaintenanceScheduleUpsertRequest(BaseModel):
+    """Request body for KG maintenance schedule upsert."""
+
+    enabled: bool = Field(
+        default=True,
+        description="Whether scheduled maintenance is enabled for this KG",
+    )
+    cron_expression: str = Field(
+        default="0 2 * * *",
+        description="Cron expression interpreted in timezone_name",
+    )
+    timezone_name: str = Field(
+        default="UTC",
+        description="IANA timezone identifier used for schedule evaluation",
+    )
+
+
+class MaintenanceScheduleResponse(BaseModel):
+    """Response model for KG maintenance schedule configuration."""
+
+    enabled: bool
+    cron_expression: str
+    timezone_name: str
+    next_run_at: datetime | None
+
+    @classmethod
+    def from_domain(
+        cls, schedule: KnowledgeGraphMaintenanceSchedule
+    ) -> "MaintenanceScheduleResponse":
+        return cls(
+            enabled=schedule.enabled,
+            cron_expression=schedule.cron_expression,
+            timezone_name=schedule.timezone_name,
+            next_run_at=schedule.next_run_at,
+        )
+
+
+class MaintenanceRunResponse(BaseModel):
+    """Response model for an individual KG maintenance run outcome."""
+
+    run_id: str
+    triggered_at: datetime
+    outcome: str
+    message: str | None
+    target_data_source_ids: list[str]
+
+    @classmethod
+    def from_domain(
+        cls, run: KnowledgeGraphMaintenanceRunRecord
+    ) -> "MaintenanceRunResponse":
+        return cls(
+            run_id=run.run_id,
+            triggered_at=run.triggered_at,
+            outcome=run.outcome.value,
+            message=run.message,
+            target_data_source_ids=list(run.target_data_source_ids),
+        )
+
+
+class MaintenanceRunListResponse(BaseModel):
+    """Response model for KG maintenance run history."""
+
+    runs: list[MaintenanceRunResponse]
+    count: int
 
 
 # ---------------------------------------------------------------------------

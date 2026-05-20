@@ -47,6 +47,12 @@ class KnowledgeGraphModel(Base, TimestampMixin):
         String(26), nullable=True
     )
     ontology: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
+    maintenance_schedule: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, default=None
+    )
+    maintenance_run_history: Mapped[list[dict]] = mapped_column(
+        JSONB, nullable=False, default=list
+    )
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "name", name="uq_knowledge_graphs_tenant_name"),

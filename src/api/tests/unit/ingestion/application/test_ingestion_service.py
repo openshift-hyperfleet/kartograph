@@ -57,6 +57,8 @@ class _FakeAdapter:
     ) -> None:
         self._result = result
         self._fail = fail
+        self.last_checkpoint: AdapterCheckpoint | None = None
+        self.last_credentials: dict[str, str] | None = None
 
     async def extract(
         self,
@@ -65,6 +67,8 @@ class _FakeAdapter:
         checkpoint: AdapterCheckpoint | None,
         sync_mode: SyncMode,
     ) -> ExtractionResult:
+        self.last_checkpoint = checkpoint
+        self.last_credentials = credentials
         if self._fail:
             raise RuntimeError("credentials expired")
         if self._result is not None:
@@ -178,3 +182,26 @@ class TestIngestionService:
                 credentials_path=None,
             )
         assert isinstance(job_id, JobPackageId)
+
+    async def test_run_uses_baseline_commit_as_checkpoint(self):
+        """run() should convert baseline_commit into an adapter checkpoint."""
+        result = _make_extraction_result()
+        adapter = _FakeAdapter(result=result)
+        registry: dict[str, IDatasourceAdapter] = {"github": adapter}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service = IngestionService(
+                adapter_registry=registry,
+                work_dir=Path(tmpdir),
+            )
+            await service.run(
+                sync_run_id="run-001",
+                data_source_id="ds-001",
+                knowledge_graph_id="kg-001",
+                adapter_type="github",
+                connection_config={"repo": "org/repo"},
+                credentials_path=None,
+                baseline_commit="abc123",
+            )
+
+        assert adapter.last_checkpoint is not None
+        assert adapter.last_checkpoint.data == {"commit_sha": "abc123"}

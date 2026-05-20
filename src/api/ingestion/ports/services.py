@@ -22,6 +22,8 @@ class IIngestionService(Protocol):
         adapter_type: str,
         connection_config: dict[str, str],
         credentials_path: str | None,
+        credentials: dict[str, str] | None = None,
+        baseline_commit: str | None = None,
     ) -> JobPackageId:
         """Run the ingestion pipeline.
 
@@ -32,6 +34,8 @@ class IIngestionService(Protocol):
             adapter_type: Which adapter to use (e.g. "github")
             connection_config: Adapter-specific connection configuration
             credentials_path: Optional Vault path for credentials
+            credentials: Optional decrypted credentials prepared upstream
+            baseline_commit: Optional commit SHA used as incremental baseline
 
         Returns:
             JobPackageId for the produced archive

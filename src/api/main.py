@@ -4,9 +4,11 @@ import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import httpx
 from util import dev_routes
 
 import health_routes
@@ -25,6 +27,7 @@ from infrastructure.settings import (
     get_cors_settings,
     get_database_settings,
     get_iam_settings,
+    get_management_settings,
     get_oidc_settings,
     get_outbox_worker_settings,
     get_spicedb_settings,
@@ -136,13 +139,80 @@ class _SessionedIngestionEventHandler:
     def supported_event_types(self) -> frozenset[str]:
         return self._SUPPORTED
 
+    @staticmethod
+    def _parse_github_connection_config(
+        config: dict[str, str],
+    ) -> tuple[str, str, str]:
+        """Parse GitHub config into owner/repo/branch."""
+        if "repo_url" in config:
+            parsed = urlparse(config["repo_url"])
+            path_parts = [part for part in parsed.path.split("/") if part]
+            if len(path_parts) < 2:
+                raise ValueError("repo_url must include owner and repo")
+            owner = path_parts[0]
+            repo = path_parts[1].removesuffix(".git")
+            branch = config.get("branch", "main")
+            if len(path_parts) >= 4 and path_parts[2] == "tree":
+                branch = path_parts[3]
+            return owner, repo, branch
+
+        if "owner" in config and "repo" in config:
+            return config["owner"], config["repo"], config.get("branch", "main")
+
+        raise ValueError(
+            "connection_config must include either 'repo_url' or 'owner'+'repo' keys"
+        )
+
+    async def _resolve_github_tracked_head_commit(
+        self,
+        connection_config: dict[str, str],
+        credentials: dict[str, str],
+    ) -> str | None:
+        """Resolve latest tracked branch head commit for GitHub sources."""
+        try:
+            owner, repo, branch = self._parse_github_connection_config(connection_config)
+        except ValueError:
+            return None
+
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        token = credentials.get("token") or credentials.get("access_token")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        url = f"https://api.github.com/repos/{owner}/{repo}/branches/{branch}"
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            payload = response.json()
+        sha = payload.get("commit", {}).get("sha")
+        return str(sha) if sha else None
+
     async def handle(self, event_type: str, payload: dict[str, Any]) -> None:
         from infrastructure.outbox.repository import OutboxRepository
         from ingestion.application.services.ingestion_service import IngestionService
         from ingestion.infrastructure.event_handler import IngestionEventHandler
+        from management.domain.value_objects import DataSourceId
+        from management.infrastructure.repositories.data_source_repository import (
+            DataSourceRepository,
+        )
+        from management.infrastructure.repositories.fernet_secret_store import (
+            FernetSecretStore,
+        )
 
         async with self._session_factory() as session:
             outbox = OutboxRepository(session=session)
+            ds_repo = DataSourceRepository(session=session, outbox=outbox)
+            management_settings = get_management_settings()
+            encryption_keys = management_settings.encryption_key.get_secret_value().split(
+                ","
+            )
+            credential_reader = FernetSecretStore(
+                session=session,
+                encryption_keys=encryption_keys,
+            )
             from ingestion.infrastructure.adapters.github import GitHubAdapter
 
             ingestion_service = IngestionService(
@@ -153,7 +223,41 @@ class _SessionedIngestionEventHandler:
                 ingestion_service=ingestion_service,
                 outbox=outbox,
             )
-            await ingestion_handler.handle(event_type, payload)
+            enriched_payload = dict(payload)
+
+            data_source_id = str(payload.get("data_source_id", ""))
+            tenant_id = str(payload.get("tenant_id", "")) if payload.get("tenant_id") else ""
+            adapter_type = str(payload.get("adapter_type", ""))
+            if data_source_id and adapter_type == "github":
+                ds = await ds_repo.get_by_id(DataSourceId(value=data_source_id))
+                if ds is not None:
+                    if ds.last_extraction_baseline_commit:
+                        enriched_payload["baseline_commit"] = (
+                            ds.last_extraction_baseline_commit
+                        )
+
+                    credentials: dict[str, str] = {}
+                    if ds.credentials_path and tenant_id:
+                        try:
+                            credentials = await credential_reader.retrieve(
+                                path=ds.credentials_path,
+                                tenant_id=tenant_id,
+                            )
+                        except KeyError:
+                            credentials = {}
+                    if credentials:
+                        enriched_payload["credentials"] = credentials
+
+                    tracked_head = await self._resolve_github_tracked_head_commit(
+                        connection_config=ds.connection_config,
+                        credentials=credentials,
+                    )
+                    if tracked_head:
+                        enriched_payload["tracked_branch_head_commit"] = tracked_head
+                        ds.tracked_branch_head_commit = tracked_head
+                        await ds_repo.save(ds)
+
+            await ingestion_handler.handle(event_type, enriched_payload)
             await session.commit()
 
 

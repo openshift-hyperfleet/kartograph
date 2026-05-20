@@ -95,6 +95,21 @@ interface SyncRun {
   created_at: string
 }
 
+interface MaintenanceSchedule {
+  enabled: boolean
+  cron_expression: string
+  timezone_name: string
+  next_run_at: string | null
+}
+
+interface MaintenanceRun {
+  run_id: string
+  triggered_at: string
+  outcome: 'started' | 'no-changes' | 'preflight-failed' | 'launch-failed'
+  message: string | null
+  target_data_source_ids: string[]
+}
+
 interface DataSourceItem {
   id: string
   name: string
@@ -683,6 +698,16 @@ async function loadDataSources() {
       '/management/knowledge-graphs'
     )
     const kgs = kgResult.knowledge_graphs ?? []
+    maintenanceKnowledgeGraphs.value = kgs
+    if (!selectedMaintenanceKnowledgeGraphId.value && kgs.length > 0) {
+      selectedMaintenanceKnowledgeGraphId.value = kgs[0].id
+    }
+    if (
+      selectedMaintenanceKnowledgeGraphId.value
+      && !kgs.some(kg => kg.id === selectedMaintenanceKnowledgeGraphId.value)
+    ) {
+      selectedMaintenanceKnowledgeGraphId.value = kgs[0]?.id ?? ''
+    }
     const all: DataSourceItem[] = []
     for (const kg of kgs) {
       try {
@@ -714,8 +739,12 @@ async function loadDataSources() {
       }
     }
     dataSources.value = all
+    await loadMaintenanceOrchestration()
   } catch {
     dataSources.value = []
+    maintenanceKnowledgeGraphs.value = []
+    selectedMaintenanceKnowledgeGraphId.value = ''
+    maintenanceRuns.value = []
   } finally {
     loadingDataSources.value = false
   }
@@ -787,6 +816,97 @@ const telemetryCostTrend = computed(() => {
   return { current, previous, delta }
 })
 
+const maintenanceKnowledgeGraphs = ref<Array<{ id: string; name: string }>>([])
+const selectedMaintenanceKnowledgeGraphId = ref('')
+const maintenanceSchedule = ref<MaintenanceSchedule>({
+  enabled: false,
+  cron_expression: '0 2 * * *',
+  timezone_name: 'UTC',
+  next_run_at: null,
+})
+const maintenanceRuns = ref<MaintenanceRun[]>([])
+const maintenanceLoading = ref(false)
+const maintenanceSaving = ref(false)
+const maintenanceTriggering = ref(false)
+
+function maintenanceOutcomeTone(
+  outcome: MaintenanceRun['outcome'],
+): 'default' | 'secondary' | 'destructive' {
+  if (outcome === 'started') return 'default'
+  if (outcome === 'launch-failed' || outcome === 'preflight-failed') return 'destructive'
+  return 'secondary'
+}
+
+async function loadMaintenanceOrchestration() {
+  if (!selectedMaintenanceKnowledgeGraphId.value) {
+    maintenanceRuns.value = []
+    return
+  }
+  maintenanceLoading.value = true
+  try {
+    const { apiFetch } = useApiClient()
+    const [schedule, runs] = await Promise.all([
+      apiFetch<MaintenanceSchedule>(
+        `/management/knowledge-graphs/${selectedMaintenanceKnowledgeGraphId.value}/maintenance-schedule`,
+      ),
+      apiFetch<{ runs: MaintenanceRun[] }>(
+        `/management/knowledge-graphs/${selectedMaintenanceKnowledgeGraphId.value}/maintenance-runs`,
+      ),
+    ])
+    maintenanceSchedule.value = schedule
+    maintenanceRuns.value = runs.runs ?? []
+  } catch {
+    maintenanceRuns.value = []
+  } finally {
+    maintenanceLoading.value = false
+  }
+}
+
+async function saveMaintenanceSchedule() {
+  if (!selectedMaintenanceKnowledgeGraphId.value) return
+  maintenanceSaving.value = true
+  try {
+    const { apiFetch } = useApiClient()
+    const schedule = await apiFetch<MaintenanceSchedule>(
+      `/management/knowledge-graphs/${selectedMaintenanceKnowledgeGraphId.value}/maintenance-schedule`,
+      {
+        method: 'PUT',
+        body: {
+          enabled: maintenanceSchedule.value.enabled,
+          cron_expression: maintenanceSchedule.value.cron_expression,
+          timezone_name: maintenanceSchedule.value.timezone_name,
+        },
+      },
+    )
+    maintenanceSchedule.value = schedule
+    toast.success('Maintenance schedule saved')
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to save maintenance schedule'
+    toast.error('Failed to save maintenance schedule', { description: msg })
+  } finally {
+    maintenanceSaving.value = false
+  }
+}
+
+async function triggerMaintenanceRun() {
+  if (!selectedMaintenanceKnowledgeGraphId.value) return
+  maintenanceTriggering.value = true
+  try {
+    const { apiFetch } = useApiClient()
+    await apiFetch(
+      `/management/knowledge-graphs/${selectedMaintenanceKnowledgeGraphId.value}/maintenance-runs/trigger`,
+      { method: 'POST' },
+    )
+    await loadMaintenanceOrchestration()
+    toast.success('Maintenance orchestration completed')
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to trigger maintenance'
+    toast.error('Failed to trigger maintenance', { description: msg })
+  } finally {
+    maintenanceTriggering.value = false
+  }
+}
+
 /** Holds the active setInterval handle, or null when not polling. */
 const pollInterval = ref<ReturnType<typeof setInterval> | null>(null)
 
@@ -855,6 +975,10 @@ watch(tenantVersion, () => {
   // Clear stale data immediately so old tenant's sources are not shown during load
   dataSources.value = []
   loadDataSources()
+})
+
+watch(selectedMaintenanceKnowledgeGraphId, () => {
+  loadMaintenanceOrchestration()
 })
 
 async function triggerSync(dsId: string) {
@@ -1274,6 +1398,105 @@ async function handleDeleteDs() {
                 <SyncPhaseIndicator :status="job.status" />
                 <span class="font-mono text-muted-foreground">{{ job.token_usage_total ?? 0 }} tk</span>
                 <span class="font-mono text-muted-foreground">${{ (job.cost_total_usd ?? 0).toFixed(2) }}</span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader class="pb-2">
+          <CardTitle class="text-sm">Scheduled maintenance orchestration</CardTitle>
+          <CardDescription class="text-xs">
+            Configure one schedule per knowledge graph and review launch outcomes.
+          </CardDescription>
+        </CardHeader>
+        <CardContent class="space-y-3">
+          <div class="grid gap-3 md:grid-cols-4">
+            <div class="space-y-1">
+              <Label class="text-xs">Knowledge graph</Label>
+              <Select v-model="selectedMaintenanceKnowledgeGraphId">
+                <SelectTrigger class="h-8">
+                  <SelectValue placeholder="Select a knowledge graph" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="kg in maintenanceKnowledgeGraphs"
+                    :key="kg.id"
+                    :value="kg.id"
+                  >
+                    {{ kg.name }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div class="space-y-1">
+              <Label class="text-xs">Cron</Label>
+              <Input v-model="maintenanceSchedule.cron_expression" class="h-8 font-mono text-xs" />
+            </div>
+            <div class="space-y-1">
+              <Label class="text-xs">Timezone</Label>
+              <Input v-model="maintenanceSchedule.timezone_name" class="h-8 text-xs" />
+            </div>
+            <div class="flex items-end gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                :disabled="!selectedMaintenanceKnowledgeGraphId"
+                @click="maintenanceSchedule.enabled = !maintenanceSchedule.enabled"
+              >
+                {{ maintenanceSchedule.enabled ? 'Disable' : 'Enable' }}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                :disabled="maintenanceSaving || !selectedMaintenanceKnowledgeGraphId"
+                @click="saveMaintenanceSchedule"
+              >
+                <Loader2 v-if="maintenanceSaving" class="mr-1.5 size-3.5 animate-spin" />
+                Save schedule
+              </Button>
+              <Button
+                size="sm"
+                :disabled="maintenanceTriggering || !selectedMaintenanceKnowledgeGraphId"
+                @click="triggerMaintenanceRun"
+              >
+                <Loader2 v-if="maintenanceTriggering" class="mr-1.5 size-3.5 animate-spin" />
+                Run now
+              </Button>
+            </div>
+          </div>
+          <div class="flex items-center justify-between rounded border px-3 py-2 text-xs">
+            <p class="text-muted-foreground">
+              Next run:
+              <span class="font-medium text-foreground">
+                {{ maintenanceSchedule.next_run_at ? new Date(maintenanceSchedule.next_run_at).toLocaleString() : 'Not scheduled' }}
+              </span>
+            </p>
+            <Badge :variant="maintenanceSchedule.enabled ? 'default' : 'secondary'">
+              {{ maintenanceSchedule.enabled ? 'Enabled' : 'Disabled' }}
+            </Badge>
+          </div>
+          <div v-if="maintenanceLoading" class="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 class="size-3.5 animate-spin" />
+            Loading maintenance run history...
+          </div>
+          <div v-else-if="maintenanceRuns.length === 0" class="text-xs text-muted-foreground">
+            No maintenance orchestration runs recorded yet.
+          </div>
+          <div v-else class="space-y-1.5">
+            <div
+              v-for="run in maintenanceRuns"
+              :key="run.run_id"
+              class="flex items-center justify-between rounded border px-2 py-1.5 text-xs"
+            >
+              <div>
+                <p class="font-medium">{{ new Date(run.triggered_at).toLocaleString() }}</p>
+                <p class="text-muted-foreground">{{ run.message ?? 'No message provided' }}</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <Badge :variant="maintenanceOutcomeTone(run.outcome)">{{ run.outcome }}</Badge>
+                <span class="text-muted-foreground">{{ run.target_data_source_ids.length }} sources</span>
               </div>
             </div>
           </div>

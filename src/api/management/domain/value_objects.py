@@ -142,6 +142,86 @@ class KnowledgeGraphWorkspaceStatus:
     session_pointers: WorkspaceSessionPointers
 
 
+class KnowledgeGraphMaintenanceRunOutcome(StrEnum):
+    """Allowed outcomes for a KG-scoped maintenance orchestration attempt."""
+
+    STARTED = "started"
+    NO_CHANGES = "no-changes"
+    PREFLIGHT_FAILED = "preflight-failed"
+    LAUNCH_FAILED = "launch-failed"
+
+
+@dataclass(frozen=True)
+class KnowledgeGraphMaintenanceSchedule:
+    """Knowledge-graph level maintenance schedule configuration."""
+
+    enabled: bool
+    cron_expression: str
+    timezone_name: str
+    next_run_at: datetime | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to JSON-compatible dictionary."""
+        return {
+            "enabled": self.enabled,
+            "cron_expression": self.cron_expression,
+            "timezone_name": self.timezone_name,
+            "next_run_at": (
+                self.next_run_at.isoformat() if self.next_run_at is not None else None
+            ),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "KnowledgeGraphMaintenanceSchedule":
+        """Reconstruct schedule from persisted JSON dictionary."""
+        next_run_at_raw = data.get("next_run_at")
+        next_run_at = (
+            datetime.fromisoformat(str(next_run_at_raw))
+            if next_run_at_raw is not None
+            else None
+        )
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            cron_expression=str(data.get("cron_expression", "0 2 * * *")),
+            timezone_name=str(data.get("timezone_name", "UTC")),
+            next_run_at=next_run_at,
+        )
+
+
+@dataclass(frozen=True)
+class KnowledgeGraphMaintenanceRunRecord:
+    """Immutable audit record for a KG maintenance orchestration attempt."""
+
+    run_id: str
+    triggered_at: datetime
+    outcome: KnowledgeGraphMaintenanceRunOutcome
+    message: str | None = None
+    target_data_source_ids: tuple[str, ...] = field(default_factory=tuple)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to JSON-compatible dictionary."""
+        return {
+            "run_id": self.run_id,
+            "triggered_at": self.triggered_at.isoformat(),
+            "outcome": self.outcome.value,
+            "message": self.message,
+            "target_data_source_ids": list(self.target_data_source_ids),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "KnowledgeGraphMaintenanceRunRecord":
+        """Reconstruct a run record from persisted JSON dictionary."""
+        return cls(
+            run_id=str(data["run_id"]),
+            triggered_at=datetime.fromisoformat(str(data["triggered_at"])),
+            outcome=KnowledgeGraphMaintenanceRunOutcome(str(data["outcome"])),
+            message=(str(data["message"]) if data.get("message") is not None else None),
+            target_data_source_ids=tuple(
+                str(ds_id) for ds_id in data.get("target_data_source_ids", [])
+            ),
+        )
+
+
 @dataclass(frozen=True)
 class Schedule:
     """Schedule configuration for data source synchronization.

@@ -29,3 +29,13 @@ class IExtractionAgentSessionRepository(Protocol):
         mode: ExtractionSessionMode | None = None,
     ) -> list[ExtractionAgentSession]: ...
 
+
+class IExtractionSkillOverrideRepository(Protocol):
+    """Read KG-specific skill override templates."""
+
+    async def get_overrides_for_knowledge_graph(
+        self,
+        knowledge_graph_id: str,
+        mode: ExtractionSessionMode,
+    ) -> dict[str, str]: ...
+

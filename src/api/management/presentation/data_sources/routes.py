@@ -4,19 +4,22 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from iam.application.value_objects import CurrentUser
 from iam.dependencies.user import get_current_user
 from management.application.services.data_source_service import DataSourceService
 from management.dependencies.data_source import (
     get_data_source_service,
+    get_git_diff_summary_service,
     get_sync_run_repository,
 )
+from management.infrastructure.git_diff_summary_service import GitDiffSummaryService
 from management.ports.exceptions import UnauthorizedError
 from management.ports.repositories import IDataSourceSyncRunRepository
 from management.presentation.data_sources.models import (
     CreateDataSourceRequest,
+    DataSourceDiffSummaryResponse,
     DataSourceListResponse,
     DataSourceResponse,
     DataSourceWithSyncResponse,
@@ -27,6 +30,56 @@ from management.presentation.data_sources.models import (
 from shared_kernel.datasource_types import DataSourceAdapterType
 
 router = APIRouter(tags=["data-sources"])
+
+
+@router.get(
+    "/data-sources/{ds_id}/diff-summary",
+    status_code=status.HTTP_200_OK,
+    summary="Get commit diff summary for a data source",
+)
+async def get_diff_summary(
+    ds_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+    diff_service: Annotated[
+        GitDiffSummaryService, Depends(get_git_diff_summary_service)
+    ],
+    max_files: int = Query(default=200, ge=1, le=2000),
+) -> DataSourceDiffSummaryResponse:
+    """Return baseline-vs-tracked diff summary for maintenance readiness cues."""
+    try:
+        ds = await service.get(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+        )
+        if ds is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Data source not found",
+            )
+
+        summary = await diff_service.build_summary(
+            data_source=ds,
+            max_files=max_files,
+        )
+        return DataSourceDiffSummaryResponse(
+            baseline_commit=summary.baseline_commit,
+            tracked_head_commit=summary.tracked_head_commit,
+            total_changed_files=summary.total_changed_files,
+            added_count=summary.added_count,
+            modified_count=summary.modified_count,
+            removed_count=summary.removed_count,
+            renamed_count=summary.renamed_count,
+            files_truncated=summary.files_truncated,
+            changed_files=list(summary.changed_files),
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to build diff summary",
+        )
 
 
 @router.get(

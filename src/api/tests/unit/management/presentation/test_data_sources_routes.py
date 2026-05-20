@@ -18,6 +18,7 @@ from iam.domain.value_objects import TenantId, UserId
 from management.application.services.data_source_service import DataSourceService
 from management.domain.aggregates import DataSource
 from management.domain.entities import DataSourceSyncRun
+from management.infrastructure.git_diff_summary_service import DiffSummaryResult
 from management.domain.value_objects import (
     DataSourceId,
     Ontology,
@@ -41,6 +42,12 @@ def mock_ds_service() -> AsyncMock:
 def mock_sync_run_repo() -> AsyncMock:
     """Mock DataSourceSyncRunRepository for testing."""
     return AsyncMock(spec=IDataSourceSyncRunRepository)
+
+
+@pytest.fixture
+def mock_diff_summary_service() -> AsyncMock:
+    """Mock GitDiffSummaryService for diff-summary route testing."""
+    return AsyncMock()
 
 
 @pytest.fixture
@@ -94,12 +101,14 @@ def sample_sync_run(sample_data_source: DataSource) -> DataSourceSyncRun:
 def test_client(
     mock_ds_service: AsyncMock,
     mock_sync_run_repo: AsyncMock,
+    mock_diff_summary_service: AsyncMock,
     mock_current_user: CurrentUser,
 ) -> TestClient:
     """Create TestClient with mocked dependencies."""
     from iam.dependencies.user import get_current_user
     from management.dependencies.data_source import (
         get_data_source_service,
+        get_git_diff_summary_service,
         get_sync_run_repository,
     )
     from management.presentation import router
@@ -108,6 +117,9 @@ def test_client(
 
     app.dependency_overrides[get_data_source_service] = lambda: mock_ds_service
     app.dependency_overrides[get_sync_run_repository] = lambda: mock_sync_run_repo
+    app.dependency_overrides[get_git_diff_summary_service] = (
+        lambda: mock_diff_summary_service
+    )
     app.dependency_overrides[get_current_user] = lambda: mock_current_user
 
     app.include_router(router)
@@ -726,6 +738,62 @@ class TestListAllDataSourcesRoute:
         mock_ds_service.list_all_for_user.assert_called_once_with(
             user_id=mock_current_user.user_id.value
         )
+
+
+class TestDataSourceDiffSummaryRoute:
+    """Tests for GET /management/data-sources/{ds_id}/diff-summary endpoint."""
+
+    def test_diff_summary_returns_counts_and_changed_files(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_diff_summary_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Diff summary should include aggregate counts + changed file list."""
+        mock_ds_service.get.return_value = sample_data_source
+        mock_diff_summary_service.build_summary.return_value = DiffSummaryResult(
+            baseline_commit="abc",
+            tracked_head_commit="def",
+            total_changed_files=2,
+            added_count=1,
+            modified_count=1,
+            removed_count=0,
+            renamed_count=0,
+            files_truncated=False,
+            changed_files=(
+                {"path": "src/a.py", "status": "added"},
+                {"path": "src/b.py", "status": "modified"},
+            ),
+        )
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}/diff-summary"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["total_changed_files"] == 2
+        assert payload["added_count"] == 1
+        assert payload["modified_count"] == 1
+        assert payload["files_truncated"] is False
+        assert payload["changed_files"][0]["path"] == "src/a.py"
+
+    def test_diff_summary_returns_404_when_data_source_inaccessible(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_diff_summary_service: AsyncMock,
+    ) -> None:
+        """Diff summary route should return 404 when DS is not found/authorized."""
+        mock_ds_service.get.return_value = None
+
+        response = test_client.get(
+            "/management/data-sources/01JPQRST1234567890ABCDEFDS/diff-summary"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_diff_summary_service.build_summary.assert_not_called()
 
 
 class TestUpdateDataSourceRoute:

@@ -463,6 +463,8 @@ class TestKnowledgeGraphServiceWorkspaceStatus:
         assert result.readiness.has_minimum_entity_types is True
         assert result.readiness.has_minimum_relationship_types is True
         assert result.readiness.prepopulated_types_ready is True
+        assert result.readiness.prepopulated_types_without_instances == ()
+        assert result.readiness.blocking_reasons == ()
         assert result.transition_eligible is True
         assert result.session_pointers.active_schema_bootstrap_session_id is None
         assert result.session_pointers.active_extraction_operations_session_id is None
@@ -482,6 +484,45 @@ class TestKnowledgeGraphServiceWorkspaceStatus:
         assert result is not None
         assert result.readiness.has_minimum_entity_types is False
         assert result.readiness.has_minimum_relationship_types is False
+        assert "At least one entity type is required" in result.readiness.blocking_reasons
+        assert (
+            "At least one relationship type is required"
+            in result.readiness.blocking_reasons
+        )
+        assert result.transition_eligible is False
+
+    @pytest.mark.asyncio
+    async def test_workspace_status_fails_for_prepopulated_type_without_instances(
+        self, service, authz, kg_repo, user_id
+    ):
+        """Should block transition when prepopulated type has zero instances."""
+        kg = _make_kg()
+        kg.set_ontology(
+            OntologyConfig(
+                node_types=(
+                    NodeTypeDefinition(
+                        label="Repository",
+                        prepopulated=True,
+                        prepopulated_instance_count=0,
+                    ),
+                ),
+                edge_types=(
+                    EdgeTypeDefinition(
+                        label="CONTAINS",
+                        source_labels=("Repository",),
+                        target_labels=("Repository",),
+                    ),
+                ),
+            )
+        )
+        kg_repo.seed(kg)
+        await _grant_kg_view(authz, kg.id.value, user_id)
+
+        result = await service.get_workspace_status(user_id=user_id, kg_id=kg.id.value)
+
+        assert result is not None
+        assert result.readiness.prepopulated_types_ready is False
+        assert result.readiness.prepopulated_types_without_instances == ("Repository",)
         assert result.transition_eligible is False
 
 

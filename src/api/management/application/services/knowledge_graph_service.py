@@ -594,12 +594,35 @@ class KnowledgeGraphService:
         """Evaluate transition readiness flags for workspace status projection."""
         node_type_count = len(kg.ontology.node_types) if kg.ontology else 0
         edge_type_count = len(kg.ontology.edge_types) if kg.ontology else 0
+        prepopulated_without_instances: tuple[str, ...] = ()
+        if kg.ontology is not None:
+            prepopulated_without_instances = tuple(
+                node_type.label
+                for node_type in kg.ontology.node_types
+                if node_type.prepopulated and node_type.prepopulated_instance_count <= 0
+            )
 
-        # Prepopulated-instance validation is delivered by later units of work.
+        has_min_entities = node_type_count >= 1
+        has_min_relationships = edge_type_count >= 1
+        prepopulated_ready = len(prepopulated_without_instances) == 0
+
+        blocking_reasons: list[str] = []
+        if not has_min_entities:
+            blocking_reasons.append("At least one entity type is required")
+        if not has_min_relationships:
+            blocking_reasons.append("At least one relationship type is required")
+        if not prepopulated_ready:
+            labels = ", ".join(prepopulated_without_instances)
+            blocking_reasons.append(
+                f"Prepopulated types require instances before transition: {labels}"
+            )
+
         return WorkspaceReadinessStatus(
-            has_minimum_entity_types=node_type_count >= 1,
-            has_minimum_relationship_types=edge_type_count >= 1,
-            prepopulated_types_ready=True,
+            has_minimum_entity_types=has_min_entities,
+            has_minimum_relationship_types=has_min_relationships,
+            prepopulated_types_ready=prepopulated_ready,
+            prepopulated_types_without_instances=prepopulated_without_instances,
+            blocking_reasons=tuple(blocking_reasons),
         )
 
     async def get_workspace_status(

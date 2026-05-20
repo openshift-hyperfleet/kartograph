@@ -108,6 +108,8 @@ class WorkspaceReadinessStatus:
     has_minimum_entity_types: bool
     has_minimum_relationship_types: bool
     prepopulated_types_ready: bool
+    prepopulated_types_without_instances: tuple[str, ...] = field(default_factory=tuple)
+    blocking_reasons: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def is_ready(self) -> bool:
@@ -116,6 +118,7 @@ class WorkspaceReadinessStatus:
             self.has_minimum_entity_types
             and self.has_minimum_relationship_types
             and self.prepopulated_types_ready
+            and not self.prepopulated_types_without_instances
         )
 
 
@@ -321,11 +324,15 @@ class NodeTypeDefinition:
     description: str = ""
     required_properties: tuple[str, ...] = field(default_factory=tuple)
     optional_properties: tuple[str, ...] = field(default_factory=tuple)
+    prepopulated: bool = False
+    prepopulated_instance_count: int = 0
 
     def __post_init__(self) -> None:
         """Validate that label is non-empty."""
         if not self.label or not self.label.strip():
             raise ValueError("NodeTypeDefinition label must not be empty")
+        if self.prepopulated_instance_count < 0:
+            raise ValueError("prepopulated_instance_count must be >= 0")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict suitable for JSON persistence."""
@@ -334,6 +341,8 @@ class NodeTypeDefinition:
             "description": self.description,
             "required_properties": list(self.required_properties),
             "optional_properties": list(self.optional_properties),
+            "prepopulated": self.prepopulated,
+            "prepopulated_instance_count": self.prepopulated_instance_count,
         }
 
     @classmethod
@@ -344,6 +353,8 @@ class NodeTypeDefinition:
             description=data.get("description", ""),
             required_properties=tuple(data.get("required_properties", [])),
             optional_properties=tuple(data.get("optional_properties", [])),
+            prepopulated=bool(data.get("prepopulated", False)),
+            prepopulated_instance_count=int(data.get("prepopulated_instance_count", 0)),
         )
 
 

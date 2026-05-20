@@ -334,6 +334,8 @@ class TestGetKnowledgeGraphWorkspaceStatusRoute:
         assert payload["readiness"]["has_minimum_entity_types"] is True
         assert payload["readiness"]["has_minimum_relationship_types"] is False
         assert payload["readiness"]["prepopulated_types_ready"] is True
+        assert payload["readiness"]["prepopulated_types_without_instances"] == []
+        assert payload["readiness"]["blocking_reasons"] == []
         assert payload["transition_eligible"] is False
         assert payload["session_pointers"]["active_schema_bootstrap_session_id"] is None
 

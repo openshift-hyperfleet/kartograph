@@ -10,6 +10,7 @@ from extraction.application import ExtractionAgentSessionService
 from extraction.dependencies import get_extraction_agent_session_service
 from extraction.domain.value_objects import ExtractionSessionMode
 from extraction.presentation.models import (
+    BootstrapIntakePathSelectionRequest,
     ExtractionSessionListResponse,
     ExtractionSessionResponse,
 )
@@ -118,6 +119,33 @@ async def clear_chat(
         user_id=current_user.user_id.value,
         knowledge_graph_id=knowledge_graph_id,
         mode=mode,
+    )
+    return ExtractionSessionResponse.from_domain(session)
+
+
+@router.post(
+    "/knowledge-graphs/{knowledge_graph_id}/sessions/schema_bootstrap/active/intake-path",
+    response_model=ExtractionSessionResponse,
+)
+async def select_bootstrap_intake_path(
+    knowledge_graph_id: str,
+    request: BootstrapIntakePathSelectionRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[
+        ExtractionAgentSessionService, Depends(get_extraction_agent_session_service)
+    ],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+) -> ExtractionSessionResponse:
+    await _assert_kg_edit_permission(
+        authz=authz,
+        current_user=current_user,
+        knowledge_graph_id=knowledge_graph_id,
+    )
+    session = await service.set_bootstrap_intake_path_for_active_session(
+        user_id=current_user.user_id.value,
+        knowledge_graph_id=knowledge_graph_id,
+        selected_path=request.selected_path,
+        capabilities_goals=request.capabilities_goals,
     )
     return ExtractionSessionResponse.from_domain(session)
 

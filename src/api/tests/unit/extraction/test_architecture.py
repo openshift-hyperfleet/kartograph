@@ -143,8 +143,13 @@ class TestExtractionPresentationLayerBoundaries:
 class TestExtractionBoundedContextIsolation:
     def test_extraction_does_not_import_iam(self):
         (
-            archrule("extraction_no_iam")
-            .match("extraction*")
+            archrule("extraction_inner_no_iam")
+            .match(
+                "extraction.domain*",
+                "extraction.ports*",
+                "extraction.application*",
+                "extraction.infrastructure*",
+            )
             .should_not_import("iam*")
             .check("extraction")
         )

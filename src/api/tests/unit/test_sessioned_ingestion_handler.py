@@ -101,7 +101,11 @@ async def test_sessioned_ingestion_handler_prepares_commit_context():
     call_payload = ingestion_handler.handle.call_args.args[1]
     assert call_payload["baseline_commit"] == "baseline123"
     assert call_payload["tracked_branch_head_commit"] == "head456"
-    assert call_payload["credentials"] == {"token": "tok"}
+    assert "credentials" not in call_payload
+    assert (
+        ingestion_handler.handle.call_args.kwargs["runtime_credentials"]
+        == {"token": "tok"}
+    )
     ds_repo.save.assert_awaited_once()
     assert data_source.tracked_branch_head_commit == "head456"
 
@@ -169,4 +173,9 @@ async def test_sessioned_ingestion_handler_sets_no_changes_flag_when_heads_match
     assert call_payload["baseline_commit"] == "baseline123"
     assert call_payload["tracked_branch_head_commit"] == "baseline123"
     assert call_payload["no_changes_detected"] is True
+    assert "credentials" not in call_payload
+    assert (
+        ingestion_handler.handle.call_args.kwargs["runtime_credentials"]
+        == {"token": "tok"}
+    )
 

@@ -511,3 +511,63 @@ The system SHALL support light and dark color schemes.
 - GIVEN the user interface
 - THEN a dark mode toggle is available in the header
 - AND the preference persists across sessions
+
+### Requirement: Knowledge Graph Manage Actions
+The system SHALL expose knowledge graph row actions as Manage, Query, and Delete.
+
+#### Scenario: Knowledge graph action set
+- GIVEN the knowledge graph list
+- THEN each knowledge graph row shows actions for Manage, Query, and Delete
+- AND legacy actions not in this set are not shown in the row action cluster
+
+#### Scenario: Manage navigation
+- GIVEN a user clicks Manage on a knowledge graph row
+- WHEN navigation completes
+- THEN the user lands on that knowledge graph's mode-aware workspace page
+
+### Requirement: Bootstrap to Extraction Transition
+The system SHALL provide a UI-gated transition from schema bootstrap mode to extraction operations mode.
+
+#### Scenario: Validate action
+- GIVEN a user with `edit` permission on a knowledge graph in bootstrap mode
+- WHEN the user clicks Validate
+- THEN validation results are displayed in the workspace
+- AND transition action remains unavailable until validation passes
+
+#### Scenario: Go to extraction action
+- GIVEN bootstrap validation has passed
+- WHEN the user clicks "Go to Extraction/Mutations"
+- THEN the UI transitions the knowledge graph into extraction operations mode
+- AND a new extraction-mode agent session is started
+
+### Requirement: Unified Extraction Workspace
+The system SHALL present extraction jobs and minor direct edits in one workspace.
+
+#### Scenario: Conversation-first layout
+- GIVEN a user in extraction operations mode
+- THEN the conversation panel remains visible as the primary surface
+- AND the lower workspace area is tabbed for operational views
+
+#### Scenario: Clear chat reset
+- GIVEN an active extraction conversation session
+- WHEN the user clicks Clear chat
+- THEN the current chat history is cleared
+- AND a new clean session is started for the same user and knowledge graph
+
+#### Scenario: Tabbed operations area
+- GIVEN the extraction workspace
+- WHEN the user switches tabs
+- THEN extraction-job controls, manual mutation tools, and run/log views are available without leaving the page
+
+### Requirement: MutationLog Browser
+The system SHALL provide a knowledge-graph-scoped MutationLog browser.
+
+#### Scenario: Scoped listing
+- GIVEN the user is viewing a specific knowledge graph
+- WHEN the user opens MutationLogs
+- THEN only mutation log runs associated with that knowledge graph are listed
+
+#### Scenario: Run detail panel
+- GIVEN a mutation log run is selected
+- WHEN details are shown
+- THEN the UI displays run summary, per-entry operation previews, token/cost metrics, and operation counts by type

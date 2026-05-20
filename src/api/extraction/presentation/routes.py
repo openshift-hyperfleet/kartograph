@@ -1,0 +1,123 @@
+"""HTTP routes for extraction session lifecycle operations."""
+
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from extraction.application import ExtractionAgentSessionService
+from extraction.dependencies import get_extraction_agent_session_service
+from extraction.domain.value_objects import ExtractionSessionMode
+from extraction.presentation.models import (
+    ExtractionSessionListResponse,
+    ExtractionSessionResponse,
+)
+from iam.application.value_objects import CurrentUser
+from iam.dependencies.user import get_current_user
+from infrastructure.authorization_dependencies import get_spicedb_client
+from shared_kernel.authorization.protocols import AuthorizationProvider
+from shared_kernel.authorization.types import (
+    Permission,
+    ResourceType,
+    format_resource,
+    format_subject,
+)
+
+router = APIRouter(tags=["extraction-sessions"])
+
+
+async def _assert_kg_edit_permission(
+    *,
+    authz: AuthorizationProvider,
+    current_user: CurrentUser,
+    knowledge_graph_id: str,
+) -> None:
+    subject = format_subject(ResourceType.USER, current_user.user_id.value)
+    resource = format_resource(ResourceType.KNOWLEDGE_GRAPH, knowledge_graph_id)
+    allowed = await authz.check_permission(resource, Permission.EDIT, subject)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+
+
+@router.get(
+    "/knowledge-graphs/{knowledge_graph_id}/sessions/{mode}/active",
+    response_model=ExtractionSessionResponse,
+)
+async def get_active_session(
+    knowledge_graph_id: str,
+    mode: ExtractionSessionMode,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[
+        ExtractionAgentSessionService, Depends(get_extraction_agent_session_service)
+    ],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+) -> ExtractionSessionResponse:
+    await _assert_kg_edit_permission(
+        authz=authz,
+        current_user=current_user,
+        knowledge_graph_id=knowledge_graph_id,
+    )
+    session = await service.get_or_create_active_session(
+        user_id=current_user.user_id.value,
+        knowledge_graph_id=knowledge_graph_id,
+        mode=mode,
+    )
+    return ExtractionSessionResponse.from_domain(session)
+
+
+@router.get(
+    "/knowledge-graphs/{knowledge_graph_id}/sessions/{mode}",
+    response_model=ExtractionSessionListResponse,
+)
+async def list_sessions(
+    knowledge_graph_id: str,
+    mode: ExtractionSessionMode,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[
+        ExtractionAgentSessionService, Depends(get_extraction_agent_session_service)
+    ],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+) -> ExtractionSessionListResponse:
+    await _assert_kg_edit_permission(
+        authz=authz,
+        current_user=current_user,
+        knowledge_graph_id=knowledge_graph_id,
+    )
+    sessions = await service.list_sessions(
+        user_id=current_user.user_id.value,
+        knowledge_graph_id=knowledge_graph_id,
+        mode=mode,
+    )
+    payload = [ExtractionSessionResponse.from_domain(session) for session in sessions]
+    return ExtractionSessionListResponse(sessions=payload, count=len(payload))
+
+
+@router.post(
+    "/knowledge-graphs/{knowledge_graph_id}/sessions/{mode}/clear-chat",
+    response_model=ExtractionSessionResponse,
+)
+async def clear_chat(
+    knowledge_graph_id: str,
+    mode: ExtractionSessionMode,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[
+        ExtractionAgentSessionService, Depends(get_extraction_agent_session_service)
+    ],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+) -> ExtractionSessionResponse:
+    await _assert_kg_edit_permission(
+        authz=authz,
+        current_user=current_user,
+        knowledge_graph_id=knowledge_graph_id,
+    )
+    session = await service.clear_chat(
+        user_id=current_user.user_id.value,
+        knowledge_graph_id=knowledge_graph_id,
+        mode=mode,
+    )
+    return ExtractionSessionResponse.from_domain(session)
+

@@ -18,6 +18,7 @@ from uuid import UUID
 import pytest
 
 from extraction.infrastructure.event_handler import ExtractionEventHandler
+from extraction.ports.services import ExtractionRuntimeContext
 
 
 class _FakeOutboxRepository:
@@ -65,6 +66,7 @@ class _FakeExtractionService:
         data_source_id: str,
         knowledge_graph_id: str,
         job_package_id: str,
+        runtime_context: ExtractionRuntimeContext,
     ) -> str:
         self.calls.append(
             {
@@ -72,11 +74,28 @@ class _FakeExtractionService:
                 "data_source_id": data_source_id,
                 "knowledge_graph_id": knowledge_graph_id,
                 "job_package_id": job_package_id,
+                "runtime_context": runtime_context,
             }
         )
         if self._fail:
             raise RuntimeError(self._error)
         return "mutation-log-001"
+
+
+class _FakeRuntimeContextBuilder:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str]] = []
+
+    def build(self, *, sync_run_id: str, job_package_id: str) -> ExtractionRuntimeContext:
+        self.calls.append(
+            {"sync_run_id": sync_run_id, "job_package_id": job_package_id}
+        )
+        return ExtractionRuntimeContext(
+            ingestion_context_dir="/tmp/ingestion-context",
+            repository_files_dir="/tmp/repository-files",
+            skills_dir="/app/skills",
+            job_package_archive="/tmp/job-package.zip",
+        )
 
 
 @pytest.fixture
@@ -99,9 +118,11 @@ def handler(
     extraction_service: _FakeExtractionService,
     outbox: _FakeOutboxRepository,
 ) -> ExtractionEventHandler:
+    runtime_context_builder = _FakeRuntimeContextBuilder()
     return ExtractionEventHandler(
         extraction_service=extraction_service,
         outbox=outbox,
+        runtime_context_builder=runtime_context_builder,
     )
 
 
@@ -151,6 +172,7 @@ class TestExtractionEventHandlerSuccess:
         assert call["job_package_id"] == "pkg-001"
         assert call["data_source_id"] == "ds-001"
         assert call["knowledge_graph_id"] == "kg-001"
+        assert call["runtime_context"].skills_dir == "/app/skills"
 
     async def test_emits_mutation_log_produced_on_success(
         self,
@@ -208,6 +230,7 @@ class TestExtractionEventHandlerFailure:
         handler = ExtractionEventHandler(
             extraction_service=failing_service,
             outbox=outbox,
+            runtime_context_builder=_FakeRuntimeContextBuilder(),
         )
         payload = _job_package_produced_payload(sync_run_id="run-002")
         await handler.handle("JobPackageProduced", payload)
@@ -228,6 +251,7 @@ class TestExtractionEventHandlerFailure:
         handler = ExtractionEventHandler(
             extraction_service=failing_service,
             outbox=outbox,
+            runtime_context_builder=_FakeRuntimeContextBuilder(),
         )
         await handler.handle(
             "JobPackageProduced",
@@ -285,6 +309,7 @@ class TestExtractionEventHandlerOutboxIsolation:
         handler = ExtractionEventHandler(
             extraction_service=extraction_service,
             outbox=failing_outbox,
+            runtime_context_builder=_FakeRuntimeContextBuilder(),
         )
 
         with pytest.raises(RuntimeError, match="outbox write failed"):

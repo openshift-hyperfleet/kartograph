@@ -2,6 +2,7 @@
 
 import asyncio
 from contextlib import asynccontextmanager
+import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -56,6 +57,9 @@ from graph.ports.mutation_log import MutationLogApplyResult
 
 # Default work directory for JobPackage ZIP archives
 _JOB_PACKAGE_WORK_DIR = Path("/tmp/kartograph/job_packages")  # noqa: S108
+_EXTRACTION_SKILLS_DIR = Path(
+    os.getenv("KARTOGRAPH_EXTRACTION_SKILLS_DIR", "/app/skills")
+)
 
 # Scheduler polling interval (seconds)
 _SCHEDULER_POLL_INTERVAL_SECONDS = 60
@@ -281,6 +285,7 @@ class _StubExtractionService:
         data_source_id: str,
         knowledge_graph_id: str,
         job_package_id: str,
+        runtime_context: Any,
     ) -> str:
         raise NotImplementedError(
             "AI extraction pipeline is not yet implemented. "
@@ -308,12 +313,20 @@ class _SessionedExtractionEventHandler:
     async def handle(self, event_type: str, payload: dict[str, Any]) -> None:
         from infrastructure.outbox.repository import OutboxRepository
         from extraction.infrastructure.event_handler import ExtractionEventHandler
+        from extraction.infrastructure.runtime_context_builder import (
+            FilesystemExtractionRuntimeContextBuilder,
+        )
 
         async with self._session_factory() as session:
             outbox = OutboxRepository(session=session)
+            runtime_context_builder = FilesystemExtractionRuntimeContextBuilder(
+                work_dir=_JOB_PACKAGE_WORK_DIR,
+                skills_dir=_EXTRACTION_SKILLS_DIR,
+            )
             extraction_handler = ExtractionEventHandler(
                 extraction_service=self._extraction_service,
                 outbox=outbox,
+                runtime_context_builder=runtime_context_builder,
             )
             await extraction_handler.handle(event_type, payload)
             await session.commit()

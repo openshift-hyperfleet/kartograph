@@ -11,6 +11,7 @@ from pathlib import Path
 from ingestion.ports.adapters import IDatasourceAdapter
 from shared_kernel.job_package.builder import JobPackageBuilder
 from shared_kernel.job_package.value_objects import (
+    AdapterCheckpoint,
     JobPackageId,
     SyncMode,
 )
@@ -51,6 +52,8 @@ class IngestionService:
         adapter_type: str,
         connection_config: dict[str, str],
         credentials_path: str | None,
+        credentials: dict[str, str] | None = None,
+        baseline_commit: str | None = None,
     ) -> JobPackageId:
         """Run the ingestion pipeline for a data source sync.
 
@@ -62,6 +65,9 @@ class IngestionService:
             connection_config: Key-value adapter configuration
             credentials_path: Vault path for credentials (currently unused;
                 future implementations will decrypt and pass credentials)
+            credentials: Optional decrypted credentials prepared by caller
+            baseline_commit: Optional baseline commit SHA used to seed
+                incremental extraction checkpoint state
 
         Returns:
             The JobPackageId of the produced ZIP archive
@@ -78,15 +84,22 @@ class IngestionService:
                 f"Registered adapters: {list(self._adapter_registry.keys())}"
             )
 
-        # TODO: decrypt credentials from credentials_path when secret store
-        # is injected. Currently an empty dict is passed as placeholder.
-        credentials: dict[str, str] = {}
+        # Credentials are provided by the session-aware event wrapper, which
+        # resolves tenant-scoped secrets via the shared credential reader port.
+        resolved_credentials: dict[str, str] = dict(credentials or {})
+
+        checkpoint = None
+        if baseline_commit:
+            checkpoint = AdapterCheckpoint(
+                schema_version="1.0.0",
+                data={"commit_sha": baseline_commit},
+            )
 
         # Extract raw items from the adapter using the new ExtractionResult API
         result = await adapter.extract(
             connection_config=connection_config,
-            credentials=credentials,
-            checkpoint=None,  # no checkpoint support yet; always full refresh
+            credentials=resolved_credentials,
+            checkpoint=checkpoint,
             sync_mode=SyncMode.INCREMENTAL,
         )
 

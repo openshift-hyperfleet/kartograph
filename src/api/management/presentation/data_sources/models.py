@@ -296,6 +296,12 @@ class SyncRunResponse(BaseModel):
         None, description="When the sync run completed"
     )
     error: str | None = Field(None, description="Error message if the sync run failed")
+    token_usage_total: int | None = Field(
+        None, description="Total model tokens consumed during extraction for this run"
+    )
+    cost_total_usd: float | None = Field(
+        None, description="Estimated USD cost for extraction execution in this run"
+    )
     created_at: datetime = Field(
         ..., description="When the sync run record was created"
     )
@@ -317,6 +323,16 @@ class SyncRunResponse(BaseModel):
             started_at=run.started_at,
             completed_at=run.completed_at,
             error=run.error,
+            token_usage_total=(
+                run.mutation_log_run.token_usage_total
+                if run.mutation_log_run is not None
+                else None
+            ),
+            cost_total_usd=(
+                run.mutation_log_run.cost_total_usd
+                if run.mutation_log_run is not None
+                else None
+            ),
             created_at=run.created_at,
         )
 

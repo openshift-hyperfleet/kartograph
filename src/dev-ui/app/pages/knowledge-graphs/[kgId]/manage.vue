@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import { ArrowLeft, CheckCircle2, Loader2, PlayCircle, ShieldAlert } from 'lucide-vue-next'
+import { ArrowLeft, CheckCircle2, Coins, DollarSign, Loader2, PlayCircle, ShieldAlert } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -29,6 +29,27 @@ interface WorkspaceStatusResponse {
   session_pointers: WorkspaceSessionPointers
 }
 
+interface DataSourceRef {
+  id: string
+  name: string
+}
+
+interface MutationLogRunView {
+  id: string
+  data_source_id: string
+  data_source_name: string
+  status: string
+  started_at: string
+  completed_at: string | null
+  mutation_log_id: string | null
+  session_id: string | null
+  actor_id: string | null
+  operation_counts: Record<string, number>
+  token_usage_total: number | null
+  cost_total_usd: number | null
+  error: string | null
+}
+
 const route = useRoute()
 const { hasTenant, tenantVersion } = useTenant()
 const { extractErrorMessage } = useErrorHandler()
@@ -38,6 +59,9 @@ const loading = ref(false)
 const validating = ref(false)
 const transitioning = ref(false)
 const statusProjection = ref<WorkspaceStatusResponse | null>(null)
+const mutationLogLoading = ref(false)
+const mutationLogRuns = ref<MutationLogRunView[]>([])
+const selectedMutationLogRunId = ref<string | null>(null)
 
 const modeLabel = computed(() =>
   statusProjection.value?.workspace_mode === 'extraction_operations'
@@ -48,6 +72,10 @@ const modeLabel = computed(() =>
 const canTransition = computed(() =>
   statusProjection.value?.workspace_mode === 'schema_bootstrap'
   && statusProjection.value?.transition_eligible === true,
+)
+
+const selectedMutationLogRun = computed(() =>
+  mutationLogRuns.value.find((run) => run.id === selectedMutationLogRunId.value) ?? null,
 )
 
 async function loadWorkspaceStatus() {
@@ -64,6 +92,53 @@ async function loadWorkspaceStatus() {
     })
   } finally {
     loading.value = false
+  }
+}
+
+async function loadMutationLogRuns() {
+  if (!hasTenant.value || !kgId.value) return
+  mutationLogLoading.value = true
+  try {
+    const dataSources = await apiFetch<DataSourceRef[]>(
+      `/management/knowledge-graphs/${kgId.value}/data-sources`,
+    )
+
+    const collected: MutationLogRunView[] = []
+    for (const ds of dataSources) {
+      try {
+        const runs = await apiFetch<MutationLogRunView[]>(
+          `/management/data-sources/${ds.id}/sync-runs`,
+        )
+        for (const run of runs) {
+          if (!run.mutation_log_id) continue
+          collected.push({
+            ...run,
+            data_source_name: ds.name,
+          })
+        }
+      } catch {
+        // Keep page resilient when one data source run list fails.
+      }
+    }
+
+    collected.sort(
+      (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime(),
+    )
+    mutationLogRuns.value = collected
+    if (
+      !selectedMutationLogRunId.value
+      || !collected.some((run) => run.id === selectedMutationLogRunId.value)
+    ) {
+      selectedMutationLogRunId.value = collected[0]?.id ?? null
+    }
+  } catch (err) {
+    mutationLogRuns.value = []
+    selectedMutationLogRunId.value = null
+    toast.error('Failed to load mutation log runs', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    mutationLogLoading.value = false
   }
 }
 
@@ -106,11 +181,13 @@ async function transitionToExtraction() {
 
 onMounted(() => {
   loadWorkspaceStatus()
+  loadMutationLogRuns()
 })
 
 watch(tenantVersion, () => {
   statusProjection.value = null
   loadWorkspaceStatus()
+  loadMutationLogRuns()
 })
 </script>
 
@@ -236,6 +313,115 @@ watch(tenantVersion, () => {
             <p class="font-mono break-all mt-1">
               {{ statusProjection.session_pointers.most_recent_completed_session_id ?? 'None' }}
             </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle class="text-base">MutationLog Browser</CardTitle>
+          <CardDescription>
+            Knowledge-graph scoped mutation runs with per-entry operation previews and run metrics.
+          </CardDescription>
+        </CardHeader>
+        <CardContent class="grid gap-4 lg:grid-cols-[320px_1fr]">
+          <div class="rounded border">
+            <div class="flex items-center justify-between border-b px-3 py-2">
+              <p class="text-xs font-medium text-muted-foreground">Runs</p>
+              <Button size="sm" variant="ghost" class="h-6 px-2 text-[10px]" @click="loadMutationLogRuns">
+                Refresh
+              </Button>
+            </div>
+            <div v-if="mutationLogLoading" class="flex items-center gap-2 px-3 py-4 text-xs text-muted-foreground">
+              <Loader2 class="size-3.5 animate-spin" />
+              Loading mutation runs...
+            </div>
+            <div v-else-if="mutationLogRuns.length === 0" class="px-3 py-4 text-xs text-muted-foreground">
+              No mutation log runs found for this knowledge graph yet.
+            </div>
+            <div v-else class="max-h-72 overflow-auto p-2 space-y-1.5">
+              <button
+                v-for="run in mutationLogRuns"
+                :key="run.id"
+                class="w-full rounded border px-2 py-1.5 text-left text-xs transition-colors"
+                :class="selectedMutationLogRunId === run.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/40'"
+                @click="selectedMutationLogRunId = run.id"
+              >
+                <p class="font-medium truncate">{{ run.data_source_name }}</p>
+                <p class="text-muted-foreground truncate">{{ new Date(run.started_at).toLocaleString() }}</p>
+                <div class="mt-1 flex items-center justify-between">
+                  <Badge variant="outline" class="text-[10px]">{{ run.status }}</Badge>
+                  <span class="font-mono text-[10px] text-muted-foreground">{{ run.mutation_log_id }}</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <div v-if="selectedMutationLogRun" class="space-y-3 rounded border p-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <Badge>{{ selectedMutationLogRun.status }}</Badge>
+              <p class="text-xs text-muted-foreground">
+                Data source: <span class="font-medium text-foreground">{{ selectedMutationLogRun.data_source_name }}</span>
+              </p>
+              <p class="text-xs text-muted-foreground">
+                MutationLog: <span class="font-mono text-foreground">{{ selectedMutationLogRun.mutation_log_id }}</span>
+              </p>
+            </div>
+            <div class="grid gap-2 sm:grid-cols-2">
+              <div class="rounded border px-3 py-2 text-xs">
+                <p class="text-muted-foreground">Started</p>
+                <p class="mt-1">{{ new Date(selectedMutationLogRun.started_at).toLocaleString() }}</p>
+              </div>
+              <div class="rounded border px-3 py-2 text-xs">
+                <p class="text-muted-foreground">Completed</p>
+                <p class="mt-1">
+                  {{ selectedMutationLogRun.completed_at ? new Date(selectedMutationLogRun.completed_at).toLocaleString() : 'In progress' }}
+                </p>
+              </div>
+              <div class="rounded border px-3 py-2 text-xs">
+                <p class="text-muted-foreground">Session</p>
+                <p class="mt-1 font-mono break-all">{{ selectedMutationLogRun.session_id ?? 'None' }}</p>
+              </div>
+              <div class="rounded border px-3 py-2 text-xs">
+                <p class="text-muted-foreground">Actor</p>
+                <p class="mt-1 font-mono break-all">{{ selectedMutationLogRun.actor_id ?? 'None' }}</p>
+              </div>
+            </div>
+            <div class="grid gap-2 sm:grid-cols-2">
+              <div class="rounded border px-3 py-2 text-xs">
+                <p class="text-muted-foreground flex items-center gap-1.5">
+                  <Coins class="size-3.5" />
+                  Token usage
+                </p>
+                <p class="mt-1 font-medium">{{ (selectedMutationLogRun.token_usage_total ?? 0).toLocaleString() }}</p>
+              </div>
+              <div class="rounded border px-3 py-2 text-xs">
+                <p class="text-muted-foreground flex items-center gap-1.5">
+                  <DollarSign class="size-3.5" />
+                  Cost (USD)
+                </p>
+                <p class="mt-1 font-medium">${{ (selectedMutationLogRun.cost_total_usd ?? 0).toFixed(2) }}</p>
+              </div>
+            </div>
+            <div class="rounded border p-3">
+              <p class="mb-2 text-xs font-medium text-muted-foreground">Per-entry operation previews</p>
+              <div v-if="Object.keys(selectedMutationLogRun.operation_counts).length === 0" class="text-xs text-muted-foreground">
+                No operation class counts recorded for this run.
+              </div>
+              <div v-else class="space-y-1.5">
+                <div
+                  v-for="([opClass, count]) in Object.entries(selectedMutationLogRun.operation_counts)"
+                  :key="opClass"
+                  class="flex items-center justify-between rounded border px-2 py-1.5 text-xs"
+                >
+                  <span class="font-mono">{{ opClass }}</span>
+                  <Badge variant="secondary">{{ count }}</Badge>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="rounded border border-dashed p-6 text-sm text-muted-foreground">
+            Select a mutation run to view summary and per-entry previews.
           </div>
         </CardContent>
       </Card>

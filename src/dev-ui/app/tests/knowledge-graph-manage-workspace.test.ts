@@ -37,3 +37,29 @@ describe('Knowledge Graph Manage Workspace - mode-aware controls', () => {
     expect(manageWorkspaceVue).toContain('active_extraction_operations_session_id')
   })
 })
+
+describe('Knowledge Graph Manage Workspace - mutation log browser', () => {
+  it('renders mutation log browser card and scoped run listing', () => {
+    expect(manageWorkspaceVue).toContain('MutationLog Browser')
+    expect(manageWorkspaceVue).toContain('loadMutationLogRuns')
+    expect(manageWorkspaceVue).toContain('/management/knowledge-graphs/${kgId.value}/data-sources')
+  })
+
+  it('loads sync runs per data source and filters to mutation-log runs', () => {
+    expect(manageWorkspaceVue).toContain('/management/data-sources/${ds.id}/sync-runs')
+    expect(manageWorkspaceVue).toContain('if (!run.mutation_log_id) continue')
+  })
+
+  it('renders run detail summary with token and cost metrics', () => {
+    expect(manageWorkspaceVue).toContain('Token usage')
+    expect(manageWorkspaceVue).toContain('Cost (USD)')
+    expect(manageWorkspaceVue).toContain('token_usage_total')
+    expect(manageWorkspaceVue).toContain('cost_total_usd')
+  })
+
+  it('renders per-entry operation preview rows from operation_counts', () => {
+    expect(manageWorkspaceVue).toContain('Per-entry operation previews')
+    expect(manageWorkspaceVue).toContain('operation_counts')
+    expect(manageWorkspaceVue).toContain('Object.entries(selectedMutationLogRun.operation_counts)')
+  })
+})

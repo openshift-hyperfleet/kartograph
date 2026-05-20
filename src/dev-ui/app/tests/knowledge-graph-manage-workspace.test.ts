@@ -6,6 +6,10 @@ const manageWorkspaceVue = readFileSync(
   resolve(__dirname, '../pages/knowledge-graphs/[kgId]/manage.vue'),
   'utf-8',
 )
+const sharedConversationPanelVue = readFileSync(
+  resolve(__dirname, '../components/extraction/SharedConversationPanel.vue'),
+  'utf-8',
+)
 
 describe('Knowledge Graph Manage Workspace - mode-aware controls', () => {
   it('loads workspace status projection from management API', () => {
@@ -37,15 +41,15 @@ describe('Knowledge Graph Manage Workspace - mode-aware controls', () => {
     expect(manageWorkspaceVue).toContain('active_extraction_operations_session_id')
   })
 
-  it('keeps extraction conversation panel visible in extraction mode', () => {
-    expect(manageWorkspaceVue).toContain('Extraction Conversation')
-    expect(manageWorkspaceVue).toContain('message_history')
-    expect(manageWorkspaceVue).toContain('statusProjection.workspace_mode === \'extraction_operations\'')
+  it('uses shared conversation panel for bootstrap and extraction sessions', () => {
+    expect(manageWorkspaceVue).toContain('SharedConversationPanel')
+    expect(manageWorkspaceVue).toContain('sessionMode')
+    expect(manageWorkspaceVue).toContain('/sessions/${sessionMode.value}/active')
   })
 
   it('supports explicit Clear chat reset for extraction session', () => {
     expect(manageWorkspaceVue).toContain('clearChat')
-    expect(manageWorkspaceVue).toContain('/sessions/extraction_operations/clear-chat')
+    expect(manageWorkspaceVue).toContain('/sessions/${sessionMode.value}/clear-chat')
     expect(manageWorkspaceVue).toContain('Clear chat')
   })
 
@@ -102,5 +106,24 @@ describe('Knowledge Graph Manage Workspace - bootstrap readiness guidance', () =
     expect(manageWorkspaceVue).toContain('Next Steps')
     expect(manageWorkspaceVue).toContain('Run Validate to refresh readiness signals')
     expect(manageWorkspaceVue).toContain('Transition is enabled')
+  })
+})
+
+describe('Shared conversation panel - extraction UX contract', () => {
+  it('renders resume-session action and explicit server-side persistence note', () => {
+    expect(sharedConversationPanelVue).toContain('Resume session')
+    expect(sharedConversationPanelVue).toContain('No local cache: conversation state is server-side only.')
+  })
+
+  it('renders clear-chat confirmation dialog before emitting clear action', () => {
+    expect(sharedConversationPanelVue).toContain('Clear conversation?')
+    expect(sharedConversationPanelVue).toContain('confirmClearChat')
+    expect(sharedConversationPanelVue).toContain("emit('clearChat')")
+  })
+
+  it('renders activity/thinking timeline lines and auto-scrolls timeline updates', () => {
+    expect(sharedConversationPanelVue).toContain('activityTimeline')
+    expect(sharedConversationPanelVue).toContain('timelineRef')
+    expect(sharedConversationPanelVue).toContain('scrollTop = timelineRef.value.scrollHeight')
   })
 })

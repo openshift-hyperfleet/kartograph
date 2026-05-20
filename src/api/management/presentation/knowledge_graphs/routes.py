@@ -195,6 +195,79 @@ async def get_knowledge_graph_workspace_status(
 
 
 @router.post(
+    "/knowledge-graphs/{kg_id}/workspace/validate",
+    response_model=KnowledgeGraphWorkspaceStatusResponse,
+    summary="Validate bootstrap readiness for workspace transition",
+)
+async def validate_knowledge_graph_workspace(
+    kg_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> KnowledgeGraphWorkspaceStatusResponse:
+    """Validate workspace readiness with edit authorization."""
+    try:
+        status_projection = await service.validate_workspace(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+        )
+        return KnowledgeGraphWorkspaceStatusResponse.from_domain(status_projection)
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to validate workspace status",
+        )
+
+
+@router.post(
+    "/knowledge-graphs/{kg_id}/workspace/transition-to-extraction",
+    response_model=KnowledgeGraphWorkspaceStatusResponse,
+    summary="Transition workspace from bootstrap to extraction operations",
+)
+async def transition_workspace_to_extraction(
+    kg_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> KnowledgeGraphWorkspaceStatusResponse:
+    """Transition workspace mode after successful validation."""
+    try:
+        status_projection = await service.transition_workspace_to_extraction(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+        )
+        return KnowledgeGraphWorkspaceStatusResponse.from_domain(status_projection)
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to transition workspace mode",
+        )
+
+
+@router.post(
     "/workspaces/{workspace_id}/knowledge-graphs",
     status_code=status.HTTP_201_CREATED,
 )

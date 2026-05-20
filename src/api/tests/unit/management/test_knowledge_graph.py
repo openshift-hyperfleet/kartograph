@@ -240,9 +240,12 @@ class TestKnowledgeGraphWorkspaceMode:
         """Transition should move mode to extraction_operations."""
         kg = self._create_kg()
 
-        kg.transition_to_extraction_operations()
+        session_id = kg.transition_to_extraction_operations()
 
         assert kg.workspace_mode == WorkspaceMode.EXTRACTION_OPERATIONS
+        assert kg.active_extraction_operations_session_id == session_id
+        assert isinstance(session_id, str)
+        assert len(session_id) == 26
 
     def test_transition_is_irreversible(self):
         """Transitioning after extraction_operations should fail."""

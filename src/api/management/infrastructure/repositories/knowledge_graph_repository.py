@@ -72,6 +72,15 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
                 model.name = knowledge_graph.name
                 model.description = knowledge_graph.description
                 model.workspace_mode = knowledge_graph.workspace_mode.value
+                model.active_schema_bootstrap_session_id = (
+                    knowledge_graph.active_schema_bootstrap_session_id
+                )
+                model.active_extraction_operations_session_id = (
+                    knowledge_graph.active_extraction_operations_session_id
+                )
+                model.most_recent_completed_session_id = (
+                    knowledge_graph.most_recent_completed_session_id
+                )
                 model.updated_at = knowledge_graph.updated_at
             else:
                 model = KnowledgeGraphModel(
@@ -81,6 +90,15 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
                     name=knowledge_graph.name,
                     description=knowledge_graph.description,
                     workspace_mode=knowledge_graph.workspace_mode.value,
+                    active_schema_bootstrap_session_id=(
+                        knowledge_graph.active_schema_bootstrap_session_id
+                    ),
+                    active_extraction_operations_session_id=(
+                        knowledge_graph.active_extraction_operations_session_id
+                    ),
+                    most_recent_completed_session_id=(
+                        knowledge_graph.most_recent_completed_session_id
+                    ),
                     created_at=knowledge_graph.created_at,
                     updated_at=knowledge_graph.updated_at,
                 )
@@ -226,4 +244,9 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
             updated_at=model.updated_at,
             ontology=ontology,
             workspace_mode=WorkspaceMode(model.workspace_mode),
+            active_schema_bootstrap_session_id=model.active_schema_bootstrap_session_id,
+            active_extraction_operations_session_id=(
+                model.active_extraction_operations_session_id
+            ),
+            most_recent_completed_session_id=model.most_recent_completed_session_id,
         )

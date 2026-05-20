@@ -654,5 +654,92 @@ class KnowledgeGraphService:
             workspace_mode=kg.workspace_mode,
             readiness=readiness,
             transition_eligible=transition_eligible,
-            session_pointers=WorkspaceSessionPointers(),
+            session_pointers=WorkspaceSessionPointers(
+                active_schema_bootstrap_session_id=kg.active_schema_bootstrap_session_id,
+                active_extraction_operations_session_id=(
+                    kg.active_extraction_operations_session_id
+                ),
+                most_recent_completed_session_id=kg.most_recent_completed_session_id,
+            ),
+        )
+
+    async def validate_workspace(
+        self,
+        user_id: str,
+        kg_id: str,
+    ) -> KnowledgeGraphWorkspaceStatus:
+        """Validate bootstrap readiness with KG edit authorization."""
+        has_edit = await self._check_permission(
+            user_id=user_id,
+            resource_type=ResourceType.KNOWLEDGE_GRAPH,
+            resource_id=kg_id,
+            permission=Permission.EDIT,
+        )
+        if not has_edit:
+            self._probe.permission_denied(
+                user_id=user_id,
+                resource_id=kg_id,
+                permission=Permission.EDIT,
+            )
+            raise UnauthorizedError(
+                f"User {user_id} lacks edit permission on knowledge graph {kg_id}"
+            )
+
+        kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
+        if kg is None or kg.tenant_id != self._scope_to_tenant:
+            raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
+
+        readiness = self._evaluate_workspace_readiness(kg)
+        transition_eligible = (
+            kg.workspace_mode == WorkspaceMode.SCHEMA_BOOTSTRAP and readiness.is_ready
+        )
+        return KnowledgeGraphWorkspaceStatus(
+            knowledge_graph_id=kg.id.value,
+            workspace_mode=kg.workspace_mode,
+            readiness=readiness,
+            transition_eligible=transition_eligible,
+            session_pointers=WorkspaceSessionPointers(
+                active_schema_bootstrap_session_id=kg.active_schema_bootstrap_session_id,
+                active_extraction_operations_session_id=(
+                    kg.active_extraction_operations_session_id
+                ),
+                most_recent_completed_session_id=kg.most_recent_completed_session_id,
+            ),
+        )
+
+    async def transition_workspace_to_extraction(
+        self,
+        user_id: str,
+        kg_id: str,
+    ) -> KnowledgeGraphWorkspaceStatus:
+        """Transition a knowledge graph workspace to extraction_operations mode."""
+        _ = await self.validate_workspace(user_id=user_id, kg_id=kg_id)
+
+        kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
+        if kg is None or kg.tenant_id != self._scope_to_tenant:
+            raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
+
+        readiness = self._evaluate_workspace_readiness(kg)
+        if not readiness.is_ready:
+            joined_reasons = "; ".join(readiness.blocking_reasons)
+            raise ValueError(
+                f"Knowledge graph {kg_id} is not ready for transition: {joined_reasons}"
+            )
+
+        kg.transition_to_extraction_operations()
+        await self._kg_repo.save(kg)
+        await self._session.commit()
+
+        return KnowledgeGraphWorkspaceStatus(
+            knowledge_graph_id=kg.id.value,
+            workspace_mode=kg.workspace_mode,
+            readiness=readiness,
+            transition_eligible=False,
+            session_pointers=WorkspaceSessionPointers(
+                active_schema_bootstrap_session_id=kg.active_schema_bootstrap_session_id,
+                active_extraction_operations_session_id=(
+                    kg.active_extraction_operations_session_id
+                ),
+                most_recent_completed_session_id=kg.most_recent_completed_session_id,
+            ),
         )

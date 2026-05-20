@@ -110,6 +110,7 @@ class TestKnowledgeGraphRoundTrip:
 
         assert retrieved is not None
         assert retrieved.workspace_mode == WorkspaceMode.EXTRACTION_OPERATIONS
+        assert retrieved.active_extraction_operations_session_id is not None
 
 
 class TestKnowledgeGraphUpdate:

@@ -6,15 +6,24 @@ transaction management, and observability.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from croniter import CroniterBadCronError, croniter
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from ulid import ULID
 
 from management.application.observability import (
     DefaultKnowledgeGraphServiceProbe,
     KnowledgeGraphServiceProbe,
 )
 from management.domain.aggregates import KnowledgeGraph
+from management.domain.entities.data_source_sync_run import DataSourceSyncRun
 from management.domain.value_objects import (
+    KnowledgeGraphMaintenanceRunOutcome,
+    KnowledgeGraphMaintenanceRunRecord,
+    KnowledgeGraphMaintenanceSchedule,
     KnowledgeGraphId,
     KnowledgeGraphWorkspaceStatus,
     OntologyConfig,
@@ -29,6 +38,7 @@ from management.ports.exceptions import (
 )
 from management.ports.repositories import (
     IDataSourceRepository,
+    IDataSourceSyncRunRepository,
     IKnowledgeGraphRepository,
 )
 from management.ports.secret_store import ISecretStoreRepository
@@ -57,6 +67,7 @@ class KnowledgeGraphService:
         scope_to_tenant: str,
         probe: KnowledgeGraphServiceProbe | None = None,
         data_source_repository: IDataSourceRepository | None = None,
+        sync_run_repository: IDataSourceSyncRunRepository | None = None,
         secret_store: ISecretStoreRepository | None = None,
     ) -> None:
         """Initialize KnowledgeGraphService with dependencies.
@@ -76,7 +87,222 @@ class KnowledgeGraphService:
         self._scope_to_tenant = scope_to_tenant
         self._probe = probe or DefaultKnowledgeGraphServiceProbe()
         self._ds_repo = data_source_repository
+        self._sync_run_repo = sync_run_repository
         self._secret_store = secret_store
+
+    def _compute_next_run_at_utc(
+        self,
+        *,
+        cron_expression: str,
+        timezone_name: str,
+        now_utc: datetime | None = None,
+    ) -> datetime:
+        """Compute next scheduled runtime in UTC from cron + timezone."""
+        if not croniter.is_valid(cron_expression):
+            raise ValueError(f"Invalid cron expression: {cron_expression!r}")
+        try:
+            tz = ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(f"Unknown timezone: {timezone_name!r}") from exc
+
+        now_utc = now_utc or datetime.now(UTC)
+        local_now = now_utc.astimezone(tz)
+        try:
+            itr = croniter(cron_expression, local_now)
+            next_local = itr.get_next(datetime)
+        except (CroniterBadCronError, ValueError) as exc:
+            raise ValueError(f"Invalid cron expression: {cron_expression!r}") from exc
+
+        if next_local.tzinfo is None:
+            next_local = next_local.replace(tzinfo=tz)
+        return next_local.astimezone(UTC)
+
+    async def _get_tenant_scoped_kg(
+        self, *, kg_id: str, user_id: str, permission: Permission
+    ) -> KnowledgeGraph:
+        """Resolve KG with tenant and authz checks."""
+        has_permission = await self._check_permission(
+            user_id=user_id,
+            resource_type=ResourceType.KNOWLEDGE_GRAPH,
+            resource_id=kg_id,
+            permission=permission,
+        )
+        if not has_permission:
+            self._probe.permission_denied(
+                user_id=user_id,
+                resource_id=kg_id,
+                permission=permission,
+            )
+            raise UnauthorizedError(
+                f"User {user_id} lacks {permission.value} permission on knowledge graph {kg_id}"
+            )
+
+        kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
+        if kg is None or kg.tenant_id != self._scope_to_tenant:
+            raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
+        return kg
+
+    async def get_maintenance_schedule(
+        self, *, user_id: str, kg_id: str
+    ) -> KnowledgeGraphMaintenanceSchedule:
+        """Return KG-level maintenance schedule config."""
+        kg = await self._get_tenant_scoped_kg(
+            kg_id=kg_id,
+            user_id=user_id,
+            permission=Permission.VIEW,
+        )
+        return kg.maintenance_schedule or KnowledgeGraphMaintenanceSchedule(
+            enabled=False,
+            cron_expression="0 2 * * *",
+            timezone_name="UTC",
+            next_run_at=None,
+        )
+
+    async def upsert_maintenance_schedule(
+        self,
+        *,
+        user_id: str,
+        kg_id: str,
+        cron_expression: str,
+        timezone_name: str,
+        enabled: bool,
+    ) -> KnowledgeGraphMaintenanceSchedule:
+        """Create or update KG-level maintenance schedule configuration."""
+        kg = await self._get_tenant_scoped_kg(
+            kg_id=kg_id,
+            user_id=user_id,
+            permission=Permission.MANAGE,
+        )
+        next_run_at = (
+            self._compute_next_run_at_utc(
+                cron_expression=cron_expression,
+                timezone_name=timezone_name,
+            )
+            if enabled
+            else None
+        )
+        schedule = KnowledgeGraphMaintenanceSchedule(
+            enabled=enabled,
+            cron_expression=cron_expression,
+            timezone_name=timezone_name,
+            next_run_at=next_run_at,
+        )
+        kg.set_maintenance_schedule(schedule)
+        await self._kg_repo.save(kg)
+        await self._session.commit()
+        return schedule
+
+    async def list_maintenance_runs(
+        self, *, user_id: str, kg_id: str, limit: int = 20
+    ) -> list[KnowledgeGraphMaintenanceRunRecord]:
+        """List persisted maintenance run outcomes for a KG."""
+        kg = await self._get_tenant_scoped_kg(
+            kg_id=kg_id,
+            user_id=user_id,
+            permission=Permission.VIEW,
+        )
+        capped_limit = max(1, min(limit, 100))
+        return list(kg.maintenance_run_history[-capped_limit:])[::-1]
+
+    async def trigger_maintenance_run(
+        self, *, user_id: str, kg_id: str
+    ) -> KnowledgeGraphMaintenanceRunRecord:
+        """Trigger maintenance orchestration across all data sources in a KG."""
+        kg = await self._get_tenant_scoped_kg(
+            kg_id=kg_id,
+            user_id=user_id,
+            permission=Permission.MANAGE,
+        )
+        if self._ds_repo is None:
+            raise ValueError("Data source repository is not configured")
+
+        data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
+        run_id = str(ULID())
+        now = datetime.now(UTC)
+
+        if not data_sources:
+            run = KnowledgeGraphMaintenanceRunRecord(
+                run_id=run_id,
+                triggered_at=now,
+                outcome=KnowledgeGraphMaintenanceRunOutcome.PREFLIGHT_FAILED,
+                message="No data sources connected to this knowledge graph",
+            )
+            kg.append_maintenance_run(run)
+            await self._kg_repo.save(kg)
+            await self._session.commit()
+            return run
+
+        changed_sources = [
+            ds
+            for ds in data_sources
+            if ds.tracked_branch_head_commit is not None
+            and ds.last_extraction_baseline_commit is not None
+            and ds.tracked_branch_head_commit != ds.last_extraction_baseline_commit
+        ]
+        target_data_source_ids = tuple(ds.id.value for ds in data_sources)
+
+        if not changed_sources:
+            run = KnowledgeGraphMaintenanceRunRecord(
+                run_id=run_id,
+                triggered_at=now,
+                outcome=KnowledgeGraphMaintenanceRunOutcome.NO_CHANGES,
+                message="No source commit delta detected across connected data sources",
+                target_data_source_ids=target_data_source_ids,
+            )
+            kg.append_maintenance_run(run)
+            await self._kg_repo.save(kg)
+            await self._session.commit()
+            return run
+
+        if self._sync_run_repo is None:
+            run = KnowledgeGraphMaintenanceRunRecord(
+                run_id=run_id,
+                triggered_at=now,
+                outcome=KnowledgeGraphMaintenanceRunOutcome.LAUNCH_FAILED,
+                message="Sync run repository is not configured",
+                target_data_source_ids=tuple(ds.id.value for ds in changed_sources),
+            )
+            kg.append_maintenance_run(run)
+            await self._kg_repo.save(kg)
+            await self._session.commit()
+            return run
+
+        try:
+            for data_source in changed_sources:
+                sync_run_id = str(ULID())
+                sync_run = DataSourceSyncRun(
+                    id=sync_run_id,
+                    data_source_id=data_source.id.value,
+                    status="pending",
+                    started_at=now,
+                    completed_at=None,
+                    error=None,
+                    created_at=now,
+                )
+                await self._sync_run_repo.save(sync_run)
+                data_source.request_sync(sync_run_id=sync_run_id, requested_by=user_id)
+                await self._ds_repo.save(data_source)
+
+            run = KnowledgeGraphMaintenanceRunRecord(
+                run_id=run_id,
+                triggered_at=now,
+                outcome=KnowledgeGraphMaintenanceRunOutcome.STARTED,
+                message="Scheduled maintenance sync runs started",
+                target_data_source_ids=tuple(ds.id.value for ds in changed_sources),
+            )
+        except Exception as exc:
+            run = KnowledgeGraphMaintenanceRunRecord(
+                run_id=run_id,
+                triggered_at=now,
+                outcome=KnowledgeGraphMaintenanceRunOutcome.LAUNCH_FAILED,
+                message=f"Failed to launch maintenance syncs: {exc}",
+                target_data_source_ids=tuple(ds.id.value for ds in changed_sources),
+            )
+
+        kg.append_maintenance_run(run)
+        await self._kg_repo.save(kg)
+        await self._session.commit()
+        return run
 
     async def _check_permission(
         self,

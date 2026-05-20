@@ -21,6 +21,7 @@ from management.application.services.knowledge_graph_service import (
 )
 from management.infrastructure.repositories import (
     DataSourceRepository,
+    DataSourceSyncRunRepository,
     FernetSecretStore,
     KnowledgeGraphRepository,
 )
@@ -46,6 +47,7 @@ def get_knowledge_graph_service(
     outbox = OutboxRepository(session=session)
     kg_repo = KnowledgeGraphRepository(session=session, outbox=outbox)
     ds_repo = DataSourceRepository(session=session, outbox=outbox)
+    sync_run_repo = DataSourceSyncRunRepository(session=session)
     encryption_keys = settings.encryption_key.get_secret_value().split(",")
     secret_store = FernetSecretStore(
         session=session,
@@ -55,6 +57,7 @@ def get_knowledge_graph_service(
         session=session,
         knowledge_graph_repository=kg_repo,
         data_source_repository=ds_repo,
+        sync_run_repository=sync_run_repo,
         secret_store=secret_store,
         authz=authz,
         scope_to_tenant=current_user.tenant_id.value,

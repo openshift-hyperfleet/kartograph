@@ -3185,3 +3185,23 @@ describe('Scheduled maintenance orchestration - structural verification', () => 
     expect(source).toContain('maintenanceOutcomeTone')
   })
 })
+
+describe('Commit-hash status cues - structural verification', () => {
+  const source = readFileSync(
+    resolve(__dirname, '../pages/data-sources/index.vue'),
+    'utf-8',
+  )
+
+  it('renders commit status section with canonical commit labels', () => {
+    expect(source).toContain('Commit Status')
+    expect(source).toContain('Local clone commit')
+    expect(source).toContain('Commit during last extraction')
+    expect(source).toContain('Tracked branch head commit')
+  })
+
+  it('renders visual readiness cue when new commits exist', () => {
+    expect(source).toContain('isMaintenanceReady')
+    expect(source).toContain('New commits available')
+    expect(source).toContain('Up to date')
+  })
+})

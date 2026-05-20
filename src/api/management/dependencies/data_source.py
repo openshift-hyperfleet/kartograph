@@ -17,6 +17,7 @@ from infrastructure.outbox.repository import OutboxRepository
 from infrastructure.settings import get_management_settings
 from management.application.observability import DefaultDataSourceServiceProbe
 from management.application.services.data_source_service import DataSourceService
+from management.infrastructure.git_diff_summary_service import GitDiffSummaryService
 from management.infrastructure.repositories import (
     DataSourceRepository,
     DataSourceSyncRunRepository,
@@ -77,4 +78,21 @@ def get_data_source_service(
         authz=authz,
         scope_to_tenant=current_user.tenant_id.value,
         probe=DefaultDataSourceServiceProbe(),
+    )
+
+
+def get_git_diff_summary_service(
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> GitDiffSummaryService:
+    """Get GitDiffSummaryService for commit-baseline file diff summaries."""
+    settings = get_management_settings()
+    encryption_keys = settings.encryption_key.get_secret_value().split(",")
+    secret_store = FernetSecretStore(
+        session=session,
+        encryption_keys=encryption_keys,
+    )
+    return GitDiffSummaryService(
+        credential_reader=secret_store,
+        tenant_id=current_user.tenant_id.value,
     )

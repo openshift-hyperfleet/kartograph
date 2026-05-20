@@ -245,6 +245,42 @@ class SyncRunLogsResponse(BaseModel):
     )
 
 
+class DiffChangedFileResponse(BaseModel):
+    """Single changed file entry in a commit diff summary."""
+
+    path: str = Field(..., description="Repository-relative file path")
+    status: str = Field(
+        ...,
+        description="GitHub compare status (added, modified, removed, renamed, ...)",
+    )
+
+
+class DataSourceDiffSummaryResponse(BaseModel):
+    """Response model for baseline-vs-tracked commit diff summary."""
+
+    baseline_commit: str | None = Field(
+        None,
+        description="Commit baseline used for the previous extraction",
+    )
+    tracked_head_commit: str | None = Field(
+        None,
+        description="Latest tracked branch head commit used for comparison",
+    )
+    total_changed_files: int = Field(..., description="Total changed files in compare")
+    added_count: int = Field(..., description="Number of files added")
+    modified_count: int = Field(..., description="Number of files modified")
+    removed_count: int = Field(..., description="Number of files removed")
+    renamed_count: int = Field(..., description="Number of files renamed")
+    files_truncated: bool = Field(
+        ...,
+        description="True when changed_files is truncated by max_files",
+    )
+    changed_files: list[DiffChangedFileResponse] = Field(
+        default_factory=list,
+        description="Changed-file entries, bounded by max_files",
+    )
+
+
 class SyncRunResponse(BaseModel):
     """Response model for a data source sync run."""
 

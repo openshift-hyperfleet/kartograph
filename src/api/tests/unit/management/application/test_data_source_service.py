@@ -459,6 +459,25 @@ def _make_ds(
     return ds
 
 
+def _make_sync_run(
+    *,
+    run_id: str,
+    data_source_id: str,
+    status: str,
+) -> DataSourceSyncRun:
+    now = datetime.now(UTC)
+    return DataSourceSyncRun(
+        id=run_id,
+        data_source_id=data_source_id,
+        status=status,
+        started_at=now,
+        completed_at=None,
+        error=None,
+        created_at=now,
+        logs=[],
+    )
+
+
 # ---- create ----
 
 
@@ -1028,6 +1047,99 @@ class TestDataSourceServiceTriggerSync:
         assert len(ds_repo.saved) == 1
         assert len(ds_probe.sync_requested_calls) == 1
         assert ds_probe.sync_requested_calls[0]["ds_id"] == ds.id.value
+
+
+class TestDataSourceServiceRunControls:
+    """Tests for extraction run-control operations."""
+
+    @pytest.mark.asyncio
+    async def test_pause_updates_active_runs_to_pending(
+        self, service, authz, ds_repo, sync_run_repo, user_id
+    ) -> None:
+        ds = _make_ds()
+        authz.grant_all()
+        ds_repo.seed(ds)
+        sync_run_repo.seed(
+            _make_sync_run(run_id="run-1", data_source_id=ds.id.value, status="ingesting"),
+            _make_sync_run(run_id="run-2", data_source_id=ds.id.value, status="applying"),
+            _make_sync_run(run_id="run-3", data_source_id=ds.id.value, status="completed"),
+        )
+
+        result = await service.apply_run_control(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            action="pause",
+        )
+
+        assert result.affected_count == 2
+        assert all(run.status == "pending" for run in result.updated_runs)
+
+    @pytest.mark.asyncio
+    async def test_halt_marks_active_runs_as_failed(
+        self, service, authz, ds_repo, sync_run_repo, user_id
+    ) -> None:
+        ds = _make_ds()
+        authz.grant_all()
+        ds_repo.seed(ds)
+        sync_run_repo.seed(
+            _make_sync_run(
+                run_id="run-1", data_source_id=ds.id.value, status="ai_extracting"
+            )
+        )
+
+        result = await service.apply_run_control(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            action="halt",
+        )
+
+        assert result.affected_count == 1
+        halted = result.updated_runs[0]
+        assert halted.status == "failed"
+        assert halted.completed_at is not None
+        assert halted.error is not None
+
+    @pytest.mark.asyncio
+    async def test_reset_failed_moves_failed_runs_to_pending(
+        self, service, authz, ds_repo, sync_run_repo, user_id
+    ) -> None:
+        ds = _make_ds()
+        authz.grant_all()
+        ds_repo.seed(ds)
+        failed = _make_sync_run(run_id="run-1", data_source_id=ds.id.value, status="failed")
+        failed.error = "old error"
+        failed.completed_at = datetime.now(UTC)
+        sync_run_repo.seed(failed)
+
+        result = await service.apply_run_control(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            action="reset_failed",
+        )
+
+        assert result.affected_count == 1
+        updated = result.updated_runs[0]
+        assert updated.status == "pending"
+        assert updated.error is None
+        assert updated.completed_at is None
+
+    @pytest.mark.asyncio
+    async def test_start_action_creates_new_sync_run(
+        self, service, authz, ds_repo, user_id
+    ) -> None:
+        ds = _make_ds()
+        authz.grant_all()
+        ds_repo.seed(ds)
+
+        result = await service.apply_run_control(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            action="start",
+        )
+
+        assert result.started_run is not None
+        assert result.started_run.status == "pending"
+        assert result.affected_count == 1
 
 
 class TestDataSourceServiceCommitReferenceActions:

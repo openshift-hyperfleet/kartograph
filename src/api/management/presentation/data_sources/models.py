@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -318,6 +319,26 @@ class SyncRunResponse(BaseModel):
             error=run.error,
             created_at=run.created_at,
         )
+
+
+RunControlAction = Literal[
+    "start",
+    "pause",
+    "halt",
+    "reset_running",
+    "reset_failed",
+    "reset_completed",
+    "reset_all",
+]
+
+
+class RunControlResponse(BaseModel):
+    """Response model for run-control actions."""
+
+    action: RunControlAction
+    affected_count: int
+    updated_runs: list[SyncRunResponse] = Field(default_factory=list)
+    started_run: SyncRunResponse | None = None
 
 
 class DataSourceWithSyncResponse(BaseModel):

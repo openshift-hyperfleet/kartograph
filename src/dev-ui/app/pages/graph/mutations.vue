@@ -11,13 +11,14 @@ import {
   FileCode, Play, Trash2, Upload, Loader2,
   FileUp, XCircle, AlertTriangle, Building2,
   Plus, GitBranch, RefreshCw, BookOpen,
-  BookMarked, FolderTree,
+  BookMarked, FolderTree, Sparkles, MessageSquare,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Select,
   SelectContent,
@@ -177,6 +178,18 @@ watch(selectedWorkspaceId, (wsId) => {
   else knowledgeGraphs.value = []
 })
 
+watch(selectedKnowledgeGraphId, () => {
+  loadLiveInspector()
+})
+
+watch(() => submission.state.value.status, async (status) => {
+  if (status === 'success') {
+    // Applied changes become normal after refresh per session behavior decision.
+    resetSessionEditHighlights()
+    await loadLiveInspector()
+  }
+})
+
 // ── Worker ─────────────────────────────────────────────────────────────────
 
 const { workerResult, parsing, parseTimeMs, isLargeFile, requestParse } = useMutationWorker()
@@ -302,6 +315,198 @@ const breakdown = computed(() => {
   return { DEFINE: 0, CREATE: 0, UPDATE: 0, DELETE: 0, unknown: 0 }
 })
 
+// ── Manual mutation assistant + live inspector ─────────────────────────────
+
+interface AssistantMessage {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+}
+
+interface InspectorEntityRow {
+  id: string
+  type: string
+  label: string
+  properties: Record<string, unknown>
+}
+
+interface InspectorRelationshipRow {
+  id: string
+  type: string
+  source: string
+  target: string
+  properties: Record<string, unknown>
+}
+
+const inspectorTab = ref<'entities' | 'relationships'>('entities')
+const assistantPrompt = ref('')
+const assistantMessages = ref<AssistantMessage[]>([
+  {
+    id: 'assistant-intro',
+    role: 'assistant',
+    text: 'Describe a manual graph change and I will draft JSONL mutations you can submit directly.',
+  },
+])
+const assistantBusy = ref(false)
+const inspectorLoading = ref(false)
+const inspectorError = ref<string | null>(null)
+const inspectorEntities = ref<InspectorEntityRow[]>([])
+const inspectorRelationships = ref<InspectorRelationshipRow[]>([])
+const sessionEditedTypes = ref<Set<string>>(new Set())
+const sessionEditedFields = ref<Set<string>>(new Set())
+const sessionEditedEntityIds = ref<Set<string>>(new Set())
+const sessionEditedRelationshipIds = ref<Set<string>>(new Set())
+
+function isEntityEdited(row: InspectorEntityRow): boolean {
+  return (
+    sessionEditedEntityIds.value.has(row.id)
+    || sessionEditedTypes.value.has(row.type)
+  )
+}
+
+function isRelationshipEdited(row: InspectorRelationshipRow): boolean {
+  return (
+    sessionEditedRelationshipIds.value.has(row.id)
+    || sessionEditedTypes.value.has(row.type)
+  )
+}
+
+function isPropertyEdited(key: string): boolean {
+  return sessionEditedFields.value.has(key)
+}
+
+function markEditedFromOperations(operations: ParseResult['operations']): void {
+  const nextTypes = new Set(sessionEditedTypes.value)
+  const nextFields = new Set(sessionEditedFields.value)
+  const nextEntities = new Set(sessionEditedEntityIds.value)
+  const nextRelationships = new Set(sessionEditedRelationshipIds.value)
+
+  for (const op of operations) {
+    if (op.label) nextTypes.add(String(op.label))
+    if (op.id) {
+      if (op.type === 'edge') nextRelationships.add(String(op.id))
+      else nextEntities.add(String(op.id))
+    }
+    const raw = op.raw as Record<string, unknown>
+    const setProps = raw.set_properties
+    if (setProps && typeof setProps === 'object' && !Array.isArray(setProps)) {
+      for (const key of Object.keys(setProps as Record<string, unknown>)) {
+        nextFields.add(key)
+      }
+    }
+    const removeProps = raw.remove_properties
+    if (Array.isArray(removeProps)) {
+      for (const key of removeProps) {
+        if (typeof key === 'string') nextFields.add(key)
+      }
+    }
+  }
+
+  sessionEditedTypes.value = nextTypes
+  sessionEditedFields.value = nextFields
+  sessionEditedEntityIds.value = nextEntities
+  sessionEditedRelationshipIds.value = nextRelationships
+}
+
+function resetSessionEditHighlights(): void {
+  sessionEditedTypes.value = new Set()
+  sessionEditedFields.value = new Set()
+  sessionEditedEntityIds.value = new Set()
+  sessionEditedRelationshipIds.value = new Set()
+}
+
+async function loadLiveInspector() {
+  if (!selectedKnowledgeGraphId.value) {
+    inspectorEntities.value = []
+    inspectorRelationships.value = []
+    return
+  }
+
+  inspectorLoading.value = true
+  inspectorError.value = null
+  try {
+    const { queryGraph } = useQueryApi()
+    const [entitiesResult, relationshipsResult] = await Promise.all([
+      queryGraph(
+        "MATCH (n) RETURN coalesce(n.id, toString(id(n))) AS id, head(labels(n)) AS type, coalesce(n.name, n.slug, toString(id(n))) AS label, properties(n) AS properties ORDER BY type, label LIMIT 30",
+        30,
+        30,
+        selectedKnowledgeGraphId.value,
+      ),
+      queryGraph(
+        "MATCH (a)-[r]->(b) RETURN coalesce(r.id, toString(id(r))) AS id, type(r) AS type, coalesce(a.name, a.slug, toString(id(a))) AS source, coalesce(b.name, b.slug, toString(id(b))) AS target, properties(r) AS properties ORDER BY type LIMIT 30",
+        30,
+        30,
+        selectedKnowledgeGraphId.value,
+      ),
+    ])
+
+    inspectorEntities.value = entitiesResult.rows.map((row) => ({
+      id: String(row.id ?? ''),
+      type: String(row.type ?? 'Unknown'),
+      label: String(row.label ?? ''),
+      properties:
+        row.properties && typeof row.properties === 'object' && !Array.isArray(row.properties)
+          ? (row.properties as Record<string, unknown>)
+          : {},
+    }))
+    inspectorRelationships.value = relationshipsResult.rows.map((row) => ({
+      id: String(row.id ?? ''),
+      type: String(row.type ?? 'Unknown'),
+      source: String(row.source ?? ''),
+      target: String(row.target ?? ''),
+      properties:
+        row.properties && typeof row.properties === 'object' && !Array.isArray(row.properties)
+          ? (row.properties as Record<string, unknown>)
+          : {},
+    }))
+  } catch (err) {
+    inspectorError.value = err instanceof Error ? err.message : 'Failed to load graph inspector'
+  } finally {
+    inspectorLoading.value = false
+  }
+}
+
+async function generateAssistantDraft() {
+  const prompt = assistantPrompt.value.trim()
+  if (!prompt || !selectedKnowledgeGraphId.value) return
+  assistantBusy.value = true
+  try {
+    assistantMessages.value.push({
+      id: `user-${Date.now()}`,
+      role: 'user',
+      text: prompt,
+    })
+    const lowered = prompt.toLowerCase()
+    const opType = lowered.includes('delete')
+      ? 'DELETE'
+      : lowered.includes('update')
+        ? 'UPDATE'
+        : 'CREATE'
+    const draft = opType === 'DELETE'
+      ? `{"op":"DELETE","type":"node","id":"entity:replace-me"}`
+      : opType === 'UPDATE'
+        ? `{"op":"UPDATE","type":"node","id":"entity:replace-me","set_properties":{"status":"updated"}}`
+        : [
+          `{"op":"DEFINE","type":"node","label":"manual_entity","description":"Manual entity added from assistant","required_properties":["name"]}`,
+          `{"op":"CREATE","type":"node","label":"manual_entity","id":"manual_entity:${generateHexId()}","set_properties":{"name":"Manual Draft","slug":"manual-draft","source_path":"assistant","data_source_id":"manual"}}`,
+        ].join('\n')
+
+    await insertTemplate(draft)
+    const parsed = parseContent(draft)
+    markEditedFromOperations(parsed.operations)
+    assistantMessages.value.push({
+      id: `assistant-${Date.now()}`,
+      role: 'assistant',
+      text: 'Draft inserted into the editor. Review fields highlighted in the inspector, then apply on submit.',
+    })
+    assistantPrompt.value = ''
+    inspectorTab.value = 'entities'
+  } finally {
+    assistantBusy.value = false
+  }
+}
+
 // ── Actions ────────────────────────────────────────────────────────────────
 
 async function insertTemplate(content: string) {
@@ -373,6 +578,8 @@ async function handleSubmit() {
       return t && !t.startsWith('//') && !t.startsWith('#')
     })
     const body = cleanLines.join('\n')
+    const parsedLarge = parseContent(body)
+    markEditedFromOperations(parsedLarge.operations)
     preparing.value = false
     submission.submit(selectedKnowledgeGraphId.value, body, opCount)
     return
@@ -392,6 +599,7 @@ async function handleSubmit() {
 
   // Convert parsed operations to clean JSONL for submission
   const jsonlBody = toJsonl(result.operations)
+  markEditedFromOperations(result.operations)
   submission.submit(selectedKnowledgeGraphId.value, jsonlBody, result.operations.length)
 }
 
@@ -859,6 +1067,134 @@ onBeforeUnmount(() => {
               Templates
             </Button>
           </div>
+
+          <Card>
+            <CardHeader class="pb-3">
+              <CardTitle class="text-sm font-medium flex items-center gap-2">
+                <MessageSquare class="size-4" />
+                Manual Mutation Assistant + Live Graph Inspector
+              </CardTitle>
+            </CardHeader>
+            <CardContent class="space-y-3">
+              <Tabs v-model="inspectorTab" class="w-full">
+                <TabsList class="grid w-full grid-cols-2">
+                  <TabsTrigger value="entities">Entities</TabsTrigger>
+                  <TabsTrigger value="relationships">Relationships</TabsTrigger>
+                </TabsList>
+                <TabsContent value="entities" class="mt-3 space-y-2">
+                  <div v-if="inspectorLoading" class="text-xs text-muted-foreground flex items-center gap-2">
+                    <Loader2 class="size-3.5 animate-spin" />
+                    Loading live entity inspector...
+                  </div>
+                  <div v-else-if="inspectorError" class="text-xs text-destructive">
+                    {{ inspectorError }}
+                  </div>
+                  <div v-else-if="inspectorEntities.length === 0" class="text-xs text-muted-foreground">
+                    No entities found for this knowledge graph.
+                  </div>
+                  <div v-else class="space-y-1.5 max-h-64 overflow-auto pr-1">
+                    <div
+                      v-for="row in inspectorEntities"
+                      :key="`entity-${row.id}`"
+                      class="rounded border px-2 py-1.5 text-xs transition-colors"
+                      :class="isEntityEdited(row) ? 'border-amber-500/70 bg-amber-500/10' : 'border-border'"
+                    >
+                      <p class="font-medium">{{ row.type }} · {{ row.label }}</p>
+                      <div class="mt-1 flex flex-wrap gap-1">
+                        <Badge
+                          v-for="[propKey, propValue] in Object.entries(row.properties)"
+                          :key="`${row.id}-${propKey}`"
+                          variant="outline"
+                          class="text-[10px]"
+                          :class="isPropertyEdited(propKey) ? 'border-amber-500/70 bg-amber-500/10' : ''"
+                        >
+                          {{ propKey }}={{ String(propValue) }}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                </TabsContent>
+                <TabsContent value="relationships" class="mt-3 space-y-2">
+                  <div v-if="inspectorLoading" class="text-xs text-muted-foreground flex items-center gap-2">
+                    <Loader2 class="size-3.5 animate-spin" />
+                    Loading live relationship inspector...
+                  </div>
+                  <div v-else-if="inspectorError" class="text-xs text-destructive">
+                    {{ inspectorError }}
+                  </div>
+                  <div v-else-if="inspectorRelationships.length === 0" class="text-xs text-muted-foreground">
+                    No relationships found for this knowledge graph.
+                  </div>
+                  <div v-else class="space-y-1.5 max-h-64 overflow-auto pr-1">
+                    <div
+                      v-for="row in inspectorRelationships"
+                      :key="`rel-${row.id}`"
+                      class="rounded border px-2 py-1.5 text-xs transition-colors"
+                      :class="isRelationshipEdited(row) ? 'border-amber-500/70 bg-amber-500/10' : 'border-border'"
+                    >
+                      <p class="font-medium">{{ row.type }} · {{ row.source }} -> {{ row.target }}</p>
+                      <div class="mt-1 flex flex-wrap gap-1">
+                        <Badge
+                          v-for="[propKey, propValue] in Object.entries(row.properties)"
+                          :key="`${row.id}-${propKey}`"
+                          variant="outline"
+                          class="text-[10px]"
+                          :class="isPropertyEdited(propKey) ? 'border-amber-500/70 bg-amber-500/10' : ''"
+                        >
+                          {{ propKey }}={{ String(propValue) }}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
+
+              <Separator />
+
+              <div class="space-y-2">
+                <p class="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Sparkles class="size-3.5" />
+                  Conversation applies drafts immediately into the editor.
+                </p>
+                <div class="space-y-1 max-h-32 overflow-auto rounded border p-2">
+                  <div
+                    v-for="message in assistantMessages"
+                    :key="message.id"
+                    class="rounded px-2 py-1 text-xs"
+                    :class="message.role === 'assistant' ? 'bg-muted' : 'bg-primary/10'"
+                  >
+                    <p class="font-medium mb-0.5">{{ message.role === 'assistant' ? 'Assistant' : 'You' }}</p>
+                    <p>{{ message.text }}</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <Input
+                    v-model="assistantPrompt"
+                    placeholder="e.g. create a service node linked to repository foo"
+                    :disabled="assistantBusy || !selectedKnowledgeGraphId"
+                    @keyup.enter="generateAssistantDraft"
+                  />
+                  <Button
+                    size="sm"
+                    :disabled="assistantBusy || !assistantPrompt.trim() || !selectedKnowledgeGraphId"
+                    @click="generateAssistantDraft"
+                  >
+                    <Loader2 v-if="assistantBusy" class="mr-1.5 size-3.5 animate-spin" />
+                    Draft
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    :disabled="inspectorLoading || !selectedKnowledgeGraphId"
+                    @click="loadLiveInspector"
+                  >
+                    <RefreshCw class="mr-1.5 size-3.5" />
+                    Refresh
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           <!-- API error -->
           <Alert v-if="apiError" variant="destructive">

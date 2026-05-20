@@ -153,7 +153,7 @@ class _SessionedIngestionEventHandler:
             repo = path_parts[1].removesuffix(".git")
             branch = config.get("branch", "main")
             if len(path_parts) >= 4 and path_parts[2] == "tree":
-                branch = path_parts[3]
+                branch = "/".join(path_parts[3:])
             return owner, repo, branch
 
         if "owner" in config and "repo" in config:

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from ulid import ULID
 
+from extraction.application.skill_resolution_service import (
+    ExtractionSkillResolutionService,
+)
 from extraction.domain.entities.agent_session import ExtractionAgentSession
 from extraction.domain.value_objects import ExtractionSessionMode
 from extraction.ports.repositories import IExtractionAgentSessionRepository
@@ -12,8 +15,13 @@ from extraction.ports.repositories import IExtractionAgentSessionRepository
 class ExtractionAgentSessionService:
     """Orchestrates session create/get/list/archive behaviors by scope."""
 
-    def __init__(self, repository: IExtractionAgentSessionRepository) -> None:
+    def __init__(
+        self,
+        repository: IExtractionAgentSessionRepository,
+        skill_resolution_service: ExtractionSkillResolutionService | None = None,
+    ) -> None:
         self._repository = repository
+        self._skill_resolution_service = skill_resolution_service
 
     async def get_or_create_active_session(
         self,
@@ -35,6 +43,17 @@ class ExtractionAgentSessionService:
             knowledge_graph_id=knowledge_graph_id,
             mode=mode,
         )
+        if self._skill_resolution_service is not None:
+            resolved = await self._skill_resolution_service.resolve_for_session(
+                knowledge_graph_id=knowledge_graph_id,
+                mode=mode,
+            )
+            session.runtime_context["agent_configuration"] = {
+                "system_prompt": resolved.system_prompt,
+                "prompt_hierarchy": list(resolved.prompt_hierarchy),
+                "guardrails": list(resolved.guardrails),
+                "skills": dict(resolved.skills),
+            }
         await self._repository.save(session)
         return session
 

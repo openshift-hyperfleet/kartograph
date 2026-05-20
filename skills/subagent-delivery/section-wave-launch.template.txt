@@ -1,0 +1,38 @@
+Section wave launch template (one Claude instance per issue)
+
+Prerequisites:
+- Read: `skills/subagent-delivery/SKILL.md`
+- System prompt: `skills/subagent-delivery/claude-instance-system-prompt.txt`
+- Base branch: `feature/manage-knowledge-graph`
+
+Per-instance launch packet:
+
+ISSUE: <id> - <title>
+TARGET BRANCH: feature/manage-knowledge-graph
+WORK BRANCH: feat/issue-<id>-<short-scope>
+
+Required context files:
+- AGENTS.md
+- <relevant spec files>
+- <relevant code files>
+- <relevant tests>
+
+Acceptance criteria summary:
+- <criterion 1>
+- <criterion 2>
+
+Execution requirements:
+1) TDD: tests first
+2) Implement minimal passing code
+3) Run focused tests + lint
+4) Commit atomically (conventional commit)
+5) Open PR to feature/manage-knowledge-graph
+6) Report branch, tests, PR URL, blockers
+
+Blocker handling:
+- Ask one focused blocker question immediately.
+- Include options + recommendation.
+- Mirror blocker question on issue comment.
+
+Orchestrator status line format:
+[Issue #<id>] <queued|in_progress|blocked|in_review|merged> | Branch: <branch> | PR: <url-or-pending>

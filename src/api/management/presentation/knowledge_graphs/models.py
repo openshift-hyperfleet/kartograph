@@ -11,6 +11,7 @@ from management.domain.value_objects import (
     EdgeTypeDefinition,
     NodeTypeDefinition,
     OntologyConfig,
+    WorkspaceMode,
 )
 
 
@@ -71,6 +72,10 @@ class KnowledgeGraphResponse(BaseModel):
     workspace_id: str = Field(..., description="Workspace ID this KG belongs to")
     name: str = Field(..., description="Knowledge graph name")
     description: str = Field(..., description="Knowledge graph description")
+    workspace_mode: WorkspaceMode = Field(
+        ...,
+        description="Workspace lifecycle mode for this knowledge graph",
+    )
     created_at: datetime = Field(..., description="When the KG was created")
     updated_at: datetime = Field(..., description="When the KG was last updated")
 
@@ -90,6 +95,7 @@ class KnowledgeGraphResponse(BaseModel):
             workspace_id=kg.workspace_id,
             name=kg.name,
             description=kg.description,
+            workspace_mode=kg.workspace_mode,
             created_at=kg.created_at,
             updated_at=kg.updated_at,
         )

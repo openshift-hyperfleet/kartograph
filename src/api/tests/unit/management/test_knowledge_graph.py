@@ -17,11 +17,12 @@ from management.domain.exceptions import (
     AggregateDeletedError,
     InvalidIdentifierError,
     InvalidKnowledgeGraphNameError,
+    InvalidWorkspaceModeTransitionError,
 )
 from management.domain.observability import (
     KnowledgeGraphProbe,
 )
-from management.domain.value_objects import KnowledgeGraphId
+from management.domain.value_objects import KnowledgeGraphId, WorkspaceMode
 
 
 class TestKnowledgeGraphCreate:
@@ -43,6 +44,7 @@ class TestKnowledgeGraphCreate:
         assert isinstance(kg.created_at, datetime)
         assert isinstance(kg.updated_at, datetime)
         assert kg.created_at == kg.updated_at
+        assert kg.workspace_mode == WorkspaceMode.SCHEMA_BOOTSTRAP
 
     def test_create_generates_unique_id(self):
         """Each create() call should generate a unique ID."""
@@ -217,6 +219,38 @@ class TestKnowledgeGraphUpdate:
         kg.mark_for_deletion()
         with pytest.raises(AggregateDeletedError):
             kg.update(name="Should fail", description="")
+
+
+class TestKnowledgeGraphWorkspaceMode:
+    """Tests for workspace mode lifecycle transitions."""
+
+    def _create_kg(self, **kwargs):
+        defaults = {
+            "tenant_id": "t",
+            "workspace_id": "w",
+            "name": "Original",
+            "description": "Original desc",
+        }
+        defaults.update(kwargs)
+        kg = KnowledgeGraph.create(**defaults)
+        kg.collect_events()
+        return kg
+
+    def test_transition_to_extraction_operations(self):
+        """Transition should move mode to extraction_operations."""
+        kg = self._create_kg()
+
+        kg.transition_to_extraction_operations()
+
+        assert kg.workspace_mode == WorkspaceMode.EXTRACTION_OPERATIONS
+
+    def test_transition_is_irreversible(self):
+        """Transitioning after extraction_operations should fail."""
+        kg = self._create_kg()
+        kg.transition_to_extraction_operations()
+
+        with pytest.raises(InvalidWorkspaceModeTransitionError):
+            kg.transition_to_extraction_operations()
 
 
 class TestKnowledgeGraphMarkForDeletion:

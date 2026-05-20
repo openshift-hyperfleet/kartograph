@@ -3138,3 +3138,27 @@ describe('Data Sources — kg_id query param pre-selects KG and opens wizard (Ta
     expect(source).toMatch(/openWizard\s*\([^)]*preselectedKgId/)
   })
 })
+
+describe('Extraction telemetry dashboard - structural verification', () => {
+  const { readFileSync } = require('fs')
+  const { resolve } = require('path')
+  const source = readFileSync(
+    resolve(__dirname, '../pages/data-sources/index.vue'),
+    'utf-8',
+  )
+
+  it('declares telemetry status buckets and recent jobs computeds', () => {
+    expect(source).toContain('telemetryStatusBuckets')
+    expect(source).toContain('telemetryRecentJobs')
+  })
+
+  it('renders active worker and token usage cards', () => {
+    expect(source).toContain('Active workers')
+    expect(source).toContain('Total token usage')
+  })
+
+  it('renders estimated cost trend with 24h comparison', () => {
+    expect(source).toContain('Estimated cost trend')
+    expect(source).toContain('previous 24h')
+  })
+})

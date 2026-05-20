@@ -23,6 +23,10 @@ import {
   FileText,
   Settings,
   RefreshCw,
+  Cpu,
+  Coins,
+  DollarSign,
+  Clock3,
 } from 'lucide-vue-next'
 import {
   ADAPTERS,
@@ -86,6 +90,8 @@ interface SyncRun {
   started_at: string
   completed_at: string | null
   error: string | null
+  token_usage_total?: number | null
+  cost_total_usd?: number | null
   created_at: string
 }
 
@@ -728,6 +734,59 @@ const hasActiveSyncs = computed(() =>
   }),
 )
 
+const telemetryRows = computed(() =>
+  dataSources.value.flatMap((ds) =>
+    (ds.sync_runs ?? []).map(run => ({ ...run, data_source_name: ds.name })),
+  ),
+)
+
+const telemetryStatusBuckets = computed(() => {
+  const buckets = {
+    pending: 0,
+    ingesting: 0,
+    ai_extracting: 0,
+    applying: 0,
+    completed: 0,
+    failed: 0,
+  }
+  for (const row of telemetryRows.value) {
+    buckets[row.status] += 1
+  }
+  return buckets
+})
+
+const telemetryRecentJobs = computed(() =>
+  [...telemetryRows.value]
+    .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
+    .slice(0, 8),
+)
+
+const telemetryActiveWorkers = computed(() =>
+  telemetryRows.value.filter(row => ACTIVE_STATUSES.includes(row.status)).length,
+)
+
+const telemetryTokenTotal = computed(() =>
+  telemetryRows.value.reduce((sum, row) => sum + (row.token_usage_total ?? 0), 0),
+)
+
+const telemetryCostTotal = computed(() =>
+  telemetryRows.value.reduce((sum, row) => sum + (row.cost_total_usd ?? 0), 0),
+)
+
+const telemetryCostTrend = computed(() => {
+  const now = Date.now()
+  const oneDayMs = 24 * 60 * 60 * 1000
+  let current = 0
+  let previous = 0
+  for (const row of telemetryRows.value) {
+    const eventMs = new Date(row.completed_at ?? row.started_at).getTime()
+    if (eventMs >= now - oneDayMs) current += row.cost_total_usd ?? 0
+    else if (eventMs >= now - oneDayMs * 2) previous += row.cost_total_usd ?? 0
+  }
+  const delta = current - previous
+  return { current, previous, delta }
+})
+
 /** Holds the active setInterval handle, or null when not polling. */
 const pollInterval = ref<ReturnType<typeof setInterval> | null>(null)
 
@@ -1144,6 +1203,83 @@ async function handleDeleteDs() {
     </div>
 
     <template v-else>
+      <!-- Extraction operations telemetry dashboard -->
+      <div class="grid gap-3 md:grid-cols-4">
+        <Card>
+          <CardHeader class="pb-2">
+            <CardDescription class="flex items-center gap-1.5 text-[11px]">
+              <Cpu class="size-3.5" />
+              Active workers
+            </CardDescription>
+            <CardTitle class="text-xl">{{ telemetryActiveWorkers }}</CardTitle>
+          </CardHeader>
+          <CardContent class="text-[11px] text-muted-foreground">
+            Pending {{ telemetryStatusBuckets.pending }} / Ingesting {{ telemetryStatusBuckets.ingesting }} / Extracting {{ telemetryStatusBuckets.ai_extracting }} / Applying {{ telemetryStatusBuckets.applying }}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader class="pb-2">
+            <CardDescription class="flex items-center gap-1.5 text-[11px]">
+              <Clock3 class="size-3.5" />
+              Recent jobs tracked
+            </CardDescription>
+            <CardTitle class="text-xl">{{ telemetryRows.length }}</CardTitle>
+          </CardHeader>
+          <CardContent class="text-[11px] text-muted-foreground">
+            Completed {{ telemetryStatusBuckets.completed }} / Failed {{ telemetryStatusBuckets.failed }}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader class="pb-2">
+            <CardDescription class="flex items-center gap-1.5 text-[11px]">
+              <Coins class="size-3.5" />
+              Total token usage
+            </CardDescription>
+            <CardTitle class="text-xl">{{ telemetryTokenTotal.toLocaleString() }}</CardTitle>
+          </CardHeader>
+          <CardContent class="text-[11px] text-muted-foreground">
+            Aggregated from sync-run mutation metadata.
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader class="pb-2">
+            <CardDescription class="flex items-center gap-1.5 text-[11px]">
+              <DollarSign class="size-3.5" />
+              Estimated cost trend
+            </CardDescription>
+            <CardTitle class="text-xl">${{ telemetryCostTrend.current.toFixed(2) }}</CardTitle>
+          </CardHeader>
+          <CardContent class="text-[11px]" :class="telemetryCostTrend.delta <= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'">
+            {{ telemetryCostTrend.delta <= 0 ? 'Down' : 'Up' }} {{ Math.abs(telemetryCostTrend.delta).toFixed(2) }} vs previous 24h
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader class="pb-2">
+          <CardTitle class="text-sm">Recent job events</CardTitle>
+          <CardDescription class="text-xs">Auto-refreshes while active runs are in progress.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div v-if="telemetryRecentJobs.length === 0" class="text-xs text-muted-foreground">
+            No sync jobs yet.
+          </div>
+          <div v-else class="space-y-1.5">
+            <div v-for="job in telemetryRecentJobs" :key="job.id" class="flex items-center justify-between rounded border px-2 py-1.5 text-xs">
+              <div class="min-w-0">
+                <p class="truncate font-medium">{{ job.data_source_name }}</p>
+                <p class="truncate text-muted-foreground">{{ new Date(job.started_at).toLocaleString() }}</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <SyncPhaseIndicator :status="job.status" />
+                <span class="font-mono text-muted-foreground">{{ job.token_usage_total ?? 0 }} tk</span>
+                <span class="font-mono text-muted-foreground">${{ (job.cost_total_usd ?? 0).toFixed(2) }}</span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <!-- Empty state (no data sources yet) -->
       <div v-if="dataSources.length === 0" class="flex flex-col items-center gap-4 py-16 text-center">
         <div class="rounded-full bg-muted p-5">

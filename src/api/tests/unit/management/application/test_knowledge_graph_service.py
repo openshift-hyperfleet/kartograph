@@ -21,9 +21,14 @@ from management.application.services.knowledge_graph_service import (
 from management.domain.aggregates import DataSource, KnowledgeGraph
 from management.domain.value_objects import (
     DataSourceId,
+    EdgeTypeDefinition,
+    KnowledgeGraphWorkspaceStatus,
     KnowledgeGraphId,
+    NodeTypeDefinition,
+    OntologyConfig,
     Schedule,
     ScheduleType,
+    WorkspaceMode,
 )
 from shared_kernel.datasource_types import DataSourceAdapterType
 from management.ports.exceptions import (
@@ -408,6 +413,76 @@ class TestKnowledgeGraphServiceGet:
         assert result is kg
         assert len(probe.knowledge_graph_retrieved_calls) == 1
         assert probe.knowledge_graph_retrieved_calls[0]["kg_id"] == kg.id.value
+
+
+class TestKnowledgeGraphServiceWorkspaceStatus:
+    """Tests for KnowledgeGraphService.get_workspace_status."""
+
+    @pytest.mark.asyncio
+    async def test_workspace_status_returns_none_when_not_found(self, service, user_id):
+        """Should return None if KG does not exist."""
+        result = await service.get_workspace_status(user_id=user_id, kg_id="missing")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_workspace_status_returns_none_when_view_denied(
+        self, service, kg_repo, user_id
+    ):
+        """Should return None if caller lacks VIEW on KG."""
+        kg = _make_kg()
+        kg_repo.seed(kg)
+
+        result = await service.get_workspace_status(user_id=user_id, kg_id=kg.id.value)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_workspace_status_includes_mode_readiness_and_session_pointers(
+        self, service, authz, kg_repo, user_id
+    ):
+        """Should project mode/readiness flags and default null session pointers."""
+        kg = _make_kg()
+        kg.set_ontology(
+            OntologyConfig(
+                node_types=(NodeTypeDefinition(label="Repository"),),
+                edge_types=(
+                    EdgeTypeDefinition(
+                        label="CONTAINS",
+                        source_labels=("Repository",),
+                        target_labels=("Repository",),
+                    ),
+                ),
+            )
+        )
+        kg_repo.seed(kg)
+        await _grant_kg_view(authz, kg.id.value, user_id)
+
+        result = await service.get_workspace_status(user_id=user_id, kg_id=kg.id.value)
+
+        assert isinstance(result, KnowledgeGraphWorkspaceStatus)
+        assert result.workspace_mode == WorkspaceMode.SCHEMA_BOOTSTRAP
+        assert result.readiness.has_minimum_entity_types is True
+        assert result.readiness.has_minimum_relationship_types is True
+        assert result.readiness.prepopulated_types_ready is True
+        assert result.transition_eligible is True
+        assert result.session_pointers.active_schema_bootstrap_session_id is None
+        assert result.session_pointers.active_extraction_operations_session_id is None
+        assert result.session_pointers.most_recent_completed_session_id is None
+
+    @pytest.mark.asyncio
+    async def test_workspace_status_transition_not_eligible_without_schema_readiness(
+        self, service, authz, kg_repo, user_id
+    ):
+        """Should report transition_eligible false when readiness checks fail."""
+        kg = _make_kg()
+        kg_repo.seed(kg)
+        await _grant_kg_view(authz, kg.id.value, user_id)
+
+        result = await service.get_workspace_status(user_id=user_id, kg_id=kg.id.value)
+
+        assert result is not None
+        assert result.readiness.has_minimum_entity_types is False
+        assert result.readiness.has_minimum_relationship_types is False
+        assert result.transition_eligible is False
 
 
 # ---- list_for_workspace ----

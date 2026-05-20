@@ -14,7 +14,14 @@ from management.application.observability import (
     KnowledgeGraphServiceProbe,
 )
 from management.domain.aggregates import KnowledgeGraph
-from management.domain.value_objects import KnowledgeGraphId, OntologyConfig
+from management.domain.value_objects import (
+    KnowledgeGraphId,
+    KnowledgeGraphWorkspaceStatus,
+    OntologyConfig,
+    WorkspaceMode,
+    WorkspaceReadinessStatus,
+    WorkspaceSessionPointers,
+)
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
     KnowledgeGraphNotFoundError,
@@ -580,3 +587,49 @@ class KnowledgeGraphService:
         await self._session.commit()
 
         return config
+
+    def _evaluate_workspace_readiness(
+        self, kg: KnowledgeGraph
+    ) -> WorkspaceReadinessStatus:
+        """Evaluate transition readiness flags for workspace status projection."""
+        node_type_count = len(kg.ontology.node_types) if kg.ontology else 0
+        edge_type_count = len(kg.ontology.edge_types) if kg.ontology else 0
+
+        # Prepopulated-instance validation is delivered by later units of work.
+        return WorkspaceReadinessStatus(
+            has_minimum_entity_types=node_type_count >= 1,
+            has_minimum_relationship_types=edge_type_count >= 1,
+            prepopulated_types_ready=True,
+        )
+
+    async def get_workspace_status(
+        self,
+        user_id: str,
+        kg_id: str,
+    ) -> KnowledgeGraphWorkspaceStatus | None:
+        """Get mode/readiness/session projection for a knowledge graph workspace."""
+        kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
+        if kg is None or kg.tenant_id != self._scope_to_tenant:
+            return None
+
+        has_view = await self._check_permission(
+            user_id=user_id,
+            resource_type=ResourceType.KNOWLEDGE_GRAPH,
+            resource_id=kg_id,
+            permission=Permission.VIEW,
+        )
+        if not has_view:
+            return None
+
+        readiness = self._evaluate_workspace_readiness(kg)
+        transition_eligible = (
+            kg.workspace_mode == WorkspaceMode.SCHEMA_BOOTSTRAP and readiness.is_ready
+        )
+
+        return KnowledgeGraphWorkspaceStatus(
+            knowledge_graph_id=kg.id.value,
+            workspace_mode=kg.workspace_mode,
+            readiness=readiness,
+            transition_eligible=transition_eligible,
+            session_pointers=WorkspaceSessionPointers(),
+        )

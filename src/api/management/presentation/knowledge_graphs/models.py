@@ -9,8 +9,11 @@ from pydantic import BaseModel, Field
 from management.domain.aggregates import KnowledgeGraph
 from management.domain.value_objects import (
     EdgeTypeDefinition,
+    KnowledgeGraphWorkspaceStatus,
     NodeTypeDefinition,
     OntologyConfig,
+    WorkspaceReadinessStatus,
+    WorkspaceSessionPointers,
     WorkspaceMode,
 )
 
@@ -98,6 +101,66 @@ class KnowledgeGraphResponse(BaseModel):
             workspace_mode=kg.workspace_mode,
             created_at=kg.created_at,
             updated_at=kg.updated_at,
+        )
+
+
+class WorkspaceReadinessResponse(BaseModel):
+    """Workspace readiness flags for bootstrap transition."""
+
+    has_minimum_entity_types: bool
+    has_minimum_relationship_types: bool
+    prepopulated_types_ready: bool
+
+    @classmethod
+    def from_domain(cls, readiness: WorkspaceReadinessStatus) -> "WorkspaceReadinessResponse":
+        return cls(
+            has_minimum_entity_types=readiness.has_minimum_entity_types,
+            has_minimum_relationship_types=readiness.has_minimum_relationship_types,
+            prepopulated_types_ready=readiness.prepopulated_types_ready,
+        )
+
+
+class WorkspaceSessionPointersResponse(BaseModel):
+    """Session pointer projection for workspace status UI."""
+
+    active_schema_bootstrap_session_id: str | None = None
+    active_extraction_operations_session_id: str | None = None
+    most_recent_completed_session_id: str | None = None
+
+    @classmethod
+    def from_domain(
+        cls, pointers: WorkspaceSessionPointers
+    ) -> "WorkspaceSessionPointersResponse":
+        return cls(
+            active_schema_bootstrap_session_id=pointers.active_schema_bootstrap_session_id,
+            active_extraction_operations_session_id=(
+                pointers.active_extraction_operations_session_id
+            ),
+            most_recent_completed_session_id=pointers.most_recent_completed_session_id,
+        )
+
+
+class KnowledgeGraphWorkspaceStatusResponse(BaseModel):
+    """Mode/readiness/session status projection for a knowledge graph workspace."""
+
+    knowledge_graph_id: str
+    workspace_mode: WorkspaceMode
+    readiness: WorkspaceReadinessResponse
+    transition_eligible: bool
+    session_pointers: WorkspaceSessionPointersResponse
+
+    @classmethod
+    def from_domain(
+        cls, status: KnowledgeGraphWorkspaceStatus
+    ) -> "KnowledgeGraphWorkspaceStatusResponse":
+        return cls(
+            knowledge_graph_id=status.knowledge_graph_id,
+            workspace_mode=status.workspace_mode,
+            readiness=WorkspaceReadinessResponse.from_domain(status.readiness),
+            transition_eligible=status.transition_eligible,
+            session_pointers=WorkspaceSessionPointersResponse.from_domain(
+                status.session_pointers
+            ),
         )
 
 

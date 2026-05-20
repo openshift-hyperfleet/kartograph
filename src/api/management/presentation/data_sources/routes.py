@@ -11,8 +11,12 @@ from iam.dependencies.user import get_current_user
 from management.application.services.data_source_service import DataSourceService
 from management.dependencies.data_source import (
     get_data_source_service,
+    get_git_commit_reference_service,
     get_git_diff_summary_service,
     get_sync_run_repository,
+)
+from management.infrastructure.git_commit_reference_service import (
+    GitCommitReferenceService,
 )
 from management.infrastructure.git_diff_summary_service import GitDiffSummaryService
 from management.ports.exceptions import UnauthorizedError
@@ -30,6 +34,101 @@ from management.presentation.data_sources.models import (
 from shared_kernel.datasource_types import DataSourceAdapterType
 
 router = APIRouter(tags=["data-sources"])
+
+
+@router.post(
+    "/data-sources/{ds_id}/commit-refs/refresh",
+    status_code=status.HTTP_200_OK,
+    summary="Refresh source commit references for a data source",
+)
+async def refresh_commit_references(
+    ds_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+    commit_ref_service: Annotated[
+        GitCommitReferenceService, Depends(get_git_commit_reference_service)
+    ],
+) -> DataSourceResponse:
+    """Refresh tracked/cloned commit references for a Git-backed data source."""
+    try:
+        ds = await service.get(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+        )
+        if ds is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Data source not found",
+            )
+
+        tracked_head = await commit_ref_service.resolve_tracked_head_commit(ds)
+        if tracked_head is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Unable to resolve tracked branch head commit for this data source",
+            )
+
+        updated = await service.refresh_commit_references(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+            tracked_branch_head_commit=tracked_head,
+            clone_head_commit=tracked_head,
+        )
+        return DataSourceResponse.from_domain(updated)
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to refresh commit references",
+        )
+
+
+@router.post(
+    "/data-sources/{ds_id}/commit-refs/adopt-tracked-head",
+    status_code=status.HTTP_200_OK,
+    summary="Adopt tracked branch head as extraction baseline",
+)
+async def adopt_tracked_head_as_baseline(
+    ds_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+) -> DataSourceResponse:
+    """Set extraction baseline commit to the current tracked branch head."""
+    try:
+        updated = await service.adopt_tracked_head_as_baseline(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+        )
+        return DataSourceResponse.from_domain(updated)
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except ValueError as e:
+        detail = str(e)
+        status_code = (
+            status.HTTP_422_UNPROCESSABLE_ENTITY
+            if "tracked branch head" in detail
+            else status.HTTP_404_NOT_FOUND
+        )
+        raise HTTPException(status_code=status_code, detail=detail)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to adopt tracked head as baseline",
+        )
 
 
 @router.get(

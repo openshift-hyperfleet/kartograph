@@ -22,6 +22,7 @@ import {
   ScrollText,
   FileText,
   Settings,
+  RefreshCw,
 } from 'lucide-vue-next'
 import {
   ADAPTERS,
@@ -617,6 +618,8 @@ async function approveOntology() {
 const dataSources = ref<DataSourceItem[]>([])
 const loadingDataSources = ref(false)
 const expandedDiffLists = ref<Record<string, boolean>>({})
+const refreshingCommitRefs = ref<Record<string, boolean>>({})
+const adoptingBaselines = ref<Record<string, boolean>>({})
 
 function isMaintenanceReady(ds: DataSourceItem): boolean {
   if (!ds.last_extraction_baseline_commit || !ds.tracked_branch_head_commit) return false
@@ -629,6 +632,39 @@ function isDiffExpanded(dsId: string): boolean {
 
 function toggleDiffExpanded(dsId: string) {
   expandedDiffLists.value[dsId] = !isDiffExpanded(dsId)
+}
+
+async function refreshCommitRefs(dsId: string) {
+  refreshingCommitRefs.value[dsId] = true
+  try {
+    const { apiFetch } = useApiClient()
+    await apiFetch(`/management/data-sources/${dsId}/commit-refs/refresh`, {
+      method: 'POST',
+    })
+    toast.success('Commit references refreshed')
+    await loadDataSources()
+  } catch {
+    toast.error('Failed to refresh commit references')
+  } finally {
+    refreshingCommitRefs.value[dsId] = false
+  }
+}
+
+async function adoptTrackedHeadBaseline(dsId: string) {
+  adoptingBaselines.value[dsId] = true
+  try {
+    const { apiFetch } = useApiClient()
+    await apiFetch(`/management/data-sources/${dsId}/commit-refs/adopt-tracked-head`, {
+      method: 'POST',
+    })
+    toast.success('Baseline updated to tracked head')
+    await loadDataSources()
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to update baseline'
+    toast.error('Failed to update baseline', { description: msg })
+  } finally {
+    adoptingBaselines.value[dsId] = false
+  }
 }
 
 async function loadDataSources() {
@@ -1198,6 +1234,30 @@ async function handleDeleteDs() {
                 <p class="text-[10px] uppercase tracking-wider text-muted-foreground">Tracked branch head commit</p>
                 <p class="mt-1 font-mono text-xs break-all">{{ ds.tracked_branch_head_commit ?? '—' }}</p>
               </div>
+            </div>
+            <div class="mt-2 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                class="h-7 text-[10px]"
+                :disabled="refreshingCommitRefs[ds.id] === true"
+                @click="refreshCommitRefs(ds.id)"
+              >
+                <RefreshCw
+                  class="mr-1 size-3"
+                  :class="refreshingCommitRefs[ds.id] === true ? 'animate-spin' : ''"
+                />
+                {{ refreshingCommitRefs[ds.id] === true ? 'Refreshing…' : 'Refresh commits' }}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                class="h-7 text-[10px]"
+                :disabled="adoptingBaselines[ds.id] === true || !isMaintenanceReady(ds)"
+                @click="adoptTrackedHeadBaseline(ds.id)"
+              >
+                {{ adoptingBaselines[ds.id] === true ? 'Updating…' : 'Adopt tracked head as baseline' }}
+              </Button>
             </div>
 
             <div

@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.database.models import Base, _utc_now
@@ -68,6 +69,9 @@ class DataSourceSyncRunModel(Base):
         nullable=False,
         default=list,
         server_default="{}",
+    )
+    mutation_log_run: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, default=None
     )
 
     __table_args__ = (

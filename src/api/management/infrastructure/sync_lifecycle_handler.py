@@ -21,6 +21,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from management.domain.entities import MutationLogRunMetadata
 from management.domain.value_objects import DataSourceId
 
 if TYPE_CHECKING:
@@ -122,6 +123,21 @@ class SyncLifecycleHandler:
             sync_run.status = "completed"
             sync_run.completed_at = now
             sync_run.logs.append(f"[{now.isoformat()}] Sync completed")
+            if sync_run.mutation_log_run is not None:
+                sync_run.mutation_log_run.completed_at = now
+                if payload.get("token_usage_total") is not None:
+                    sync_run.mutation_log_run.token_usage_total = int(
+                        payload["token_usage_total"]
+                    )
+                if payload.get("cost_total_usd") is not None:
+                    sync_run.mutation_log_run.cost_total_usd = float(
+                        payload["cost_total_usd"]
+                    )
+                if payload.get("operation_counts") is not None:
+                    sync_run.mutation_log_run.operation_counts = {
+                        str(k): int(v)
+                        for k, v in dict(payload["operation_counts"]).items()
+                    }
             await self._update_data_source_last_sync_at(
                 data_source_id=sync_run.data_source_id,
                 now=now,
@@ -135,6 +151,36 @@ class SyncLifecycleHandler:
             sync_run.logs.append(
                 f"[{now.isoformat()}] {event_type}: status → {new_status}"
             )
+            if event_type == "MutationLogProduced":
+                sync_run.mutation_log_run = MutationLogRunMetadata(
+                    mutation_log_id=str(payload["mutation_log_id"]),
+                    knowledge_graph_id=str(payload["knowledge_graph_id"]),
+                    session_id=(
+                        str(payload["session_id"])
+                        if payload.get("session_id") is not None
+                        else None
+                    ),
+                    actor_id=(
+                        str(payload["actor_id"])
+                        if payload.get("actor_id") is not None
+                        else None
+                    ),
+                    started_at=now,
+                    token_usage_total=(
+                        int(payload["token_usage_total"])
+                        if payload.get("token_usage_total") is not None
+                        else None
+                    ),
+                    cost_total_usd=(
+                        float(payload["cost_total_usd"])
+                        if payload.get("cost_total_usd") is not None
+                        else None
+                    ),
+                    operation_counts={
+                        str(k): int(v)
+                        for k, v in dict(payload.get("operation_counts") or {}).items()
+                    },
+                )
 
         await self._sync_run_repo.save(sync_run)
         await self._session.commit()

@@ -190,6 +190,39 @@ class TestMutationLogProducedTransition:
         saved_run: DataSourceSyncRun = mock_sync_run_repo.save.call_args[0][0]
         assert saved_run.status == "applying"
 
+    async def test_mutation_log_produced_stores_run_metadata(
+        self,
+        handler: SyncLifecycleHandler,
+        mock_sync_run_repo: AsyncMock,
+    ):
+        """MutationLogProduced should persist run-level mutation metadata."""
+        run = _make_sync_run(status="ai_extracting")
+        mock_sync_run_repo.get_by_id.return_value = run
+
+        await handler.handle(
+            "MutationLogProduced",
+            _payload(
+                sync_run_id=run.id,
+                knowledge_graph_id="kg-001",
+                mutation_log_id="log-001",
+                session_id="sess-001",
+                actor_id="user-001",
+                token_usage_total=1234,
+                cost_total_usd=1.25,
+                operation_counts={"create_node": 2, "update_edge": 1},
+            ),
+        )
+
+        saved_run: DataSourceSyncRun = mock_sync_run_repo.save.call_args[0][0]
+        assert saved_run.mutation_log_run is not None
+        assert saved_run.mutation_log_run.mutation_log_id == "log-001"
+        assert saved_run.mutation_log_run.knowledge_graph_id == "kg-001"
+        assert saved_run.mutation_log_run.session_id == "sess-001"
+        assert saved_run.mutation_log_run.actor_id == "user-001"
+        assert saved_run.mutation_log_run.token_usage_total == 1234
+        assert saved_run.mutation_log_run.cost_total_usd == 1.25
+        assert saved_run.mutation_log_run.operation_counts["create_node"] == 2
+
 
 @pytest.mark.asyncio
 class TestExtractionFailedTransition:
@@ -259,6 +292,62 @@ class TestMutationsAppliedTransition:
         saved_run: DataSourceSyncRun = mock_sync_run_repo.save.call_args[0][0]
         assert saved_run.status == "completed"
         assert saved_run.completed_at is not None
+
+    async def test_mutations_applied_finalizes_mutation_log_metadata(
+        self,
+        handler: SyncLifecycleHandler,
+        mock_sync_run_repo: AsyncMock,
+        mock_ds_repo: AsyncMock,
+    ):
+        """MutationsApplied should finalize mutation run metrics and completed_at."""
+        from management.domain.aggregates import DataSource
+        from management.domain.entities import MutationLogRunMetadata
+        from management.domain.value_objects import DataSourceId, Schedule, ScheduleType
+        from shared_kernel.datasource_types import DataSourceAdapterType
+
+        run = _make_sync_run(status="applying")
+        run.mutation_log_run = MutationLogRunMetadata(
+            mutation_log_id="log-001",
+            knowledge_graph_id="kg-001",
+            session_id="sess-001",
+            actor_id="user-001",
+            started_at=datetime.now(UTC),
+        )
+        mock_sync_run_repo.get_by_id.return_value = run
+
+        now = datetime.now(UTC)
+        ds = DataSource(
+            id=DataSourceId(value="ds-001"),
+            knowledge_graph_id="kg-001",
+            tenant_id="tenant-001",
+            name="My DS",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={},
+            credentials_path=None,
+            schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+            last_sync_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_ds_repo.get_by_id.return_value = ds
+
+        await handler.handle(
+            "MutationsApplied",
+            _payload(
+                sync_run_id=run.id,
+                knowledge_graph_id="kg-001",
+                token_usage_total=4321,
+                cost_total_usd=2.5,
+                operation_counts={"create_node": 9},
+            ),
+        )
+
+        saved_run: DataSourceSyncRun = mock_sync_run_repo.save.call_args[0][0]
+        assert saved_run.mutation_log_run is not None
+        assert saved_run.mutation_log_run.completed_at is not None
+        assert saved_run.mutation_log_run.token_usage_total == 4321
+        assert saved_run.mutation_log_run.cost_total_usd == 2.5
+        assert saved_run.mutation_log_run.operation_counts == {"create_node": 9}
 
     async def test_mutations_applied_updates_data_source_last_sync_at(
         self,

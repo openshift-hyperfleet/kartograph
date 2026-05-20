@@ -19,7 +19,13 @@ from management.application.services.knowledge_graph_service import (
     KnowledgeGraphService,
 )
 from management.domain.aggregates import KnowledgeGraph
-from management.domain.value_objects import KnowledgeGraphId, WorkspaceMode
+from management.domain.value_objects import (
+    KnowledgeGraphId,
+    KnowledgeGraphWorkspaceStatus,
+    WorkspaceMode,
+    WorkspaceReadinessStatus,
+    WorkspaceSessionPointers,
+)
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
     KnowledgeGraphNotFoundError,
@@ -289,6 +295,64 @@ class TestGetKnowledgeGraphRoute:
 
         response = test_client.get(
             "/management/knowledge-graphs/01JPQRST1234567890ABCDEFKG"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestGetKnowledgeGraphWorkspaceStatusRoute:
+    """Tests for GET /management/knowledge-graphs/{kg_id}/workspace-status."""
+
+    def test_workspace_status_returns_200_with_projection(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """Should return mode/readiness/session projection when authorized."""
+        mock_kg_service.get_workspace_status.return_value = KnowledgeGraphWorkspaceStatus(
+            knowledge_graph_id=sample_knowledge_graph.id.value,
+            workspace_mode=WorkspaceMode.SCHEMA_BOOTSTRAP,
+            readiness=WorkspaceReadinessStatus(
+                has_minimum_entity_types=True,
+                has_minimum_relationship_types=False,
+                prepopulated_types_ready=True,
+            ),
+            transition_eligible=False,
+            session_pointers=WorkspaceSessionPointers(),
+        )
+
+        response = test_client.get(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/workspace-status"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["knowledge_graph_id"] == sample_knowledge_graph.id.value
+        assert payload["workspace_mode"] == WorkspaceMode.SCHEMA_BOOTSTRAP.value
+        assert payload["readiness"]["has_minimum_entity_types"] is True
+        assert payload["readiness"]["has_minimum_relationship_types"] is False
+        assert payload["readiness"]["prepopulated_types_ready"] is True
+        assert payload["transition_eligible"] is False
+        assert payload["session_pointers"]["active_schema_bootstrap_session_id"] is None
+
+        mock_kg_service.get_workspace_status.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            kg_id=sample_knowledge_graph.id.value,
+        )
+
+    def test_workspace_status_returns_404_when_missing_or_unauthorized(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        """Should return 404 when service returns None."""
+        mock_kg_service.get_workspace_status.return_value = None
+
+        response = test_client.get(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/workspace-status"
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND

@@ -3205,3 +3205,33 @@ describe('Commit-hash status cues - structural verification', () => {
     expect(source).toContain('Up to date')
   })
 })
+
+describe('Maintenance readiness with commit-diff semantics - structural verification', () => {
+  const source = readFileSync(
+    resolve(__dirname, '../pages/data-sources/index.vue'),
+    'utf-8',
+  )
+
+  it('derives readiness from baseline-vs-tracked-head commit comparison', () => {
+    expect(source).toContain('function isMaintenanceReady')
+    expect(source).toContain('last_extraction_baseline_commit')
+    expect(source).toContain('tracked_branch_head_commit')
+    expect(source).toContain('!==')
+  })
+
+  it('renders maintenance readiness badge and diff summary counts', () => {
+    expect(source).toContain('isMaintenanceReady(ds) ? \'New commits available\' : \'Up to date\'')
+    expect(source).toContain('changed files')
+    expect(source).toContain('added_count')
+    expect(source).toContain('modified_count')
+    expect(source).toContain('removed_count')
+    expect(source).toContain('renamed_count')
+  })
+
+  it('keeps changed-file list collapsed by default and expandable on demand', () => {
+    expect(source).toContain('Changed-file list is collapsed by default')
+    expect(source).toContain('Show changed files')
+    expect(source).toContain('Hide changed files')
+    expect(source).toContain('isDiffExpanded')
+  })
+})

@@ -11,6 +11,10 @@ description: >
 
 Follow this protocol for every assigned issue.
 
+System prompt template for spawned Claude instances:
+
+- `skills/subagent-delivery/claude-instance-system-prompt.txt`
+
 ## Parallel Execution Model
 
 Use this model whenever multiple issues are independent:
@@ -24,6 +28,26 @@ Use this model whenever multiple issues are independent:
 If two issues touch the same files heavily, either:
 - serialize those two issues, or
 - split scope so each agent owns non-overlapping symbols.
+
+## Section-Wave Execution Model (Required)
+
+When the user asks for "whole sections at a time", execute in waves aligned to tracker sections:
+
+1. **Section A: Core lifecycle/data**
+   - `#643 #644 #645 #646 #659 #660 #661 #662 #663`
+2. **Section B: Extraction runtime/session**
+   - `#649 #650 #651 #652 #653 #654`
+3. **Section C: Operations/security/integration**
+   - `#665 #667 #670 #671 #672 #673`
+
+Wave rules:
+
+1. Run independent issues in parallel with one Claude instance per issue.
+2. Respect dependencies inside the section (foundation issues first).
+3. Keep all PRs targeting `feature/manage-knowledge-graph`.
+4. Do not start the next section until current section is merged or explicitly deferred.
+5. For each section, maintain a live status board:
+   - `queued`, `in_progress`, `blocked`, `in_review`, `merged`
 
 ## Scope and Inputs
 
@@ -39,6 +63,26 @@ Before coding, gather:
    - architectural constraints from `AGENTS.md`
 
 If acceptance criteria are ambiguous, ask one focused question before implementation.
+
+## Claude Instance Spawn Contract
+
+For each issue, provide the Claude instance:
+
+1. Issue ID + title + acceptance criteria summary.
+2. Branch naming requirement:
+   - `feat/issue-<id>-<short-scope>` or `fix/issue-<id>-<short-scope>`
+3. Required reads:
+   - `AGENTS.md`
+   - relevant `specs/*.spec.md`
+   - related tests in touched context
+4. TDD requirement:
+   - tests first, then implementation, then verification
+5. Output contract:
+   - branch
+   - commit(s)
+   - test commands and results
+   - PR URL
+   - blockers/questions
 
 ## Blocker Question Protocol (Required)
 
@@ -61,6 +105,13 @@ When blocked:
    - recommended option and why
 4. If working from a GitHub issue, mirror the same question as an issue comment so the orchestrator can batch unresolved questions across agents.
 5. Continue only non-blocked work; do not guess on blocked decisions.
+
+If a blocker impacts multiple active instances:
+
+1. Pause affected issues.
+2. Continue unaffected issues in parallel.
+3. Post one consolidated orchestrator decision update.
+4. Resume paused issues with explicit instruction delta.
 
 ## Git Workflow
 
@@ -117,6 +168,24 @@ When blocked:
 4. Re-run tests after conflict resolution.
 5. Merge into `feature/manage-knowledge-graph` only after verification.
 
+## Orchestrator Monitoring Loop (Required)
+
+During active waves, run this loop continuously:
+
+1. Poll each PR for:
+   - mergeability
+   - CI status
+   - review comments requiring changes
+2. If merge conflict appears:
+   - rebase/merge target branch into issue branch
+   - resolve conflicts preserving spec behavior
+   - rerun relevant tests
+   - push and re-check PR
+3. If CI fails:
+   - fix in same issue branch
+   - do not move issue scope
+4. Update section status board and report progress to user.
+
 ## Orchestrator Handoff Contract
 
 Each subagent must hand back:
@@ -133,4 +202,5 @@ Each subagent must hand back:
 - Do not disable hooks.
 - Do not commit secrets or credentials.
 - Prefer fakes over mocks in unit tests when testing domain/application behavior.
+- Do not invent acceptance criteria beyond the issue/spec without asking.
 

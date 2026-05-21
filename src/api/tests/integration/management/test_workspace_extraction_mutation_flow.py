@@ -50,6 +50,9 @@ async def test_workspace_transition_then_extraction_run_metadata_visibility(
             pytest.skip(
                 f"knowledge_graphs.{column_name} is missing in local integration database"
             )
+    # The column introspection query starts an implicit transaction on the session.
+    # Reset it before entering explicit transaction scopes below.
+    await async_session.rollback()
 
     user_id = "user-integration-001"
     authz = InMemoryAuthorizationProvider()
@@ -80,25 +83,24 @@ async def test_workspace_transition_then_extraction_run_metadata_visibility(
         description="Workspace transition + extraction run visibility",
         created_by=user_id,
     )
-    knowledge_graph.set_ontology(
-        OntologyConfig(
-            node_types=(
-                NodeTypeDefinition(label="Repository"),
-                NodeTypeDefinition(
-                    label="SeedNode",
-                    prepopulated=True,
-                    prepopulated_instance_count=1,
-                ),
+    ontology_config = OntologyConfig(
+        node_types=(
+            NodeTypeDefinition(label="Repository"),
+            NodeTypeDefinition(
+                label="SeedNode",
+                prepopulated=True,
+                prepopulated_instance_count=1,
             ),
-            edge_types=(
-                EdgeTypeDefinition(
-                    label="CONTAINS",
-                    source_labels=("Repository",),
-                    target_labels=("SeedNode",),
-                ),
+        ),
+        edge_types=(
+            EdgeTypeDefinition(
+                label="CONTAINS",
+                source_labels=("Repository",),
+                target_labels=("SeedNode",),
             ),
-        )
+        ),
     )
+    knowledge_graph.set_ontology(ontology_config)
     async with async_session.begin():
         await knowledge_graph_repository.save(knowledge_graph)
 
@@ -106,6 +108,11 @@ async def test_workspace_transition_then_extraction_run_metadata_visibility(
         f"knowledge_graph:{knowledge_graph.id.value}",
         "admin",
         f"user:{user_id}",
+    )
+    await kg_service.save_ontology(
+        user_id=user_id,
+        kg_id=knowledge_graph.id.value,
+        config=ontology_config,
     )
 
     status_before = await kg_service.get_workspace_status(
@@ -139,7 +146,7 @@ async def test_workspace_transition_then_extraction_run_metadata_visibility(
     )
     await authz.write_relationship(
         f"data_source:{data_source.id.value}",
-        "admin",
+        "manage",
         f"user:{user_id}",
     )
 

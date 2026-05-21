@@ -196,8 +196,8 @@ async def kg1_id(
     await async_session.execute(
         text(
             "INSERT INTO knowledge_graphs "
-            "(id, tenant_id, workspace_id, name, description, created_at, updated_at) "
-            "VALUES (:id, :tenant_id, :workspace_id, :name, :desc, NOW(), NOW())"
+            "(id, tenant_id, workspace_id, name, description, maintenance_run_history, created_at, updated_at) "
+            "VALUES (:id, :tenant_id, :workspace_id, :name, :desc, '[]'::jsonb, NOW(), NOW())"
         ),
         {
             "id": kg_id,
@@ -227,8 +227,8 @@ async def kg2_id(
     await async_session.execute(
         text(
             "INSERT INTO knowledge_graphs "
-            "(id, tenant_id, workspace_id, name, description, created_at, updated_at) "
-            "VALUES (:id, :tenant_id, :workspace_id, :name, :desc, NOW(), NOW())"
+            "(id, tenant_id, workspace_id, name, description, maintenance_run_history, created_at, updated_at) "
+            "VALUES (:id, :tenant_id, :workspace_id, :name, :desc, '[]'::jsonb, NOW(), NOW())"
         ),
         {
             "id": kg_id,

@@ -5,10 +5,14 @@ services:
     user: "${UID}:${GID}"
     environment:
       UV_CACHE_DIR: /tmp/uv-cache
+      KARTOGRAPH_EXTRACTION_RUNTIME_BACKEND: container
+      KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_ENGINE: auto
     volumes:
       # Mount the entire app directory  (minus  venv) for hot-reload
       - ./src/api:/app:z
       - /app/.venv
+      # Allow API process to launch sibling extraction runtime containers locally
+      - /var/run/docker.sock:/var/run/docker.sock
     command:
       - /bin/bash
       - -c

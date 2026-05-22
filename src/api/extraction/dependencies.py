@@ -1,5 +1,6 @@
 """FastAPI dependencies for Extraction services."""
 
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends
@@ -14,7 +15,27 @@ from extraction.infrastructure.repositories import (
     ExtractionSessionRunMetricsReader,
     ExtractionSkillOverrideRepository,
 )
+from extraction.infrastructure.workload_runtime_factory import (
+    create_ephemeral_extraction_worker_launcher,
+    create_sticky_session_runtime_manager,
+)
+from extraction.ports.runtime import (
+    IEphemeralExtractionWorkerLauncher,
+    IStickySessionRuntimeManager,
+)
 from infrastructure.database.dependencies import get_write_session
+
+
+@lru_cache
+def get_sticky_session_runtime_manager() -> IStickySessionRuntimeManager:
+    """Return configured sticky session runtime manager."""
+    return create_sticky_session_runtime_manager()
+
+
+@lru_cache
+def get_ephemeral_extraction_worker_launcher() -> IEphemeralExtractionWorkerLauncher:
+    """Return configured ephemeral extraction worker launcher."""
+    return create_ephemeral_extraction_worker_launcher()
 
 
 def get_extraction_agent_session_service(

@@ -33,11 +33,15 @@ const props = withDefaults(defineProps<{
   clearing?: boolean
   draftMessage?: string
   activityLines?: string[]
+  inputPlaceholder?: string
+  sessionStatusLabel?: string
 }>(), {
   loading: false,
   clearing: false,
   draftMessage: '',
   activityLines: () => [],
+  inputPlaceholder: 'Describe what you want to do in this graph management session…',
+  sessionStatusLabel: 'No active session',
 })
 
 const emit = defineEmits<{
@@ -72,10 +76,17 @@ function confirmClearChat() {
 <template>
   <Card>
     <CardHeader>
-      <CardTitle class="text-base">Conversation</CardTitle>
-      <CardDescription>
-        Shared conversation feed for {{ modeLabel }} with server-side session resume.
-      </CardDescription>
+      <div class="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <CardTitle class="text-base">Conversation</CardTitle>
+          <CardDescription>
+            Shared conversation feed for {{ modeLabel }} with server-side session resume.
+          </CardDescription>
+        </div>
+        <p class="text-xs text-muted-foreground">
+          Session: <span class="font-medium text-foreground">{{ sessionStatusLabel }}</span>
+        </p>
+      </div>
     </CardHeader>
     <CardContent class="space-y-3">
       <div class="flex items-center justify-between">
@@ -125,7 +136,7 @@ function confirmClearChat() {
         <Input
           :model-value="draftMessage"
           disabled
-          placeholder="NDJSON streaming send/receive wiring will attach here."
+          :placeholder="inputPlaceholder"
           @update:model-value="(value) => emit('update:draftMessage', value)"
         />
         <Button variant="outline" :disabled="clearing || loading" @click="clearConfirmOpen = true">
@@ -141,7 +152,7 @@ function confirmClearChat() {
       <AlertDialogHeader>
         <AlertDialogTitle>Clear conversation?</AlertDialogTitle>
         <AlertDialogDescription>
-          This starts a fresh server-side session timeline for the current mode.
+          This starts a fresh server-side session timeline while keeping the selected graph management mode.
         </AlertDialogDescription>
       </AlertDialogHeader>
       <AlertDialogFooter>

@@ -543,49 +543,16 @@ The system SHALL expose knowledge graph row actions as Manage, Query, and Delete
 - WHEN navigation completes
 - THEN the user lands on that knowledge graph's mode-aware workspace page
 
-### Requirement: Bootstrap to Extraction Transition
-The system SHALL provide a UI-gated transition from schema bootstrap mode to extraction operations mode.
+### Requirement: Detailed KG Manage Experience Specification
+The system SHALL define detailed KG Manage workspace behavior in a dedicated canonical UX spec to avoid drift.
 
-#### Scenario: Validate action
-- GIVEN a user with `edit` permission on a knowledge graph in bootstrap mode
-- WHEN the user clicks Validate
-- THEN validation results are displayed in the workspace
-- AND transition action remains unavailable until validation passes
+#### Scenario: Canonical detailed behavior source
+- GIVEN requirements for the graph manage page flow, conversation UX, modes, and step cards
+- THEN details are defined in `specs/ui/kg-manage-experience.spec.md`
+- AND this file remains the high-level UX umbrella for broader product behavior
 
-#### Scenario: Go to extraction action
-- GIVEN bootstrap validation has passed
-- WHEN the user clicks "Go to Extraction/Mutations"
-- THEN the UI transitions the knowledge graph into extraction operations mode
-- AND a new extraction-mode agent session is started
-
-### Requirement: Unified Extraction Workspace
-The system SHALL present extraction jobs and minor direct edits in one workspace.
-
-#### Scenario: Conversation-first layout
-- GIVEN a user in extraction operations mode
-- THEN the conversation panel remains visible as the primary surface
-- AND the lower workspace area is tabbed for operational views
-
-#### Scenario: Clear chat reset
-- GIVEN an active extraction conversation session
-- WHEN the user clicks Clear chat
-- THEN the current chat history is cleared
-- AND a new clean session is started for the same user and knowledge graph
-
-#### Scenario: Tabbed operations area
-- GIVEN the extraction workspace
-- WHEN the user switches tabs
-- THEN extraction-job controls, manual mutation tools, and run/log views are available without leaving the page
-
-### Requirement: MutationLog Browser
-The system SHALL provide a knowledge-graph-scoped MutationLog browser.
-
-#### Scenario: Scoped listing
-- GIVEN the user is viewing a specific knowledge graph
-- WHEN the user opens MutationLogs
-- THEN only mutation log runs associated with that knowledge graph are listed
-
-#### Scenario: Run detail panel
-- GIVEN a mutation log run is selected
-- WHEN details are shown
-- THEN the UI displays run summary, per-entry operation previews, token/cost metrics, and operation counts by type
+#### Scenario: Cross-spec consistency
+- GIVEN updates to KG manage interaction behavior
+- WHEN UX requirements are changed
+- THEN `specs/ui/kg-manage-experience.spec.md` is updated first
+- AND summary references here are kept consistent with it

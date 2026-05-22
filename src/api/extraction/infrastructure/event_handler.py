@@ -10,9 +10,16 @@ from the raw data packaged by the Ingestion context.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from extraction.ports.runtime import (
+    EphemeralWorkerLaunchRequest,
+    IEphemeralExtractionWorkerLauncher,
+    IWorkloadCredentialIssuer,
+    ScopedWorkloadCredentials,
+)
 from extraction.ports.services import IExtractionService
 
 if TYPE_CHECKING:
@@ -23,9 +30,10 @@ class ExtractionEventHandler:
     """Handles JobPackageProduced events by running the extraction pipeline.
 
     When a JobPackageProduced event is processed from the outbox, this handler:
-    1. Delegates to IExtractionService.run() to extract entities and relationships
-    2. On success: appends MutationLogProduced to the outbox
-    3. On failure: appends ExtractionFailed to the outbox
+    1. Issues short-lived scoped credentials and launches an ephemeral worker
+    2. Delegates to IExtractionService.run() to extract entities and relationships
+    3. On success: appends MutationLogProduced to the outbox
+    4. On failure: appends ExtractionFailed to the outbox
 
     This handler is the entry point for the Extraction bounded context in the
     sync lifecycle. It creates the linkage between the Ingestion context
@@ -41,6 +49,9 @@ class ExtractionEventHandler:
         extraction_service: IExtractionService,
         outbox: "IOutboxRepository",
         runtime_context_builder: Any,
+        *,
+        credential_issuer: IWorkloadCredentialIssuer | None = None,
+        worker_launcher: IEphemeralExtractionWorkerLauncher | None = None,
     ) -> None:
         """Initialize the extraction event handler.
 
@@ -48,19 +59,58 @@ class ExtractionEventHandler:
             extraction_service: Service that runs the AI extraction pipeline
             outbox: Repository for writing output events (MutationLogProduced /
                 ExtractionFailed)
+            runtime_context_builder: Resolves runtime paths for the workload
+            credential_issuer: Optional issuer for runtime-only workload credentials
+            worker_launcher: Optional launcher that enforces credential scope
         """
+        if (credential_issuer is None) ^ (worker_launcher is None):
+            raise ValueError(
+                "credential_issuer and worker_launcher must be configured together"
+            )
+
         self._extraction_service = extraction_service
         self._outbox = outbox
         self._runtime_context_builder = runtime_context_builder
+        self._credential_issuer = credential_issuer
+        self._worker_launcher = worker_launcher
 
     def supported_event_types(self) -> frozenset[str]:
         """Return event types handled by this handler."""
         return frozenset({"JobPackageProduced"})
 
+    @staticmethod
+    def _redact_sensitive_error(message: str) -> str:
+        """Redact token-like secrets from error strings before persistence."""
+        patterns = (
+            re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"),
+            re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-+/=]{16,}\b"),
+            re.compile(
+                r"(?i)\b(token|access_token|password|api[_-]?key)\b\s*[:=]\s*['\"]?[^\s,'\"]+"
+            ),
+        )
+        redacted = message
+        for pattern in patterns:
+            redacted = pattern.sub("***REDACTED***", redacted)
+        return redacted
+
+    @classmethod
+    def _sanitize_failure_error(
+        cls,
+        exc: Exception,
+        *,
+        workload_credentials: ScopedWorkloadCredentials | None,
+    ) -> str:
+        message = str(exc)
+        if workload_credentials is not None and workload_credentials.token:
+            message = message.replace(workload_credentials.token, "***REDACTED***")
+        return cls._redact_sensitive_error(message)
+
     async def handle(
         self,
         event_type: str,
         payload: dict[str, Any],
+        *,
+        tenant_id: str | None = None,
     ) -> None:
         """Process a JobPackageProduced event by running the extraction pipeline.
 
@@ -71,6 +121,7 @@ class ExtractionEventHandler:
                 - data_source_id: The data source being extracted
                 - knowledge_graph_id: The target knowledge graph
                 - job_package_id: The JobPackage to process
+            tenant_id: Tenant scope used for runtime credential issuance
         """
         if event_type != "JobPackageProduced":
             return
@@ -81,7 +132,32 @@ class ExtractionEventHandler:
         job_package_id = payload["job_package_id"]
         now = datetime.now(UTC)
 
+        workload_credentials: ScopedWorkloadCredentials | None = None
+        worker_id: str | None = None
+
         try:
+            if self._credential_issuer is not None and self._worker_launcher is not None:
+                if not tenant_id:
+                    raise ValueError(
+                        "tenant_id is required for scoped workload credential injection"
+                    )
+
+                workload_credentials = self._credential_issuer.issue(
+                    tenant_id=tenant_id,
+                    knowledge_graph_id=knowledge_graph_id,
+                )
+                launch_result = self._worker_launcher.launch(
+                    request=EphemeralWorkerLaunchRequest(
+                        tenant_id=tenant_id,
+                        knowledge_graph_id=knowledge_graph_id,
+                        session_id=f"sync:{sync_run_id}",
+                        sync_run_id=sync_run_id,
+                        job_package_id=job_package_id,
+                    ),
+                    credentials=workload_credentials,
+                )
+                worker_id = launch_result.worker_id
+
             runtime_context = self._runtime_context_builder.build(
                 sync_run_id=sync_run_id,
                 job_package_id=job_package_id,
@@ -92,6 +168,7 @@ class ExtractionEventHandler:
                 knowledge_graph_id=knowledge_graph_id,
                 job_package_id=job_package_id,
                 runtime_context=runtime_context,
+                workload_credentials=workload_credentials,
             )
         except Exception as exc:
             await self._outbox.append(
@@ -99,7 +176,10 @@ class ExtractionEventHandler:
                 payload={
                     "sync_run_id": sync_run_id,
                     "data_source_id": data_source_id,
-                    "error": str(exc),
+                    "error": self._sanitize_failure_error(
+                        exc,
+                        workload_credentials=workload_credentials,
+                    ),
                     "occurred_at": now.isoformat(),
                 },
                 occurred_at=now,
@@ -107,6 +187,9 @@ class ExtractionEventHandler:
                 aggregate_id=sync_run_id,
             )
             return
+        finally:
+            if worker_id is not None and self._worker_launcher is not None:
+                self._worker_launcher.complete_worker(worker_id)
 
         # Extraction succeeded — append success event outside the try block so
         # that an outbox write failure here is not mistaken for an extraction

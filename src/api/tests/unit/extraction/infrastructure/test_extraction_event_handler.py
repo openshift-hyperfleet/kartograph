@@ -11,13 +11,18 @@ Spec coverage:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 import pytest
 
 from extraction.infrastructure.event_handler import ExtractionEventHandler
+from extraction.infrastructure.workload_runtime import (
+    InMemoryEphemeralExtractionWorkerLauncher,
+    ScopedWorkloadCredentialIssuer,
+)
+from extraction.ports.runtime import ScopedWorkloadCredentials
 from extraction.ports.services import ExtractionRuntimeContext
 
 
@@ -67,6 +72,7 @@ class _FakeExtractionService:
         knowledge_graph_id: str,
         job_package_id: str,
         runtime_context: ExtractionRuntimeContext,
+        workload_credentials: ScopedWorkloadCredentials | None = None,
     ) -> str:
         self.calls.append(
             {
@@ -75,6 +81,7 @@ class _FakeExtractionService:
                 "knowledge_graph_id": knowledge_graph_id,
                 "job_package_id": job_package_id,
                 "runtime_context": runtime_context,
+                "workload_credentials": workload_credentials,
             }
         )
         if self._fail:
@@ -261,6 +268,115 @@ class TestExtractionEventHandlerFailure:
         event = outbox.appended[0]
         assert event["aggregate_type"] == "sync_run"
         assert event["aggregate_id"] == "run-003"
+
+
+@pytest.mark.asyncio
+class TestExtractionEventHandlerCredentialInjection:
+    """Tests for runtime credential issuance and worker launch enforcement."""
+
+    async def test_injects_scoped_credentials_before_extraction(
+        self,
+        extraction_service: _FakeExtractionService,
+        outbox: _FakeOutboxRepository,
+    ) -> None:
+        handler = ExtractionEventHandler(
+            extraction_service=extraction_service,
+            outbox=outbox,
+            runtime_context_builder=_FakeRuntimeContextBuilder(),
+            credential_issuer=ScopedWorkloadCredentialIssuer(
+                default_ttl=timedelta(minutes=10)
+            ),
+            worker_launcher=InMemoryEphemeralExtractionWorkerLauncher(),
+        )
+        payload = _job_package_produced_payload(sync_run_id="run-cred")
+
+        await handler.handle("JobPackageProduced", payload, tenant_id="tenant-1")
+
+        assert len(extraction_service.calls) == 1
+        credentials = extraction_service.calls[0]["workload_credentials"]
+        assert credentials is not None
+        assert credentials.scopes == (
+            "tenant:tenant-1",
+            "knowledge_graph:kg-001",
+            "workload:extraction",
+        )
+
+    async def test_emits_extraction_failed_when_scope_is_invalid(
+        self,
+        outbox: _FakeOutboxRepository,
+    ) -> None:
+        class _WrongScopeIssuer:
+            def issue(
+                self, *, tenant_id: str, knowledge_graph_id: str
+            ) -> ScopedWorkloadCredentials:
+                return ScopedWorkloadCredentials(
+                    token="wrong-scope-token",
+                    expires_at=datetime.now(UTC) + timedelta(minutes=5),
+                    scopes=(
+                        "tenant:tenant-other",
+                        f"knowledge_graph:{knowledge_graph_id}",
+                        "workload:extraction",
+                    ),
+                )
+
+        handler = ExtractionEventHandler(
+            extraction_service=_FakeExtractionService(),
+            outbox=outbox,
+            runtime_context_builder=_FakeRuntimeContextBuilder(),
+            credential_issuer=_WrongScopeIssuer(),
+            worker_launcher=InMemoryEphemeralExtractionWorkerLauncher(),
+        )
+        payload = _job_package_produced_payload(sync_run_id="run-scope-fail")
+
+        await handler.handle(
+            "JobPackageProduced",
+            payload,
+            tenant_id="tenant-1",
+        )
+
+        assert len(outbox.appended) == 1
+        event = outbox.appended[0]
+        assert event["event_type"] == "ExtractionFailed"
+        assert "scope" in event["payload"]["error"].lower()
+        assert "wrong-scope-token" not in event["payload"]["error"]
+
+    async def test_redacts_secret_material_from_failure_payload(
+        self,
+        outbox: _FakeOutboxRepository,
+    ) -> None:
+        class _LeakyService(_FakeExtractionService):
+            async def run(  # type: ignore[override]
+                self,
+                sync_run_id: str,
+                data_source_id: str,
+                knowledge_graph_id: str,
+                job_package_id: str,
+                runtime_context: ExtractionRuntimeContext,
+                workload_credentials: ScopedWorkloadCredentials | None = None,
+            ) -> str:
+                raise RuntimeError(
+                    "workload auth failed for token ghp_1234567890abcdef1234567890abcdef1234"
+                )
+
+        handler = ExtractionEventHandler(
+            extraction_service=_LeakyService(),
+            outbox=outbox,
+            runtime_context_builder=_FakeRuntimeContextBuilder(),
+            credential_issuer=ScopedWorkloadCredentialIssuer(
+                default_ttl=timedelta(minutes=10)
+            ),
+            worker_launcher=InMemoryEphemeralExtractionWorkerLauncher(),
+        )
+        payload = _job_package_produced_payload(sync_run_id="run-redact")
+
+        await handler.handle("JobPackageProduced", payload, tenant_id="tenant-1")
+
+        event = outbox.appended[0]
+        assert event["event_type"] == "ExtractionFailed"
+        assert "ghp_1234567890abcdef1234567890abcdef1234" not in event["payload"][
+            "error"
+        ]
+        assert "***REDACTED***" in event["payload"]["error"]
 
 
 class _FailingOutboxRepository(_FakeOutboxRepository):

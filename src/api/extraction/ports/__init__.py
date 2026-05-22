@@ -9,6 +9,7 @@ from extraction.ports.runtime import (
     EphemeralWorkerLaunchResult,
     IEphemeralExtractionWorkerLauncher,
     IStickySessionRuntimeManager,
+    IWorkloadCredentialIssuer,
     ScopedWorkloadCredentials,
     StickySessionRuntimeLease,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "IExtractionSkillOverrideRepository",
     "IStickySessionRuntimeManager",
     "IEphemeralExtractionWorkerLauncher",
+    "IWorkloadCredentialIssuer",
     "StickySessionRuntimeLease",
     "ScopedWorkloadCredentials",
     "EphemeralWorkerLaunchRequest",

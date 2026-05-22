@@ -13,6 +13,7 @@ from extraction.infrastructure.workload_runtime import (
 )
 from extraction.ports.runtime import (
     EphemeralWorkerLaunchRequest,
+    ScopedWorkloadCredentials,
 )
 
 
@@ -79,6 +80,26 @@ class TestInMemoryStickySessionRuntimeManager:
 
 
 class TestEphemeralWorkerLauncher:
+    def test_launch_rejects_expired_credentials(self) -> None:
+        issuer = ScopedWorkloadCredentialIssuer(default_ttl=timedelta(minutes=10))
+        launcher = InMemoryEphemeralExtractionWorkerLauncher()
+        scoped_credentials = issuer.issue(tenant_id="tenant-1", knowledge_graph_id="kg-1")
+        expired_credentials = ScopedWorkloadCredentials(
+            token=scoped_credentials.token,
+            expires_at=datetime.now(UTC) - timedelta(seconds=1),
+            scopes=scoped_credentials.scopes,
+        )
+        request = EphemeralWorkerLaunchRequest(
+            tenant_id="tenant-1",
+            knowledge_graph_id="kg-1",
+            session_id="session-1",
+            sync_run_id="sync-1",
+            job_package_id="pkg-1",
+        )
+
+        with pytest.raises(ValueError, match="expired"):
+            launcher.launch(request=request, credentials=expired_credentials)
+
     def test_launch_requires_credentials_scoped_to_request(self) -> None:
         issuer = ScopedWorkloadCredentialIssuer(default_ttl=timedelta(minutes=10))
         launcher = InMemoryEphemeralExtractionWorkerLauncher()

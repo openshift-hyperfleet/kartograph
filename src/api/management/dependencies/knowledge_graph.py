@@ -25,6 +25,9 @@ from management.infrastructure.repositories import (
     FernetSecretStore,
     KnowledgeGraphRepository,
 )
+from infrastructure.canonical_schema.graph_canonical_schema_repository import (
+    GraphCanonicalSchemaRepository,
+)
 from shared_kernel.authorization.protocols import AuthorizationProvider
 
 
@@ -62,4 +65,5 @@ def get_knowledge_graph_service(
         authz=authz,
         scope_to_tenant=current_user.tenant_id.value,
         probe=DefaultKnowledgeGraphServiceProbe(),
+        canonical_schema_repository=GraphCanonicalSchemaRepository(session),
     )

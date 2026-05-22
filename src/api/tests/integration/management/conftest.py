@@ -107,6 +107,9 @@ async def clean_management_data(
             await async_session.execute(text("DELETE FROM data_source_sync_runs"))
             await async_session.execute(text("DELETE FROM extraction_agent_sessions"))
             await async_session.execute(text("DELETE FROM data_sources"))
+            await async_session.execute(
+                text("DELETE FROM knowledge_graph_type_definitions")
+            )
             await async_session.execute(text("DELETE FROM knowledge_graphs"))
             await async_session.commit()
         except ProgrammingError:

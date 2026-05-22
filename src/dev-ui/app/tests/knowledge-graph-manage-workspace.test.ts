@@ -293,8 +293,8 @@ describe('KG-MANAGE-004 - step card status semantics', () => {
 })
 
 describe('KG-MANAGE-005 - graph-scoped data sources step', () => {
-  it('routes Data Sources step with kg_id and manage return context', () => {
-    expect(manageWorkspaceVue).toContain('buildDataSourcesStepUrl')
+  it('keeps data-sources route utility for workspace cards but not graph-management redirects', () => {
+    expect(manageWorkspaceVue).not.toContain('navigateTo(buildDataSourcesStepUrl(kgId))')
     expect(buildDataSourcesStepUrl('kg-abc')).toBe('/data-sources?kg_id=kg-abc&from=manage')
   })
 
@@ -306,8 +306,8 @@ describe('KG-MANAGE-005 - graph-scoped data sources step', () => {
 })
 
 describe('KG-MANAGE-015 - graph-scoped maintain step and round trip', () => {
-  it('routes Maintain step with graph scope and maintenance focus', () => {
-    expect(manageWorkspaceVue).toContain('buildMaintainStepUrl')
+  it('keeps maintain route utility for workspace cards but not graph-management redirects', () => {
+    expect(manageWorkspaceVue).not.toContain('navigateTo(buildMaintainStepUrl(kgId))')
     expect(buildMaintainStepUrl('kg-abc')).toBe(
       '/data-sources?kg_id=kg-abc&from=manage&focus=maintain',
     )
@@ -583,5 +583,23 @@ describe('KG-MANAGE-020 - forbidden and disabled action restrictions', () => {
     expect(manageWorkspaceVue).toContain('buildTransitionRestrictionReason')
     expect(manageWorkspaceVue).toContain('shouldApplyMutationResult')
     expect(manageWorkspaceVue).toContain('statusProjection.value = previousStatus')
+  })
+})
+
+describe('KG-MANAGE-021 - unified in-place graph operations', () => {
+  it('runs extraction jobs and logs directly in graph-management without data-sources redirect', () => {
+    expect(manageWorkspaceVue).toContain('triggerInlineSync')
+    expect(manageWorkspaceVue).toContain('loadInlineSyncRuns')
+    expect(manageWorkspaceVue).toContain('loadInlineRunLogs')
+    expect(manageWorkspaceVue).toContain('Run logs')
+    expect(manageWorkspaceVue).not.toContain('Open Data Source Operations')
+    expect(manageWorkspaceVue).not.toContain('Open Maintain Step')
+  })
+
+  it('applies one-off mutations directly in graph-management without mutations-console redirect', () => {
+    expect(manageWorkspaceVue).toContain('inlineMutationJsonl')
+    expect(manageWorkspaceVue).toContain('applyInlineMutations')
+    expect(manageWorkspaceVue).toContain('graphApi.applyMutations')
+    expect(manageWorkspaceVue).not.toContain('navigateTo(`/graph/mutations?kg_id=${kgId}&view=editor`)')
   })
 })

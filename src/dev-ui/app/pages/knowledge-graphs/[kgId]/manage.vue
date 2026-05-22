@@ -78,6 +78,27 @@ interface ExtractionSessionResponse {
   updated_at: string
 }
 
+interface SessionRunMetricView {
+  sync_run_id: string
+  mutation_log_id: string | null
+  status: string
+  started_at: string
+  completed_at: string | null
+  token_usage_total: number | null
+  cost_total_usd: number | null
+  operation_counts: Record<string, number>
+}
+
+interface ExtractionSessionHistoryItem {
+  id: string
+  created_at: string
+  updated_at: string
+  archived_at: string | null
+  is_active: boolean
+  message_count: number
+  run_metrics: SessionRunMetricView[]
+}
+
 const route = useRoute()
 const { hasTenant, tenantVersion } = useTenant()
 const { extractErrorMessage } = useErrorHandler()
@@ -90,8 +111,10 @@ const loading = ref(false)
 const validating = ref(false)
 const transitioning = ref(false)
 const sessionLoading = ref(false)
+const sessionHistoryLoading = ref(false)
 const clearingChat = ref(false)
 const extractionSession = ref<ExtractionSessionResponse | null>(null)
+const sessionHistory = ref<ExtractionSessionHistoryItem[]>([])
 const extractionTab = ref('extraction-jobs')
 const draftMessage = ref('')
 const statusProjection = ref<WorkspaceStatusResponse | null>(null)
@@ -311,6 +334,24 @@ async function loadExtractionSession() {
   }
 }
 
+async function loadSessionHistory() {
+  if (!kgId.value) return
+  sessionHistoryLoading.value = true
+  try {
+    const response = await apiFetch<{ sessions: ExtractionSessionHistoryItem[] }>(
+      `/extraction/knowledge-graphs/${kgId.value}/sessions/${sessionMode.value}/history`,
+    )
+    sessionHistory.value = response.sessions
+  } catch (err) {
+    sessionHistory.value = []
+    toast.error('Failed to load session history', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    sessionHistoryLoading.value = false
+  }
+}
+
 async function validateWorkspace() {
   if (!kgId.value) return
   validating.value = true
@@ -358,6 +399,7 @@ async function clearChat() {
       { method: 'POST' },
     )
     toast.success('Extraction chat cleared')
+    await loadSessionHistory()
   } catch (err) {
     toast.error('Failed to clear chat', {
       description: extractErrorMessage(err),
@@ -391,6 +433,7 @@ watch(
   (mode) => {
     if (mode) {
       loadExtractionSession()
+      loadSessionHistory()
     }
   },
 )
@@ -747,6 +790,75 @@ watch(
             <p class="font-mono break-all mt-1">
               {{ statusProjection.session_pointers.most_recent_completed_session_id ?? 'None' }}
             </p>
+          </div>
+        </CardContent>
+        <CardContent class="space-y-3 border-t pt-4">
+          <div class="flex items-center justify-between">
+            <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Session History
+            </p>
+            <Button
+              size="sm"
+              variant="ghost"
+              class="h-6 px-2 text-[10px]"
+              :disabled="sessionHistoryLoading"
+              @click="loadSessionHistory"
+            >
+              Refresh
+            </Button>
+          </div>
+          <div
+            v-if="sessionHistoryLoading"
+            class="flex items-center gap-2 text-xs text-muted-foreground"
+          >
+            <Loader2 class="size-3.5 animate-spin" />
+            Loading session history...
+          </div>
+          <div
+            v-else-if="sessionHistory.length === 0"
+            class="rounded border border-dashed px-3 py-4 text-xs text-muted-foreground"
+          >
+            No archived or active sessions found for this scope yet.
+          </div>
+          <div v-else class="space-y-2">
+            <div
+              v-for="entry in sessionHistory"
+              :key="entry.id"
+              class="rounded border px-3 py-2 text-xs"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <p class="font-mono break-all">{{ entry.id }}</p>
+                <Badge :variant="entry.is_active ? 'default' : 'secondary'">
+                  {{ entry.is_active ? 'Active' : 'Archived' }}
+                </Badge>
+              </div>
+              <p class="mt-1 text-muted-foreground">
+                Updated {{ new Date(entry.updated_at).toLocaleString() }}
+                <span v-if="entry.archived_at">
+                  · Archived {{ new Date(entry.archived_at).toLocaleString() }}
+                </span>
+              </p>
+              <p class="mt-1 text-muted-foreground">
+                {{ entry.message_count }} message(s)
+                · {{ entry.run_metrics.length }} linked run(s)
+              </p>
+              <div
+                v-if="entry.run_metrics.length > 0"
+                class="mt-2 space-y-1.5 rounded border bg-muted/20 p-2"
+              >
+                <div
+                  v-for="metric in entry.run_metrics"
+                  :key="metric.sync_run_id"
+                  class="flex flex-wrap items-center justify-between gap-2"
+                >
+                  <span class="font-mono">{{ metric.mutation_log_id ?? metric.sync_run_id }}</span>
+                  <span class="text-muted-foreground">
+                    {{ metric.token_usage_total ?? 0 }} tokens ·
+                    ${{ (metric.cost_total_usd ?? 0).toFixed(2) }}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>

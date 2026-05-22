@@ -197,3 +197,30 @@ class TestExtractionSessionRoutes:
         assert intake["selected_path"] == BootstrapIntakePath.GUIDED_CO_DESIGN.value
         assert intake["status"] == "path_selected"
 
+    def test_session_history_endpoint_returns_archived_sessions_with_run_metrics(
+        self, extraction_client
+    ):
+        client, _ = extraction_client
+        active = client.get(
+            "/extraction/knowledge-graphs/kg-123/sessions/extraction_operations/active"
+        )
+        assert active.status_code == status.HTTP_200_OK
+        archived_id = active.json()["id"]
+
+        client.post(
+            "/extraction/knowledge-graphs/kg-123/sessions/extraction_operations/clear-chat"
+        )
+
+        response = client.get(
+            "/extraction/knowledge-graphs/kg-123/sessions/extraction_operations/history"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["count"] == 2
+        archived = next(
+            row for row in payload["sessions"] if row["id"] == archived_id
+        )
+        assert archived["archived_at"] is not None
+        assert archived["updated_at"] is not None
+        assert archived["run_metrics"] == []
+

@@ -39,6 +39,29 @@ from shared_kernel.datasource_types import DataSourceAdapterType
 router = APIRouter(tags=["data-sources"])
 
 
+def _build_operation_count_entry_previews(
+    operation_counts: dict[str, int],
+) -> list[tuple[int, str, str]]:
+    """Expand operation counts into stable, per-entry preview rows."""
+    previews: list[tuple[int, str, str]] = []
+    line_number = 1
+    for operation_class in sorted(operation_counts.keys()):
+        raw_count = operation_counts.get(operation_class, 0)
+        count = int(raw_count) if raw_count is not None else 0
+        if count <= 0:
+            continue
+        for occurrence in range(1, count + 1):
+            previews.append(
+                (
+                    line_number,
+                    operation_class,
+                    f"{operation_class} operation {occurrence} of {count}",
+                )
+            )
+            line_number += 1
+    return previews
+
+
 @router.post(
     "/data-sources/{ds_id}/commit-refs/refresh",
     status_code=status.HTTP_200_OK,
@@ -724,8 +747,8 @@ async def list_mutation_log_entry_previews(
 ) -> MutationLogEntryPreviewPageResponse:
     """List paginated mutation-log entry previews for a sync run.
 
-    Returns an empty page with ``preview_available=false`` until mutation-log
-    storage is wired for per-entry retrieval (#721 follow-on).
+    Entry previews are derived from recorded per-run operation counts,
+    giving users line-by-line visibility beyond aggregate totals.
     """
     try:
         ds = await service.get(
@@ -756,12 +779,25 @@ async def list_mutation_log_entry_previews(
                 preview_available=False,
             )
 
+        expanded_previews = _build_operation_count_entry_previews(
+            sync_run.mutation_log_run.operation_counts
+        )
+        total = len(expanded_previews)
+        page = expanded_previews[offset : offset + limit]
+
         return MutationLogEntryPreviewPageResponse(
-            entries=[],
-            total=0,
+            entries=[
+                {
+                    "line_number": line_number,
+                    "operation_class": operation_class,
+                    "summary": summary,
+                }
+                for line_number, operation_class, summary in page
+            ],
+            total=total,
             offset=offset,
             limit=limit,
-            preview_available=False,
+            preview_available=total > 0,
         )
 
     except HTTPException:

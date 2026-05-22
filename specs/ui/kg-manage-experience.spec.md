@@ -88,7 +88,8 @@ The system SHALL preserve the established data-source operations experience whil
 #### Scenario: Graph-scoped data source step
 - GIVEN the user opens `Data Sources` from KG manage workspace
 - THEN the destination is pre-scoped to the selected knowledge graph
-- AND existing commit cues, maintenance readiness, and diff summary behaviors remain available
+- AND source onboarding and source-level commit/diff cues remain available in that scoped view
+- AND graph-wide maintenance orchestration and run telemetry remain in `Manage`
 - AND returning to manage workspace preserves the current graph context
 
 ### Requirement: Graph Management Conversation-First Layout

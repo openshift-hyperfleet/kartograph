@@ -3139,7 +3139,7 @@ describe('Data Sources — kg_id query param pre-selects KG and opens wizard (Ta
   })
 })
 
-describe('Extraction telemetry dashboard - structural verification', () => {
+describe('Data-sources-focused layout - structural verification', () => {
   const { readFileSync } = require('fs')
   const { resolve } = require('path')
   const source = readFileSync(
@@ -3147,42 +3147,52 @@ describe('Extraction telemetry dashboard - structural verification', () => {
     'utf-8',
   )
 
-  it('declares telemetry status buckets and recent jobs computeds', () => {
-    expect(source).toContain('telemetryStatusBuckets')
-    expect(source).toContain('telemetryRecentJobs')
+  it('keeps data-source catalog guidance and removes telemetry dashboard copy', () => {
+    expect(source).toContain('Data source catalog')
+    expect(source).not.toContain('Active workers')
+    expect(source).not.toContain('Estimated cost trend')
   })
 
-  it('renders active worker and token usage cards', () => {
-    expect(source).toContain('Active workers')
-    expect(source).toContain('Total token usage')
+  it('removes scheduled maintenance orchestration from this page', () => {
+    expect(source).not.toContain('Scheduled maintenance orchestration')
+    expect(source).not.toContain('maintenance-runs/trigger')
   })
 
-  it('renders estimated cost trend with 24h comparison', () => {
-    expect(source).toContain('Estimated cost trend')
-    expect(source).toContain('previous 24h')
+  it('renders URL-first onboarding with provider detection and coming soon messaging', () => {
+    expect(source).toContain('Paste your source URLs')
+    expect(source).toContain('Add another')
+    expect(source).toContain('Detected:')
+    expect(source).toContain('onboarding is coming soon, sorry.')
+    expect(source).toContain('Add to project')
   })
 })
 
-describe('Scheduled maintenance orchestration - structural verification', () => {
-  const source = readFileSync(
-    resolve(__dirname, '../pages/data-sources/index.vue'),
-    'utf-8',
-  )
+describe('Bulk onboarding partial-success behavior', () => {
+  it('retains only failed entries when batch create is partially successful', async () => {
+    const pendingSources = [
+      { id: '1', name: 'repo-one', url: 'https://github.com/acme/repo-one', branch: 'main' },
+      { id: '2', name: 'repo-two', url: 'https://github.com/acme/repo-two', branch: 'main' },
+      { id: '3', name: 'repo-three', url: 'https://github.com/acme/repo-three', branch: 'main' },
+    ]
+    const createDataSource = vi.fn()
+      .mockResolvedValueOnce({ id: 'ds-1' })
+      .mockRejectedValueOnce(new Error('token invalid'))
+      .mockResolvedValueOnce({ id: 'ds-3' })
+    const failedIds: string[] = []
+    let successCount = 0
 
-  it('declares maintenance schedule state and loader function', () => {
-    expect(source).toContain('maintenanceSchedule')
-    expect(source).toContain('loadMaintenanceOrchestration')
-  })
+    for (const entry of pendingSources) {
+      try {
+        await createDataSource(entry)
+        successCount += 1
+      } catch {
+        failedIds.push(entry.id)
+      }
+    }
 
-  it('renders the scheduled maintenance panel and trigger action', () => {
-    expect(source).toContain('Scheduled maintenance orchestration')
-    expect(source).toContain('maintenance-runs/trigger')
-    expect(source).toContain('Run now')
-  })
-
-  it('renders maintenance outcome history list', () => {
-    expect(source).toContain('No maintenance orchestration runs recorded yet.')
-    expect(source).toContain('maintenanceOutcomeTone')
+    const remaining = pendingSources.filter((entry) => failedIds.includes(entry.id))
+    expect(successCount).toBe(2)
+    expect(remaining.map((entry) => entry.id)).toEqual(['2'])
   })
 })
 

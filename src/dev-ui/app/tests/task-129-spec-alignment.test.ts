@@ -873,90 +873,31 @@ describe('Task-129 — Scenario: Default landing', () => {
   })
 })
 
-// ── Requirement: Ontology Design — Scenario: Intent description ───────────────
+// ── Requirement: Data Source Connection — URL-first onboarding ────────────────
 //
-// Spec: "GIVEN a user who has connected a data source
-//        WHEN the connection is saved
-//        THEN the user is prompted to describe (in free text) what problems or
-//        questions they want to solve with this data"
+// Spec: URL-first flow with provider auto-detection and coming-soon handling.
 
-describe('Task-129 — Scenario: Intent description', () => {
-  it('data-sources page has an intentText ref for the free-text description prompt', () => {
-    // Step 3 of the wizard: the user describes their intent before ontology proposal
-    expect(dataSourcesVue).toContain('intentText')
+describe('Task-129 — Scenario: URL-first data source onboarding', () => {
+  it('data-sources page prompts for source URL first', () => {
+    expect(dataSourcesVue).toContain('Paste your source URLs')
+    expect(dataSourcesVue).toContain('sourceUrlInputs')
+    expect(dataSourcesVue).toContain('Add another')
   })
 
-  it('intentText is validated before submitting — intentError is shown if invalid', () => {
-    expect(dataSourcesVue).toContain('intentError')
-    expect(dataSourcesVue).toContain('validateIntentText')
+  it('provider detection is shown with explicit coming-soon messaging', () => {
+    expect(dataSourcesVue).toContain('Detected provider:')
+    expect(dataSourcesVue).toContain('onboarding is coming soon, sorry.')
   })
 
-  it('submitting intent calls beginOntologyProposal()', () => {
-    // After valid intent, the system starts the proposal flow
-    expect(dataSourcesVue).toContain('beginOntologyProposal')
-  })
-})
-
-// ── Requirement: Ontology Design — Scenario: Agent-proposed ontology ──────────
-//
-// Spec: "GIVEN a free-text intent description and a connected data source
-//        WHEN the user submits their intent
-//        THEN the system performs a lightweight scan of the data source
-//        AND an AI agent explores the scanned data and proposes an ontology
-//        AND the proposed ontology is presented to the user for review"
-
-describe('Task-129 — Scenario: Agent-proposed ontology', () => {
-  it('data-sources page has proposedNodes ref for the agent-proposed node types', () => {
-    expect(dataSourcesVue).toContain('proposedNodes')
+  it('wizard validates provider/URL through validateStep1 before advancing', () => {
+    expect(dataSourcesVue).toContain('validateStep1')
+    expect(dataSourcesVue).toContain('detectAdapterFromUrl')
   })
 
-  it('data-sources page has proposedEdges ref for the agent-proposed edge types', () => {
-    expect(dataSourcesVue).toContain('proposedEdges')
-  })
-
-  it('data-sources page has ontologyReady ref — true when proposal is ready for review', () => {
-    // ontologyReady = true signals the wizard to show the review step
-    expect(dataSourcesVue).toContain('ontologyReady')
-  })
-
-  it('beginOntologyProposal() resets proposal state before re-fetching', () => {
-    // Clearing previous state prevents stale proposal data from being shown
-    expect(dataSourcesVue).toContain('proposedNodes.value = []')
-    expect(dataSourcesVue).toContain('proposedEdges.value = []')
-  })
-
-  it('beginOntologyProposal() sets ontologyReady to true after proposal is complete', () => {
-    expect(dataSourcesVue).toContain('ontologyReady.value = true')
-  })
-})
-
-// ── Requirement: Ontology Design — Scenario: Ontology review and approval ─────
-//
-// Spec: "GIVEN a proposed ontology
-//        WHEN the user reviews it
-//        THEN they can approve the ontology as-is
-//        OR iterate by editing individual types and relationships
-//        AND extraction begins only after the user explicitly approves"
-
-describe('Task-129 — Scenario: Ontology review and approval', () => {
-  it('data-sources page has an approveOntology() function that triggers extraction', () => {
-    // Spec: "extraction begins only after the user explicitly approves"
-    expect(dataSourcesVue).toContain('approveOntology')
-  })
-
-  it('approve button is disabled until ontologyReady is true', () => {
-    // Prevents the user from approving before the proposal has loaded
-    expect(dataSourcesVue).toContain(':disabled="!ontologyReady')
-  })
-
-  it('approvingOntology flag prevents double submission on approval', () => {
-    expect(dataSourcesVue).toContain('approvingOntology')
-  })
-
-  it('approval step is the final step in the wizard — extraction follows approval', () => {
-    // The wizard step after review/approval creates the data source and starts sync
-    expect(dataSourcesVue).toContain('approveOntology')
-    expect(dataSourcesVue).toContain('triggerSync')
+  it('connection confirmation includes tracked branch and one-time token entry', () => {
+    expect(dataSourcesVue).toContain('Tracked Branch')
+    expect(dataSourcesVue).toContain('Add to project')
+    expect(dataSourcesVue).toContain('Access Token (optional)')
   })
 })
 

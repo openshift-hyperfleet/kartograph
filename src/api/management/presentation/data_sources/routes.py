@@ -29,6 +29,7 @@ from management.presentation.data_sources.models import (
     DataSourceWithSyncResponse,
     RunControlAction,
     RunControlResponse,
+    MutationLogEntryPreviewPageResponse,
     SyncRunLogsResponse,
     SyncRunResponse,
     UpdateDataSourceRequest,
@@ -703,4 +704,70 @@ async def get_sync_run_logs(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch sync run logs",
+        )
+
+
+@router.get(
+    "/data-sources/{ds_id}/sync-runs/{run_id}/mutation-log-entries",
+    status_code=status.HTTP_200_OK,
+)
+async def list_mutation_log_entry_previews(
+    ds_id: str,
+    run_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+    sync_run_repo: Annotated[
+        IDataSourceSyncRunRepository, Depends(get_sync_run_repository)
+    ],
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> MutationLogEntryPreviewPageResponse:
+    """List paginated mutation-log entry previews for a sync run.
+
+    Returns an empty page with ``preview_available=false`` until mutation-log
+    storage is wired for per-entry retrieval (#721 follow-on).
+    """
+    try:
+        ds = await service.get(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+        )
+
+        if ds is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Data source not found",
+            )
+
+        sync_run = await sync_run_repo.get_by_id(run_id)
+
+        if sync_run is None or sync_run.data_source_id != ds_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Sync run not found",
+            )
+
+        if sync_run.mutation_log_run is None:
+            return MutationLogEntryPreviewPageResponse(
+                entries=[],
+                total=0,
+                offset=offset,
+                limit=limit,
+                preview_available=False,
+            )
+
+        return MutationLogEntryPreviewPageResponse(
+            entries=[],
+            total=0,
+            offset=offset,
+            limit=limit,
+            preview_available=False,
+        )
+
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch mutation log entry previews",
         )

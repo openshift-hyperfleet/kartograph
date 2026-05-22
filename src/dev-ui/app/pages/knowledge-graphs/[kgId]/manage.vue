@@ -41,6 +41,16 @@ import {
   resolveSectionState,
   shouldApplyMutationResult,
 } from '@/utils/kgManageState'
+import {
+  buildMutationLogEntryPreviewUrl,
+  collectScopedMutationLogRuns,
+  hasMutationLogEntryPreviewPage,
+  MUTATION_LOG_ENTRY_PREVIEW_PAGE_SIZE,
+  MUTATION_LOG_NO_PREVIEW_MESSAGE,
+  resolveDefaultSelectedMutationLogRunId,
+  type MutationLogEntryPreviewPage,
+  type MutationLogRunRecord,
+} from '@/utils/kgMutationLogs'
 
 interface WorkspaceReadinessStatus {
   has_minimum_entity_types: boolean
@@ -77,20 +87,8 @@ interface DataSourceRef {
   tracked_branch_head_commit?: string | null
 }
 
-interface MutationLogRunView {
-  id: string
-  data_source_id: string
+interface MutationLogRunView extends MutationLogRunRecord {
   data_source_name: string
-  status: string
-  started_at: string
-  completed_at: string | null
-  mutation_log_id: string | null
-  session_id: string | null
-  actor_id: string | null
-  operation_counts: Record<string, number>
-  token_usage_total: number | null
-  cost_total_usd: number | null
-  error: string | null
 }
 
 interface ExtractionSessionResponse {
@@ -152,6 +150,9 @@ const mutationLogRuns = ref<MutationLogRunView[]>([])
 const selectedMutationLogRunId = ref<string | null>(null)
 const graphManagementMode = ref<GraphManagementMode>('initial-schema-design')
 const selectedRailItemId = ref<GraphManagementRailItemId | null>(null)
+const mutationLogEntryPreviewLoading = ref(false)
+const mutationLogEntryPreviewPage = ref<MutationLogEntryPreviewPage | null>(null)
+const mutationLogEntryPreviewOffset = ref(0)
 
 const activeStep = computed(() => parseManageStepQuery(route.query.step))
 const showOverview = computed(() => activeStep.value === null)
@@ -410,34 +411,28 @@ async function loadMutationLogRuns() {
       `/management/knowledge-graphs/${kgId.value}/data-sources`,
     )
 
-    const collected: MutationLogRunView[] = []
+    const runsByDataSourceId: Record<string, MutationLogRunRecord[]> = {}
     for (const ds of dataSources) {
       try {
-        const runs = await apiFetch<MutationLogRunView[]>(
+        runsByDataSourceId[ds.id] = await apiFetch<MutationLogRunRecord[]>(
           `/management/data-sources/${ds.id}/sync-runs`,
         )
-        for (const run of runs) {
-          if (!run.mutation_log_id) continue
-          collected.push({
-            ...run,
-            data_source_name: ds.name,
-          })
-        }
       } catch {
-        // Keep page resilient when one data source run list fails.
+        runsByDataSourceId[ds.id] = []
       }
     }
 
-    collected.sort(
-      (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime(),
-    )
+    const collected = collectScopedMutationLogRuns(
+      kgId.value,
+      dataSources,
+      runsByDataSourceId,
+    ) as MutationLogRunView[]
+
     mutationLogRuns.value = collected
-    if (
-      !selectedMutationLogRunId.value
-      || !collected.some((run) => run.id === selectedMutationLogRunId.value)
-    ) {
-      selectedMutationLogRunId.value = collected[0]?.id ?? null
-    }
+    selectedMutationLogRunId.value = resolveDefaultSelectedMutationLogRunId(
+      collected,
+      selectedMutationLogRunId.value,
+    )
   } catch (err) {
     if (isForbiddenHttpError(err)) {
       mutationLogLoadError.value = resolveForbiddenReason(
@@ -452,8 +447,45 @@ async function loadMutationLogRuns() {
     }
     mutationLogRuns.value = []
     selectedMutationLogRunId.value = null
+    mutationLogEntryPreviewPage.value = null
   } finally {
     mutationLogLoading.value = false
+  }
+}
+
+async function loadMutationLogEntryPreviews(offset = 0) {
+  const run = selectedMutationLogRun.value
+  if (!run) {
+    mutationLogEntryPreviewPage.value = null
+    mutationLogEntryPreviewOffset.value = 0
+    return
+  }
+
+  mutationLogEntryPreviewLoading.value = true
+  try {
+    mutationLogEntryPreviewPage.value = await apiFetch<MutationLogEntryPreviewPage>(
+      buildMutationLogEntryPreviewUrl(
+        run.data_source_id,
+        run.id,
+        offset,
+        MUTATION_LOG_ENTRY_PREVIEW_PAGE_SIZE,
+      ),
+    )
+    mutationLogEntryPreviewOffset.value = offset
+  } catch (err) {
+    mutationLogEntryPreviewPage.value = {
+      entries: [],
+      total: 0,
+      offset,
+      limit: MUTATION_LOG_ENTRY_PREVIEW_PAGE_SIZE,
+      preview_available: false,
+    }
+    mutationLogEntryPreviewOffset.value = offset
+    toast.error('Failed to load mutation log entry previews', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    mutationLogEntryPreviewLoading.value = false
   }
 }
 
@@ -702,6 +734,10 @@ watch(
     }
   },
 )
+
+watch(selectedMutationLogRunId, () => {
+  loadMutationLogEntryPreviews(0)
+})
 </script>
 
 <template>
@@ -891,6 +927,7 @@ watch(
             </div>
 
             <div v-if="selectedMutationLogRun" class="space-y-3 rounded border p-3">
+              <p class="text-xs font-medium text-muted-foreground">Run summary</p>
               <div class="flex flex-wrap items-center gap-2">
                 <Badge>{{ selectedMutationLogRun.status }}</Badge>
                 <p class="text-xs text-muted-foreground">
@@ -935,7 +972,7 @@ watch(
                 </div>
               </div>
               <div class="rounded border p-3">
-                <p class="mb-2 text-xs font-medium text-muted-foreground">Per-entry operation previews</p>
+                <p class="mb-2 text-xs font-medium text-muted-foreground">Operation class counts</p>
                 <div v-if="Object.keys(selectedMutationLogRun.operation_counts).length === 0" class="text-xs text-muted-foreground">
                   No operation class counts recorded for this run.
                 </div>
@@ -947,6 +984,57 @@ watch(
                   >
                     <span class="font-mono">{{ opClass }}</span>
                     <Badge variant="secondary">{{ count }}</Badge>
+                  </div>
+                </div>
+              </div>
+              <div class="rounded border p-3">
+                <div class="mb-2 flex items-center justify-between gap-2">
+                  <p class="text-xs font-medium text-muted-foreground">Per-entry operation previews</p>
+                  <div
+                    v-if="hasMutationLogEntryPreviewPage(mutationLogEntryPreviewPage)"
+                    class="flex items-center gap-1"
+                  >
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      class="h-6 px-2 text-[10px]"
+                      :disabled="mutationLogEntryPreviewLoading || mutationLogEntryPreviewOffset === 0"
+                      @click="loadMutationLogEntryPreviews(mutationLogEntryPreviewOffset - MUTATION_LOG_ENTRY_PREVIEW_PAGE_SIZE)"
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      class="h-6 px-2 text-[10px]"
+                      :disabled="mutationLogEntryPreviewLoading || (mutationLogEntryPreviewPage?.offset ?? 0) + (mutationLogEntryPreviewPage?.entries.length ?? 0) >= (mutationLogEntryPreviewPage?.total ?? 0)"
+                      @click="loadMutationLogEntryPreviews(mutationLogEntryPreviewOffset + MUTATION_LOG_ENTRY_PREVIEW_PAGE_SIZE)"
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+                <div v-if="mutationLogEntryPreviewLoading" class="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 class="size-3.5 animate-spin" />
+                  Loading entry previews...
+                </div>
+                <div
+                  v-else-if="!hasMutationLogEntryPreviewPage(mutationLogEntryPreviewPage)"
+                  class="rounded border border-dashed px-3 py-4 text-xs text-muted-foreground"
+                >
+                  {{ MUTATION_LOG_NO_PREVIEW_MESSAGE }}
+                </div>
+                <div v-else class="space-y-1.5">
+                  <div
+                    v-for="entry in mutationLogEntryPreviewPage?.entries ?? []"
+                    :key="`${entry.line_number}-${entry.operation_class}`"
+                    class="rounded border px-2 py-1.5 text-xs"
+                  >
+                    <div class="flex items-center justify-between gap-2">
+                      <span class="font-mono">{{ entry.operation_class }}</span>
+                      <span class="text-[10px] text-muted-foreground">Line {{ entry.line_number }}</span>
+                    </div>
+                    <p class="mt-1 text-muted-foreground">{{ entry.summary }}</p>
                   </div>
                 </div>
               </div>

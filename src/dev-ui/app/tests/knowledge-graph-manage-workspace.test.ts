@@ -90,7 +90,7 @@ describe('Knowledge Graph Manage Workspace - mutation log browser', () => {
 
   it('loads sync runs per data source and filters to mutation-log runs', () => {
     expect(manageWorkspaceVue).toContain('/management/data-sources/${ds.id}/sync-runs')
-    expect(manageWorkspaceVue).toContain('if (!run.mutation_log_id) continue')
+    expect(manageWorkspaceVue).toContain('collectScopedMutationLogRuns')
   })
 
   it('renders run detail summary with token and cost metrics', () => {
@@ -100,10 +100,53 @@ describe('Knowledge Graph Manage Workspace - mutation log browser', () => {
     expect(manageWorkspaceVue).toContain('cost_total_usd')
   })
 
-  it('renders per-entry operation preview rows from operation_counts', () => {
+  it('separates operation class counts from per-entry previews', () => {
+    expect(manageWorkspaceVue).toContain('Operation class counts')
     expect(manageWorkspaceVue).toContain('Per-entry operation previews')
-    expect(manageWorkspaceVue).toContain('operation_counts')
     expect(manageWorkspaceVue).toContain('Object.entries(selectedMutationLogRun.operation_counts)')
+    expect(manageWorkspaceVue).toContain('loadMutationLogEntryPreviews')
+  })
+})
+
+describe('KG-MANAGE-012 - graph-scoped mutation run list', () => {
+  it('loads runs only from graph-scoped data sources with KG metadata filtering', () => {
+    expect(manageWorkspaceVue).toContain('collectScopedMutationLogRuns')
+    expect(manageWorkspaceVue).toContain('knowledge_graph_id')
+  })
+
+  it('defaults run list ordering to newest-first', () => {
+    expect(manageWorkspaceVue).toContain('collectScopedMutationLogRuns')
+    expect(manageWorkspaceVue).toContain('resolveDefaultSelectedMutationLogRunId')
+  })
+
+  it('shows status, timestamp, source, and run identifier in run list items', () => {
+    expect(manageWorkspaceVue).toContain('run.data_source_name')
+    expect(manageWorkspaceVue).toContain('run.started_at')
+    expect(manageWorkspaceVue).toContain('run.status')
+    expect(manageWorkspaceVue).toContain('run.mutation_log_id')
+  })
+})
+
+describe('KG-MANAGE-013 - run detail richness', () => {
+  it('renders run summary, session reference, token/cost metrics, and operation counts', () => {
+    expect(manageWorkspaceVue).toContain('Run summary')
+    expect(manageWorkspaceVue).toContain('Session')
+    expect(manageWorkspaceVue).toContain('Token usage')
+    expect(manageWorkspaceVue).toContain('Cost (USD)')
+    expect(manageWorkspaceVue).toContain('Operation class counts')
+  })
+
+  it('loads paginated per-entry previews from mutation-log-entries API', () => {
+    expect(manageWorkspaceVue).toContain('buildMutationLogEntryPreviewUrl')
+    expect(manageWorkspaceVue).toContain('loadMutationLogEntryPreviews')
+    expect(manageWorkspaceVue).toContain('mutationLogEntryPreviewPage')
+  })
+})
+
+describe('KG-MANAGE-014 - no-preview fallback state', () => {
+  it('shows explicit fallback when entry previews are unavailable', () => {
+    expect(manageWorkspaceVue).toContain('MUTATION_LOG_NO_PREVIEW_MESSAGE')
+    expect(manageWorkspaceVue).toContain('hasMutationLogEntryPreviewPage')
   })
 })
 

@@ -48,3 +48,9 @@ class UnauthorizedError(Exception):
     """
 
     pass
+
+
+class CanonicalSchemaMutationError(Exception):
+    """Raised when canonical schema mutation-log application fails."""
+
+    pass

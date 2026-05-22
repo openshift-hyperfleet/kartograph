@@ -22,8 +22,6 @@ import {
   type GraphManagementRailItemId,
 } from '@/utils/kgGraphManagement'
 import {
-  buildDataSourcesStepUrl,
-  buildMaintainStepUrl,
   buildManageStepUrl,
   buildSuggestedNextStep,
   buildWorkspaceStepCards,
@@ -51,6 +49,7 @@ import {
   type MutationLogEntryPreviewPage,
   type MutationLogRunRecord,
 } from '@/utils/kgMutationLogs'
+import { useGraphApi } from '@/composables/api/useGraphApi'
 
 interface WorkspaceReadinessStatus {
   has_minimum_entity_types: boolean
@@ -91,6 +90,13 @@ interface MutationLogRunView extends MutationLogRunRecord {
   data_source_name: string
 }
 
+interface InlineSyncRun {
+  id: string
+  status: string
+  started_at: string
+  completed_at: string | null
+}
+
 interface ExtractionSessionResponse {
   id: string
   message_history: Array<{ role?: string; content?: string; message?: string }>
@@ -123,6 +129,7 @@ const route = useRoute()
 const { hasTenant, tenantVersion } = useTenant()
 const { extractErrorMessage } = useErrorHandler()
 const { apiFetch } = useApiClient()
+const graphApi = useGraphApi()
 const kgId = computed(() => String(route.params.kgId ?? ''))
 const kgIdentity = ref<KnowledgeGraphIdentity | null>(null)
 const dataSourceCount = ref(0)
@@ -153,6 +160,21 @@ const selectedRailItemId = ref<GraphManagementRailItemId | null>(null)
 const mutationLogEntryPreviewLoading = ref(false)
 const mutationLogEntryPreviewPage = ref<MutationLogEntryPreviewPage | null>(null)
 const mutationLogEntryPreviewOffset = ref(0)
+const graphManagementDataSources = ref<DataSourceRef[]>([])
+const graphManagementDataSourcesLoading = ref(false)
+const graphManagementDataSourcesError = ref<string | null>(null)
+const selectedOpsDataSourceId = ref<string | null>(null)
+const inlineSyncRuns = ref<InlineSyncRun[]>([])
+const inlineSyncRunsLoading = ref(false)
+const inlineSyncRunsError = ref<string | null>(null)
+const inlineSyncTriggering = ref(false)
+const selectedInlineRunId = ref<string | null>(null)
+const inlineRunLogs = ref<string[]>([])
+const inlineRunLogsLoading = ref(false)
+const inlineRunLogsError = ref<string | null>(null)
+const inlineMutationJsonl = ref('')
+const inlineMutationApplying = ref(false)
+const inlineMutationApplyError = ref<string | null>(null)
 
 const activeStep = computed(() => parseManageStepQuery(route.query.step))
 const showOverview = computed(() => activeStep.value === null)
@@ -278,6 +300,10 @@ const selectedMutationLogRun = computed(() =>
   mutationLogRuns.value.find((run) => run.id === selectedMutationLogRunId.value) ?? null,
 )
 
+const selectedOpsDataSource = computed(() =>
+  graphManagementDataSources.value.find((ds) => ds.id === selectedOpsDataSourceId.value) ?? null,
+)
+
 const progressChecklist = computed(() => {
   const readiness = statusProjection.value?.readiness
   if (!readiness) return []
@@ -359,6 +385,104 @@ async function loadOverviewMetrics() {
   } catch {
     dataSourceCount.value = 0
     maintenanceReadyCount.value = 0
+  }
+}
+
+async function loadGraphManagementDataSources() {
+  if (!hasTenant.value || !kgId.value || activeStep.value !== 'graph-management') return
+  graphManagementDataSourcesLoading.value = true
+  graphManagementDataSourcesError.value = null
+  try {
+    const dataSources = await apiFetch<DataSourceRef[]>(
+      `/management/knowledge-graphs/${kgId.value}/data-sources`,
+    )
+    graphManagementDataSources.value = dataSources
+    if (
+      !selectedOpsDataSourceId.value
+      || !dataSources.some((ds) => ds.id === selectedOpsDataSourceId.value)
+    ) {
+      selectedOpsDataSourceId.value = dataSources[0]?.id ?? null
+    }
+  } catch (err) {
+    graphManagementDataSources.value = []
+    selectedOpsDataSourceId.value = null
+    graphManagementDataSourcesError.value = extractErrorMessage(err)
+  } finally {
+    graphManagementDataSourcesLoading.value = false
+  }
+}
+
+async function loadInlineSyncRuns() {
+  if (!selectedOpsDataSourceId.value) {
+    inlineSyncRuns.value = []
+    return
+  }
+  inlineSyncRunsLoading.value = true
+  inlineSyncRunsError.value = null
+  try {
+    const runs = await apiFetch<InlineSyncRun[]>(
+      `/management/data-sources/${selectedOpsDataSourceId.value}/sync-runs`,
+    )
+    inlineSyncRuns.value = runs
+    selectedInlineRunId.value = runs[0]?.id ?? null
+  } catch (err) {
+    inlineSyncRuns.value = []
+    selectedInlineRunId.value = null
+    inlineSyncRunsError.value = extractErrorMessage(err)
+  } finally {
+    inlineSyncRunsLoading.value = false
+  }
+}
+
+async function triggerInlineSync() {
+  if (!selectedOpsDataSourceId.value) return
+  inlineSyncTriggering.value = true
+  try {
+    await apiFetch(`/management/data-sources/${selectedOpsDataSourceId.value}/sync`, { method: 'POST' })
+    toast.success('Sync triggered')
+    await loadInlineSyncRuns()
+  } catch (err) {
+    toast.error('Failed to trigger sync', { description: extractErrorMessage(err) })
+  } finally {
+    inlineSyncTriggering.value = false
+  }
+}
+
+async function loadInlineRunLogs(runId: string) {
+  if (!selectedOpsDataSourceId.value) return
+  selectedInlineRunId.value = runId
+  inlineRunLogsLoading.value = true
+  inlineRunLogsError.value = null
+  try {
+    const result = await apiFetch<{ logs: string[] }>(
+      `/management/data-sources/${selectedOpsDataSourceId.value}/sync-runs/${runId}/logs`,
+    )
+    inlineRunLogs.value = result.logs ?? []
+  } catch (err) {
+    inlineRunLogs.value = []
+    inlineRunLogsError.value = extractErrorMessage(err)
+  } finally {
+    inlineRunLogsLoading.value = false
+  }
+}
+
+async function applyInlineMutations() {
+  if (!kgId.value || inlineMutationJsonl.value.trim().length === 0) {
+    inlineMutationApplyError.value = 'Add one or more JSONL mutation operations first.'
+    return
+  }
+  inlineMutationApplying.value = true
+  inlineMutationApplyError.value = null
+  try {
+    await graphApi.applyMutations(kgId.value, inlineMutationJsonl.value.trim())
+    toast.success('Mutations applied')
+    inlineMutationJsonl.value = ''
+    await loadMutationLogRuns()
+  } catch (err) {
+    inlineMutationApplyError.value = extractErrorMessage(err)
+    toast.error('Failed to apply mutations', { description: inlineMutationApplyError.value })
+  } finally {
+    inlineMutationApplying.value = false
   }
 }
 
@@ -731,12 +855,20 @@ watch(
       syncGraphManagementState()
       loadExtractionSession()
       loadSessionHistory()
+      loadGraphManagementDataSources()
     }
   },
 )
 
 watch(selectedMutationLogRunId, () => {
   loadMutationLogEntryPreviews(0)
+})
+
+watch(selectedOpsDataSourceId, () => {
+  inlineRunLogs.value = []
+  inlineRunLogsError.value = null
+  selectedInlineRunId.value = null
+  loadInlineSyncRuns()
 })
 </script>
 
@@ -1358,33 +1490,140 @@ watch(selectedMutationLogRunId, () => {
 
               <template v-else-if="graphManagementMode === 'extraction-jobs'">
                 <p class="text-muted-foreground">
-                  Trigger extraction and maintenance controls from the data sources operations panel.
+                  Trigger extraction jobs, inspect run history, and view run logs without leaving this workspace.
                 </p>
+                <div class="space-y-3 rounded border p-3">
+                  <p class="text-xs font-medium text-muted-foreground">Data source</p>
+                  <div
+                    v-if="graphManagementDataSourcesLoading"
+                    class="flex items-center gap-2 text-xs text-muted-foreground"
+                  >
+                    <Loader2 class="size-3.5 animate-spin" />
+                    Loading data sources...
+                  </div>
+                  <div v-else-if="graphManagementDataSourcesError" class="text-xs text-destructive">
+                    {{ graphManagementDataSourcesError }}
+                  </div>
+                  <div
+                    v-else-if="graphManagementDataSources.length === 0"
+                    class="text-xs text-muted-foreground"
+                  >
+                    No data sources are connected to this knowledge graph yet.
+                  </div>
+                  <div v-else class="flex flex-wrap gap-2">
+                    <Button
+                      v-for="ds in graphManagementDataSources"
+                      :key="ds.id"
+                      size="sm"
+                      :variant="selectedOpsDataSourceId === ds.id ? 'default' : 'outline'"
+                      @click="selectedOpsDataSourceId = ds.id"
+                    >
+                      {{ ds.name }}
+                    </Button>
+                  </div>
+                </div>
                 <div class="flex flex-wrap gap-2">
                   <Button
                     size="sm"
                     variant="outline"
-                    @click="navigateTo(buildDataSourcesStepUrl(kgId))"
+                    :disabled="!selectedOpsDataSourceId || inlineSyncTriggering"
+                    @click="triggerInlineSync"
                   >
-                    Open Data Source Operations
+                    <Loader2 v-if="inlineSyncTriggering" class="mr-1.5 size-3.5 animate-spin" />
+                    Trigger Sync
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
-                    @click="navigateTo(buildMaintainStepUrl(kgId))"
+                    :disabled="!selectedOpsDataSourceId || inlineSyncRunsLoading"
+                    @click="loadInlineSyncRuns"
                   >
-                    Open Maintain Step
+                    Refresh Runs
                   </Button>
+                </div>
+                <div class="grid gap-3 xl:grid-cols-[300px_1fr]">
+                  <div class="rounded border">
+                    <div class="border-b px-3 py-2 text-xs font-medium text-muted-foreground">Sync runs</div>
+                    <div
+                      v-if="inlineSyncRunsLoading"
+                      class="flex items-center gap-2 px-3 py-4 text-xs text-muted-foreground"
+                    >
+                      <Loader2 class="size-3.5 animate-spin" />
+                      Loading sync runs...
+                    </div>
+                    <div v-else-if="inlineSyncRunsError" class="px-3 py-4 text-xs text-destructive">
+                      {{ inlineSyncRunsError }}
+                    </div>
+                    <div v-else-if="inlineSyncRuns.length === 0" class="px-3 py-4 text-xs text-muted-foreground">
+                      No sync runs found for this data source.
+                    </div>
+                    <div v-else class="max-h-72 space-y-1.5 overflow-auto p-2">
+                      <button
+                        v-for="run in inlineSyncRuns"
+                        :key="run.id"
+                        class="w-full rounded border px-2 py-1.5 text-left text-xs transition-colors"
+                        :class="selectedInlineRunId === run.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/40'"
+                        @click="loadInlineRunLogs(run.id)"
+                      >
+                        <div class="flex items-center justify-between gap-2">
+                          <span class="font-mono">{{ run.id }}</span>
+                          <Badge variant="outline" class="text-[10px]">{{ run.status }}</Badge>
+                        </div>
+                        <p class="mt-1 text-muted-foreground">
+                          {{ new Date(run.started_at).toLocaleString() }}
+                        </p>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="rounded border p-3">
+                    <p class="mb-2 text-xs font-medium text-muted-foreground">
+                      Run logs
+                      <span v-if="selectedOpsDataSource" class="font-normal text-muted-foreground/80">
+                        · {{ selectedOpsDataSource.name }}
+                      </span>
+                    </p>
+                    <div v-if="inlineRunLogsLoading" class="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 class="size-3.5 animate-spin" />
+                      Loading logs...
+                    </div>
+                    <div v-else-if="inlineRunLogsError" class="text-xs text-destructive">
+                      {{ inlineRunLogsError }}
+                    </div>
+                    <div v-else-if="inlineRunLogs.length === 0" class="text-xs text-muted-foreground">
+                      Select a sync run to view logs.
+                    </div>
+                    <pre
+                      v-else
+                      class="max-h-72 overflow-auto rounded border bg-muted/20 p-2 text-[11px]"
+                    >{{ inlineRunLogs.join('\n') }}</pre>
+                  </div>
                 </div>
               </template>
 
               <template v-else-if="graphManagementMode === 'one-off-mutations'">
                 <p class="text-muted-foreground">
-                  Open the mutation editor scoped to this knowledge graph for minor direct edits.
+                  Author and apply one-off JSONL mutations directly in this workspace.
                 </p>
-                <Button size="sm" @click="navigateTo(`/graph/mutations?kg_id=${kgId}&view=editor`)">
-                  Open Manual Mutations
-                </Button>
+                <div class="space-y-3 rounded border p-3">
+                  <p class="text-xs font-medium text-muted-foreground">Mutation payload (JSONL)</p>
+                  <textarea
+                    v-model="inlineMutationJsonl"
+                    class="min-h-44 w-full rounded border bg-background px-3 py-2 font-mono text-xs"
+                    placeholder='{"op":"CREATE","type":"node","label":"repo","id":"repo:example","set_properties":{"name":"example"}}'
+                  />
+                  <div class="flex items-center gap-2">
+                    <Button size="sm" :disabled="inlineMutationApplying" @click="applyInlineMutations">
+                      <Loader2 v-if="inlineMutationApplying" class="mr-1.5 size-3.5 animate-spin" />
+                      Apply Mutations
+                    </Button>
+                    <span class="text-xs text-muted-foreground">
+                      Applies directly to this knowledge graph without page navigation.
+                    </span>
+                  </div>
+                  <p v-if="inlineMutationApplyError" class="text-xs text-destructive">
+                    {{ inlineMutationApplyError }}
+                  </p>
+                </div>
               </template>
 
               <template v-else>

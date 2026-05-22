@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from extraction.domain.entities.agent_session import ExtractionAgentSession
-from extraction.domain.value_objects import ExtractionSessionMode
+from extraction.domain.value_objects import ExtractionSessionMode, ExtractionSessionRunMetric
 
 
 class IExtractionAgentSessionRepository(Protocol):
@@ -28,6 +28,17 @@ class IExtractionAgentSessionRepository(Protocol):
         knowledge_graph_id: str,
         mode: ExtractionSessionMode | None = None,
     ) -> list[ExtractionAgentSession]: ...
+
+
+class IExtractionSessionRunMetricsReader(Protocol):
+    """Read-only access to run-level metrics linked to extraction sessions."""
+
+    async def find_metrics_by_session_ids(
+        self,
+        *,
+        knowledge_graph_id: str,
+        session_ids: list[str],
+    ) -> dict[str, list[ExtractionSessionRunMetric]]: ...
 
 
 class IExtractionSkillOverrideRepository(Protocol):

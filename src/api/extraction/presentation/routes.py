@@ -11,6 +11,8 @@ from extraction.dependencies import get_extraction_agent_session_service
 from extraction.domain.value_objects import ExtractionSessionMode
 from extraction.presentation.models import (
     BootstrapIntakePathSelectionRequest,
+    ExtractionSessionHistoryItemResponse,
+    ExtractionSessionHistoryResponse,
     ExtractionSessionListResponse,
     ExtractionSessionResponse,
 )
@@ -95,6 +97,36 @@ async def list_sessions(
     )
     payload = [ExtractionSessionResponse.from_domain(session) for session in sessions]
     return ExtractionSessionListResponse(sessions=payload, count=len(payload))
+
+
+@router.get(
+    "/knowledge-graphs/{knowledge_graph_id}/sessions/{mode}/history",
+    response_model=ExtractionSessionHistoryResponse,
+)
+async def list_session_history(
+    knowledge_graph_id: str,
+    mode: ExtractionSessionMode,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[
+        ExtractionAgentSessionService, Depends(get_extraction_agent_session_service)
+    ],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+) -> ExtractionSessionHistoryResponse:
+    await _assert_kg_edit_permission(
+        authz=authz,
+        current_user=current_user,
+        knowledge_graph_id=knowledge_graph_id,
+    )
+    history = await service.list_session_history(
+        user_id=current_user.user_id.value,
+        knowledge_graph_id=knowledge_graph_id,
+        mode=mode,
+    )
+    payload = [
+        ExtractionSessionHistoryItemResponse.from_history_record(record)
+        for record in history
+    ]
+    return ExtractionSessionHistoryResponse(sessions=payload, count=len(payload))
 
 
 @router.post(

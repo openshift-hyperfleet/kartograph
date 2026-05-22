@@ -3165,6 +3165,13 @@ describe('Data-sources-focused layout - structural verification', () => {
     expect(source).toContain('onboarding is coming soon, sorry.')
     expect(source).toContain('Add to project')
   })
+
+  it('uses shadcn Select for knowledge graph dropdown styling consistency', () => {
+    expect(source).toContain('<Select v-model="selectedKnowledgeGraphId">')
+    expect(source).toContain('SelectTrigger')
+    expect(source).toContain('SelectContent')
+    expect(source).not.toContain('<select')
+  })
 })
 
 describe('Bulk onboarding partial-success behavior', () => {

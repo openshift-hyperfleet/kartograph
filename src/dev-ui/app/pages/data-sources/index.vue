@@ -40,6 +40,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import SyncPhaseIndicator from '@/components/graph/SyncPhaseIndicator.vue'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { CopyableText } from '@/components/ui/copyable-text'
@@ -1412,14 +1419,19 @@ async function handleDeleteDs() {
           <!-- Knowledge graph selection -->
           <div class="space-y-1.5">
             <Label>Knowledge Graph <span class="text-destructive">*</span></Label>
-            <select
+            <Select
               v-if="!loadingKgs && knowledgeGraphs.length > 0"
               v-model="selectedKnowledgeGraphId"
-              class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
             >
-              <option value="">Select a knowledge graph...</option>
-              <option v-for="kg in knowledgeGraphs" :key="kg.id" :value="kg.id">{{ kg.name }}</option>
-            </select>
+              <SelectTrigger>
+                <SelectValue placeholder="Select a knowledge graph..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="kg in knowledgeGraphs" :key="kg.id" :value="kg.id">
+                  {{ kg.name }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
             <div v-else-if="loadingKgs" class="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 class="size-4 animate-spin" /> Loading knowledge graphs...
             </div>

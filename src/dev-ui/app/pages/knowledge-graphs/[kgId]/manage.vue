@@ -32,6 +32,15 @@ import {
   stepStatusTintClass,
   type WorkspaceStepId,
 } from '@/utils/kgManageWorkspace'
+import {
+  appendLocalChatMessage,
+  buildTransitionRestrictionReason,
+  handleActivatableKeydown,
+  isForbiddenHttpError,
+  resolveForbiddenReason,
+  resolveSectionState,
+  shouldApplyMutationResult,
+} from '@/utils/kgManageState'
 
 interface WorkspaceReadinessStatus {
   has_minimum_entity_types: boolean
@@ -121,16 +130,24 @@ const kgIdentity = ref<KnowledgeGraphIdentity | null>(null)
 const dataSourceCount = ref(0)
 const maintenanceReadyCount = ref(0)
 const loading = ref(false)
+const workspaceLoadError = ref<string | null>(null)
+const workspaceForbidden = ref(false)
+const workspaceForbiddenReason = ref<string | null>(null)
 const validating = ref(false)
 const transitioning = ref(false)
 const sessionLoading = ref(false)
 const sessionHistoryLoading = ref(false)
+const sessionLoadError = ref<string | null>(null)
+const sessionForbidden = ref(false)
+const sessionForbiddenReason = ref<string | null>(null)
 const clearingChat = ref(false)
+const sendingChat = ref(false)
 const extractionSession = ref<ExtractionSessionResponse | null>(null)
 const sessionHistory = ref<ExtractionSessionHistoryItem[]>([])
 const draftMessage = ref('')
 const statusProjection = ref<WorkspaceStatusResponse | null>(null)
 const mutationLogLoading = ref(false)
+const mutationLogLoadError = ref<string | null>(null)
 const mutationLogRuns = ref<MutationLogRunView[]>([])
 const selectedMutationLogRunId = ref<string | null>(null)
 const graphManagementMode = ref<GraphManagementMode>('initial-schema-design')
@@ -213,6 +230,47 @@ const selectedRailItem = computed(() =>
 const canTransition = computed(() =>
   statusProjection.value?.workspace_mode === 'schema_bootstrap'
   && statusProjection.value?.transition_eligible === true,
+)
+
+const transitionRestrictionReason = computed(() =>
+  buildTransitionRestrictionReason(
+    canTransition.value,
+    statusProjection.value?.readiness.blocking_reasons ?? [],
+  ),
+)
+
+const workspaceOverviewState = computed(() =>
+  resolveSectionState({
+    section: 'workspace-overview',
+    loading: loading.value,
+    error: workspaceLoadError.value,
+    forbidden: workspaceForbidden.value,
+    forbiddenReason: workspaceForbiddenReason.value,
+  }),
+)
+
+const mutationLogsSectionState = computed(() =>
+  resolveSectionState({
+    section: 'mutation-logs',
+    loading: mutationLogLoading.value,
+    error: mutationLogLoadError.value,
+    forbidden: workspaceForbidden.value,
+    forbiddenReason: workspaceForbiddenReason.value,
+    empty: !mutationLogLoading.value
+      && !mutationLogLoadError.value
+      && mutationLogRuns.value.length === 0,
+    emptyActionLabel: 'Refresh runs',
+  }),
+)
+
+const graphManagementSectionState = computed(() =>
+  resolveSectionState({
+    section: 'graph-management',
+    loading: sessionLoading.value,
+    error: sessionLoadError.value,
+    forbidden: sessionForbidden.value,
+    forbiddenReason: sessionForbiddenReason.value,
+  }),
 )
 
 const selectedMutationLogRun = computed(() =>
@@ -314,15 +372,30 @@ function returnToWorkspaceOverview() {
 async function loadWorkspaceStatus() {
   if (!hasTenant.value || !kgId.value) return
   loading.value = true
+  workspaceLoadError.value = null
   try {
     statusProjection.value = await apiFetch<WorkspaceStatusResponse>(
       `/management/knowledge-graphs/${kgId.value}/workspace-status`,
     )
+    workspaceForbidden.value = false
+    workspaceForbiddenReason.value = null
   } catch (err) {
-    statusProjection.value = null
-    toast.error('Failed to load knowledge graph workspace', {
-      description: extractErrorMessage(err),
-    })
+    if (isForbiddenHttpError(err)) {
+      workspaceForbidden.value = true
+      workspaceForbiddenReason.value = resolveForbiddenReason(
+        err,
+        'You do not have permission to view this knowledge graph workspace.',
+      )
+      statusProjection.value = null
+    } else {
+      workspaceForbidden.value = false
+      workspaceForbiddenReason.value = null
+      statusProjection.value = null
+      workspaceLoadError.value = extractErrorMessage(err)
+      toast.error('Failed to load knowledge graph workspace', {
+        description: workspaceLoadError.value,
+      })
+    }
   } finally {
     loading.value = false
   }
@@ -331,6 +404,7 @@ async function loadWorkspaceStatus() {
 async function loadMutationLogRuns() {
   if (!hasTenant.value || !kgId.value) return
   mutationLogLoading.value = true
+  mutationLogLoadError.value = null
   try {
     const dataSources = await apiFetch<DataSourceRef[]>(
       `/management/knowledge-graphs/${kgId.value}/data-sources`,
@@ -365,11 +439,19 @@ async function loadMutationLogRuns() {
       selectedMutationLogRunId.value = collected[0]?.id ?? null
     }
   } catch (err) {
+    if (isForbiddenHttpError(err)) {
+      mutationLogLoadError.value = resolveForbiddenReason(
+        err,
+        'You do not have permission to view mutation logs for this graph.',
+      )
+    } else {
+      mutationLogLoadError.value = extractErrorMessage(err)
+      toast.error('Failed to load mutation log runs', {
+        description: mutationLogLoadError.value,
+      })
+    }
     mutationLogRuns.value = []
     selectedMutationLogRunId.value = null
-    toast.error('Failed to load mutation log runs', {
-      description: extractErrorMessage(err),
-    })
   } finally {
     mutationLogLoading.value = false
   }
@@ -378,15 +460,29 @@ async function loadMutationLogRuns() {
 async function loadExtractionSession() {
   if (!kgId.value || activeStep.value !== 'graph-management') return
   sessionLoading.value = true
+  sessionLoadError.value = null
   try {
     extractionSession.value = await apiFetch<ExtractionSessionResponse>(
       `/extraction/knowledge-graphs/${kgId.value}/sessions/${sharedSessionMode.value}/active`,
     )
+    sessionForbidden.value = false
+    sessionForbiddenReason.value = null
   } catch (err) {
     extractionSession.value = null
-    toast.error('Failed to load extraction conversation', {
-      description: extractErrorMessage(err),
-    })
+    if (isForbiddenHttpError(err)) {
+      sessionForbidden.value = true
+      sessionForbiddenReason.value = resolveForbiddenReason(
+        err,
+        'You do not have permission to manage this knowledge graph.',
+      )
+    } else {
+      sessionForbidden.value = false
+      sessionForbiddenReason.value = null
+      sessionLoadError.value = extractErrorMessage(err)
+      toast.error('Failed to load extraction conversation', {
+        description: sessionLoadError.value,
+      })
+    }
   } finally {
     sessionLoading.value = false
   }
@@ -439,14 +535,54 @@ function selectRailItem(itemId: GraphManagementRailItemId) {
 }
 
 function onRailKeydown(event: KeyboardEvent, itemId: GraphManagementRailItemId) {
-  if (event.key === 'Enter' || event.key === ' ') {
-    event.preventDefault()
-    selectRailItem(itemId)
+  handleActivatableKeydown(event, () => selectRailItem(itemId))
+}
+
+function onStepActionKeydown(event: KeyboardEvent, stepId: WorkspaceStepId) {
+  handleActivatableKeydown(event, () => openWorkspaceStep(stepId))
+}
+
+function onModeSwitchKeydown(event: KeyboardEvent, mode: GraphManagementMode) {
+  handleActivatableKeydown(event, () => setGraphManagementMode(mode))
+}
+
+function selectMutationLogRun(runId: string) {
+  selectedMutationLogRunId.value = runId
+}
+
+function onMutationRunKeydown(event: KeyboardEvent, runId: string) {
+  handleActivatableKeydown(event, () => selectMutationLogRun(runId))
+}
+
+function sendChatMessage(message: string) {
+  if (sessionForbidden.value || !shouldApplyMutationResult(sessionForbidden.value)) {
+    toast.error('Chat unavailable', {
+      description: sessionForbiddenReason.value
+        ?? 'You do not have permission to send messages for this knowledge graph.',
+    })
+    return
+  }
+
+  sendingChat.value = true
+  try {
+    const nextHistory = appendLocalChatMessage(extractionSession.value, message)
+    extractionSession.value = {
+      ...(extractionSession.value ?? {
+        id: 'local-session',
+        runtime_context: {},
+        updated_at: new Date().toISOString(),
+      }),
+      message_history: nextHistory,
+      updated_at: new Date().toISOString(),
+    }
+    draftMessage.value = ''
+  } finally {
+    sendingChat.value = false
   }
 }
 
 async function validateWorkspace() {
-  if (!kgId.value) return
+  if (!kgId.value || workspaceForbidden.value) return
   validating.value = true
   try {
     statusProjection.value = await apiFetch<WorkspaceStatusResponse>(
@@ -455,17 +591,26 @@ async function validateWorkspace() {
     )
     toast.success('Workspace validation complete')
   } catch (err) {
-    toast.error('Validation failed', {
-      description: extractErrorMessage(err),
-    })
+    if (isForbiddenHttpError(err)) {
+      workspaceForbidden.value = true
+      workspaceForbiddenReason.value = resolveForbiddenReason(
+        err,
+        'You do not have permission to validate this workspace.',
+      )
+    } else {
+      toast.error('Validation failed', {
+        description: extractErrorMessage(err),
+      })
+    }
   } finally {
     validating.value = false
   }
 }
 
 async function transitionToExtraction() {
-  if (!kgId.value || !canTransition.value) return
+  if (!kgId.value || !canTransition.value || workspaceForbidden.value) return
   transitioning.value = true
+  const previousStatus = statusProjection.value
   try {
     statusProjection.value = await apiFetch<WorkspaceStatusResponse>(
       `/management/knowledge-graphs/${kgId.value}/workspace/transition-to-extraction`,
@@ -474,9 +619,18 @@ async function transitionToExtraction() {
     toast.success('Workspace transitioned to extraction operations')
     await loadExtractionSession()
   } catch (err) {
-    toast.error('Transition failed', {
-      description: extractErrorMessage(err),
-    })
+    statusProjection.value = previousStatus
+    if (isForbiddenHttpError(err)) {
+      workspaceForbidden.value = true
+      workspaceForbiddenReason.value = resolveForbiddenReason(
+        err,
+        'You do not have permission to transition this workspace.',
+      )
+    } else {
+      toast.error('Transition failed', {
+        description: extractErrorMessage(err),
+      })
+    }
   } finally {
     transitioning.value = false
   }
@@ -484,7 +638,7 @@ async function transitionToExtraction() {
 
 async function clearChat() {
   // Clear chat resets the active extraction session for this knowledge graph.
-  if (!kgId.value) return
+  if (!kgId.value || sessionForbidden.value) return
   clearingChat.value = true
   try {
     extractionSession.value = await apiFetch<ExtractionSessionResponse>(
@@ -515,6 +669,13 @@ watch(tenantVersion, () => {
   extractionSession.value = null
   dataSourceCount.value = 0
   maintenanceReadyCount.value = 0
+  workspaceLoadError.value = null
+  workspaceForbidden.value = false
+  workspaceForbiddenReason.value = null
+  mutationLogLoadError.value = null
+  sessionLoadError.value = null
+  sessionForbidden.value = false
+  sessionForbiddenReason.value = null
   loadKgIdentity()
   loadWorkspaceStatus()
   loadOverviewMetrics()
@@ -579,9 +740,34 @@ watch(
       Select a tenant to manage this workspace.
     </div>
 
-    <div v-else-if="loading" class="flex items-center gap-2 text-sm text-muted-foreground">
+    <div
+      v-else-if="workspaceOverviewState.phase === 'loading'"
+      class="flex items-center gap-2 text-sm text-muted-foreground"
+      role="status"
+    >
       <Loader2 class="size-4 animate-spin" />
-      Loading workspace status...
+      {{ workspaceOverviewState.message }}
+    </div>
+
+    <div
+      v-else-if="workspaceOverviewState.phase === 'forbidden'"
+      class="rounded-lg border border-destructive/40 bg-destructive/5 p-6 text-sm"
+      role="alert"
+    >
+      <p class="font-medium text-destructive">{{ workspaceOverviewState.title }}</p>
+      <p class="mt-1 text-muted-foreground">{{ workspaceOverviewState.message }}</p>
+    </div>
+
+    <div
+      v-else-if="workspaceOverviewState.phase === 'error'"
+      class="rounded-lg border border-dashed p-6 text-sm"
+      role="alert"
+    >
+      <p class="font-medium">{{ workspaceOverviewState.title }}</p>
+      <p class="mt-1 text-muted-foreground">{{ workspaceOverviewState.message }}</p>
+      <Button class="mt-3" size="sm" variant="outline" @click="loadWorkspaceStatus">
+        Retry workspace load
+      </Button>
     </div>
 
     <template v-else-if="statusProjection">
@@ -624,7 +810,9 @@ watch(
               <Button
                 class="w-full"
                 variant="outline"
+                tabindex="0"
                 @click="openWorkspaceStep(card.id)"
+                @keydown="onStepActionKeydown($event, card.id)"
               >
                 {{ card.actionLabel }}
               </Button>
@@ -634,7 +822,26 @@ watch(
       </section>
 
       <section v-else-if="activeStep === 'mutation-logs'" class="space-y-4">
-        <Card>
+        <div
+          v-if="mutationLogsSectionState.phase === 'forbidden'"
+          class="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm"
+          role="alert"
+        >
+          <p class="font-medium text-destructive">{{ mutationLogsSectionState.title }}</p>
+          <p class="mt-1 text-muted-foreground">{{ mutationLogsSectionState.message }}</p>
+        </div>
+        <div
+          v-else-if="mutationLogsSectionState.phase === 'error'"
+          class="rounded-lg border border-dashed p-4 text-sm"
+          role="alert"
+        >
+          <p class="font-medium">{{ mutationLogsSectionState.title }}</p>
+          <p class="mt-1 text-muted-foreground">{{ mutationLogsSectionState.message }}</p>
+          <Button class="mt-3" size="sm" variant="outline" @click="loadMutationLogRuns">
+            Retry mutation log load
+          </Button>
+        </div>
+        <Card v-else>
           <CardHeader>
             <CardTitle class="text-base">MutationLogs</CardTitle>
             <CardDescription>
@@ -649,20 +856,29 @@ watch(
                   Refresh
                 </Button>
               </div>
-              <div v-if="mutationLogLoading" class="flex items-center gap-2 px-3 py-4 text-xs text-muted-foreground">
+              <div v-if="mutationLogLoading" class="flex items-center gap-2 px-3 py-4 text-xs text-muted-foreground" role="status">
                 <Loader2 class="size-3.5 animate-spin" />
-                Loading mutation runs...
+                {{ mutationLogsSectionState.message }}
               </div>
-              <div v-else-if="mutationLogRuns.length === 0" class="px-3 py-4 text-xs text-muted-foreground">
-                No mutation log runs found for this knowledge graph yet.
+              <div
+                v-else-if="mutationLogRuns.length === 0"
+                class="space-y-2 px-3 py-4 text-xs text-muted-foreground"
+              >
+                <p>{{ mutationLogsSectionState.message }}</p>
+                <Button size="sm" variant="outline" @click="loadMutationLogRuns">
+                  {{ mutationLogsSectionState.actionLabel ?? 'Refresh runs' }}
+                </Button>
               </div>
               <div v-else class="max-h-64 overflow-auto p-2 space-y-1.5">
                 <button
                   v-for="run in mutationLogRuns"
                   :key="run.id"
-                  class="w-full rounded border px-2 py-1.5 text-left text-xs transition-colors"
+                  type="button"
+                  tabindex="0"
+                  class="w-full rounded border px-2 py-1.5 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   :class="selectedMutationLogRunId === run.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/40'"
-                  @click="selectedMutationLogRunId = run.id"
+                  @click="selectMutationLogRun(run.id)"
+                  @keydown="onMutationRunKeydown($event, run.id)"
                 >
                   <p class="font-medium truncate">{{ run.data_source_name }}</p>
                   <p class="text-muted-foreground truncate">{{ new Date(run.started_at).toLocaleString() }}</p>
@@ -743,6 +959,18 @@ watch(
       </section>
 
       <section v-else-if="activeStep === 'graph-management'" class="space-y-4">
+        <div
+          v-if="graphManagementSectionState.phase === 'error'"
+          class="rounded-lg border border-dashed p-4 text-sm"
+          role="alert"
+        >
+          <p class="font-medium">{{ graphManagementSectionState.title }}</p>
+          <p class="mt-1 text-muted-foreground">{{ graphManagementSectionState.message }}</p>
+          <Button class="mt-3" size="sm" variant="outline" @click="loadExtractionSession">
+            Retry session load
+          </Button>
+        </div>
+
         <Card class="graph-management-controls">
           <CardHeader class="pb-3">
             <CardTitle class="text-base">Graph Management</CardTitle>
@@ -751,13 +979,21 @@ watch(
             </CardDescription>
           </CardHeader>
           <CardContent class="space-y-3">
-            <div class="flex flex-wrap gap-2">
+            <div
+              class="flex flex-wrap gap-2"
+              role="tablist"
+              aria-label="Graph management modes"
+            >
               <Button
                 v-for="mode in GRAPH_MANAGEMENT_MODE_ORDER"
                 :key="mode"
                 size="sm"
+                role="tab"
+                :aria-selected="graphManagementMode === mode"
+                tabindex="0"
                 :variant="graphManagementMode === mode ? 'default' : 'outline'"
                 @click="setGraphManagementMode(mode)"
+                @keydown="onModeSwitchKeydown($event, mode)"
               >
                 {{ GRAPH_MANAGEMENT_MODE_LABELS[mode] }}
               </Button>
@@ -767,7 +1003,8 @@ watch(
               <Button
                 variant="outline"
                 size="sm"
-                :disabled="validating || transitioning"
+                :disabled="validating || transitioning || workspaceForbidden"
+                :title="workspaceForbiddenReason ?? undefined"
                 @click="validateWorkspace"
               >
                 <Loader2 v-if="validating" class="mr-1.5 size-3.5 animate-spin" />
@@ -789,9 +1026,15 @@ watch(
           :session="extractionSession"
           :loading="sessionLoading"
           :clearing="clearingChat"
+          :sending="sendingChat"
           :activity-lines="sessionActivityLines"
+          :forbidden="sessionForbidden"
+          :forbidden-reason="sessionForbiddenReason"
+          :input-disabled="workspaceForbidden"
+          :input-disabled-reason="workspaceForbiddenReason"
           @refresh="loadExtractionSession"
           @clear-chat="clearChat"
+          @send-message="sendChatMessage"
         />
 
         <div class="grid gap-4 xl:grid-cols-[280px_1fr]">
@@ -864,13 +1107,14 @@ watch(
                   </div>
                 </div>
                 <div class="flex flex-wrap gap-2">
-                  <Button variant="outline" :disabled="validating || transitioning" @click="validateWorkspace">
+                  <Button variant="outline" :disabled="validating || transitioning || workspaceForbidden" @click="validateWorkspace">
                     <Loader2 v-if="validating" class="mr-1.5 size-3.5 animate-spin" />
                     <CheckCircle2 v-else class="mr-1.5 size-3.5" />
                     Validate
                   </Button>
                   <Button
-                    :disabled="!canTransition || transitioning || validating"
+                    :disabled="!canTransition || transitioning || validating || workspaceForbidden"
+                    :title="transitionRestrictionReason ?? undefined"
                     @click="transitionToExtraction"
                   >
                     <Loader2 v-if="transitioning" class="mr-1.5 size-3.5 animate-spin" />

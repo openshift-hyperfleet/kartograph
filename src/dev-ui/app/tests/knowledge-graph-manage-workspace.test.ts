@@ -475,3 +475,70 @@ describe('KG-MANAGE-016 - graph management top controls', () => {
     expect(parseGraphManagementModeQuery('initial-schema-design')).toBe('initial-schema-design')
   })
 })
+
+describe('KG-MANAGE-017 - chat input keyboard contract', () => {
+  it('wires Enter-to-send and Shift+Enter newline handling in shared conversation panel', () => {
+    expect(sharedConversationPanelVue).toContain('handleChatInputKeydown')
+    expect(sharedConversationPanelVue).toContain('@keydown="onChatInputKeydown"')
+    expect(sharedConversationPanelVue).toContain('Shift+Enter adds a new line')
+    expect(sharedConversationPanelVue).toContain("emit('sendMessage'")
+    expect(manageWorkspaceVue).toContain('@send-message="sendChatMessage"')
+  })
+})
+
+describe('KG-MANAGE-018 - keyboard operable step and rail actions', () => {
+  it('supports keyboard activation for step card primary actions', () => {
+    expect(manageWorkspaceVue).toContain('onStepActionKeydown')
+    expect(manageWorkspaceVue).toContain('handleActivatableKeydown')
+    expect(manageWorkspaceVue).toContain('@keydown="onStepActionKeydown($event, card.id)"')
+  })
+
+  it('supports keyboard activation for graph management rail selection', () => {
+    expect(manageWorkspaceVue).toContain('onRailKeydown')
+    expect(manageWorkspaceVue).toContain('role="listbox"')
+    expect(manageWorkspaceVue).toContain('tabindex="0"')
+    expect(manageWorkspaceVue).toContain('@keydown="onRailKeydown($event, item.id)"')
+  })
+
+  it('exposes keyboard-reachable graph management mode switch tabs', () => {
+    expect(manageWorkspaceVue).toContain('role="tablist"')
+    expect(manageWorkspaceVue).toContain('onModeSwitchKeydown')
+    expect(manageWorkspaceVue).toContain('@keydown="onModeSwitchKeydown($event, mode)"')
+  })
+})
+
+describe('KG-MANAGE-019 - section-specific loading, empty, and error states', () => {
+  it('uses section state contracts for workspace, graph management, and mutation logs', () => {
+    expect(manageWorkspaceVue).toContain('resolveSectionState')
+    expect(manageWorkspaceVue).toContain('workspaceOverviewState')
+    expect(manageWorkspaceVue).toContain('graphManagementSectionState')
+    expect(manageWorkspaceVue).toContain('mutationLogsSectionState')
+    expect(manageWorkspaceVue).toContain('Retry workspace load')
+    expect(manageWorkspaceVue).toContain('Retry mutation log load')
+    expect(manageWorkspaceVue).toContain('Retry session load')
+  })
+
+  it('renders actionable empty states for mutation log runs', () => {
+    expect(manageWorkspaceVue).toContain('mutationLogsSectionState.actionLabel')
+    expect(manageWorkspaceVue).toContain('Refresh runs')
+  })
+})
+
+describe('KG-MANAGE-020 - forbidden and disabled action restrictions', () => {
+  it('detects forbidden responses and surfaces explicit restriction messaging', () => {
+    expect(manageWorkspaceVue).toContain('isForbiddenHttpError')
+    expect(manageWorkspaceVue).toContain('workspaceForbiddenReason')
+    expect(manageWorkspaceVue).toContain('sessionForbiddenReason')
+    expect(manageWorkspaceVue).toContain('role="alert"')
+    expect(manageWorkspaceVue).toContain(':forbidden="sessionForbidden"')
+    expect(sharedConversationPanelVue).toContain('forbidden?: boolean')
+    expect(sharedConversationPanelVue).toContain('v-if="forbidden"')
+  })
+
+  it('explains disabled transition actions and avoids partial updates on forbidden', () => {
+    expect(manageWorkspaceVue).toContain('transitionRestrictionReason')
+    expect(manageWorkspaceVue).toContain('buildTransitionRestrictionReason')
+    expect(manageWorkspaceVue).toContain('shouldApplyMutationResult')
+    expect(manageWorkspaceVue).toContain('statusProjection.value = previousStatus')
+  })
+})

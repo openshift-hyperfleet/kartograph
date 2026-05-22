@@ -8,6 +8,17 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import SharedConversationPanel from '@/components/extraction/SharedConversationPanel.vue'
+import {
+  buildDataSourcesStepUrl,
+  buildMaintainStepUrl,
+  buildManageStepUrl,
+  buildSuggestedNextStep,
+  buildWorkspaceStepCards,
+  parseManageStepQuery,
+  resolveStepDestination,
+  stepStatusTintClass,
+  type WorkspaceStepId,
+} from '@/utils/kgManageWorkspace'
 
 interface WorkspaceReadinessStatus {
   has_minimum_entity_types: boolean
@@ -31,9 +42,17 @@ interface WorkspaceStatusResponse {
   session_pointers: WorkspaceSessionPointers
 }
 
+interface KnowledgeGraphIdentity {
+  id: string
+  name: string
+  description?: string | null
+}
+
 interface DataSourceRef {
   id: string
   name: string
+  last_extraction_baseline_commit?: string | null
+  tracked_branch_head_commit?: string | null
 }
 
 interface MutationLogRunView {
@@ -64,6 +83,9 @@ const { hasTenant, tenantVersion } = useTenant()
 const { extractErrorMessage } = useErrorHandler()
 const { apiFetch } = useApiClient()
 const kgId = computed(() => String(route.params.kgId ?? ''))
+const kgIdentity = ref<KnowledgeGraphIdentity | null>(null)
+const dataSourceCount = ref(0)
+const maintenanceReadyCount = ref(0)
 const loading = ref(false)
 const validating = ref(false)
 const transitioning = ref(false)
@@ -76,6 +98,24 @@ const statusProjection = ref<WorkspaceStatusResponse | null>(null)
 const mutationLogLoading = ref(false)
 const mutationLogRuns = ref<MutationLogRunView[]>([])
 const selectedMutationLogRunId = ref<string | null>(null)
+
+const activeStep = computed(() => parseManageStepQuery(route.query.step))
+const showOverview = computed(() => activeStep.value === null)
+
+const workspaceOverviewInput = computed(() => ({
+  kgId: kgId.value,
+  dataSourceCount: dataSourceCount.value,
+  maintenanceReadyCount: maintenanceReadyCount.value,
+  mutationLogRunCount: mutationLogRuns.value.length,
+  workspaceStatus: statusProjection.value,
+}))
+
+const workspaceStepCards = computed(() => buildWorkspaceStepCards(workspaceOverviewInput.value))
+const suggestedNextStep = computed(() => buildSuggestedNextStep(workspaceOverviewInput.value))
+
+const graphHeaderTitle = computed(() =>
+  kgIdentity.value?.name ?? 'Knowledge Graph Manage Workspace',
+)
 
 const modeLabel = computed(() =>
   statusProjection.value?.workspace_mode === 'extraction_operations'
@@ -150,6 +190,45 @@ const sessionActivityLines = computed(() => {
   if (!Array.isArray(candidate)) return []
   return candidate.filter((line): line is string => typeof line === 'string' && line.trim().length > 0)
 })
+
+async function loadKgIdentity() {
+  if (!hasTenant.value || !kgId.value) return
+  try {
+    kgIdentity.value = await apiFetch<KnowledgeGraphIdentity>(
+      `/management/knowledge-graphs/${kgId.value}`,
+    )
+  } catch (err) {
+    kgIdentity.value = { id: kgId.value, name: kgId.value }
+    toast.error('Failed to load knowledge graph identity', {
+      description: extractErrorMessage(err),
+    })
+  }
+}
+
+async function loadOverviewMetrics() {
+  if (!hasTenant.value || !kgId.value) return
+  try {
+    const dataSources = await apiFetch<DataSourceRef[]>(
+      `/management/knowledge-graphs/${kgId.value}/data-sources`,
+    )
+    dataSourceCount.value = dataSources.length
+    maintenanceReadyCount.value = dataSources.filter((ds) => {
+      if (!ds.last_extraction_baseline_commit || !ds.tracked_branch_head_commit) return false
+      return ds.last_extraction_baseline_commit !== ds.tracked_branch_head_commit
+    }).length
+  } catch {
+    dataSourceCount.value = 0
+    maintenanceReadyCount.value = 0
+  }
+}
+
+function openWorkspaceStep(stepId: WorkspaceStepId) {
+  navigateTo(resolveStepDestination(kgId.value, stepId))
+}
+
+function returnToWorkspaceOverview() {
+  navigateTo(buildManageStepUrl(kgId.value))
+}
 
 async function loadWorkspaceStatus() {
   if (!hasTenant.value || !kgId.value) return
@@ -270,6 +349,7 @@ async function transitionToExtraction() {
 }
 
 async function clearChat() {
+  // Clear chat resets the active extraction session for this knowledge graph.
   if (!kgId.value) return
   clearingChat.value = true
   try {
@@ -288,14 +368,21 @@ async function clearChat() {
 }
 
 onMounted(() => {
+  loadKgIdentity()
   loadWorkspaceStatus()
+  loadOverviewMetrics()
   loadMutationLogRuns()
 })
 
 watch(tenantVersion, () => {
+  kgIdentity.value = null
   statusProjection.value = null
   extractionSession.value = null
+  dataSourceCount.value = 0
+  maintenanceReadyCount.value = 0
+  loadKgIdentity()
   loadWorkspaceStatus()
+  loadOverviewMetrics()
   loadMutationLogRuns()
 })
 
@@ -314,16 +401,25 @@ watch(
     <div class="flex items-center justify-between">
       <div class="space-y-1">
         <div class="flex items-center gap-2">
-          <h1 class="text-2xl font-semibold tracking-tight">Knowledge Graph Manage Workspace</h1>
-          <Badge variant="secondary">{{ modeLabel }}</Badge>
+          <h1 class="text-2xl font-semibold tracking-tight">{{ graphHeaderTitle }}</h1>
+          <Badge v-if="!showOverview" variant="secondary">{{ modeLabel }}</Badge>
         </div>
         <p class="text-sm text-muted-foreground">
-          Validate readiness and move from schema bootstrap to extraction operations.
+          <template v-if="showOverview">
+            Project workspace for knowledge graph {{ kgId }}.
+          </template>
+          <template v-else>
+            Validate readiness and move from schema bootstrap to extraction operations.
+          </template>
         </p>
       </div>
-      <Button variant="outline" size="sm" @click="navigateTo('/knowledge-graphs')">
+      <Button
+        variant="outline"
+        size="sm"
+        @click="showOverview ? navigateTo('/knowledge-graphs') : returnToWorkspaceOverview()"
+      >
         <ArrowLeft class="mr-1.5 size-3.5" />
-        Back to Knowledge Graphs
+        {{ showOverview ? 'Back to Knowledge Graphs' : 'Back to workspace overview' }}
       </Button>
     </div>
 
@@ -339,6 +435,164 @@ watch(
     </div>
 
     <template v-else-if="statusProjection">
+      <section v-if="showOverview" class="space-y-6">
+        <div>
+          <h2 class="text-lg font-semibold tracking-tight">Project workspace</h2>
+          <p class="text-sm text-muted-foreground">
+            Choose a step to continue work on this knowledge graph without re-selecting context.
+          </p>
+        </div>
+
+        <Card class="border-primary/30 bg-primary/5">
+          <CardHeader class="pb-3">
+            <CardTitle class="text-base">Suggested next step</CardTitle>
+            <CardDescription>{{ suggestedNextStep.description }}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button @click="openWorkspaceStep(suggestedNextStep.stepId)">
+              {{ suggestedNextStep.actionLabel }} {{ suggestedNextStep.title }}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <!-- Step cards: Data Sources, Graph Management, MutationLogs, Maintain -->
+          <Card
+            v-for="card in workspaceStepCards"
+            :key="card.id"
+            class="flex flex-col"
+            :class="stepStatusTintClass(card.status)"
+          >
+            <CardHeader class="pb-3">
+              <div class="flex items-center justify-between gap-2">
+                <CardTitle class="text-base">{{ card.title }}</CardTitle>
+                <Badge variant="outline">{{ card.status }}</Badge>
+              </div>
+              <CardDescription>{{ card.statusDetail }}</CardDescription>
+            </CardHeader>
+            <CardContent class="mt-auto">
+              <Button
+                class="w-full"
+                variant="outline"
+                @click="openWorkspaceStep(card.id)"
+              >
+                {{ card.actionLabel }}
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      <section v-else-if="activeStep === 'mutation-logs'" class="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle class="text-base">MutationLogs</CardTitle>
+            <CardDescription>
+              Knowledge-graph scoped mutation runs with per-entry operation previews and run metrics.
+            </CardDescription>
+          </CardHeader>
+          <CardContent class="grid gap-3 xl:grid-cols-[280px_1fr]">
+            <div class="rounded border">
+              <div class="flex items-center justify-between border-b px-3 py-2">
+                <p class="text-xs font-medium text-muted-foreground">Runs</p>
+                <Button size="sm" variant="ghost" class="h-6 px-2 text-[10px]" @click="loadMutationLogRuns">
+                  Refresh
+                </Button>
+              </div>
+              <div v-if="mutationLogLoading" class="flex items-center gap-2 px-3 py-4 text-xs text-muted-foreground">
+                <Loader2 class="size-3.5 animate-spin" />
+                Loading mutation runs...
+              </div>
+              <div v-else-if="mutationLogRuns.length === 0" class="px-3 py-4 text-xs text-muted-foreground">
+                No mutation log runs found for this knowledge graph yet.
+              </div>
+              <div v-else class="max-h-64 overflow-auto p-2 space-y-1.5">
+                <button
+                  v-for="run in mutationLogRuns"
+                  :key="run.id"
+                  class="w-full rounded border px-2 py-1.5 text-left text-xs transition-colors"
+                  :class="selectedMutationLogRunId === run.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/40'"
+                  @click="selectedMutationLogRunId = run.id"
+                >
+                  <p class="font-medium truncate">{{ run.data_source_name }}</p>
+                  <p class="text-muted-foreground truncate">{{ new Date(run.started_at).toLocaleString() }}</p>
+                  <div class="mt-1 flex items-center justify-between">
+                    <Badge variant="outline" class="text-[10px]">{{ run.status }}</Badge>
+                    <span class="font-mono text-[10px] text-muted-foreground">{{ run.mutation_log_id }}</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="selectedMutationLogRun" class="space-y-3 rounded border p-3">
+              <div class="flex flex-wrap items-center gap-2">
+                <Badge>{{ selectedMutationLogRun.status }}</Badge>
+                <p class="text-xs text-muted-foreground">
+                  Data source:
+                  <span class="font-medium text-foreground">{{ selectedMutationLogRun.data_source_name }}</span>
+                </p>
+              </div>
+              <div class="grid gap-2 sm:grid-cols-2">
+                <div class="rounded border px-3 py-2 text-xs">
+                  <p class="text-muted-foreground">MutationLog</p>
+                  <p class="mt-1 font-mono break-all">{{ selectedMutationLogRun.mutation_log_id }}</p>
+                </div>
+                <div class="rounded border px-3 py-2 text-xs">
+                  <p class="text-muted-foreground">Session</p>
+                  <p class="mt-1 font-mono break-all">{{ selectedMutationLogRun.session_id ?? 'None' }}</p>
+                </div>
+                <div class="rounded border px-3 py-2 text-xs">
+                  <p class="text-muted-foreground">Started</p>
+                  <p class="mt-1">{{ new Date(selectedMutationLogRun.started_at).toLocaleString() }}</p>
+                </div>
+                <div class="rounded border px-3 py-2 text-xs">
+                  <p class="text-muted-foreground">Completed</p>
+                  <p class="mt-1">
+                    {{ selectedMutationLogRun.completed_at ? new Date(selectedMutationLogRun.completed_at).toLocaleString() : 'In progress' }}
+                  </p>
+                </div>
+              </div>
+              <div class="grid gap-2 sm:grid-cols-2">
+                <div class="rounded border px-3 py-2 text-xs">
+                  <p class="text-muted-foreground flex items-center gap-1.5">
+                    <Coins class="size-3.5" />
+                    Token usage
+                  </p>
+                  <p class="mt-1 font-medium">{{ (selectedMutationLogRun.token_usage_total ?? 0).toLocaleString() }}</p>
+                </div>
+                <div class="rounded border px-3 py-2 text-xs">
+                  <p class="text-muted-foreground flex items-center gap-1.5">
+                    <DollarSign class="size-3.5" />
+                    Cost (USD)
+                  </p>
+                  <p class="mt-1 font-medium">${{ (selectedMutationLogRun.cost_total_usd ?? 0).toFixed(2) }}</p>
+                </div>
+              </div>
+              <div class="rounded border p-3">
+                <p class="mb-2 text-xs font-medium text-muted-foreground">Per-entry operation previews</p>
+                <div v-if="Object.keys(selectedMutationLogRun.operation_counts).length === 0" class="text-xs text-muted-foreground">
+                  No operation class counts recorded for this run.
+                </div>
+                <div v-else class="space-y-1.5">
+                  <div
+                    v-for="([opClass, count]) in Object.entries(selectedMutationLogRun.operation_counts)"
+                    :key="opClass"
+                    class="flex items-center justify-between rounded border px-2 py-1.5 text-xs"
+                  >
+                    <span class="font-mono">{{ opClass }}</span>
+                    <Badge variant="secondary">{{ count }}</Badge>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="rounded border border-dashed p-6 text-sm text-muted-foreground">
+              Select a mutation run to view summary and per-entry previews.
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section v-else class="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle class="text-base">Mode & Transition Controls</CardTitle>
@@ -657,6 +911,7 @@ watch(
           </CardContent>
         </Card>
       </div>
+      </section>
     </template>
   </div>
 </template>

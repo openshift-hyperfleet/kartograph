@@ -246,6 +246,33 @@ class SyncRunLogsResponse(BaseModel):
     )
 
 
+class MutationLogEntryPreviewResponse(BaseModel):
+    """Single mutation-log entry preview for a sync run."""
+
+    line_number: int = Field(..., description="1-based line number in the mutation log")
+    operation_class: str = Field(..., description="Operation class for this entry")
+    summary: str = Field(..., description="Human-readable preview summary for this entry")
+
+
+class MutationLogEntryPreviewPageResponse(BaseModel):
+    """Paginated mutation-log entry previews for a sync run."""
+
+    entries: list[MutationLogEntryPreviewResponse] = Field(
+        default_factory=list,
+        description="Preview entries for the requested page",
+    )
+    total: int = Field(..., description="Total preview entries available for this run")
+    offset: int = Field(..., description="Zero-based offset of this page")
+    limit: int = Field(..., description="Maximum entries requested for this page")
+    preview_available: bool = Field(
+        ...,
+        description=(
+            "False when detailed mutation-log entry previews are not yet stored "
+            "or cannot be retrieved for this run"
+        ),
+    )
+
+
 class DiffChangedFileResponse(BaseModel):
     """Single changed file entry in a commit diff summary."""
 
@@ -299,6 +326,10 @@ class SyncRunResponse(BaseModel):
     mutation_log_id: str | None = Field(
         None, description="Associated mutation log run ID when available"
     )
+    knowledge_graph_id: str | None = Field(
+        None,
+        description="Knowledge graph scope for this mutation run when available",
+    )
     session_id: str | None = Field(
         None, description="Extraction session ID associated with this mutation run"
     )
@@ -338,6 +369,11 @@ class SyncRunResponse(BaseModel):
             error=run.error,
             mutation_log_id=(
                 run.mutation_log_run.mutation_log_id
+                if run.mutation_log_run is not None
+                else None
+            ),
+            knowledge_graph_id=(
+                run.mutation_log_run.knowledge_graph_id
                 if run.mutation_log_run is not None
                 else None
             ),

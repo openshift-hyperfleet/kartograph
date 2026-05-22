@@ -509,6 +509,7 @@ class TestListSyncRunsRoute:
         assert response.status_code == status.HTTP_200_OK
         payload = response.json()[0]
         assert payload["mutation_log_id"] == "mlog-preview-1"
+        assert payload["knowledge_graph_id"] == sample_data_source.knowledge_graph_id
         assert payload["session_id"] == "sess-preview-1"
         assert payload["actor_id"] == "actor-preview-1"
         assert payload["operation_counts"] == {
@@ -532,6 +533,61 @@ class TestListSyncRunsRoute:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_sync_run_repo.find_by_data_source.assert_not_called()
+
+
+class TestMutationLogEntryPreviewRoutes:
+    """Tests for GET /management/data-sources/{ds_id}/sync-runs/{run_id}/mutation-log-entries."""
+
+    def test_list_mutation_log_entries_returns_paginated_skeleton_when_storage_unavailable(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        sample_sync_run.mutation_log_run = MutationLogRunMetadata(
+            mutation_log_id="mlog-preview-1",
+            knowledge_graph_id=sample_data_source.knowledge_graph_id,
+            session_id="sess-preview-1",
+            actor_id="actor-preview-1",
+            started_at=sample_sync_run.started_at,
+            operation_counts={"create_node": 3},
+        )
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.get_by_id.return_value = sample_sync_run
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}/sync-runs/"
+            f"{sample_sync_run.id}/mutation-log-entries?offset=0&limit=20"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload == {
+            "entries": [],
+            "total": 0,
+            "offset": 0,
+            "limit": 20,
+            "preview_available": False,
+        }
+
+    def test_list_mutation_log_entries_returns_404_when_run_missing(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.get_by_id.return_value = None
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}/sync-runs/"
+            "missing-run/mutation-log-entries"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 class TestRunControlRoutes:

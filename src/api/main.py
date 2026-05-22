@@ -287,6 +287,7 @@ class _StubExtractionService:
         knowledge_graph_id: str,
         job_package_id: str,
         runtime_context: Any,
+        workload_credentials: Any = None,
     ) -> str:
         raise NotImplementedError(
             "AI extraction pipeline is not yet implemented. "
@@ -312,14 +313,25 @@ class _SessionedExtractionEventHandler:
         return self._SUPPORTED
 
     async def handle(self, event_type: str, payload: dict[str, Any]) -> None:
+        from datetime import timedelta
+
         from infrastructure.outbox.repository import OutboxRepository
         from extraction.infrastructure.event_handler import ExtractionEventHandler
         from extraction.infrastructure.runtime_context_builder import (
             FilesystemExtractionRuntimeContextBuilder,
         )
+        from extraction.infrastructure.workload_runtime import (
+            InMemoryEphemeralExtractionWorkerLauncher,
+            ScopedWorkloadCredentialIssuer,
+        )
+        from management.domain.value_objects import KnowledgeGraphId
+        from management.infrastructure.repositories.knowledge_graph_repository import (
+            KnowledgeGraphRepository,
+        )
 
         async with self._session_factory() as session:
             outbox = OutboxRepository(session=session)
+            kg_repo = KnowledgeGraphRepository(session=session, outbox=outbox)
             runtime_context_builder = FilesystemExtractionRuntimeContextBuilder(
                 work_dir=_JOB_PACKAGE_WORK_DIR,
                 skills_dir=_EXTRACTION_SKILLS_DIR,
@@ -328,8 +340,24 @@ class _SessionedExtractionEventHandler:
                 extraction_service=self._extraction_service,
                 outbox=outbox,
                 runtime_context_builder=runtime_context_builder,
+                credential_issuer=ScopedWorkloadCredentialIssuer(
+                    default_ttl=timedelta(minutes=15)
+                ),
+                worker_launcher=InMemoryEphemeralExtractionWorkerLauncher(),
             )
-            await extraction_handler.handle(event_type, payload)
+
+            tenant_id = str(payload.get("tenant_id", "")) if payload.get("tenant_id") else ""
+            knowledge_graph_id = str(payload.get("knowledge_graph_id", ""))
+            if not tenant_id and knowledge_graph_id:
+                kg = await kg_repo.get_by_id(KnowledgeGraphId(value=knowledge_graph_id))
+                if kg is not None:
+                    tenant_id = kg.tenant_id
+
+            await extraction_handler.handle(
+                event_type,
+                payload,
+                tenant_id=tenant_id or None,
+            )
             await session.commit()
 
 

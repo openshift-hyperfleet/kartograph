@@ -6,8 +6,21 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import SharedConversationPanel from '@/components/extraction/SharedConversationPanel.vue'
+import {
+  GRAPH_MANAGEMENT_INPUT_PLACEHOLDERS,
+  GRAPH_MANAGEMENT_MODE_LABELS,
+  GRAPH_MANAGEMENT_MODE_ORDER,
+  buildGraphManagementRailItems,
+  buildGraphManagementStepUrl,
+  filterRailItemsForMode,
+  parseGraphManagementModeQuery,
+  resolveDefaultGraphManagementMode,
+  resolveRailSelectionForMode,
+  resolveSharedSessionMode,
+  type GraphManagementMode,
+  type GraphManagementRailItemId,
+} from '@/utils/kgGraphManagement'
 import {
   buildDataSourcesStepUrl,
   buildMaintainStepUrl,
@@ -19,6 +32,15 @@ import {
   stepStatusTintClass,
   type WorkspaceStepId,
 } from '@/utils/kgManageWorkspace'
+import {
+  appendLocalChatMessage,
+  buildTransitionRestrictionReason,
+  handleActivatableKeydown,
+  isForbiddenHttpError,
+  resolveForbiddenReason,
+  resolveSectionState,
+  shouldApplyMutationResult,
+} from '@/utils/kgManageState'
 
 interface WorkspaceReadinessStatus {
   has_minimum_entity_types: boolean
@@ -108,19 +130,28 @@ const kgIdentity = ref<KnowledgeGraphIdentity | null>(null)
 const dataSourceCount = ref(0)
 const maintenanceReadyCount = ref(0)
 const loading = ref(false)
+const workspaceLoadError = ref<string | null>(null)
+const workspaceForbidden = ref(false)
+const workspaceForbiddenReason = ref<string | null>(null)
 const validating = ref(false)
 const transitioning = ref(false)
 const sessionLoading = ref(false)
 const sessionHistoryLoading = ref(false)
+const sessionLoadError = ref<string | null>(null)
+const sessionForbidden = ref(false)
+const sessionForbiddenReason = ref<string | null>(null)
 const clearingChat = ref(false)
+const sendingChat = ref(false)
 const extractionSession = ref<ExtractionSessionResponse | null>(null)
 const sessionHistory = ref<ExtractionSessionHistoryItem[]>([])
-const extractionTab = ref('extraction-jobs')
 const draftMessage = ref('')
 const statusProjection = ref<WorkspaceStatusResponse | null>(null)
 const mutationLogLoading = ref(false)
+const mutationLogLoadError = ref<string | null>(null)
 const mutationLogRuns = ref<MutationLogRunView[]>([])
 const selectedMutationLogRunId = ref<string | null>(null)
+const graphManagementMode = ref<GraphManagementMode>('initial-schema-design')
+const selectedRailItemId = ref<GraphManagementRailItemId | null>(null)
 
 const activeStep = computed(() => parseManageStepQuery(route.query.step))
 const showOverview = computed(() => activeStep.value === null)
@@ -146,15 +177,100 @@ const modeLabel = computed(() =>
     : 'Schema Bootstrap',
 )
 
-const sessionMode = computed<'schema_bootstrap' | 'extraction_operations'>(() =>
-  statusProjection.value?.workspace_mode === 'extraction_operations'
-    ? 'extraction_operations'
-    : 'schema_bootstrap',
+const stepBadgeLabel = computed(() => {
+  if (activeStep.value === 'graph-management') {
+    return graphManagementModeLabel.value
+  }
+  return modeLabel.value
+})
+
+const sharedSessionMode = computed<'schema_bootstrap' | 'extraction_operations'>(() =>
+  resolveSharedSessionMode(
+    statusProjection.value?.workspace_mode ?? 'schema_bootstrap',
+  ),
+)
+
+const graphManagementModeLabel = computed(
+  () => GRAPH_MANAGEMENT_MODE_LABELS[graphManagementMode.value],
+)
+
+const graphManagementInputPlaceholder = computed(
+  () => GRAPH_MANAGEMENT_INPUT_PLACEHOLDERS[graphManagementMode.value],
+)
+
+const sessionStatusLabel = computed(() => {
+  if (sessionLoading.value) return 'Loading session'
+  if (clearingChat.value) return 'Resetting chat'
+  if (extractionSession.value?.id) {
+    return `Active · ${extractionSession.value.id.slice(0, 8)}`
+  }
+  return 'No active session'
+})
+
+const graphManagementRailItems = computed(() => {
+  if (!statusProjection.value) return []
+  return buildGraphManagementRailItems({
+    workspaceMode: statusProjection.value.workspace_mode,
+    transitionEligible: statusProjection.value.transition_eligible,
+    blockingReasonCount: statusProjection.value.readiness.blocking_reasons.length,
+    prepopulatedGapCount: statusProjection.value.readiness.prepopulated_types_without_instances.length,
+    sessionUpdatedAt: extractionSession.value?.updated_at ?? null,
+    hasActiveSession: Boolean(extractionSession.value?.id),
+  })
+})
+
+const visibleRailItems = computed(() =>
+  filterRailItemsForMode(graphManagementRailItems.value, graphManagementMode.value),
+)
+
+const selectedRailItem = computed(() =>
+  visibleRailItems.value.find((item) => item.id === selectedRailItemId.value) ?? null,
 )
 
 const canTransition = computed(() =>
   statusProjection.value?.workspace_mode === 'schema_bootstrap'
   && statusProjection.value?.transition_eligible === true,
+)
+
+const transitionRestrictionReason = computed(() =>
+  buildTransitionRestrictionReason(
+    canTransition.value,
+    statusProjection.value?.readiness.blocking_reasons ?? [],
+  ),
+)
+
+const workspaceOverviewState = computed(() =>
+  resolveSectionState({
+    section: 'workspace-overview',
+    loading: loading.value,
+    error: workspaceLoadError.value,
+    forbidden: workspaceForbidden.value,
+    forbiddenReason: workspaceForbiddenReason.value,
+  }),
+)
+
+const mutationLogsSectionState = computed(() =>
+  resolveSectionState({
+    section: 'mutation-logs',
+    loading: mutationLogLoading.value,
+    error: mutationLogLoadError.value,
+    forbidden: workspaceForbidden.value,
+    forbiddenReason: workspaceForbiddenReason.value,
+    empty: !mutationLogLoading.value
+      && !mutationLogLoadError.value
+      && mutationLogRuns.value.length === 0,
+    emptyActionLabel: 'Refresh runs',
+  }),
+)
+
+const graphManagementSectionState = computed(() =>
+  resolveSectionState({
+    section: 'graph-management',
+    loading: sessionLoading.value,
+    error: sessionLoadError.value,
+    forbidden: sessionForbidden.value,
+    forbiddenReason: sessionForbiddenReason.value,
+  }),
 )
 
 const selectedMutationLogRun = computed(() =>
@@ -256,15 +372,30 @@ function returnToWorkspaceOverview() {
 async function loadWorkspaceStatus() {
   if (!hasTenant.value || !kgId.value) return
   loading.value = true
+  workspaceLoadError.value = null
   try {
     statusProjection.value = await apiFetch<WorkspaceStatusResponse>(
       `/management/knowledge-graphs/${kgId.value}/workspace-status`,
     )
+    workspaceForbidden.value = false
+    workspaceForbiddenReason.value = null
   } catch (err) {
-    statusProjection.value = null
-    toast.error('Failed to load knowledge graph workspace', {
-      description: extractErrorMessage(err),
-    })
+    if (isForbiddenHttpError(err)) {
+      workspaceForbidden.value = true
+      workspaceForbiddenReason.value = resolveForbiddenReason(
+        err,
+        'You do not have permission to view this knowledge graph workspace.',
+      )
+      statusProjection.value = null
+    } else {
+      workspaceForbidden.value = false
+      workspaceForbiddenReason.value = null
+      statusProjection.value = null
+      workspaceLoadError.value = extractErrorMessage(err)
+      toast.error('Failed to load knowledge graph workspace', {
+        description: workspaceLoadError.value,
+      })
+    }
   } finally {
     loading.value = false
   }
@@ -273,6 +404,7 @@ async function loadWorkspaceStatus() {
 async function loadMutationLogRuns() {
   if (!hasTenant.value || !kgId.value) return
   mutationLogLoading.value = true
+  mutationLogLoadError.value = null
   try {
     const dataSources = await apiFetch<DataSourceRef[]>(
       `/management/knowledge-graphs/${kgId.value}/data-sources`,
@@ -307,28 +439,50 @@ async function loadMutationLogRuns() {
       selectedMutationLogRunId.value = collected[0]?.id ?? null
     }
   } catch (err) {
+    if (isForbiddenHttpError(err)) {
+      mutationLogLoadError.value = resolveForbiddenReason(
+        err,
+        'You do not have permission to view mutation logs for this graph.',
+      )
+    } else {
+      mutationLogLoadError.value = extractErrorMessage(err)
+      toast.error('Failed to load mutation log runs', {
+        description: mutationLogLoadError.value,
+      })
+    }
     mutationLogRuns.value = []
     selectedMutationLogRunId.value = null
-    toast.error('Failed to load mutation log runs', {
-      description: extractErrorMessage(err),
-    })
   } finally {
     mutationLogLoading.value = false
   }
 }
 
 async function loadExtractionSession() {
-  if (!kgId.value) return
+  if (!kgId.value || activeStep.value !== 'graph-management') return
   sessionLoading.value = true
+  sessionLoadError.value = null
   try {
     extractionSession.value = await apiFetch<ExtractionSessionResponse>(
-      `/extraction/knowledge-graphs/${kgId.value}/sessions/${sessionMode.value}/active`,
+      `/extraction/knowledge-graphs/${kgId.value}/sessions/${sharedSessionMode.value}/active`,
     )
+    sessionForbidden.value = false
+    sessionForbiddenReason.value = null
   } catch (err) {
     extractionSession.value = null
-    toast.error('Failed to load extraction conversation', {
-      description: extractErrorMessage(err),
-    })
+    if (isForbiddenHttpError(err)) {
+      sessionForbidden.value = true
+      sessionForbiddenReason.value = resolveForbiddenReason(
+        err,
+        'You do not have permission to manage this knowledge graph.',
+      )
+    } else {
+      sessionForbidden.value = false
+      sessionForbiddenReason.value = null
+      sessionLoadError.value = extractErrorMessage(err)
+      toast.error('Failed to load extraction conversation', {
+        description: sessionLoadError.value,
+      })
+    }
   } finally {
     sessionLoading.value = false
   }
@@ -339,7 +493,7 @@ async function loadSessionHistory() {
   sessionHistoryLoading.value = true
   try {
     const response = await apiFetch<{ sessions: ExtractionSessionHistoryItem[] }>(
-      `/extraction/knowledge-graphs/${kgId.value}/sessions/${sessionMode.value}/history`,
+      `/extraction/knowledge-graphs/${kgId.value}/sessions/${sharedSessionMode.value}/history`,
     )
     sessionHistory.value = response.sessions
   } catch (err) {
@@ -352,8 +506,83 @@ async function loadSessionHistory() {
   }
 }
 
+function syncGraphManagementState() {
+  if (activeStep.value !== 'graph-management') return
+  const fromQuery = parseGraphManagementModeQuery(route.query.gm_mode)
+  graphManagementMode.value = fromQuery
+    ?? resolveDefaultGraphManagementMode(
+      statusProjection.value?.workspace_mode ?? 'schema_bootstrap',
+    )
+  selectedRailItemId.value = resolveRailSelectionForMode(
+    selectedRailItemId.value,
+    graphManagementMode.value,
+    graphManagementRailItems.value,
+  )
+}
+
+function setGraphManagementMode(mode: GraphManagementMode) {
+  graphManagementMode.value = mode
+  selectedRailItemId.value = resolveRailSelectionForMode(
+    selectedRailItemId.value,
+    mode,
+    graphManagementRailItems.value,
+  )
+  navigateTo(buildGraphManagementStepUrl(kgId.value, mode), { replace: true })
+}
+
+function selectRailItem(itemId: GraphManagementRailItemId) {
+  selectedRailItemId.value = itemId
+}
+
+function onRailKeydown(event: KeyboardEvent, itemId: GraphManagementRailItemId) {
+  handleActivatableKeydown(event, () => selectRailItem(itemId))
+}
+
+function onStepActionKeydown(event: KeyboardEvent, stepId: WorkspaceStepId) {
+  handleActivatableKeydown(event, () => openWorkspaceStep(stepId))
+}
+
+function onModeSwitchKeydown(event: KeyboardEvent, mode: GraphManagementMode) {
+  handleActivatableKeydown(event, () => setGraphManagementMode(mode))
+}
+
+function selectMutationLogRun(runId: string) {
+  selectedMutationLogRunId.value = runId
+}
+
+function onMutationRunKeydown(event: KeyboardEvent, runId: string) {
+  handleActivatableKeydown(event, () => selectMutationLogRun(runId))
+}
+
+function sendChatMessage(message: string) {
+  if (sessionForbidden.value || !shouldApplyMutationResult(sessionForbidden.value)) {
+    toast.error('Chat unavailable', {
+      description: sessionForbiddenReason.value
+        ?? 'You do not have permission to send messages for this knowledge graph.',
+    })
+    return
+  }
+
+  sendingChat.value = true
+  try {
+    const nextHistory = appendLocalChatMessage(extractionSession.value, message)
+    extractionSession.value = {
+      ...(extractionSession.value ?? {
+        id: 'local-session',
+        runtime_context: {},
+        updated_at: new Date().toISOString(),
+      }),
+      message_history: nextHistory,
+      updated_at: new Date().toISOString(),
+    }
+    draftMessage.value = ''
+  } finally {
+    sendingChat.value = false
+  }
+}
+
 async function validateWorkspace() {
-  if (!kgId.value) return
+  if (!kgId.value || workspaceForbidden.value) return
   validating.value = true
   try {
     statusProjection.value = await apiFetch<WorkspaceStatusResponse>(
@@ -362,17 +591,26 @@ async function validateWorkspace() {
     )
     toast.success('Workspace validation complete')
   } catch (err) {
-    toast.error('Validation failed', {
-      description: extractErrorMessage(err),
-    })
+    if (isForbiddenHttpError(err)) {
+      workspaceForbidden.value = true
+      workspaceForbiddenReason.value = resolveForbiddenReason(
+        err,
+        'You do not have permission to validate this workspace.',
+      )
+    } else {
+      toast.error('Validation failed', {
+        description: extractErrorMessage(err),
+      })
+    }
   } finally {
     validating.value = false
   }
 }
 
 async function transitionToExtraction() {
-  if (!kgId.value || !canTransition.value) return
+  if (!kgId.value || !canTransition.value || workspaceForbidden.value) return
   transitioning.value = true
+  const previousStatus = statusProjection.value
   try {
     statusProjection.value = await apiFetch<WorkspaceStatusResponse>(
       `/management/knowledge-graphs/${kgId.value}/workspace/transition-to-extraction`,
@@ -381,9 +619,18 @@ async function transitionToExtraction() {
     toast.success('Workspace transitioned to extraction operations')
     await loadExtractionSession()
   } catch (err) {
-    toast.error('Transition failed', {
-      description: extractErrorMessage(err),
-    })
+    statusProjection.value = previousStatus
+    if (isForbiddenHttpError(err)) {
+      workspaceForbidden.value = true
+      workspaceForbiddenReason.value = resolveForbiddenReason(
+        err,
+        'You do not have permission to transition this workspace.',
+      )
+    } else {
+      toast.error('Transition failed', {
+        description: extractErrorMessage(err),
+      })
+    }
   } finally {
     transitioning.value = false
   }
@@ -391,11 +638,11 @@ async function transitionToExtraction() {
 
 async function clearChat() {
   // Clear chat resets the active extraction session for this knowledge graph.
-  if (!kgId.value) return
+  if (!kgId.value || sessionForbidden.value) return
   clearingChat.value = true
   try {
     extractionSession.value = await apiFetch<ExtractionSessionResponse>(
-      `/extraction/knowledge-graphs/${kgId.value}/sessions/${sessionMode.value}/clear-chat`,
+      `/extraction/knowledge-graphs/${kgId.value}/sessions/${sharedSessionMode.value}/clear-chat`,
       { method: 'POST' },
     )
     toast.success('Extraction chat cleared')
@@ -422,6 +669,13 @@ watch(tenantVersion, () => {
   extractionSession.value = null
   dataSourceCount.value = 0
   maintenanceReadyCount.value = 0
+  workspaceLoadError.value = null
+  workspaceForbidden.value = false
+  workspaceForbiddenReason.value = null
+  mutationLogLoadError.value = null
+  sessionLoadError.value = null
+  sessionForbidden.value = false
+  sessionForbiddenReason.value = null
   loadKgIdentity()
   loadWorkspaceStatus()
   loadOverviewMetrics()
@@ -430,8 +684,19 @@ watch(tenantVersion, () => {
 
 watch(
   () => statusProjection.value?.workspace_mode,
-  (mode) => {
-    if (mode) {
+  () => {
+    if (activeStep.value === 'graph-management') {
+      syncGraphManagementState()
+      loadExtractionSession()
+    }
+  },
+)
+
+watch(
+  () => [activeStep.value, route.query.gm_mode] as const,
+  () => {
+    if (activeStep.value === 'graph-management') {
+      syncGraphManagementState()
       loadExtractionSession()
       loadSessionHistory()
     }
@@ -445,14 +710,17 @@ watch(
       <div class="space-y-1">
         <div class="flex items-center gap-2">
           <h1 class="text-2xl font-semibold tracking-tight">{{ graphHeaderTitle }}</h1>
-          <Badge v-if="!showOverview" variant="secondary">{{ modeLabel }}</Badge>
+          <Badge v-if="!showOverview" variant="secondary">{{ stepBadgeLabel }}</Badge>
         </div>
         <p class="text-sm text-muted-foreground">
           <template v-if="showOverview">
             Project workspace for knowledge graph {{ kgId }}.
           </template>
+          <template v-else-if="activeStep === 'graph-management'">
+            Conversation-first graph management with shared session and mode-specific workspace panels.
+          </template>
           <template v-else>
-            Validate readiness and move from schema bootstrap to extraction operations.
+            Knowledge-graph scoped mutation run visibility and run metrics.
           </template>
         </p>
       </div>
@@ -472,9 +740,34 @@ watch(
       Select a tenant to manage this workspace.
     </div>
 
-    <div v-else-if="loading" class="flex items-center gap-2 text-sm text-muted-foreground">
+    <div
+      v-else-if="workspaceOverviewState.phase === 'loading'"
+      class="flex items-center gap-2 text-sm text-muted-foreground"
+      role="status"
+    >
       <Loader2 class="size-4 animate-spin" />
-      Loading workspace status...
+      {{ workspaceOverviewState.message }}
+    </div>
+
+    <div
+      v-else-if="workspaceOverviewState.phase === 'forbidden'"
+      class="rounded-lg border border-destructive/40 bg-destructive/5 p-6 text-sm"
+      role="alert"
+    >
+      <p class="font-medium text-destructive">{{ workspaceOverviewState.title }}</p>
+      <p class="mt-1 text-muted-foreground">{{ workspaceOverviewState.message }}</p>
+    </div>
+
+    <div
+      v-else-if="workspaceOverviewState.phase === 'error'"
+      class="rounded-lg border border-dashed p-6 text-sm"
+      role="alert"
+    >
+      <p class="font-medium">{{ workspaceOverviewState.title }}</p>
+      <p class="mt-1 text-muted-foreground">{{ workspaceOverviewState.message }}</p>
+      <Button class="mt-3" size="sm" variant="outline" @click="loadWorkspaceStatus">
+        Retry workspace load
+      </Button>
     </div>
 
     <template v-else-if="statusProjection">
@@ -517,7 +810,9 @@ watch(
               <Button
                 class="w-full"
                 variant="outline"
+                tabindex="0"
                 @click="openWorkspaceStep(card.id)"
+                @keydown="onStepActionKeydown($event, card.id)"
               >
                 {{ card.actionLabel }}
               </Button>
@@ -527,7 +822,26 @@ watch(
       </section>
 
       <section v-else-if="activeStep === 'mutation-logs'" class="space-y-4">
-        <Card>
+        <div
+          v-if="mutationLogsSectionState.phase === 'forbidden'"
+          class="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm"
+          role="alert"
+        >
+          <p class="font-medium text-destructive">{{ mutationLogsSectionState.title }}</p>
+          <p class="mt-1 text-muted-foreground">{{ mutationLogsSectionState.message }}</p>
+        </div>
+        <div
+          v-else-if="mutationLogsSectionState.phase === 'error'"
+          class="rounded-lg border border-dashed p-4 text-sm"
+          role="alert"
+        >
+          <p class="font-medium">{{ mutationLogsSectionState.title }}</p>
+          <p class="mt-1 text-muted-foreground">{{ mutationLogsSectionState.message }}</p>
+          <Button class="mt-3" size="sm" variant="outline" @click="loadMutationLogRuns">
+            Retry mutation log load
+          </Button>
+        </div>
+        <Card v-else>
           <CardHeader>
             <CardTitle class="text-base">MutationLogs</CardTitle>
             <CardDescription>
@@ -542,20 +856,29 @@ watch(
                   Refresh
                 </Button>
               </div>
-              <div v-if="mutationLogLoading" class="flex items-center gap-2 px-3 py-4 text-xs text-muted-foreground">
+              <div v-if="mutationLogLoading" class="flex items-center gap-2 px-3 py-4 text-xs text-muted-foreground" role="status">
                 <Loader2 class="size-3.5 animate-spin" />
-                Loading mutation runs...
+                {{ mutationLogsSectionState.message }}
               </div>
-              <div v-else-if="mutationLogRuns.length === 0" class="px-3 py-4 text-xs text-muted-foreground">
-                No mutation log runs found for this knowledge graph yet.
+              <div
+                v-else-if="mutationLogRuns.length === 0"
+                class="space-y-2 px-3 py-4 text-xs text-muted-foreground"
+              >
+                <p>{{ mutationLogsSectionState.message }}</p>
+                <Button size="sm" variant="outline" @click="loadMutationLogRuns">
+                  {{ mutationLogsSectionState.actionLabel ?? 'Refresh runs' }}
+                </Button>
               </div>
               <div v-else class="max-h-64 overflow-auto p-2 space-y-1.5">
                 <button
                   v-for="run in mutationLogRuns"
                   :key="run.id"
-                  class="w-full rounded border px-2 py-1.5 text-left text-xs transition-colors"
+                  type="button"
+                  tabindex="0"
+                  class="w-full rounded border px-2 py-1.5 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   :class="selectedMutationLogRunId === run.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/40'"
-                  @click="selectedMutationLogRunId = run.id"
+                  @click="selectMutationLogRun(run.id)"
+                  @keydown="onMutationRunKeydown($event, run.id)"
                 >
                   <p class="font-medium truncate">{{ run.data_source_name }}</p>
                   <p class="text-muted-foreground truncate">{{ new Date(run.started_at).toLocaleString() }}</p>
@@ -635,394 +958,355 @@ watch(
         </Card>
       </section>
 
-      <section v-else class="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle class="text-base">Mode & Transition Controls</CardTitle>
-          <CardDescription>
-            Validate current readiness and transition when eligible.
-          </CardDescription>
-        </CardHeader>
-        <CardContent class="flex flex-wrap gap-2">
-          <Button variant="outline" :disabled="validating || transitioning" @click="validateWorkspace">
-            <Loader2 v-if="validating" class="mr-1.5 size-3.5 animate-spin" />
-            <CheckCircle2 v-else class="mr-1.5 size-3.5" />
-            Validate
+      <section v-else-if="activeStep === 'graph-management'" class="space-y-4">
+        <div
+          v-if="graphManagementSectionState.phase === 'error'"
+          class="rounded-lg border border-dashed p-4 text-sm"
+          role="alert"
+        >
+          <p class="font-medium">{{ graphManagementSectionState.title }}</p>
+          <p class="mt-1 text-muted-foreground">{{ graphManagementSectionState.message }}</p>
+          <Button class="mt-3" size="sm" variant="outline" @click="loadExtractionSession">
+            Retry session load
           </Button>
-          <Button
-            :disabled="!canTransition || transitioning || validating"
-            @click="transitionToExtraction"
-          >
-            <Loader2 v-if="transitioning" class="mr-1.5 size-3.5 animate-spin" />
-            <PlayCircle v-else class="mr-1.5 size-3.5" />
-            Go to Extraction/Mutations
-          </Button>
-          <Badge :variant="canTransition ? 'default' : 'secondary'">
-            {{ canTransition ? 'Transition eligible' : 'Transition blocked' }}
-          </Badge>
-        </CardContent>
-      </Card>
+        </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle class="text-base">Readiness Results</CardTitle>
-          <CardDescription>
-            Bootstrap readiness requirements from workspace validation.
-          </CardDescription>
-        </CardHeader>
-        <CardContent class="space-y-4 text-sm">
-          <div class="rounded border p-3">
-            <p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Bootstrap Progress Checklist
-            </p>
-            <div class="space-y-2">
-              <div
-                v-for="item in progressChecklist"
-                :key="item.id"
-                class="rounded border px-3 py-2"
-              >
-                <div class="flex items-center justify-between">
-                  <p class="font-medium">{{ item.label }}</p>
-                  <Badge :variant="item.passed ? 'default' : 'destructive'">
-                    {{ item.passed ? 'Pass' : 'Fail' }}
-                  </Badge>
-                </div>
-                <p class="mt-1 text-xs text-muted-foreground">
-                  {{ item.passed ? item.passDetail : item.failDetail }}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div class="flex items-center justify-between rounded border px-3 py-2">
-            <span>Has minimum entity types</span>
-            <Badge :variant="statusProjection.readiness.has_minimum_entity_types ? 'default' : 'destructive'">
-              {{ statusProjection.readiness.has_minimum_entity_types ? 'Yes' : 'No' }}
-            </Badge>
-          </div>
-          <div class="flex items-center justify-between rounded border px-3 py-2">
-            <span>Has minimum relationship types</span>
-            <Badge :variant="statusProjection.readiness.has_minimum_relationship_types ? 'default' : 'destructive'">
-              {{ statusProjection.readiness.has_minimum_relationship_types ? 'Yes' : 'No' }}
-            </Badge>
-          </div>
-          <div class="flex items-center justify-between rounded border px-3 py-2">
-            <span>Prepopulated types ready</span>
-            <Badge :variant="statusProjection.readiness.prepopulated_types_ready ? 'default' : 'destructive'">
-              {{ statusProjection.readiness.prepopulated_types_ready ? 'Yes' : 'No' }}
-            </Badge>
-          </div>
-
-          <div class="rounded border p-3">
-            <p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Validation Diagnostics
-            </p>
+        <Card class="graph-management-controls">
+          <CardHeader class="pb-3">
+            <CardTitle class="text-base">Graph Management</CardTitle>
+            <CardDescription>
+              Shared chat session with mode-specific assistant framing and workspace panels.
+            </CardDescription>
+          </CardHeader>
+          <CardContent class="space-y-3">
             <div
-              v-if="statusProjection.readiness.prepopulated_types_without_instances.length > 0"
-              class="rounded border border-amber-400/60 bg-amber-50/60 p-2 text-xs dark:border-amber-800 dark:bg-amber-950/20"
+              class="flex flex-wrap gap-2"
+              role="tablist"
+              aria-label="Graph management modes"
             >
-              <p class="font-medium text-amber-800 dark:text-amber-300">
-                Prepopulated types missing instances
-              </p>
-              <ul class="mt-1 list-disc space-y-1 pl-4 text-muted-foreground">
-                <li
-                  v-for="typeLabel in statusProjection.readiness.prepopulated_types_without_instances"
-                  :key="typeLabel"
-                >
-                  {{ typeLabel }}
-                </li>
-              </ul>
-            </div>
-
-            <div v-if="statusProjection.readiness.blocking_reasons.length > 0" class="mt-2 rounded border border-destructive/50 p-3">
-              <p class="mb-1 text-xs font-medium text-destructive flex items-center gap-1.5">
-                <ShieldAlert class="size-3.5" />
-                Blocking reasons
-              </p>
-              <ul class="list-disc pl-4 text-xs text-muted-foreground space-y-1">
-                <li v-for="reason in statusProjection.readiness.blocking_reasons" :key="reason">
-                  {{ reason }}
-                </li>
-              </ul>
-            </div>
-            <p
-              v-else-if="statusProjection.readiness.prepopulated_types_without_instances.length === 0"
-              class="text-xs text-muted-foreground"
-            >
-              No validation diagnostics are currently blocking transition.
-            </p>
-          </div>
-
-          <div class="rounded border p-3">
-            <p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Next Steps
-            </p>
-            <ul class="list-disc pl-4 text-xs text-muted-foreground space-y-1">
-              <li v-for="step in nextSteps" :key="step">{{ step }}</li>
-            </ul>
-          </div>
-
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle class="text-base">Session Pointers</CardTitle>
-          <CardDescription>
-            Active and recent extraction session references for this knowledge graph.
-          </CardDescription>
-        </CardHeader>
-        <CardContent class="grid gap-2 md:grid-cols-3 text-xs">
-          <div class="rounded border px-3 py-2">
-            <p class="text-muted-foreground">Active schema bootstrap session</p>
-            <p class="font-mono break-all mt-1">
-              {{ statusProjection.session_pointers.active_schema_bootstrap_session_id ?? 'None' }}
-            </p>
-          </div>
-          <div class="rounded border px-3 py-2">
-            <p class="text-muted-foreground">Active extraction operations session</p>
-            <p class="font-mono break-all mt-1">
-              {{ statusProjection.session_pointers.active_extraction_operations_session_id ?? 'None' }}
-            </p>
-          </div>
-          <div class="rounded border px-3 py-2">
-            <p class="text-muted-foreground">Most recent completed session</p>
-            <p class="font-mono break-all mt-1">
-              {{ statusProjection.session_pointers.most_recent_completed_session_id ?? 'None' }}
-            </p>
-          </div>
-        </CardContent>
-        <CardContent class="space-y-3 border-t pt-4">
-          <div class="flex items-center justify-between">
-            <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Session History
-            </p>
-            <Button
-              size="sm"
-              variant="ghost"
-              class="h-6 px-2 text-[10px]"
-              :disabled="sessionHistoryLoading"
-              @click="loadSessionHistory"
-            >
-              Refresh
-            </Button>
-          </div>
-          <div
-            v-if="sessionHistoryLoading"
-            class="flex items-center gap-2 text-xs text-muted-foreground"
-          >
-            <Loader2 class="size-3.5 animate-spin" />
-            Loading session history...
-          </div>
-          <div
-            v-else-if="sessionHistory.length === 0"
-            class="rounded border border-dashed px-3 py-4 text-xs text-muted-foreground"
-          >
-            No archived or active sessions found for this scope yet.
-          </div>
-          <div v-else class="space-y-2">
-            <div
-              v-for="entry in sessionHistory"
-              :key="entry.id"
-              class="rounded border px-3 py-2 text-xs"
-            >
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <p class="font-mono break-all">{{ entry.id }}</p>
-                <Badge :variant="entry.is_active ? 'default' : 'secondary'">
-                  {{ entry.is_active ? 'Active' : 'Archived' }}
-                </Badge>
-              </div>
-              <p class="mt-1 text-muted-foreground">
-                Updated {{ new Date(entry.updated_at).toLocaleString() }}
-                <span v-if="entry.archived_at">
-                  · Archived {{ new Date(entry.archived_at).toLocaleString() }}
-                </span>
-              </p>
-              <p class="mt-1 text-muted-foreground">
-                {{ entry.message_count }} message(s)
-                · {{ entry.run_metrics.length }} linked run(s)
-              </p>
-              <div
-                v-if="entry.run_metrics.length > 0"
-                class="mt-2 space-y-1.5 rounded border bg-muted/20 p-2"
+              <Button
+                v-for="mode in GRAPH_MANAGEMENT_MODE_ORDER"
+                :key="mode"
+                size="sm"
+                role="tab"
+                :aria-selected="graphManagementMode === mode"
+                tabindex="0"
+                :variant="graphManagementMode === mode ? 'default' : 'outline'"
+                @click="setGraphManagementMode(mode)"
+                @keydown="onModeSwitchKeydown($event, mode)"
               >
-                <div
-                  v-for="metric in entry.run_metrics"
-                  :key="metric.sync_run_id"
-                  class="flex flex-wrap items-center justify-between gap-2"
-                >
-                  <span class="font-mono">{{ metric.mutation_log_id ?? metric.sync_run_id }}</span>
-                  <span class="text-muted-foreground">
-                    {{ metric.token_usage_total ?? 0 }} tokens ·
-                    ${{ (metric.cost_total_usd ?? 0).toFixed(2) }}
-                  </span>
-                </div>
-              </div>
+                {{ GRAPH_MANAGEMENT_MODE_LABELS[mode] }}
+              </Button>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+            <div class="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">{{ sessionStatusLabel }}</Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                :disabled="validating || transitioning || workspaceForbidden"
+                :title="workspaceForbiddenReason ?? undefined"
+                @click="validateWorkspace"
+              >
+                <Loader2 v-if="validating" class="mr-1.5 size-3.5 animate-spin" />
+                <CheckCircle2 v-else class="mr-1.5 size-3.5" />
+                Validate
+              </Button>
+              <Badge :variant="canTransition ? 'default' : 'secondary'">
+                {{ canTransition ? 'Transition eligible' : 'Transition blocked' }}
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
 
-      <div class="space-y-4">
         <SharedConversationPanel
           v-model:draft-message="draftMessage"
-          :mode-label="modeLabel"
+          :mode-label="graphManagementModeLabel"
+          :input-placeholder="graphManagementInputPlaceholder"
+          :session-status-label="sessionStatusLabel"
           :session="extractionSession"
           :loading="sessionLoading"
           :clearing="clearingChat"
+          :sending="sendingChat"
           :activity-lines="sessionActivityLines"
+          :forbidden="sessionForbidden"
+          :forbidden-reason="sessionForbiddenReason"
+          :input-disabled="workspaceForbidden"
+          :input-disabled-reason="workspaceForbiddenReason"
           @refresh="loadExtractionSession"
           @clear-chat="clearChat"
+          @send-message="sendChatMessage"
         />
 
-        <Card v-if="statusProjection.workspace_mode === 'extraction_operations'">
-          <CardHeader>
-            <CardTitle class="text-base">Operations Workspace</CardTitle>
-            <CardDescription>
-              Tabbed controls for extraction jobs, manual mutations, and run/log visibility.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs v-model="extractionTab" class="w-full">
-              <TabsList class="grid w-full grid-cols-3">
-                <TabsTrigger value="extraction-jobs">Extraction Jobs</TabsTrigger>
-                <TabsTrigger value="manual-mutations">Manual Mutations</TabsTrigger>
-                <TabsTrigger value="run-logs">Run/Logs</TabsTrigger>
-              </TabsList>
-              <TabsContent value="extraction-jobs" class="mt-3 space-y-2 text-sm">
+        <div class="grid gap-4 xl:grid-cols-[280px_1fr]">
+          <div
+            class="graph-management-rail rounded border"
+            role="listbox"
+            aria-label="Graph management status and artifacts"
+          >
+            <div class="border-b px-3 py-2">
+              <p class="text-xs font-medium text-muted-foreground">Status &amp; artifacts</p>
+            </div>
+            <div class="space-y-1.5 p-2">
+              <button
+                v-for="item in visibleRailItems"
+                :key="item.id"
+                type="button"
+                role="option"
+                :aria-selected="selectedRailItemId === item.id"
+                tabindex="0"
+                class="w-full rounded border px-2 py-2 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                :class="[
+                  stepStatusTintClass(item.status),
+                  selectedRailItemId === item.id ? 'border-primary ring-1 ring-primary/30' : 'hover:bg-muted/40',
+                ]"
+                @click="selectRailItem(item.id)"
+                @keydown="onRailKeydown($event, item.id)"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <p class="font-medium">{{ item.label }}</p>
+                  <Badge variant="outline" class="text-[10px]">{{ item.status }}</Badge>
+                </div>
+                <p class="mt-1 text-muted-foreground">{{ item.detailHint }}</p>
+                <p class="mt-1 text-[10px] text-muted-foreground">Updated {{ item.lastUpdated }}</p>
+              </button>
+            </div>
+          </div>
+
+          <Card class="graph-management-detail">
+            <CardHeader class="pb-3">
+              <CardTitle class="text-base">
+                {{ selectedRailItem?.label ?? 'Workspace detail' }}
+              </CardTitle>
+              <CardDescription>
+                Mode:
+                <span class="font-medium text-foreground">{{ graphManagementModeLabel }}</span>
+              </CardDescription>
+            </CardHeader>
+            <CardContent class="space-y-4 text-sm">
+              <template v-if="selectedRailItemId === 'schema-readiness'">
+                <div class="rounded border p-3">
+                  <p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    Bootstrap Progress Checklist
+                  </p>
+                  <div class="space-y-2">
+                    <div
+                      v-for="item in progressChecklist"
+                      :key="item.id"
+                      class="rounded border px-3 py-2"
+                    >
+                      <div class="flex items-center justify-between">
+                        <p class="font-medium">{{ item.label }}</p>
+                        <Badge :variant="item.passed ? 'default' : 'destructive'">
+                          {{ item.passed ? 'Pass' : 'Fail' }}
+                        </Badge>
+                      </div>
+                      <p class="mt-1 text-xs text-muted-foreground">
+                        {{ item.passed ? item.passDetail : item.failDetail }}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <Button variant="outline" :disabled="validating || transitioning || workspaceForbidden" @click="validateWorkspace">
+                    <Loader2 v-if="validating" class="mr-1.5 size-3.5 animate-spin" />
+                    <CheckCircle2 v-else class="mr-1.5 size-3.5" />
+                    Validate
+                  </Button>
+                  <Button
+                    :disabled="!canTransition || transitioning || validating || workspaceForbidden"
+                    :title="transitionRestrictionReason ?? undefined"
+                    @click="transitionToExtraction"
+                  >
+                    <Loader2 v-if="transitioning" class="mr-1.5 size-3.5 animate-spin" />
+                    <PlayCircle v-else class="mr-1.5 size-3.5" />
+                    Go to Extraction/Mutations
+                  </Button>
+                </div>
+              </template>
+
+              <template v-else-if="selectedRailItemId === 'validation-diagnostics'">
+                <div class="rounded border p-3">
+                  <p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    Validation Diagnostics
+                  </p>
+                  <div
+                    v-if="statusProjection.readiness.prepopulated_types_without_instances.length > 0"
+                    class="rounded border border-amber-400/60 bg-amber-50/60 p-2 text-xs dark:border-amber-800 dark:bg-amber-950/20"
+                  >
+                    <p class="font-medium text-amber-800 dark:text-amber-300">
+                      Prepopulated types missing instances
+                    </p>
+                    <ul class="mt-1 list-disc space-y-1 pl-4 text-muted-foreground">
+                      <li
+                        v-for="typeLabel in statusProjection.readiness.prepopulated_types_without_instances"
+                        :key="typeLabel"
+                      >
+                        {{ typeLabel }}
+                      </li>
+                    </ul>
+                  </div>
+                  <div
+                    v-if="statusProjection.readiness.blocking_reasons.length > 0"
+                    class="mt-2 rounded border border-destructive/50 p-3"
+                  >
+                    <p class="mb-1 flex items-center gap-1.5 text-xs font-medium text-destructive">
+                      <ShieldAlert class="size-3.5" />
+                      Blocking reasons
+                    </p>
+                    <ul class="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                      <li v-for="reason in statusProjection.readiness.blocking_reasons" :key="reason">
+                        {{ reason }}
+                      </li>
+                    </ul>
+                  </div>
+                  <p
+                    v-else-if="statusProjection.readiness.prepopulated_types_without_instances.length === 0"
+                    class="text-xs text-muted-foreground"
+                  >
+                    No validation diagnostics are currently blocking transition.
+                  </p>
+                </div>
+                <div class="rounded border p-3">
+                  <p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    Next Steps
+                  </p>
+                  <ul class="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                    <li v-for="step in nextSteps" :key="step">{{ step }}</li>
+                  </ul>
+                </div>
+              </template>
+
+              <template v-else-if="selectedRailItemId === 'session-pointers'">
+                <div class="grid gap-2 md:grid-cols-3 text-xs">
+                  <div class="rounded border px-3 py-2">
+                    <p class="text-muted-foreground">Active schema bootstrap session</p>
+                    <p class="mt-1 break-all font-mono">
+                      {{ statusProjection.session_pointers.active_schema_bootstrap_session_id ?? 'None' }}
+                    </p>
+                  </div>
+                  <div class="rounded border px-3 py-2">
+                    <p class="text-muted-foreground">Active extraction operations session</p>
+                    <p class="mt-1 break-all font-mono">
+                      {{ statusProjection.session_pointers.active_extraction_operations_session_id ?? 'None' }}
+                    </p>
+                  </div>
+                  <div class="rounded border px-3 py-2">
+                    <p class="text-muted-foreground">Most recent completed session</p>
+                    <p class="mt-1 break-all font-mono">
+                      {{ statusProjection.session_pointers.most_recent_completed_session_id ?? 'None' }}
+                    </p>
+                  </div>
+                </div>
+                <div class="space-y-3 border-t pt-3">
+                  <div class="flex items-center justify-between">
+                    <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      Session History
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      class="h-6 px-2 text-[10px]"
+                      :disabled="sessionHistoryLoading"
+                      @click="loadSessionHistory"
+                    >
+                      Refresh
+                    </Button>
+                  </div>
+                  <div
+                    v-if="sessionHistoryLoading"
+                    class="flex items-center gap-2 text-xs text-muted-foreground"
+                  >
+                    <Loader2 class="size-3.5 animate-spin" />
+                    Loading session history...
+                  </div>
+                  <div
+                    v-else-if="sessionHistory.length === 0"
+                    class="rounded border border-dashed px-3 py-4 text-xs text-muted-foreground"
+                  >
+                    No archived or active sessions found for this scope yet.
+                  </div>
+                  <div v-else class="space-y-2">
+                    <div
+                      v-for="entry in sessionHistory"
+                      :key="entry.id"
+                      class="rounded border px-3 py-2 text-xs"
+                    >
+                      <div class="flex flex-wrap items-center justify-between gap-2">
+                        <p class="font-mono break-all">{{ entry.id }}</p>
+                        <Badge :variant="entry.is_active ? 'default' : 'secondary'">
+                          {{ entry.is_active ? 'Active' : 'Archived' }}
+                        </Badge>
+                      </div>
+                      <p class="mt-1 text-muted-foreground">
+                        Updated {{ new Date(entry.updated_at).toLocaleString() }}
+                        <span v-if="entry.archived_at">
+                          · Archived {{ new Date(entry.archived_at).toLocaleString() }}
+                        </span>
+                      </p>
+                      <p class="mt-1 text-muted-foreground">
+                        {{ entry.message_count }} message(s)
+                        · {{ entry.run_metrics.length }} linked run(s)
+                      </p>
+                      <div
+                        v-if="entry.run_metrics.length > 0"
+                        class="mt-2 space-y-1.5 rounded border bg-muted/20 p-2"
+                      >
+                        <div
+                          v-for="metric in entry.run_metrics"
+                          :key="metric.sync_run_id"
+                          class="flex flex-wrap items-center justify-between gap-2"
+                        >
+                          <span class="font-mono">{{ metric.mutation_log_id ?? metric.sync_run_id }}</span>
+                          <span class="text-muted-foreground">
+                            {{ metric.token_usage_total ?? 0 }} tokens ·
+                            ${{ (metric.cost_total_usd ?? 0).toFixed(2) }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <template v-else-if="graphManagementMode === 'extraction-jobs'">
                 <p class="text-muted-foreground">
                   Trigger extraction and maintenance controls from the data sources operations panel.
                 </p>
-                <Button size="sm" variant="outline" @click="navigateTo('/data-sources')">
-                  Open Data Source Operations
-                </Button>
-              </TabsContent>
-              <TabsContent value="manual-mutations" class="mt-3 space-y-2 text-sm">
+                <div class="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    @click="navigateTo(buildDataSourcesStepUrl(kgId))"
+                  >
+                    Open Data Source Operations
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    @click="navigateTo(buildMaintainStepUrl(kgId))"
+                  >
+                    Open Maintain Step
+                  </Button>
+                </div>
+              </template>
+
+              <template v-else-if="graphManagementMode === 'one-off-mutations'">
                 <p class="text-muted-foreground">
                   Open the mutation editor scoped to this knowledge graph for minor direct edits.
                 </p>
                 <Button size="sm" @click="navigateTo(`/graph/mutations?kg_id=${kgId}&view=editor`)">
                   Open Manual Mutations
                 </Button>
-              </TabsContent>
-              <TabsContent value="run-logs" class="mt-3 space-y-2 text-sm">
-                <p class="text-muted-foreground">
-                  Review sync run history, maintenance outcomes, and operational logs.
-                </p>
-                <Button size="sm" variant="outline" @click="navigateTo('/data-sources')">
-                  Open Run and Log Views
-                </Button>
-                <Card class="mt-2">
-                  <CardHeader>
-                    <CardTitle class="text-sm">MutationLog Browser</CardTitle>
-                    <CardDescription>
-                      Knowledge-graph scoped mutation runs with per-entry operation previews and run metrics.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent class="grid gap-3 xl:grid-cols-[280px_1fr]">
-                    <div class="rounded border">
-                      <div class="flex items-center justify-between border-b px-3 py-2">
-                        <p class="text-xs font-medium text-muted-foreground">Runs</p>
-                        <Button size="sm" variant="ghost" class="h-6 px-2 text-[10px]" @click="loadMutationLogRuns">
-                          Refresh
-                        </Button>
-                      </div>
-                      <div v-if="mutationLogLoading" class="flex items-center gap-2 px-3 py-4 text-xs text-muted-foreground">
-                        <Loader2 class="size-3.5 animate-spin" />
-                        Loading mutation runs...
-                      </div>
-                      <div v-else-if="mutationLogRuns.length === 0" class="px-3 py-4 text-xs text-muted-foreground">
-                        No mutation log runs found for this knowledge graph yet.
-                      </div>
-                      <div v-else class="max-h-64 overflow-auto p-2 space-y-1.5">
-                        <button
-                          v-for="run in mutationLogRuns"
-                          :key="run.id"
-                          class="w-full rounded border px-2 py-1.5 text-left text-xs transition-colors"
-                          :class="selectedMutationLogRunId === run.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/40'"
-                          @click="selectedMutationLogRunId = run.id"
-                        >
-                          <p class="font-medium truncate">{{ run.data_source_name }}</p>
-                          <p class="text-muted-foreground truncate">{{ new Date(run.started_at).toLocaleString() }}</p>
-                          <div class="mt-1 flex items-center justify-between">
-                            <Badge variant="outline" class="text-[10px]">{{ run.status }}</Badge>
-                            <span class="font-mono text-[10px] text-muted-foreground">{{ run.mutation_log_id }}</span>
-                          </div>
-                        </button>
-                      </div>
-                    </div>
+              </template>
 
-                    <div v-if="selectedMutationLogRun" class="space-y-3 rounded border p-3">
-                      <div class="flex flex-wrap items-center gap-2">
-                        <Badge>{{ selectedMutationLogRun.status }}</Badge>
-                        <p class="text-xs text-muted-foreground">
-                          Data source:
-                          <span class="font-medium text-foreground">{{ selectedMutationLogRun.data_source_name }}</span>
-                        </p>
-                      </div>
-                      <div class="grid gap-2 sm:grid-cols-2">
-                        <div class="rounded border px-3 py-2 text-xs">
-                          <p class="text-muted-foreground">MutationLog</p>
-                          <p class="mt-1 font-mono break-all">{{ selectedMutationLogRun.mutation_log_id }}</p>
-                        </div>
-                        <div class="rounded border px-3 py-2 text-xs">
-                          <p class="text-muted-foreground">Session</p>
-                          <p class="mt-1 font-mono break-all">{{ selectedMutationLogRun.session_id ?? 'None' }}</p>
-                        </div>
-                        <div class="rounded border px-3 py-2 text-xs">
-                          <p class="text-muted-foreground">Started</p>
-                          <p class="mt-1">{{ new Date(selectedMutationLogRun.started_at).toLocaleString() }}</p>
-                        </div>
-                        <div class="rounded border px-3 py-2 text-xs">
-                          <p class="text-muted-foreground">Completed</p>
-                          <p class="mt-1">
-                            {{ selectedMutationLogRun.completed_at ? new Date(selectedMutationLogRun.completed_at).toLocaleString() : 'In progress' }}
-                          </p>
-                        </div>
-                      </div>
-                      <div class="grid gap-2 sm:grid-cols-2">
-                        <div class="rounded border px-3 py-2 text-xs">
-                          <p class="text-muted-foreground flex items-center gap-1.5">
-                            <Coins class="size-3.5" />
-                            Token usage
-                          </p>
-                          <p class="mt-1 font-medium">{{ (selectedMutationLogRun.token_usage_total ?? 0).toLocaleString() }}</p>
-                        </div>
-                        <div class="rounded border px-3 py-2 text-xs">
-                          <p class="text-muted-foreground flex items-center gap-1.5">
-                            <DollarSign class="size-3.5" />
-                            Cost (USD)
-                          </p>
-                          <p class="mt-1 font-medium">${{ (selectedMutationLogRun.cost_total_usd ?? 0).toFixed(2) }}</p>
-                        </div>
-                      </div>
-                      <div class="rounded border p-3">
-                        <p class="mb-2 text-xs font-medium text-muted-foreground">Per-entry operation previews</p>
-                        <div v-if="Object.keys(selectedMutationLogRun.operation_counts).length === 0" class="text-xs text-muted-foreground">
-                          No operation class counts recorded for this run.
-                        </div>
-                        <div v-else class="space-y-1.5">
-                          <div
-                            v-for="([opClass, count]) in Object.entries(selectedMutationLogRun.operation_counts)"
-                            :key="opClass"
-                            class="flex items-center justify-between rounded border px-2 py-1.5 text-xs"
-                          >
-                            <span class="font-mono">{{ opClass }}</span>
-                            <Badge variant="secondary">{{ count }}</Badge>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div v-else class="rounded border border-dashed p-6 text-sm text-muted-foreground">
-                      Select a mutation run to view summary and per-entry previews.
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-      </div>
+              <template v-else>
+                <p class="text-xs text-muted-foreground">
+                  Select a status or artifact item to inspect mode-specific workspace content.
+                </p>
+              </template>
+            </CardContent>
+          </Card>
+        </div>
       </section>
     </template>
   </div>

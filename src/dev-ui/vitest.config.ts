@@ -7,6 +7,11 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     globals: true,
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/local_modules/**',
+    ],
   },
   resolve: {
     alias: {

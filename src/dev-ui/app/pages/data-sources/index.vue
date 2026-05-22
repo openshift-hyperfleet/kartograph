@@ -638,6 +638,8 @@ async function approveOntology() {
 
 const dataSources = ref<DataSourceItem[]>([])
 const loadingDataSources = ref(false)
+const scopedKnowledgeGraphId = ref('')
+const manageReturnKgId = ref('')
 const expandedDiffLists = ref<Record<string, boolean>>({})
 const refreshingCommitRefs = ref<Record<string, boolean>>({})
 const adoptingBaselines = ref<Record<string, boolean>>({})
@@ -646,6 +648,19 @@ function isMaintenanceReady(ds: DataSourceItem): boolean {
   if (!ds.last_extraction_baseline_commit || !ds.tracked_branch_head_commit) return false
   return ds.last_extraction_baseline_commit !== ds.tracked_branch_head_commit
 }
+
+const visibleDataSources = computed(() => {
+  if (!scopedKnowledgeGraphId.value) return dataSources.value
+  return dataSources.value.filter(
+    (ds) => ds.knowledge_graph_id === scopedKnowledgeGraphId.value,
+  )
+})
+
+const manageWorkspaceReturnUrl = computed(() =>
+  manageReturnKgId.value
+    ? `/knowledge-graphs/${manageReturnKgId.value}/manage`
+    : '',
+)
 
 function isDiffExpanded(dsId: string): boolean {
   return expandedDiffLists.value[dsId] === true
@@ -958,10 +973,23 @@ onMounted(async () => {
   // When the user clicks "Add Data Source" from the post-KG-creation toast on
   // /knowledge-graphs, they are sent to /data-sources?kg_id=<new-kg-id>. Reading
   // this param here ensures the wizard opens immediately with the right KG chosen.
+  // Manage workspace navigation contract: ?kg_id=<id>&from=manage preserves graph scope
+  // without auto-opening the creation wizard (see buildDataSourcesStepUrl).
   const preselectedKgId = route.query.kg_id as string | undefined
-  if (preselectedKgId) {
+  const fromManage = route.query.from === 'manage'
+  const focusMaintain = route.query.focus === 'maintain'
+
+  if (fromManage && preselectedKgId) {
+    scopedKnowledgeGraphId.value = preselectedKgId
+    manageReturnKgId.value = preselectedKgId
+    selectedMaintenanceKnowledgeGraphId.value = preselectedKgId
+  } else if (preselectedKgId) {
     await nextTick()
     openWizard(preselectedKgId)
+  }
+
+  if (focusMaintain && preselectedKgId) {
+    selectedMaintenanceKnowledgeGraphId.value = preselectedKgId
   }
 })
 
@@ -1312,10 +1340,19 @@ async function handleDeleteDs() {
           </p>
         </div>
       </div>
-      <Button :disabled="!hasTenant" @click="openWizard">
-        <Plus class="mr-2 size-4" />
-        Add Data Source
-      </Button>
+      <div class="flex items-center gap-2">
+        <Button
+          v-if="manageWorkspaceReturnUrl"
+          variant="outline"
+          @click="navigateTo(manageWorkspaceReturnUrl)"
+        >
+          Back to workspace overview
+        </Button>
+        <Button :disabled="!hasTenant" @click="openWizard(scopedKnowledgeGraphId || undefined)">
+          <Plus class="mr-2 size-4" />
+          Add Data Source
+        </Button>
+      </div>
     </div>
 
     <Separator />
@@ -1505,7 +1542,7 @@ async function handleDeleteDs() {
       </Card>
 
       <!-- Empty state (no data sources yet) -->
-      <div v-if="dataSources.length === 0" class="flex flex-col items-center gap-4 py-16 text-center">
+      <div v-if="visibleDataSources.length === 0" class="flex flex-col items-center gap-4 py-16 text-center">
         <div class="rounded-full bg-muted p-5">
           <Cable class="size-10 text-muted-foreground" />
         </div>
@@ -1525,7 +1562,7 @@ async function handleDeleteDs() {
 
       <!-- Data source list (shown when sources exist) -->
       <div v-else class="space-y-3">
-        <div v-for="ds in dataSources" :key="ds.id" class="rounded-lg border bg-card">
+        <div v-for="ds in visibleDataSources" :key="ds.id" class="rounded-lg border bg-card">
           <div class="flex items-center justify-between p-4">
             <div class="flex items-center gap-3">
               <div class="rounded-md bg-muted p-2">

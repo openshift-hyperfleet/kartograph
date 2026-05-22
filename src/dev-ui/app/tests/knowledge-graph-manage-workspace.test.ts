@@ -1,15 +1,46 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
+import {
+  WORKSPACE_STEP_ORDER,
+  WORKSPACE_STEP_TITLES,
+  buildDataSourcesStepUrl,
+  buildMaintainStepUrl,
+  buildManageStepUrl,
+  buildSuggestedNextStep,
+  buildWorkspaceStepCards,
+  isMaintenanceReady,
+  resolveStepDestination,
+  stepStatusTintClass,
+} from '../utils/kgManageWorkspace'
 
 const manageWorkspaceVue = readFileSync(
   resolve(__dirname, '../pages/knowledge-graphs/[kgId]/manage.vue'),
+  'utf-8',
+)
+const kgIndexVue = readFileSync(
+  resolve(__dirname, '../pages/knowledge-graphs/index.vue'),
+  'utf-8',
+)
+const dataSourcesVue = readFileSync(
+  resolve(__dirname, '../pages/data-sources/index.vue'),
   'utf-8',
 )
 const sharedConversationPanelVue = readFileSync(
   resolve(__dirname, '../components/extraction/SharedConversationPanel.vue'),
   'utf-8',
 )
+
+const baseWorkspaceStatus = {
+  workspace_mode: 'schema_bootstrap' as const,
+  transition_eligible: false,
+  readiness: {
+    has_minimum_entity_types: false,
+    has_minimum_relationship_types: false,
+    prepopulated_types_ready: false,
+    blocking_reasons: ['Missing entity types'],
+  },
+}
 
 describe('Knowledge Graph Manage Workspace - mode-aware controls', () => {
   it('loads workspace status projection from management API', () => {
@@ -106,6 +137,167 @@ describe('Knowledge Graph Manage Workspace - bootstrap readiness guidance', () =
     expect(manageWorkspaceVue).toContain('Next Steps')
     expect(manageWorkspaceVue).toContain('Run Validate to refresh readiness signals')
     expect(manageWorkspaceVue).toContain('Transition is enabled')
+  })
+})
+
+describe('KG-MANAGE-001 - manage entry navigation', () => {
+  it('routes Manage action to graph-scoped manage workspace', () => {
+    expect(kgIndexVue).toContain('navigateTo(`/knowledge-graphs/${kg.id}/manage`)')
+  })
+
+  it('loads graph identity for manage header and back action', () => {
+    expect(manageWorkspaceVue).toContain('/management/knowledge-graphs/${kgId.value}')
+    expect(manageWorkspaceVue).toContain('loadKgIdentity')
+    expect(manageWorkspaceVue).toContain('Back to Knowledge Graphs')
+  })
+})
+
+describe('KG-MANAGE-002 - workspace step card set', () => {
+  it('renders Project workspace section with exactly four step cards', () => {
+    expect(manageWorkspaceVue).toContain('Project workspace')
+    expect(manageWorkspaceVue).toContain('workspaceStepCards')
+    for (const stepId of WORKSPACE_STEP_ORDER) {
+      expect(manageWorkspaceVue).toContain(WORKSPACE_STEP_TITLES[stepId])
+    }
+  })
+
+  it('buildWorkspaceStepCards returns the canonical four-card set', () => {
+    const cards = buildWorkspaceStepCards({
+      kgId: 'kg-1',
+      dataSourceCount: 1,
+      maintenanceReadyCount: 0,
+      mutationLogRunCount: 0,
+      workspaceStatus: baseWorkspaceStatus,
+    })
+
+    expect(cards.map((card) => card.title)).toEqual([
+      'Data Sources',
+      'Graph Management',
+      'MutationLogs',
+      'Maintain',
+    ])
+  })
+})
+
+describe('KG-MANAGE-003 - suggested next step callout', () => {
+  it('renders Suggested next step callout above the card grid', () => {
+    expect(manageWorkspaceVue).toContain('Suggested next step')
+    expect(manageWorkspaceVue).toContain('suggestedNextStep')
+    expect(manageWorkspaceVue).toContain('openWorkspaceStep')
+  })
+
+  it('prioritizes data sources when no sources are connected', () => {
+    const next = buildSuggestedNextStep({
+      kgId: 'kg-1',
+      dataSourceCount: 0,
+      maintenanceReadyCount: 0,
+      mutationLogRunCount: 0,
+      workspaceStatus: baseWorkspaceStatus,
+    })
+
+    expect(next.stepId).toBe('data-sources')
+    expect(next.actionLabel).toBe('Open')
+  })
+
+  it('uses Run action when maintenance is ready', () => {
+    const next = buildSuggestedNextStep({
+      kgId: 'kg-1',
+      dataSourceCount: 2,
+      maintenanceReadyCount: 1,
+      mutationLogRunCount: 3,
+      workspaceStatus: {
+        workspace_mode: 'extraction_operations',
+        transition_eligible: true,
+        readiness: {
+          has_minimum_entity_types: true,
+          has_minimum_relationship_types: true,
+          prepopulated_types_ready: true,
+          blocking_reasons: [],
+        },
+      },
+    })
+
+    expect(next.stepId).toBe('maintain')
+    expect(next.actionLabel).toBe('Run')
+  })
+})
+
+describe('KG-MANAGE-004 - step card status semantics', () => {
+  it('renders status label, tint, detail text, and primary action per card', () => {
+    expect(manageWorkspaceVue).toContain('stepStatusTintClass')
+    expect(manageWorkspaceVue).toContain('card.status')
+    expect(manageWorkspaceVue).toContain('card.statusDetail')
+    expect(manageWorkspaceVue).toContain('card.actionLabel')
+  })
+
+  it('maps each status label to a tint class', () => {
+    expect(stepStatusTintClass('ready')).toContain('emerald')
+    expect(stepStatusTintClass('in_progress')).toContain('blue')
+    expect(stepStatusTintClass('needs_attention')).toContain('amber')
+    expect(stepStatusTintClass('blocked')).toContain('destructive')
+  })
+
+  it('uses Open, Revisit, or Run action labels on cards', () => {
+    const cards = buildWorkspaceStepCards({
+      kgId: 'kg-1',
+      dataSourceCount: 2,
+      maintenanceReadyCount: 1,
+      mutationLogRunCount: 4,
+      workspaceStatus: {
+        workspace_mode: 'extraction_operations',
+        transition_eligible: true,
+        readiness: {
+          has_minimum_entity_types: true,
+          has_minimum_relationship_types: true,
+          prepopulated_types_ready: true,
+          blocking_reasons: [],
+        },
+      },
+    })
+
+    expect(cards.every((card) => ['Open', 'Revisit', 'Run'].includes(card.actionLabel))).toBe(true)
+    expect(cards.find((card) => card.id === 'maintain')?.actionLabel).toBe('Run')
+  })
+})
+
+describe('KG-MANAGE-005 - graph-scoped data sources step', () => {
+  it('routes Data Sources step with kg_id and manage return context', () => {
+    expect(manageWorkspaceVue).toContain('buildDataSourcesStepUrl')
+    expect(buildDataSourcesStepUrl('kg-abc')).toBe('/data-sources?kg_id=kg-abc&from=manage')
+  })
+
+  it('data-sources page preserves manage return path without auto-opening wizard', () => {
+    expect(dataSourcesVue).toContain('from=manage')
+    expect(dataSourcesVue).toContain('scopedKnowledgeGraphId')
+    expect(dataSourcesVue).toContain('Back to workspace overview')
+  })
+})
+
+describe('KG-MANAGE-015 - graph-scoped maintain step and round trip', () => {
+  it('routes Maintain step with graph scope and maintenance focus', () => {
+    expect(manageWorkspaceVue).toContain('buildMaintainStepUrl')
+    expect(buildMaintainStepUrl('kg-abc')).toBe(
+      '/data-sources?kg_id=kg-abc&from=manage&focus=maintain',
+    )
+  })
+
+  it('returns to manage overview from in-page steps', () => {
+    expect(manageWorkspaceVue).toContain('returnToWorkspaceOverview')
+    expect(buildManageStepUrl('kg-abc')).toBe('/knowledge-graphs/kg-abc/manage')
+    expect(resolveStepDestination('kg-abc', 'graph-management')).toBe(
+      '/knowledge-graphs/kg-abc/manage?step=graph-management',
+    )
+  })
+
+  it('detects maintenance readiness from commit diff semantics', () => {
+    expect(isMaintenanceReady({
+      last_extraction_baseline_commit: 'abc',
+      tracked_branch_head_commit: 'def',
+    })).toBe(true)
+    expect(isMaintenanceReady({
+      last_extraction_baseline_commit: 'abc',
+      tracked_branch_head_commit: 'abc',
+    })).toBe(false)
   })
 })
 

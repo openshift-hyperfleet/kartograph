@@ -156,6 +156,13 @@ def _make_kg(
     return kg
 
 
+async def _seed_stored_ontology(kg, kg_repo, config: OntologyConfig) -> None:
+    """Attach ontology to aggregate and persisted JSONB fallback store."""
+    kg.set_ontology(config)
+    kg_repo.seed(kg)
+    await kg_repo.save_ontology(kg.id.value, config)
+
+
 def _make_ds(
     ds_id: str = "ds-001",
     kg_id: str = "kg-001",
@@ -445,19 +452,17 @@ class TestKnowledgeGraphServiceWorkspaceStatus:
     ):
         """Should project mode/readiness flags and default null session pointers."""
         kg = _make_kg()
-        kg.set_ontology(
-            OntologyConfig(
-                node_types=(NodeTypeDefinition(label="Repository"),),
-                edge_types=(
-                    EdgeTypeDefinition(
-                        label="CONTAINS",
-                        source_labels=("Repository",),
-                        target_labels=("Repository",),
-                    ),
+        ontology_config = OntologyConfig(
+            node_types=(NodeTypeDefinition(label="Repository"),),
+            edge_types=(
+                EdgeTypeDefinition(
+                    label="CONTAINS",
+                    source_labels=("Repository",),
+                    target_labels=("Repository",),
                 ),
-            )
+            ),
         )
-        kg_repo.seed(kg)
+        await _seed_stored_ontology(kg, kg_repo, ontology_config)
         await _grant_kg_view(authz, kg.id.value, user_id)
 
         result = await service.get_workspace_status(user_id=user_id, kg_id=kg.id.value)
@@ -501,25 +506,23 @@ class TestKnowledgeGraphServiceWorkspaceStatus:
     ):
         """Should block transition when prepopulated type has zero instances."""
         kg = _make_kg()
-        kg.set_ontology(
-            OntologyConfig(
-                node_types=(
-                    NodeTypeDefinition(
-                        label="Repository",
-                        prepopulated=True,
-                        prepopulated_instance_count=0,
-                    ),
+        ontology_config = OntologyConfig(
+            node_types=(
+                NodeTypeDefinition(
+                    label="Repository",
+                    prepopulated=True,
+                    prepopulated_instance_count=0,
                 ),
-                edge_types=(
-                    EdgeTypeDefinition(
-                        label="CONTAINS",
-                        source_labels=("Repository",),
-                        target_labels=("Repository",),
-                    ),
+            ),
+            edge_types=(
+                EdgeTypeDefinition(
+                    label="CONTAINS",
+                    source_labels=("Repository",),
+                    target_labels=("Repository",),
                 ),
-            )
+            ),
         )
-        kg_repo.seed(kg)
+        await _seed_stored_ontology(kg, kg_repo, ontology_config)
         await _grant_kg_view(authz, kg.id.value, user_id)
 
         result = await service.get_workspace_status(user_id=user_id, kg_id=kg.id.value)
@@ -562,19 +565,17 @@ class TestKnowledgeGraphServiceWorkspaceCommands:
         self, service, authz, kg_repo, user_id
     ):
         kg = _make_kg()
-        kg.set_ontology(
-            OntologyConfig(
-                node_types=(NodeTypeDefinition(label="Repository"),),
-                edge_types=(
-                    EdgeTypeDefinition(
-                        label="CONTAINS",
-                        source_labels=("Repository",),
-                        target_labels=("Repository",),
-                    ),
+        ontology_config = OntologyConfig(
+            node_types=(NodeTypeDefinition(label="Repository"),),
+            edge_types=(
+                EdgeTypeDefinition(
+                    label="CONTAINS",
+                    source_labels=("Repository",),
+                    target_labels=("Repository",),
                 ),
-            )
+            ),
         )
-        kg_repo.seed(kg)
+        await _seed_stored_ontology(kg, kg_repo, ontology_config)
         await _grant_kg_view(authz, kg.id.value, user_id)
 
         with pytest.raises(UnauthorizedError):
@@ -588,19 +589,17 @@ class TestKnowledgeGraphServiceWorkspaceCommands:
         self, service, authz, kg_repo, user_id
     ):
         kg = _make_kg()
-        kg.set_ontology(
-            OntologyConfig(
-                node_types=(NodeTypeDefinition(label="Repository"),),
-                edge_types=(
-                    EdgeTypeDefinition(
-                        label="CONTAINS",
-                        source_labels=("Repository",),
-                        target_labels=("Repository",),
-                    ),
+        ontology_config = OntologyConfig(
+            node_types=(NodeTypeDefinition(label="Repository"),),
+            edge_types=(
+                EdgeTypeDefinition(
+                    label="CONTAINS",
+                    source_labels=("Repository",),
+                    target_labels=("Repository",),
                 ),
-            )
+            ),
         )
-        kg_repo.seed(kg)
+        await _seed_stored_ontology(kg, kg_repo, ontology_config)
         await _grant_kg_edit(authz, kg.id.value, user_id)
 
         result = await service.transition_workspace_to_extraction(

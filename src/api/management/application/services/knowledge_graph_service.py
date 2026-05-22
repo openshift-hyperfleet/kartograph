@@ -41,6 +41,7 @@ from management.ports.repositories import (
     IDataSourceSyncRunRepository,
     IKnowledgeGraphRepository,
 )
+from management.ports.canonical_schema import ICanonicalSchemaRepository
 from management.ports.secret_store import ISecretStoreRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
@@ -69,6 +70,7 @@ class KnowledgeGraphService:
         data_source_repository: IDataSourceRepository | None = None,
         sync_run_repository: IDataSourceSyncRunRepository | None = None,
         secret_store: ISecretStoreRepository | None = None,
+        canonical_schema_repository: ICanonicalSchemaRepository | None = None,
     ) -> None:
         """Initialize KnowledgeGraphService with dependencies.
 
@@ -80,6 +82,7 @@ class KnowledgeGraphService:
             probe: Optional domain probe for observability
             data_source_repository: Optional DS repository for cascade delete
             secret_store: Optional secret store for credential cleanup on cascade delete
+            canonical_schema_repository: Optional graph-native canonical schema store
         """
         self._session = session
         self._kg_repo = knowledge_graph_repository
@@ -89,6 +92,7 @@ class KnowledgeGraphService:
         self._ds_repo = data_source_repository
         self._sync_run_repo = sync_run_repository
         self._secret_store = secret_store
+        self._canonical_schema_repo = canonical_schema_repository
 
     def _compute_next_run_at_utc(
         self,
@@ -764,7 +768,7 @@ class KnowledgeGraphService:
         if not has_view:
             return None
 
-        return await self._kg_repo.get_ontology(kg_id)
+        return await self._resolve_canonical_ontology(kg_id)
 
     async def save_ontology(
         self,
@@ -809,22 +813,33 @@ class KnowledgeGraphService:
         if kg is None or kg.tenant_id != self._scope_to_tenant:
             raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
 
-        await self._kg_repo.save_ontology(kg_id, config)
+        if self._canonical_schema_repo is not None:
+            await self._canonical_schema_repo.replace_ontology(kg_id, config)
+        else:
+            await self._kg_repo.save_ontology(kg_id, config)
         await self._session.commit()
 
         return config
 
+    async def _resolve_canonical_ontology(self, kg_id: str) -> OntologyConfig | None:
+        """Load canonical schema from graph-native storage with JSONB fallback."""
+        if self._canonical_schema_repo is not None:
+            canonical = await self._canonical_schema_repo.get_ontology(kg_id)
+            if canonical is not None:
+                return canonical
+        return await self._kg_repo.get_ontology(kg_id)
+
     def _evaluate_workspace_readiness(
-        self, kg: KnowledgeGraph
+        self, ontology: OntologyConfig | None
     ) -> WorkspaceReadinessStatus:
-        """Evaluate transition readiness flags for workspace status projection."""
-        node_type_count = len(kg.ontology.node_types) if kg.ontology else 0
-        edge_type_count = len(kg.ontology.edge_types) if kg.ontology else 0
+        """Evaluate transition readiness flags from canonical schema state."""
+        node_type_count = len(ontology.node_types) if ontology else 0
+        edge_type_count = len(ontology.edge_types) if ontology else 0
         prepopulated_without_instances: tuple[str, ...] = ()
-        if kg.ontology is not None:
+        if ontology is not None:
             prepopulated_without_instances = tuple(
                 node_type.label
-                for node_type in kg.ontology.node_types
+                for node_type in ontology.node_types
                 if node_type.prepopulated and node_type.prepopulated_instance_count <= 0
             )
 
@@ -870,7 +885,8 @@ class KnowledgeGraphService:
         if not has_view:
             return None
 
-        readiness = self._evaluate_workspace_readiness(kg)
+        ontology = await self._resolve_canonical_ontology(kg_id)
+        readiness = self._evaluate_workspace_readiness(ontology)
         transition_eligible = (
             kg.workspace_mode == WorkspaceMode.SCHEMA_BOOTSTRAP and readiness.is_ready
         )
@@ -915,7 +931,8 @@ class KnowledgeGraphService:
         if kg is None or kg.tenant_id != self._scope_to_tenant:
             raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
 
-        readiness = self._evaluate_workspace_readiness(kg)
+        ontology = await self._resolve_canonical_ontology(kg_id)
+        readiness = self._evaluate_workspace_readiness(ontology)
         transition_eligible = (
             kg.workspace_mode == WorkspaceMode.SCHEMA_BOOTSTRAP and readiness.is_ready
         )
@@ -945,7 +962,8 @@ class KnowledgeGraphService:
         if kg is None or kg.tenant_id != self._scope_to_tenant:
             raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
 
-        readiness = self._evaluate_workspace_readiness(kg)
+        ontology = await self._resolve_canonical_ontology(kg_id)
+        readiness = self._evaluate_workspace_readiness(ontology)
         if not readiness.is_ready:
             joined_reasons = "; ".join(readiness.blocking_reasons)
             raise ValueError(

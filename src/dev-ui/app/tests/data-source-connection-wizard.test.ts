@@ -1,9 +1,12 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   ADAPTERS,
+  detectAdapterFromUrl,
+  parseSourceUrls,
   inferNameFromRepoUrl,
   canAdvanceStep1,
   isAdapterSelectable,
+  validateStep1,
   validateStep2,
   buildDataSourceCreationUrl,
   buildDataSourceCreationBody,
@@ -26,6 +29,32 @@ import {
 // ── Group 1: Adapter selection (Step 1) ───────────────────────────────────────
 
 describe('Data Source Connection Wizard — Group 1: Adapter selection', () => {
+  it('test_detects_github_gitlab_and_jira_from_source_urls', () => {
+    expect(detectAdapterFromUrl('https://github.com/acme/repo')).toBe('github')
+    expect(detectAdapterFromUrl('https://gitlab.com/acme/repo')).toBe('gitlab')
+    expect(detectAdapterFromUrl('https://acme.atlassian.net/browse/PROJ-1')).toBe('jira')
+  })
+
+  it('test_returns_unknown_for_unrecognized_or_invalid_url', () => {
+    expect(detectAdapterFromUrl('https://example.com/repo')).toBe('unknown')
+    expect(detectAdapterFromUrl('not-a-url')).toBe('unknown')
+  })
+
+  it('test_bulk_url_parser_normalizes_multiline_entries', () => {
+    const parsed = parseSourceUrls(`
+      https://github.com/acme/repo-1
+      https://github.com/acme/repo-2
+
+      https://github.com/acme/repo-1
+    `)
+    expect(parsed).toHaveLength(2)
+    expect(parsed.map((entry) => entry.url)).toEqual([
+      'https://github.com/acme/repo-1',
+      'https://github.com/acme/repo-2',
+    ])
+    expect(parsed.every((entry) => entry.detectedAdapterId === 'github')).toBe(true)
+  })
+
   it('test_github_is_the_only_available_adapter', () => {
     // The adapters list has exactly one available adapter and it is GitHub.
     // This is a regression guard: adding a new adapter without updating this
@@ -78,6 +107,27 @@ describe('Data Source Connection Wizard — Group 1: Adapter selection', () => {
     expect(canAdvanceStep1('github', 'kg-123')).toBe(true)
   })
 
+  it('test_step1_validation_rejects_unavailable_detected_provider', () => {
+    const result = validateStep1({
+      selectedKnowledgeGraphId: 'kg-1',
+      sourceUrl: 'https://gitlab.com/acme/repo',
+      detectedAdapterId: 'gitlab',
+    })
+    expect(result.valid).toBe(false)
+    expect(result.providerError).toContain('coming soon')
+  })
+
+  it('test_step1_validation_accepts_github_url_with_selected_kg', () => {
+    const result = validateStep1({
+      selectedKnowledgeGraphId: 'kg-1',
+      sourceUrl: 'https://github.com/acme/repo',
+      detectedAdapterId: 'github',
+    })
+    expect(result.valid).toBe(true)
+    expect(result.sourceUrlError).toBe('')
+    expect(result.providerError).toBe('')
+  })
+
   it('test_unavailable_adapter_blocks_step1_advancement', () => {
     // Even if selectedAdapterId is set to an unavailable adapter it cannot
     // advance — selecting such an adapter should be blocked at selection time
@@ -107,9 +157,9 @@ describe('Data Source Connection Wizard — Group 2: Connection configuration', 
     expect(name).toBe('repo')
   })
 
-  it('test_name_inference_returns_null_for_non_github_url', () => {
-    // Non-GitHub URLs return null so the caller can leave the name unchanged.
-    expect(inferNameFromRepoUrl('https://gitlab.com/org/repo')).toBeNull()
+  it('test_name_inference_supports_git_host_urls_and_returns_null_for_invalid', () => {
+    // Git host URLs can infer repository names; invalid strings return null.
+    expect(inferNameFromRepoUrl('https://gitlab.com/org/repo')).toBe('repo')
     expect(inferNameFromRepoUrl('not-a-url')).toBeNull()
     expect(inferNameFromRepoUrl('')).toBeNull()
   })

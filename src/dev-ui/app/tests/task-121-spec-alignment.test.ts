@@ -3,9 +3,11 @@ import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import {
   ADAPTERS,
+  detectAdapterFromUrl,
   isAdapterSelectable,
   canAdvanceStep1,
   inferNameFromRepoUrl,
+  validateStep1,
   validateStep2,
   buildDataSourceCreationUrl,
   buildDataSourceCreationBody,
@@ -111,12 +113,12 @@ describe('Task-121 — Requirement: Knowledge Graph Creation', () => {
 
 describe('Task-121 — Requirement: Data Source Connection — Adapter & Configuration', () => {
   describe('data-sources page imports and uses dataSourceWizard utilities', () => {
-    it('imports ADAPTERS from dataSourceWizard', () => {
-      expect(DS_INDEX_VUE).toContain('ADAPTERS')
+    it('imports detectAdapterFromUrl from dataSourceWizard', () => {
+      expect(DS_INDEX_VUE).toContain('detectAdapterFromUrl')
     })
 
-    it('imports canAdvanceStep1 from dataSourceWizard', () => {
-      expect(DS_INDEX_VUE).toContain('canAdvanceStep1')
+    it('imports validateStep1 from dataSourceWizard', () => {
+      expect(DS_INDEX_VUE).toContain('validateStep1')
     })
 
     it('imports validateStep2 from dataSourceWizard', () => {
@@ -149,17 +151,32 @@ describe('Task-121 — Requirement: Data Source Connection — Adapter & Configu
     })
   })
 
-  describe('Step 1 advancement requires both adapter AND knowledge graph', () => {
-    it('blocked when adapter is missing even with KG selected', () => {
-      expect(canAdvanceStep1('', 'kg-123')).toBe(false)
+  describe('Step 1 validation enforces URL detection and provider availability', () => {
+    it('detects supported and unsupported providers from URL', () => {
+      expect(detectAdapterFromUrl('https://github.com/acme/repo')).toBe('github')
+      expect(detectAdapterFromUrl('https://gitlab.com/acme/repo')).toBe('gitlab')
+      expect(detectAdapterFromUrl('https://acme.atlassian.net/browse/ABC-1')).toBe('jira')
     })
 
-    it('blocked when KG is missing even with adapter selected', () => {
-      expect(canAdvanceStep1('github', '')).toBe(false)
+    it('blocks advancement when provider is unsupported', () => {
+      const result = validateStep1({
+        selectedKnowledgeGraphId: 'kg-123',
+        sourceUrl: 'https://gitlab.com/acme/repo',
+        detectedAdapterId: 'gitlab',
+      })
+      expect(result.valid).toBe(false)
+      expect(result.providerError).toContain('coming soon')
     })
 
-    it('allowed when both adapter and KG are selected', () => {
-      expect(canAdvanceStep1('github', 'kg-123')).toBe(true)
+    it('allows advancement for valid GitHub URL and selected KG', () => {
+      const result = validateStep1({
+        selectedKnowledgeGraphId: 'kg-123',
+        sourceUrl: 'https://github.com/acme/repo',
+        detectedAdapterId: 'github',
+      })
+      expect(result.valid).toBe(true)
+      expect(result.sourceUrlError).toBe('')
+      expect(result.providerError).toBe('')
     })
   })
 
@@ -172,8 +189,8 @@ describe('Task-121 — Requirement: Data Source Connection — Adapter & Configu
       expect(inferNameFromRepoUrl('https://github.com/org/repo.git')).toBe('repo')
     })
 
-    it('returns null for non-GitHub URLs (no overwrite)', () => {
-      expect(inferNameFromRepoUrl('https://gitlab.com/org/repo')).toBeNull()
+    it('supports name inference for GitHub and GitLab repository URLs', () => {
+      expect(inferNameFromRepoUrl('https://gitlab.com/org/repo')).toBe('repo')
       expect(inferNameFromRepoUrl('')).toBeNull()
     })
   })

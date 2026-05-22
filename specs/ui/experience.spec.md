@@ -67,17 +67,19 @@ The system SHALL guide users through creating a knowledge graph before adding da
 ### Requirement: Data Source Connection
 The system SHALL provide a guided flow for connecting external data sources to a knowledge graph.
 
-#### Scenario: Adapter type selection
+#### Scenario: URL-first provider detection
 - GIVEN a user adding a data source to a knowledge graph
 - WHEN the flow begins
-- THEN the user selects an adapter type first (e.g., GitHub)
-- AND the form adapts to show adapter-specific fields
+- THEN the user can add multiple source URLs using repeated URL input rows (`Add another`)
+- AND the system auto-detects the provider type from the URL (GitHub, GitLab, Jira)
+- AND unsupported providers are clearly marked as coming soon without allowing completion
 
 #### Scenario: Connection configuration
-- GIVEN a selected adapter type (e.g., GitHub)
+- GIVEN a detected GitHub provider
 - WHEN the user configures the connection
-- THEN they provide the minimum required fields (e.g., repository URL, access token)
-- AND the system infers defaults where possible (e.g., data source name from repo name)
+- THEN they provide the minimum required fields (knowledge graph, repository URL, tracked branch, and source name)
+- AND the system infers defaults where possible (e.g., data source name from repo name and default branch from repository metadata)
+- AND credentials are entered in a single one-time token field
 
 #### Scenario: Credential handling
 - GIVEN credentials provided during data source setup
@@ -86,26 +88,7 @@ The system SHALL provide a guided flow for connecting external data sources to a
 - AND the plaintext is never persisted in the browser
 
 ### Requirement: Ontology Design
-The system SHALL support an agent-assisted ontology design flow when connecting a data source.
-
-#### Scenario: Intent description
-- GIVEN a user who has connected a data source
-- WHEN the connection is saved
-- THEN the user is prompted to describe (in free text) what problems or questions they want to solve with this data
-
-#### Scenario: Agent-proposed ontology
-- GIVEN a free-text intent description and a connected data source
-- WHEN the user submits their intent
-- THEN the system performs a lightweight scan of the data source
-- AND an AI agent explores the scanned data and proposes an ontology (node types, edge types, properties)
-- AND the proposed ontology is presented to the user for review
-
-#### Scenario: Ontology review and approval
-- GIVEN a proposed ontology
-- WHEN the user reviews it
-- THEN they can approve the ontology as-is
-- OR iterate by editing individual types and relationships
-- AND extraction begins only after the user explicitly approves
+The system SHALL support an editable ontology experience for connected data sources.
 
 #### Scenario: Individual type editing
 - GIVEN a proposed or existing ontology

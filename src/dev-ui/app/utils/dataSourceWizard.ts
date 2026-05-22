@@ -24,6 +24,8 @@ export interface AdapterDefinition {
   available: boolean
 }
 
+export type DetectedAdapterId = 'github' | 'gitlab' | 'jira' | 'unknown'
+
 /**
  * The canonical list of supported (and unavailable/future) adapters.
  *
@@ -50,6 +52,50 @@ export const ADAPTERS: AdapterDefinition[] = [
     available: false,
   },
 ]
+
+/**
+ * Best-effort adapter detection from a source URL hostname/path.
+ */
+export function detectAdapterFromUrl(url: string): DetectedAdapterId {
+  if (!url.trim()) return 'unknown'
+  try {
+    const parsed = new URL(url.trim())
+    const host = parsed.hostname.toLowerCase()
+    const path = parsed.pathname.toLowerCase()
+    if (host.includes('github.com')) return 'github'
+    if (host.includes('gitlab.com')) return 'gitlab'
+    if (host.includes('atlassian.net') || path.includes('/jira') || path.includes('/browse/')) {
+      return 'jira'
+    }
+    return 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+export interface ParsedSourceUrl {
+  url: string
+  detectedAdapterId: DetectedAdapterId
+}
+
+/**
+ * Parses a multiline bulk-input field into normalized URL entries.
+ * Empty lines are ignored and exact duplicates are removed.
+ */
+export function parseSourceUrls(input: string): ParsedSourceUrl[] {
+  const seen = new Set<string>()
+  const entries: ParsedSourceUrl[] = []
+  for (const line of input.split(/\r?\n/)) {
+    const url = line.trim()
+    if (!url || seen.has(url)) continue
+    seen.add(url)
+    entries.push({
+      url,
+      detectedAdapterId: detectAdapterFromUrl(url),
+    })
+  }
+  return entries
+}
 
 // ── Adapter selection guard ────────────────────────────────────────────────────
 
@@ -81,6 +127,54 @@ export function canAdvanceStep1(
   return !!selectedAdapterId && !!selectedKnowledgeGraphId
 }
 
+export interface Step1ValidationResult {
+  valid: boolean
+  sourceUrlError: string
+  providerError: string
+}
+
+export function validateStep1(opts: {
+  selectedKnowledgeGraphId: string
+  sourceUrl: string
+  detectedAdapterId: DetectedAdapterId
+}): Step1ValidationResult {
+  const result: Step1ValidationResult = {
+    valid: true,
+    sourceUrlError: '',
+    providerError: '',
+  }
+
+  if (!opts.selectedKnowledgeGraphId.trim()) {
+    result.providerError = 'Select a knowledge graph to continue.'
+    result.valid = false
+  }
+
+  if (!opts.sourceUrl.trim()) {
+    result.sourceUrlError = 'Source URL is required.'
+    result.valid = false
+    return result
+  }
+
+  try {
+    // URL constructor validates format.
+    new URL(opts.sourceUrl.trim())
+  } catch {
+    result.sourceUrlError = 'Enter a valid source URL.'
+    result.valid = false
+    return result
+  }
+
+  if (opts.detectedAdapterId === 'unknown') {
+    result.providerError = 'Could not detect provider from this URL.'
+    result.valid = false
+  } else if (opts.detectedAdapterId !== 'github') {
+    result.providerError = `${opts.detectedAdapterId[0]!.toUpperCase()}${opts.detectedAdapterId.slice(1)} support is coming soon.`
+    result.valid = false
+  }
+
+  return result
+}
+
 // ── Name inference ─────────────────────────────────────────────────────────────
 
 /**
@@ -97,9 +191,20 @@ export function canAdvanceStep1(
  *   `'not-a-url'`                                 → `null`
  */
 export function inferNameFromRepoUrl(url: string): string | null {
-  const match = url.trim().match(/github\.com\/[^/]+\/([^/]+?)(?:\.git)?\/?$/)
-  if (!match || !match[1]) return null
-  return match[1]
+  if (!url.trim()) return null
+  try {
+    const parsed = new URL(url.trim())
+    const parts = parsed.pathname.split('/').filter(Boolean)
+    // github/gitlab repositories: /owner/repo
+    if (parts.length >= 2) {
+      return parts[1]!.replace(/\.git$/, '')
+    }
+    // fallback to the last segment when available
+    const fallback = parts[parts.length - 1]
+    return fallback ? fallback.replace(/\.git$/, '') : null
+  } catch {
+    return null
+  }
 }
 
 // ── Step 2 validation ──────────────────────────────────────────────────────────

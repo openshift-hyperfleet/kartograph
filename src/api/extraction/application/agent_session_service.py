@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from ulid import ULID
@@ -11,7 +12,19 @@ from extraction.application.skill_resolution_service import (
 )
 from extraction.domain.entities.agent_session import ExtractionAgentSession
 from extraction.domain.value_objects import BootstrapIntakePath, ExtractionSessionMode
-from extraction.ports.repositories import IExtractionAgentSessionRepository
+from extraction.domain.value_objects import ExtractionSessionRunMetric
+from extraction.ports.repositories import (
+    IExtractionAgentSessionRepository,
+    IExtractionSessionRunMetricsReader,
+)
+
+
+@dataclass(frozen=True)
+class ExtractionSessionHistoryRecord:
+    """Session history entry with linked run-level metrics."""
+
+    session: ExtractionAgentSession
+    run_metrics: list[ExtractionSessionRunMetric]
 
 
 class ExtractionAgentSessionService:
@@ -21,9 +34,11 @@ class ExtractionAgentSessionService:
         self,
         repository: IExtractionAgentSessionRepository,
         skill_resolution_service: ExtractionSkillResolutionService | None = None,
+        run_metrics_reader: IExtractionSessionRunMetricsReader | None = None,
     ) -> None:
         self._repository = repository
         self._skill_resolution_service = skill_resolution_service
+        self._run_metrics_reader = run_metrics_reader
 
     @staticmethod
     def _build_bootstrap_intake_prompt() -> str:
@@ -113,6 +128,35 @@ class ExtractionAgentSessionService:
             knowledge_graph_id=knowledge_graph_id,
             mode=mode,
         )
+
+    async def list_session_history(
+        self,
+        user_id: str,
+        knowledge_graph_id: str,
+        mode: ExtractionSessionMode,
+    ) -> list[ExtractionSessionHistoryRecord]:
+        sessions = await self._repository.list_by_scope(
+            user_id=user_id,
+            knowledge_graph_id=knowledge_graph_id,
+            mode=mode,
+        )
+        if not sessions:
+            return []
+
+        metrics_by_session: dict[str, list[ExtractionSessionRunMetric]] = {}
+        if self._run_metrics_reader is not None:
+            metrics_by_session = await self._run_metrics_reader.find_metrics_by_session_ids(
+                knowledge_graph_id=knowledge_graph_id,
+                session_ids=[session.id for session in sessions],
+            )
+
+        return [
+            ExtractionSessionHistoryRecord(
+                session=session,
+                run_metrics=metrics_by_session.get(session.id, []),
+            )
+            for session in sessions
+        ]
 
     async def archive_session(self, session_id: str) -> ExtractionAgentSession | None:
         session = await self._repository.get_by_id(session_id)

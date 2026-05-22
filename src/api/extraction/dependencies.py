@@ -11,6 +11,7 @@ from extraction.application import (
 )
 from extraction.infrastructure.repositories import (
     ExtractionAgentSessionRepository,
+    ExtractionSessionRunMetricsReader,
     ExtractionSkillOverrideRepository,
 )
 from infrastructure.database.dependencies import get_write_session
@@ -26,5 +27,5 @@ def get_extraction_agent_session_service(
     return ExtractionAgentSessionService(
         repository=ExtractionAgentSessionRepository(session=session),
         skill_resolution_service=skill_resolution_service,
+        run_metrics_reader=ExtractionSessionRunMetricsReader(session=session),
     )
-

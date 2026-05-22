@@ -41,6 +41,15 @@ describe('Knowledge Graph Manage Workspace - mode-aware controls', () => {
     expect(manageWorkspaceVue).toContain('active_extraction_operations_session_id')
   })
 
+  it('loads scoped session history with run metrics after clear chat', () => {
+    expect(manageWorkspaceVue).toContain('loadSessionHistory')
+    expect(manageWorkspaceVue).toContain('/sessions/${sessionMode.value}/history')
+    expect(manageWorkspaceVue).toContain('sessionHistory')
+    expect(manageWorkspaceVue).toContain('run_metrics')
+    expect(manageWorkspaceVue).toContain('Session History')
+  })
+
+
   it('uses shared conversation panel for bootstrap and extraction sessions', () => {
     expect(manageWorkspaceVue).toContain('SharedConversationPanel')
     expect(manageWorkspaceVue).toContain('sessionMode')
@@ -50,7 +59,7 @@ describe('Knowledge Graph Manage Workspace - mode-aware controls', () => {
   it('supports explicit Clear chat reset for extraction session', () => {
     expect(manageWorkspaceVue).toContain('clearChat')
     expect(manageWorkspaceVue).toContain('/sessions/${sessionMode.value}/clear-chat')
-    expect(manageWorkspaceVue).toContain('Clear chat')
+    expect(sharedConversationPanelVue).toContain('Clear chat')
   })
 
   it('provides tabbed lower operations area for extraction workflows', () => {

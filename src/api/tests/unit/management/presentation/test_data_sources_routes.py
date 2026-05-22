@@ -538,7 +538,7 @@ class TestListSyncRunsRoute:
 class TestMutationLogEntryPreviewRoutes:
     """Tests for GET /management/data-sources/{ds_id}/sync-runs/{run_id}/mutation-log-entries."""
 
-    def test_list_mutation_log_entries_returns_paginated_skeleton_when_storage_unavailable(
+    def test_list_mutation_log_entries_returns_paginated_previews_from_operation_counts(
         self,
         test_client: TestClient,
         mock_ds_service: AsyncMock,
@@ -564,7 +564,78 @@ class TestMutationLogEntryPreviewRoutes:
 
         assert response.status_code == status.HTTP_200_OK
         payload = response.json()
-        assert payload == {
+        assert payload["total"] == 3
+        assert payload["offset"] == 0
+        assert payload["limit"] == 20
+        assert payload["preview_available"] is True
+        assert payload["entries"][0] == {
+            "line_number": 1,
+            "operation_class": "create_node",
+            "summary": "create_node operation 1 of 3",
+        }
+        assert payload["entries"][2] == {
+            "line_number": 3,
+            "operation_class": "create_node",
+            "summary": "create_node operation 3 of 3",
+        }
+
+    def test_list_mutation_log_entries_honors_offset_and_limit(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        sample_sync_run.mutation_log_run = MutationLogRunMetadata(
+            mutation_log_id="mlog-preview-2",
+            knowledge_graph_id=sample_data_source.knowledge_graph_id,
+            session_id="sess-preview-2",
+            actor_id="actor-preview-2",
+            started_at=sample_sync_run.started_at,
+            operation_counts={"create_edge": 1, "create_node": 2},
+        )
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.get_by_id.return_value = sample_sync_run
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}/sync-runs/"
+            f"{sample_sync_run.id}/mutation-log-entries?offset=1&limit=1"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["total"] == 3
+        assert payload["offset"] == 1
+        assert payload["limit"] == 1
+        assert payload["preview_available"] is True
+        assert payload["entries"] == [
+            {
+                "line_number": 2,
+                "operation_class": "create_node",
+                "summary": "create_node operation 1 of 2",
+            }
+        ]
+
+    def test_list_mutation_log_entries_returns_unavailable_when_no_mutation_metadata(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        sample_sync_run.mutation_log_run = None
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.get_by_id.return_value = sample_sync_run
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}/sync-runs/"
+            f"{sample_sync_run.id}/mutation-log-entries?offset=0&limit=20"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
             "entries": [],
             "total": 0,
             "offset": 0,

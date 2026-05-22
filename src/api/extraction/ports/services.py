@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from extraction.ports.runtime import ScopedWorkloadCredentials
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,7 @@ class IExtractionService(Protocol):
         knowledge_graph_id: str,
         job_package_id: str,
         runtime_context: ExtractionRuntimeContext,
+        workload_credentials: ScopedWorkloadCredentials | None = None,
     ) -> str:
         """Run the AI extraction pipeline for a JobPackage.
 
@@ -44,6 +48,7 @@ class IExtractionService(Protocol):
             job_package_id: Identifier for the JobPackage to process
             runtime_context: Resolved runtime context paths for ingestion resources,
                 reconstructed repository files, and skills availability.
+            workload_credentials: Short-lived runtime credentials injected into the worker
 
         Returns:
             mutation_log_id: Identifier for the produced MutationLog (JSONL)

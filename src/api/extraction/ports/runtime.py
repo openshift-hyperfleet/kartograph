@@ -50,6 +50,16 @@ class EphemeralWorkerLaunchResult:
     credentials_expires_at: datetime
 
 
+class IWorkloadCredentialIssuer(Protocol):
+    """Issues short-lived credentials scoped to tenant and knowledge graph."""
+
+    def issue(
+        self, *, tenant_id: str, knowledge_graph_id: str
+    ) -> ScopedWorkloadCredentials:
+        """Return runtime-only credentials for one extraction workload."""
+        ...
+
+
 class IStickySessionRuntimeManager(Protocol):
     """Manages sticky chat runtime containers for active sessions."""
 

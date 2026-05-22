@@ -132,3 +132,28 @@ class TestKnowledgeGraphServiceCanonicalSchema:
 
         assert result is not None
         assert result.transition_eligible is True
+
+    @pytest.mark.asyncio
+    async def test_save_ontology_requires_canonical_repository_configuration(
+        self, mock_session, kg_repo, authz, tenant_id, user_id
+    ):
+        service_without_canonical = KnowledgeGraphService(
+            session=mock_session,
+            knowledge_graph_repository=kg_repo,
+            data_source_repository=InMemoryDataSourceRepository(),
+            secret_store=InMemorySecretStoreRepository(),
+            authz=authz,
+            scope_to_tenant=tenant_id,
+            probe=RecordingKnowledgeGraphServiceProbe(),
+            canonical_schema_repository=None,
+        )
+        kg = _make_kg()
+        kg_repo.seed(kg)
+        await _grant_kg_edit(authz, kg.id.value, user_id)
+
+        with pytest.raises(ValueError, match="Canonical schema repository is not configured"):
+            await service_without_canonical.save_ontology(
+                user_id=user_id,
+                kg_id=kg.id.value,
+                config=OntologyConfig(),
+            )

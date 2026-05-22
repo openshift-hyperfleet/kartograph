@@ -813,21 +813,18 @@ class KnowledgeGraphService:
         if kg is None or kg.tenant_id != self._scope_to_tenant:
             raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
 
-        if self._canonical_schema_repo is not None:
-            await self._canonical_schema_repo.replace_ontology(kg_id, config)
-        else:
-            await self._kg_repo.save_ontology(kg_id, config)
+        if self._canonical_schema_repo is None:
+            raise ValueError("Canonical schema repository is not configured")
+        await self._canonical_schema_repo.replace_ontology(kg_id, config)
         await self._session.commit()
 
         return config
 
     async def _resolve_canonical_ontology(self, kg_id: str) -> OntologyConfig | None:
-        """Load canonical schema from graph-native storage with JSONB fallback."""
-        if self._canonical_schema_repo is not None:
-            canonical = await self._canonical_schema_repo.get_ontology(kg_id)
-            if canonical is not None:
-                return canonical
-        return await self._kg_repo.get_ontology(kg_id)
+        """Load canonical schema from graph-native storage only."""
+        if self._canonical_schema_repo is None:
+            return None
+        return await self._canonical_schema_repo.get_ontology(kg_id)
 
     def _evaluate_workspace_readiness(
         self, ontology: OntologyConfig | None

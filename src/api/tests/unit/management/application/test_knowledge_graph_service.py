@@ -42,6 +42,7 @@ from management.ports.exceptions import (
 )
 from shared_kernel.authorization.types import Permission
 from tests.fakes.authorization import InMemoryAuthorizationProvider
+from tests.fakes.canonical_schema import InMemoryCanonicalSchemaRepository
 from tests.fakes.management import (
     InMemoryDataSourceRepository,
     InMemoryKnowledgeGraphRepository,
@@ -115,7 +116,22 @@ def workspace_id():
 
 
 @pytest.fixture
-def service(mock_session, kg_repo, ds_repo, secret_store, authz, probe, tenant_id):
+def canonical_schema_repo():
+    """In-memory canonical schema repository."""
+    return InMemoryCanonicalSchemaRepository()
+
+
+@pytest.fixture
+def service(
+    mock_session,
+    kg_repo,
+    ds_repo,
+    secret_store,
+    authz,
+    probe,
+    tenant_id,
+    canonical_schema_repo,
+):
     """KnowledgeGraphService wired with in-memory fakes."""
     return KnowledgeGraphService(
         session=mock_session,
@@ -125,6 +141,7 @@ def service(mock_session, kg_repo, ds_repo, secret_store, authz, probe, tenant_i
         authz=authz,
         scope_to_tenant=tenant_id,
         probe=probe,
+        canonical_schema_repository=canonical_schema_repo,
     )
 
 
@@ -156,11 +173,16 @@ def _make_kg(
     return kg
 
 
-async def _seed_stored_ontology(kg, kg_repo, config: OntologyConfig) -> None:
-    """Attach ontology to aggregate and persisted JSONB fallback store."""
+async def _seed_stored_ontology(
+    kg,
+    kg_repo,
+    canonical_schema_repo: InMemoryCanonicalSchemaRepository,
+    config: OntologyConfig,
+) -> None:
+    """Attach ontology to aggregate and canonical schema store."""
     kg.set_ontology(config)
     kg_repo.seed(kg)
-    await kg_repo.save_ontology(kg.id.value, config)
+    canonical_schema_repo.seed(kg.id.value, config)
 
 
 def _make_ds(
@@ -448,7 +470,7 @@ class TestKnowledgeGraphServiceWorkspaceStatus:
 
     @pytest.mark.asyncio
     async def test_workspace_status_includes_mode_readiness_and_session_pointers(
-        self, service, authz, kg_repo, user_id
+        self, service, authz, kg_repo, canonical_schema_repo, user_id
     ):
         """Should project mode/readiness flags and default null session pointers."""
         kg = _make_kg()
@@ -462,7 +484,7 @@ class TestKnowledgeGraphServiceWorkspaceStatus:
                 ),
             ),
         )
-        await _seed_stored_ontology(kg, kg_repo, ontology_config)
+        await _seed_stored_ontology(kg, kg_repo, canonical_schema_repo, ontology_config)
         await _grant_kg_view(authz, kg.id.value, user_id)
 
         result = await service.get_workspace_status(user_id=user_id, kg_id=kg.id.value)
@@ -502,7 +524,7 @@ class TestKnowledgeGraphServiceWorkspaceStatus:
 
     @pytest.mark.asyncio
     async def test_workspace_status_fails_for_prepopulated_type_without_instances(
-        self, service, authz, kg_repo, user_id
+        self, service, authz, kg_repo, canonical_schema_repo, user_id
     ):
         """Should block transition when prepopulated type has zero instances."""
         kg = _make_kg()
@@ -522,7 +544,7 @@ class TestKnowledgeGraphServiceWorkspaceStatus:
                 ),
             ),
         )
-        await _seed_stored_ontology(kg, kg_repo, ontology_config)
+        await _seed_stored_ontology(kg, kg_repo, canonical_schema_repo, ontology_config)
         await _grant_kg_view(authz, kg.id.value, user_id)
 
         result = await service.get_workspace_status(user_id=user_id, kg_id=kg.id.value)
@@ -562,7 +584,7 @@ class TestKnowledgeGraphServiceWorkspaceCommands:
 
     @pytest.mark.asyncio
     async def test_transition_workspace_requires_edit_permission(
-        self, service, authz, kg_repo, user_id
+        self, service, authz, kg_repo, canonical_schema_repo, user_id
     ):
         kg = _make_kg()
         ontology_config = OntologyConfig(
@@ -575,7 +597,7 @@ class TestKnowledgeGraphServiceWorkspaceCommands:
                 ),
             ),
         )
-        await _seed_stored_ontology(kg, kg_repo, ontology_config)
+        await _seed_stored_ontology(kg, kg_repo, canonical_schema_repo, ontology_config)
         await _grant_kg_view(authz, kg.id.value, user_id)
 
         with pytest.raises(UnauthorizedError):
@@ -586,7 +608,7 @@ class TestKnowledgeGraphServiceWorkspaceCommands:
 
     @pytest.mark.asyncio
     async def test_transition_workspace_changes_mode_and_creates_session_pointer(
-        self, service, authz, kg_repo, user_id
+        self, service, authz, kg_repo, canonical_schema_repo, user_id
     ):
         kg = _make_kg()
         ontology_config = OntologyConfig(
@@ -599,7 +621,7 @@ class TestKnowledgeGraphServiceWorkspaceCommands:
                 ),
             ),
         )
-        await _seed_stored_ontology(kg, kg_repo, ontology_config)
+        await _seed_stored_ontology(kg, kg_repo, canonical_schema_repo, ontology_config)
         await _grant_kg_edit(authz, kg.id.value, user_id)
 
         result = await service.transition_workspace_to_extraction(

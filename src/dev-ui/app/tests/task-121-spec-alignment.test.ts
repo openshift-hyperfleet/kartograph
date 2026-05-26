@@ -49,10 +49,8 @@ const KG_INDEX_VUE = readFileSync(
 
 describe('Task-121 — Requirement: Knowledge Graph Creation', () => {
   describe('Post-creation prompt: navigates to data-sources wizard with new KG scoped', () => {
-    it('knowledge-graphs page emits navigateTo to /data-sources?kg_id=', () => {
-      // The toast action must direct the user to /data-sources scoped to the new
-      // knowledge graph so the wizard pre-opens with the correct KG selected.
-      expect(KG_INDEX_VUE).toContain('/data-sources?kg_id=')
+    it('knowledge-graphs page navigates to kg-scoped onboarding after create', () => {
+      expect(KG_INDEX_VUE).toContain('/knowledge-graphs/${result.id}/data-sources/new')
     })
 
     it('knowledge-graphs page constructs the navigation URL from the API result id', () => {
@@ -404,36 +402,20 @@ describe('Task-121 — Requirement: Backend API Alignment — Parent context', (
           method: 'POST',
           body: { name: createName.value },
         })
-        // 2. Post-creation: navigate to data-sources with new KG ID
-        postCreationUrl = `/data-sources?kg_id=${result.id}`
+        postCreationUrl = `/knowledge-graphs/${result.id}/data-sources/new`
         navigateTo(postCreationUrl)
       }
 
       await handleCreate()
 
-      // 3. The URL includes the exact KG ID returned by the API
-      expect(postCreationUrl).toBe('/data-sources?kg_id=kg-new-789')
-      expect(navigateTo).toHaveBeenCalledWith('/data-sources?kg_id=kg-new-789')
+      expect(postCreationUrl).toBe('/knowledge-graphs/kg-new-789/data-sources/new')
+      expect(navigateTo).toHaveBeenCalledWith('/knowledge-graphs/kg-new-789/data-sources/new')
 
-      // 4. The data-sources page would extract this param and call openWizard
-      const routeQuery = { kg_id: 'kg-new-789' }
-      const preselectedKgId = routeQuery.kg_id as string | undefined
-      expect(preselectedKgId).toBe('kg-new-789')
-
-      // 5. openWizard initialises selectedKnowledgeGraphId with the param
-      const wizardState = { selectedKnowledgeGraphId: '' }
-      function openWizard(preselectedId?: string) {
-        wizardState.selectedKnowledgeGraphId = preselectedId ?? ''
-      }
-      openWizard(preselectedKgId)
-      expect(wizardState.selectedKnowledgeGraphId).toBe('kg-new-789')
-
-      // 6. Step-1 can advance immediately (adapter still needs selection, but KG is set)
-      expect(canAdvanceStep1('github', wizardState.selectedKnowledgeGraphId)).toBe(true)
-
-      // 7. Creation URL uses the pre-selected KG ID
-      const creationUrl = buildDataSourceCreationUrl(wizardState.selectedKnowledgeGraphId)
-      expect(creationUrl).toBe('/management/knowledge-graphs/kg-new-789/data-sources')
+      const kgIdFromRoute = 'kg-new-789'
+      expect(canAdvanceStep1('github', kgIdFromRoute)).toBe(true)
+      expect(buildDataSourceCreationUrl(kgIdFromRoute)).toBe(
+        '/management/knowledge-graphs/kg-new-789/data-sources',
+      )
     })
   })
 })

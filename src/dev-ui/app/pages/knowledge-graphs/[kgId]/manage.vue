@@ -487,7 +487,9 @@ async function applyInlineMutations() {
 }
 
 function openWorkspaceStep(stepId: WorkspaceStepId) {
-  navigateTo(resolveStepDestination(kgId.value, stepId))
+  navigateTo(resolveStepDestination(kgId.value, stepId, {
+    dataSourceCount: dataSourceCount.value,
+  }))
 }
 
 function returnToWorkspaceOverview() {

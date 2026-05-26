@@ -1,4 +1,13 @@
+import {
+  buildKgDataSourcesUrl,
+  resolveKgDataSourcesEntryUrl,
+} from '@/utils/kgDataSourcesNavigation'
+
 export type WorkspaceStepId = 'data-sources' | 'graph-management' | 'mutation-logs' | 'maintain'
+
+export interface StepDestinationContext {
+  dataSourceCount: number
+}
 
 export type StepStatusLabel = 'ready' | 'in_progress' | 'needs_attention' | 'blocked'
 
@@ -62,12 +71,12 @@ export function isMaintenanceReady(ds: {
   return ds.last_extraction_baseline_commit !== ds.tracked_branch_head_commit
 }
 
-export function buildDataSourcesStepUrl(kgId: string): string {
-  return `/data-sources?kg_id=${encodeURIComponent(kgId)}&from=manage`
+export function buildDataSourcesStepUrl(kgId: string, dataSourceCount = 0): string {
+  return resolveKgDataSourcesEntryUrl(kgId, dataSourceCount)
 }
 
 export function buildMaintainStepUrl(kgId: string): string {
-  return `/data-sources?kg_id=${encodeURIComponent(kgId)}&from=manage&focus=maintain`
+  return buildKgDataSourcesUrl(kgId, { focus: 'maintain' })
 }
 
 export function buildManageStepUrl(kgId: string, step?: WorkspaceStepId): string {
@@ -306,10 +315,15 @@ export function buildSuggestedNextStep(input: WorkspaceOverviewInputs): Suggeste
   }
 }
 
-export function resolveStepDestination(kgId: string, stepId: WorkspaceStepId): string {
+export function resolveStepDestination(
+  kgId: string,
+  stepId: WorkspaceStepId,
+  context?: StepDestinationContext,
+): string {
+  const dataSourceCount = context?.dataSourceCount ?? 0
   switch (stepId) {
     case 'data-sources':
-      return buildDataSourcesStepUrl(kgId)
+      return buildDataSourcesStepUrl(kgId, dataSourceCount)
     case 'maintain':
       return buildMaintainStepUrl(kgId)
     case 'graph-management':

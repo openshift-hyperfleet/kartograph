@@ -295,13 +295,21 @@ describe('KG-MANAGE-004 - step card status semantics', () => {
 describe('KG-MANAGE-005 - graph-scoped data sources step', () => {
   it('keeps data-sources route utility for workspace cards but not graph-management redirects', () => {
     expect(manageWorkspaceVue).not.toContain('navigateTo(buildDataSourcesStepUrl(kgId))')
-    expect(buildDataSourcesStepUrl('kg-abc')).toBe('/data-sources?kg_id=kg-abc&from=manage')
+    expect(buildDataSourcesStepUrl('kg-abc', 0)).toBe('/knowledge-graphs/kg-abc/data-sources/new')
+    expect(buildDataSourcesStepUrl('kg-abc', 2)).toBe('/knowledge-graphs/kg-abc/data-sources')
   })
 
-  it('data-sources page preserves manage return path without auto-opening wizard', () => {
-    expect(dataSourcesVue).toContain('from=manage')
-    expect(dataSourcesVue).toContain('scopedKnowledgeGraphId')
-    expect(dataSourcesVue).toContain('Back to workspace overview')
+  it('manage workspace passes data source count when opening data-sources step', () => {
+    expect(manageWorkspaceVue).toContain('dataSourceCount: dataSourceCount.value')
+  })
+
+  it('kg-scoped data sources pages preserve manage return path', () => {
+    const kgDataSourcesIndex = readFileSync(
+      resolve(__dirname, '../pages/knowledge-graphs/[kgId]/data-sources/index.vue'),
+      'utf-8',
+    )
+    expect(kgDataSourcesIndex).toContain('Back to workspace overview')
+    expect(kgDataSourcesIndex).toContain('buildKgManageUrl')
   })
 })
 
@@ -309,7 +317,7 @@ describe('KG-MANAGE-015 - graph-scoped maintain step and round trip', () => {
   it('keeps maintain route utility for workspace cards but not graph-management redirects', () => {
     expect(manageWorkspaceVue).not.toContain('navigateTo(buildMaintainStepUrl(kgId))')
     expect(buildMaintainStepUrl('kg-abc')).toBe(
-      '/data-sources?kg_id=kg-abc&from=manage&focus=maintain',
+      '/knowledge-graphs/kg-abc/data-sources?focus=maintain',
     )
   })
 

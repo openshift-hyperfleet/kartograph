@@ -155,14 +155,14 @@ async function handleCreate() {
         },
       },
     )
-    // Pass the new KG id so the data-sources wizard pre-selects it automatically.
+    // Direct the user to kg-scoped data source onboarding for the new graph.
     // This satisfies: "AND the user is prompted to add their first data source"
     // with the wizard scoped to the newly created knowledge graph.
     toast.success(`Knowledge graph "${createName.value.trim()}" created`, {
       description: 'Next: connect a data source to start populating your graph.',
       action: {
         label: 'Add Data Source',
-        onClick: () => navigateTo(`/data-sources?kg_id=${result.id}`),
+        onClick: () => navigateTo(`/knowledge-graphs/${result.id}/data-sources/new`),
       },
       duration: 8000,
     })

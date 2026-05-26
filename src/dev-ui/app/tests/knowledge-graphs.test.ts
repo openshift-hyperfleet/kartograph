@@ -1025,8 +1025,7 @@ describe('Knowledge Graph Creation — prompt to add first data source', () => {
           method: 'POST',
           body: { name: createName.value.trim() },
         })
-        // Include kg_id so data-sources wizard pre-selects the new knowledge graph.
-        actionOnClick = () => navigateTo(`/data-sources?kg_id=${result.id}`)
+        actionOnClick = () => navigateTo(`/knowledge-graphs/${result.id}/data-sources/new`)
       } finally {
         creating.value = false
       }
@@ -1035,7 +1034,7 @@ describe('Knowledge Graph Creation — prompt to add first data source', () => {
     await handleCreate()
     expect(actionOnClick).toBeDefined()
     actionOnClick!()
-    expect(navigateTo).toHaveBeenCalledWith('/data-sources?kg_id=kg-new')
+    expect(navigateTo).toHaveBeenCalledWith('/knowledge-graphs/kg-new/data-sources/new')
   })
 
   it('toast is not fired when KG creation fails (API error)', async () => {
@@ -1097,7 +1096,7 @@ describe('Knowledge Graph Creation — KG-ID-scoped navigation (Task-101)', () =
           body: { name: createName.value.trim() },
         })
         // Capture the URL used in the action onClick
-        capturedUrl = `/data-sources?kg_id=${result.id}`
+        capturedUrl = `/knowledge-graphs/${result.id}/data-sources/new`
         navigateTo(capturedUrl)
       } finally {
         creating.value = false
@@ -1105,17 +1104,17 @@ describe('Knowledge Graph Creation — KG-ID-scoped navigation (Task-101)', () =
     }
 
     await handleCreate()
-    expect(capturedUrl).toBe('/data-sources?kg_id=kg-abc-123')
-    expect(navigateTo).toHaveBeenCalledWith('/data-sources?kg_id=kg-abc-123')
+    expect(capturedUrl).toBe('/knowledge-graphs/kg-abc-123/data-sources/new')
+    expect(navigateTo).toHaveBeenCalledWith('/knowledge-graphs/kg-abc-123/data-sources/new')
   })
 
   it('uses id from API response — not a hardcoded value', async () => {
     // Different KG IDs to verify the implementation reads from the response,
     // not a hardcoded string.
     const testCases = [
-      { apiId: 'kg-aaa-111', expectedUrl: '/data-sources?kg_id=kg-aaa-111' },
-      { apiId: 'kg-bbb-222', expectedUrl: '/data-sources?kg_id=kg-bbb-222' },
-      { apiId: 'kg-ccc-333', expectedUrl: '/data-sources?kg_id=kg-ccc-333' },
+      { apiId: 'kg-aaa-111', expectedUrl: '/knowledge-graphs/kg-aaa-111/data-sources/new' },
+      { apiId: 'kg-bbb-222', expectedUrl: '/knowledge-graphs/kg-bbb-222/data-sources/new' },
+      { apiId: 'kg-ccc-333', expectedUrl: '/knowledge-graphs/kg-ccc-333/data-sources/new' },
     ]
 
     for (const { apiId, expectedUrl } of testCases) {
@@ -1133,7 +1132,7 @@ describe('Knowledge Graph Creation — KG-ID-scoped navigation (Task-101)', () =
             method: 'POST',
             body: { name: createName.value.trim() },
           })
-          navigateTo(`/data-sources?kg_id=${result.id}`)
+          navigateTo(`/knowledge-graphs/${result.id}/data-sources/new`)
         } finally {
           creating.value = false
         }

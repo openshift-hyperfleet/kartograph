@@ -67,6 +67,8 @@ class _FakeIngestionService:
         connection_config: dict[str, str],
         credentials_path: str | None,
         tenant_id: str | None = None,
+        credentials: dict[str, str] | None = None,
+        baseline_commit: str | None = None,
     ) -> JobPackageId:
         self.calls.append(
             {
@@ -74,6 +76,8 @@ class _FakeIngestionService:
                 "data_source_id": data_source_id,
                 "knowledge_graph_id": knowledge_graph_id,
                 "adapter_type": adapter_type,
+                "credentials": credentials,
+                "baseline_commit": baseline_commit,
             }
         )
         if self._fail:
@@ -149,6 +153,22 @@ class TestIngestionEventHandlerSuccess:
         call = ingestion_service.calls[0]
         assert call["sync_run_id"] == "run-001"
         assert call["adapter_type"] == "github"
+
+    async def test_passes_baseline_and_credentials_through_payload(
+        self,
+        handler: IngestionEventHandler,
+        ingestion_service: _FakeIngestionService,
+    ):
+        """SyncStarted payload baseline/credentials should pass to service.run()."""
+        payload = _sync_started_payload()
+        payload["baseline_commit"] = "abc123"
+        payload["credentials"] = {"token": "secret"}
+
+        await handler.handle("SyncStarted", payload)
+
+        call = ingestion_service.calls[0]
+        assert call["baseline_commit"] == "abc123"
+        assert call["credentials"] == {"token": "secret"}
 
     async def test_emits_job_package_produced_on_success(
         self,
@@ -296,6 +316,8 @@ class TestIngestionEventHandlerOutboxIsolation:
                 connection_config: dict[str, str],
                 credentials_path: str | None,
                 tenant_id: str | None = None,
+                credentials: dict[str, str] | None = None,
+                baseline_commit: str | None = None,
             ) -> JobPackageId:
                 raise asyncio.CancelledError()
 

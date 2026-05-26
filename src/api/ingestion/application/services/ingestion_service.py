@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from shared_kernel.credential_reader import ICredentialReader
 from shared_kernel.job_package.builder import JobPackageBuilder
 from shared_kernel.job_package.value_objects import (
+    AdapterCheckpoint,
     JobPackageId,
     SyncMode,
 )
@@ -58,6 +59,8 @@ class IngestionService:
         connection_config: dict[str, str],
         credentials_path: str | None,
         tenant_id: str | None = None,
+        credentials: dict[str, str] | None = None,
+        baseline_commit: str | None = None,
     ) -> JobPackageId:
         """Run the ingestion pipeline for a data source sync.
 
@@ -69,6 +72,9 @@ class IngestionService:
             connection_config: Key-value adapter configuration
             credentials_path: Path for encrypted credentials
             tenant_id: Tenant ID for credential decryption scoping
+            credentials: Optional decrypted credentials prepared by caller
+            baseline_commit: Optional baseline commit SHA used to seed
+                incremental extraction checkpoint state
 
         Returns:
             The JobPackageId of the produced ZIP archive
@@ -85,23 +91,29 @@ class IngestionService:
                 f"Registered adapters: {list(self._adapter_registry.keys())}"
             )
 
-        credentials: dict[str, str] = {}
-        if credentials_path:
+        # Credentials are usually provided by the session-aware event wrapper.
+        resolved_credentials: dict[str, str] = dict(credentials or {})
+        if not resolved_credentials and credentials_path:
             if not tenant_id:
-                raise ValueError(
-                    "tenant_id is required when credentials_path is provided"
-                )
+                raise ValueError("tenant_id is required when credentials_path is provided")
             if self._credential_reader is None:
                 raise RuntimeError("credential_reader is not configured")
-            credentials = await self._credential_reader.retrieve(
+            resolved_credentials = await self._credential_reader.retrieve(
                 credentials_path, tenant_id
             )
 
+        checkpoint = None
+        if baseline_commit:
+            checkpoint = AdapterCheckpoint(
+                schema_version="1.0.0",
+                data={"commit_sha": baseline_commit},
+            )
+            
         # Extract raw items from the adapter using the new ExtractionResult API
         result = await adapter.extract(
             connection_config=connection_config,
-            credentials=credentials,
-            checkpoint=None,  # no checkpoint support yet; always full refresh
+            credentials=resolved_credentials,
+            checkpoint=checkpoint,
             sync_mode=SyncMode.INCREMENTAL,
         )
 

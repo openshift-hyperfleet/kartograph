@@ -309,6 +309,18 @@ class DataSourceDiffSummaryResponse(BaseModel):
     )
 
 
+class TriggerSyncRequest(BaseModel):
+    """Request body for triggering a data source sync."""
+
+    mode: Literal["full", "ingest_only"] = Field(
+        default="full",
+        description=(
+            "Pipeline mode: full runs ingestion through graph apply; "
+            "ingest_only prepares ingestion context without extraction"
+        ),
+    )
+
+
 class SyncRunResponse(BaseModel):
     """Response model for a data source sync run."""
 
@@ -316,7 +328,10 @@ class SyncRunResponse(BaseModel):
     data_source_id: str = Field(..., description="Data Source ID this run belongs to")
     status: str = Field(
         ...,
-        description="Sync run status (pending, ingesting, ai_extracting, applying, completed, failed)",
+        description=(
+            "Sync run status (pending, ingesting, ai_extracting, applying, "
+            "ingested, completed, failed)"
+        ),
     )
     started_at: datetime = Field(..., description="When the sync run started")
     completed_at: datetime | None = Field(

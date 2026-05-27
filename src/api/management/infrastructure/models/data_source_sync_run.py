@@ -39,6 +39,7 @@ class DataSourceSyncRunModel(Base):
     - ingesting: Data extraction pipeline is running
     - ai_extracting: AI entity extraction is in progress
     - applying: Graph mutations are being applied
+    - ingested: Ingestion context prepared without extraction (terminal)
     - completed: Sync finished successfully (terminal)
     - failed: Sync failed at any stage (terminal)
     """
@@ -79,7 +80,7 @@ class DataSourceSyncRunModel(Base):
         Index("idx_sync_runs_data_source_status", "data_source_id", "status"),
         CheckConstraint(
             "status IN ('pending', 'ingesting', 'ai_extracting', 'applying', "
-            "'completed', 'failed')",
+            "'ingested', 'completed', 'failed')",
             name="ck_sync_runs_status",
         ),
     )

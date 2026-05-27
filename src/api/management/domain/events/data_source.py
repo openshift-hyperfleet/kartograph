@@ -87,6 +87,8 @@ class SyncStarted:
         credentials_path: Optional path to credentials in vault
         occurred_at: When the sync was initiated
         requested_by: The user who requested the sync (if known)
+        pipeline_mode: ``full`` runs ingestion through graph apply; ``ingest_only``
+            stops after ingestion context is prepared (no AI extraction).
     """
 
     sync_run_id: str
@@ -98,3 +100,4 @@ class SyncStarted:
     occurred_at: datetime
     credentials_path: str | None = None
     requested_by: str | None = None
+    pipeline_mode: str = "full"

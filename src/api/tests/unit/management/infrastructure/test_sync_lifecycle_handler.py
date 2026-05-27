@@ -83,10 +83,11 @@ class TestSyncLifecycleHandlerSupportedEvents:
     """Tests for supported_event_types()."""
 
     def test_supports_all_lifecycle_events(self, handler: SyncLifecycleHandler):
-        """Handler should support all 7 lifecycle events."""
+        """Handler should support all lifecycle events."""
         expected = {
             "SyncStarted",
             "JobPackageProduced",
+            "IngestionPrepared",
             "IngestionFailed",
             "MutationLogProduced",
             "ExtractionFailed",
@@ -114,6 +115,33 @@ class TestSyncStartedTransition:
         mock_sync_run_repo.save.assert_called_once()
         saved_run: DataSourceSyncRun = mock_sync_run_repo.save.call_args[0][0]
         assert saved_run.status == "ingesting"
+
+
+@pytest.mark.asyncio
+class TestIngestionPreparedTransition:
+    """IngestionPrepared → status = ingested (terminal, no last_sync_at)."""
+
+    async def test_ingestion_prepared_sets_ingested(
+        self,
+        handler: SyncLifecycleHandler,
+        mock_sync_run_repo: AsyncMock,
+        mock_ds_repo: AsyncMock,
+    ):
+        run = _make_sync_run(status="ingesting")
+        mock_sync_run_repo.get_by_id.return_value = run
+
+        await handler.handle(
+            "IngestionPrepared",
+            _payload(
+                sync_run_id=run.id,
+                job_package_id="pkg-001",
+            ),
+        )
+
+        saved_run: DataSourceSyncRun = mock_sync_run_repo.save.call_args[0][0]
+        assert saved_run.status == "ingested"
+        assert saved_run.completed_at is not None
+        mock_ds_repo.get_by_id.assert_not_called()
 
 
 @pytest.mark.asyncio

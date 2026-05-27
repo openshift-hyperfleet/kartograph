@@ -3,6 +3,7 @@ export type SyncRunStatus =
   | 'ingesting'
   | 'ai_extracting'
   | 'applying'
+  | 'ingested'
   | 'completed'
   | 'failed'
 
@@ -19,7 +20,7 @@ export function isActiveSyncStatus(status: SyncRunStatus | undefined): boolean {
 }
 
 export function isSyncTerminal(status: SyncRunStatus | undefined): boolean {
-  return status === 'completed' || status === 'failed'
+  return status === 'ingested' || status === 'completed' || status === 'failed'
 }
 
 export interface SyncRunSummary {

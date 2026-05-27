@@ -311,6 +311,7 @@ class DataSource:
         sync_run_id: str,
         *,
         requested_by: str | None = None,
+        pipeline_mode: str = "full",
     ) -> None:
         """Request a sync for this data source.
 
@@ -321,6 +322,7 @@ class DataSource:
         Args:
             sync_run_id: The ID of the sync run record created for this sync
             requested_by: The user who requested the sync (optional)
+            pipeline_mode: ``full`` or ``ingest_only`` — see SyncStarted.pipeline_mode
 
         Raises:
             AggregateDeletedError: If the data source has been marked for deletion
@@ -338,6 +340,7 @@ class DataSource:
                 credentials_path=self.credentials_path,
                 occurred_at=datetime.now(UTC),
                 requested_by=requested_by,
+                pipeline_mode=pipeline_mode,
             )
         )
 

@@ -386,6 +386,28 @@ class TestTriggerSyncRoute:
         mock_ds_service.trigger_sync.assert_called_once_with(
             user_id=mock_current_user.user_id.value,
             ds_id=sample_data_source.id.value,
+            pipeline_mode="full",
+        )
+
+    def test_trigger_sync_passes_ingest_only_mode(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        mock_ds_service.trigger_sync.return_value = sample_sync_run
+
+        test_client.post(
+            f"/management/data-sources/{sample_data_source.id.value}/sync",
+            json={"mode": "ingest_only"},
+        )
+
+        mock_ds_service.trigger_sync.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            ds_id=sample_data_source.id.value,
+            pipeline_mode="ingest_only",
         )
 
     def test_trigger_sync_returns_403_when_unauthorized(

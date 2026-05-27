@@ -10,10 +10,11 @@ State machine transitions:
   IngestionFailed          → failed (with error)
   MutationLogProduced      → applying
   ExtractionFailed         → failed (with error)
+  IngestionPrepared        → ingested (ingestion context ready; no extraction)
   MutationsApplied         → completed (DataSource.last_sync_at updated)
   MutationApplicationFailed → failed (with error)
 
-Terminal states (completed, failed) cannot be transitioned further.
+Terminal states (ingested, completed, failed) cannot be transitioned further.
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ _STATUS_MAP: dict[str, str] = {
     "JobPackageProduced": "ai_extracting",
     "MutationLogProduced": "applying",
     "MutationsApplied": "completed",
+    "IngestionPrepared": "ingested",
 }
 
 _SUPPORTED_EVENTS = frozenset(_STATUS_MAP.keys()) | _FAILURE_EVENTS
@@ -118,6 +120,25 @@ class SyncLifecycleHandler:
             sync_run.error = error_msg
             sync_run.completed_at = now
             sync_run.logs.append(f"[{now.isoformat()}] {event_type}: {error_msg}")
+
+        elif event_type == "IngestionPrepared":
+            sync_run.status = "ingested"
+            sync_run.completed_at = now
+            job_package_id = payload.get("job_package_id")
+            if job_package_id:
+                sync_run.logs.append(
+                    f"[{now.isoformat()}] Ingestion context prepared "
+                    f"(job_package_id={job_package_id})"
+                )
+            elif payload.get("no_changes_detected") is True:
+                sync_run.logs.append(
+                    f"[{now.isoformat()}] No source changes detected; "
+                    "ingestion context preparation skipped."
+                )
+            else:
+                sync_run.logs.append(
+                    f"[{now.isoformat()}] Ingestion context prepared for later extraction."
+                )
 
         elif event_type == "MutationsApplied":
             sync_run.status = "completed"

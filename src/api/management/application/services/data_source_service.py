@@ -604,12 +604,16 @@ class DataSourceService:
         self,
         user_id: str,
         ds_id: str,
+        *,
+        pipeline_mode: str = "full",
     ) -> DataSourceSyncRun:
         """Trigger a sync for a data source.
 
         Args:
             user_id: The user triggering the sync
             ds_id: The data source ID
+            pipeline_mode: ``full`` (default) or ``ingest_only`` to prepare ingestion
+                context without running AI extraction or graph application
 
         Returns:
             The created DataSourceSyncRun entity
@@ -658,7 +662,11 @@ class DataSourceService:
         # Record SyncStarted event on the data source aggregate.
         # This event carries the sync_run_id so lifecycle handlers
         # can update the correct sync run record.
-        ds.request_sync(sync_run_id=sync_run.id, requested_by=user_id)
+        ds.request_sync(
+            sync_run_id=sync_run.id,
+            requested_by=user_id,
+            pipeline_mode=pipeline_mode,
+        )
         await self._ds_repo.save(ds)
         await self._session.commit()
 

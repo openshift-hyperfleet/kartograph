@@ -94,20 +94,38 @@ class IngestionEventHandler:
         knowledge_graph_id = payload["knowledge_graph_id"]
         now = datetime.now(UTC)
 
+        pipeline_mode = payload.get("pipeline_mode", "full")
+        ingest_only = pipeline_mode == "ingest_only"
+
         if payload.get("no_changes_detected") is True:
-            await self._outbox.append(
-                event_type="MutationsApplied",
-                payload={
-                    "sync_run_id": sync_run_id,
-                    "data_source_id": data_source_id,
-                    "knowledge_graph_id": knowledge_graph_id,
-                    "no_changes_detected": True,
-                    "occurred_at": now.isoformat(),
-                },
-                occurred_at=now,
-                aggregate_type="sync_run",
-                aggregate_id=sync_run_id,
-            )
+            if ingest_only:
+                await self._outbox.append(
+                    event_type="IngestionPrepared",
+                    payload={
+                        "sync_run_id": sync_run_id,
+                        "data_source_id": data_source_id,
+                        "knowledge_graph_id": knowledge_graph_id,
+                        "no_changes_detected": True,
+                        "occurred_at": now.isoformat(),
+                    },
+                    occurred_at=now,
+                    aggregate_type="sync_run",
+                    aggregate_id=sync_run_id,
+                )
+            else:
+                await self._outbox.append(
+                    event_type="MutationsApplied",
+                    payload={
+                        "sync_run_id": sync_run_id,
+                        "data_source_id": data_source_id,
+                        "knowledge_graph_id": knowledge_graph_id,
+                        "no_changes_detected": True,
+                        "occurred_at": now.isoformat(),
+                    },
+                    occurred_at=now,
+                    aggregate_type="sync_run",
+                    aggregate_id=sync_run_id,
+                )
             return
 
         try:
@@ -119,7 +137,6 @@ class IngestionEventHandler:
                 connection_config=payload.get("connection_config", {}),
                 credentials_path=payload.get("credentials_path"),
                 tenant_id=payload.get("tenant_id"),
-                credentials=payload.get("credentials"),
                 credentials=runtime_credentials or payload.get("credentials"),
                 baseline_commit=payload.get("baseline_commit"),
             )
@@ -144,16 +161,31 @@ class IngestionEventHandler:
 
         # Ingestion succeeded — append success event outside the try block so
         # that an outbox write failure is not misclassified as IngestionFailed.
-        await self._outbox.append(
-            event_type="JobPackageProduced",
-            payload={
-                "sync_run_id": sync_run_id,
-                "data_source_id": data_source_id,
-                "knowledge_graph_id": knowledge_graph_id,
-                "job_package_id": str(job_package_id),
-                "occurred_at": now.isoformat(),
-            },
-            occurred_at=now,
-            aggregate_type="sync_run",
-            aggregate_id=sync_run_id,
-        )
+        if ingest_only:
+            await self._outbox.append(
+                event_type="IngestionPrepared",
+                payload={
+                    "sync_run_id": sync_run_id,
+                    "data_source_id": data_source_id,
+                    "knowledge_graph_id": knowledge_graph_id,
+                    "job_package_id": str(job_package_id),
+                    "occurred_at": now.isoformat(),
+                },
+                occurred_at=now,
+                aggregate_type="sync_run",
+                aggregate_id=sync_run_id,
+            )
+        else:
+            await self._outbox.append(
+                event_type="JobPackageProduced",
+                payload={
+                    "sync_run_id": sync_run_id,
+                    "data_source_id": data_source_id,
+                    "knowledge_graph_id": knowledge_graph_id,
+                    "job_package_id": str(job_package_id),
+                    "occurred_at": now.isoformat(),
+                },
+                occurred_at=now,
+                aggregate_type="sync_run",
+                aggregate_id=sync_run_id,
+            )

@@ -238,6 +238,37 @@ class TestIngestionEventHandlerSuccess:
         assert event["payload"]["sync_run_id"] == "run-004"
         assert event["payload"]["no_changes_detected"] is True
 
+    async def test_emits_ingestion_prepared_when_ingest_only(
+        self,
+        handler: IngestionEventHandler,
+        outbox: _FakeOutboxRepository,
+    ):
+        """ingest_only mode should stop after ingestion without JobPackageProduced."""
+        payload = _sync_started_payload(sync_run_id="run-ingest")
+        payload["pipeline_mode"] = "ingest_only"
+        await handler.handle("SyncStarted", payload)
+
+        assert len(outbox.appended) == 1
+        event = outbox.appended[0]
+        assert event["event_type"] == "IngestionPrepared"
+        assert event["payload"]["job_package_id"] is not None
+
+    async def test_no_changes_ingest_only_emits_ingestion_prepared(
+        self,
+        handler: IngestionEventHandler,
+        ingestion_service: _FakeIngestionService,
+        outbox: _FakeOutboxRepository,
+    ):
+        """ingest_only with no_changes_detected should not emit MutationsApplied."""
+        payload = _sync_started_payload(sync_run_id="run-nc-ingest")
+        payload["pipeline_mode"] = "ingest_only"
+        payload["no_changes_detected"] = True
+
+        await handler.handle("SyncStarted", payload)
+
+        assert ingestion_service.calls == []
+        assert outbox.appended[0]["event_type"] == "IngestionPrepared"
+
 
 @pytest.mark.asyncio
 class TestIngestionEventHandlerFailure:
@@ -278,6 +309,7 @@ class TestIngestionEventHandlerFailure:
                 adapter_type: str,
                 connection_config: dict[str, str],
                 credentials_path: str | None,
+                tenant_id: str | None = None,
                 credentials: dict[str, str] | None = None,
                 baseline_commit: str | None = None,
             ) -> JobPackageId:

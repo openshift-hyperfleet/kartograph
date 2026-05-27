@@ -3,7 +3,14 @@ import { computed } from 'vue'
 import { Loader2, Download, Sparkles, Database, Clock } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 
-type SyncStatus = 'pending' | 'ingesting' | 'ai_extracting' | 'applying' | 'completed' | 'failed'
+type SyncStatus =
+  | 'pending'
+  | 'ingesting'
+  | 'ai_extracting'
+  | 'applying'
+  | 'ingested'
+  | 'completed'
+  | 'failed'
 
 const props = defineProps<{ status: SyncStatus; label?: string }>()
 
@@ -13,6 +20,7 @@ const phaseLabel = computed(() => {
     ingesting:     'Ingesting',
     ai_extracting: 'Extracting',
     applying:      'Applying',
+    ingested:      'Prepared',
     completed:     'Completed',
     failed:        'Failed',
   }
@@ -24,7 +32,7 @@ const isActive = computed(() =>
 )
 
 const badgeVariant = computed<'default' | 'secondary' | 'destructive'>(() => {
-  if (props.status === 'completed') return 'default'
+  if (props.status === 'completed' || props.status === 'ingested') return 'default'
   if (props.status === 'failed') return 'destructive'
   return 'secondary'
 })

@@ -32,6 +32,7 @@ from management.presentation.data_sources.models import (
     MutationLogEntryPreviewPageResponse,
     SyncRunLogsResponse,
     SyncRunResponse,
+    TriggerSyncRequest,
     UpdateDataSourceRequest,
 )
 from shared_kernel.datasource_types import DataSourceAdapterType
@@ -370,6 +371,7 @@ async def trigger_sync(
     ds_id: str,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[DataSourceService, Depends(get_data_source_service)],
+    body: TriggerSyncRequest | None = None,
 ) -> SyncRunResponse:
     """Trigger a synchronization for a data source.
 
@@ -380,6 +382,7 @@ async def trigger_sync(
         ds_id: Data Source ID to trigger sync for
         current_user: Current authenticated user with tenant context
         service: Data source service for orchestration
+        body: Optional pipeline mode (default full sync)
 
     Returns:
         SyncRunResponse with the created sync run details
@@ -389,10 +392,12 @@ async def trigger_sync(
         HTTPException: 404 if DS not found
         HTTPException: 500 for unexpected errors
     """
+    request = body or TriggerSyncRequest()
     try:
         sync_run = await service.trigger_sync(
             user_id=current_user.user_id.value,
             ds_id=ds_id,
+            pipeline_mode=request.mode,
         )
         return SyncRunResponse.from_domain(sync_run)
 

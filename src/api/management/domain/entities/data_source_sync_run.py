@@ -7,9 +7,17 @@ from datetime import datetime
 from typing import Any
 
 # Valid sync run status values representing the lifecycle state machine.
-TERMINAL_STATUSES = frozenset({"completed", "failed"})
+TERMINAL_STATUSES = frozenset({"ingested", "completed", "failed"})
 VALID_STATUSES = frozenset(
-    {"pending", "ingesting", "ai_extracting", "applying", "completed", "failed"}
+    {
+        "pending",
+        "ingesting",
+        "ai_extracting",
+        "applying",
+        "ingested",
+        "completed",
+        "failed",
+    }
 )
 
 
@@ -83,13 +91,14 @@ class DataSourceSyncRun:
       → ingesting    (SyncStarted event processed, ingestion pipeline running)
       → ai_extracting (JobPackageProduced, AI entity extraction triggered)
       → applying     (MutationLogProduced, graph mutations being applied)
+      → ingested     (IngestionPrepared, context ready — no extraction)
       → completed    (MutationsApplied, sync finished successfully)
       → failed       (IngestionFailed / ExtractionFailed / MutationApplicationFailed)
 
-    Terminal states: completed, failed — no further transitions allowed.
+    Terminal states: ingested, completed, failed — no further transitions allowed.
 
     Valid status values: "pending", "ingesting", "ai_extracting",
-                         "applying", "completed", "failed"
+                         "applying", "ingested", "completed", "failed"
     """
 
     id: str

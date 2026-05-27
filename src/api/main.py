@@ -87,6 +87,7 @@ class _SessionedSyncLifecycleHandler:
         {
             "SyncStarted",
             "JobPackageProduced",
+            "IngestionPrepared",
             "IngestionFailed",
             "MutationLogProduced",
             "ExtractionFailed",

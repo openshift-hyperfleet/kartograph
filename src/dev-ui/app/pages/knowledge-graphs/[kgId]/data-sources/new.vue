@@ -111,16 +111,8 @@ const syncProgressPercent = computed(() => {
   return Math.round((syncCompletedInRun.value / syncRunTotal.value) * 100)
 })
 
-const completedSyncCount = computed(() =>
-  createdSources.value.filter((s) => s.syncStatus === 'completed').length,
-)
-
-const totalTokenUsage = computed(() =>
-  createdSources.value.reduce((sum, s) => sum + (s.token_usage_total ?? 0), 0),
-)
-
-const totalSyncCost = computed(() =>
-  createdSources.value.reduce((sum, s) => sum + (s.cost_total_usd ?? 0), 0),
+const preparedSourceCount = computed(() =>
+  createdSources.value.filter((s) => s.syncStatus === 'ingested').length,
 )
 
 function addUrlField() {
@@ -333,12 +325,12 @@ async function pollUntilTerminal(row: CreatedSourceRow, timeoutMs = 600_000) {
   row.syncError = 'Sync timed out'
 }
 
-async function runSequentialSync() {
+async function runSequentialIngestionPrep() {
   const queue = createdSources.value.filter(
     (s) => s.syncStatus === 'idle' || s.syncStatus === 'failed' || s.syncStatus === 'queued',
   )
   if (queue.length === 0) {
-    toast.error('No sources need syncing')
+    toast.error('No sources need preparation')
     return
   }
 
@@ -356,35 +348,38 @@ async function runSequentialSync() {
       target.syncError = null
 
       try {
-        await apiFetch(`/management/data-sources/${target.id}/sync`, { method: 'POST' })
+        await apiFetch(`/management/data-sources/${target.id}/sync`, {
+          method: 'POST',
+          body: { mode: 'ingest_only' },
+        })
         await pollUntilTerminal(target)
         if (target.syncStatus === 'failed') {
-          toast.error(`Sync failed: ${target.name}`, {
+          toast.error(`Preparation failed: ${target.name}`, {
             description: target.syncError ?? undefined,
           })
         }
       } catch (err: unknown) {
         target.syncStatus = 'failed'
-        target.syncError = err instanceof Error ? err.message : 'Sync failed'
-        toast.error(`Sync failed: ${target.name}`, { description: target.syncError })
+        target.syncError = err instanceof Error ? err.message : 'Preparation failed'
+        toast.error(`Preparation failed: ${target.name}`, { description: target.syncError })
       }
 
       syncCompletedInRun.value = i + 1
     }
 
-    const allCompleted = createdSources.value.every((s) => s.syncStatus === 'completed')
-    readyForStats.value = allCompleted
+    const allPrepared = createdSources.value.every((s) => s.syncStatus === 'ingested')
+    readyForStats.value = allPrepared
 
-    if (allCompleted) {
+    if (allPrepared) {
       flowPhase.value = 'stats'
       await nextTick()
       wizardSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      toast.success('Initial sync complete', {
-        description: 'Review results below, then open data sources to continue.',
+      toast.success('Ingestion context prepared', {
+        description: 'Sources are ready for design and extraction when you open those steps.',
       })
     } else {
-      toast('Sync finished with issues', {
-        description: 'Fix failed sources from the data sources page or retry sync.',
+      toast('Preparation finished with issues', {
+        description: 'Fix failed sources from the data sources page or retry.',
       })
     }
   } finally {
@@ -396,6 +391,8 @@ async function runSequentialSync() {
 
 function getSyncBadge(status: CreatedSourceRow['syncStatus']) {
   switch (status) {
+    case 'ingested':
+      return { variant: 'default' as const, label: 'Prepared', icon: Check }
     case 'completed':
       return { variant: 'default' as const, label: 'Completed', icon: Check }
     case 'failed':
@@ -404,7 +401,7 @@ function getSyncBadge(status: CreatedSourceRow['syncStatus']) {
     case 'ingesting':
     case 'ai_extracting':
     case 'applying':
-      return { variant: 'secondary' as const, label: 'Syncing…', icon: Loader2 }
+      return { variant: 'secondary' as const, label: 'Preparing…', icon: Loader2 }
     default:
       return { variant: 'outline' as const, label: 'Ready', icon: null }
   }
@@ -495,7 +492,7 @@ onUnmounted(() => {
           >
             <Loader2 v-if="detectingSourceDetails" class="mr-2 size-4 animate-spin" />
             Continue
-            <ArrowRight v-else class="ml-2 size-4" />
+            <ArrowRight v-if="!detectingSourceDetails" class="ml-2 size-4" />
           </Button>
         </CardFooter>
       </Card>
@@ -544,8 +541,8 @@ onUnmounted(() => {
           <Button variant="outline" type="button" @click="flowPhase = 'urls'">Back</Button>
           <Button type="button" :disabled="creating" @click="createDataSources">
             <Loader2 v-if="creating" class="mr-2 size-4 animate-spin" />
-            <Check v-else class="mr-2 size-4" />
-            Connect data sources and sync
+            <Check v-if="!creating" class="mr-2 size-4" />
+            Connect data sources
           </Button>
         </CardFooter>
       </Card>
@@ -562,10 +559,11 @@ onUnmounted(() => {
               <Badge variant="default">{{ kgName }}</Badge>
               <span class="text-sm text-muted-foreground">sources connected</span>
             </div>
-            <CardTitle class="text-base">Initial sync</CardTitle>
+            <CardTitle class="text-base">Prepare ingestion context</CardTitle>
             <CardDescription>
-              Run ingestion and extraction for each source. Sources sync one at a time so you can
-              follow progress.
+              Fetch repository content and build job packages for each source. No AI extraction
+              runs here — that happens later in graph management. Sources are prepared one at a
+              time so you can follow progress.
             </CardDescription>
           </CardHeader>
           <CardContent class="space-y-4">
@@ -574,11 +572,11 @@ onUnmounted(() => {
                 type="button"
                 size="sm"
                 :disabled="syncRunActive || createdSources.length === 0"
-                @click="runSequentialSync"
+                @click="runSequentialIngestionPrep"
               >
                 <Loader2 v-if="syncRunActive" class="mr-2 size-4 animate-spin" />
-                <GitBranch v-else class="mr-2 size-4" />
-                Start initial sync
+                <GitBranch v-if="!syncRunActive" class="mr-2 size-4" />
+                Prepare ingestion context
               </Button>
             </div>
 
@@ -587,7 +585,7 @@ onUnmounted(() => {
               class="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-4"
             >
               <div class="flex items-center justify-between text-sm">
-                <span class="font-medium">Syncing {{ syncActiveName || '…' }}</span>
+                <span class="font-medium">Preparing {{ syncActiveName || '…' }}</span>
                 <span class="tabular-nums text-muted-foreground">{{ syncStepLabel }}</span>
               </div>
               <div class="h-2 overflow-hidden rounded-full bg-muted">
@@ -616,7 +614,7 @@ onUnmounted(() => {
                   </div>
                   <div class="flex shrink-0 flex-col items-end gap-2">
                     <SyncPhaseIndicator
-                      v-if="isActiveSyncStatus(source.syncStatus as SyncRunStatus) || source.syncStatus === 'completed' || source.syncStatus === 'failed'"
+                      v-if="isActiveSyncStatus(source.syncStatus as SyncRunStatus) || source.syncStatus === 'ingested' || source.syncStatus === 'completed' || source.syncStatus === 'failed'"
                       :status="(source.syncStatus === 'idle' || source.syncStatus === 'queued') ? 'pending' : (source.syncStatus as SyncRunStatus)"
                     />
                     <Badge v-else :variant="getSyncBadge(source.syncStatus).variant">
@@ -633,11 +631,11 @@ onUnmounted(() => {
           <CardHeader>
             <div class="flex items-center gap-2">
               <Settings2 class="size-5 text-primary" />
-              <CardTitle class="text-base">Sync summary</CardTitle>
+              <CardTitle class="text-base">Preparation summary</CardTitle>
             </div>
             <CardDescription>
-              Initial sync finished for all sources. Open data sources to manage commits, ontology,
-              and maintenance.
+              Ingestion context is ready for all sources. Open data sources to manage commits, or
+              continue in graph management when you are ready to extract.
             </CardDescription>
           </CardHeader>
           <CardContent class="space-y-4">
@@ -647,8 +645,6 @@ onUnmounted(() => {
                   <tr class="border-b bg-muted/50 text-left">
                     <th class="px-3 py-2 font-medium">Data source</th>
                     <th class="px-3 py-2 text-right font-medium">Status</th>
-                    <th class="px-3 py-2 text-right font-medium">Tokens</th>
-                    <th class="px-3 py-2 text-right font-medium">Cost (USD)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -659,27 +655,15 @@ onUnmounted(() => {
                   >
                     <td class="px-3 py-2 font-medium">{{ s.name }}</td>
                     <td class="px-3 py-2 text-right">
-                      <Badge variant="default" class="text-[10px]">Completed</Badge>
-                    </td>
-                    <td class="px-3 py-2 text-right tabular-nums">
-                      {{ s.token_usage_total?.toLocaleString() ?? '—' }}
-                    </td>
-                    <td class="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                      {{ s.cost_total_usd != null ? s.cost_total_usd.toFixed(4) : '—' }}
+                      <Badge variant="default" class="text-[10px]">Prepared</Badge>
                     </td>
                   </tr>
                 </tbody>
               </table>
             </div>
             <p class="text-sm text-muted-foreground">
-              <span class="font-medium text-foreground">{{ completedSyncCount }}</span>
-              source{{ completedSyncCount === 1 ? '' : 's' }} synced.
-              <template v-if="totalTokenUsage > 0">
-                Total tokens: {{ totalTokenUsage.toLocaleString() }}.
-              </template>
-              <template v-if="totalSyncCost > 0">
-                Estimated cost: ${{ totalSyncCost.toFixed(4) }}.
-              </template>
+              <span class="font-medium text-foreground">{{ preparedSourceCount }}</span>
+              source{{ preparedSourceCount === 1 ? '' : 's' }} ready for later extraction.
             </p>
             <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               <Button as-child>

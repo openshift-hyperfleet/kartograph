@@ -4,13 +4,17 @@ import { toast } from 'vue-sonner'
 import {
   Cable,
   ChevronLeft,
+  GitBranch,
   Plus,
-  Loader2,
   Trash2,
+  Loader2,
+  Check,
+  ArrowRight,
   Settings,
   RefreshCw,
   ScrollText,
   Building2,
+  LayoutDashboard,
 } from 'lucide-vue-next'
 import {
   buildKgDataSourcesNewUrl,
@@ -18,7 +22,27 @@ import {
   parseKgDataSourcesFocusQuery,
 } from '@/utils/kgDataSourcesNavigation'
 import { isMaintenanceReady } from '@/utils/kgManageWorkspace'
-import { hasAnyActiveSync, type SyncRunStatus } from '@/utils/kgDataSourcesSync'
+import {
+  hasAnyActiveSync,
+  isSyncTerminal,
+  latestSyncRun,
+  type SyncRunStatus,
+} from '@/utils/kgDataSourcesSync'
+import {
+  commitStatusClass,
+  commitStatusLabel,
+  prepStatusBadgeVariant,
+  resolvePrepStatusLabel,
+  resolveRepoUrl,
+  resolveTrackedBranch,
+  shortCommitHash,
+} from '@/utils/kgDataSourcesCommits'
+import {
+  buildDataSourceCreationBody,
+  buildDataSourceCreationUrl,
+  detectAdapterFromUrl,
+  inferNameFromRepoUrl,
+} from '@/utils/dataSourceWizard'
 import SyncPhaseIndicator from '@/components/graph/SyncPhaseIndicator.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,7 +50,6 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { CopyableText } from '@/components/ui/copyable-text'
 import {
   Sheet,
   SheetContent,
@@ -73,7 +96,7 @@ interface DataSourceItem {
   name: string
   adapter_type: string
   knowledge_graph_id: string
-  clone_head_commit?: string | null
+  connection_config?: Record<string, string>
   last_extraction_baseline_commit?: string | null
   tracked_branch_head_commit?: string | null
   sync_runs?: SyncRun[]
@@ -92,15 +115,42 @@ const dataSources = ref<DataSourceItem[]>([])
 const loading = ref(false)
 const expandedDiffLists = ref<Record<string, boolean>>({})
 const refreshingCommitRefs = ref<Record<string, boolean>>({})
+const refreshingAllCommits = ref(false)
 const adoptingBaselines = ref<Record<string, boolean>>({})
+
+const newUrls = ref<string[]>([''])
+const addToken = ref('')
+const addingUrls = ref(false)
 
 const manageUrl = computed(() => buildKgManageUrl(kgId.value))
 const newSourceUrl = computed(() => buildKgDataSourcesNewUrl(kgId.value))
+const graphManagementUrl = computed(
+  () => `${buildKgManageUrl(kgId.value)}?step=graph-management`,
+)
 
 const visibleDataSources = computed(() => {
   if (!maintainFocus.value) return dataSources.value
   return dataSources.value.filter((ds) => isMaintenanceReady(ds))
 })
+
+const validNewUrls = computed(() =>
+  newUrls.value
+    .map((url) => url.trim())
+    .filter((url) => url.startsWith('http://') || url.startsWith('https://') || url.startsWith('git@')),
+)
+
+const preparedCount = computed(() =>
+  dataSources.value.filter((ds) => {
+    const status = latestSyncRun(ds.sync_runs)?.status
+    return status === 'ingested' || status === 'completed'
+  }).length,
+)
+
+const allSourcesPrepared = computed(
+  () =>
+    dataSources.value.length > 0
+    && preparedCount.value === dataSources.value.length,
+)
 
 const pollInterval = ref<ReturnType<typeof setInterval> | null>(null)
 
@@ -119,6 +169,95 @@ function startPolling() {
       stopPolling()
     }
   }, 3000)
+}
+
+function addUrlField() {
+  newUrls.value.push('')
+}
+
+function removeUrlField(index: number) {
+  newUrls.value.splice(index, 1)
+  if (newUrls.value.length === 0) {
+    newUrls.value.push('')
+  }
+}
+
+function updateUrl(index: number, value: string) {
+  newUrls.value[index] = value
+}
+
+async function detectDefaultBranch(url: string): Promise<string> {
+  try {
+    const parsed = new URL(url)
+    const [owner, repoRaw] = parsed.pathname.split('/').filter(Boolean)
+    const repo = repoRaw?.replace(/\.git$/, '')
+    if (!owner || !repo) return 'main'
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`)
+    if (!response.ok) return 'main'
+    const payload = (await response.json()) as { default_branch?: string }
+    return payload.default_branch ?? 'main'
+  } catch {
+    return 'main'
+  }
+}
+
+async function addRepositories() {
+  if (validNewUrls.value.length === 0) {
+    toast.error('Please enter at least one valid URL')
+    return
+  }
+
+  addingUrls.value = true
+  const seen = new Set<string>()
+  let added = 0
+
+  try {
+    for (const url of validNewUrls.value) {
+      if (seen.has(url)) continue
+      seen.add(url)
+
+      const adapterId = detectAdapterFromUrl(url)
+      if (adapterId !== 'github') {
+        toast.error('Unsupported repository URL', { description: url })
+        continue
+      }
+
+      const branch = await detectDefaultBranch(url)
+      const name = inferNameFromRepoUrl(url) || 'repository'
+
+      try {
+        await apiFetch(buildDataSourceCreationUrl(kgId.value), {
+          method: 'POST',
+          body: buildDataSourceCreationBody({
+            name,
+            adapter_type: 'github',
+            connection_config: {
+              repo_url: url,
+              branch,
+            },
+            credentials: addToken.value.trim()
+              ? { access_token: addToken.value.trim() }
+              : undefined,
+          }),
+        })
+        added += 1
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Failed to add source'
+        toast.error(`Failed to add ${url}`, { description: msg })
+      }
+    }
+
+    if (added > 0) {
+      newUrls.value = ['']
+      addToken.value = ''
+      toast.success(`Added ${added} source${added === 1 ? '' : 's'}`, {
+        description: 'Refresh commits or prepare ingestion context when ready.',
+      })
+      await loadDataSources()
+    }
+  } finally {
+    addingUrls.value = false
+  }
 }
 
 async function loadKnowledgeGraph() {
@@ -174,6 +313,10 @@ async function ensureEntryRoute() {
   }
 }
 
+function latestStatus(ds: DataSourceItem): SyncRunStatus | undefined {
+  return latestSyncRun(ds.sync_runs)?.status
+}
+
 function isDiffExpanded(dsId: string): boolean {
   return expandedDiffLists.value[dsId] === true
 }
@@ -182,10 +325,13 @@ function toggleDiffExpanded(dsId: string) {
   expandedDiffLists.value[dsId] = !isDiffExpanded(dsId)
 }
 
-async function triggerSync(dsId: string) {
+async function triggerSync(dsId: string, mode: 'full' | 'ingest_only' = 'full') {
   try {
-    await apiFetch(`/management/data-sources/${dsId}/sync`, { method: 'POST' })
-    toast.success('Sync triggered')
+    await apiFetch(`/management/data-sources/${dsId}/sync`, {
+      method: 'POST',
+      body: mode === 'ingest_only' ? { mode: 'ingest_only' } : undefined,
+    })
+    toast.success(mode === 'ingest_only' ? 'Preparation started' : 'Sync triggered')
     await loadDataSources()
     if (hasAnyActiveSync(dataSources.value)) startPolling()
   } catch {
@@ -203,6 +349,24 @@ async function refreshCommitRefs(dsId: string) {
     toast.error('Failed to refresh commit references')
   } finally {
     refreshingCommitRefs.value[dsId] = false
+  }
+}
+
+async function refreshAllCommitRefs() {
+  if (visibleDataSources.value.length === 0) return
+  refreshingAllCommits.value = true
+  try {
+    await Promise.allSettled(
+      visibleDataSources.value.map((ds) =>
+        apiFetch(`/management/data-sources/${ds.id}/commit-refs/refresh`, { method: 'POST' }),
+      ),
+    )
+    toast.success('Commit references refreshed')
+    await loadDataSources()
+  } catch {
+    toast.error('Failed to refresh commit references')
+  } finally {
+    refreshingAllCommits.value = false
   }
 }
 
@@ -339,31 +503,31 @@ watch(tenantVersion, async () => {
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl space-y-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <NuxtLink
-        :to="manageUrl"
-        class="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ChevronLeft class="mr-1 size-4" />
-        Back to workspace overview
-      </NuxtLink>
-      <Button :disabled="!hasTenant" @click="navigateTo(newSourceUrl)">
-        <Plus class="mr-2 size-4" />
-        Add data source
-      </Button>
-    </div>
+  <div class="mx-auto max-w-7xl space-y-6">
+    <NuxtLink
+      :to="manageUrl"
+      class="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+    >
+      <ChevronLeft class="mr-1 size-4" />
+      Back to workspace overview
+    </NuxtLink>
 
     <div class="flex items-center gap-3">
       <div class="rounded-lg bg-primary/10 p-2">
         <Cable class="size-5 text-primary" />
       </div>
-      <div>
+      <div class="min-w-0 flex-1">
         <h1 class="text-2xl font-semibold tracking-tight">Data Sources</h1>
         <p class="text-sm text-muted-foreground">
           <template v-if="kgName">{{ kgName }} — </template>
           Manage connected repositories, sync runs, and commit tracking.
         </p>
+      </div>
+      <div v-if="allSourcesPrepared" class="ml-auto shrink-0">
+        <Badge variant="success">
+          <Check class="mr-1 size-3" />
+          Ready
+        </Badge>
       </div>
     </div>
 
@@ -374,192 +538,308 @@ watch(tenantVersion, async () => {
       <p class="font-medium">No tenant selected</p>
     </div>
 
-    <div v-else-if="loading" class="flex justify-center py-16">
+    <div v-else-if="loading" class="flex justify-center py-12">
       <Loader2 class="size-8 animate-spin text-muted-foreground" />
     </div>
 
     <template v-else>
-      <Card v-if="maintainFocus">
-        <CardHeader class="pb-2">
-          <CardTitle class="text-sm">Maintenance focus</CardTitle>
-          <CardDescription class="text-xs">
-            Showing sources with new commits since the last extraction baseline.
+      <Card>
+        <CardHeader>
+          <CardTitle class="flex items-center gap-2 text-base">
+            <Plus class="size-4" />
+            Add repositories
+          </CardTitle>
+          <CardDescription>
+            Paste Git URLs (HTTPS or <span class="font-mono text-xs">git@</span>). Private repos need a token below.
           </CardDescription>
         </CardHeader>
+        <CardContent class="space-y-3">
+          <div v-for="(url, index) in newUrls" :key="index" class="flex items-center gap-2">
+            <input
+              :value="url"
+              type="text"
+              class="flex h-9 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              placeholder="https://github.com/org/repo"
+              @input="updateUrl(index, ($event.target as HTMLInputElement).value)"
+              @keyup.enter="addRepositories"
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              :disabled="newUrls.length === 1 && !newUrls[0]"
+              @click="removeUrlField(index)"
+            >
+              <Trash2 class="size-4" />
+            </Button>
+          </div>
+          <div class="space-y-1.5">
+            <Label class="text-xs text-muted-foreground">GitHub access token (optional, for new private repos)</Label>
+            <Input v-model="addToken" type="password" placeholder="ghp_…" autocomplete="off" />
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" @click="addUrlField">
+              <Plus class="mr-2 size-4" />
+              Add another
+            </Button>
+            <Button size="sm" :disabled="addingUrls || validNewUrls.length === 0" @click="addRepositories">
+              <Loader2 v-if="addingUrls" class="mr-2 size-4 animate-spin" />
+              Add to project
+            </Button>
+          </div>
+        </CardContent>
       </Card>
 
-      <div
-        v-if="visibleDataSources.length === 0"
-        class="flex flex-col items-center gap-4 py-16 text-center"
-      >
-        <p class="text-sm text-muted-foreground">
-          <template v-if="maintainFocus">
-            No sources need maintenance right now.
-          </template>
-          <template v-else>
-            No data sources connected.
-          </template>
-        </p>
-        <Button v-if="!maintainFocus" @click="navigateTo(newSourceUrl)">
-          <Plus class="mr-2 size-4" />
-          Add your first data source
-        </Button>
-      </div>
+      <div v-if="dataSources.length > 0" id="maintain-section" class="space-y-4">
+        <Card v-if="maintainFocus" class="border-amber-300/50">
+          <CardHeader class="pb-2">
+            <CardTitle class="text-sm">Maintenance focus</CardTitle>
+            <CardDescription class="text-xs">
+              Showing sources with new commits since the last extraction baseline.
+            </CardDescription>
+          </CardHeader>
+        </Card>
 
-      <div v-else id="maintain-section" class="space-y-3">
-        <div
-          v-for="ds in visibleDataSources"
-          :key="ds.id"
-          class="rounded-lg border bg-card"
-          :class="isMaintenanceReady(ds) ? 'border-amber-300/60' : ''"
-        >
-          <div class="flex flex-wrap items-center justify-between gap-3 p-4">
-            <div class="flex items-center gap-3">
-              <div class="rounded-md bg-muted p-2">
-                <Cable class="size-4 text-muted-foreground" />
-              </div>
+        <Card class="border-border/80 bg-muted/15">
+          <CardHeader class="pb-2">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <p class="text-sm font-medium">{{ ds.name }}</p>
-                <p class="text-xs text-muted-foreground">{{ ds.adapter_type }}</p>
-                <CopyableText :text="ds.id" label="Data source ID copied" class="mt-0.5" />
+                <CardTitle class="flex items-center gap-2 text-base">
+                  <GitBranch class="size-4 text-primary" />
+                  Data sources overview
+                </CardTitle>
               </div>
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
-              <SyncPhaseIndicator
-                v-if="ds.sync_runs?.[0]"
-                :status="ds.sync_runs[0].status"
-              />
-              <Badge v-else variant="secondary" class="text-[10px]">Idle</Badge>
-              <Button size="sm" variant="outline" @click="openEditConfig(ds)">
-                <Settings class="mr-1.5 size-3.5" />
-                Edit Config
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                class="text-destructive hover:bg-destructive/10"
-                @click="openDeleteDs(ds)"
-              >
-                <Trash2 class="mr-1.5 size-3.5" />
-                Delete
-              </Button>
-              <Button size="sm" variant="outline" @click="triggerSync(ds.id)">
-                Sync Now
-              </Button>
-            </div>
-          </div>
-
-          <div class="border-t px-4 py-3">
-            <p class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Commit Status
-            </p>
-            <div class="grid gap-2 sm:grid-cols-3">
-              <div class="rounded-md border bg-muted/20 p-2">
-                <p class="text-[10px] uppercase tracking-wider text-muted-foreground">Local clone commit</p>
-                <p class="mt-1 break-all font-mono text-xs">{{ ds.clone_head_commit ?? '—' }}</p>
-              </div>
-              <div class="rounded-md border bg-muted/20 p-2">
-                <p class="text-[10px] uppercase tracking-wider text-muted-foreground">Last extraction baseline</p>
-                <p class="mt-1 break-all font-mono text-xs">{{ ds.last_extraction_baseline_commit ?? '—' }}</p>
-              </div>
-              <div class="rounded-md border bg-muted/20 p-2">
-                <p class="text-[10px] uppercase tracking-wider text-muted-foreground">Tracked branch head</p>
-                <p class="mt-1 break-all font-mono text-xs">{{ ds.tracked_branch_head_commit ?? '—' }}</p>
-              </div>
-            </div>
-            <div class="mt-2 flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                class="h-7 text-[10px]"
-                :disabled="refreshingCommitRefs[ds.id] === true"
-                @click="refreshCommitRefs(ds.id)"
-              >
-                <RefreshCw
-                  class="mr-1 size-3"
-                  :class="refreshingCommitRefs[ds.id] ? 'animate-spin' : ''"
-                />
-                Refresh commits
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                class="h-7 text-[10px]"
-                :disabled="adoptingBaselines[ds.id] === true || !isMaintenanceReady(ds)"
-                @click="adoptTrackedHeadBaseline(ds.id)"
-              >
-                Adopt tracked head as baseline
-              </Button>
-            </div>
-
-            <div
-              v-if="ds.diff_summary"
-              class="mt-3 rounded-md border p-2"
-              :class="isMaintenanceReady(ds) ? 'border-amber-300 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20' : 'bg-muted/10'"
-            >
-              <div class="flex items-center justify-between gap-2 text-xs">
-                <span>
-                  <span class="font-medium">{{ ds.diff_summary.total_changed_files }}</span>
-                  changed files
-                </span>
-                <Badge
-                  :variant="isMaintenanceReady(ds) ? 'default' : 'secondary'"
-                  class="text-[10px]"
-                >
-                  {{ isMaintenanceReady(ds) ? 'New commits available' : 'Up to date' }}
-                </Badge>
-              </div>
-              <Button
-                v-if="ds.diff_summary.changed_files.length > 0"
-                size="sm"
-                variant="ghost"
-                class="mt-2 h-6 px-2 text-[10px]"
-                @click="toggleDiffExpanded(ds.id)"
-              >
-                {{ isDiffExpanded(ds.id) ? 'Hide changed files' : 'Show changed files' }}
-              </Button>
-              <div
-                v-if="isDiffExpanded(ds.id)"
-                class="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-md border bg-background/80 p-2"
-              >
-                <div
-                  v-for="file in ds.diff_summary.changed_files"
-                  :key="`${file.status}:${file.path}`"
-                  class="flex justify-between gap-2 text-[11px]"
-                >
-                  <span class="break-all font-mono">{{ file.path }}</span>
-                  <Badge variant="outline" class="h-5 text-[10px] uppercase">{{ file.status }}</Badge>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="ds.sync_runs?.length" class="border-t px-4 py-3">
-            <p class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Sync History
-            </p>
-            <div class="space-y-1">
-              <div
-                v-for="run in ds.sync_runs"
-                :key="run.id"
-                class="flex items-center gap-2 text-xs text-muted-foreground"
-              >
-                <SyncPhaseIndicator :status="run.status" />
-                <span>{{ new Date(run.started_at).toLocaleString() }}</span>
-                <span v-if="run.error" class="text-destructive">{{ run.error }}</span>
+              <div class="flex flex-wrap gap-2">
                 <Button
+                  variant="outline"
                   size="sm"
-                  variant="ghost"
-                  class="ml-auto h-6 px-2 text-[10px]"
-                  @click="viewLogs(ds, run)"
+                  :disabled="refreshingAllCommits || visibleDataSources.length === 0"
+                  @click="refreshAllCommitRefs"
                 >
-                  <ScrollText class="mr-1 size-3" />
-                  View Logs
+                  <Loader2 v-if="refreshingAllCommits" class="mr-2 size-4 animate-spin" />
+                  <RefreshCw v-else class="mr-2 size-4" />
+                  Refresh commits
                 </Button>
               </div>
             </div>
-          </div>
-        </div>
+            <CardDescription>
+              Each row is one connected repository. Compare extraction baseline to tracked branch head
+              to see when maintenance syncs are needed.
+            </CardDescription>
+          </CardHeader>
+          <CardContent class="space-y-3">
+            <div
+              v-if="visibleDataSources.length === 0"
+              class="rounded-md border bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground"
+            >
+              <template v-if="maintainFocus">No sources need maintenance right now.</template>
+              <template v-else>No data sources to display.</template>
+            </div>
+
+            <div v-else class="overflow-x-auto rounded-md border">
+              <table class="w-full min-w-[880px] text-sm">
+                <thead>
+                  <tr class="border-b bg-muted/50 text-left">
+                    <th class="px-3 py-2 font-medium">Source</th>
+                    <th class="px-3 py-2 font-medium">Branch</th>
+                    <th class="px-3 py-2 font-medium">Status</th>
+                    <th class="px-3 py-2 font-medium">Last extraction baseline</th>
+                    <th class="px-3 py-2 font-medium">Tracked branch head</th>
+                    <th class="px-3 py-2 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="ds in visibleDataSources"
+                    :key="ds.id"
+                    class="border-b border-border/60 align-top last:border-0"
+                    :class="isMaintenanceReady(ds) ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''"
+                  >
+                    <td class="px-3 py-2">
+                      <p class="font-medium leading-tight">{{ ds.name }}</p>
+                      <p
+                        class="mt-0.5 max-w-[20rem] truncate font-mono text-xs text-muted-foreground"
+                        :title="resolveRepoUrl(ds.connection_config)"
+                      >
+                        {{ resolveRepoUrl(ds.connection_config) }}
+                      </p>
+                    </td>
+                    <td class="px-3 py-2 font-mono text-xs">
+                      {{ resolveTrackedBranch(ds.connection_config) }}
+                    </td>
+                    <td class="px-3 py-2">
+                      <Badge :variant="prepStatusBadgeVariant(latestStatus(ds))" class="text-xs">
+                        {{ resolvePrepStatusLabel(latestStatus(ds)) }}
+                      </Badge>
+                      <div v-if="latestStatus(ds) && !isSyncTerminal(latestStatus(ds))" class="mt-1">
+                        <SyncPhaseIndicator :status="latestStatus(ds)!" />
+                      </div>
+                    </td>
+                    <td class="px-3 py-2 font-mono text-xs">
+                      <div :class="commitStatusClass(ds.last_extraction_baseline_commit, ds.tracked_branch_head_commit)">
+                        <span :title="ds.last_extraction_baseline_commit || ''">
+                          {{ shortCommitHash(ds.last_extraction_baseline_commit) }}
+                        </span>
+                      </div>
+                      <div
+                        class="mt-0.5 text-[10px]"
+                        :class="commitStatusClass(ds.last_extraction_baseline_commit, ds.tracked_branch_head_commit)"
+                      >
+                        {{ commitStatusLabel(ds.last_extraction_baseline_commit, ds.tracked_branch_head_commit) }}
+                      </div>
+                    </td>
+                    <td class="px-3 py-2 font-mono text-xs">
+                      <span :title="ds.tracked_branch_head_commit || ''">
+                        {{ shortCommitHash(ds.tracked_branch_head_commit) }}
+                      </span>
+                    </td>
+                    <td class="px-3 py-2">
+                      <div class="flex flex-wrap gap-1">
+                        <Button size="sm" variant="ghost" class="h-7 px-2 text-[10px]" @click="openEditConfig(ds)">
+                          <Settings class="mr-1 size-3" />
+                          Edit
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          class="h-7 px-2 text-[10px]"
+                          :disabled="refreshingCommitRefs[ds.id] === true"
+                          @click="refreshCommitRefs(ds.id)"
+                        >
+                          <RefreshCw class="mr-1 size-3" :class="refreshingCommitRefs[ds.id] ? 'animate-spin' : ''" />
+                          Refresh
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          class="h-7 px-2 text-[10px]"
+                          :disabled="!isMaintenanceReady(ds) || adoptingBaselines[ds.id] === true"
+                          @click="adoptTrackedHeadBaseline(ds.id)"
+                        >
+                          Adopt baseline
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          class="h-7 px-2 text-[10px]"
+                          @click="triggerSync(ds.id, 'ingest_only')"
+                        >
+                          Prepare
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          class="h-7 px-2 text-[10px] text-destructive"
+                          @click="openDeleteDs(ds)"
+                        >
+                          <Trash2 class="mr-1 size-3" />
+                          Delete
+                        </Button>
+                      </div>
+
+                      <div
+                        v-if="ds.diff_summary && ds.diff_summary.total_changed_files > 0"
+                        class="mt-2 rounded border p-2 text-[11px]"
+                        :class="isMaintenanceReady(ds) ? 'border-amber-300 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20' : 'bg-muted/10'"
+                      >
+                        <div class="flex items-center justify-between gap-2">
+                          <span>
+                            <span class="font-medium">{{ ds.diff_summary.total_changed_files }}</span>
+                            changed files
+                          </span>
+                          <Badge :variant="isMaintenanceReady(ds) ? 'default' : 'secondary'" class="text-[10px]">
+                            {{ isMaintenanceReady(ds) ? 'New commits available' : 'Up to date' }}
+                          </Badge>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          class="mt-1 h-6 px-2 text-[10px]"
+                          @click="toggleDiffExpanded(ds.id)"
+                        >
+                          {{ isDiffExpanded(ds.id) ? 'Hide files' : 'Show files' }}
+                        </Button>
+                        <div
+                          v-if="isDiffExpanded(ds.id)"
+                          class="mt-1 max-h-32 space-y-1 overflow-y-auto"
+                        >
+                          <div
+                            v-for="file in ds.diff_summary.changed_files"
+                            :key="`${file.status}:${file.path}`"
+                            class="flex justify-between gap-2 font-mono"
+                          >
+                            <span class="break-all">{{ file.path }}</span>
+                            <Badge variant="outline" class="h-5 text-[10px] uppercase">{{ file.status }}</Badge>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div v-if="ds.sync_runs?.length" class="mt-2 space-y-1">
+                        <div
+                          v-for="run in ds.sync_runs.slice(0, 2)"
+                          :key="run.id"
+                          class="flex items-center gap-2 text-[10px] text-muted-foreground"
+                        >
+                          <SyncPhaseIndicator :status="run.status" />
+                          <span>{{ new Date(run.started_at).toLocaleString() }}</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            class="ml-auto h-5 px-1"
+                            @click="viewLogs(ds, run)"
+                          >
+                            <ScrollText class="mr-1 size-3" />
+                            Logs
+                          </Button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card v-if="allSourcesPrepared" class="border-primary/40">
+        <CardHeader>
+          <CardTitle class="flex items-center gap-2 text-base text-green-600 dark:text-green-400">
+            <Check class="size-5" />
+            Data Sources ready
+          </CardTitle>
+          <CardDescription>
+            {{ preparedCount }} of {{ dataSources.length }} source{{ dataSources.length === 1 ? '' : 's' }}
+            prepared for graph management and extraction.
+          </CardDescription>
+        </CardHeader>
+        <CardContent class="flex flex-col gap-4 sm:flex-row sm:flex-wrap">
+          <p class="w-full text-sm text-muted-foreground">
+            Ingestion context is prepared. Open graph management to design schema, run extraction,
+            or continue in the manage workspace.
+          </p>
+          <Button as-child>
+            <NuxtLink :to="graphManagementUrl" class="inline-flex items-center gap-2">
+              Open Graph Management
+              <ArrowRight class="size-4" />
+            </NuxtLink>
+          </Button>
+          <Button as-child variant="outline">
+            <NuxtLink :to="manageUrl" class="inline-flex items-center gap-2">
+              <LayoutDashboard class="size-4" />
+              Back to workspace overview
+            </NuxtLink>
+          </Button>
+        </CardContent>
+      </Card>
+
+      <div
+        v-if="!allSourcesPrepared && dataSources.length === 0"
+        class="rounded-lg border bg-muted/50 p-4"
+      >
+        <p class="text-sm text-muted-foreground">
+          <strong>Flow:</strong> add repository URLs above, refresh commits to resolve branch heads,
+          then prepare ingestion context before opening graph management.
+        </p>
       </div>
     </template>
 

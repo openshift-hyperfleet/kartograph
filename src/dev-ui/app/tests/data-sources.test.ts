@@ -3211,9 +3211,9 @@ describe('Commit-hash status cues - structural verification', () => {
 
   it('renders commit status section with canonical commit labels', () => {
     expect(source).toContain('Commit Status')
-    expect(source).toContain('Local clone commit')
     expect(source).toContain('Commit during last extraction')
     expect(source).toContain('Tracked branch head commit')
+    expect(source).not.toContain('Local clone commit')
   })
 
   it('renders visual readiness cue when new commits exist', () => {

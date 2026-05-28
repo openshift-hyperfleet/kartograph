@@ -470,13 +470,12 @@ class DataSourceService:
         user_id: str,
         ds_id: str,
         tracked_branch_head_commit: str,
-        clone_head_commit: str | None = None,
     ) -> DataSource:
-        """Persist refreshed source commit references for a data source.
+        """Persist the latest tracked branch head for a Git-backed data source.
 
-        Requires MANAGE permission on the data source. This action updates
-        tracked and clone commit references and initializes extraction baseline
-        on first refresh so per-source diff counts can be computed immediately.
+        Requires MANAGE permission. Updates only ``tracked_branch_head_commit``;
+        extraction baseline is advanced on successful sync completion or via
+        ``adopt_tracked_head_as_baseline``.
         """
         has_manage = await self._check_permission(
             user_id=user_id,
@@ -498,11 +497,7 @@ class DataSourceService:
         if ds is None or ds.tenant_id != self._scope_to_tenant:
             raise ValueError(f"Data source {ds_id} not found")
 
-        resolved_clone_head = clone_head_commit or tracked_branch_head_commit
         ds.tracked_branch_head_commit = tracked_branch_head_commit
-        ds.clone_head_commit = resolved_clone_head
-        if ds.last_extraction_baseline_commit is None:
-            ds.last_extraction_baseline_commit = tracked_branch_head_commit
 
         await self._ds_repo.save(ds)
         await self._session.commit()

@@ -314,18 +314,25 @@ async function refreshSourceSyncStatus(row: CreatedSourceRow) {
   }
 }
 
-async function pollUntilTerminal(row: CreatedSourceRow, timeoutMs = 600_000) {
+async function pollUntilAllTerminal(rows: CreatedSourceRow[], timeoutMs = 600_000) {
   const started = Date.now()
   while (Date.now() - started < timeoutMs) {
-    await refreshSourceSyncStatus(row)
-    if (isSyncTerminal(row.syncStatus as SyncRunStatus)) return
-    await new Promise((resolve) => setTimeout(resolve, 3000))
+    await Promise.all(rows.map((row) => refreshSourceSyncStatus(row)))
+    const finished = rows.filter((row) => isSyncTerminal(row.syncStatus as SyncRunStatus)).length
+    syncCompletedInRun.value = finished
+    syncStepLabel.value = `${finished} / ${rows.length}`
+    if (finished === rows.length) return
+    await new Promise((resolve) => setTimeout(resolve, 1500))
   }
-  row.syncStatus = 'failed'
-  row.syncError = 'Sync timed out'
+  for (const row of rows) {
+    if (!isSyncTerminal(row.syncStatus as SyncRunStatus)) {
+      row.syncStatus = 'failed'
+      row.syncError = 'Sync timed out'
+    }
+  }
 }
 
-async function runSequentialIngestionPrep() {
+async function runParallelIngestionPrep() {
   const queue = createdSources.value.filter(
     (s) => s.syncStatus === 'idle' || s.syncStatus === 'failed' || s.syncStatus === 'queued',
   )
@@ -338,33 +345,37 @@ async function runSequentialIngestionPrep() {
   syncRunTotal.value = queue.length
   syncCompletedInRun.value = 0
   readyForStats.value = false
+  syncStepLabel.value = `0 / ${queue.length}`
+  syncActiveName.value = `${queue.length} source${queue.length === 1 ? '' : 's'}`
+
+  for (const target of queue) {
+    target.syncStatus = 'pending'
+    target.syncError = null
+  }
 
   try {
-    for (let i = 0; i < queue.length; i++) {
-      const target = queue[i]!
-      syncStepLabel.value = `${i + 1} / ${queue.length}`
-      syncActiveName.value = target.name
-      target.syncStatus = 'pending'
-      target.syncError = null
-
-      try {
-        await apiFetch(`/management/data-sources/${target.id}/sync`, {
-          method: 'POST',
-          body: { mode: 'ingest_only' },
-        })
-        await pollUntilTerminal(target)
-        if (target.syncStatus === 'failed') {
-          toast.error(`Preparation failed: ${target.name}`, {
-            description: target.syncError ?? undefined,
+    await Promise.allSettled(
+      queue.map(async (target) => {
+        try {
+          await apiFetch(`/management/data-sources/${target.id}/sync`, {
+            method: 'POST',
+            body: { mode: 'ingest_only' },
           })
+        } catch (err: unknown) {
+          target.syncStatus = 'failed'
+          target.syncError = err instanceof Error ? err.message : 'Preparation failed'
         }
-      } catch (err: unknown) {
-        target.syncStatus = 'failed'
-        target.syncError = err instanceof Error ? err.message : 'Preparation failed'
-        toast.error(`Preparation failed: ${target.name}`, { description: target.syncError })
-      }
+      }),
+    )
 
-      syncCompletedInRun.value = i + 1
+    await pollUntilAllTerminal(queue)
+
+    for (const target of queue) {
+      if (target.syncStatus === 'failed') {
+        toast.error(`Preparation failed: ${target.name}`, {
+          description: target.syncError ?? undefined,
+        })
+      }
     }
 
     const allPrepared = createdSources.value.every((s) => s.syncStatus === 'ingested')
@@ -562,8 +573,7 @@ onUnmounted(() => {
             <CardTitle class="text-base">Prepare ingestion context</CardTitle>
             <CardDescription>
               Fetch repository content and build job packages for each source. No AI extraction
-              runs here — that happens later in graph management. Sources are prepared one at a
-              time so you can follow progress.
+              runs here — that happens later in graph management. Sources are prepared in parallel.
             </CardDescription>
           </CardHeader>
           <CardContent class="space-y-4">
@@ -572,7 +582,7 @@ onUnmounted(() => {
                 type="button"
                 size="sm"
                 :disabled="syncRunActive || createdSources.length === 0"
-                @click="runSequentialIngestionPrep"
+                @click="runParallelIngestionPrep"
               >
                 <Loader2 v-if="syncRunActive" class="mr-2 size-4 animate-spin" />
                 <GitBranch v-if="!syncRunActive" class="mr-2 size-4" />

@@ -362,6 +362,22 @@ class DataSource:
             tenant_id=self.tenant_id,
         )
 
+    def advance_extraction_baseline_to_tracked_head(self) -> None:
+        """Move extraction baseline to the current tracked branch head.
+
+        Called after graph mutations are applied so maintenance diffs reflect
+        the commit that was last extracted into the knowledge graph.
+
+        Raises:
+            AggregateDeletedError: If the data source has been marked for deletion
+        """
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot update extraction baseline on a deleted data source"
+            )
+        if self.tracked_branch_head_commit:
+            self.last_extraction_baseline_commit = self.tracked_branch_head_commit
+
     def mark_for_deletion(
         self,
         *,

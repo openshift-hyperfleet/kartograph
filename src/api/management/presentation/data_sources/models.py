@@ -199,6 +199,10 @@ class DataSourceResponse(BaseModel):
     tracked_branch_head_commit: str | None = Field(
         None, description="Latest known commit at the tracked source branch head"
     )
+    connection_config: dict[str, str] = Field(
+        default_factory=dict,
+        description="Adapter connection configuration (non-secret)",
+    )
     created_at: datetime = Field(..., description="When the DS was created")
     updated_at: datetime = Field(..., description="When the DS was last updated")
     ontology: OntologyModel | None = Field(
@@ -227,6 +231,7 @@ class DataSourceResponse(BaseModel):
             clone_head_commit=ds.clone_head_commit,
             last_extraction_baseline_commit=ds.last_extraction_baseline_commit,
             tracked_branch_head_commit=ds.tracked_branch_head_commit,
+            connection_config=dict(ds.connection_config),
             created_at=ds.created_at,
             updated_at=ds.updated_at,
             ontology=(
@@ -471,6 +476,10 @@ class DataSourceWithSyncResponse(BaseModel):
     tracked_branch_head_commit: str | None = Field(
         None, description="Latest known commit at the tracked source branch head"
     )
+    connection_config: dict[str, str] = Field(
+        default_factory=dict,
+        description="Adapter connection configuration (non-secret)",
+    )
     created_at: datetime = Field(..., description="When the DS was created")
     updated_at: datetime = Field(..., description="When the DS was last updated")
     ontology: OntologyModel | None = Field(
@@ -506,6 +515,7 @@ class DataSourceWithSyncResponse(BaseModel):
             clone_head_commit=ds.clone_head_commit,
             last_extraction_baseline_commit=ds.last_extraction_baseline_commit,
             tracked_branch_head_commit=ds.tracked_branch_head_commit,
+            connection_config=dict(ds.connection_config),
             created_at=ds.created_at,
             updated_at=ds.updated_at,
             ontology=(

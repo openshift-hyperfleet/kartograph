@@ -227,4 +227,5 @@ class SyncLifecycleHandler:
             return
 
         ds.record_sync_completed()
+        ds.advance_extraction_baseline_to_tracked_head()
         await self._ds_repo.save(ds)

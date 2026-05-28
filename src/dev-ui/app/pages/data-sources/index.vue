@@ -101,7 +101,6 @@ interface DataSourceItem {
   knowledge_graph_id: string
   last_sync_at: string | null
   created_at: string
-  clone_head_commit?: string | null
   last_extraction_baseline_commit?: string | null
   tracked_branch_head_commit?: string | null
   sync_runs?: SyncRun[]
@@ -1253,11 +1252,7 @@ async function handleDeleteDs() {
           <!-- Commit status and diff summary cues -->
           <div class="border-t px-4 py-3">
             <p class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Commit Status</p>
-            <div class="grid gap-2 sm:grid-cols-3">
-              <div class="rounded-md border bg-muted/20 p-2">
-                <p class="text-[10px] uppercase tracking-wider text-muted-foreground">Local clone commit</p>
-                <p class="mt-1 font-mono text-xs break-all">{{ ds.clone_head_commit ?? '—' }}</p>
-              </div>
+            <div class="grid gap-2 sm:grid-cols-2">
               <div class="rounded-md border bg-muted/20 p-2">
                 <p class="text-[10px] uppercase tracking-wider text-muted-foreground">Commit during last extraction</p>
                 <p class="mt-1 font-mono text-xs break-all">{{ ds.last_extraction_baseline_commit ?? '—' }}</p>

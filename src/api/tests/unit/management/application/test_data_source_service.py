@@ -1158,7 +1158,6 @@ class TestDataSourceServiceCommitReferenceActions:
             user_id=user_id,
             ds_id=ds.id.value,
             tracked_branch_head_commit="abc123",
-            clone_head_commit="abc123",
         )
 
         authz.assert_check_called_once(
@@ -1168,12 +1167,13 @@ class TestDataSourceServiceCommitReferenceActions:
         )
 
     @pytest.mark.asyncio
-    async def test_refresh_commit_references_initializes_baseline_when_empty(
+    async def test_refresh_commit_references_updates_tracked_head_only(
         self, service, authz, ds_repo, user_id
     ) -> None:
-        """First commit-refresh should initialize extraction baseline."""
+        """Refresh should update tracked head without touching baseline or clone."""
         ds = _make_ds()
         ds.last_extraction_baseline_commit = None
+        ds.clone_head_commit = "legacy-clone"
         ds_repo.seed(ds)
         authz.grant_all()
 
@@ -1181,12 +1181,11 @@ class TestDataSourceServiceCommitReferenceActions:
             user_id=user_id,
             ds_id=ds.id.value,
             tracked_branch_head_commit="abc123",
-            clone_head_commit="abc123",
         )
 
         assert updated.tracked_branch_head_commit == "abc123"
-        assert updated.clone_head_commit == "abc123"
-        assert updated.last_extraction_baseline_commit == "abc123"
+        assert updated.clone_head_commit == "legacy-clone"
+        assert updated.last_extraction_baseline_commit is None
 
     @pytest.mark.asyncio
     async def test_refresh_commit_references_preserves_existing_baseline(
@@ -1202,7 +1201,6 @@ class TestDataSourceServiceCommitReferenceActions:
             user_id=user_id,
             ds_id=ds.id.value,
             tracked_branch_head_commit="tracked999",
-            clone_head_commit="tracked999",
         )
 
         assert updated.last_extraction_baseline_commit == "baseline000"

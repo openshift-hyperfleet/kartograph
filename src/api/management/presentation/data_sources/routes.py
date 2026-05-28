@@ -99,7 +99,6 @@ async def refresh_commit_references(
             user_id=current_user.user_id.value,
             ds_id=ds_id,
             tracked_branch_head_commit=tracked_head,
-            clone_head_commit=tracked_head,
         )
         return DataSourceResponse.from_domain(updated)
     except UnauthorizedError:

@@ -1104,13 +1104,13 @@ class TestDataSourceCommitReferenceRoutes:
         test_client: TestClient,
         mock_ds_service: AsyncMock,
         mock_commit_reference_service: AsyncMock,
+        mock_current_user: CurrentUser,
         sample_data_source: DataSource,
     ) -> None:
         """Refresh endpoint should return updated commit references."""
         refreshed = sample_data_source
-        refreshed.clone_head_commit = "aaa"
         refreshed.tracked_branch_head_commit = "aaa"
-        refreshed.last_extraction_baseline_commit = "aaa"
+        refreshed.last_extraction_baseline_commit = None
         mock_ds_service.get.return_value = sample_data_source
         mock_commit_reference_service.resolve_tracked_head_commit.return_value = "aaa"
         mock_ds_service.refresh_commit_references.return_value = refreshed
@@ -1121,9 +1121,13 @@ class TestDataSourceCommitReferenceRoutes:
 
         assert response.status_code == status.HTTP_200_OK
         payload = response.json()
-        assert payload["clone_head_commit"] == "aaa"
         assert payload["tracked_branch_head_commit"] == "aaa"
-        assert payload["last_extraction_baseline_commit"] == "aaa"
+        assert payload["last_extraction_baseline_commit"] is None
+        mock_ds_service.refresh_commit_references.assert_awaited_once_with(
+            user_id=mock_current_user.user_id.value,
+            ds_id=sample_data_source.id.value,
+            tracked_branch_head_commit="aaa",
+        )
 
     def test_refresh_commit_references_returns_404_when_inaccessible(
         self,

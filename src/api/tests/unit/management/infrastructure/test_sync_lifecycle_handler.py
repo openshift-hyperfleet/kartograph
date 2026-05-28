@@ -402,6 +402,8 @@ class TestMutationsAppliedTransition:
             credentials_path=None,
             schedule=Schedule(schedule_type=ScheduleType.MANUAL),
             last_sync_at=None,
+            tracked_branch_head_commit="processed-head",
+            last_extraction_baseline_commit="old-baseline",
             created_at=now,
             updated_at=now,
         )
@@ -419,6 +421,7 @@ class TestMutationsAppliedTransition:
         mock_ds_repo.save.assert_called_once()
         saved_ds = mock_ds_repo.save.call_args[0][0]
         assert saved_ds.last_sync_at is not None
+        assert saved_ds.last_extraction_baseline_commit == "processed-head"
 
     async def test_mutations_applied_logs_no_changes_short_circuit(
         self,

@@ -310,6 +310,8 @@ describe('KG-MANAGE-005 - graph-scoped data sources step', () => {
     )
     expect(kgDataSourcesIndex).toContain('Back to workspace overview')
     expect(kgDataSourcesIndex).toContain('buildKgManageUrl')
+    expect(kgDataSourcesIndex).toContain('Data sources overview')
+    expect(kgDataSourcesIndex).toContain('max-w-7xl')
   })
 })
 

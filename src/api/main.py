@@ -196,9 +196,10 @@ class _SessionedIngestionEventHandler:
         return str(sha) if sha else None
 
     async def handle(self, event_type: str, payload: dict[str, Any]) -> None:
-        from infrastructure.outbox.repository import OutboxRepository
+        from ingestion.infrastructure.adapters.github import GitHubAdapter
         from ingestion.application.services.ingestion_service import IngestionService
         from ingestion.infrastructure.event_handler import IngestionEventHandler
+        from infrastructure.outbox.repository import OutboxRepository
         from management.domain.value_objects import DataSourceId
         from management.infrastructure.repositories.data_source_repository import (
             DataSourceRepository,
@@ -210,19 +211,6 @@ class _SessionedIngestionEventHandler:
         async with self._session_factory() as session:
             outbox = OutboxRepository(session=session)
             ds_repo = DataSourceRepository(session=session, outbox=outbox)
-            management_settings = get_management_settings()
-            encryption_keys = management_settings.encryption_key.get_secret_value().split(
-                ","
-            )
-            credential_reader = FernetSecretStore(
-                session=session,
-                encryption_keys=encryption_keys,
-            )
-            from ingestion.infrastructure.adapters.github import GitHubAdapter
-            from infrastructure.settings import get_management_settings
-            from management.infrastructure.repositories.fernet_secret_store import (
-                FernetSecretStore,
-            )
 
             credential_reader = None
             if payload.get("credentials_path"):
@@ -257,6 +245,7 @@ class _SessionedIngestionEventHandler:
             data_source_id = str(payload.get("data_source_id", ""))
             tenant_id = str(payload.get("tenant_id", "")) if payload.get("tenant_id") else ""
             adapter_type = str(payload.get("adapter_type", ""))
+            credentials: dict[str, str] = {}
             if data_source_id and adapter_type == "github":
                 ds = await ds_repo.get_by_id(DataSourceId(value=data_source_id))
                 if ds is not None:
@@ -265,8 +254,7 @@ class _SessionedIngestionEventHandler:
                             ds.last_extraction_baseline_commit
                         )
 
-                    credentials: dict[str, str] = {}
-                    if ds.credentials_path and tenant_id:
+                    if ds.credentials_path and tenant_id and credential_reader is not None:
                         try:
                             credentials = await credential_reader.retrieve(
                                 path=ds.credentials_path,

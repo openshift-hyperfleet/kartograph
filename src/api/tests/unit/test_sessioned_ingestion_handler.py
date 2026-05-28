@@ -179,3 +179,69 @@ async def test_sessioned_ingestion_handler_sets_no_changes_flag_when_heads_match
         == {"token": "tok"}
     )
 
+
+@pytest.mark.asyncio
+async def test_sessioned_ingestion_handler_uses_last_prepared_for_ingest_only():
+    """ingest_only runs should compare against last prepared commit, not extraction baseline."""
+    from main import _SessionedIngestionEventHandler
+
+    session = AsyncMock()
+    session_factory = _make_session_factory(session)
+    handler = _SessionedIngestionEventHandler(session_factory=session_factory)
+    handler._resolve_github_tracked_head_commit = AsyncMock(return_value="prepared123")  # type: ignore[attr-defined]
+
+    outbox_repo = MagicMock()
+    ds_repo = MagicMock()
+    secret_store = MagicMock()
+    ingestion_handler = MagicMock()
+    ingestion_handler.handle = AsyncMock()
+    ingestion_service = MagicMock()
+
+    data_source = _make_data_source()
+    data_source.last_prepared_commit = "prepared123"
+    ds_repo.get_by_id = AsyncMock(return_value=data_source)
+    ds_repo.save = AsyncMock()
+    secret_store.retrieve = AsyncMock(return_value={"token": "tok"})
+
+    payload = {
+        "sync_run_id": "run-003",
+        "data_source_id": data_source.id.value,
+        "knowledge_graph_id": data_source.knowledge_graph_id,
+        "tenant_id": data_source.tenant_id,
+        "adapter_type": "github",
+        "connection_config": data_source.connection_config,
+        "credentials_path": data_source.credentials_path,
+        "pipeline_mode": "ingest_only",
+    }
+
+    management_settings = MagicMock()
+    management_settings.encryption_key.get_secret_value.return_value = (
+        "WlAwWU83a2hSODl2SVY4MHBzQWpwaDBSUHhOU3NfQ3R6aXpvNTJfNE5odz0="
+    )
+
+    with (
+        patch("infrastructure.outbox.repository.OutboxRepository", return_value=outbox_repo),
+        patch(
+            "management.infrastructure.repositories.data_source_repository.DataSourceRepository",
+            return_value=ds_repo,
+        ),
+        patch(
+            "management.infrastructure.repositories.fernet_secret_store.FernetSecretStore",
+            return_value=secret_store,
+        ),
+        patch(
+            "ingestion.application.services.ingestion_service.IngestionService",
+            return_value=ingestion_service,
+        ),
+        patch(
+            "ingestion.infrastructure.event_handler.IngestionEventHandler",
+            return_value=ingestion_handler,
+        ),
+        patch("main.get_management_settings", return_value=management_settings),
+    ):
+        await handler.handle("SyncStarted", payload)
+
+    call_payload = ingestion_handler.handle.call_args.args[1]
+    assert call_payload["baseline_commit"] == "prepared123"
+    assert call_payload["no_changes_detected"] is True
+

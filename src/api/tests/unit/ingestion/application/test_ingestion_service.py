@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from ingestion.application.services.ingestion_service import IngestionService
+from ingestion.application.value_objects import IngestionRunResult
 from ingestion.ports.adapters import ExtractionResult, IDatasourceAdapter
 from shared_kernel.job_package.value_objects import (
     AdapterCheckpoint,
@@ -39,7 +40,7 @@ def _make_extraction_result(
         content_type="text/x-python",
         metadata={},
     )
-    checkpoint = AdapterCheckpoint(schema_version="1.0.0", data={})
+    checkpoint = AdapterCheckpoint(schema_version="1.0.0", data={"commit_sha": "deadbeef"})
     return ExtractionResult(
         changeset_entries=[entry],
         content_blobs={content_ref.hex_digest: content},
@@ -95,7 +96,7 @@ class TestIngestionService:
                 adapter_registry=registry,
                 work_dir=Path(tmpdir),
             )
-            job_id = await service.run(
+            result = await service.run(
                 sync_run_id="run-001",
                 data_source_id="ds-001",
                 knowledge_graph_id="kg-001",
@@ -104,7 +105,10 @@ class TestIngestionService:
                 credentials_path=None,
             )
 
-        assert isinstance(job_id, JobPackageId)
+        assert isinstance(result, IngestionRunResult)
+        assert isinstance(result.job_package_id, JobPackageId)
+        assert result.entry_count == 1
+        assert result.prepared_commit_sha == "deadbeef"
 
     async def test_run_creates_zip_archive(self):
         """run() should create a ZIP archive in the work directory."""
@@ -117,7 +121,7 @@ class TestIngestionService:
                 adapter_registry=registry,
                 work_dir=work_dir,
             )
-            job_id = await service.run(
+            result = await service.run(
                 sync_run_id="run-001",
                 data_source_id="ds-001",
                 knowledge_graph_id="kg-001",
@@ -126,7 +130,7 @@ class TestIngestionService:
                 credentials_path=None,
             )
             # The archive should exist
-            archive_path = work_dir / job_id.archive_name()
+            archive_path = work_dir / result.job_package_id.archive_name()
             assert archive_path.exists()
 
     async def test_run_raises_for_unknown_adapter(self):
@@ -173,7 +177,7 @@ class TestIngestionService:
                 adapter_registry=registry,
                 work_dir=Path(tmpdir),
             )
-            job_id = await service.run(
+            result = await service.run(
                 sync_run_id="run-001",
                 data_source_id="ds-001",
                 knowledge_graph_id="kg-001",
@@ -181,7 +185,7 @@ class TestIngestionService:
                 connection_config={},
                 credentials_path=None,
             )
-        assert isinstance(job_id, JobPackageId)
+        assert isinstance(result, IngestionRunResult)
 
     async def test_run_uses_baseline_commit_as_checkpoint(self):
         """run() should convert baseline_commit into an adapter checkpoint."""

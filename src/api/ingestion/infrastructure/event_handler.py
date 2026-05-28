@@ -106,6 +106,9 @@ class IngestionEventHandler:
                         "data_source_id": data_source_id,
                         "knowledge_graph_id": knowledge_graph_id,
                         "no_changes_detected": True,
+                        "prepared_commit_sha": payload.get(
+                            "tracked_branch_head_commit"
+                        ),
                         "occurred_at": now.isoformat(),
                     },
                     occurred_at=now,
@@ -129,7 +132,7 @@ class IngestionEventHandler:
             return
 
         try:
-            job_package_id = await self._ingestion_service.run(
+            ingestion_result = await self._ingestion_service.run(
                 sync_run_id=sync_run_id,
                 data_source_id=data_source_id,
                 knowledge_graph_id=knowledge_graph_id,
@@ -168,7 +171,9 @@ class IngestionEventHandler:
                     "sync_run_id": sync_run_id,
                     "data_source_id": data_source_id,
                     "knowledge_graph_id": knowledge_graph_id,
-                    "job_package_id": str(job_package_id),
+                    "job_package_id": str(ingestion_result.job_package_id),
+                    "prepared_commit_sha": ingestion_result.prepared_commit_sha,
+                    "prepared_file_count": ingestion_result.entry_count,
                     "occurred_at": now.isoformat(),
                 },
                 occurred_at=now,
@@ -182,7 +187,7 @@ class IngestionEventHandler:
                     "sync_run_id": sync_run_id,
                     "data_source_id": data_source_id,
                     "knowledge_graph_id": knowledge_graph_id,
-                    "job_package_id": str(job_package_id),
+                    "job_package_id": str(ingestion_result.job_package_id),
                     "occurred_at": now.isoformat(),
                 },
                 occurred_at=now,

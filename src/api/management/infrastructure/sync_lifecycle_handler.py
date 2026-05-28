@@ -139,6 +139,12 @@ class SyncLifecycleHandler:
                 sync_run.logs.append(
                     f"[{now.isoformat()}] Ingestion context prepared for later extraction."
                 )
+            await self._update_data_source_ingestion_prepared(
+                data_source_id=sync_run.data_source_id,
+                prepared_commit=payload.get("prepared_commit_sha"),
+                prepared_file_count=payload.get("prepared_file_count"),
+                no_changes_detected=payload.get("no_changes_detected") is True,
+            )
 
         elif event_type == "MutationsApplied":
             sync_run.status = "completed"
@@ -228,4 +234,31 @@ class SyncLifecycleHandler:
 
         ds.record_sync_completed()
         ds.advance_extraction_baseline_to_tracked_head()
+        await self._ds_repo.save(ds)
+
+    async def _update_data_source_ingestion_prepared(
+        self,
+        *,
+        data_source_id: str,
+        prepared_commit: str | None,
+        prepared_file_count: int | None,
+        no_changes_detected: bool,
+    ) -> None:
+        """Persist ingest-only prepare metadata on the data source."""
+        ds = await self._ds_repo.get_by_id(DataSourceId(value=data_source_id))
+        if ds is None:
+            return
+
+        commit = prepared_commit
+        if not commit and no_changes_detected:
+            commit = ds.tracked_branch_head_commit
+
+        file_count = prepared_file_count
+        if no_changes_detected:
+            file_count = None
+
+        ds.record_ingestion_prepared(
+            prepared_commit=commit,
+            prepared_file_count=file_count,
+        )
         await self._ds_repo.save(ds)

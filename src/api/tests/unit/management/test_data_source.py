@@ -432,6 +432,39 @@ class TestDataSourceRecordSyncCompleted:
             ds.record_sync_completed()
 
 
+class TestDataSourceRecordIngestionPrepared:
+    """Tests for DataSource.record_ingestion_prepared()."""
+
+    def _create_ds(self, **kwargs):
+        defaults = {
+            "knowledge_graph_id": "kg-123",
+            "tenant_id": "tenant-456",
+            "name": "Source",
+            "adapter_type": DataSourceAdapterType.GITHUB,
+            "connection_config": {},
+        }
+        defaults.update(kwargs)
+        ds = DataSource.create(**defaults)
+        ds.collect_events()
+        return ds
+
+    def test_record_ingestion_prepared_sets_commit_and_file_count(self):
+        ds = self._create_ds()
+        ds.record_ingestion_prepared(
+            prepared_commit="abc123",
+            prepared_file_count=55,
+        )
+        assert ds.last_prepared_commit == "abc123"
+        assert ds.last_prepared_file_count == 55
+
+    def test_record_ingestion_prepared_preserves_file_count_when_none(self):
+        ds = self._create_ds()
+        ds.last_prepared_file_count = 10
+        ds.record_ingestion_prepared(prepared_commit="abc123", prepared_file_count=None)
+        assert ds.last_prepared_commit == "abc123"
+        assert ds.last_prepared_file_count == 10
+
+
 class TestDataSourceMarkForDeletion:
     """Tests for DataSource.mark_for_deletion() method."""
 

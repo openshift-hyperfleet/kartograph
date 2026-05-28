@@ -24,6 +24,7 @@ import {
 import { isMaintenanceReady } from '@/utils/kgManageWorkspace'
 import {
   hasAnyActiveSync,
+  isActiveSyncStatus,
   isSyncTerminal,
   latestSyncRun,
   type SyncRunStatus,
@@ -31,6 +32,10 @@ import {
 import {
   commitStatusClass,
   commitStatusLabel,
+  formatPreparedFileCount,
+  isIngestionPreparedAtHead,
+  needsIngestionPrepare,
+  prepareCommitStatusLabel,
   prepStatusBadgeVariant,
   resolvePrepStatusLabel,
   resolveRepoUrl,
@@ -99,6 +104,8 @@ interface DataSourceItem {
   connection_config?: Record<string, string>
   last_extraction_baseline_commit?: string | null
   tracked_branch_head_commit?: string | null
+  last_prepared_commit?: string | null
+  last_prepared_file_count?: number | null
   sync_runs?: SyncRun[]
   diff_summary?: DataSourceDiffSummary | null
 }
@@ -114,9 +121,8 @@ const kgName = ref('')
 const dataSources = ref<DataSourceItem[]>([])
 const loading = ref(false)
 const expandedDiffLists = ref<Record<string, boolean>>({})
-const refreshingCommitRefs = ref<Record<string, boolean>>({})
-const refreshingAllCommits = ref(false)
-const adoptingBaselines = ref<Record<string, boolean>>({})
+const checkingAllCommits = ref(false)
+const preparingAll = ref(false)
 
 const newUrls = ref<string[]>([''])
 const addToken = ref('')
@@ -140,10 +146,20 @@ const validNewUrls = computed(() =>
 )
 
 const preparedCount = computed(() =>
-  dataSources.value.filter((ds) => {
-    const status = latestSyncRun(ds.sync_runs)?.status
-    return status === 'ingested' || status === 'completed'
-  }).length,
+  dataSources.value.filter((ds) => isIngestionPreparedAtHead(ds)).length,
+)
+
+const sourcesNeedingPrepare = computed(() =>
+  visibleDataSources.value.filter(
+    (ds) => needsIngestionPrepare(ds) && !isActiveSyncStatus(latestStatus(ds)),
+  ),
+)
+
+const canBulkPrepare = computed(
+  () =>
+    sourcesNeedingPrepare.value.length > 0
+    && !preparingAll.value
+    && !hasAnyActiveSync(dataSources.value),
 )
 
 const allSourcesPrepared = computed(
@@ -251,7 +267,7 @@ async function addRepositories() {
       newUrls.value = ['']
       addToken.value = ''
       toast.success(`Added ${added} source${added === 1 ? '' : 's'}`, {
-        description: 'Refresh commits or prepare ingestion context when ready.',
+        description: 'Check for new commits or prepare ingestion context when ready.',
       })
       await loadDataSources()
     }
@@ -325,64 +341,48 @@ function toggleDiffExpanded(dsId: string) {
   expandedDiffLists.value[dsId] = !isDiffExpanded(dsId)
 }
 
-async function triggerSync(dsId: string, mode: 'full' | 'ingest_only' = 'full') {
-  try {
-    await apiFetch(`/management/data-sources/${dsId}/sync`, {
-      method: 'POST',
-      body: mode === 'ingest_only' ? { mode: 'ingest_only' } : undefined,
-    })
-    toast.success(mode === 'ingest_only' ? 'Preparation started' : 'Sync triggered')
-    await loadDataSources()
-    if (hasAnyActiveSync(dataSources.value)) startPolling()
-  } catch {
-    toast.error('Failed to trigger sync')
-  }
-}
-
-async function refreshCommitRefs(dsId: string) {
-  refreshingCommitRefs.value[dsId] = true
-  try {
-    await apiFetch(`/management/data-sources/${dsId}/commit-refs/refresh`, { method: 'POST' })
-    toast.success('Commit references refreshed')
-    await loadDataSources()
-  } catch {
-    toast.error('Failed to refresh commit references')
-  } finally {
-    refreshingCommitRefs.value[dsId] = false
-  }
-}
-
-async function refreshAllCommitRefs() {
+async function checkAllCommitRefs() {
   if (visibleDataSources.value.length === 0) return
-  refreshingAllCommits.value = true
+  checkingAllCommits.value = true
   try {
     await Promise.allSettled(
       visibleDataSources.value.map((ds) =>
         apiFetch(`/management/data-sources/${ds.id}/commit-refs/refresh`, { method: 'POST' }),
       ),
     )
-    toast.success('Commit references refreshed')
+    toast.success('Branch heads updated')
     await loadDataSources()
   } catch {
-    toast.error('Failed to refresh commit references')
+    toast.error('Failed to check for new commits')
   } finally {
-    refreshingAllCommits.value = false
+    checkingAllCommits.value = false
   }
 }
 
-async function adoptTrackedHeadBaseline(dsId: string) {
-  adoptingBaselines.value[dsId] = true
+async function prepareAllDataSources() {
+  const queue = sourcesNeedingPrepare.value
+  if (queue.length === 0) {
+    toast.error('No data sources need preparation')
+    return
+  }
+
+  preparingAll.value = true
   try {
-    await apiFetch(`/management/data-sources/${dsId}/commit-refs/adopt-tracked-head`, {
-      method: 'POST',
-    })
-    toast.success('Baseline updated to tracked head')
+    await Promise.allSettled(
+      queue.map((ds) =>
+        apiFetch(`/management/data-sources/${ds.id}/sync`, {
+          method: 'POST',
+          body: { mode: 'ingest_only' },
+        }),
+      ),
+    )
+    toast.success(`Preparing ${queue.length} data source${queue.length === 1 ? '' : 's'}`)
     await loadDataSources()
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed to update baseline'
-    toast.error('Failed to update baseline', { description: msg })
+    if (hasAnyActiveSync(dataSources.value)) startPolling()
+  } catch {
+    toast.error('Failed to start preparation')
   } finally {
-    adoptingBaselines.value[dsId] = false
+    preparingAll.value = false
   }
 }
 
@@ -558,6 +558,13 @@ watch(tenantVersion, async () => {
             <input
               :value="url"
               type="text"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+              data-lpignore="true"
+              data-1p-ignore
+              :name="`kg-ds-repo-url-${index}`"
               class="flex h-9 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               placeholder="https://github.com/org/repo"
               @input="updateUrl(index, ($event.target as HTMLInputElement).value)"
@@ -612,18 +619,26 @@ watch(tenantVersion, async () => {
                 <Button
                   variant="outline"
                   size="sm"
-                  :disabled="refreshingAllCommits || visibleDataSources.length === 0"
-                  @click="refreshAllCommitRefs"
+                  :disabled="checkingAllCommits || visibleDataSources.length === 0"
+                  @click="checkAllCommitRefs"
                 >
-                  <Loader2 v-if="refreshingAllCommits" class="mr-2 size-4 animate-spin" />
+                  <Loader2 v-if="checkingAllCommits" class="mr-2 size-4 animate-spin" />
                   <RefreshCw v-else class="mr-2 size-4" />
-                  Refresh commits
+                  Check for new commits
+                </Button>
+                <Button
+                  size="sm"
+                  :disabled="!canBulkPrepare"
+                  @click="prepareAllDataSources"
+                >
+                  <Loader2 v-if="preparingAll" class="mr-2 size-4 animate-spin" />
+                  Prepare data sources
                 </Button>
               </div>
             </div>
             <CardDescription>
-              Each row is one connected repository. Compare extraction baseline to tracked branch head
-              to see when maintenance syncs are needed.
+              Each row is one connected repository. Prepare ingestion context when tracked branch
+              head moves ahead of the last prepared commit.
             </CardDescription>
           </CardHeader>
           <CardContent class="space-y-3">
@@ -636,12 +651,13 @@ watch(tenantVersion, async () => {
             </div>
 
             <div v-else class="overflow-x-auto rounded-md border">
-              <table class="w-full min-w-[880px] text-sm">
+              <table class="w-full min-w-[960px] text-sm">
                 <thead>
                   <tr class="border-b bg-muted/50 text-left">
                     <th class="px-3 py-2 font-medium">Source</th>
                     <th class="px-3 py-2 font-medium">Branch</th>
                     <th class="px-3 py-2 font-medium">Status</th>
+                    <th class="px-3 py-2 font-medium">Files on branch</th>
                     <th class="px-3 py-2 font-medium">Last extraction baseline</th>
                     <th class="px-3 py-2 font-medium">Tracked branch head</th>
                     <th class="px-3 py-2 font-medium">Actions</th>
@@ -652,7 +668,7 @@ watch(tenantVersion, async () => {
                     v-for="ds in visibleDataSources"
                     :key="ds.id"
                     class="border-b border-border/60 align-top last:border-0"
-                    :class="isMaintenanceReady(ds) ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''"
+                    :class="needsIngestionPrepare(ds) ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''"
                   >
                     <td class="px-3 py-2">
                       <p class="font-medium leading-tight">{{ ds.name }}</p>
@@ -674,6 +690,9 @@ watch(tenantVersion, async () => {
                         <SyncPhaseIndicator :status="latestStatus(ds)!" />
                       </div>
                     </td>
+                    <td class="px-3 py-2 font-mono text-xs tabular-nums">
+                      {{ formatPreparedFileCount(ds.last_prepared_file_count) }}
+                    </td>
                     <td class="px-3 py-2 font-mono text-xs">
                       <div :class="commitStatusClass(ds.last_extraction_baseline_commit, ds.tracked_branch_head_commit)">
                         <span :title="ds.last_extraction_baseline_commit || ''">
@@ -688,42 +707,25 @@ watch(tenantVersion, async () => {
                       </div>
                     </td>
                     <td class="px-3 py-2 font-mono text-xs">
-                      <span :title="ds.tracked_branch_head_commit || ''">
-                        {{ shortCommitHash(ds.tracked_branch_head_commit) }}
-                      </span>
+                      <div
+                        :class="commitStatusClass(ds.last_prepared_commit, ds.tracked_branch_head_commit)"
+                      >
+                        <span :title="ds.tracked_branch_head_commit || ''">
+                          {{ shortCommitHash(ds.tracked_branch_head_commit) }}
+                        </span>
+                      </div>
+                      <div
+                        class="mt-0.5 text-[10px]"
+                        :class="commitStatusClass(ds.last_prepared_commit, ds.tracked_branch_head_commit)"
+                      >
+                        {{ prepareCommitStatusLabel(ds.last_prepared_commit, ds.tracked_branch_head_commit) }}
+                      </div>
                     </td>
                     <td class="px-3 py-2">
                       <div class="flex flex-wrap gap-1">
                         <Button size="sm" variant="ghost" class="h-7 px-2 text-[10px]" @click="openEditConfig(ds)">
                           <Settings class="mr-1 size-3" />
                           Edit
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          class="h-7 px-2 text-[10px]"
-                          :disabled="refreshingCommitRefs[ds.id] === true"
-                          @click="refreshCommitRefs(ds.id)"
-                        >
-                          <RefreshCw class="mr-1 size-3" :class="refreshingCommitRefs[ds.id] ? 'animate-spin' : ''" />
-                          Refresh
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          class="h-7 px-2 text-[10px]"
-                          :disabled="!isMaintenanceReady(ds) || adoptingBaselines[ds.id] === true"
-                          @click="adoptTrackedHeadBaseline(ds.id)"
-                        >
-                          Adopt baseline
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          class="h-7 px-2 text-[10px]"
-                          @click="triggerSync(ds.id, 'ingest_only')"
-                        >
-                          Prepare
                         </Button>
                         <Button
                           size="sm"
@@ -739,15 +741,15 @@ watch(tenantVersion, async () => {
                       <div
                         v-if="ds.diff_summary && ds.diff_summary.total_changed_files > 0"
                         class="mt-2 rounded border p-2 text-[11px]"
-                        :class="isMaintenanceReady(ds) ? 'border-amber-300 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20' : 'bg-muted/10'"
+                        :class="needsIngestionPrepare(ds) ? 'border-amber-300 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20' : 'bg-muted/10'"
                       >
                         <div class="flex items-center justify-between gap-2">
                           <span>
                             <span class="font-medium">{{ ds.diff_summary.total_changed_files }}</span>
                             changed files
                           </span>
-                          <Badge :variant="isMaintenanceReady(ds) ? 'default' : 'secondary'" class="text-[10px]">
-                            {{ isMaintenanceReady(ds) ? 'New commits available' : 'Up to date' }}
+                          <Badge :variant="needsIngestionPrepare(ds) ? 'default' : 'secondary'" class="text-[10px]">
+                            {{ needsIngestionPrepare(ds) ? 'Prepare needed' : 'Up to date' }}
                           </Badge>
                         </div>
                         <Button
@@ -837,8 +839,8 @@ watch(tenantVersion, async () => {
         class="rounded-lg border bg-muted/50 p-4"
       >
         <p class="text-sm text-muted-foreground">
-          <strong>Flow:</strong> add repository URLs above, refresh commits to resolve branch heads,
-          then prepare ingestion context before opening graph management.
+          <strong>Flow:</strong> add repository URLs above, check for new commits to resolve branch heads,
+          then prepare data sources before opening graph management.
         </p>
       </div>
     </template>

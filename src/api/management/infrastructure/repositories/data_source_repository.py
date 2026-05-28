@@ -85,6 +85,8 @@ class DataSourceRepository(IDataSourceRepository):
                     data_source.last_extraction_baseline_commit
                 )
                 model.tracked_branch_head_commit = data_source.tracked_branch_head_commit
+                model.last_prepared_commit = data_source.last_prepared_commit
+                model.last_prepared_file_count = data_source.last_prepared_file_count
                 model.updated_at = data_source.updated_at
                 model.ontology_json = ontology_json
             else:
@@ -104,6 +106,8 @@ class DataSourceRepository(IDataSourceRepository):
                         data_source.last_extraction_baseline_commit
                     ),
                     tracked_branch_head_commit=data_source.tracked_branch_head_commit,
+                    last_prepared_commit=data_source.last_prepared_commit,
+                    last_prepared_file_count=data_source.last_prepared_file_count,
                     ontology_json=ontology_json,
                     created_at=data_source.created_at,
                     updated_at=data_source.updated_at,
@@ -220,5 +224,7 @@ class DataSourceRepository(IDataSourceRepository):
             clone_head_commit=model.clone_head_commit,
             last_extraction_baseline_commit=model.last_extraction_baseline_commit,
             tracked_branch_head_commit=model.tracked_branch_head_commit,
+            last_prepared_commit=model.last_prepared_commit,
+            last_prepared_file_count=model.last_prepared_file_count,
             ontology=ontology,
         )

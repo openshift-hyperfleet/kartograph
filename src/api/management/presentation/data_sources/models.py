@@ -199,6 +199,12 @@ class DataSourceResponse(BaseModel):
     tracked_branch_head_commit: str | None = Field(
         None, description="Latest known commit at the tracked source branch head"
     )
+    last_prepared_commit: str | None = Field(
+        None, description="Commit SHA captured during the last ingest-only prepare"
+    )
+    last_prepared_file_count: int | None = Field(
+        None, description="Number of files in the JobPackage from the last prepare"
+    )
     connection_config: dict[str, str] = Field(
         default_factory=dict,
         description="Adapter connection configuration (non-secret)",
@@ -231,6 +237,8 @@ class DataSourceResponse(BaseModel):
             clone_head_commit=ds.clone_head_commit,
             last_extraction_baseline_commit=ds.last_extraction_baseline_commit,
             tracked_branch_head_commit=ds.tracked_branch_head_commit,
+            last_prepared_commit=ds.last_prepared_commit,
+            last_prepared_file_count=ds.last_prepared_file_count,
             connection_config=dict(ds.connection_config),
             created_at=ds.created_at,
             updated_at=ds.updated_at,
@@ -476,6 +484,12 @@ class DataSourceWithSyncResponse(BaseModel):
     tracked_branch_head_commit: str | None = Field(
         None, description="Latest known commit at the tracked source branch head"
     )
+    last_prepared_commit: str | None = Field(
+        None, description="Commit SHA captured during the last ingest-only prepare"
+    )
+    last_prepared_file_count: int | None = Field(
+        None, description="Number of files in the JobPackage from the last prepare"
+    )
     connection_config: dict[str, str] = Field(
         default_factory=dict,
         description="Adapter connection configuration (non-secret)",
@@ -515,6 +529,8 @@ class DataSourceWithSyncResponse(BaseModel):
             clone_head_commit=ds.clone_head_commit,
             last_extraction_baseline_commit=ds.last_extraction_baseline_commit,
             tracked_branch_head_commit=ds.tracked_branch_head_commit,
+            last_prepared_commit=ds.last_prepared_commit,
+            last_prepared_file_count=ds.last_prepared_file_count,
             connection_config=dict(ds.connection_config),
             created_at=ds.created_at,
             updated_at=ds.updated_at,

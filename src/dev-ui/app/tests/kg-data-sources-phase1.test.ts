@@ -3,7 +3,10 @@ import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import {
   commitStatusLabel,
+  isIngestionPreparedAtHead,
+  needsIngestionPrepare,
   prepStatusBadgeVariant,
+  prepareCommitStatusLabel,
   resolvePrepStatusLabel,
   resolveRepoUrl,
   shortCommitHash,
@@ -36,9 +39,22 @@ describe('KG data sources phase1 layout', () => {
     expect(phase1Vue).toContain('step=graph-management')
   })
 
-  it('does not render legacy per-card commit status layout', () => {
-    expect(phase1Vue).not.toContain('Commit Status')
-    expect(phase1Vue).not.toContain('Local clone commit')
+  it('renders bulk commit check and prepare actions', () => {
+    expect(phase1Vue).toContain('Check for new commits')
+    expect(phase1Vue).toContain('Prepare data sources')
+    expect(phase1Vue).toContain('prepareAllDataSources')
+    expect(phase1Vue).not.toContain('Refresh commits')
+    expect(phase1Vue).not.toContain('Adopt baseline')
+  })
+
+  it('disables autofill on repository URL inputs', () => {
+    expect(phase1Vue).toContain('autocomplete="off"')
+    expect(phase1Vue).toContain('data-lpignore="true"')
+  })
+
+  it('shows files on branch column', () => {
+    expect(phase1Vue).toContain('Files on branch')
+    expect(phase1Vue).toContain('formatPreparedFileCount')
   })
 })
 
@@ -68,5 +84,8 @@ describe('kgDataSourcesCommits helpers', () => {
     expect(resolvePrepStatusLabel('ingested')).toBe('Prepared')
     expect(prepStatusBadgeVariant('ingested')).toBe('success')
     expect(commitStatusLabel('abc', 'abc')).toBe('matches branch head')
+    expect(prepareCommitStatusLabel('abc', 'abc')).toBe('prepared at branch head')
+    expect(needsIngestionPrepare({ tracked_branch_head_commit: 'abc', last_prepared_commit: null })).toBe(true)
+    expect(isIngestionPreparedAtHead({ tracked_branch_head_commit: 'abc', last_prepared_commit: 'abc' })).toBe(true)
   })
 })

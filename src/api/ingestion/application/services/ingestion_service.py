@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ingestion.application.value_objects import IngestionRunResult
 from ingestion.ports.adapters import IDatasourceAdapter
 
 if TYPE_CHECKING:
@@ -16,7 +17,6 @@ if TYPE_CHECKING:
 from shared_kernel.job_package.builder import JobPackageBuilder
 from shared_kernel.job_package.value_objects import (
     AdapterCheckpoint,
-    JobPackageId,
     SyncMode,
 )
 
@@ -61,7 +61,7 @@ class IngestionService:
         tenant_id: str | None = None,
         credentials: dict[str, str] | None = None,
         baseline_commit: str | None = None,
-    ) -> JobPackageId:
+    ) -> IngestionRunResult:
         """Run the ingestion pipeline for a data source sync.
 
         Args:
@@ -77,7 +77,7 @@ class IngestionService:
                 incremental extraction checkpoint state
 
         Returns:
-            The JobPackageId of the produced ZIP archive
+            IngestionRunResult with the produced JobPackage metadata
 
         Raises:
             ValueError: If the adapter_type is not registered
@@ -138,4 +138,14 @@ class IngestionService:
         self._work_dir.mkdir(parents=True, exist_ok=True)
         builder.build(self._work_dir)
 
-        return builder._package_id
+        prepared_commit_sha = None
+        if result.new_checkpoint is not None:
+            prepared_commit_sha = result.new_checkpoint.data.get("commit_sha")
+
+        return IngestionRunResult(
+            job_package_id=builder._package_id,
+            entry_count=len(result.changeset_entries),
+            prepared_commit_sha=(
+                str(prepared_commit_sha) if prepared_commit_sha is not None else None
+            ),
+        )

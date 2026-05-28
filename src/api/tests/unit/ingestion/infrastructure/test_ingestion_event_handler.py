@@ -14,6 +14,7 @@ from uuid import UUID
 import pytest
 
 from ingestion.infrastructure.event_handler import IngestionEventHandler
+from ingestion.application.value_objects import IngestionRunResult
 from shared_kernel.job_package.value_objects import (
     JobPackageId,
 )
@@ -69,7 +70,7 @@ class _FakeIngestionService:
         tenant_id: str | None = None,
         credentials: dict[str, str] | None = None,
         baseline_commit: str | None = None,
-    ) -> JobPackageId:
+    ) -> IngestionRunResult:
         self.calls.append(
             {
                 "sync_run_id": sync_run_id,
@@ -82,7 +83,11 @@ class _FakeIngestionService:
         )
         if self._fail:
             raise RuntimeError(self._error)
-        return JobPackageId(value="01HRZZZZZZZZZZZZZZZZZZZZZ0")
+        return IngestionRunResult(
+            job_package_id=JobPackageId(value="01HRZZZZZZZZZZZZZZZZZZZZZ0"),
+            entry_count=42,
+            prepared_commit_sha="abc123def456",
+        )
 
 
 @pytest.fixture
@@ -252,6 +257,8 @@ class TestIngestionEventHandlerSuccess:
         event = outbox.appended[0]
         assert event["event_type"] == "IngestionPrepared"
         assert event["payload"]["job_package_id"] is not None
+        assert event["payload"]["prepared_commit_sha"] == "abc123def456"
+        assert event["payload"]["prepared_file_count"] == 42
 
     async def test_no_changes_ingest_only_emits_ingestion_prepared(
         self,

@@ -249,10 +249,13 @@ class _SessionedIngestionEventHandler:
             if data_source_id and adapter_type == "github":
                 ds = await ds_repo.get_by_id(DataSourceId(value=data_source_id))
                 if ds is not None:
-                    if ds.last_extraction_baseline_commit:
-                        enriched_payload["baseline_commit"] = (
-                            ds.last_extraction_baseline_commit
-                        )
+                    pipeline_mode = str(payload.get("pipeline_mode", "full"))
+                    if pipeline_mode == "ingest_only":
+                        baseline_commit = ds.last_prepared_commit
+                    else:
+                        baseline_commit = ds.last_extraction_baseline_commit
+                    if baseline_commit:
+                        enriched_payload["baseline_commit"] = baseline_commit
 
                     if ds.credentials_path and tenant_id and credential_reader is not None:
                         try:

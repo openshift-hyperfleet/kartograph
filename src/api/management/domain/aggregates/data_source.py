@@ -66,6 +66,8 @@ class DataSource:
     clone_head_commit: str | None = None
     last_extraction_baseline_commit: str | None = None
     tracked_branch_head_commit: str | None = None
+    last_prepared_commit: str | None = None
+    last_prepared_file_count: int | None = None
     ontology: Ontology | None = None
     _pending_events: list[DomainEvent] = field(default_factory=list, repr=False)
     _probe: DataSourceProbe = field(
@@ -377,6 +379,26 @@ class DataSource:
             )
         if self.tracked_branch_head_commit:
             self.last_extraction_baseline_commit = self.tracked_branch_head_commit
+
+    def record_ingestion_prepared(
+        self,
+        *,
+        prepared_commit: str | None,
+        prepared_file_count: int | None = None,
+    ) -> None:
+        """Record the commit and file count from a successful ingest-only prepare.
+
+        Raises:
+            AggregateDeletedError: If the data source has been marked for deletion
+        """
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot record ingestion prepare on a deleted data source"
+            )
+        if prepared_commit:
+            self.last_prepared_commit = prepared_commit
+        if prepared_file_count is not None:
+            self.last_prepared_file_count = prepared_file_count
 
     def mark_for_deletion(
         self,

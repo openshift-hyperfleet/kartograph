@@ -23,6 +23,38 @@ export function commitStatusLabel(
   return current === remote ? 'matches branch head' : 'new commits on branch'
 }
 
+export function prepareCommitStatusLabel(
+  prepared: string | null | undefined,
+  tracked: string | null | undefined,
+): string {
+  if (!tracked) return 'branch head unknown'
+  if (!prepared) return 'not prepared yet'
+  return prepared === tracked ? 'prepared at branch head' : 'new commits to prepare'
+}
+
+export function needsIngestionPrepare(ds: {
+  last_prepared_commit?: string | null
+  tracked_branch_head_commit?: string | null
+}): boolean {
+  const tracked = ds.tracked_branch_head_commit
+  if (!tracked) return false
+  return ds.last_prepared_commit !== tracked
+}
+
+export function isIngestionPreparedAtHead(ds: {
+  last_prepared_commit?: string | null
+  tracked_branch_head_commit?: string | null
+}): boolean {
+  const tracked = ds.tracked_branch_head_commit
+  const prepared = ds.last_prepared_commit
+  return !!tracked && !!prepared && prepared === tracked
+}
+
+export function formatPreparedFileCount(count: number | null | undefined): string {
+  if (count === null || count === undefined) return '—'
+  return count.toLocaleString()
+}
+
 export function resolveRepoUrl(connectionConfig: Record<string, string> | undefined): string {
   if (!connectionConfig) return '—'
   if (connectionConfig.repo_url) return connectionConfig.repo_url

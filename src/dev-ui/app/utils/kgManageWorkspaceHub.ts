@@ -60,7 +60,7 @@ export function resolveWorkspaceHubPhaseBadge(input: WorkspaceHubOverview): Work
     return { label: 'Operations', variant: 'success' }
   }
   if (sourcesPhaseComplete(input)) {
-    return { label: 'Design', variant: 'warning' }
+    return { label: 'Graph Management', variant: 'warning' }
   }
   return { label: 'Data sources', variant: 'secondary' }
 }
@@ -129,11 +129,11 @@ export function buildWorkspaceHubTiles(input: WorkspaceHubOverview): WorkspaceHu
     {
       step: 2,
       key: 'graph-management',
-      title: 'Design',
+      title: 'Graph Management',
       subtitle: designDone
         ? 'Schema validated · extraction operations available'
         : sourcesDone
-          ? 'Design assistant, schema bootstrap, and validation'
+          ? 'Graph management assistant, schema bootstrap, and validation'
           : 'Open anytime; prepare data sources to clear later gates',
       to: resolveStepDestination(input.kgId, 'graph-management'),
       enabled: true,
@@ -167,7 +167,7 @@ export function buildWorkspaceHubTiles(input: WorkspaceHubOverview): WorkspaceHu
         : 'Incremental graph updates from new commits',
       to: resolveStepDestination(input.kgId, 'maintain'),
       enabled: designDone,
-      lockedReason: designDone ? null : 'Complete design validation before maintenance.',
+      lockedReason: designDone ? null : 'Complete graph management validation before maintenance.',
       highlight: highlightKey === 'maintain',
       tone: toneFor(4, maintainCard.status === 'ready' && input.maintenanceReadyCount === 0, designDone, maintainCard.status),
       linkLabel: linkLabelFor(maintainCard.actionLabel, maintainCard.status === 'ready' && input.maintenanceReadyCount === 0),
@@ -254,10 +254,10 @@ export function workspaceHubStepBadgeClass(item: {
 
 export function workspaceHubDescription(input: WorkspaceHubOverview): string {
   if (!sourcesPhaseComplete(input)) {
-    return 'Finish ingestion under Data sources, then continue through Design. Green tiles mark completed gates; the highlighted tile is your current focus.'
+    return 'Finish ingestion under Data sources, then continue through Graph Management. Green tiles mark completed gates; the highlighted tile is your current focus.'
   }
   if (!designPhaseComplete(input)) {
-    return 'Use Design for the assistant and schema bootstrap. Green tiles use Revisit; the highlighted tile is your suggested next step.'
+    return 'Use Graph Management for the assistant and schema bootstrap. Green tiles use Revisit; the highlighted tile is your suggested next step.'
   }
   return 'Continue with mutation logs or maintenance, or Revisit any completed step below.'
 }

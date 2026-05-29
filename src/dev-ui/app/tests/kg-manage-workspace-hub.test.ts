@@ -49,6 +49,11 @@ describe('kgManageWorkspaceHub', () => {
     expect(tiles.find((tile) => tile.key === 'maintain')?.enabled).toBe(false)
   })
 
+  it('labels the graph-management hub tile as Graph Management', () => {
+    const tiles = buildWorkspaceHubTiles(baseInput)
+    expect(tiles.find((tile) => tile.key === 'graph-management')?.title).toBe('Graph Management')
+  })
+
   it('marks sources phase complete when all sources are prepared', () => {
     const tiles = buildWorkspaceHubTiles({
       ...baseInput,
@@ -62,7 +67,7 @@ describe('kgManageWorkspaceHub', () => {
       ...baseInput,
       dataSourceCount: 2,
       preparedSourceCount: 2,
-    }).label).toBe('Design')
+    }).label).toBe('Graph Management')
   })
 
   it('builds a primary next-step CTA while sources phase is incomplete', () => {
@@ -84,6 +89,6 @@ describe('kgManageWorkspaceHub', () => {
       ...baseInput,
       dataSourceCount: 1,
       preparedSourceCount: 1,
-    })).toContain('Design')
+    })).toContain('Graph Management')
   })
 })

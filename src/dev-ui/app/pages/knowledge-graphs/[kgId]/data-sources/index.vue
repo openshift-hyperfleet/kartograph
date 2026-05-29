@@ -669,7 +669,7 @@ watch(tenantVersion, async () => {
             </div>
 
             <div v-else class="overflow-x-auto rounded-md border">
-              <table class="w-full min-w-[1120px] text-sm">
+              <table class="w-full min-w-[1000px] text-sm">
                 <thead>
                   <tr class="border-b bg-muted/50 text-left">
                     <th class="px-3 py-2 font-medium">Source</th>
@@ -679,7 +679,6 @@ watch(tenantVersion, async () => {
                     <th class="px-3 py-2 font-medium">Last extraction baseline</th>
                     <th class="px-3 py-2 font-medium">Ingested at</th>
                     <th class="px-3 py-2 font-medium">Newest unpulled</th>
-                    <th class="px-3 py-2 font-medium">Branch tip</th>
                     <th class="px-3 py-2 font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -778,12 +777,6 @@ watch(tenantVersion, async () => {
                           )
                         }}
                       </div>
-                    </td>
-                    <td class="px-3 py-2 font-mono text-xs text-muted-foreground">
-                      <span :title="resolveBranchTipCommit(ds) || ''">
-                        {{ shortCommitHash(resolveBranchTipCommit(ds)) }}
-                      </span>
-                      <div class="mt-0.5 text-[10px] text-muted-foreground">remote tip</div>
                     </td>
                     <td class="px-3 py-2">
                       <div class="flex flex-wrap gap-1">

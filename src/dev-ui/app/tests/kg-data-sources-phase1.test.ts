@@ -62,7 +62,7 @@ describe('KG data sources phase1 layout', () => {
     expect(phase1Vue).toContain('Newest unpulled')
     expect(phase1Vue).toContain('Last extraction baseline')
     expect(phase1Vue).toContain('Ingested at')
-    expect(phase1Vue).toContain('Branch tip')
+    expect(phase1Vue).not.toContain('Branch tip')
     expect(phase1Vue).toContain('resolveNewestUnpulledCommit')
   })
 })

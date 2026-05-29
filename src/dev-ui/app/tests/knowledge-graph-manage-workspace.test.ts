@@ -354,9 +354,10 @@ describe('KG-MANAGE-015 - graph-scoped maintain step and round trip', () => {
 })
 
 describe('Shared conversation panel - extraction UX contract', () => {
-  it('renders resume-session action and explicit server-side persistence note', () => {
+  it('renders phase-2 style conversational intelligence header and resume action', () => {
+    expect(sharedConversationPanelVue).toContain('Graph Management Assistant')
     expect(sharedConversationPanelVue).toContain('Resume session')
-    expect(sharedConversationPanelVue).toContain('No local cache: conversation state is server-side only.')
+    expect(sharedConversationPanelVue).toContain('Sparkles')
   })
 
   it('renders clear-chat confirmation dialog before emitting clear action', () => {
@@ -365,15 +366,18 @@ describe('Shared conversation panel - extraction UX contract', () => {
     expect(sharedConversationPanelVue).toContain("emit('clearChat')")
   })
 
-  it('renders activity/thinking timeline lines and auto-scrolls timeline updates', () => {
-    expect(sharedConversationPanelVue).toContain('activityTimeline')
-    expect(sharedConversationPanelVue).toContain('timelineRef')
-    expect(sharedConversationPanelVue).toContain('scrollTop = timelineRef.value.scrollHeight')
+  it('renders bubble chat, thinking state, and auto-scroll', () => {
+    expect(sharedConversationPanelVue).toContain('thinkingDisplaySlots')
+    expect(sharedConversationPanelVue).toContain('chatScrollRef')
+    expect(sharedConversationPanelVue).toContain('renderAssistantHtml')
+    expect(sharedConversationPanelVue).toContain('scrollToBottom')
+    expect(sharedConversationPanelVue).toContain('el.scrollTop = el.scrollHeight')
   })
 
   it('accepts mode-aware input placeholder and session status props', () => {
     expect(sharedConversationPanelVue).toContain('inputPlaceholder')
     expect(sharedConversationPanelVue).toContain('sessionStatusLabel')
+    expect(sharedConversationPanelVue).toContain('footerHint')
   })
 })
 
@@ -399,6 +403,8 @@ describe('KG-MANAGE-007 - graph management modes', () => {
     }
     expect(manageWorkspaceVue).toContain('graphManagementMode')
     expect(manageWorkspaceVue).toContain('parseGraphManagementModeQuery')
+    expect(manageWorkspaceVue).toContain('isGraphManagementModeUnlocked')
+    expect(manageWorkspaceVue).toContain('graphManagementModeLockReason')
   })
 
   it('defaults mode from workspace lifecycle state', () => {
@@ -413,11 +419,12 @@ describe('KG-MANAGE-007 - graph management modes', () => {
 })
 
 describe('KG-MANAGE-008 - hybrid lower panel shared rail', () => {
-  it('renders persistent status and artifact rail with keyboard selection', () => {
-    expect(manageWorkspaceVue).toContain('graph-management-rail')
-    expect(manageWorkspaceVue).toContain('buildGraphManagementRailItems')
-    expect(manageWorkspaceVue).toContain('role="listbox"')
-    expect(manageWorkspaceVue).toContain('@keydown')
+  it('renders side-by-side schema artifacts and session pointers panels', () => {
+    expect(manageWorkspaceVue).toContain('graph-management-artifacts')
+    expect(manageWorkspaceVue).toContain('Schema &amp; artifacts')
+    expect(manageWorkspaceVue).toContain('graph-management-session-pointers')
+    expect(manageWorkspaceVue).toContain('graphManagementArtifactRowClass')
+    expect(manageWorkspaceVue).toContain('schemaRailItems')
   })
 
   it('builds rail items with status and last-updated metadata', () => {
@@ -442,8 +449,8 @@ describe('KG-MANAGE-009 - hybrid lower panel mode-specific detail', () => {
     expect(manageWorkspaceVue).toContain('graph-management-detail')
     expect(manageWorkspaceVue).toContain('selectedRailItemId')
     expect(manageWorkspaceVue).toContain("selectedRailItemId === 'schema-readiness'")
-    expect(manageWorkspaceVue).toContain("graphManagementMode === 'extraction-jobs'")
-    expect(manageWorkspaceVue).toContain("graphManagementMode === 'one-off-mutations'")
+    expect(manageWorkspaceVue).toContain("selectedRailItemId === 'extraction-jobs-setup'")
+    expect(manageWorkspaceVue).toContain("selectedRailItemId === 'mutation-authoring'")
   })
 
   it('filters rail items to the active mode', () => {
@@ -541,9 +548,9 @@ describe('KG-MANAGE-016 - graph management top controls', () => {
 
 describe('KG-MANAGE-017 - chat input keyboard contract', () => {
   it('wires Enter-to-send and Shift+Enter newline handling in shared conversation panel', () => {
-    expect(sharedConversationPanelVue).toContain('handleChatInputKeydown')
-    expect(sharedConversationPanelVue).toContain('@keydown="onChatInputKeydown"')
-    expect(sharedConversationPanelVue).toContain('Shift+Enter adds a new line')
+    expect(sharedConversationPanelVue).toContain('handleComposerEnter')
+    expect(sharedConversationPanelVue).toContain('@keydown.enter="handleComposerEnter"')
+    expect(sharedConversationPanelVue).toContain('Shift+Enter for a new line')
     expect(sharedConversationPanelVue).toContain("emit('sendMessage'")
     expect(manageWorkspaceVue).toContain('@send-message="sendChatMessage"')
   })
@@ -556,11 +563,9 @@ describe('KG-MANAGE-018 - keyboard operable step and rail actions', () => {
     expect(manageWorkspaceVue).toContain('focus-visible:ring-2 focus-visible:ring-ring')
   })
 
-  it('supports keyboard activation for graph management rail selection', () => {
-    expect(manageWorkspaceVue).toContain('onRailKeydown')
-    expect(manageWorkspaceVue).toContain('role="listbox"')
-    expect(manageWorkspaceVue).toContain('tabindex="0"')
-    expect(manageWorkspaceVue).toContain('@keydown="onRailKeydown($event, item.id)"')
+  it('supports keyboard activation for schema artifact navigation', () => {
+    expect(manageWorkspaceVue).toContain('onSchemaRailKeydown')
+    expect(manageWorkspaceVue).toContain('@keydown="onSchemaRailKeydown($event, item.id)"')
   })
 
   it('exposes keyboard-reachable graph management mode switch tabs', () => {

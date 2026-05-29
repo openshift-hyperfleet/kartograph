@@ -65,6 +65,8 @@ AI-assisted schema and extraction workflows that emit MutationLogs for Graph app
 |------|-------|
 | [Operations](extraction/operations.spec.md) | Mode-specific agent operations and mutation-log production |
 | [Agent Sessions](extraction/agent-sessions.spec.md) | Session lifecycle, reset behavior, and session metrics |
+| [Chat Turns](extraction/chat-turns.spec.md) | Graph-management chat streaming, wait states, and turn persistence |
+| [Sticky Session Runtime](extraction/sticky-session-runtime.spec.md) | Isolated sticky containers, JobPackage context, Claude Agent SDK runtime |
 
 ### [Shared Kernel](shared-kernel/) — Cross-Cutting Contracts
 Capabilities shared across bounded contexts.

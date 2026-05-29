@@ -16,6 +16,7 @@ import {
   Loader2,
   Lock,
   MessageSquare,
+  PencilRuler,
   PlayCircle,
   ScrollText,
   ShieldAlert,
@@ -44,17 +45,25 @@ import {
   buildGraphManagementRailItems,
   buildGraphManagementStepUrl,
   filterRailItemsForMode,
+  graphManagementModeLockReason,
+  isGraphManagementModeUnlocked,
   parseGraphManagementModeQuery,
-  resolveDefaultGraphManagementMode,
-  resolveRailSelectionForMode,
+  resolveEffectiveGraphManagementMode,
   resolveSharedSessionMode,
   type GraphManagementMode,
+  type GraphManagementModeGateInput,
   type GraphManagementRailItemId,
 } from '@/utils/kgGraphManagement'
 import {
+  filterSchemaRailItems,
+  graphManagementArtifactHint,
+  graphManagementArtifactRowClass,
+  graphManagementRailItemDone,
+  resolveSchemaRailSelection,
+} from '@/utils/kgGraphManagementArtifacts'
+import {
   buildManageStepUrl,
   parseManageStepQuery,
-  stepStatusTintClass,
 } from '@/utils/kgManageWorkspace'
 import {
   buildWorkspaceHubNextStep,
@@ -311,9 +320,26 @@ const visibleRailItems = computed(() =>
   filterRailItemsForMode(graphManagementRailItems.value, graphManagementMode.value),
 )
 
-const selectedRailItem = computed(() =>
-  visibleRailItems.value.find((item) => item.id === selectedRailItemId.value) ?? null,
+const schemaRailItems = computed(() => filterSchemaRailItems(visibleRailItems.value))
+
+const selectedSchemaRailItem = computed(() =>
+  schemaRailItems.value.find((item) => item.id === selectedRailItemId.value) ?? null,
 )
+
+const graphManagementModeGate = computed((): GraphManagementModeGateInput => ({
+  workspaceMode: statusProjection.value?.workspace_mode ?? 'schema_bootstrap',
+  transitionEligible: statusProjection.value?.transition_eligible === true,
+}))
+
+const graphManagementChatDescription = computed(() => {
+  if (graphManagementMode.value === 'extraction-jobs') {
+    return 'Coordinate extraction job setup, sync runs, and maintenance for this knowledge graph. Use the assistant below to drive operational changes.'
+  }
+  if (graphManagementMode.value === 'one-off-mutations') {
+    return 'Author and apply one-off graph mutations scoped to this knowledge graph. Use the assistant below for mutation guidance and workspace context.'
+  }
+  return 'Design and refine schema readiness, validation, and bootstrap transition for this knowledge graph. Use the assistant below to prepare workspace artifacts.'
+})
 
 const canTransition = computed(() =>
   statusProjection.value?.workspace_mode === 'schema_bootstrap'
@@ -795,11 +821,15 @@ async function loadSessionHistory() {
 function syncGraphManagementState() {
   if (activeStep.value !== 'graph-management') return
   const fromQuery = parseGraphManagementModeQuery(route.query.gm_mode)
-  graphManagementMode.value = fromQuery
-    ?? resolveDefaultGraphManagementMode(
-      statusProjection.value?.workspace_mode ?? 'schema_bootstrap',
-    )
-  selectedRailItemId.value = resolveRailSelectionForMode(
+  const effectiveMode = resolveEffectiveGraphManagementMode(
+    fromQuery,
+    graphManagementModeGate.value,
+  )
+  graphManagementMode.value = effectiveMode
+  if (fromQuery && fromQuery !== effectiveMode) {
+    navigateTo(buildGraphManagementStepUrl(kgId.value, effectiveMode), { replace: true })
+  }
+  selectedRailItemId.value = resolveSchemaRailSelection(
     selectedRailItemId.value,
     graphManagementMode.value,
     graphManagementRailItems.value,
@@ -807,8 +837,13 @@ function syncGraphManagementState() {
 }
 
 function setGraphManagementMode(mode: GraphManagementMode) {
+  if (!isGraphManagementModeUnlocked(mode, graphManagementModeGate.value)) {
+    const reason = graphManagementModeLockReason(mode, graphManagementModeGate.value)
+    toast.message('Mode locked', { description: reason ?? 'Finish schema design first.' })
+    return
+  }
   graphManagementMode.value = mode
-  selectedRailItemId.value = resolveRailSelectionForMode(
+  selectedRailItemId.value = resolveSchemaRailSelection(
     selectedRailItemId.value,
     mode,
     graphManagementRailItems.value,
@@ -816,12 +851,12 @@ function setGraphManagementMode(mode: GraphManagementMode) {
   navigateTo(buildGraphManagementStepUrl(kgId.value, mode), { replace: true })
 }
 
-function selectRailItem(itemId: GraphManagementRailItemId) {
+function selectSchemaRailItem(itemId: GraphManagementRailItemId) {
   selectedRailItemId.value = itemId
 }
 
-function onRailKeydown(event: KeyboardEvent, itemId: GraphManagementRailItemId) {
-  handleActivatableKeydown(event, () => selectRailItem(itemId))
+function onSchemaRailKeydown(event: KeyboardEvent, itemId: GraphManagementRailItemId) {
+  handleActivatableKeydown(event, () => selectSchemaRailItem(itemId))
 }
 
 function onModeSwitchKeydown(event: KeyboardEvent, mode: GraphManagementMode) {
@@ -1515,56 +1550,76 @@ watch(selectedOpsDataSourceId, () => {
           </Button>
         </div>
 
-        <Card class="graph-management-controls">
-          <CardHeader class="pb-3">
-            <CardTitle class="text-base">Graph Management</CardTitle>
-            <CardDescription>
-              Shared chat session with mode-specific assistant framing and workspace panels.
-            </CardDescription>
+        <Card class="graph-management-controls overflow-hidden">
+          <CardHeader class="space-y-4 pb-4">
+            <div class="flex flex-wrap items-start gap-3">
+              <div
+                class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-primary"
+              >
+                <PencilRuler class="size-5 shrink-0" aria-hidden="true" />
+              </div>
+              <div class="min-w-0 flex-1 space-y-1">
+                <CardTitle class="text-xl leading-tight">Graph Management</CardTitle>
+                <CardDescription>
+                  Shared chat session with mode-specific assistant framing and workspace panels.
+                </CardDescription>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              <p class="text-sm font-medium text-muted-foreground">Mode:</p>
+              <div
+                class="grid gap-2 sm:grid-cols-3"
+                role="tablist"
+                aria-label="Graph management modes"
+              >
+                <template v-for="mode in GRAPH_MANAGEMENT_MODE_ORDER" :key="mode">
+                  <Button
+                    v-if="isGraphManagementModeUnlocked(mode, graphManagementModeGate)"
+                    size="sm"
+                    variant="outline"
+                    class="h-auto min-h-9 justify-center border py-2 shadow-none transition-colors"
+                    :class="
+                      graphManagementMode === mode
+                        ? 'border-primary/70 bg-muted/50 font-medium text-foreground ring-1 ring-primary/25'
+                        : 'border-border bg-card text-muted-foreground hover:border-muted-foreground/30 hover:bg-muted/40 hover:text-foreground'
+                    "
+                    role="tab"
+                    :aria-selected="graphManagementMode === mode"
+                    tabindex="0"
+                    @click="setGraphManagementMode(mode)"
+                    @keydown="onModeSwitchKeydown($event, mode)"
+                  >
+                    {{ GRAPH_MANAGEMENT_MODE_LABELS[mode] }}
+                  </Button>
+                  <div
+                    v-else
+                    class="flex flex-col gap-1.5 rounded-lg border border-dashed border-rose-200/80 bg-rose-500/[0.04] px-3 py-2.5 text-left text-muted-foreground dark:border-rose-900/40 dark:bg-rose-950/20"
+                    role="tab"
+                    :aria-selected="false"
+                    :aria-disabled="true"
+                    :title="graphManagementModeLockReason(mode, graphManagementModeGate) ?? undefined"
+                  >
+                    <div class="flex items-center gap-2">
+                      <Lock class="size-3.5 shrink-0 text-rose-700/80 dark:text-rose-400/90" />
+                      <span class="text-sm font-medium leading-tight text-foreground/80">
+                        {{ GRAPH_MANAGEMENT_MODE_LABELS[mode] }}
+                      </span>
+                    </div>
+                    <p class="text-[11px] leading-snug text-rose-800/90 dark:text-rose-300/90">
+                      {{ graphManagementModeLockReason(mode, graphManagementModeGate) }}
+                    </p>
+                  </div>
+                </template>
+              </div>
+            </div>
           </CardHeader>
-          <CardContent class="space-y-3">
-            <div
-              class="flex flex-wrap gap-2"
-              role="tablist"
-              aria-label="Graph management modes"
-            >
-              <Button
-                v-for="mode in GRAPH_MANAGEMENT_MODE_ORDER"
-                :key="mode"
-                size="sm"
-                role="tab"
-                :aria-selected="graphManagementMode === mode"
-                tabindex="0"
-                :variant="graphManagementMode === mode ? 'default' : 'outline'"
-                @click="setGraphManagementMode(mode)"
-                @keydown="onModeSwitchKeydown($event, mode)"
-              >
-                {{ GRAPH_MANAGEMENT_MODE_LABELS[mode] }}
-              </Button>
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">{{ sessionStatusLabel }}</Badge>
-              <Button
-                variant="outline"
-                size="sm"
-                :disabled="validating || transitioning || workspaceForbidden"
-                :title="workspaceForbiddenReason ?? undefined"
-                @click="validateWorkspace"
-              >
-                <Loader2 v-if="validating" class="mr-1.5 size-3.5 animate-spin" />
-                <CheckCircle2 v-else class="mr-1.5 size-3.5" />
-                Validate
-              </Button>
-              <Badge :variant="canTransition ? 'default' : 'secondary'">
-                {{ canTransition ? 'Transition eligible' : 'Transition blocked' }}
-              </Badge>
-            </div>
-          </CardContent>
         </Card>
 
         <SharedConversationPanel
           v-model:draft-message="draftMessage"
           :mode-label="graphManagementModeLabel"
+          :description="graphManagementChatDescription"
           :input-placeholder="graphManagementInputPlaceholder"
           :session-status-label="sessionStatusLabel"
           :session="extractionSession"
@@ -1581,52 +1636,51 @@ watch(selectedOpsDataSourceId, () => {
           @send-message="sendChatMessage"
         />
 
-        <div class="grid gap-4 xl:grid-cols-[280px_1fr]">
-          <div
-            class="graph-management-rail rounded border"
-            role="listbox"
-            aria-label="Graph management status and artifacts"
-          >
-            <div class="border-b px-3 py-2">
-              <p class="text-xs font-medium text-muted-foreground">Status &amp; artifacts</p>
-            </div>
-            <div class="space-y-1.5 p-2">
-              <button
-                v-for="item in visibleRailItems"
-                :key="item.id"
-                type="button"
-                role="option"
-                :aria-selected="selectedRailItemId === item.id"
-                tabindex="0"
-                class="w-full rounded border px-2 py-2 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                :class="[
-                  stepStatusTintClass(item.status),
-                  selectedRailItemId === item.id ? 'border-primary ring-1 ring-primary/30' : 'hover:bg-muted/40',
-                ]"
-                @click="selectRailItem(item.id)"
-                @keydown="onRailKeydown($event, item.id)"
-              >
-                <div class="flex items-center justify-between gap-2">
-                  <p class="font-medium">{{ item.label }}</p>
-                  <Badge variant="outline" class="text-[10px]">{{ item.status }}</Badge>
-                </div>
-                <p class="mt-1 text-muted-foreground">{{ item.detailHint }}</p>
-                <p class="mt-1 text-[10px] text-muted-foreground">Updated {{ item.lastUpdated }}</p>
-              </button>
-            </div>
-          </div>
-
-          <Card class="graph-management-detail">
-            <CardHeader class="pb-3">
-              <CardTitle class="text-base">
-                {{ selectedRailItem?.label ?? 'Workspace detail' }}
-              </CardTitle>
-              <CardDescription>
-                Mode:
-                <span class="font-medium text-foreground">{{ graphManagementModeLabel }}</span>
+        <div class="graph-management-artifacts grid gap-6 lg:grid-cols-2 lg:items-start">
+          <Card id="graph-management-schema-artifacts" class="graph-management-schema-panel scroll-mt-6">
+            <CardHeader class="pb-2">
+              <CardTitle class="text-sm font-semibold">Schema &amp; artifacts</CardTitle>
+              <CardDescription class="text-xs">
+                Workspace signals for
+                <span class="font-medium text-foreground">{{ graphManagementModeLabel }}</span>.
+                <template v-if="schemaRailItems.length > 1">
+                  Select an artifact to inspect its detail below.
+                </template>
               </CardDescription>
             </CardHeader>
-            <CardContent class="space-y-4 text-sm">
+            <CardContent class="space-y-4 p-3 pt-0 text-sm">
+              <div v-if="schemaRailItems.length > 1" class="space-y-1.5">
+                <button
+                  v-for="item in schemaRailItems"
+                  :key="item.id"
+                  type="button"
+                  :class="graphManagementArtifactRowClass(
+                    selectedRailItemId === item.id,
+                    graphManagementRailItemDone(item.status),
+                  )"
+                  @click="selectSchemaRailItem(item.id)"
+                  @keydown="onSchemaRailKeydown($event, item.id)"
+                >
+                  <span class="font-medium leading-tight">{{ item.label }}</span>
+                  <span class="text-xs text-muted-foreground">{{ graphManagementArtifactHint(item) }}</span>
+                </button>
+              </div>
+              <p
+                v-else-if="schemaRailItems.length === 0"
+                class="rounded-lg border border-dashed p-3 text-xs text-muted-foreground"
+              >
+                No schema artifacts for this mode.
+              </p>
+
+              <div class="graph-management-detail space-y-4 border-t pt-4">
+                <div>
+                  <p class="text-sm font-semibold">
+                    {{ selectedSchemaRailItem?.label ?? 'Schema & artifacts' }}
+                  </p>
+                  <p class="text-xs text-muted-foreground">
+                    Mode: {{ graphManagementModeLabel }}
+                  </p>
+                </div>
               <template v-if="selectedRailItemId === 'schema-readiness'">
                 <div class="rounded border p-3">
                   <p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -1720,99 +1774,7 @@ watch(selectedOpsDataSourceId, () => {
                 </div>
               </template>
 
-              <template v-else-if="selectedRailItemId === 'session-pointers'">
-                <div class="grid gap-2 md:grid-cols-3 text-xs">
-                  <div class="rounded border px-3 py-2">
-                    <p class="text-muted-foreground">Active schema bootstrap session</p>
-                    <p class="mt-1 break-all font-mono">
-                      {{ statusProjection.session_pointers.active_schema_bootstrap_session_id ?? 'None' }}
-                    </p>
-                  </div>
-                  <div class="rounded border px-3 py-2">
-                    <p class="text-muted-foreground">Active extraction operations session</p>
-                    <p class="mt-1 break-all font-mono">
-                      {{ statusProjection.session_pointers.active_extraction_operations_session_id ?? 'None' }}
-                    </p>
-                  </div>
-                  <div class="rounded border px-3 py-2">
-                    <p class="text-muted-foreground">Most recent completed session</p>
-                    <p class="mt-1 break-all font-mono">
-                      {{ statusProjection.session_pointers.most_recent_completed_session_id ?? 'None' }}
-                    </p>
-                  </div>
-                </div>
-                <div class="space-y-3 border-t pt-3">
-                  <div class="flex items-center justify-between">
-                    <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                      Session History
-                    </p>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      class="h-6 px-2 text-[10px]"
-                      :disabled="sessionHistoryLoading"
-                      @click="loadSessionHistory"
-                    >
-                      Refresh
-                    </Button>
-                  </div>
-                  <div
-                    v-if="sessionHistoryLoading"
-                    class="flex items-center gap-2 text-xs text-muted-foreground"
-                  >
-                    <Loader2 class="size-3.5 animate-spin" />
-                    Loading session history...
-                  </div>
-                  <div
-                    v-else-if="sessionHistory.length === 0"
-                    class="rounded border border-dashed px-3 py-4 text-xs text-muted-foreground"
-                  >
-                    No archived or active sessions found for this scope yet.
-                  </div>
-                  <div v-else class="space-y-2">
-                    <div
-                      v-for="entry in sessionHistory"
-                      :key="entry.id"
-                      class="rounded border px-3 py-2 text-xs"
-                    >
-                      <div class="flex flex-wrap items-center justify-between gap-2">
-                        <p class="font-mono break-all">{{ entry.id }}</p>
-                        <Badge :variant="entry.is_active ? 'default' : 'secondary'">
-                          {{ entry.is_active ? 'Active' : 'Archived' }}
-                        </Badge>
-                      </div>
-                      <p class="mt-1 text-muted-foreground">
-                        Updated {{ new Date(entry.updated_at).toLocaleString() }}
-                        <span v-if="entry.archived_at">
-                          · Archived {{ new Date(entry.archived_at).toLocaleString() }}
-                        </span>
-                      </p>
-                      <p class="mt-1 text-muted-foreground">
-                        {{ entry.message_count }} message(s)
-                        · {{ entry.run_metrics.length }} linked run(s)
-                      </p>
-                      <div
-                        v-if="entry.run_metrics.length > 0"
-                        class="mt-2 space-y-1.5 rounded border bg-muted/20 p-2"
-                      >
-                        <div
-                          v-for="metric in entry.run_metrics"
-                          :key="metric.sync_run_id"
-                          class="flex flex-wrap items-center justify-between gap-2"
-                        >
-                          <span class="font-mono">{{ metric.mutation_log_id ?? metric.sync_run_id }}</span>
-                          <span class="text-muted-foreground">
-                            {{ metric.token_usage_total ?? 0 }} tokens ·
-                            ${{ (metric.cost_total_usd ?? 0).toFixed(2) }}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </template>
-
-              <template v-else-if="graphManagementMode === 'extraction-jobs'">
+              <template v-else-if="selectedRailItemId === 'extraction-jobs-setup'">
                 <p class="text-muted-foreground">
                   Trigger extraction jobs, inspect run history, and view run logs without leaving this workspace.
                 </p>
@@ -1924,7 +1886,7 @@ watch(selectedOpsDataSourceId, () => {
                 </div>
               </template>
 
-              <template v-else-if="graphManagementMode === 'one-off-mutations'">
+              <template v-else-if="selectedRailItemId === 'mutation-authoring'">
                 <p class="text-muted-foreground">
                   Author and apply one-off JSONL mutations directly in this workspace.
                 </p>
@@ -1952,10 +1914,111 @@ watch(selectedOpsDataSourceId, () => {
 
               <template v-else>
                 <p class="text-xs text-muted-foreground">
-                  Select a status or artifact item to inspect mode-specific workspace content.
+                  Select a schema artifact to inspect mode-specific workspace content.
                 </p>
               </template>
+              </div>
             </CardContent>
+          </Card>
+
+          <Card id="graph-management-session-pointers" class="graph-management-session-pointers scroll-mt-6 lg:sticky lg:top-4 lg:self-start">
+              <CardHeader class="pb-3">
+                <CardTitle class="text-base">Session pointers</CardTitle>
+                <CardDescription>
+                  Active bootstrap and extraction sessions, plus archived history for this knowledge graph.
+                </CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-4 text-sm">
+                <div class="grid gap-2 md:grid-cols-3 text-xs">
+                  <div class="rounded-lg border px-3 py-2">
+                    <p class="text-muted-foreground">Active schema bootstrap session</p>
+                    <p class="mt-1 break-all font-mono">
+                      {{ statusProjection.session_pointers.active_schema_bootstrap_session_id ?? 'None' }}
+                    </p>
+                  </div>
+                  <div class="rounded-lg border px-3 py-2">
+                    <p class="text-muted-foreground">Active extraction operations session</p>
+                    <p class="mt-1 break-all font-mono">
+                      {{ statusProjection.session_pointers.active_extraction_operations_session_id ?? 'None' }}
+                    </p>
+                  </div>
+                  <div class="rounded-lg border px-3 py-2">
+                    <p class="text-muted-foreground">Most recent completed session</p>
+                    <p class="mt-1 break-all font-mono">
+                      {{ statusProjection.session_pointers.most_recent_completed_session_id ?? 'None' }}
+                    </p>
+                  </div>
+                </div>
+                <div class="space-y-3 border-t pt-3">
+                  <div class="flex items-center justify-between">
+                    <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      Session History
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      class="h-6 px-2 text-[10px]"
+                      :disabled="sessionHistoryLoading"
+                      @click="loadSessionHistory"
+                    >
+                      Refresh
+                    </Button>
+                  </div>
+                  <div
+                    v-if="sessionHistoryLoading"
+                    class="flex items-center gap-2 text-xs text-muted-foreground"
+                  >
+                    <Loader2 class="size-3.5 animate-spin" />
+                    Loading session history...
+                  </div>
+                  <div
+                    v-else-if="sessionHistory.length === 0"
+                    class="rounded-lg border border-dashed px-3 py-4 text-xs text-muted-foreground"
+                  >
+                    No archived or active sessions found for this scope yet.
+                  </div>
+                  <div v-else class="space-y-2">
+                    <div
+                      v-for="entry in sessionHistory"
+                      :key="entry.id"
+                      class="rounded-lg border px-3 py-2 text-xs"
+                    >
+                      <div class="flex flex-wrap items-center justify-between gap-2">
+                        <p class="font-mono break-all">{{ entry.id }}</p>
+                        <Badge :variant="entry.is_active ? 'default' : 'secondary'">
+                          {{ entry.is_active ? 'Active' : 'Archived' }}
+                        </Badge>
+                      </div>
+                      <p class="mt-1 text-muted-foreground">
+                        Updated {{ new Date(entry.updated_at).toLocaleString() }}
+                        <span v-if="entry.archived_at">
+                          · Archived {{ new Date(entry.archived_at).toLocaleString() }}
+                        </span>
+                      </p>
+                      <p class="mt-1 text-muted-foreground">
+                        {{ entry.message_count }} message(s)
+                        · {{ entry.run_metrics.length }} linked run(s)
+                      </p>
+                      <div
+                        v-if="entry.run_metrics.length > 0"
+                        class="mt-2 space-y-1.5 rounded-lg border bg-muted/20 p-2"
+                      >
+                        <div
+                          v-for="metric in entry.run_metrics"
+                          :key="metric.sync_run_id"
+                          class="flex flex-wrap items-center justify-between gap-2"
+                        >
+                          <span class="font-mono">{{ metric.mutation_log_id ?? metric.sync_run_id }}</span>
+                          <span class="text-muted-foreground">
+                            {{ metric.token_usage_total ?? 0 }} tokens ·
+                            ${{ (metric.cost_total_usd ?? 0).toFixed(2) }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
           </Card>
         </div>
       </section>

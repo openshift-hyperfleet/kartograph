@@ -20,6 +20,25 @@ The system SHALL provide different default skill sets for bootstrap and extracti
 - THEN the default skill set is extraction-job-setup and minor-direct-edit oriented
 - AND schema edit skills remain available but are not the primary framing
 
+### Requirement: Graph Management UI Mode Overlays
+The system SHALL apply graph-management UI mode overlays on top of workspace session mode skills.
+
+#### Scenario: Initial schema design overlay
+- GIVEN graph-management UI mode `Initial Schema Design`
+- WHEN a chat turn resolves skills
+- THEN schema bootstrap and validation guidance is primary
+
+#### Scenario: Extraction jobs overlay
+- GIVEN graph-management UI mode `Extraction Jobs`
+- WHEN a chat turn resolves skills
+- THEN extraction job setup and sync-run guidance is primary
+- AND JobPackage readiness is required before agent execution
+
+#### Scenario: One-off mutations overlay
+- GIVEN graph-management UI mode `One-off Mutations`
+- WHEN a chat turn resolves skills
+- THEN scoped JSONL mutation authoring guidance is primary
+
 ### Requirement: Skill Resolution Model
 The system SHALL resolve agent skills using global templates with knowledge-graph overrides.
 

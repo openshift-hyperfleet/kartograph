@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
-import { Loader2, RefreshCw, SendHorizontal } from 'lucide-vue-next'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { Bot, Loader2, RefreshCw, RotateCcw, Send, Sparkles, User } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Textarea } from '@/components/ui/textarea'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,7 +13,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { handleChatInputKeydown } from '@/utils/kgManageState'
 
 interface ConversationEntry {
   role?: string
@@ -41,6 +39,9 @@ const props = withDefaults(defineProps<{
   inputDisabledReason?: string | null
   forbidden?: boolean
   forbiddenReason?: string | null
+  title?: string
+  description?: string
+  footerHint?: string
 }>(), {
   loading: false,
   clearing: false,
@@ -53,6 +54,11 @@ const props = withDefaults(defineProps<{
   inputDisabledReason: null,
   forbidden: false,
   forbiddenReason: null,
+  title: 'Graph Management Assistant',
+  description:
+    'Design and refine schema readiness, validation, and extraction operations for this knowledge graph. Use the assistant below to drive workspace changes.',
+  footerHint:
+    'Use Schema & artifacts and Session pointers below to inspect workspace state; send notes or questions here.',
 })
 
 const emit = defineEmits<{
@@ -63,33 +69,80 @@ const emit = defineEmits<{
 }>()
 
 const clearConfirmOpen = ref(false)
-const timelineRef = ref<HTMLElement | null>(null)
+const chatScrollRef = ref<HTMLElement | null>(null)
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
+const composerInputId = 'graph-management-chat-input'
 
 const messageHistory = computed(() => props.session?.message_history ?? [])
-const activityTimeline = computed(() => props.activityLines)
-
-const combinedTimelineLength = computed(
-  () => messageHistory.value.length + activityTimeline.value.length,
-)
 
 const chatInputDisabled = computed(
   () => props.loading || props.clearing || props.sending || props.inputDisabled || props.forbidden,
 )
 
-const chatInputHelp = computed(() => {
-  if (props.forbidden) {
-    return props.forbiddenReason ?? 'Chat is unavailable because you lack permission for this action.'
-  }
-  if (props.inputDisabledReason) return props.inputDisabledReason
-  return 'Press Enter to send. Shift+Enter adds a new line.'
+const thinkingDisplaySlots = computed(() => {
+  const src = props.activityLines.filter(Boolean)
+  if (src.length === 0) return ['']
+  return src.slice(-3)
 })
 
-watch(combinedTimelineLength, async () => {
-  await nextTick()
-  if (timelineRef.value) {
-    timelineRef.value.scrollTop = timelineRef.value.scrollHeight
+function isUserRole(role: string | undefined): boolean {
+  return role === 'user' || role === 'human'
+}
+
+function messageText(entry: ConversationEntry): string {
+  return entry.content ?? entry.message ?? '(empty)'
+}
+
+function scrollToBottom() {
+  const el = chatScrollRef.value
+  if (el) {
+    el.scrollTop = el.scrollHeight
   }
-})
+}
+
+function adjustTextareaHeight() {
+  const el = textareaRef.value
+  if (!el) return
+  const lh = parseFloat(getComputedStyle(el).lineHeight)
+  const line = Number.isFinite(lh) && lh > 0 ? lh : 21
+  const minH = Math.round(line * 2.5)
+  const maxH = Math.round(line * 14)
+  el.style.height = '0'
+  const scrollH = el.scrollHeight
+  const h = Math.min(Math.max(scrollH, minH), maxH)
+  el.style.height = `${h}px`
+  el.style.overflowY = scrollH > maxH ? 'auto' : 'hidden'
+}
+
+function handleComposerEnter(event: KeyboardEvent) {
+  if (event.shiftKey) return
+  if (chatInputDisabled.value || !props.draftMessage.trim()) return
+  event.preventDefault()
+  sendDraftMessage()
+}
+
+function renderAssistantHtml(text: string): string {
+  let s = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold text-foreground">$1</strong>')
+  s = s.replace(
+    /`([^`]+)`/g,
+    '<code class="rounded bg-muted px-1 py-0.5 text-xs font-mono text-foreground">$1</code>',
+  )
+  s = s.replace(
+    /^> (.+)$/gm,
+    '<p class="my-2 border-l-2 border-amber-500/60 pl-3 text-sm text-muted-foreground italic">$1</p>',
+  )
+  s = s.replace(
+    /\[([^\]]+)\]\(([^)]+)\)/g,
+    '<a class="text-primary font-medium underline underline-offset-2 hover:text-primary/90" href="$2">$1</a>',
+  )
+  s = s.replace(/## (.+)$/gm, '<h3 class="text-base font-semibold mt-3 mb-1 text-foreground">$1</h3>')
+  s = s.replace(/### (.+)$/gm, '<h4 class="text-sm font-semibold mt-2 text-foreground">$1</h4>')
+  s = s.replace(/^---$/gm, '<hr class="my-3 border-border" />')
+  s = s.replace(/\n\n+/g, '<br /><br />')
+  s = s.replace(/\n/g, '<br />')
+  return s
+}
 
 function confirmClearChat() {
   clearConfirmOpen.value = false
@@ -101,109 +154,227 @@ function sendDraftMessage() {
   if (!trimmed || chatInputDisabled.value) return
   emit('sendMessage', trimmed)
   emit('update:draftMessage', '')
+  void nextTick(() => adjustTextareaHeight())
 }
 
-function onChatInputKeydown(event: KeyboardEvent) {
-  handleChatInputKeydown(event, sendDraftMessage)
-}
+watch(
+  () => [messageHistory.value.length, props.activityLines.length, props.sending],
+  async () => {
+    await nextTick()
+    scrollToBottom()
+  },
+)
+
+watch(
+  () => props.draftMessage,
+  () => {
+    void nextTick(() => adjustTextareaHeight())
+  },
+)
+
+watch(
+  () => props.loading,
+  (busy) => {
+    if (!busy) void nextTick(() => adjustTextareaHeight())
+  },
+)
+
+onMounted(() => {
+  void nextTick(() => adjustTextareaHeight())
+})
 </script>
 
 <template>
-  <Card>
-    <CardHeader>
-      <div class="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <CardTitle class="text-base">Conversation</CardTitle>
-          <CardDescription>
-            Shared conversation feed for {{ modeLabel }} with server-side session resume.
-          </CardDescription>
+  <Card
+    id="graph-management-design-assistant"
+    class="overflow-hidden border-2 border-primary/25 shadow-md scroll-mt-6"
+  >
+    <CardHeader class="border-b bg-muted/30 pb-4">
+      <div class="flex flex-wrap items-start gap-3">
+        <div
+          class="flex size-10 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-primary"
+        >
+          <Sparkles class="size-5" aria-hidden="true" />
         </div>
-        <p class="text-xs text-muted-foreground">
-          Session: <span class="font-medium text-foreground">{{ sessionStatusLabel }}</span>
-        </p>
+        <div class="min-w-0 flex-1 space-y-1">
+          <CardTitle class="text-lg leading-tight">{{ title }}</CardTitle>
+          <CardDescription class="text-sm leading-relaxed">
+            {{ description }}
+          </CardDescription>
+          <p class="text-xs text-muted-foreground">
+            Mode:
+            <span class="font-medium text-foreground">{{ modeLabel }}</span>
+            · Session:
+            <span class="font-medium text-foreground">{{ sessionStatusLabel }}</span>
+          </p>
+        </div>
+        <div class="flex shrink-0 flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            class="gap-1.5"
+            :disabled="loading"
+            @click="emit('refresh')"
+          >
+            <RefreshCw class="size-4" />
+            Resume session
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            class="gap-1.5"
+            :disabled="clearing || loading || forbidden"
+            @click="clearConfirmOpen = true"
+          >
+            <Loader2 v-if="clearing" class="size-4 animate-spin" />
+            <RotateCcw v-else class="size-4" />
+            Clear chat
+          </Button>
+        </div>
       </div>
     </CardHeader>
-    <CardContent class="space-y-3">
+
+    <CardContent class="p-0">
       <div
         v-if="forbidden"
-        class="rounded border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+        class="border-b border-destructive/40 bg-destructive/5 px-4 py-3 text-xs text-destructive sm:px-6"
         role="alert"
       >
         {{ forbiddenReason ?? 'You do not have permission to use graph management chat for this knowledge graph.' }}
       </div>
 
-      <div class="flex items-center justify-between">
-        <p class="text-xs text-muted-foreground">No local cache: conversation state is server-side only.</p>
-        <Button size="sm" variant="ghost" class="h-7 px-2 text-[11px]" :disabled="loading" @click="emit('refresh')">
-          <RefreshCw class="mr-1 size-3.5" />
-          Resume session
-        </Button>
-      </div>
-
-      <div v-if="loading" class="flex items-center gap-2 text-xs text-muted-foreground">
-        <Loader2 class="size-3.5 animate-spin" />
-        Loading active conversation session...
-      </div>
       <div
-        v-else
-        ref="timelineRef"
-        class="space-y-2 max-h-56 overflow-auto rounded border p-2"
+        ref="chatScrollRef"
+        class="min-h-[14rem] max-h-[min(32rem,60vh)] space-y-4 overflow-y-auto bg-muted/10 px-4 py-4 sm:px-6"
       >
         <div
-          v-for="(entry, idx) in messageHistory"
-          :key="`msg-${idx}-${entry.role ?? 'unknown'}`"
-          class="rounded px-2 py-1 text-xs"
-          :class="entry.role === 'assistant' ? 'bg-muted' : 'bg-primary/10'"
+          v-if="loading"
+          class="flex flex-col items-center justify-center gap-3 py-12 text-muted-foreground"
+          aria-busy="true"
+          aria-live="polite"
         >
-          <p class="mb-0.5 font-medium">{{ entry.role ?? 'system' }}</p>
-          <p>{{ entry.content ?? entry.message ?? '(empty)' }}</p>
+          <Loader2 class="size-8 shrink-0 animate-spin" />
+          <p class="text-center text-sm text-foreground/80">Loading conversation session…</p>
         </div>
+        <template v-else>
+          <div
+            v-for="(entry, idx) in messageHistory"
+            :key="`msg-${idx}-${entry.role ?? 'unknown'}`"
+            class="flex gap-3"
+            :class="isUserRole(entry.role) ? 'flex-row-reverse' : ''"
+          >
+            <div
+              class="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card"
+              :class="
+                isUserRole(entry.role)
+                  ? 'border-primary/35 bg-primary/12 text-primary'
+                  : 'border-slate-300/60 bg-slate-100/80 text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/70 dark:text-slate-300'
+              "
+            >
+              <User v-if="isUserRole(entry.role)" class="size-4 text-primary" />
+              <Bot v-else class="size-4 text-muted-foreground" />
+            </div>
+            <div
+              class="min-w-0 max-w-[min(100%,42rem)] rounded-2xl border px-4 py-3 text-sm leading-relaxed shadow-sm"
+              :class="
+                isUserRole(entry.role)
+                  ? 'border-primary/25 bg-primary/[0.07] text-foreground shadow-primary/5'
+                  : 'border-slate-300/65 bg-slate-50/95 text-foreground shadow-slate-300/20 dark:border-slate-700/70 dark:bg-slate-900/65 dark:shadow-black/20'
+              "
+            >
+              <p v-if="isUserRole(entry.role)" class="whitespace-pre-wrap break-words">
+                {{ messageText(entry) }}
+              </p>
+              <div
+                v-else
+                class="chat-md space-y-1 break-words [&_a]:break-all [&_code]:break-all"
+                v-html="renderAssistantHtml(messageText(entry))"
+              />
+            </div>
+          </div>
 
-        <div
-          v-for="(line, idx) in activityTimeline"
-          :key="`activity-${idx}`"
-          class="rounded border border-dashed px-2 py-1 text-xs text-muted-foreground"
-        >
-          {{ line }}
-        </div>
+          <div
+            v-if="sending"
+            class="flex gap-3 text-muted-foreground"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <div class="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card">
+              <Bot class="size-4" />
+            </div>
+            <div
+              class="min-w-0 max-w-[min(100%,42rem)] flex-1 overflow-hidden rounded-2xl border border-dashed border-primary/25 bg-gradient-to-b from-slate-50/90 via-card to-card px-4 py-3 text-sm shadow-sm dark:from-slate-900/65"
+            >
+              <div class="mb-2 flex items-center gap-2 text-foreground">
+                <Loader2 class="size-4 shrink-0 animate-spin text-primary" aria-hidden="true" />
+                <span class="font-medium tracking-tight">Thinking...</span>
+              </div>
+              <ol class="m-0 list-none space-y-2 border-l-2 border-primary/25 pl-3">
+                <li
+                  v-for="(line, lineIdx) in thinkingDisplaySlots"
+                  :key="`${lineIdx}-${line || 'empty'}`"
+                  class="flex gap-2 text-xs leading-snug"
+                >
+                  <span
+                    class="w-4 shrink-0 select-none pt-0.5 text-center font-mono text-xs text-primary/45"
+                    aria-hidden="true"
+                  >
+                    –
+                  </span>
+                  <span
+                    class="min-w-0 flex-1 break-words font-mono text-[13px]"
+                    :class="line ? 'text-foreground/90' : 'text-muted-foreground/35'"
+                  >
+                    {{ line || '—' }}
+                  </span>
+                </li>
+              </ol>
+            </div>
+          </div>
 
-        <p
-          v-if="messageHistory.length === 0 && activityTimeline.length === 0"
-          class="text-xs text-muted-foreground"
-        >
-          No messages yet. Send a prompt or use validate/transition actions to drive session activity.
-        </p>
+          <p
+            v-if="messageHistory.length === 0 && !sending"
+            class="py-8 text-center text-sm text-muted-foreground"
+          >
+            No messages yet. Send a prompt or use validate/transition actions to drive session activity.
+          </p>
+        </template>
       </div>
 
-      <div class="space-y-2">
-        <div class="flex items-start gap-2">
-          <Textarea
-            :model-value="draftMessage"
+      <div class="border-t bg-muted/20 p-4 sm:p-6">
+        <label class="sr-only" :for="composerInputId">Message to graph management assistant</label>
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <textarea
+            :id="composerInputId"
+            ref="textareaRef"
+            :value="draftMessage"
+            rows="1"
             :disabled="chatInputDisabled"
             :placeholder="inputPlaceholder"
-            class="min-h-20"
-            aria-label="Graph management chat input"
-            @update:model-value="(value) => emit('update:draftMessage', value)"
-            @keydown="onChatInputKeydown"
+            class="w-full flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            @input="emit('update:draftMessage', ($event.target as HTMLTextAreaElement).value)"
+            @keydown.enter="handleComposerEnter"
           />
           <Button
-            variant="default"
-            class="shrink-0"
+            type="button"
+            class="h-10 min-h-10 w-full shrink-0 sm:w-auto sm:px-6"
             :disabled="chatInputDisabled || !draftMessage.trim()"
-            :title="chatInputHelp"
+            :title="inputDisabledReason ?? undefined"
             @click="sendDraftMessage"
           >
-            <Loader2 v-if="sending" class="size-3.5 animate-spin" />
-            <SendHorizontal v-else class="size-3.5" />
+            <Loader2 v-if="sending" class="size-4 animate-spin" />
+            <template v-else>
+              <Send class="size-4 sm:mr-2" />
+              <span class="hidden sm:inline">Send</span>
+            </template>
           </Button>
         </div>
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <p class="text-[11px] text-muted-foreground">{{ chatInputHelp }}</p>
-          <Button variant="outline" :disabled="clearing || loading || forbidden" @click="clearConfirmOpen = true">
-            <Loader2 v-if="clearing" class="mr-1.5 size-3.5 animate-spin" />
-            Clear chat
-          </Button>
-        </div>
+        <p class="mt-2 text-xs text-muted-foreground">
+          {{ footerHint }}
+          <span class="text-muted-foreground/90"> · Enter to send, Shift+Enter for a new line.</span>
+        </p>
       </div>
     </CardContent>
   </Card>

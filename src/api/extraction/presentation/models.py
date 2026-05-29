@@ -137,3 +137,9 @@ class ExtractionChatTurnRequest(BaseModel):
 
     message: str = Field(min_length=1)
     graph_management_ui_mode: GraphManagementUiMode = GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+
+
+class StickyRuntimeWarmupRequest(BaseModel):
+    """Request model for proactive sticky runtime warmup."""
+
+    graph_management_ui_mode: GraphManagementUiMode = GraphManagementUiMode.INITIAL_SCHEMA_DESIGN

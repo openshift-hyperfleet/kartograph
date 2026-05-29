@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 from ulid import ULID
 
+from extraction.infrastructure.vertex_runtime_env import build_vertex_container_env
 from extraction.ports.runtime import (
     EphemeralWorkerLaunchRequest,
     EphemeralWorkerLaunchResult,
@@ -42,6 +43,10 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         sticky_service_port: int = 8787,
         container_skills_mount: str = "/app/skills",
         container_work_mount: str = "/workspace",
+        vertex_project_id: str = "",
+        vertex_region: str = "us-east5",
+        vertex_enabled: bool = False,
+        gcloud_config_mount: str | None = None,
     ) -> None:
         self._container_runtime = container_runtime
         self._sticky_image = sticky_image
@@ -51,6 +56,10 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         self._sticky_service_port = sticky_service_port
         self._container_skills_mount = container_skills_mount
         self._container_work_mount = container_work_mount
+        self._vertex_project_id = vertex_project_id
+        self._vertex_region = vertex_region
+        self._vertex_enabled = vertex_enabled
+        self._gcloud_config_mount = gcloud_config_mount
         self._leases: dict[str, StickySessionRuntimeLease] = {}
 
     def get_or_start_runtime(
@@ -168,6 +177,17 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
                     f"{bootstrap.host_session_work_dir}:{self._container_work_mount}:ro",
                 ]
             )
+
+        if self._vertex_enabled:
+            env.update(
+                build_vertex_container_env(
+                    project_id=self._vertex_project_id,
+                    region=self._vertex_region,
+                )
+            )
+        if self._gcloud_config_mount:
+            binds.append(f"{self._gcloud_config_mount}:/root/.config/gcloud:ro")
+            env.setdefault("CLOUDSDK_CONFIG", "/root/.config/gcloud")
 
         launched = self._container_runtime.run(
             ContainerRunSpec(

@@ -12,8 +12,10 @@ from extraction.application import (
     ExtractionChatTurnService,
     ExtractionSkillResolutionService,
 )
-from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
+from extraction.application.sticky_session_runtime_service import StickySessionRuntimeService
+from extraction.infrastructure.sticky_runtime_health import StickyRuntimeHealthChecker
 from extraction.infrastructure.ingestion_readiness_reader import SqlIngestionReadinessReader
+from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
 from extraction.infrastructure.repositories import (
     ExtractionAgentSessionRepository,
     ExtractionSessionRunMetricsReader,
@@ -92,11 +94,18 @@ def get_extraction_chat_turn_service(
         ),
         runtime_settings=runtime_settings,
     )
-    return ExtractionChatTurnService(
+    runtime_service = StickySessionRuntimeService(
         session_service=session_service,
         skill_resolution_service=skill_resolution_service,
         ingestion_readiness_reader=SqlIngestionReadinessReader(session=session),
         sticky_runtime_manager=sticky_runtime_manager,
-        chat_agent=create_extraction_chat_agent(runtime_settings),
         bootstrap_builder=bootstrap_builder,
+        health_checker=StickyRuntimeHealthChecker(),
+        runtime_backend=runtime_settings.backend,
+        sticky_health_timeout_seconds=runtime_settings.sticky_health_timeout_seconds,
+    )
+    return ExtractionChatTurnService(
+        session_service=session_service,
+        runtime_service=runtime_service,
+        chat_agent=create_extraction_chat_agent(runtime_settings),
     )

@@ -9,7 +9,12 @@ from kartograph_agent_runtime.settings import AgentRuntimeSettings
 
 
 @pytest.mark.asyncio
-async def test_stream_turn_events_without_api_key_returns_done_reply() -> None:
+async def test_stream_turn_events_without_api_key_returns_done_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CLAUDE_CODE_USE_VERTEX", raising=False)
+    monkeypatch.delenv("ANTHROPIC_VERTEX_PROJECT_ID", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     settings = AgentRuntimeSettings(
         KARTOGRAPH_WORKLOAD_TOKEN="token",
         KARTOGRAPH_API_BASE_URL="http://api:8000",

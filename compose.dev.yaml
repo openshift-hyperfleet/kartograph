@@ -19,6 +19,11 @@ services:
       KARTOGRAPH_EXTRACTION_RUNTIME_API_BASE_URL: http://api:8000
       KARTOGRAPH_EXTRACTION_RUNTIME_JOB_PACKAGE_WORK_DIR: /tmp/kartograph/job_packages
       KARTOGRAPH_EXTRACTION_RUNTIME_SKILLS_DIR: /app/skills
+      # Vertex AI for Claude Agent SDK (mirror k-extract; set in host .env or shell)
+      CLAUDE_CODE_USE_VERTEX: ${CLAUDE_CODE_USE_VERTEX:-}
+      ANTHROPIC_VERTEX_PROJECT_ID: ${ANTHROPIC_VERTEX_PROJECT_ID:-}
+      CLOUD_ML_REGION: ${CLOUD_ML_REGION:-us-east5}
+      KARTOGRAPH_GCLOUD_CONFIG_MOUNT: ${KARTOGRAPH_GCLOUD_CONFIG_MOUNT:-}
     volumes:
       # Mount the entire app directory  (minus  venv) for hot-reload
       - ./src/api:/app:z

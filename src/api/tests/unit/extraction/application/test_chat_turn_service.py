@@ -8,7 +8,7 @@ import pytest
 
 from extraction.application.agent_session_service import ExtractionAgentSessionService
 from extraction.application.chat_turn_service import ExtractionChatTurnService
-from extraction.application.skill_resolution_service import ExtractionSkillResolutionService
+from extraction.application.sticky_session_runtime_service import StickySessionRuntimeService
 from extraction.domain.entities.agent_session import ExtractionAgentSession
 from extraction.domain.value_objects import (
     ExtractionSessionMode,
@@ -84,21 +84,40 @@ class _StaticBootstrapBuilder:
         return None
 
 
-@pytest.mark.asyncio
-async def test_stream_chat_turn_persists_assistant_reply() -> None:
+class _InstantHealthChecker:
+    async def wait_until_healthy(self, **kwargs):
+        yield "Assistant container is healthy"
+        return
+
+
+def _build_chat_turn_service(
+    *,
+    readiness: IngestionReadinessSnapshot,
+) -> tuple[ExtractionChatTurnService, _InMemoryAgentSessionRepository]:
     repo = _InMemoryAgentSessionRepository()
     sticky = InMemoryStickySessionRuntimeManager()
     session_service = ExtractionAgentSessionService(repository=repo)
-    service = ExtractionChatTurnService(
+    runtime_service = StickySessionRuntimeService(
         session_service=session_service,
         skill_resolution_service=_StaticSkillResolutionService(),
-        ingestion_readiness_reader=_StaticIngestionReadinessReader(
-            IngestionReadinessSnapshot(1, 1),
-        ),
+        ingestion_readiness_reader=_StaticIngestionReadinessReader(readiness),
         sticky_runtime_manager=sticky,
-        chat_agent=DeterministicExtractionChatAgent(),
         bootstrap_builder=_StaticBootstrapBuilder(),
+        health_checker=_InstantHealthChecker(),
+        runtime_backend="memory",
+        sticky_health_timeout_seconds=5.0,
     )
+    service = ExtractionChatTurnService(
+        session_service=session_service,
+        runtime_service=runtime_service,
+        chat_agent=DeterministicExtractionChatAgent(),
+    )
+    return service, repo
+
+
+@pytest.mark.asyncio
+async def test_stream_chat_turn_persists_assistant_reply() -> None:
+    service, repo = _build_chat_turn_service(readiness=IngestionReadinessSnapshot(1, 1))
 
     events = [
         event
@@ -123,19 +142,7 @@ async def test_stream_chat_turn_persists_assistant_reply() -> None:
 
 @pytest.mark.asyncio
 async def test_stream_chat_turn_wait_when_job_package_unprepared() -> None:
-    repo = _InMemoryAgentSessionRepository()
-    sticky = InMemoryStickySessionRuntimeManager()
-    session_service = ExtractionAgentSessionService(repository=repo)
-    service = ExtractionChatTurnService(
-        session_service=session_service,
-        skill_resolution_service=_StaticSkillResolutionService(),
-        ingestion_readiness_reader=_StaticIngestionReadinessReader(
-            IngestionReadinessSnapshot(2, 0),
-        ),
-        sticky_runtime_manager=sticky,
-        chat_agent=DeterministicExtractionChatAgent(),
-        bootstrap_builder=_StaticBootstrapBuilder(),
-    )
+    service, repo = _build_chat_turn_service(readiness=IngestionReadinessSnapshot(2, 0))
 
     events = [
         event
@@ -158,3 +165,25 @@ async def test_stream_chat_turn_wait_when_job_package_unprepared() -> None:
     )
     assert active is not None
     assert active.runtime_context["job_package"]["phase"] == "awaiting_job_package"
+
+
+@pytest.mark.asyncio
+async def test_stream_runtime_warmup_marks_memory_backend_ready() -> None:
+    service, _repo = _build_chat_turn_service(readiness=IngestionReadinessSnapshot(1, 1))
+
+    events = [
+        event
+        async for event in service.stream_runtime_warmup(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+        )
+    ]
+
+    assert any(event.get("type") == "ready" for event in events)
+    done = events[-1]
+    assert done["type"] == "done"
+    assert done["ok"] is True
+    assert done.get("ready") is True

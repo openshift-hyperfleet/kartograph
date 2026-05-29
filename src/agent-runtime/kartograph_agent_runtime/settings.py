@@ -5,6 +5,8 @@ from __future__ import annotations
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from kartograph_agent_runtime.vertex import vertex_enabled_from_env
+
 
 class AgentRuntimeSettings(BaseSettings):
     """Runtime configuration for sticky session agent containers."""
@@ -21,3 +23,13 @@ class AgentRuntimeSettings(BaseSettings):
     skills_dir: str = Field(default="/app/skills", alias="KARTOGRAPH_SKILLS_DIR")
     workspace_dir: str = Field(default="/workspace", alias="KARTOGRAPH_WORKSPACE_DIR")
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
+    vertex_project_id: str = Field(default="", alias="ANTHROPIC_VERTEX_PROJECT_ID")
+    vertex_region: str = Field(default="us-east5", alias="CLOUD_ML_REGION")
+
+    def vertex_enabled(self) -> bool:
+        return vertex_enabled_from_env()
+
+    def model_configured(self) -> bool:
+        if self.vertex_enabled():
+            return bool(self.vertex_project_id.strip())
+        return bool(self.anthropic_api_key.strip())

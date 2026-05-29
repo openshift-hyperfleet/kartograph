@@ -96,7 +96,7 @@ import {
   type MutationLogEntryPreviewPage,
   type MutationLogRunRecord,
 } from '@/utils/kgMutationLogs'
-import { streamExtractionChatTurn } from '@/utils/kgExtractionChat'
+import { streamExtractionChatTurn, streamRuntimeWarmup } from '@/utils/kgExtractionChat'
 import { useGraphApi } from '@/composables/api/useGraphApi'
 
 const runtimeConfig = useRuntimeConfig()
@@ -209,6 +209,10 @@ const sessionForbidden = ref(false)
 const sessionForbiddenReason = ref<string | null>(null)
 const clearingChat = ref(false)
 const sendingChat = ref(false)
+const runtimeWarming = ref(false)
+const runtimeReady = ref(false)
+const runtimeWarmupError = ref<string | null>(null)
+let runtimeWarmupGeneration = 0
 const extractionSession = ref<ExtractionSessionResponse | null>(null)
 const sessionHistory = ref<ExtractionSessionHistoryItem[]>([])
 const draftMessage = ref('')
@@ -300,12 +304,27 @@ const graphManagementInputPlaceholder = computed(
 )
 
 const sessionStatusLabel = computed(() => {
+  if (runtimeWarming.value) return 'Starting assistant'
+  if (!runtimeReady.value && runtimeWarmupError.value) return 'Runtime unavailable'
   if (sessionLoading.value) return 'Loading session'
   if (clearingChat.value) return 'Resetting chat'
   if (extractionSession.value?.id) {
     return `Active · ${extractionSession.value.id.slice(0, 8)}`
   }
   return 'No active session'
+})
+
+const chatInputDisabled = computed(
+  () => workspaceForbidden.value || runtimeWarming.value || !runtimeReady.value,
+)
+
+const chatInputDisabledReason = computed(() => {
+  if (workspaceForbidden.value) return workspaceForbiddenReason.value
+  if (runtimeWarming.value) return 'Starting Graph Management Assistant…'
+  if (!runtimeReady.value) {
+    return runtimeWarmupError.value ?? 'Assistant runtime is not ready yet.'
+  }
+  return null
 })
 
 const graphManagementRailItems = computed(() => {
@@ -878,8 +897,61 @@ function syncActivityLinesFromSession() {
     sessionActivityLines.value = candidate.filter(
       (line): line is string => typeof line === 'string' && line.trim().length > 0,
     )
-  } else {
+  } else if (!runtimeWarming.value) {
     sessionActivityLines.value = []
+  }
+}
+
+async function warmupAssistantRuntime() {
+  if (!kgId.value || activeStep.value !== 'graph-management') return
+  if (sessionForbidden.value || workspaceForbidden.value) {
+    runtimeReady.value = false
+    return
+  }
+
+  const generation = ++runtimeWarmupGeneration
+  runtimeWarming.value = true
+  runtimeReady.value = false
+  runtimeWarmupError.value = null
+  sessionActivityLines.value = ['Preparing Graph Management Assistant runtime…']
+
+  try {
+    for await (const event of streamRuntimeWarmup({
+      apiBaseUrl: String(runtimeConfig.public.apiBaseUrl ?? ''),
+      accessToken: accessToken.value,
+      tenantId: currentTenantId.value,
+      kgId: kgId.value,
+      sessionMode: sharedSessionMode.value,
+      uiMode: graphManagementMode.value,
+    })) {
+      if (generation !== runtimeWarmupGeneration) return
+      if (event.type === 'thinking' && Array.isArray(event.recent)) {
+        sessionActivityLines.value = event.recent.filter(Boolean)
+      }
+      if (event.type === 'wait' && event.message) {
+        sessionActivityLines.value = [event.message]
+      }
+      if (event.type === 'ready') {
+        sessionActivityLines.value = ['Assistant container ready']
+      }
+      if (event.type === 'done') {
+        if (event.ok !== true) {
+          throw new Error(event.error?.message ?? 'Runtime warmup failed')
+        }
+        runtimeReady.value = event.ready === true || event.wait === true
+      }
+    }
+    await loadExtractionSession()
+  } catch (err) {
+    runtimeWarmupError.value = extractErrorMessage(err)
+    runtimeReady.value = false
+    toast.error('Failed to start Graph Management Assistant', {
+      description: runtimeWarmupError.value,
+    })
+  } finally {
+    if (generation === runtimeWarmupGeneration) {
+      runtimeWarming.value = false
+    }
   }
 }
 
@@ -1051,22 +1123,29 @@ watch(tenantVersion, () => {
 
 watch(
   () => statusProjection.value?.workspace_mode,
-  () => {
+  async () => {
     if (activeStep.value === 'graph-management') {
       syncGraphManagementState()
-      loadExtractionSession()
+      await loadExtractionSession()
+      await warmupAssistantRuntime()
     }
   },
 )
 
 watch(
-  () => [activeStep.value, route.query.gm_mode] as const,
-  () => {
+  () => [activeStep.value, route.query.gm_mode, sharedSessionMode.value] as const,
+  async () => {
     if (activeStep.value === 'graph-management') {
       syncGraphManagementState()
-      loadExtractionSession()
+      await loadExtractionSession()
       loadSessionHistory()
       loadGraphManagementDataSources()
+      await warmupAssistantRuntime()
+    } else {
+      runtimeWarmupGeneration += 1
+      runtimeWarming.value = false
+      runtimeReady.value = false
+      runtimeWarmupError.value = null
     }
   },
 )
@@ -1675,8 +1754,8 @@ watch(selectedOpsDataSourceId, () => {
           :activity-lines="sessionActivityLines"
           :forbidden="sessionForbidden"
           :forbidden-reason="sessionForbiddenReason"
-          :input-disabled="workspaceForbidden"
-          :input-disabled-reason="workspaceForbiddenReason"
+          :input-disabled="chatInputDisabled"
+          :input-disabled-reason="chatInputDisabledReason"
           @refresh="loadExtractionSession"
           @clear-chat="clearChat"
           @send-message="sendChatMessage"

@@ -1,14 +1,16 @@
-/** Stream graph-management chat turns over NDJSON. */
+/** Stream graph-management chat turns and proactive runtime warmup over NDJSON. */
 
 import type { GraphManagementMode } from '@/utils/kgGraphManagement'
 
 export interface ExtractionChatStreamEvent {
-  type: 'thinking' | 'wait' | 'done'
+  type: 'thinking' | 'wait' | 'ready' | 'done'
   recent?: string[]
   phase?: string
   message?: string
+  runtime_base_url?: string
   ok?: boolean
   reply?: string | null
+  ready?: boolean
   wait?: boolean
   error?: { code: string; message: string }
 }
@@ -23,35 +25,29 @@ export interface StreamExtractionChatOptions {
   message: string
 }
 
-export async function* streamExtractionChatTurn(
-  options: StreamExtractionChatOptions,
-): AsyncGenerator<ExtractionChatStreamEvent> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Accept: 'application/x-ndjson',
-  }
-  if (options.accessToken) {
-    headers.Authorization = `Bearer ${options.accessToken}`
-  }
-  if (options.tenantId) {
-    headers['X-Tenant-ID'] = options.tenantId
-  }
+export interface StreamRuntimeWarmupOptions {
+  apiBaseUrl: string
+  accessToken: string | null
+  tenantId: string | null
+  kgId: string
+  sessionMode: 'schema_bootstrap' | 'extraction_operations'
+  uiMode: GraphManagementMode
+}
 
-  const response = await fetch(
-    `${options.apiBaseUrl}/extraction/knowledge-graphs/${encodeURIComponent(options.kgId)}/sessions/${options.sessionMode}/chat`,
-    {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        message: options.message,
-        graph_management_ui_mode: options.uiMode,
-      }),
-    },
-  )
+async function* streamNdjsonPost(
+  url: string,
+  headers: Record<string, string>,
+  body: Record<string, unknown>,
+): AsyncGenerator<ExtractionChatStreamEvent> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
 
   if (!response.ok) {
-    const body = await response.text().catch(() => '')
-    throw new Error(body || `${response.status} ${response.statusText}`)
+    const text = await response.text().catch(() => '')
+    throw new Error(text || `${response.status} ${response.statusText}`)
   }
 
   const reader = response.body?.getReader()
@@ -79,4 +75,42 @@ export async function* streamExtractionChatTurn(
   if (tail) {
     yield JSON.parse(tail) as ExtractionChatStreamEvent
   }
+}
+
+function buildExtractionHeaders(
+  accessToken: string | null,
+  tenantId: string | null,
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'application/x-ndjson',
+  }
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`
+  }
+  if (tenantId) {
+    headers['X-Tenant-ID'] = tenantId
+  }
+  return headers
+}
+
+export async function* streamRuntimeWarmup(
+  options: StreamRuntimeWarmupOptions,
+): AsyncGenerator<ExtractionChatStreamEvent> {
+  const headers = buildExtractionHeaders(options.accessToken, options.tenantId)
+  const url = `${options.apiBaseUrl}/extraction/knowledge-graphs/${encodeURIComponent(options.kgId)}/sessions/${options.sessionMode}/runtime/warm`
+  yield* streamNdjsonPost(url, headers, {
+    graph_management_ui_mode: options.uiMode,
+  })
+}
+
+export async function* streamExtractionChatTurn(
+  options: StreamExtractionChatOptions,
+): AsyncGenerator<ExtractionChatStreamEvent> {
+  const headers = buildExtractionHeaders(options.accessToken, options.tenantId)
+  const url = `${options.apiBaseUrl}/extraction/knowledge-graphs/${encodeURIComponent(options.kgId)}/sessions/${options.sessionMode}/chat`
+  yield* streamNdjsonPost(url, headers, {
+    message: options.message,
+    graph_management_ui_mode: options.uiMode,
+  })
 }

@@ -22,6 +22,7 @@ from extraction.presentation.models import (
     ExtractionSessionHistoryResponse,
     ExtractionSessionListResponse,
     ExtractionSessionResponse,
+    StickyRuntimeWarmupRequest,
 )
 from iam.application.value_objects import CurrentUser
 from iam.dependencies.user import get_current_user
@@ -160,6 +161,36 @@ async def clear_chat(
         mode=mode,
     )
     return ExtractionSessionResponse.from_domain(session)
+
+
+@router.post(
+    "/knowledge-graphs/{knowledge_graph_id}/sessions/{mode}/runtime/warm",
+)
+async def stream_runtime_warmup(
+    knowledge_graph_id: str,
+    mode: ExtractionSessionMode,
+    request: StickyRuntimeWarmupRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[ExtractionChatTurnService, Depends(get_extraction_chat_turn_service)],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+) -> StreamingResponse:
+    await _assert_kg_edit_permission(
+        authz=authz,
+        current_user=current_user,
+        knowledge_graph_id=knowledge_graph_id,
+    )
+
+    async def event_stream():
+        async for event in service.stream_runtime_warmup(
+            user_id=current_user.user_id.value,
+            tenant_id=current_user.tenant_id.value,
+            knowledge_graph_id=knowledge_graph_id,
+            mode=mode,
+            ui_mode=request.graph_management_ui_mode,
+        ):
+            yield json.dumps(event) + "\n"
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 
 @router.post(

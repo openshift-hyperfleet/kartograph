@@ -8,6 +8,7 @@ from typing import Any
 
 from kartograph_agent_runtime.settings import AgentRuntimeSettings
 from kartograph_agent_runtime.tools import RuntimeTooling
+from kartograph_agent_runtime.vertex import build_claude_agent_env
 
 
 def _build_system_prompt(agent_configuration: dict[str, Any]) -> str:
@@ -20,6 +21,16 @@ def _build_system_prompt(agent_configuration: dict[str, Any]) -> str:
     return "\n\n".join(sections) or "You are the Graph Management Assistant."
 
 
+def _apply_model_env(settings: AgentRuntimeSettings) -> str:
+    for key, value in build_claude_agent_env(settings).items():
+        os.environ[key] = value
+    if settings.vertex_enabled():
+        return "Vertex AI"
+    if settings.anthropic_api_key.strip():
+        return "Anthropic API"
+    return "unconfigured"
+
+
 async def stream_turn_events(
     *,
     settings: AgentRuntimeSettings,
@@ -28,22 +39,25 @@ async def stream_turn_events(
     agent_configuration: dict[str, Any],
     message_history: list[dict[str, Any]],
 ) -> AsyncIterator[dict[str, Any]]:
+    auth_mode = _apply_model_env(settings)
     yield {
         "type": "thinking",
         "recent": [
             "Starting Claude Agent SDK runtime…",
+            f"Model backend: {auth_mode}",
             f"Applying {ui_mode} skill overlay",
             f"Workspace mounted at {settings.workspace_dir}",
         ],
     }
 
-    if settings.anthropic_api_key:
+    if settings.model_configured():
         async for event in _stream_with_claude_sdk(
             settings=settings,
             message=message,
             ui_mode=ui_mode,
             agent_configuration=agent_configuration,
             message_history=message_history,
+            auth_mode=auth_mode,
         ):
             yield event
         return
@@ -54,8 +68,9 @@ async def stream_turn_events(
         f"**Graph Management Assistant ({ui_mode})**\n\n"
         f"I received your message with skills: {skill_keys}.\n\n"
         f"> {message.strip()}\n\n"
-        "Claude Agent SDK is configured for this container. Set `ANTHROPIC_API_KEY` "
-        "to enable live model execution. Graph and mutation tools are wired via "
+        "Configure Vertex AI (`CLAUDE_CODE_USE_VERTEX=1`, `ANTHROPIC_VERTEX_PROJECT_ID`, "
+        "`CLOUD_ML_REGION`) or `ANTHROPIC_API_KEY` to enable live model execution. "
+        "Graph and mutation tools are wired via "
         f"`{settings.api_base_url}` using the injected workload token."
     )
     if message.lower().startswith("search graph:"):
@@ -75,10 +90,10 @@ async def _stream_with_claude_sdk(
     ui_mode: str,
     agent_configuration: dict[str, Any],
     message_history: list[dict[str, Any]],
+    auth_mode: str,
 ) -> AsyncIterator[dict[str, Any]]:
     from claude_agent_sdk import ClaudeAgentOptions, query
 
-    os.environ.setdefault("ANTHROPIC_API_KEY", settings.anthropic_api_key)
     system_prompt = _build_system_prompt(agent_configuration)
     history_lines = [
         f"{entry.get('role', 'unknown')}: {entry.get('content', '')}"
@@ -92,14 +107,17 @@ async def _stream_with_claude_sdk(
     yield {
         "type": "thinking",
         "recent": [
-            "Claude Agent SDK query started…",
+            f"Claude Agent SDK query started ({auth_mode})…",
             f"Mode overlay: {ui_mode}",
             "Tools: graph read enclave, mutation emitter",
         ],
     }
 
     chunks: list[str] = []
-    options = ClaudeAgentOptions(system_prompt=system_prompt)
+    options = ClaudeAgentOptions(
+        system_prompt=system_prompt,
+        env=build_claude_agent_env(settings),
+    )
     async for sdk_message in query(prompt=prompt, options=options):
         text = getattr(sdk_message, "result", None) or getattr(sdk_message, "content", None)
         if isinstance(text, str) and text.strip():

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from extraction.infrastructure.vertex_runtime_env import vertex_enabled_from_env
 
 
 class ExtractionWorkloadRuntimeSettings(BaseSettings):
@@ -33,6 +36,34 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
     job_package_work_dir: str = Field(default="/tmp/kartograph/job_packages")
     skills_dir: str = Field(default="/app/skills")
     api_base_url: str = Field(default="http://api:8000")
+    sticky_health_timeout_seconds: float = Field(default=90.0, ge=5.0, le=600.0)
+    vertex_project_id: str = Field(default="")
+    vertex_region: str = Field(default="us-east5")
+    gcloud_config_mount: str | None = Field(default=None)
+
+    def vertex_enabled(self) -> bool:
+        return vertex_enabled_from_env()
+
+    @model_validator(mode="after")
+    def _apply_vertex_env_aliases(self) -> "ExtractionWorkloadRuntimeSettings":
+        if not self.vertex_project_id:
+            object.__setattr__(
+                self,
+                "vertex_project_id",
+                os.getenv("ANTHROPIC_VERTEX_PROJECT_ID", "").strip(),
+            )
+        if self.vertex_region == "us-east5":
+            region = (
+                os.getenv("CLOUD_ML_REGION", "").strip()
+                or os.getenv("VERTEXAI_LOCATION", "").strip()
+            )
+            if region:
+                object.__setattr__(self, "vertex_region", region)
+        if self.gcloud_config_mount is None:
+            gcloud = os.getenv("KARTOGRAPH_GCLOUD_CONFIG_MOUNT", "").strip()
+            if gcloud:
+                object.__setattr__(self, "gcloud_config_mount", gcloud)
+        return self
 
     @field_validator("sticky_command", "worker_command", mode="before")
     @classmethod

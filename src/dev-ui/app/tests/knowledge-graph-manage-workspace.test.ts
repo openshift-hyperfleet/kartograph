@@ -553,6 +553,8 @@ describe('KG-MANAGE-017 - chat input keyboard contract', () => {
     expect(sharedConversationPanelVue).toContain('Shift+Enter for a new line')
     expect(sharedConversationPanelVue).toContain("emit('sendMessage'")
     expect(manageWorkspaceVue).toContain('streamExtractionChatTurn')
+    expect(manageWorkspaceVue).toContain('streamRuntimeWarmup')
+    expect(manageWorkspaceVue).toContain('warmupAssistantRuntime')
     expect(manageWorkspaceVue).toContain('@send-message="sendChatMessage"')
   })
 })

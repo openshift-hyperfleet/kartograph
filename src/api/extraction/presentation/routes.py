@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import json
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from extraction.application import ExtractionAgentSessionService
-from extraction.dependencies import get_extraction_agent_session_service
+from extraction.application.chat_turn_service import ExtractionChatTurnService
+from extraction.dependencies import (
+    get_extraction_agent_session_service,
+    get_extraction_chat_turn_service,
+)
 from extraction.domain.value_objects import ExtractionSessionMode
 from extraction.presentation.models import (
     BootstrapIntakePathSelectionRequest,
+    ExtractionChatTurnRequest,
     ExtractionSessionHistoryItemResponse,
     ExtractionSessionHistoryResponse,
     ExtractionSessionListResponse,
@@ -153,6 +160,36 @@ async def clear_chat(
         mode=mode,
     )
     return ExtractionSessionResponse.from_domain(session)
+
+
+@router.post(
+    "/knowledge-graphs/{knowledge_graph_id}/sessions/{mode}/chat",
+)
+async def stream_chat_turn(
+    knowledge_graph_id: str,
+    mode: ExtractionSessionMode,
+    request: ExtractionChatTurnRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[ExtractionChatTurnService, Depends(get_extraction_chat_turn_service)],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+) -> StreamingResponse:
+    await _assert_kg_edit_permission(
+        authz=authz,
+        current_user=current_user,
+        knowledge_graph_id=knowledge_graph_id,
+    )
+
+    async def event_stream():
+        async for event in service.stream_chat_turn(
+            user_id=current_user.user_id.value,
+            knowledge_graph_id=knowledge_graph_id,
+            mode=mode,
+            ui_mode=request.graph_management_ui_mode,
+            message=request.message,
+        ):
+            yield json.dumps(event) + "\n"
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 
 @router.post(

@@ -182,6 +182,7 @@ async def stream_chat_turn(
     async def event_stream():
         async for event in service.stream_chat_turn(
             user_id=current_user.user_id.value,
+            tenant_id=current_user.tenant_id.value,
             knowledge_graph_id=knowledge_graph_id,
             mode=mode,
             ui_mode=request.graph_management_ui_mode,

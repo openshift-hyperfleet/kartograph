@@ -19,6 +19,18 @@ class StickySessionRuntimeLease:
     status: str
     last_activity_at: datetime
     expires_at: datetime
+    runtime_base_url: str | None = None
+
+
+@dataclass(frozen=True)
+class StickySessionRuntimeBootstrap:
+    """Host paths and credentials used when starting a sticky session container."""
+
+    tenant_id: str
+    credentials: ScopedWorkloadCredentials
+    host_session_work_dir: str
+    host_skills_dir: str
+    api_base_url: str
 
 
 @dataclass(frozen=True)
@@ -70,6 +82,7 @@ class IStickySessionRuntimeManager(Protocol):
         user_id: str,
         knowledge_graph_id: str,
         mode: str,
+        bootstrap: StickySessionRuntimeBootstrap | None = None,
     ) -> StickySessionRuntimeLease:
         """Return current runtime lease or start a new sticky runtime."""
         ...
@@ -81,6 +94,7 @@ class IStickySessionRuntimeManager(Protocol):
         user_id: str,
         knowledge_graph_id: str,
         mode: str,
+        bootstrap: StickySessionRuntimeBootstrap | None = None,
     ) -> StickySessionRuntimeLease:
         """Terminate existing runtime for session and start a clean one."""
         ...

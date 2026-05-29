@@ -32,6 +32,10 @@ class CliContainerRuntime:
             command.extend(["--label", f"{key}={value}"])
         for key, value in sorted(spec.env.items()):
             command.extend(["--env", f"{key}={value}"])
+        for bind in spec.binds:
+            command.extend(["--volume", bind])
+        if spec.network is not None:
+            command.extend(["--network", spec.network])
         command.append(spec.image)
         if spec.command:
             command.extend(spec.command)

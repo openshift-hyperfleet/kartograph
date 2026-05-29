@@ -14,6 +14,7 @@ from extraction.ports.runtime import (
     IEphemeralExtractionWorkerLauncher,
     IStickySessionRuntimeManager,
     ScopedWorkloadCredentials,
+    StickySessionRuntimeBootstrap,
     StickySessionRuntimeLease,
 )
 from shared_kernel.container_runtime.ports import ContainerRunSpec, IContainerRuntime
@@ -37,11 +38,19 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         sticky_image: str,
         sticky_command: tuple[str, ...],
         session_ttl: timedelta = timedelta(minutes=30),
+        container_network: str | None = None,
+        sticky_service_port: int = 8787,
+        container_skills_mount: str = "/app/skills",
+        container_work_mount: str = "/workspace",
     ) -> None:
         self._container_runtime = container_runtime
         self._sticky_image = sticky_image
         self._sticky_command = sticky_command
         self._session_ttl = session_ttl
+        self._container_network = container_network
+        self._sticky_service_port = sticky_service_port
+        self._container_skills_mount = container_skills_mount
+        self._container_work_mount = container_work_mount
         self._leases: dict[str, StickySessionRuntimeLease] = {}
 
     def get_or_start_runtime(
@@ -51,6 +60,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         user_id: str,
         knowledge_graph_id: str,
         mode: str,
+        bootstrap: StickySessionRuntimeBootstrap | None = None,
     ) -> StickySessionRuntimeLease:
         now = datetime.now(UTC)
         existing = self._leases.get(session_id)
@@ -77,6 +87,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
             knowledge_graph_id=knowledge_graph_id,
             mode=mode,
             now=now,
+            bootstrap=bootstrap,
         )
         self._leases[session_id] = lease
         return lease
@@ -88,6 +99,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         user_id: str,
         knowledge_graph_id: str,
         mode: str,
+        bootstrap: StickySessionRuntimeBootstrap | None = None,
     ) -> StickySessionRuntimeLease:
         existing = self._leases.pop(session_id, None)
         if existing is not None:
@@ -97,6 +109,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
             user_id=user_id,
             knowledge_graph_id=knowledge_graph_id,
             mode=mode,
+            bootstrap=bootstrap,
         )
 
     def cleanup_expired(self, *, now: datetime) -> list[str]:
@@ -120,12 +133,49 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         knowledge_graph_id: str,
         mode: str,
         now: datetime,
+        bootstrap: StickySessionRuntimeBootstrap | None,
     ) -> StickySessionRuntimeLease:
         container_name = _sanitize_container_name("kartograph-sticky-", session_id)
+        env: dict[str, str] = {
+            "KARTOGRAPH_SESSION_ID": session_id,
+            "KARTOGRAPH_KNOWLEDGE_GRAPH_ID": knowledge_graph_id,
+            "KARTOGRAPH_USER_ID": user_id,
+            "KARTOGRAPH_SESSION_MODE": mode,
+            "KARTOGRAPH_SKILLS_DIR": self._container_skills_mount,
+            "KARTOGRAPH_WORKSPACE_DIR": self._container_work_mount,
+        }
+        binds: list[str] = []
+        if bootstrap is not None:
+            required_scopes = {
+                f"tenant:{bootstrap.tenant_id}",
+                f"knowledge_graph:{knowledge_graph_id}",
+                "workload:chat",
+            }
+            if not required_scopes.issubset(set(bootstrap.credentials.scopes)):
+                raise ValueError("sticky session credentials scope is invalid")
+            if bootstrap.credentials.expires_at <= datetime.now(UTC):
+                raise ValueError("sticky session credentials are expired")
+            env.update(
+                {
+                    "KARTOGRAPH_WORKLOAD_TOKEN": bootstrap.credentials.token,
+                    "KARTOGRAPH_TENANT_ID": bootstrap.tenant_id,
+                    "KARTOGRAPH_API_BASE_URL": bootstrap.api_base_url,
+                }
+            )
+            binds.extend(
+                [
+                    f"{bootstrap.host_skills_dir}:{self._container_skills_mount}:ro",
+                    f"{bootstrap.host_session_work_dir}:{self._container_work_mount}:ro",
+                ]
+            )
+
         launched = self._container_runtime.run(
             ContainerRunSpec(
                 image=self._sticky_image,
                 name=container_name,
+                env=env,
+                binds=tuple(binds),
+                network=self._container_network,
                 labels={
                     "kartograph.runtime.kind": "sticky",
                     "kartograph.session_id": session_id,
@@ -136,6 +186,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
                 command=self._sticky_command,
             )
         )
+        runtime_base_url = f"http://{container_name}:{self._sticky_service_port}"
         return StickySessionRuntimeLease(
             session_id=session_id,
             container_id=launched.container_id,
@@ -145,6 +196,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
             status="active",
             last_activity_at=now,
             expires_at=now + self._session_ttl,
+            runtime_base_url=runtime_base_url,
         )
 
     def _terminate_container(self, container_id: str) -> None:

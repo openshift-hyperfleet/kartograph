@@ -79,6 +79,11 @@ class _StaticSkillResolutionService:
         )()
 
 
+class _StaticBootstrapBuilder:
+    async def build(self, **kwargs):
+        return None
+
+
 @pytest.mark.asyncio
 async def test_stream_chat_turn_persists_assistant_reply() -> None:
     repo = _InMemoryAgentSessionRepository()
@@ -92,11 +97,13 @@ async def test_stream_chat_turn_persists_assistant_reply() -> None:
         ),
         sticky_runtime_manager=sticky,
         chat_agent=DeterministicExtractionChatAgent(),
+        bootstrap_builder=_StaticBootstrapBuilder(),
     )
 
     events = [
         event
         async for event in service.stream_chat_turn(
+            tenant_id="tenant-1",
             user_id="user-1",
             knowledge_graph_id="kg-1",
             mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
@@ -127,11 +134,13 @@ async def test_stream_chat_turn_wait_when_job_package_unprepared() -> None:
         ),
         sticky_runtime_manager=sticky,
         chat_agent=DeterministicExtractionChatAgent(),
+        bootstrap_builder=_StaticBootstrapBuilder(),
     )
 
     events = [
         event
         async for event in service.stream_chat_turn(
+            tenant_id="tenant-1",
             user_id="user-1",
             knowledge_graph_id="kg-1",
             mode=ExtractionSessionMode.EXTRACTION_OPERATIONS,

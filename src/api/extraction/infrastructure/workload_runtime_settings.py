@@ -21,11 +21,18 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
 
     backend: Literal["memory", "container"] = Field(default="memory")
     container_engine: Literal["auto", "docker", "podman"] = Field(default="auto")
-    sticky_image: str = Field(default="docker.io/library/busybox:1.36")
+    container_network: str | None = Field(default=None)
+    sticky_image: str = Field(default="kartograph-agent-runtime:dev")
     worker_image: str = Field(default="docker.io/library/busybox:1.36")
-    sticky_command: tuple[str, ...] = Field(default=("sleep", "3600"))
+    sticky_command: tuple[str, ...] = Field(default=("python", "-m", "kartograph_agent_runtime"))
     worker_command: tuple[str, ...] = Field(default=("sleep", "3600"))
+    sticky_service_port: int = Field(default=8787, ge=1024, le=65535)
+    container_skills_mount: str = Field(default="/app/skills")
+    container_work_mount: str = Field(default="/workspace")
     session_ttl_minutes: int = Field(default=30, ge=1, le=24 * 60)
+    job_package_work_dir: str = Field(default="/tmp/kartograph/job_packages")
+    skills_dir: str = Field(default="/app/skills")
+    api_base_url: str = Field(default="http://api:8000")
 
     @field_validator("sticky_command", "worker_command", mode="before")
     @classmethod

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -9,6 +10,8 @@ from typing import Any
 from kartograph_agent_runtime.settings import AgentRuntimeSettings
 from kartograph_agent_runtime.tools import RuntimeTooling
 from kartograph_agent_runtime.vertex import build_claude_agent_env
+
+_DEFAULT_TURN_TIMEOUT_SECONDS = 180.0
 
 
 def _build_system_prompt(agent_configuration: dict[str, Any]) -> str:
@@ -31,6 +34,41 @@ def _apply_model_env(settings: AgentRuntimeSettings) -> str:
     return "unconfigured"
 
 
+def _extract_sdk_reply(message: Any) -> str | None:
+    result = getattr(message, "result", None)
+    if isinstance(result, str) and result.strip():
+        return result.strip()
+
+    content = getattr(message, "content", None)
+    if isinstance(content, str) and content.strip():
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            text = getattr(block, "text", None)
+            if isinstance(text, str) and text.strip():
+                parts.append(text.strip())
+        if parts:
+            return parts[-1]
+    return None
+
+
+def _build_sdk_env(settings: AgentRuntimeSettings) -> dict[str, str]:
+    env = build_claude_agent_env(settings)
+    if settings.gcloud_config_dir.strip():
+        env.setdefault("CLOUDSDK_CONFIG", settings.gcloud_config_dir.strip())
+    if settings.google_application_credentials.strip():
+        env.setdefault(
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            settings.google_application_credentials.strip(),
+        )
+    env.setdefault("HOME", settings.home_dir.strip() or "/tmp")
+    env.setdefault("API_TIMEOUT_MS", "120000")
+    env.setdefault("CLAUDE_CODE_MAX_RETRIES", "2")
+    env.setdefault("CLAUDE_ASYNC_AGENT_STALL_TIMEOUT_MS", "120000")
+    return env
+
+
 async def stream_turn_events(
     *,
     settings: AgentRuntimeSettings,
@@ -38,6 +76,7 @@ async def stream_turn_events(
     ui_mode: str,
     agent_configuration: dict[str, Any],
     message_history: list[dict[str, Any]],
+    turn_timeout_seconds: float = _DEFAULT_TURN_TIMEOUT_SECONDS,
 ) -> AsyncIterator[dict[str, Any]]:
     auth_mode = _apply_model_env(settings)
     yield {
@@ -58,6 +97,7 @@ async def stream_turn_events(
             agent_configuration=agent_configuration,
             message_history=message_history,
             auth_mode=auth_mode,
+            turn_timeout_seconds=turn_timeout_seconds,
         ):
             yield event
         return
@@ -91,6 +131,7 @@ async def _stream_with_claude_sdk(
     agent_configuration: dict[str, Any],
     message_history: list[dict[str, Any]],
     auth_mode: str,
+    turn_timeout_seconds: float,
 ) -> AsyncIterator[dict[str, Any]]:
     from claude_agent_sdk import ClaudeAgentOptions, query
 
@@ -113,18 +154,49 @@ async def _stream_with_claude_sdk(
         ],
     }
 
-    chunks: list[str] = []
+    sdk_env = _build_sdk_env(settings)
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
-        env=build_claude_agent_env(settings),
+        env=sdk_env,
+        permission_mode="bypassPermissions",
+        max_turns=8,
+        setting_sources=[],
     )
-    async for sdk_message in query(prompt=prompt, options=options):
-        text = getattr(sdk_message, "result", None) or getattr(sdk_message, "content", None)
-        if isinstance(text, str) and text.strip():
-            chunks.append(text.strip())
 
-    reply = chunks[-1] if chunks else (
-        "Claude Agent SDK completed without a textual response. "
-        "Retry with a more specific graph-management request."
-    )
+    reply: str | None = None
+    try:
+        async with asyncio.timeout(turn_timeout_seconds):
+            async for sdk_message in query(prompt=prompt, options=options):
+                extracted = _extract_sdk_reply(sdk_message)
+                if extracted:
+                    reply = extracted
+    except TimeoutError:
+        yield {
+            "type": "done",
+            "ok": False,
+            "error": {
+                "code": "AGENT_TURN_TIMEOUT",
+                "message": (
+                    f"Claude Agent SDK did not complete within {int(turn_timeout_seconds)}s. "
+                    "Check Vertex credentials and model access for this project."
+                ),
+            },
+        }
+        return
+    except Exception as exc:  # noqa: BLE001
+        yield {
+            "type": "done",
+            "ok": False,
+            "error": {
+                "code": "AGENT_TURN_FAILED",
+                "message": str(exc),
+            },
+        }
+        return
+
+    if not reply:
+        reply = (
+            "Claude Agent SDK completed without a textual response. "
+            "Retry with a more specific graph-management request."
+        )
     yield {"type": "done", "ok": True, "reply": reply}

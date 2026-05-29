@@ -86,4 +86,40 @@ describe('kgExtractionChat', () => {
       globalThis.fetch = originalFetch
     }
   })
+
+  it('throws when the NDJSON stream ends without a terminal done event', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => {
+      const body = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode('{"type":"thinking","recent":["Still working…"]}\n'),
+          )
+          controller.close()
+        },
+      })
+      return new Response(body, { status: 200, headers: { 'Content-Type': 'application/x-ndjson' } })
+    }) as typeof fetch
+
+    try {
+      const iterator = streamExtractionChatTurn({
+        apiBaseUrl: 'http://api.test',
+        accessToken: 'token',
+        tenantId: 'tenant-1',
+        kgId: 'kg-1',
+        sessionMode: 'schema_bootstrap',
+        uiMode: 'initial-schema-design',
+        message: 'Hello',
+      })
+
+      await expect(async () => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        for await (const _event of iterator) {
+          // drain stream
+        }
+      }).rejects.toThrow('stream ended before completion')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })

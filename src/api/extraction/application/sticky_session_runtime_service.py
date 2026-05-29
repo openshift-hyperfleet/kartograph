@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
@@ -19,6 +20,7 @@ from extraction.ports.ingestion_readiness import IIngestionReadinessReader
 from extraction.ports.runtime import IStickySessionRuntimeManager, StickySessionRuntimeLease
 from extraction.ports.sticky_runtime_health import IStickyRuntimeHealthChecker
 from extraction.ports.sticky_session_bootstrap import IStickySessionBootstrapBuilder
+from shared_kernel.container_runtime.ports import ContainerRuntimeError
 
 
 class StickySessionRuntimeService:
@@ -82,12 +84,22 @@ class StickySessionRuntimeService:
         session: ExtractionAgentSession,
     ) -> AsyncIterator[dict[str, Any]]:
         sticky = session.runtime_context.get("sticky_runtime", {})
-        if (
-            isinstance(sticky.get("runtime_base_url"), str)
-            and sticky.get("phase") == "ready"
-            and sticky.get("container_id")
-        ):
+        container_id = sticky.get("container_id")
+        persisted_container_id = container_id if isinstance(container_id, str) else None
+
+        lease = await asyncio.to_thread(
+            self._sticky_runtime_manager.try_resolve_active_lease,
+            session_id=session.id,
+            container_id=persisted_container_id,
+            user_id=user_id,
+            knowledge_graph_id=knowledge_graph_id,
+            mode=mode.value,
+        )
+        if lease is not None:
+            session.runtime_context["sticky_runtime"] = self._lease_context(lease, phase="ready")
+            await self._session_service.save_session(session)
             return
+
         async for event in self._stream_prepare_runtime(
             tenant_id=tenant_id,
             user_id=user_id,
@@ -165,7 +177,8 @@ class StickySessionRuntimeService:
             return
 
         if self._runtime_backend != "container":
-            lease = self._sticky_runtime_manager.get_or_start_runtime(
+            lease = await asyncio.to_thread(
+                self._sticky_runtime_manager.get_or_start_runtime,
                 session_id=session.id,
                 user_id=user_id,
                 knowledge_graph_id=knowledge_graph_id,
@@ -203,13 +216,34 @@ class StickySessionRuntimeService:
                 "Starting isolated Claude Agent SDK container",
             ],
         }
-        lease = self._sticky_runtime_manager.get_or_start_runtime(
-            session_id=session.id,
-            user_id=user_id,
-            knowledge_graph_id=knowledge_graph_id,
-            mode=mode.value,
-            bootstrap=bootstrap,
-        )
+        lease: StickySessionRuntimeLease
+        try:
+            lease = await asyncio.to_thread(
+                self._sticky_runtime_manager.get_or_start_runtime,
+                session_id=session.id,
+                user_id=user_id,
+                knowledge_graph_id=knowledge_graph_id,
+                mode=mode.value,
+                bootstrap=bootstrap,
+            )
+        except ContainerRuntimeError as exc:
+            session.runtime_context["sticky_runtime"] = {
+                "phase": "failed",
+                "status": "failed",
+            }
+            if persist_session:
+                await self._session_service.save_session(session)
+            yield {
+                "type": "done",
+                "ok": False,
+                "ready": False,
+                "error": {
+                    "code": "RUNTIME_START_FAILED",
+                    "message": str(exc),
+                },
+            }
+            return
+
         session.runtime_context["sticky_runtime"] = self._lease_context(lease, phase="starting")
         yield {
             "type": "thinking",

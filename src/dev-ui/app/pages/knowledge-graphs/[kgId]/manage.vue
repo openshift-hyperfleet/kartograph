@@ -303,9 +303,28 @@ const graphManagementInputPlaceholder = computed(
   () => GRAPH_MANAGEMENT_INPUT_PLACEHOLDERS[graphManagementMode.value],
 )
 
+const conversationSessionForPanel = computed<ExtractionSessionResponse | null>(() => {
+  if (!extractionSession.value) return null
+  if (!runtimeReady.value) {
+    return {
+      ...extractionSession.value,
+      message_history: [],
+    }
+  }
+  return extractionSession.value
+})
+
 const sessionStatusLabel = computed(() => {
-  if (runtimeWarming.value) return 'Starting assistant'
-  if (!runtimeReady.value && runtimeWarmupError.value) return 'Runtime unavailable'
+  const latestActivity = sessionActivityLines.value.filter(Boolean).at(-1)
+  if (runtimeWarming.value) {
+    return latestActivity ?? 'Starting assistant'
+  }
+  if (!runtimeReady.value && latestActivity) {
+    return latestActivity
+  }
+  if (!runtimeReady.value && runtimeWarmupError.value) {
+    return runtimeWarmupError.value
+  }
   if (sessionLoading.value) return 'Loading session'
   if (clearingChat.value) return 'Resetting chat'
   if (extractionSession.value?.id) {
@@ -313,6 +332,16 @@ const sessionStatusLabel = computed(() => {
   }
   return 'No active session'
 })
+
+const showRuntimeWarmupProgress = computed(
+  () =>
+    runtimeWarming.value
+    || (!runtimeReady.value && sessionActivityLines.value.some((line) => line.trim().length > 0)),
+)
+
+const conversationPanelLoading = computed(
+  () => sessionLoading.value && !showRuntimeWarmupProgress.value,
+)
 
 const chatInputDisabled = computed(
   () => workspaceForbidden.value || runtimeWarming.value || !runtimeReady.value,
@@ -787,6 +816,11 @@ async function loadMutationLogEntryPreviews(offset = 0) {
   }
 }
 
+async function refreshGraphManagementSession() {
+  await loadExtractionSession()
+  await warmupAssistantRuntime()
+}
+
 async function loadExtractionSession() {
   if (!kgId.value || activeStep.value !== 'graph-management') return
   sessionLoading.value = true
@@ -796,6 +830,15 @@ async function loadExtractionSession() {
       `/extraction/knowledge-graphs/${kgId.value}/sessions/${sharedSessionMode.value}/active`,
     )
     syncActivityLinesFromSession()
+    const stickyPhase = extractionSession.value?.runtime_context?.sticky_runtime
+    if (
+      stickyPhase
+      && typeof stickyPhase === 'object'
+      && (stickyPhase as { phase?: string }).phase === 'ready'
+      && !runtimeWarming.value
+    ) {
+      runtimeReady.value = true
+    }
     sessionForbidden.value = false
     sessionForbiddenReason.value = null
   } catch (err) {
@@ -891,6 +934,7 @@ function onMutationRunKeydown(event: KeyboardEvent, runId: string) {
 }
 
 function syncActivityLinesFromSession() {
+  if (runtimeWarming.value || showRuntimeWarmupProgress.value) return
   const context = extractionSession.value?.runtime_context ?? {}
   const candidate = context.activity_lines ?? context.ndjson_activity_lines ?? context.thinking_lines
   if (Array.isArray(candidate)) {
@@ -936,7 +980,10 @@ async function warmupAssistantRuntime() {
       }
       if (event.type === 'done') {
         if (event.ok !== true) {
-          throw new Error(event.error?.message ?? 'Runtime warmup failed')
+          throw new Error(
+            event.error?.message
+              ?? 'Runtime warmup failed before the assistant container was ready.',
+          )
         }
         runtimeReady.value = event.ready === true || event.wait === true
       }
@@ -945,6 +992,11 @@ async function warmupAssistantRuntime() {
   } catch (err) {
     runtimeWarmupError.value = extractErrorMessage(err)
     runtimeReady.value = false
+    const lines = sessionActivityLines.value.filter(Boolean)
+    sessionActivityLines.value = [
+      ...lines,
+      `Runtime startup failed: ${runtimeWarmupError.value}`,
+    ]
     toast.error('Failed to start Graph Management Assistant', {
       description: runtimeWarmupError.value,
     })
@@ -1127,7 +1179,6 @@ watch(
     if (activeStep.value === 'graph-management') {
       syncGraphManagementState()
       await loadExtractionSession()
-      await warmupAssistantRuntime()
     }
   },
 )
@@ -1137,9 +1188,11 @@ watch(
   async () => {
     if (activeStep.value === 'graph-management') {
       syncGraphManagementState()
-      await loadExtractionSession()
-      loadSessionHistory()
-      loadGraphManagementDataSources()
+      await Promise.all([
+        loadExtractionSession(),
+        loadSessionHistory(),
+        loadGraphManagementDataSources(),
+      ])
       await warmupAssistantRuntime()
     } else {
       runtimeWarmupGeneration += 1
@@ -1747,16 +1800,17 @@ watch(selectedOpsDataSourceId, () => {
           :description="graphManagementChatDescription"
           :input-placeholder="graphManagementInputPlaceholder"
           :session-status-label="sessionStatusLabel"
-          :session="extractionSession"
-          :loading="sessionLoading"
+          :session="conversationSessionForPanel"
+          :loading="conversationPanelLoading"
           :clearing="clearingChat"
           :sending="sendingChat"
+          :preparing-runtime="runtimeWarming"
           :activity-lines="sessionActivityLines"
           :forbidden="sessionForbidden"
           :forbidden-reason="sessionForbiddenReason"
           :input-disabled="chatInputDisabled"
           :input-disabled-reason="chatInputDisabledReason"
-          @refresh="loadExtractionSession"
+          @refresh="refreshGraphManagementSession"
           @clear-chat="clearChat"
           @send-message="sendChatMessage"
         />

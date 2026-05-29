@@ -127,8 +127,10 @@ class ExtractionChatTurnService:
 
         session.message_history.append({"role": "user", "content": trimmed})
         session.updated_at = datetime.now(UTC)
+        await self._session_service.save_session(session)
 
         assistant_reply: str | None = None
+        stream_failed = False
         async for event in self._chat_agent.stream_turn(
             session=session,
             user_message=trimmed,
@@ -143,6 +145,8 @@ class ExtractionChatTurnService:
             if event.get("type") == "done":
                 if event.get("ok") is True and event.get("reply"):
                     assistant_reply = str(event["reply"])
+                elif event.get("ok") is not True:
+                    stream_failed = True
             yield event
 
         if assistant_reply:
@@ -150,3 +154,18 @@ class ExtractionChatTurnService:
             session.updated_at = datetime.now(UTC)
             session.runtime_context.pop("activity_lines", None)
             await self._session_service.save_session(session)
+        elif stream_failed:
+            session.updated_at = datetime.now(UTC)
+            await self._session_service.save_session(session)
+        else:
+            yield {
+                "type": "done",
+                "ok": False,
+                "error": {
+                    "code": "AGENT_STREAM_INCOMPLETE",
+                    "message": (
+                        "Graph Management Assistant ended the turn without a final response. "
+                        "Check sticky container logs for Vertex or SDK errors."
+                    ),
+                },
+            }

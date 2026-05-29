@@ -29,6 +29,18 @@ def _sanitize_container_name(prefix: str, identifier: str) -> str:
     return name[:63].rstrip("-_.") or f"{prefix}runtime"
 
 
+_GCLOUD_ADC_FILENAME = "application_default_credentials.json"
+
+
+def _gcloud_adc_env(*, container_config_path: str) -> dict[str, str]:
+    base = container_config_path.rstrip("/")
+    return {
+        "CLOUDSDK_CONFIG": base,
+        "GOOGLE_APPLICATION_CREDENTIALS": f"{base}/{_GCLOUD_ADC_FILENAME}",
+        "HOME": "/tmp",
+    }
+
+
 class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
     """Sticky runtime manager backed by real container lifecycle operations."""
 
@@ -47,6 +59,9 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         vertex_region: str = "us-east5",
         vertex_enabled: bool = False,
         gcloud_config_mount: str | None = None,
+        gcloud_config_container_path: str = "/gcloud/config",
+        container_run_uid: int | None = None,
+        container_run_gid: int | None = None,
     ) -> None:
         self._container_runtime = container_runtime
         self._sticky_image = sticky_image
@@ -60,6 +75,9 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         self._vertex_region = vertex_region
         self._vertex_enabled = vertex_enabled
         self._gcloud_config_mount = gcloud_config_mount
+        self._gcloud_config_container_path = gcloud_config_container_path
+        self._container_run_uid = container_run_uid
+        self._container_run_gid = container_run_gid
         self._leases: dict[str, StickySessionRuntimeLease] = {}
 
     def get_or_start_runtime(
@@ -86,6 +104,18 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
             )
             self._leases[session_id] = refreshed
             return refreshed
+
+        adopted = self._adopt_running_container_if_present(
+            session_id=session_id,
+            user_id=user_id,
+            knowledge_graph_id=knowledge_graph_id,
+            mode=mode,
+            now=now,
+            container_id_hint=None,
+        )
+        if adopted is not None:
+            self._leases[session_id] = adopted
+            return adopted
 
         if existing is not None:
             self._terminate_container(existing.container_id)
@@ -133,6 +163,105 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
             self._terminate_container(lease.container_id)
             terminated.append(lease.container_id)
         return terminated
+
+    def try_resolve_active_lease(
+        self,
+        *,
+        session_id: str,
+        user_id: str = "",
+        knowledge_graph_id: str = "",
+        mode: str = "",
+        container_id: str | None = None,
+    ) -> StickySessionRuntimeLease | None:
+        now = datetime.now(UTC)
+        lease = self._leases.get(session_id)
+        if (
+            lease is not None
+            and lease.expires_at > now
+            and self._container_runtime.is_running(lease.container_id)
+        ):
+            refreshed = replace(
+                lease,
+                last_activity_at=now,
+                expires_at=now + self._session_ttl,
+                status="active",
+            )
+            self._leases[session_id] = refreshed
+            return refreshed
+
+        adopt_user_id = lease.user_id if lease is not None else user_id
+        adopt_kg_id = lease.knowledge_graph_id if lease is not None else knowledge_graph_id
+        adopt_mode = lease.mode if lease is not None else mode
+        hints = [container_id] if container_id else []
+        container_name = _sanitize_container_name("kartograph-sticky-", session_id)
+        named_id = self._container_runtime.container_id_for_name(container_name)
+        if named_id is not None:
+            hints.append(named_id)
+
+        for hint in hints:
+            if not hint or not self._container_runtime.is_running(hint):
+                continue
+            adopted = self._adopt_running_container_if_present(
+                session_id=session_id,
+                user_id=adopt_user_id,
+                knowledge_graph_id=adopt_kg_id,
+                mode=adopt_mode,
+                now=now,
+                container_id_hint=hint,
+            )
+            if adopted is not None:
+                self._leases[session_id] = adopted
+                return adopted
+        return None
+
+    def is_runtime_active(
+        self,
+        *,
+        session_id: str,
+        container_id: str | None = None,
+        user_id: str = "",
+        knowledge_graph_id: str = "",
+        mode: str = "",
+    ) -> bool:
+        return (
+            self.try_resolve_active_lease(
+                session_id=session_id,
+                container_id=container_id,
+                user_id=user_id,
+                knowledge_graph_id=knowledge_graph_id,
+                mode=mode,
+            )
+            is not None
+        )
+
+    def _adopt_running_container_if_present(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        knowledge_graph_id: str,
+        mode: str,
+        now: datetime,
+        container_id_hint: str | None,
+    ) -> StickySessionRuntimeLease | None:
+        container_name = _sanitize_container_name("kartograph-sticky-", session_id)
+        container_id = container_id_hint or self._container_runtime.container_id_for_name(
+            container_name
+        )
+        if container_id is None:
+            return None
+        runtime_base_url = f"http://{container_name}:{self._sticky_service_port}"
+        return StickySessionRuntimeLease(
+            session_id=session_id,
+            container_id=container_id,
+            user_id=user_id,
+            knowledge_graph_id=knowledge_graph_id,
+            mode=mode,
+            status="active",
+            last_activity_at=now,
+            expires_at=now + self._session_ttl,
+            runtime_base_url=runtime_base_url,
+        )
 
     def _start_runtime(
         self,
@@ -186,8 +315,13 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
                 )
             )
         if self._gcloud_config_mount:
-            binds.append(f"{self._gcloud_config_mount}:/root/.config/gcloud:ro")
-            env.setdefault("CLOUDSDK_CONFIG", "/root/.config/gcloud")
+            container_gcloud = self._gcloud_config_container_path.rstrip("/")
+            binds.append(f"{self._gcloud_config_mount}:{container_gcloud}:ro")
+            env.update(_gcloud_adc_env(container_config_path=container_gcloud))
+
+        container_user: str | None = None
+        if self._container_run_uid is not None and self._container_run_gid is not None:
+            container_user = f"{self._container_run_uid}:{self._container_run_gid}"
 
         launched = self._container_runtime.run(
             ContainerRunSpec(
@@ -196,6 +330,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
                 env=env,
                 binds=tuple(binds),
                 network=self._container_network,
+                user=container_user,
                 labels={
                     "kartograph.runtime.kind": "sticky",
                     "kartograph.session_id": session_id,

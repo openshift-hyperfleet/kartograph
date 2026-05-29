@@ -12,6 +12,7 @@ from extraction.application import ExtractionAgentSessionService
 from extraction.application.chat_turn_service import ExtractionChatTurnService
 from extraction.dependencies import (
     get_extraction_agent_session_service,
+    get_extraction_agent_session_service_with_runtime,
     get_extraction_chat_turn_service,
 )
 from extraction.domain.value_objects import ExtractionSessionMode
@@ -146,7 +147,8 @@ async def clear_chat(
     mode: ExtractionSessionMode,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[
-        ExtractionAgentSessionService, Depends(get_extraction_agent_session_service)
+        ExtractionAgentSessionService,
+        Depends(get_extraction_agent_session_service_with_runtime),
     ],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
 ) -> ExtractionSessionResponse:

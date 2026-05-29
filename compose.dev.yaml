@@ -8,28 +8,36 @@ services:
     profiles: ["build-only"]
 
   api:
-    # Run as root in dev to handle host file permissions (any umask)
-    user: "${UID}:${GID}"
+    # Root required for Docker-out-of-Docker via mounted /var/run/docker.sock in dev
+    user: "0:0"
     environment:
       UV_CACHE_DIR: /tmp/uv-cache
+      HOST_UID: ${HOST_UID}
+      HOST_GID: ${HOST_GID}
       KARTOGRAPH_EXTRACTION_RUNTIME_BACKEND: container
       KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_ENGINE: auto
       KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_NETWORK: kartograph_kartograph
       KARTOGRAPH_EXTRACTION_RUNTIME_STICKY_IMAGE: kartograph-agent-runtime:dev
       KARTOGRAPH_EXTRACTION_RUNTIME_API_BASE_URL: http://api:8000
       KARTOGRAPH_EXTRACTION_RUNTIME_JOB_PACKAGE_WORK_DIR: /tmp/kartograph/job_packages
-      KARTOGRAPH_EXTRACTION_RUNTIME_SKILLS_DIR: /app/skills
-      # Vertex AI for Claude Agent SDK (mirror k-extract; set in host .env or shell)
-      CLAUDE_CODE_USE_VERTEX: ${CLAUDE_CODE_USE_VERTEX:-}
-      ANTHROPIC_VERTEX_PROJECT_ID: ${ANTHROPIC_VERTEX_PROJECT_ID:-}
-      CLOUD_ML_REGION: ${CLOUD_ML_REGION:-us-east5}
-      KARTOGRAPH_GCLOUD_CONFIG_MOUNT: ${KARTOGRAPH_GCLOUD_CONFIG_MOUNT:-}
+      KARTOGRAPH_EXTRACTION_RUNTIME_SKILLS_DIR: ${PWD}/skills
+      KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_RUN_UID: ${HOST_UID}
+      KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_RUN_GID: ${HOST_GID}
+      # Vertex AI for Claude Agent SDK in sticky assistant containers
+      CLAUDE_CODE_USE_VERTEX: "1"
+      ANTHROPIC_VERTEX_PROJECT_ID: itpc-gcp-hcm-pe-eng-claude
+      CLOUD_ML_REGION: us-east5
+      KARTOGRAPH_GCLOUD_CONFIG_MOUNT: ${HOME}/.config/gcloud
     volumes:
       # Mount the entire app directory  (minus  venv) for hot-reload
       - ./src/api:/app:z
       - /app/.venv
+      # Shared with sibling sticky containers launched via the host Docker socket
+      - /tmp/kartograph/job_packages:/tmp/kartograph/job_packages
       # Allow API process to launch sibling extraction runtime containers locally
       - /var/run/docker.sock:/var/run/docker.sock
+      # Docker/Podman CLI from host (required for container runtime backend)
+      - ${DOCKER_BIN:-/usr/bin/docker}:/usr/bin/docker:ro
     command:
       - /bin/bash
       - -c

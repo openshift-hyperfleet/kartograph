@@ -8,6 +8,11 @@ from extraction.infrastructure.workload_runtime_settings import (
 
 
 class TestExtractionWorkloadRuntimeSettings:
+    def test_default_sticky_command_uses_image_entrypoint(self) -> None:
+        settings = ExtractionWorkloadRuntimeSettings()
+
+        assert settings.sticky_command == ()
+
     def test_parses_command_strings_into_tuple(self) -> None:
         settings = ExtractionWorkloadRuntimeSettings(
             sticky_command="sleep 3600",

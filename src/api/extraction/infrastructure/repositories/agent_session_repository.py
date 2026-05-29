@@ -42,6 +42,7 @@ class ExtractionAgentSessionRepository(IExtractionAgentSessionRepository):
             model.updated_at = session.updated_at
             model.archived_at = session.archived_at
         await self._session.flush()
+        await self._session.commit()
 
     async def get_by_id(self, session_id: str) -> ExtractionAgentSession | None:
         stmt = select(ExtractionAgentSessionModel).where(

@@ -23,6 +23,7 @@ class ContainerRunSpec:
     network: str | None = None
     detach: bool = True
     remove_on_exit: bool = False
+    user: str | None = None
 
 
 @dataclass(frozen=True)
@@ -50,4 +51,8 @@ class IContainerRuntime(Protocol):
 
     def is_running(self, container_id: str) -> bool:
         """Return True when the container exists and is running."""
+        ...
+
+    def container_id_for_name(self, name: str) -> str | None:
+        """Return the running container ID for a fixed container name, if any."""
         ...

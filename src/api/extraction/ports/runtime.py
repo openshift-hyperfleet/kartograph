@@ -103,6 +103,30 @@ class IStickySessionRuntimeManager(Protocol):
         """Terminate and remove expired sticky runtimes; return container IDs."""
         ...
 
+    def try_resolve_active_lease(
+        self,
+        *,
+        session_id: str,
+        user_id: str = "",
+        knowledge_graph_id: str = "",
+        mode: str = "",
+        container_id: str | None = None,
+    ) -> StickySessionRuntimeLease | None:
+        """Return an active lease for the session, adopting a running container if needed."""
+        ...
+
+    def is_runtime_active(
+        self,
+        *,
+        session_id: str,
+        container_id: str | None = None,
+        user_id: str = "",
+        knowledge_graph_id: str = "",
+        mode: str = "",
+    ) -> bool:
+        """Return True when the sticky runtime for the session is running."""
+        ...
+
 
 class IEphemeralExtractionWorkerLauncher(Protocol):
     """Launches short-lived extraction workers with scoped credentials."""

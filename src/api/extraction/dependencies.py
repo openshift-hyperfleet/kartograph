@@ -51,13 +51,11 @@ def get_ephemeral_extraction_worker_launcher() -> IEphemeralExtractionWorkerLaun
     return create_ephemeral_extraction_worker_launcher()
 
 
-def get_extraction_agent_session_service(
-    session: Annotated[AsyncSession, Depends(get_write_session)],
-    sticky_runtime_manager: Annotated[
-        IStickySessionRuntimeManager, Depends(get_sticky_session_runtime_manager)
-    ],
+def _build_extraction_agent_session_service(
+    session: AsyncSession,
+    *,
+    sticky_runtime_manager: IStickySessionRuntimeManager | None = None,
 ) -> ExtractionAgentSessionService:
-    """Get ExtractionAgentSessionService instance."""
     skill_resolution_service = ExtractionSkillResolutionService(
         override_repository=ExtractionSkillOverrideRepository()
     )
@@ -65,6 +63,26 @@ def get_extraction_agent_session_service(
         repository=ExtractionAgentSessionRepository(session=session),
         skill_resolution_service=skill_resolution_service,
         run_metrics_reader=ExtractionSessionRunMetricsReader(session=session),
+        sticky_runtime_manager=sticky_runtime_manager,
+    )
+
+
+def get_extraction_agent_session_service(
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+) -> ExtractionAgentSessionService:
+    """Get ExtractionAgentSessionService for read/create session routes."""
+    return _build_extraction_agent_session_service(session)
+
+
+def get_extraction_agent_session_service_with_runtime(
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+    sticky_runtime_manager: Annotated[
+        IStickySessionRuntimeManager, Depends(get_sticky_session_runtime_manager)
+    ],
+) -> ExtractionAgentSessionService:
+    """Get ExtractionAgentSessionService for routes that reset sticky containers."""
+    return _build_extraction_agent_session_service(
+        session,
         sticky_runtime_manager=sticky_runtime_manager,
     )
 
@@ -80,10 +98,8 @@ def get_extraction_chat_turn_service(
     skill_resolution_service = ExtractionSkillResolutionService(
         override_repository=ExtractionSkillOverrideRepository()
     )
-    session_service = ExtractionAgentSessionService(
-        repository=ExtractionAgentSessionRepository(session=session),
-        skill_resolution_service=skill_resolution_service,
-        run_metrics_reader=ExtractionSessionRunMetricsReader(session=session),
+    session_service = _build_extraction_agent_session_service(
+        session,
         sticky_runtime_manager=sticky_runtime_manager,
     )
     bootstrap_builder = StickySessionBootstrapBuilder(

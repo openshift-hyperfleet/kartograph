@@ -57,6 +57,7 @@ async function* streamNdjsonPost(
 
   const decoder = new TextDecoder()
   let buffer = ''
+  let sawTerminalDone = false
 
   while (true) {
     const { done, value } = await reader.read()
@@ -67,13 +68,25 @@ async function* streamNdjsonPost(
     for (const line of parts) {
       const trimmed = line.trim()
       if (!trimmed) continue
-      yield JSON.parse(trimmed) as ExtractionChatStreamEvent
+      const event = JSON.parse(trimmed) as ExtractionChatStreamEvent
+      if (event.type === 'done') {
+        sawTerminalDone = true
+      }
+      yield event
     }
   }
 
   const tail = buffer.trim()
   if (tail) {
-    yield JSON.parse(tail) as ExtractionChatStreamEvent
+    const event = JSON.parse(tail) as ExtractionChatStreamEvent
+    if (event.type === 'done') {
+      sawTerminalDone = true
+    }
+    yield event
+  }
+
+  if (!sawTerminalDone) {
+    throw new Error('Graph Management Assistant stream ended before completion.')
   }
 }
 

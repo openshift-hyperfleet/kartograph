@@ -73,6 +73,9 @@ def create_sticky_session_runtime_manager(
         vertex_region=resolved.vertex_region,
         vertex_enabled=resolved.vertex_enabled(),
         gcloud_config_mount=resolved.gcloud_config_mount,
+        gcloud_config_container_path=resolved.gcloud_config_container_path,
+        container_run_uid=resolved.container_run_uid,
+        container_run_gid=resolved.container_run_gid,
     )
 
 

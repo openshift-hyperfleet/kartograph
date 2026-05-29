@@ -187,3 +187,99 @@ async def test_stream_runtime_warmup_marks_memory_backend_ready() -> None:
     assert done["type"] == "done"
     assert done["ok"] is True
     assert done.get("ready") is True
+
+
+class _FailingChatAgent:
+    async def stream_turn(self, **kwargs):
+        yield {
+            "type": "done",
+            "ok": False,
+            "error": {"code": "MODEL_ERROR", "message": "Vertex request failed"},
+        }
+
+
+class _IncompleteChatAgent:
+    async def stream_turn(self, **kwargs):
+        yield {"type": "thinking", "recent": ["Working…"]}
+
+
+@pytest.mark.asyncio
+async def test_stream_chat_turn_emits_error_when_agent_stream_incomplete() -> None:
+    repo = _InMemoryAgentSessionRepository()
+    sticky = InMemoryStickySessionRuntimeManager()
+    session_service = ExtractionAgentSessionService(repository=repo)
+    runtime_service = StickySessionRuntimeService(
+        session_service=session_service,
+        skill_resolution_service=_StaticSkillResolutionService(),
+        ingestion_readiness_reader=_StaticIngestionReadinessReader(
+            IngestionReadinessSnapshot(1, 1)
+        ),
+        sticky_runtime_manager=sticky,
+        bootstrap_builder=_StaticBootstrapBuilder(),
+        health_checker=_InstantHealthChecker(),
+        runtime_backend="memory",
+        sticky_health_timeout_seconds=5.0,
+    )
+    service = ExtractionChatTurnService(
+        session_service=session_service,
+        runtime_service=runtime_service,
+        chat_agent=_IncompleteChatAgent(),
+    )
+
+    events = [
+        event
+        async for event in service.stream_chat_turn(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+            message="Hello!",
+        )
+    ]
+
+    done = events[-1]
+    assert done["type"] == "done"
+    assert done["ok"] is False
+    assert done["error"]["code"] == "AGENT_STREAM_INCOMPLETE"
+
+
+@pytest.mark.asyncio
+async def test_stream_chat_turn_persists_user_message_when_agent_fails() -> None:
+    repo = _InMemoryAgentSessionRepository()
+    sticky = InMemoryStickySessionRuntimeManager()
+    session_service = ExtractionAgentSessionService(repository=repo)
+    runtime_service = StickySessionRuntimeService(
+        session_service=session_service,
+        skill_resolution_service=_StaticSkillResolutionService(),
+        ingestion_readiness_reader=_StaticIngestionReadinessReader(
+            IngestionReadinessSnapshot(1, 1)
+        ),
+        sticky_runtime_manager=sticky,
+        bootstrap_builder=_StaticBootstrapBuilder(),
+        health_checker=_InstantHealthChecker(),
+        runtime_backend="memory",
+        sticky_health_timeout_seconds=5.0,
+    )
+    service = ExtractionChatTurnService(
+        session_service=session_service,
+        runtime_service=runtime_service,
+        chat_agent=_FailingChatAgent(),
+    )
+
+    events = [
+        event
+        async for event in service.stream_chat_turn(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+            message="Hello!",
+        )
+    ]
+
+    assert events[-1]["ok"] is False
+    active = await repo.find_active_by_scope("user-1", "kg-1", ExtractionSessionMode.SCHEMA_BOOTSTRAP)
+    assert active is not None
+    assert active.message_history[-1] == {"role": "user", "content": "Hello!"}

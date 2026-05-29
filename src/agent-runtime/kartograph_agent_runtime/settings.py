@@ -25,6 +25,9 @@ class AgentRuntimeSettings(BaseSettings):
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
     vertex_project_id: str = Field(default="", alias="ANTHROPIC_VERTEX_PROJECT_ID")
     vertex_region: str = Field(default="us-east5", alias="CLOUD_ML_REGION")
+    gcloud_config_dir: str = Field(default="", alias="CLOUDSDK_CONFIG")
+    google_application_credentials: str = Field(default="", alias="GOOGLE_APPLICATION_CREDENTIALS")
+    home_dir: str = Field(default="/tmp", alias="HOME")
 
     def vertex_enabled(self) -> bool:
         return vertex_enabled_from_env()

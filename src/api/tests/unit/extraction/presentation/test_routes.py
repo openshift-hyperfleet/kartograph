@@ -116,7 +116,10 @@ class _AllowAllAuthz:
 
 @pytest.fixture
 def extraction_client():
-    from extraction.dependencies import get_extraction_agent_session_service
+    from extraction.dependencies import (
+        get_extraction_agent_session_service,
+        get_extraction_agent_session_service_with_runtime,
+    )
     from extraction.presentation import router
     from iam.dependencies.user import get_current_user
     from infrastructure.authorization_dependencies import get_spicedb_client
@@ -125,6 +128,9 @@ def extraction_client():
     repo = _InMemoryAgentSessionRepository()
     service = ExtractionAgentSessionService(repository=repo)
     app.dependency_overrides[get_extraction_agent_session_service] = lambda: service
+    app.dependency_overrides[get_extraction_agent_session_service_with_runtime] = (
+        lambda: service
+    )
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
         user_id=UserId(value="user-123"),
         username="alice",

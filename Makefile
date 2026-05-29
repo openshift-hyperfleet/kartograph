@@ -23,8 +23,9 @@ certs:
 .PHONY: dev
 dev: certs
 	@echo "🧰 [Development] Starting application containers..."
+	docker compose -f compose.yaml -f compose.dev.yaml --profile build-only build agent-runtime
 	docker compose -f compose.yaml build
-	docker compose -f compose.yaml -f compose.dev.yaml --profile ui up -d
+	HOST_UID=$$(id -u) HOST_GID=$$(id -g) docker compose -f compose.yaml -f compose.dev.yaml --profile ui up -d
 	@echo "Done."
 	@echo "----------------------------"
 	@echo "API Root: http://localhost:8000"

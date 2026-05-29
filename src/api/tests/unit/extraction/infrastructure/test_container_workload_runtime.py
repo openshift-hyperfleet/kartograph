@@ -20,6 +20,7 @@ class TestContainerStickySessionRuntimeManager:
     def test_reuses_running_container_for_active_session(self) -> None:
         runtime = MagicMock()
         runtime.is_running.return_value = True
+        runtime.container_id_for_name.return_value = None
         runtime.run.return_value = ContainerRunResult(
             container_id="container-1",
             name="kartograph-sticky-session-1",
@@ -47,9 +48,33 @@ class TestContainerStickySessionRuntimeManager:
         assert first.container_id == second.container_id == "container-1"
         runtime.run.assert_called_once()
 
+    def test_adopts_running_container_after_process_restart(self) -> None:
+        runtime = MagicMock()
+        runtime.is_running.return_value = True
+        runtime.container_id_for_name.return_value = "container-existing"
+        manager = ContainerStickySessionRuntimeManager(
+            container_runtime=runtime,
+            sticky_image="busybox:1.36",
+            sticky_command=(),
+            session_ttl=timedelta(minutes=30),
+            container_network="kartograph_kartograph",
+        )
+
+        lease = manager.try_resolve_active_lease(
+            session_id="session-1",
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode="schema_bootstrap",
+        )
+
+        assert lease is not None
+        assert lease.container_id == "container-existing"
+        runtime.run.assert_not_called()
+
     def test_reset_stops_existing_container_and_starts_new_one(self) -> None:
         runtime = MagicMock()
         runtime.is_running.return_value = True
+        runtime.container_id_for_name.return_value = None
         runtime.run.side_effect = [
             ContainerRunResult(container_id="container-1", name="name-1"),
             ContainerRunResult(container_id="container-2", name="name-2"),
@@ -81,6 +106,7 @@ class TestContainerStickySessionRuntimeManager:
     def test_cleanup_expired_terminates_and_returns_container_ids(self) -> None:
         runtime = MagicMock()
         runtime.is_running.return_value = True
+        runtime.container_id_for_name.return_value = None
         runtime.run.return_value = ContainerRunResult(
             container_id="container-1",
             name="name-1",

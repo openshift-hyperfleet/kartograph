@@ -89,6 +89,48 @@ class InMemoryStickySessionRuntimeManager(IStickySessionRuntimeManager):
             terminated.append(lease.container_id)
         return terminated
 
+    def try_resolve_active_lease(
+        self,
+        *,
+        session_id: str,
+        user_id: str = "",
+        knowledge_graph_id: str = "",
+        mode: str = "",
+        container_id: str | None = None,
+    ) -> StickySessionRuntimeLease | None:
+        now = datetime.now(UTC)
+        lease = self._leases.get(session_id)
+        if lease is not None and lease.expires_at > now:
+            refreshed = replace(
+                lease,
+                last_activity_at=now,
+                expires_at=now + self._session_ttl,
+                status="active",
+            )
+            self._leases[session_id] = refreshed
+            return refreshed
+        return None
+
+    def is_runtime_active(
+        self,
+        *,
+        session_id: str,
+        container_id: str | None = None,
+        user_id: str = "",
+        knowledge_graph_id: str = "",
+        mode: str = "",
+    ) -> bool:
+        return (
+            self.try_resolve_active_lease(
+                session_id=session_id,
+                container_id=container_id,
+                user_id=user_id,
+                knowledge_graph_id=knowledge_graph_id,
+                mode=mode,
+            )
+            is not None
+        )
+
 
 class ScopedWorkloadCredentialIssuer:
     """Issues short-lived tenant/KG scoped credentials for extraction workloads."""

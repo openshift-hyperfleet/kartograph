@@ -15,13 +15,19 @@ from shared_kernel.container_runtime.ports import ContainerRunResult, ContainerR
 
 def test_start_runtime_mounts_skills_workspace_and_injects_token() -> None:
     runtime = MagicMock()
+    runtime.is_running.return_value = False
+    runtime.container_id_for_name.return_value = None
     runtime.run.return_value = ContainerRunResult(container_id="container-1", name="name-1")
     manager = ContainerStickySessionRuntimeManager(
         container_runtime=runtime,
         sticky_image="kartograph-agent-runtime:dev",
-        sticky_command=("python", "-m", "kartograph_agent_runtime"),
+        sticky_command=(),
         session_ttl=timedelta(minutes=30),
         container_network="kartograph_kartograph",
+        gcloud_config_mount="/host/.config/gcloud",
+        gcloud_config_container_path="/gcloud/config",
+        container_run_uid=1000,
+        container_run_gid=1000,
     )
     issuer = ScopedWorkloadCredentialIssuer(default_ttl=timedelta(minutes=10))
     credentials = issuer.issue_for_sticky_session(tenant_id="tenant-1", knowledge_graph_id="kg-1")
@@ -42,8 +48,16 @@ def test_start_runtime_mounts_skills_workspace_and_injects_token() -> None:
     )
 
     spec: ContainerRunSpec = runtime.run.call_args.args[0]
+    assert spec.command == ()
     assert spec.network == "kartograph_kartograph"
     assert spec.env["KARTOGRAPH_WORKLOAD_TOKEN"] == credentials.token
     assert "/tmp/skills:/app/skills:ro" in spec.binds
     assert "/tmp/session-work:/workspace:ro" in spec.binds
+    assert "/host/.config/gcloud:/gcloud/config:ro" in spec.binds
+    assert spec.env["CLOUDSDK_CONFIG"] == "/gcloud/config"
+    assert spec.env["GOOGLE_APPLICATION_CREDENTIALS"] == (
+        "/gcloud/config/application_default_credentials.json"
+    )
+    assert spec.env["HOME"] == "/tmp"
+    assert spec.user == "1000:1000"
     assert lease.runtime_base_url.startswith("http://kartograph-sticky-")

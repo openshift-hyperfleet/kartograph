@@ -10,13 +10,21 @@ import httpx
 
 from extraction.domain.entities.agent_session import ExtractionAgentSession
 from extraction.domain.value_objects import GraphManagementUiMode
+from extraction.infrastructure.workload_runtime_settings import (
+    get_extraction_workload_runtime_settings,
+)
 
 
 class RemoteStickyContainerChatAgent:
     """Delegates conversational turns to the sticky session Claude agent runtime."""
 
-    def __init__(self, *, request_timeout_seconds: float = 120.0) -> None:
-        self._request_timeout_seconds = request_timeout_seconds
+    def __init__(self, *, request_timeout_seconds: float | None = None) -> None:
+        settings = get_extraction_workload_runtime_settings()
+        self._request_timeout_seconds = (
+            request_timeout_seconds
+            if request_timeout_seconds is not None
+            else settings.sticky_turn_timeout_seconds + 30.0
+        )
 
     async def stream_turn(
         self,
@@ -47,7 +55,8 @@ class RemoteStickyContainerChatAgent:
         url = f"{runtime_base_url.rstrip('/')}/v1/turn"
 
         try:
-            async with httpx.AsyncClient(timeout=self._request_timeout_seconds) as client:
+            timeout = httpx.Timeout(10.0, read=self._request_timeout_seconds)
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 async with client.stream("POST", url, json=payload) as response:
                     if response.status_code >= 400:
                         body = await response.aread()

@@ -27,7 +27,13 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
     container_network: str | None = Field(default=None)
     sticky_image: str = Field(default="kartograph-agent-runtime:dev")
     worker_image: str = Field(default="docker.io/library/busybox:1.36")
-    sticky_command: tuple[str, ...] = Field(default=("python", "-m", "kartograph_agent_runtime"))
+    sticky_command: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Optional container entrypoint override. Empty uses the image CMD "
+            "(kartograph-agent-runtime invokes the venv interpreter)."
+        ),
+    )
     worker_command: tuple[str, ...] = Field(default=("sleep", "3600"))
     sticky_service_port: int = Field(default=8787, ge=1024, le=65535)
     container_skills_mount: str = Field(default="/app/skills")
@@ -37,9 +43,13 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
     skills_dir: str = Field(default="/app/skills")
     api_base_url: str = Field(default="http://api:8000")
     sticky_health_timeout_seconds: float = Field(default=90.0, ge=5.0, le=600.0)
+    sticky_turn_timeout_seconds: float = Field(default=180.0, ge=30.0, le=900.0)
     vertex_project_id: str = Field(default="")
     vertex_region: str = Field(default="us-east5")
     gcloud_config_mount: str | None = Field(default=None)
+    gcloud_config_container_path: str = Field(default="/gcloud/config")
+    container_run_uid: int | None = Field(default=None)
+    container_run_gid: int | None = Field(default=None)
 
     def vertex_enabled(self) -> bool:
         return vertex_enabled_from_env()
@@ -63,6 +73,26 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
             gcloud = os.getenv("KARTOGRAPH_GCLOUD_CONFIG_MOUNT", "").strip()
             if gcloud:
                 object.__setattr__(self, "gcloud_config_mount", gcloud)
+        if self.container_run_uid is None:
+            for key in (
+                "KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_RUN_UID",
+                "HOST_UID",
+                "UID",
+            ):
+                raw = os.getenv(key, "").strip()
+                if raw.isdigit():
+                    object.__setattr__(self, "container_run_uid", int(raw))
+                    break
+        if self.container_run_gid is None:
+            for key in (
+                "KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_RUN_GID",
+                "HOST_GID",
+                "GID",
+            ):
+                raw = os.getenv(key, "").strip()
+                if raw.isdigit():
+                    object.__setattr__(self, "container_run_gid", int(raw))
+                    break
         return self
 
     @field_validator("sticky_command", "worker_command", mode="before")

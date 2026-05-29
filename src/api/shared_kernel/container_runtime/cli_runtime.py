@@ -36,6 +36,8 @@ class CliContainerRuntime:
             command.extend(["--volume", bind])
         if spec.network is not None:
             command.extend(["--network", spec.network])
+        if spec.user is not None:
+            command.extend(["--user", spec.user])
         command.append(spec.image)
         if spec.command:
             command.extend(spec.command)
@@ -75,6 +77,23 @@ class CliContainerRuntime:
                 f"{self._binary} inspect failed: {detail or 'unknown error'}"
             )
         return result.stdout.strip().lower() == "true"
+
+    def container_id_for_name(self, name: str) -> str | None:
+        """Return the running container ID for a fixed container name, if any."""
+        result = subprocess.run(
+            [self._binary, "inspect", "-f", "{{.Id}}", name],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
+        container_id = result.stdout.strip()
+        if not container_id:
+            return None
+        if not self.is_running(container_id):
+            return None
+        return container_id
 
     def _execute(self, command: list[str]) -> str:
         result = subprocess.run(

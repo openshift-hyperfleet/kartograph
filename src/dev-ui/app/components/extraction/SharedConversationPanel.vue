@@ -31,6 +31,7 @@ const props = withDefaults(defineProps<{
   loading?: boolean
   clearing?: boolean
   sending?: boolean
+  preparingRuntime?: boolean
   draftMessage?: string
   activityLines?: string[]
   inputPlaceholder?: string
@@ -46,6 +47,7 @@ const props = withDefaults(defineProps<{
   loading: false,
   clearing: false,
   sending: false,
+  preparingRuntime: false,
   draftMessage: '',
   activityLines: () => [],
   inputPlaceholder: 'Describe what you want to do in this graph management session…',
@@ -77,6 +79,16 @@ const messageHistory = computed(() => props.session?.message_history ?? [])
 
 const chatInputDisabled = computed(
   () => props.loading || props.clearing || props.sending || props.inputDisabled || props.forbidden,
+)
+
+const showRuntimeActivity = computed(
+  () => props.preparingRuntime || props.sending,
+)
+
+const runtimeActivityTitle = computed(() =>
+  props.preparingRuntime && !props.sending
+    ? 'Starting assistant container…'
+    : 'Thinking...',
 )
 
 const thinkingDisplaySlots = computed(() => {
@@ -296,7 +308,7 @@ onMounted(() => {
           </div>
 
           <div
-            v-if="sending"
+            v-if="showRuntimeActivity"
             class="flex gap-3 text-muted-foreground"
             aria-live="polite"
             aria-busy="true"
@@ -309,7 +321,7 @@ onMounted(() => {
             >
               <div class="mb-2 flex items-center gap-2 text-foreground">
                 <Loader2 class="size-4 shrink-0 animate-spin text-primary" aria-hidden="true" />
-                <span class="font-medium tracking-tight">Thinking...</span>
+                <span class="font-medium tracking-tight">{{ runtimeActivityTitle }}</span>
               </div>
               <ol class="m-0 list-none space-y-2 border-l-2 border-primary/25 pl-3">
                 <li
@@ -335,7 +347,7 @@ onMounted(() => {
           </div>
 
           <p
-            v-if="messageHistory.length === 0 && !sending"
+            v-if="messageHistory.length === 0 && !showRuntimeActivity"
             class="py-8 text-center text-sm text-muted-foreground"
           >
             No messages yet. Send a prompt or use validate/transition actions to drive session activity.

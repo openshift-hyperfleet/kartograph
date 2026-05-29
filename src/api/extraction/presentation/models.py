@@ -13,6 +13,7 @@ from extraction.domain.value_objects import (
     BootstrapIntakePath,
     ExtractionSessionMode,
     ExtractionSessionRunMetric,
+    GraphManagementUiMode,
 )
 
 
@@ -129,3 +130,10 @@ class BootstrapIntakePathSelectionRequest(BaseModel):
         default=None,
         description="Optional user summary of capabilities and schema goals",
     )
+
+
+class ExtractionChatTurnRequest(BaseModel):
+    """Request model for a graph-management chat turn."""
+
+    message: str = Field(min_length=1)
+    graph_management_ui_mode: GraphManagementUiMode = GraphManagementUiMode.INITIAL_SCHEMA_DESIGN

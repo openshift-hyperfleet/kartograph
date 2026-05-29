@@ -17,6 +17,7 @@ from extraction.ports.repositories import (
     IExtractionAgentSessionRepository,
     IExtractionSessionRunMetricsReader,
 )
+from extraction.ports.runtime import IStickySessionRuntimeManager
 
 
 @dataclass(frozen=True)
@@ -35,10 +36,12 @@ class ExtractionAgentSessionService:
         repository: IExtractionAgentSessionRepository,
         skill_resolution_service: ExtractionSkillResolutionService | None = None,
         run_metrics_reader: IExtractionSessionRunMetricsReader | None = None,
+        sticky_runtime_manager: IStickySessionRuntimeManager | None = None,
     ) -> None:
         self._repository = repository
         self._skill_resolution_service = skill_resolution_service
         self._run_metrics_reader = run_metrics_reader
+        self._sticky_runtime_manager = sticky_runtime_manager
 
     @staticmethod
     def _build_bootstrap_intake_prompt() -> str:
@@ -96,6 +99,12 @@ class ExtractionAgentSessionService:
         await self._repository.save(session)
         return session
 
+    async def save_session(self, session: ExtractionAgentSession) -> ExtractionAgentSession:
+        """Persist session mutations after a chat turn."""
+        session.updated_at = datetime.now(UTC)
+        await self._repository.save(session)
+        return session
+
     async def clear_chat(
         self,
         user_id: str,
@@ -108,6 +117,13 @@ class ExtractionAgentSessionService:
             mode=mode,
         )
         if active is not None:
+            if self._sticky_runtime_manager is not None:
+                self._sticky_runtime_manager.reset_runtime(
+                    session_id=active.id,
+                    user_id=user_id,
+                    knowledge_graph_id=knowledge_graph_id,
+                    mode=mode.value,
+                )
             active.archive()
             await self._repository.save(active)
 

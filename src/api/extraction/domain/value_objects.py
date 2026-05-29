@@ -21,6 +21,30 @@ class BootstrapIntakePath(StrEnum):
     GUIDED_CO_DESIGN = "guided_co_design"
 
 
+class GraphManagementUiMode(StrEnum):
+    """Graph-management UI mode overlay for chat skill framing."""
+
+    INITIAL_SCHEMA_DESIGN = "initial-schema-design"
+    EXTRACTION_JOBS = "extraction-jobs"
+    ONE_OFF_MUTATIONS = "one-off-mutations"
+
+
+class SessionJobPackagePhase(StrEnum):
+    """JobPackage readiness phase for sticky session chat turns."""
+
+    NOT_REQUIRED = "not_required"
+    AWAITING_PREPARE = "awaiting_job_package"
+    READY = "ready"
+
+
+@dataclass(frozen=True)
+class IngestionReadinessSnapshot:
+    """Read-only ingestion prepare counts for a knowledge graph."""
+
+    data_source_count: int
+    prepared_source_count: int
+
+
 @dataclass(frozen=True)
 class ExtractionSessionRunMetric:
     """Run-level metrics linked to an extraction session."""

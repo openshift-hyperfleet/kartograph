@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from extraction.domain.value_objects import ExtractionSessionMode
+from extraction.domain.value_objects import ExtractionSessionMode, GraphManagementUiMode
 from extraction.ports.repositories import IExtractionSkillOverrideRepository
 
 
@@ -87,6 +87,27 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
 }
 
 
+_UI_MODE_SKILL_OVERLAYS: dict[GraphManagementUiMode, dict[str, str]] = {
+    GraphManagementUiMode.INITIAL_SCHEMA_DESIGN: {
+        "ui_mode_framing": (
+            "Focus on schema bootstrap: entity/relationship modeling, intake, and "
+            "prepopulation guidance before extraction jobs."
+        ),
+    },
+    GraphManagementUiMode.EXTRACTION_JOBS: {
+        "ui_mode_framing": (
+            "Focus on extraction job setup, JobPackage-aware file targeting, and "
+            "incremental sync planning."
+        ),
+    },
+    GraphManagementUiMode.ONE_OFF_MUTATIONS: {
+        "ui_mode_framing": (
+            "Focus on scoped one-off graph mutations with mutation-log auditability."
+        ),
+    },
+}
+
+
 class ExtractionSkillResolutionService:
     """Resolve session skills from global templates + KG overrides."""
 
@@ -121,5 +142,27 @@ class ExtractionSkillResolutionService:
             prompt_hierarchy=tuple(prompt_settings["prompt_hierarchy"]),
             guardrails=tuple(prompt_settings["guardrails"]),
             skills=resolved,
+        )
+
+    async def resolve_for_graph_management_turn(
+        self,
+        *,
+        knowledge_graph_id: str,
+        mode: ExtractionSessionMode,
+        ui_mode: GraphManagementUiMode,
+    ) -> ResolvedExtractionSkillPack:
+        """Resolve base session skills plus graph-management UI mode overlay."""
+        base = await self.resolve_for_session(
+            knowledge_graph_id=knowledge_graph_id,
+            mode=mode,
+        )
+        overlay = dict(_UI_MODE_SKILL_OVERLAYS.get(ui_mode, {}))
+        merged_skills = dict(base.skills)
+        merged_skills.update(overlay)
+        return ResolvedExtractionSkillPack(
+            system_prompt=base.system_prompt,
+            prompt_hierarchy=base.prompt_hierarchy,
+            guardrails=base.guardrails,
+            skills=merged_skills,
         )
 

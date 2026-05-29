@@ -355,7 +355,7 @@ describe('KG-MANAGE-015 - graph-scoped maintain step and round trip', () => {
 
 describe('Shared conversation panel - extraction UX contract', () => {
   it('renders phase-2 style conversational intelligence header and resume action', () => {
-    expect(sharedConversationPanelVue).toContain('Graph Management: Conversational intelligence')
+    expect(sharedConversationPanelVue).toContain('Graph Management Assistant')
     expect(sharedConversationPanelVue).toContain('Resume session')
     expect(sharedConversationPanelVue).toContain('Sparkles')
   })

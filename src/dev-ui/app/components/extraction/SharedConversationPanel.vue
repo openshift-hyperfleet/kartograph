@@ -54,7 +54,7 @@ const props = withDefaults(defineProps<{
   inputDisabledReason: null,
   forbidden: false,
   forbiddenReason: null,
-  title: 'Graph Management: Conversational intelligence',
+  title: 'Graph Management Assistant',
   description:
     'Design and refine schema readiness, validation, and extraction operations for this knowledge graph. Use the assistant below to drive workspace changes.',
   footerHint:

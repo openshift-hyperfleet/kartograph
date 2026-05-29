@@ -165,3 +165,37 @@ export function buildGraphManagementStepUrl(
 ): string {
   return `/knowledge-graphs/${encodeURIComponent(kgId)}/manage?step=graph-management&gm_mode=${mode}`
 }
+
+export interface GraphManagementModeGateInput {
+  workspaceMode: 'schema_bootstrap' | 'extraction_operations'
+  transitionEligible: boolean
+}
+
+export function isGraphManagementModeUnlocked(
+  mode: GraphManagementMode,
+  input: GraphManagementModeGateInput,
+): boolean {
+  if (mode === 'initial-schema-design') return true
+  return input.workspaceMode === 'extraction_operations'
+}
+
+export function graphManagementModeLockReason(
+  mode: GraphManagementMode,
+  input: GraphManagementModeGateInput,
+): string | null {
+  if (isGraphManagementModeUnlocked(mode, input)) return null
+  if (input.transitionEligible) {
+    return 'Schema validated — use Go to Extraction/Mutations in Schema readiness to unlock.'
+  }
+  return 'Complete schema design and pass validation to unlock.'
+}
+
+export function resolveEffectiveGraphManagementMode(
+  requested: GraphManagementMode | null,
+  input: GraphManagementModeGateInput,
+): GraphManagementMode {
+  const fallback = resolveDefaultGraphManagementMode(input.workspaceMode)
+  if (!requested) return fallback
+  if (isGraphManagementModeUnlocked(requested, input)) return requested
+  return 'initial-schema-design'
+}

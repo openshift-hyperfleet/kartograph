@@ -96,7 +96,11 @@ import {
   type MutationLogEntryPreviewPage,
   type MutationLogRunRecord,
 } from '@/utils/kgMutationLogs'
+import { streamExtractionChatTurn } from '@/utils/kgExtractionChat'
 import { useGraphApi } from '@/composables/api/useGraphApi'
+
+const runtimeConfig = useRuntimeConfig()
+const { accessToken } = useAuth()
 
 interface WorkspaceReadinessStatus {
   has_minimum_entity_types: boolean
@@ -180,7 +184,7 @@ interface ExtractionSessionHistoryItem {
 const route = useRoute()
 const { hasTenant, tenantVersion } = useTenant()
 const { extractErrorMessage } = useErrorHandler()
-const { apiFetch } = useApiClient()
+const { apiFetch, currentTenantId } = useApiClient()
 const graphApi = useGraphApi()
 const kgId = computed(() => String(route.params.kgId ?? ''))
 const kgIdentity = ref<KnowledgeGraphIdentity | null>(null)
@@ -441,12 +445,7 @@ const nextSteps = computed(() => {
   return steps
 })
 
-const sessionActivityLines = computed(() => {
-  const context = extractionSession.value?.runtime_context ?? {}
-  const candidate = context.activity_lines ?? context.ndjson_activity_lines ?? context.thinking_lines
-  if (!Array.isArray(candidate)) return []
-  return candidate.filter((line): line is string => typeof line === 'string' && line.trim().length > 0)
-})
+const sessionActivityLines = ref<string[]>([])
 
 async function loadKgIdentity() {
   if (!hasTenant.value || !kgId.value) return
@@ -777,6 +776,7 @@ async function loadExtractionSession() {
     extractionSession.value = await apiFetch<ExtractionSessionResponse>(
       `/extraction/knowledge-graphs/${kgId.value}/sessions/${sharedSessionMode.value}/active`,
     )
+    syncActivityLinesFromSession()
     sessionForbidden.value = false
     sessionForbiddenReason.value = null
   } catch (err) {
@@ -871,7 +871,19 @@ function onMutationRunKeydown(event: KeyboardEvent, runId: string) {
   handleActivatableKeydown(event, () => selectMutationLogRun(runId))
 }
 
-function sendChatMessage(message: string) {
+function syncActivityLinesFromSession() {
+  const context = extractionSession.value?.runtime_context ?? {}
+  const candidate = context.activity_lines ?? context.ndjson_activity_lines ?? context.thinking_lines
+  if (Array.isArray(candidate)) {
+    sessionActivityLines.value = candidate.filter(
+      (line): line is string => typeof line === 'string' && line.trim().length > 0,
+    )
+  } else {
+    sessionActivityLines.value = []
+  }
+}
+
+async function sendChatMessage(message: string) {
   if (sessionForbidden.value || !shouldApplyMutationResult(sessionForbidden.value)) {
     toast.error('Chat unavailable', {
       description: sessionForbiddenReason.value
@@ -880,21 +892,55 @@ function sendChatMessage(message: string) {
     return
   }
 
+  const trimmed = message.trim()
+  if (!trimmed || !kgId.value) return
+
   sendingChat.value = true
-  try {
-    const nextHistory = appendLocalChatMessage(extractionSession.value, message)
-    extractionSession.value = {
-      ...(extractionSession.value ?? {
-        id: 'local-session',
-        runtime_context: {},
-        updated_at: new Date().toISOString(),
-      }),
-      message_history: nextHistory,
+  sessionActivityLines.value = ['Contacting Graph Management Assistant…']
+  draftMessage.value = ''
+
+  const optimisticHistory = appendLocalChatMessage(extractionSession.value, trimmed)
+  extractionSession.value = {
+    ...(extractionSession.value ?? {
+      id: 'pending-session',
+      runtime_context: {},
       updated_at: new Date().toISOString(),
+    }),
+    message_history: optimisticHistory,
+    updated_at: new Date().toISOString(),
+  }
+
+  try {
+    for await (const event of streamExtractionChatTurn({
+      apiBaseUrl: String(runtimeConfig.public.apiBaseUrl ?? ''),
+      accessToken: accessToken.value,
+      tenantId: currentTenantId.value,
+      kgId: kgId.value,
+      sessionMode: sharedSessionMode.value,
+      uiMode: graphManagementMode.value,
+      message: trimmed,
+    })) {
+      if (event.type === 'thinking' && Array.isArray(event.recent)) {
+        sessionActivityLines.value = event.recent.filter(Boolean)
+      }
+      if (event.type === 'wait') {
+        sessionActivityLines.value = event.message
+          ? [event.message]
+          : ['Waiting for JobPackage ingestion context…']
+      }
+      if (event.type === 'done' && event.ok !== true) {
+        throw new Error(event.error?.message ?? 'Graph Management Assistant returned an error.')
+      }
     }
-    draftMessage.value = ''
+    await loadExtractionSession()
+  } catch (err) {
+    toast.error('Failed to send message', {
+      description: extractErrorMessage(err),
+    })
+    await loadExtractionSession()
   } finally {
     sendingChat.value = false
+    syncActivityLinesFromSession()
   }
 }
 

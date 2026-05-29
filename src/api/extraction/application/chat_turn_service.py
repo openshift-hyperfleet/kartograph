@@ -17,6 +17,7 @@ from extraction.domain.value_objects import (
 from extraction.ports.chat_agent import IExtractionChatAgent
 from extraction.ports.ingestion_readiness import IIngestionReadinessReader
 from extraction.ports.runtime import IStickySessionRuntimeManager
+from extraction.ports.sticky_session_bootstrap import IStickySessionBootstrapBuilder
 
 
 class ExtractionChatTurnService:
@@ -30,16 +31,19 @@ class ExtractionChatTurnService:
         ingestion_readiness_reader: IIngestionReadinessReader,
         sticky_runtime_manager: IStickySessionRuntimeManager,
         chat_agent: IExtractionChatAgent,
+        bootstrap_builder: IStickySessionBootstrapBuilder,
     ) -> None:
         self._session_service = session_service
         self._skill_resolution_service = skill_resolution_service
         self._ingestion_readiness_reader = ingestion_readiness_reader
         self._sticky_runtime_manager = sticky_runtime_manager
         self._chat_agent = chat_agent
+        self._bootstrap_builder = bootstrap_builder
 
     async def stream_chat_turn(
         self,
         *,
+        tenant_id: str,
         user_id: str,
         knowledge_graph_id: str,
         mode: ExtractionSessionMode,
@@ -77,26 +81,6 @@ class ExtractionChatTurnService:
             "graph_management_ui_mode": ui_mode.value,
         }
 
-        lease = self._sticky_runtime_manager.get_or_start_runtime(
-            session_id=session.id,
-            user_id=user_id,
-            knowledge_graph_id=knowledge_graph_id,
-            mode=mode.value,
-        )
-        session.runtime_context["sticky_runtime"] = {
-            "container_id": lease.container_id,
-            "status": lease.status,
-            "expires_at": lease.expires_at.isoformat(),
-        }
-
-        yield {
-            "type": "thinking",
-            "recent": [
-                "Contacting Graph Management Assistant…",
-                f"Sticky container {lease.container_id[:8]} active",
-            ],
-        }
-
         readiness = await self._ingestion_readiness_reader.read_for_knowledge_graph(
             knowledge_graph_id=knowledge_graph_id,
         )
@@ -132,6 +116,34 @@ class ExtractionChatTurnService:
             await self._session_service.save_session(session)
             yield {"type": "done", "ok": True, "reply": assistant_reply, "wait": True}
             return
+
+        bootstrap = await self._bootstrap_builder.build(
+            tenant_id=tenant_id,
+            knowledge_graph_id=knowledge_graph_id,
+            session_id=session.id,
+            include_job_packages=gate.phase != SessionJobPackagePhase.NOT_REQUIRED,
+        )
+        lease = self._sticky_runtime_manager.get_or_start_runtime(
+            session_id=session.id,
+            user_id=user_id,
+            knowledge_graph_id=knowledge_graph_id,
+            mode=mode.value,
+            bootstrap=bootstrap,
+        )
+        session.runtime_context["sticky_runtime"] = {
+            "container_id": lease.container_id,
+            "status": lease.status,
+            "expires_at": lease.expires_at.isoformat(),
+            "runtime_base_url": lease.runtime_base_url,
+        }
+
+        yield {
+            "type": "thinking",
+            "recent": [
+                "Contacting Graph Management Assistant…",
+                f"Sticky container {lease.container_id[:8]} active",
+            ],
+        }
 
         session.runtime_context["job_package"]["phase"] = SessionJobPackagePhase.READY.value
         thinking_lines: list[str] = []

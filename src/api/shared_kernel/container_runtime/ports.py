@@ -19,6 +19,8 @@ class ContainerRunSpec:
     env: dict[str, str] = field(default_factory=dict)
     labels: dict[str, str] = field(default_factory=dict)
     command: tuple[str, ...] | None = None
+    binds: tuple[str, ...] = field(default_factory=tuple)
+    network: str | None = None
     detach: bool = True
     remove_on_exit: bool = False
 

@@ -1,5 +1,12 @@
 # Development overrides for compose.yaml
 services:
+  agent-runtime:
+    build:
+      context: ./src/agent-runtime
+      dockerfile: Dockerfile
+    image: kartograph-agent-runtime:dev
+    profiles: ["build-only"]
+
   api:
     # Run as root in dev to handle host file permissions (any umask)
     user: "${UID}:${GID}"
@@ -7,6 +14,11 @@ services:
       UV_CACHE_DIR: /tmp/uv-cache
       KARTOGRAPH_EXTRACTION_RUNTIME_BACKEND: container
       KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_ENGINE: auto
+      KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_NETWORK: kartograph_kartograph
+      KARTOGRAPH_EXTRACTION_RUNTIME_STICKY_IMAGE: kartograph-agent-runtime:dev
+      KARTOGRAPH_EXTRACTION_RUNTIME_API_BASE_URL: http://api:8000
+      KARTOGRAPH_EXTRACTION_RUNTIME_JOB_PACKAGE_WORK_DIR: /tmp/kartograph/job_packages
+      KARTOGRAPH_EXTRACTION_RUNTIME_SKILLS_DIR: /app/skills
     volumes:
       # Mount the entire app directory  (minus  venv) for hot-reload
       - ./src/api:/app:z

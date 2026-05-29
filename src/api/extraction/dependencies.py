@@ -1,6 +1,7 @@
 """FastAPI dependencies for Extraction services."""
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends
@@ -11,17 +12,24 @@ from extraction.application import (
     ExtractionChatTurnService,
     ExtractionSkillResolutionService,
 )
-from extraction.infrastructure.deterministic_chat_agent import DeterministicExtractionChatAgent
+from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
 from extraction.infrastructure.ingestion_readiness_reader import SqlIngestionReadinessReader
 from extraction.infrastructure.repositories import (
     ExtractionAgentSessionRepository,
     ExtractionSessionRunMetricsReader,
     ExtractionSkillOverrideRepository,
 )
+from extraction.infrastructure.sticky_session_bootstrap_builder import StickySessionBootstrapBuilder
+from extraction.infrastructure.sticky_session_workdir_materializer import (
+    StickySessionWorkdirMaterializer,
+)
 from extraction.infrastructure.workload_runtime_factory import (
     create_ephemeral_extraction_worker_launcher,
+    create_extraction_chat_agent,
     create_sticky_session_runtime_manager,
+    get_workload_credential_issuer,
 )
+from extraction.infrastructure.workload_runtime_settings import get_extraction_workload_runtime_settings
 from extraction.ports.runtime import (
     IEphemeralExtractionWorkerLauncher,
     IStickySessionRuntimeManager,
@@ -66,6 +74,7 @@ def get_extraction_chat_turn_service(
     ],
 ) -> ExtractionChatTurnService:
     """Get ExtractionChatTurnService instance."""
+    runtime_settings = get_extraction_workload_runtime_settings()
     skill_resolution_service = ExtractionSkillResolutionService(
         override_repository=ExtractionSkillOverrideRepository()
     )
@@ -75,10 +84,19 @@ def get_extraction_chat_turn_service(
         run_metrics_reader=ExtractionSessionRunMetricsReader(session=session),
         sticky_runtime_manager=sticky_runtime_manager,
     )
+    bootstrap_builder = StickySessionBootstrapBuilder(
+        credential_issuer=get_workload_credential_issuer(),
+        prepared_job_package_reader=SqlPreparedJobPackageReader(session=session),
+        workdir_materializer=StickySessionWorkdirMaterializer(
+            job_package_work_dir=Path(runtime_settings.job_package_work_dir),
+        ),
+        runtime_settings=runtime_settings,
+    )
     return ExtractionChatTurnService(
         session_service=session_service,
         skill_resolution_service=skill_resolution_service,
         ingestion_readiness_reader=SqlIngestionReadinessReader(session=session),
         sticky_runtime_manager=sticky_runtime_manager,
-        chat_agent=DeterministicExtractionChatAgent(),
+        chat_agent=create_extraction_chat_agent(runtime_settings),
+        bootstrap_builder=bootstrap_builder,
     )

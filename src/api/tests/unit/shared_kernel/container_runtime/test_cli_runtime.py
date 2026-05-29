@@ -11,6 +11,34 @@ from shared_kernel.container_runtime.ports import ContainerRunSpec, ContainerRun
 
 
 class TestCliContainerRuntime:
+    def test_run_launches_detached_container_with_labels_env_and_binds(self) -> None:
+        runtime = CliContainerRuntime(binary="docker")
+
+        with patch("shared_kernel.container_runtime.cli_runtime.subprocess.run") as run:
+            run.return_value = MagicMock(returncode=0, stdout="abc123\n", stderr="")
+
+            result = runtime.run(
+                ContainerRunSpec(
+                    image="busybox:1.36",
+                    name="kartograph-sticky-session-1",
+                    env={"KARTOGRAPH_WORKLOAD_TOKEN": "secret"},
+                    labels={
+                        "kartograph.runtime.kind": "sticky",
+                        "kartograph.session_id": "session-1",
+                    },
+                    binds=("/host/skills:/app/skills:ro",),
+                    network="kartograph_kartograph",
+                    command=("sleep", "3600"),
+                )
+            )
+
+        assert result.container_id == "abc123"
+        command = run.call_args.args[0]
+        assert "--volume" in command
+        assert "/host/skills:/app/skills:ro" in command
+        assert "--network" in command
+        assert "kartograph_kartograph" in command
+
     def test_run_launches_detached_container_with_labels_and_env(self) -> None:
         runtime = CliContainerRuntime(binary="docker")
 

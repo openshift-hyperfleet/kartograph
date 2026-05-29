@@ -340,9 +340,9 @@ class _SessionedExtractionEventHandler:
         from extraction.infrastructure.runtime_context_builder import (
             FilesystemExtractionRuntimeContextBuilder,
         )
-        from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
         from extraction.infrastructure.workload_runtime_factory import (
             create_ephemeral_extraction_worker_launcher,
+            get_workload_credential_issuer,
         )
         from management.domain.value_objects import KnowledgeGraphId
         from management.infrastructure.repositories.knowledge_graph_repository import (
@@ -360,9 +360,7 @@ class _SessionedExtractionEventHandler:
                 extraction_service=self._extraction_service,
                 outbox=outbox,
                 runtime_context_builder=runtime_context_builder,
-                credential_issuer=ScopedWorkloadCredentialIssuer(
-                    default_ttl=timedelta(minutes=15)
-                ),
+                credential_issuer=get_workload_credential_issuer(),
                 worker_launcher=create_ephemeral_extraction_worker_launcher(),
             )
 
